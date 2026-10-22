@@ -5,7 +5,6 @@ use anyhow::{Context as _, Result};
 use schemars::SchemaGenerator;
 use serde_json::{Map, Value};
 use settings::schema::SettingSchemaEntry;
-use settings::{SettingSurfaces, SettingsMode};
 use tempfile::NamedTempFile;
 use warp_core::channel::ChannelState;
 use warp_core::features::FeatureFlag;
@@ -43,13 +42,6 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
 
         let type_schema = (entry.schema_fn)(&mut generator);
         let mut schema_value = type_schema.to_value();
-        schema_value
-            .as_object_mut()
-            .expect("setting schema should be an object")
-            .insert(
-                "x-warp-surfaces".to_string(),
-                Value::Array(setting_surface_names((entry.surfaces_fn)())),
-            );
         let default_json = (entry.file_default_value_fn)();
 
         if let Ok(default_value) = serde_json::from_str::<Value>(&default_json)
@@ -106,14 +98,6 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
     strip_empty_enum_entries(&mut root_value);
 
     serde_json::to_string_pretty(&root_value).context("settings schema should serialize")
-}
-
-fn setting_surface_names(surfaces: SettingSurfaces) -> Vec<Value> {
-    [(SettingsMode::Gui, "gui"), (SettingsMode::Tui, "tui")]
-        .into_iter()
-        .filter(|(mode, _)| surfaces.includes(*mode))
-        .map(|(_, name)| Value::String(name.to_owned()))
-        .collect()
 }
 
 fn ensure_hierarchy<'a>(

@@ -22,11 +22,6 @@ fn bundled_skill(content: &str) -> BundledSkill {
     bundled_skill
 }
 
-#[test]
-fn unavailable_bundled_context_path_renders_as_empty_string() {
-    assert_eq!(display_optional_path(None), "");
-}
-
 fn remote_content<'a>(bundled_skills: &'a BundledSkills, host_id: &HostId) -> Option<&'a str> {
     bundled_skills
         .remote(host_id)?
@@ -35,7 +30,7 @@ fn remote_content<'a>(bundled_skills: &'a BundledSkills, host_id: &HostId) -> Op
 }
 
 /// The Factory files skill is always bundled, so a stale trigger description
-/// or a broken reference silently reaches every GUI, TUI, and Oz agent. Its
+/// or a broken reference silently reaches every agent session. Its
 /// trigger has to stay anchored to a factory.yaml root: `agents/<name>/agent.md`
 /// alone also describes unrelated agent-definition files.
 #[test]

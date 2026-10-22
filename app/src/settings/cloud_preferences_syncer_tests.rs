@@ -40,7 +40,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     all_platforms_always_sync_cloud_setting: AllPlatformsAlwaysSync {
@@ -48,7 +47,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     mac_only_cloud_setting: MacOnly {
@@ -56,7 +54,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::MAC,
         sync_to_cloud: SyncToCloud::PerPlatform(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     linux_only_cloud_setting: LinuxOnly {
@@ -64,7 +61,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::LINUX,
         sync_to_cloud: SyncToCloud::PerPlatform(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     platform_specific_cloud_setting: PlatformSpecific {
@@ -72,7 +68,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::PerPlatform(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     non_value_syncable_setting: NonValueSyncable {
@@ -80,7 +75,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     non_cloud_setting: NonCloud {
@@ -88,7 +82,6 @@ define_settings_group!(TestSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     hashset_cloud_setting: HashSetSetting {
@@ -96,7 +89,6 @@ define_settings_group!(TestSettings, settings: [
         default: HashSet::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
 ]);

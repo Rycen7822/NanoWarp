@@ -8,15 +8,14 @@
 //! per-generator registration list to keep in sync.
 //!
 //! Usage:
-//!   cargo run --example generate_default_settings -- --surface gui|tui [--channel dev|preview|stable] <output_path>
+//!   cargo run --example generate_default_settings -- [--channel dev|preview|stable] <output_path>
 //!
 //! Example:
-//!   cargo run --example generate_default_settings -- --surface gui ./default_settings.toml
+//!   cargo run --example generate_default_settings -- ./default_settings.toml
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use settings::SettingsMode;
 use settings::schema::SettingSchemaEntry;
 use warp_core::features::{DEBUG_FLAGS, DOGFOOD_FLAGS, FeatureFlag, PREVIEW_FLAGS, RELEASE_FLAGS};
 use warpui_extras::user_preferences::UserPreferences as _;
@@ -61,7 +60,6 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     let mut channel = "dev";
-    let mut surface: Option<&str> = None;
     let mut output_path: Option<PathBuf> = None;
     let mut i = 1;
     while i < args.len() {
@@ -70,15 +68,6 @@ fn main() {
                 i += 1;
                 if i < args.len() {
                     channel = &args[i];
-                }
-            }
-            "--surface" => {
-                i += 1;
-                if i < args.len() {
-                    surface = Some(&args[i]);
-                } else {
-                    eprintln!("Missing value for --surface (expected 'gui' or 'tui')");
-                    std::process::exit(1);
                 }
             }
             arg if !arg.starts_with('-') => {
@@ -93,29 +82,11 @@ fn main() {
     }
 
     let Some(output_path) = output_path else {
-        eprintln!(
-            "Usage: generate_default_settings --surface gui|tui [--channel dev|preview|stable] <output_path>"
-        );
+        eprintln!("Usage: generate_default_settings [--channel dev|preview|stable] <output_path>");
         std::process::exit(1);
     };
 
     let active_flags = active_flags_for_channel(channel);
-
-    // Only emit settings that apply to the target surface, so e.g. the TUI
-    // file excludes GUI-only keys. Required (with no default) so a typo or a
-    // missing value never silently generates the wrong surface's file.
-    let surface_mode = match surface {
-        Some("gui") => SettingsMode::Gui,
-        Some("tui") => SettingsMode::Tui,
-        Some(other) => {
-            eprintln!("Unknown surface '{other}' (expected 'gui' or 'tui')");
-            std::process::exit(1);
-        }
-        None => {
-            eprintln!("Missing required --surface (expected 'gui' or 'tui')");
-            std::process::exit(1);
-        }
-    };
 
     // Generate a fresh document at `output_path`. If the file already exists
     // and contains invalid TOML, `TomlBackedUserPreferences::new` falls back
@@ -137,11 +108,6 @@ fn main() {
         if let Some(flag) = entry.feature_flag
             && !active_flags.contains(&flag)
         {
-            continue;
-        }
-
-        // Skip settings that don't apply to the target surface.
-        if !(entry.surfaces_fn)().includes(surface_mode) {
             continue;
         }
 

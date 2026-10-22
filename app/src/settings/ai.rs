@@ -153,7 +153,6 @@ settings::macros::implement_setting_for_enum!(
     // Never sync to cloud to allow users to use different toggle keys on different devices,
     // especially given platform differences.
     SyncToCloud::Never,
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.voice.voice_input_toggle_key",
     description: "The key used to toggle voice input.",
@@ -516,7 +515,6 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "general.default_session_mode",
     description: "The default mode for new terminal sessions.",
@@ -567,7 +565,6 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.warp_agent.other.thinking_display_mode",
     description: "Controls how agent thinking traces are displayed after streaming.",
@@ -632,46 +629,9 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.warp_agent.other.orchestration_message_display_mode",
     description: "Controls how child-agent messages are displayed.",
-);
-
-/// Which unit the usage entry displays in Warp Agent CLI.
-#[derive(
-    Default,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Copy,
-    Clone,
-    EnumIter,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "Which unit the usage entry displays in Warp Agent CLI.",
-    rename_all = "snake_case"
-)]
-pub enum TuiUsageDisplayMode {
-    /// Credits spent — the same number the GUI's usage footer shows (default).
-    #[default]
-    Credits,
-    /// Billed dollar cost.
-    Cost,
-}
-
-settings::macros::implement_setting_for_enum!(
-    TuiUsageDisplayMode,
-    AISettings,
-    SupportedPlatforms::ALL,
-    SyncToCloud::Never,
-    surface: settings::SettingSurfaces::TUI,
-    private: false,
-    toml_path: "agents.usage_display_mode",
-    description: "Which unit the usage entry displays in Warp Agent CLI: credits or dollars.",
 );
 
 /// Unit for GUI usage and spend displays.
@@ -702,7 +662,6 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.warp_agent.other.usage_display_unit",
     description: "Which unit the GUI's usage/spend displays show: credits or dollars.",
@@ -713,159 +672,6 @@ impl UsageDisplayUnit {
         match self {
             UsageDisplayUnit::Credits => "Credits",
             UsageDisplayUnit::Dollars => "Dollars",
-        }
-    }
-}
-
-/// One configurable item in the Warp Agent CLI statusline.
-#[derive(
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Eq,
-    Copy,
-    Clone,
-    Hash,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "A configurable item in the Warp Agent CLI statusline.",
-    rename_all = "snake_case"
-)]
-#[serde(rename_all = "snake_case")]
-pub enum TuiStatuslineItem {
-    AutoApprove,
-    /// Vim mode indicator (NOR/INS/VIS/V-L/REP); hidden when vim mode is disabled.
-    VimModeIndicator,
-    Model,
-    Team,
-    WorkingDirectory,
-    GitBranch,
-    GitBranchStatus,
-    GitDiffStatus,
-    GitHubPullRequest,
-    CreditUsage,
-    ContextWindowUsage,
-    Date,
-    #[schemars(rename = "time_12_hour")]
-    Time12Hour,
-    #[schemars(rename = "time_24_hour")]
-    Time24Hour,
-    AgentTodoList,
-    VoiceInput,
-}
-
-impl TuiStatuslineItem {
-    pub const ALL: [Self; 16] = [
-        Self::AutoApprove,
-        Self::VimModeIndicator,
-        Self::Model,
-        Self::Team,
-        Self::WorkingDirectory,
-        Self::GitBranch,
-        Self::GitBranchStatus,
-        Self::GitDiffStatus,
-        Self::GitHubPullRequest,
-        Self::CreditUsage,
-        Self::ContextWindowUsage,
-        Self::Date,
-        Self::Time12Hour,
-        Self::Time24Hour,
-        Self::AgentTodoList,
-        Self::VoiceInput,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::AutoApprove => "Auto-approve indicator",
-            Self::VimModeIndicator => "Vim mode indicator",
-            Self::Model => "Model",
-            Self::Team => "Team",
-            Self::WorkingDirectory => "Working directory",
-            Self::GitBranch => "Git branch",
-            Self::GitBranchStatus => "Git branch status",
-            Self::GitDiffStatus => "Git diff status",
-            Self::GitHubPullRequest => "GitHub pull request",
-            Self::CreditUsage => "Credit usage",
-            Self::ContextWindowUsage => "Context window usage",
-            Self::Date => "Date",
-            Self::Time12Hour => "Time (12 hour format)",
-            Self::Time24Hour => "Time (24 hour format)",
-            Self::AgentTodoList => "Agent to-do list",
-            Self::VoiceInput => "Voice input",
-        }
-    }
-}
-
-/// Ordered and enabled items in the Warp Agent CLI statusline.
-#[derive(
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-pub struct TuiStatuslineConfig {
-    pub order: Vec<TuiStatuslineItem>,
-    pub enabled: Vec<TuiStatuslineItem>,
-}
-
-impl Default for TuiStatuslineConfig {
-    fn default() -> Self {
-        Self {
-            order: TuiStatuslineItem::ALL.to_vec(),
-            enabled: vec![
-                TuiStatuslineItem::AutoApprove,
-                TuiStatuslineItem::VimModeIndicator,
-                TuiStatuslineItem::Model,
-                TuiStatuslineItem::WorkingDirectory,
-                TuiStatuslineItem::GitBranch,
-                TuiStatuslineItem::GitDiffStatus,
-            ],
-        }
-    }
-}
-
-impl TuiStatuslineConfig {
-    /// Returns a complete, duplicate-free catalog and a valid enabled subset.
-    pub fn normalized(&self) -> Self {
-        let is_legacy_config = !self.order.contains(&TuiStatuslineItem::VimModeIndicator);
-        let mut order = Vec::with_capacity(TuiStatuslineItem::ALL.len());
-        for item in self.order.iter().copied().chain(TuiStatuslineItem::ALL) {
-            if TuiStatuslineItem::ALL.contains(&item) && !order.contains(&item) {
-                order.push(item);
-            }
-        }
-
-        let mut enabled = Vec::with_capacity(self.enabled.len());
-        for item in self.enabled.iter().copied() {
-            if order.contains(&item) && !enabled.contains(&item) {
-                enabled.push(item);
-            }
-        }
-        if is_legacy_config {
-            enabled.insert(0, TuiStatuslineItem::VimModeIndicator);
-        }
-
-        Self { order, enabled }
-    }
-
-    pub fn is_enabled(&self, item: TuiStatuslineItem) -> bool {
-        self.enabled.contains(&item)
-    }
-}
-
-impl TuiUsageDisplayMode {
-    /// The other unit — clicking the usage entry flips to this.
-    pub fn toggled(self) -> Self {
-        match self {
-            TuiUsageDisplayMode::Credits => TuiUsageDisplayMode::Cost,
-            TuiUsageDisplayMode::Cost => TuiUsageDisplayMode::Credits,
         }
     }
 }
@@ -945,7 +751,6 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.warp_agent.other.default_prompt_submission_mode",
     description: "Default behavior when submitting a new prompt while the agent is still responding.",
@@ -1007,7 +812,6 @@ settings::macros::implement_setting_for_enum!(
     AISettings,
     SupportedPlatforms::ALL,
     SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    surface: settings::SettingSurfaces::GUI,
     private: false,
     toml_path: "agents.warp_agent.other.long_running_command_submission_mode",
     description: "What happens when a prompt is submitted while an agent controls an agent-requested long-running command.",
@@ -1215,7 +1019,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.is_any_ai_enabled",
         description: "Controls whether all AI features are enabled.",
@@ -1227,7 +1030,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.enabled",
         description: "Controls whether proactive AI features like suggestions are enabled.",
@@ -1239,7 +1041,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.warp_agent.input.ai_auto_detection_enabled",
         description: "Controls whether AI automatically detects natural language input.",
@@ -1254,7 +1055,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.input.nld_in_terminal_enabled",
         description: "Controls whether natural language detection is enabled in the terminal input.",
@@ -1264,7 +1064,6 @@ define_settings_group!(AISettings, settings: [
         default: String::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
@@ -1276,7 +1075,6 @@ define_settings_group!(AISettings, settings: [
         default: true, // TODO(roland): revisit this when launched to stable
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.intelligent_autosuggestions_enabled",
         description: "Controls whether AI-powered intelligent autosuggestions are enabled.",
@@ -1291,7 +1089,6 @@ define_settings_group!(AISettings, settings: [
         default: true, // TODO(advait): revisit this when launched to stable
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.agent_mode_query_suggestions_enabled",
         description: "Controls whether prompt suggestions are shown in agent mode.",
@@ -1304,7 +1101,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.code_suggestions_enabled",
         description: "Controls whether AI code suggestions are enabled.",
@@ -1317,7 +1113,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.natural_language_autosuggestions_enabled",
         description: "Controls whether ghosted text autosuggestions are shown for AI input queries.",
@@ -1331,7 +1126,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.shared_block_title_generation_enabled",
         description: "Controls whether titles are auto-generated when sharing blocks.",
@@ -1343,7 +1137,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.git_operations_autogen_enabled",
         description: "Controls whether AI auto-generates commit messages and PR title/body in the code review dialogs.",
@@ -1355,7 +1148,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.active_ai.rule_suggestions_enabled",
         description: "Controls whether the agent suggests rules to save after responses.",
@@ -1368,7 +1160,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.voice.voice_input_enabled",
         description: "Controls whether voice input is enabled for AI interactions.",
@@ -1381,7 +1172,6 @@ define_settings_group!(AISettings, settings: [
         default: 0,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     // Whether or not the user has manually dismissed the voice input new feature popup.
@@ -1390,7 +1180,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     // This field is used to store the key used for voice input toggling.
@@ -1404,7 +1193,6 @@ define_settings_group!(AISettings, settings: [
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.voice.voice_input_language",
         description: "Preferred spoken language for voice input transcription.",
@@ -1418,7 +1206,6 @@ define_settings_group!(AISettings, settings: [
         supported_platforms: SupportedPlatforms::DESKTOP,
         // Never sync to cloud to keep state separate across devices, since microphone access is per-device.
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     // Predicates that Agent Mode can use to decide if it can execute
@@ -1431,7 +1218,6 @@ define_settings_group!(AISettings, settings: [
         default: DEFAULT_COMMAND_EXECUTION_ALLOWLIST.clone(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.profiles.agent_mode_command_execution_allowlist",
         description: "Commands that the agent can execute without explicit permission.",
@@ -1446,7 +1232,6 @@ define_settings_group!(AISettings, settings: [
         default: DEFAULT_COMMAND_EXECUTION_DENYLIST.clone(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.profiles.agent_mode_command_execution_denylist",
         description: "Commands that the agent must always ask before executing.",
@@ -1460,7 +1245,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.profiles.agent_mode_execute_readonly_commands",
         description: "Whether the agent can auto-execute read-only commands without asking.",
@@ -1476,7 +1260,6 @@ define_settings_group!(AISettings, settings: [
         default: AgentModeCodingPermissionsType::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.profiles.agent_mode_coding_permissions",
         description: "The file read permission level for the agent.",
@@ -1493,7 +1276,6 @@ define_settings_group!(AISettings, settings: [
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.profiles.agent_mode_coding_file_read_allowlist",
         description: "File paths the agent can read without asking for permission.",
@@ -1506,7 +1288,6 @@ define_settings_group!(AISettings, settings: [
         default: ExecutionProfilesConfig::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.execution_profiles",
         max_table_depth: 2,
@@ -1519,30 +1300,12 @@ define_settings_group!(AISettings, settings: [
         default: CustomEndpointDefinitions::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.custom_endpoints",
         max_table_depth: 2,
         description: "Custom inference endpoint definitions.",
     }
-    // Which unit the TUI footer's usage entry displays (credits or provider
-    // cost), flipped by clicking the entry.
-    //
-    // TUI-only and file-backed so the choice persists across TUI sessions.
-    usage_display_mode: TuiUsageDisplayMode,
     usage_display_unit: UsageDisplayUnit,
-    // Ordered visibility configuration for the TUI's bottom statusline.
-    // TUI-only and local so separate devices can use different terminal layouts.
-    tui_statusline: TuiStatusline {
-        type: TuiStatuslineConfig,
-        default: TuiStatuslineConfig::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::TUI,
-        private: false,
-        toml_path: "agents.statusline",
-        description: "Controls the order and visibility of Warp Agent CLI statusline items.",
-    },
     // Whether or not the profile-level command autoexecution speedbump has been shown.
     //
     // Not a user-visible setting - we model it as a setting so we can track how often
@@ -1552,7 +1315,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-executing readonly cmds.
@@ -1564,7 +1326,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-writing to the PTY.
@@ -1576,7 +1337,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-reading files.
@@ -1588,7 +1348,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether or not we should show the one-shot speedbump on Ask-User-Question cards.
@@ -1602,7 +1361,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether to use locally loaded AWS credentials for Bedrock-enabled requests.
@@ -1611,7 +1369,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_credentials_enabled",
         description: "Whether Warp should use your local AWS credentials for Bedrock-enabled requests.",
@@ -1625,7 +1382,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_auto_login",
         description: "Whether to automatically run the AWS login command when Bedrock credentials expire.",
@@ -1636,7 +1392,6 @@ define_settings_group!(AISettings, settings: [
         default: "aws login".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_auth_refresh_command",
         description: "The command to run to refresh AWS credentials for Bedrock.",
@@ -1647,7 +1402,6 @@ define_settings_group!(AISettings, settings: [
         default: "default".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_profile",
         description: "The AWS profile name to use for Bedrock credentials.",
@@ -1660,7 +1414,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
     // Whether to mint and attach Gemini Enterprise (GEAP) credentials to eligible agent
@@ -1673,7 +1426,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.gemini_enterprise_credentials_enabled",
         description: "Whether Warp should route eligible requests through your workspace's Gemini Enterprise Google Cloud project.",
@@ -1684,7 +1436,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.knowledge.rules_enabled",
         description: "Whether the agent uses your saved rules during requests.",
@@ -1695,7 +1446,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.knowledge.warp_drive_context_enabled",
         description: "Whether Warp Drive context is included in AI requests.",
@@ -1709,7 +1459,6 @@ define_settings_group!(AISettings, settings: [
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1722,7 +1471,6 @@ define_settings_group!(AISettings, settings: [
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1734,7 +1482,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1744,7 +1491,6 @@ define_settings_group!(AISettings, settings: [
         default: AIRequestQuotaInfo::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
 
@@ -1757,7 +1503,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1766,7 +1511,6 @@ define_settings_group!(AISettings, settings: [
         default: None,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
 
@@ -1780,7 +1524,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1794,7 +1537,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1808,7 +1550,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1822,7 +1563,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1836,7 +1576,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1851,7 +1590,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1862,7 +1600,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -1873,7 +1610,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.should_show_oz_updates_in_zero_state",
         description: "Whether the \"What's new\" section is shown in the agent view.",
@@ -1885,7 +1621,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         storage_key: "CanUseWarpCreditsWithByok",
         toml_path: "cloud_platform.third_party_api_keys.can_use_warp_credits_with_byok",
@@ -1897,7 +1632,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.should_render_use_agent_toolbar_for_user_commands",
         description: "Whether to show the \"Use Agent\" footer for terminal commands.",
@@ -1910,7 +1644,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.should_render_cli_agent_toolbar",
         description: "Whether to show the CLI agent footer for coding agent commands.",
@@ -1923,7 +1656,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.auto_toggle_composer",
         description: "Whether CLI agent Rich Input automatically closes and reopens based on the agent's blocked state.",
@@ -1936,7 +1668,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.auto_open_composer_on_cli_agent_start",
         description: "Whether CLI agent Rich Input automatically opens when a CLI agent session starts.",
@@ -1951,7 +1682,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.auto_dismiss_composer_after_submit",
         description: "Whether CLI agent Rich Input automatically closes after the user submits a prompt.",
@@ -1964,7 +1694,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.submit_on_ctrl_enter",
         description: "When enabled, the Rich Input editor submits on Ctrl+Enter instead of Enter. Enter inserts a newline.",
@@ -1979,7 +1708,6 @@ define_settings_group!(AISettings, settings: [
         default: ToolbarCommandMap::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.third_party.cli_agent_toolbar_enabled_commands",
         max_table_depth: 1,
@@ -1997,7 +1725,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -2009,7 +1736,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -2025,7 +1751,6 @@ define_settings_group!(AISettings, settings: [
         default: String::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "general.default_tab_config_path",
     }
@@ -2037,7 +1762,6 @@ define_settings_group!(AISettings, settings: [
         default: warp_core::channel::ChannelState::channel().is_dogfood(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.cloud_agent_computer_use_enabled",
         description: "Whether computer use is enabled for cloud agent conversations.",
@@ -2052,7 +1776,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.mcp_servers.file_based_mcp_enabled",
         description: "Whether third-party file-based MCP servers are automatically detected.",
@@ -2082,7 +1805,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.input.include_agent_commands_in_history",
         description: "Whether agent-executed commands are included in command history.",
@@ -2094,7 +1816,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::ALL,
         private: false,
         toml_path: "agents.warp_agent.other.auto_approve_bypasses_command_denylist",
         description: "Whether auto-approve bypasses the command denylist.",
@@ -2106,7 +1827,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.show_conversation_history",
         description: "Whether conversation history appears in the tools panel.",
@@ -2119,7 +1839,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.show_agent_notifications",
         description: "Whether agent notifications are shown.",
@@ -2133,7 +1852,6 @@ define_settings_group!(AISettings, settings: [
         default: HashMap::default(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -2146,7 +1864,6 @@ define_settings_group!(AISettings, settings: [
         default: HashMap::default(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -2159,7 +1876,6 @@ define_settings_group!(AISettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.agent_attribution_enabled",
         description: "Whether the Warp Agent adds an attribution co-author line to commit messages and pull requests it creates.",
@@ -2170,7 +1886,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.should_force_disable_cloud_handoff",
         description: "Whether to force-disable local-to-cloud handoff.",
@@ -2181,7 +1896,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.should_force_disable_ampersand_handoff",
         description: "Whether to force-disable the & prefix for cloud handoff compose mode.",
@@ -2192,7 +1906,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::MAC,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: false,
         toml_path: "agents.warp_agent.other.auto_handoff_on_sleep_enabled",
         description: "Whether Warp automatically hands off local agent conversations to cloud when the computer is about to sleep.",
@@ -2208,7 +1921,6 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 
@@ -2223,7 +1935,6 @@ define_settings_group!(AISettings, settings: [
         default: HashMap::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 ]);

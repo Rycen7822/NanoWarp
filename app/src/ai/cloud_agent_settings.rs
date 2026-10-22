@@ -89,7 +89,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: None,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     harness_auth_ftux_completed: HarnessAuthFtuxCompleted {
@@ -97,7 +96,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: HashMap::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     last_selected_harness: LastSelectedHarness {
@@ -105,7 +103,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: None,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     last_selected_host: LastSelectedHost {
@@ -113,7 +110,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: None,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     last_selected_harness_model: LastSelectedHarnessModel {
@@ -121,7 +117,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: HashMap::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     // Legacy migration fallback. New code must use `auth_secret_preference` and
@@ -131,7 +126,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: HashMap::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     // Legacy migration fallback for explicit Inherit choices. New code must use
@@ -141,7 +135,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: HashMap::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     scoped_auth_secret_preferences: ScopedAuthSecretPreferences {
@@ -149,7 +142,6 @@ define_settings_group!(CloudAgentSettings, settings: [
         default: Vec::new(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 ]);

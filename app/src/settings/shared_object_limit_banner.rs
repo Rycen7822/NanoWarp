@@ -16,7 +16,6 @@ define_settings_group!(SharedObjectLimitBannerSettings, settings: [
         default: BannerState::NotDismissed,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     workflow_limit_banner_state: WorkflowLimitBannerState {
@@ -24,7 +23,6 @@ define_settings_group!(SharedObjectLimitBannerSettings, settings: [
         default: BannerState::NotDismissed,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
 ]);

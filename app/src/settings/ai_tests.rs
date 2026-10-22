@@ -1,6 +1,6 @@
 use chrono::Utc;
+use settings::Setting;
 use settings::schema::SettingSchemaEntry;
-use settings::{Setting, SettingSurfaces, SettingsMode};
 use warp_graphql::scalars::time::ServerTimestamp;
 use warpui::{App, SingletonEntity};
 
@@ -36,7 +36,7 @@ fn create_test_request_limit_info(
 }
 
 #[test]
-fn auto_approve_denylist_bypass_defaults_on_and_is_available_in_gui_and_tui_settings() {
+fn auto_approve_denylist_bypass_defaults_on_and_has_a_settings_schema_entry() {
     let setting = AutoApproveBypassesCommandDenylist::new(None);
     assert!(*setting.value());
     assert_eq!(
@@ -44,16 +44,13 @@ fn auto_approve_denylist_bypass_defaults_on_and_is_available_in_gui_and_tui_sett
         Some("agents.warp_agent.other.auto_approve_bypasses_command_denylist")
     );
 
-    let entry = inventory::iter::<SettingSchemaEntry>
+    inventory::iter::<SettingSchemaEntry>
         .into_iter()
         .find(|entry| {
             entry.hierarchy == Some("agents.warp_agent.other")
                 && entry.storage_key == "auto_approve_bypasses_command_denylist"
         })
         .expect("expected auto-approve denylist bypass schema entry");
-    let surfaces: SettingSurfaces = (entry.surfaces_fn)();
-    assert!(surfaces.includes(SettingsMode::Gui));
-    assert!(surfaces.includes(SettingsMode::Tui));
 }
 
 fn add_ai_enablement_dependencies_for_test(app: &mut App) {
@@ -69,86 +66,6 @@ fn focused_terminal_for_test(app: &mut App) -> WeakViewHandle<TerminalView> {
     crate::test_util::add_window_with_terminal(app, None).downgrade()
 }
 
-#[test]
-fn tui_statusline_default_matches_figma() {
-    let config = TuiStatuslineConfig::default();
-    assert_eq!(config.order, TuiStatuslineItem::ALL);
-    assert_eq!(
-        config.enabled,
-        vec![
-            TuiStatuslineItem::AutoApprove,
-            TuiStatuslineItem::VimModeIndicator,
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::WorkingDirectory,
-            TuiStatuslineItem::GitBranch,
-            TuiStatuslineItem::GitDiffStatus,
-        ]
-    );
-}
-
-#[test]
-fn tui_statusline_normalization_preserves_custom_order_and_appends_missing_items() {
-    let config = TuiStatuslineConfig {
-        order: vec![
-            TuiStatuslineItem::GitBranch,
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::GitBranch,
-        ],
-        enabled: vec![
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::ContextWindowUsage,
-        ],
-    }
-    .normalized();
-
-    assert_eq!(
-        config.order,
-        vec![
-            TuiStatuslineItem::GitBranch,
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::AutoApprove,
-            TuiStatuslineItem::VimModeIndicator,
-            TuiStatuslineItem::Team,
-            TuiStatuslineItem::WorkingDirectory,
-            TuiStatuslineItem::GitBranchStatus,
-            TuiStatuslineItem::GitDiffStatus,
-            TuiStatuslineItem::GitHubPullRequest,
-            TuiStatuslineItem::CreditUsage,
-            TuiStatuslineItem::ContextWindowUsage,
-            TuiStatuslineItem::Date,
-            TuiStatuslineItem::Time12Hour,
-            TuiStatuslineItem::Time24Hour,
-            TuiStatuslineItem::AgentTodoList,
-            TuiStatuslineItem::VoiceInput,
-        ]
-    );
-    assert_eq!(
-        config.enabled,
-        vec![
-            TuiStatuslineItem::VimModeIndicator,
-            TuiStatuslineItem::Model,
-            TuiStatuslineItem::ContextWindowUsage,
-        ]
-    );
-}
-
-#[test]
-fn tui_statusline_normalization_preserves_explicitly_disabled_vim_indicator() {
-    let mut config = TuiStatuslineConfig::default();
-    config
-        .enabled
-        .retain(|item| *item != TuiStatuslineItem::VimModeIndicator);
-
-    let normalized = config.normalized();
-
-    assert!(
-        normalized
-            .order
-            .contains(&TuiStatuslineItem::VimModeIndicator)
-    );
-    assert!(!normalized.is_enabled(TuiStatuslineItem::VimModeIndicator));
-}
 // FocusedTerminalInfo Tests
 
 #[test]

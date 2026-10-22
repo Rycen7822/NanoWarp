@@ -25,7 +25,6 @@ define_settings_group!(DebugSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     are_in_band_generators_for_all_sessions_enabled: AreInBandGeneratorsForAllSessionsEnabled {
@@ -33,7 +32,6 @@ define_settings_group!(DebugSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     force_disable_in_band_generators: ForceDisableInBandGenerators {
@@ -41,7 +39,6 @@ define_settings_group!(DebugSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
         storage_key: "DisableInBandCommands",
     },
@@ -50,7 +47,6 @@ define_settings_group!(DebugSettings, settings: [
         default: cfg!(feature = "recording_mode"),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
     show_memory_stats: ShowMemoryStats {
@@ -58,7 +54,6 @@ define_settings_group!(DebugSettings, settings: [
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     }
 ]);

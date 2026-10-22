@@ -41,7 +41,6 @@ define_settings_group!(SameLinePromptBlockSettings, settings: [
         default: SLPBlockState::NotShown,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
         private: true,
     },
 ]);
