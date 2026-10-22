@@ -22,12 +22,7 @@ use crate::ai::pricing_promotion::{
 use crate::appearance::Appearance;
 use crate::search::slash_command_menu::static_commands::commands;
 use crate::terminal::input::SET_INPUT_MODE_TERMINAL_ACTION_NAME;
-use crate::terminal::input::inline_history::{AcceptHistoryItem, HistoryTab};
-use crate::terminal::input::inline_menu::{InlineMenuModel, InlineMenuModelEvent};
 use crate::terminal::input::message_bar::MessageTransformer;
-use crate::terminal::input::suggestions_mode_model::{
-    InputSuggestionsModeEvent, InputSuggestionsModeModel,
-};
 use crate::terminal::model::TerminalModel;
 use crate::terminal::view::init::SELECT_PREVIOUS_BLOCK_ACTION_NAME;
 use crate::util::bindings::keybinding_name_to_keystroke;
@@ -39,8 +34,6 @@ pub struct TerminalInputMessageBar {
     ai_input_model: ModelHandle<BlocklistAIInputModel>,
     input_buffer_model: ModelHandle<InputBufferModel>,
     context_model: ModelHandle<BlocklistAIContextModel>,
-    suggestions_mode_model: ModelHandle<InputSuggestionsModeModel>,
-    inline_history_model: ModelHandle<InlineMenuModel<AcceptHistoryItem, HistoryTab>>,
     promotion_close_mouse_state: MouseStateHandle,
 }
 
@@ -58,8 +51,6 @@ impl TerminalInputMessageBar {
         ai_input_model: ModelHandle<BlocklistAIInputModel>,
         input_buffer_model: ModelHandle<InputBufferModel>,
         context_model: ModelHandle<BlocklistAIContextModel>,
-        suggestions_mode_model: ModelHandle<InputSuggestionsModeModel>,
-        inline_history_model: ModelHandle<InlineMenuModel<AcceptHistoryItem, HistoryTab>>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         ctx.subscribe_to_model(&ai_input_model, |_, _, _, ctx| {
@@ -73,15 +64,6 @@ impl TerminalInputMessageBar {
                 ctx.notify();
             }
         });
-        ctx.subscribe_to_model(&suggestions_mode_model, |_, _, event, ctx| {
-            let InputSuggestionsModeEvent::ModeChanged { .. } = event;
-            ctx.notify();
-        });
-        ctx.subscribe_to_model(&inline_history_model, |_, _, event, ctx| {
-            if let InlineMenuModelEvent::UpdatedSelectedItem = event {
-                ctx.notify();
-            }
-        });
         ctx.subscribe_to_model(&PricingPromotionState::handle(ctx), |_, _, event, ctx| {
             if matches!(event, PricingPromotionStateEvent::Updated) {
                 ctx.notify();
@@ -92,8 +74,6 @@ impl TerminalInputMessageBar {
             ai_input_model,
             input_buffer_model,
             context_model,
-            suggestions_mode_model,
-            inline_history_model,
             promotion_close_mouse_state: MouseStateHandle::default(),
         }
     }
@@ -105,21 +85,6 @@ impl View for TerminalInputMessageBar {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        if self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_inline_history_menu()
-        {
-            let selected = self.inline_history_model.as_ref(app).selected_item();
-            let message = InlineHistoryMessageProducer
-                .produce_message(selected)
-                .unwrap_or_default();
-            return Container::new(render_terminal_message(message, app))
-                .with_padding_bottom(8.)
-                .with_padding_right(8.)
-                .finish();
-        }
-
         let terminal_model = self.terminal_model.lock();
         let current_buffer = self.input_buffer_model.as_ref(app).current_value();
         let context_model = self.context_model.as_ref(app);
@@ -398,31 +363,6 @@ impl TypedActionView for TerminalInputMessageBar {
                 });
             }
         }
-    }
-}
-
-struct InlineHistoryMessageProducer;
-impl MessageProvider<Option<&AcceptHistoryItem>> for InlineHistoryMessageProducer {
-    fn produce_message(&self, selected: Option<&AcceptHistoryItem>) -> Option<Message> {
-        let enter = MessageItem::keystroke(Keystroke {
-            key: "enter".to_owned(),
-            ..Default::default()
-        });
-        let items = match selected {
-            Some(AcceptHistoryItem::Command { .. }) => {
-                vec![enter, MessageItem::text(" to execute")]
-            }
-            Some(AcceptHistoryItem::AIPrompt { .. }) => {
-                vec![enter, MessageItem::text(" to send")]
-            }
-            Some(AcceptHistoryItem::Conversation { title, .. }) => {
-                vec![enter, MessageItem::text(format!(" to open '{title}'"))]
-            }
-            None => {
-                vec![MessageItem::text("")]
-            }
-        };
-        Some(Message::new(items))
     }
 }
 

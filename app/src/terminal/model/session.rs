@@ -1732,7 +1732,13 @@ pub mod testing {
                 session_id: SessionId::from(0),
                 shell: Shell::new(shell_type, None, None, Default::default(), None),
                 launch_data: None,
-                histfile: None,
+                // Tests provide their own history; never load the user's shell history by default.
+                histfile: Some(
+                    std::env::temp_dir()
+                        .join("nanowarp-empty-shell-history")
+                        .display()
+                        .to_string(),
+                ),
                 user: "local:user".to_owned(),
                 hostname: "local:host".to_owned(),
                 session_type: BootstrapSessionType::Local,

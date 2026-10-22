@@ -574,7 +574,7 @@ impl<A: InlineMenuAction, T: 'static + Send + Sync> InlineMenuView<A, T> {
         if self
             .positioner
             .as_ref(ctx)
-            .should_render_results_in_reverse(ctx)
+            .should_render_inline_menu_below_input()
         {
             self.select_next(ctx)
         } else {
@@ -586,7 +586,7 @@ impl<A: InlineMenuAction, T: 'static + Send + Sync> InlineMenuView<A, T> {
         if self
             .positioner
             .as_ref(ctx)
-            .should_render_results_in_reverse(ctx)
+            .should_render_inline_menu_below_input()
         {
             self.select_prev(ctx)
         } else {
@@ -673,7 +673,7 @@ impl<A: InlineMenuAction, T: 'static + Send + Sync> InlineMenuView<A, T> {
             if self
                 .positioner
                 .as_ref(app)
-                .should_render_results_in_reverse(app)
+                .should_render_inline_menu_below_input()
             {
                 reverse_index(selected_idx, result_count)
             } else {
@@ -947,7 +947,7 @@ impl<A: InlineMenuAction, T: 'static + Send + Sync> InlineMenuView<A, T> {
         let should_reverse = self
             .positioner
             .as_ref(app)
-            .should_render_results_in_reverse(app);
+            .should_render_inline_menu_below_input();
         let horizontal_padding = if self.compact_layout {
             0.
         } else {

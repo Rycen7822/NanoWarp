@@ -2,12 +2,10 @@ mod agent;
 pub mod buffer_model;
 mod classic;
 mod cli_agent;
-mod cloud_mode_v2_history_menu;
 mod common;
 pub mod conversations;
 pub mod decorations;
 pub(crate) mod handoff_compose;
-pub mod inline_history;
 pub mod inline_menu;
 pub mod message_bar;
 pub mod models;
@@ -145,10 +143,7 @@ use super::view::{
     ExecuteCommandEvent, PADDING_LEFT as TERMINAL_VIEW_PADDING_LEFT, SyncInputType, TerminalAction,
 };
 use super::warpify::SubshellSource;
-use super::{
-    History, HistoryEntry, SizeInfo, TerminalModel, UpArrowHistoryConfig, prompt,
-    should_right_click_paste,
-};
+use super::{History, HistoryEntry, SizeInfo, TerminalModel, prompt, should_right_click_paste};
 #[allow(unused_imports)]
 use crate::ASSETS;
 use crate::ai::AIRequestUsageModel;
@@ -240,8 +235,7 @@ use crate::editor::{
 use crate::env_vars::EnvVarCollectionExt;
 use crate::features::FeatureFlag;
 use crate::input_suggestions::{
-    Event as InputSuggestionsEvent, HistoryInputSuggestion, InputSuggestions,
-    TabCompletionsPreselectOption,
+    Event as InputSuggestionsEvent, InputSuggestions, TabCompletionsPreselectOption,
 };
 use crate::network::NetworkStatus;
 use crate::pane_group::PaneGroupAction;
@@ -290,11 +284,9 @@ use crate::terminal::cli_agent_sessions::{
     CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
 use crate::terminal::input::buffer_model::InputBufferModel;
-use crate::terminal::input::cloud_mode_v2_history_menu::CloudModeV2HistoryMenuView;
 use crate::terminal::input::conversations::{
     InlineConversationMenuEvent, InlineConversationMenuView,
 };
-use crate::terminal::input::inline_history::InlineHistoryMenuView;
 use crate::terminal::input::inline_menu::InlineMenuPositioner;
 use crate::terminal::input::models::{
     InlineModelSelectorEvent, InlineModelSelectorTab, InlineModelSelectorView,
@@ -594,7 +586,6 @@ pub enum TelemetryInputSuggestionsMode {
     ProfileSelector,
     PromptsMenu,
     SkillMenu,
-    InlineHistoryMenu,
     IndexedReposMenu,
     PlanMenu,
 }
@@ -744,11 +735,6 @@ pub enum InputSuggestionsMode {
         conversation_id: AIConversationId,
     },
 
-    /// Inline history menu mode for selecting commands and conversations from history.
-    InlineHistoryMenu {
-        original_input_config: Option<InputConfig>,
-    },
-
     /// Indexed repos switcher menu mode.
     IndexedReposMenu,
 
@@ -792,7 +778,6 @@ impl InputSuggestionsMode {
                 | Self::ModelSelector
                 | Self::PromptsMenu
                 | Self::UserQueryMenu { .. }
-                | Self::InlineHistoryMenu { .. }
                 | Self::PlanMenu { .. }
         ) || (FeatureFlag::InlineProfileSelector.is_enabled()
             && matches!(self, Self::ProfileSelector))
@@ -805,15 +790,6 @@ impl InputSuggestionsMode {
         // For now this just delegates to whether the current mode is an inline menu,
         // but in the future we might build this out/add more detail here.
         self.is_inline_menu()
-    }
-
-    fn input_config_to_restore(&self) -> Option<InputConfig> {
-        match self {
-            Self::InlineHistoryMenu {
-                original_input_config,
-            } => *original_input_config,
-            _ => None,
-        }
     }
 
     /// Returns the placeholder text for this mode, if it has a custom one.
@@ -873,9 +849,6 @@ impl InputSuggestionsMode {
             InputSuggestionsMode::SkillMenu => TelemetryInputSuggestionsMode::SkillMenu,
             InputSuggestionsMode::UserQueryMenu { .. } => {
                 TelemetryInputSuggestionsMode::ConversationMenu
-            }
-            InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                TelemetryInputSuggestionsMode::InlineHistoryMenu
             }
             InputSuggestionsMode::IndexedReposMenu => {
                 TelemetryInputSuggestionsMode::IndexedReposMenu
@@ -1184,10 +1157,6 @@ pub enum InputAction {
     CtrlR,
     CtrlD,
     Up,
-    /// Deferred so Up does not update InlineHistoryMenuView while it is already checked out.
-    SelectPreviousInlineHistoryItem,
-    /// Deferred so Down does not update InlineHistoryMenuView while it is already checked out.
-    SelectNextInlineHistoryItem,
     PageUp,
     PageDown,
     ClearScreen,
@@ -1244,9 +1213,6 @@ pub enum InputAction {
 
     /// Toggles the '/' slash commands menu in the agent view.
     ToggleSlashCommandsMenu,
-
-    /// Opens the inline history menu for cycling through past commands and conversations.
-    OpenInlineHistoryMenu,
 
     DismissCloudModeV2SlashCommandsMenu,
 
@@ -1862,11 +1828,6 @@ pub struct Input {
 
     /// Inline menu for selecting a rewind point in a conversation.
     rewind_menu_view: ViewHandle<RewindMenuView>,
-
-    /// Inline history menu for up-arrow with conversations and commands.
-    inline_history_menu_view: ViewHandle<InlineHistoryMenuView>,
-
-    pub(super) cloud_mode_v2_history_menu_view: Option<ViewHandle<CloudModeV2HistoryMenuView>>,
 
     inline_terminal_menu_positioner: ModelHandle<InlineMenuPositioner>,
 
@@ -3381,69 +3342,12 @@ impl Input {
             )
         });
 
-        let inline_history_menu_view = ctx.add_view({
-            let active_session = active_session.clone();
-            let buffer_model = buffer_model.clone();
-            |ctx| {
-                inline_history::InlineHistoryMenuView::new(
-                    terminal_view_id,
-                    active_session,
-                    &suggestions_mode_model,
-                    agent_view_controller.clone(),
-                    &inline_terminal_menu_positioner,
-                    buffer_model,
-                    ctx,
-                )
-            }
-        });
-        if FeatureFlag::InlineHistoryMenu.is_enabled() {
-            ctx.subscribe_to_view(&inline_history_menu_view, |me, _, event, ctx| {
-                if me.is_cloud_mode_input_v2_composing(ctx) {
-                    return;
-                }
-                me.handle_inline_history_menu_event(event, ctx);
-            });
-        }
-        let inline_history_model = inline_history_menu_view.as_ref(ctx).model().clone();
-
-        let cloud_mode_v2_history_menu_view = if FeatureFlag::CloudModeInputV2.is_enabled() {
-            let view = ctx.add_view({
-                let active_session = active_session.clone();
-                let buffer_model = buffer_model.clone();
-                let agent_view_controller = agent_view_controller.clone();
-                |ctx| {
-                    CloudModeV2HistoryMenuView::new(
-                        terminal_view_id,
-                        active_session,
-                        &suggestions_mode_model,
-                        agent_view_controller,
-                        &inline_terminal_menu_positioner,
-                        buffer_model,
-                        ctx,
-                    )
-                }
-            });
-            if FeatureFlag::InlineHistoryMenu.is_enabled() {
-                ctx.subscribe_to_view(&view, |me, _, event, ctx| {
-                    if !me.is_cloud_mode_input_v2_composing(ctx) {
-                        return;
-                    }
-                    me.handle_inline_history_menu_event(event, ctx);
-                });
-            }
-            Some(view)
-        } else {
-            None
-        };
-
         let terminal_input_message_bar = ctx.add_typed_action_view(|ctx| {
             TerminalInputMessageBar::new(
                 model.clone(),
                 ai_input_model.clone(),
                 buffer_model.clone(),
                 ai_context_model.clone(),
-                suggestions_mode_model.clone(),
-                inline_history_model,
                 ctx,
             )
         });
@@ -3592,25 +3496,10 @@ impl Input {
         });
 
         ctx.subscribe_to_model(&suggestions_mode_model, |me, _, event, ctx| {
-            let InputSuggestionsModeEvent::ModeChanged {
-                buffer_to_restore,
-                input_config_to_restore,
-            } = event;
+            let InputSuggestionsModeEvent::ModeChanged { buffer_to_restore } = event;
             if let Some(buffer_state) = buffer_to_restore {
                 me.restore_buffer_state(buffer_state, ctx);
             }
-            if let Some(input_config) = input_config_to_restore {
-                let is_buffer_empty = me.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-                me.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                    ai_input_model.set_input_config(
-                        *input_config,
-                        is_buffer_empty,
-                        Some(InputTypeAutoDetectionSource::RestoreSavedConfig),
-                        ctx,
-                    );
-                });
-            }
-
             me.set_zero_state_hint_text(ctx);
             ctx.notify();
         });
@@ -3624,12 +3513,9 @@ impl Input {
             if config.is_locked && me.suggestions_mode_model.as_ref(ctx).is_visible() {
                 // Preserve certain menus when input type changes - they handle their own
                 // input type transitions during navigation.
-                let should_preserve_menu = me
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-                    || (me.suggestions_mode_model.as_ref(ctx).is_slash_commands()
-                        && config.input_type.is_ai());
+                let should_preserve_menu =
+                    me.suggestions_mode_model.as_ref(ctx).is_slash_commands()
+                        && config.input_type.is_ai();
 
                 if !should_preserve_menu {
                     // If switching to any locked mode (not autodetect), close suggestions
@@ -4204,8 +4090,6 @@ impl Input {
             skill_selector_should_invoke: false,
             user_query_menu_view,
             rewind_menu_view,
-            inline_history_menu_view,
-            cloud_mode_v2_history_menu_view,
             inline_terminal_menu_positioner,
             cached_agent_mode_hint_text: None,
             is_editor_empty_on_last_edit: is_editor_empty,
@@ -5910,154 +5794,6 @@ impl Input {
         }
     }
 
-    fn handle_inline_history_menu_event(
-        &mut self,
-        event: &inline_history::InlineHistoryMenuEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            inline_history::InlineHistoryMenuEvent::NavigateToConversation { conversation_id } => {
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-                {
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.set_mode(InputSuggestionsMode::Closed, ctx);
-                    });
-                    ctx.notify();
-                }
-                self.clear_buffer_and_reset_undo_stack(ctx);
-                self.agent_view_controller.update(ctx, |controller, ctx| {
-                    let _ = controller.try_enter_agent_view(
-                        Some(*conversation_id),
-                        AgentViewEntryOrigin::InlineHistoryMenu,
-                        ctx,
-                    );
-                });
-            }
-            inline_history::InlineHistoryMenuEvent::AcceptCommand { command, .. } => {
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-                {
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.set_mode(InputSuggestionsMode::Closed, ctx);
-                    });
-                    ctx.notify();
-                }
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_buffer_text(command, ctx);
-                });
-                self.input_enter(ctx);
-            }
-            inline_history::InlineHistoryMenuEvent::AcceptAIPrompt { query_text } => {
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-                {
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.set_mode(InputSuggestionsMode::Closed, ctx);
-                    });
-                    ctx.notify();
-                }
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_buffer_text(query_text, ctx);
-                });
-                self.input_enter(ctx);
-            }
-            inline_history::InlineHistoryMenuEvent::SelectCommand {
-                command,
-                linked_workflow_data,
-            } => {
-                if let Some((workflow_type, workflow_source)) = linked_workflow_data
-                    .as_ref()
-                    .and_then(|linked_workflow_data| linked_workflow_data.linked_workflow(ctx))
-                {
-                    // TODO(ben): We should include the chosen env vars in the history
-                    // entry.
-                    let env_vars = workflow_type.as_workflow().default_env_vars();
-                    self.insert_workflow_into_input(
-                        workflow_type,
-                        workflow_source,
-                        WorkflowSelectionSource::UpArrowHistory,
-                        None,
-                        Some(command),
-                        env_vars,
-                        /*should_show_more_info_view=*/ false,
-                        ctx,
-                    );
-                } else {
-                    self.editor.update(ctx, |editor, ctx| {
-                        editor.set_buffer_text_ignoring_undo(command, ctx);
-                    });
-                }
-
-                // In fullscreen agent view, lock to Shell mode so the '!' indicator is
-                // rendered while cycling through shell command history.
-                let is_agent_view_fullscreen =
-                    self.agent_view_controller.as_ref(ctx).is_fullscreen();
-                self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                    if is_agent_view_fullscreen {
-                        ai_input_model.set_input_config(
-                            InputConfig {
-                                input_type: InputType::Shell,
-                                is_locked: true,
-                            },
-                            false,
-                            Some(InputTypeAutoDetectionSource::FullscreenInlineHistoryCycling),
-                            ctx,
-                        );
-                    } else {
-                        ai_input_model.set_input_type(
-                            InputType::Shell,
-                            Some(InputTypeAutoDetectionSource::HistorySelection),
-                            ctx,
-                        );
-                    }
-                });
-            }
-            inline_history::InlineHistoryMenuEvent::SelectAIPrompt { query_text } => {
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_buffer_text_ignoring_undo(query_text, ctx);
-                });
-
-                self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                    ai_input_model.set_input_type(
-                        InputType::AI,
-                        Some(InputTypeAutoDetectionSource::HistorySelection),
-                        ctx,
-                    );
-                });
-            }
-            inline_history::InlineHistoryMenuEvent::SelectConversation => {
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_buffer_text_ignoring_undo("", ctx);
-                });
-            }
-            inline_history::InlineHistoryMenuEvent::Close => {
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-                {
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.close_and_restore_buffer(ctx);
-                    });
-                    ctx.notify();
-                }
-            }
-            inline_history::InlineHistoryMenuEvent::NoResults => {
-                // Both the regular inline view and the cloud-mode V2 wrapper
-                // render their own "No results" placeholder UI when the
-                // mixer query produces zero rows. This handler is therefore
-                // a no-op; the user dismisses via Escape.
-            }
-        }
-    }
-
     fn restore_buffer_state(&mut self, buffer_state: &BufferState, ctx: &mut ViewContext<Self>) {
         self.editor.update(ctx, |editor, ctx| {
             editor.set_buffer_text_ignoring_undo(&buffer_state.buffer, ctx);
@@ -6201,33 +5937,6 @@ impl Input {
                 self.clear_buffer_and_reset_undo_stack(ctx);
             }
         }
-    }
-
-    fn open_inline_history_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        if !FeatureFlag::InlineHistoryMenu.is_enabled() {
-            return;
-        }
-
-        // Don't open inline history menu if a chip menu or model selector is already open
-        let agent_footer = self.agent_input_footer.as_ref(ctx);
-        if self.prompt_render_helper.has_open_chip_menu(ctx)
-            || agent_footer.has_open_chip_menu(ctx)
-            || agent_footer.is_model_selector_open(ctx)
-        {
-            return;
-        }
-
-        let original_input_config = self.ai_input_model.as_ref(ctx).input_config();
-        self.suggestions_mode_model.update(ctx, |m, ctx| {
-            m.set_mode(
-                InputSuggestionsMode::InlineHistoryMenu {
-                    original_input_config: Some(original_input_config),
-                },
-                ctx,
-            );
-        });
-
-        ctx.notify();
     }
 
     /// Executes a skill command.
@@ -8716,7 +8425,7 @@ impl Input {
         // Only highlight an argument and show enum suggestions if history suggestions are not active
         if !matches!(
             self.suggestions_mode_model.as_ref(ctx).mode(),
-            InputSuggestionsMode::HistoryUp { .. } | InputSuggestionsMode::InlineHistoryMenu { .. },
+            InputSuggestionsMode::HistoryUp { .. },
         ) {
             self.highlight_selected_workflow_argument(
                 self.get_text_style_ranges_for_workflow(ctx),
@@ -9078,39 +8787,13 @@ impl Input {
                 let mode = self.suggestions_mode_model.as_ref(ctx).mode().clone();
                 match &mode {
                     InputSuggestionsMode::HistoryUp { .. } => {
-                        if let Some((workflow_type, workflow_source)) = selected_item
-                            .linked_workflow_data()
-                            .and_then(|linked_workflow_data| {
-                                linked_workflow_data.linked_workflow(ctx)
-                            })
-                        {
-                            // TODO(ben): We should include the chosen env vars in the history
-                            // entry.
-                            let env_vars = workflow_type.as_workflow().default_env_vars();
-                            self.insert_workflow_into_input(
-                                workflow_type,
-                                workflow_source,
-                                WorkflowSelectionSource::UpArrowHistory,
-                                None,
-                                Some(selected_item.text()),
-                                env_vars,
-                                /*should_show_more_info_view=*/ false,
-                                ctx,
-                            );
-                        } else {
-                            self.editor.update(ctx, |editor, ctx| {
-                                editor.set_buffer_text_ignoring_undo(selected_item.text(), ctx);
-                            });
-                        }
+                        self.editor.update(ctx, |editor, ctx| {
+                            editor.set_buffer_text_ignoring_undo(selected_item.text(), ctx);
+                        });
 
                         self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                            let input_type = if selected_item.is_ai_query() {
-                                InputType::AI
-                            } else {
-                                InputType::Shell
-                            };
                             ai_input_model.set_input_type(
-                                input_type,
+                                InputType::Shell,
                                 Some(InputTypeAutoDetectionSource::HistorySelection),
                                 ctx,
                             );
@@ -9168,10 +8851,6 @@ impl Input {
                     InputSuggestionsMode::UserQueryMenu { .. } => {
                         // User query menu selection is handled separately
                     }
-                    InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                        // Inline history menu selection is handled separately
-                        // This shouldn't be reached since inline history menu doesn't use InputSuggestions
-                    }
                     InputSuggestionsMode::IndexedReposMenu => {
                         // Repos menu selection is handled separately
                     }
@@ -9185,14 +8864,13 @@ impl Input {
             }
             InputSuggestionsEvent::IgnoreItem { item } => {
                 let command_text = item.text();
-                let suggestion_type = if item.is_ai_query() {
-                    SuggestionType::AIQuery
-                } else {
-                    SuggestionType::ShellCommand
-                };
 
                 IgnoredSuggestionsModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.add_ignored_suggestion(command_text.to_string(), suggestion_type, ctx);
+                    model.add_ignored_suggestion(
+                        command_text.to_string(),
+                        SuggestionType::ShellCommand,
+                        ctx,
+                    );
                 });
 
                 // Refresh the history suggestions menu and keep it open
@@ -9203,7 +8881,7 @@ impl Input {
                     let history = if self.model.lock().shared_session_status().is_executor() {
                         self.shared_session_history(ctx)
                     } else {
-                        self.collate_ai_and_command_history(ctx)
+                        self.command_history_suggestions(ctx)
                     };
                     let original_buffer = if let InputSuggestionsMode::HistoryUp {
                         original_buffer,
@@ -9332,10 +9010,6 @@ impl Input {
             }
             InputSuggestionsMode::UserQueryMenu { .. } => {
                 // User query menu selection is handled separately
-                false
-            }
-            InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                // Inline history menu selection is handled separately
                 false
             }
             InputSuggestionsMode::IndexedReposMenu => {
@@ -9548,44 +9222,6 @@ impl Input {
         ctx.notify();
     }
 
-    fn select_previous_inline_history_item(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_history_menu()
-        {
-            return;
-        }
-
-        if self.is_cloud_mode_input_v2_composing(ctx) {
-            if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                view.update(ctx, |view, ctx| view.select_up(ctx));
-            }
-        } else {
-            self.inline_history_menu_view
-                .update(ctx, |view, ctx| view.select_up(ctx));
-        }
-    }
-
-    fn select_next_inline_history_item(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_history_menu()
-        {
-            return;
-        }
-
-        if self.is_cloud_mode_input_v2_composing(ctx) {
-            if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                view.update(ctx, |view, ctx| view.select_down(ctx));
-            }
-        } else {
-            self.inline_history_menu_view
-                .update(ctx, |view, ctx| view.select_down(ctx));
-        }
-    }
-
     fn editor_up(&mut self, ctx: &mut ViewContext<Self>) {
         if self.should_show_auth_secret_ftux(ctx) {
             if let Some(ftux_view) = self.auth_secret_ftux_view().cloned() {
@@ -9690,10 +9326,6 @@ impl Input {
                 });
                 true
             }
-            InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                ctx.dispatch_typed_action_deferred(InputAction::SelectPreviousInlineHistoryItem);
-                true
-            }
             InputSuggestionsMode::IndexedReposMenu => {
                 self.inline_repos_menu_view.update(ctx, |view, ctx| {
                     view.select_up(ctx);
@@ -9729,17 +9361,10 @@ impl Input {
         // history up menu.
         let editor = self.editor.as_ref(ctx);
         if editor.single_cursor_on_first_row(ctx) {
-            if FeatureFlag::InlineHistoryMenu.is_enabled()
-                && self.suggestions_mode_model.as_ref(ctx).is_closed()
-            {
-                self.open_inline_history_menu(ctx);
-                return;
-            }
-
             let history = if self.model.lock().shared_session_status().is_executor() {
                 self.shared_session_history(ctx)
             } else {
-                self.collate_ai_and_command_history(ctx)
+                self.command_history_suggestions(ctx)
             };
             let original_buffer = self.editor.as_ref(ctx).buffer_text(ctx);
 
@@ -9813,11 +9438,7 @@ impl Input {
                 || context_model.pending_context_selected_text().is_some()
         };
         let should_escape_vim_before_dismissing = (vim_mode == Some(VimMode::Insert)
-            && (self.suggestions_mode_model.as_ref(ctx).is_history_up()
-                || self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()))
+            && self.suggestions_mode_model.as_ref(ctx).is_history_up())
             || (vim_mode == Some(VimMode::Insert)
                 && self.prefix_mode(ctx) == InputPrefixMode::CloudHandoff);
 
@@ -10064,18 +9685,10 @@ impl Input {
             | InputSuggestionsMode::CompletionSuggestions { .. }
             | InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
             | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
-            | InputSuggestionsMode::InlineHistoryMenu { .. }
             | InputSuggestionsMode::Closed => false,
         };
 
         if handled {
-            return;
-        } else if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_history_menu()
-        {
-            ctx.dispatch_typed_action_deferred(InputAction::SelectNextInlineHistoryItem);
             return;
         }
 
@@ -11264,32 +10877,6 @@ impl Input {
                     InputSuggestionsMode::UserQueryMenu { .. } => {
                         // User query menu handles its own state
                     }
-                    InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                        let mismatched = if self.is_cloud_mode_input_v2_composing(ctx) {
-                            self.cloud_mode_v2_history_menu_view
-                                .as_ref()
-                                .and_then(|view| view.as_ref(ctx).selected_query_text(ctx))
-                                .is_some_and(|selected_text| {
-                                    selected_text != self.editor.as_ref(ctx).buffer_text(ctx)
-                                })
-                        } else {
-                            self.inline_history_menu_view
-                                .as_ref(ctx)
-                                .model()
-                                .as_ref(ctx)
-                                .selected_item()
-                                .and_then(|item| item.buffer_replacement_text())
-                                .is_some_and(|selected_item_text| {
-                                    *selected_item_text != self.editor.as_ref(ctx).buffer_text(ctx)
-                                })
-                        };
-                        if mismatched {
-                            self.suggestions_mode_model.update(ctx, |model, ctx| {
-                                model.set_mode(InputSuggestionsMode::Closed, ctx);
-                            });
-                            ctx.notify();
-                        }
-                    }
                     InputSuggestionsMode::IndexedReposMenu => {
                         // Repos menu handles its own state
                     }
@@ -11416,9 +11003,6 @@ impl Input {
                         }
                         InputSuggestionsMode::UserQueryMenu { .. } => {
                             // User query menu handles its own selection state
-                        }
-                        InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                            // Inline history menu handles its own selection state
                         }
                         InputSuggestionsMode::IndexedReposMenu => {
                             // Repos menu handles its own selection state
@@ -12427,10 +12011,7 @@ impl Input {
 
     /// Returns a collection of history entries that are shell commands from
     /// the shared session (run on the sharer's machine).
-    fn shared_session_history<'b>(
-        &'b self,
-        ctx: &'b ViewContext<Self>,
-    ) -> Vec<HistoryInputSuggestion<'b>> {
+    fn shared_session_history<'b>(&'b self, ctx: &'b ViewContext<Self>) -> Vec<&'b HistoryEntry> {
         let Some(history_model) = self
             .shared_session_input_state
             .as_ref()
@@ -12440,28 +12021,15 @@ impl Input {
         };
 
         // TODO: append viewer's local shell history
-        history_model
-            .as_ref(ctx)
-            .entries()
-            .map(|entry| HistoryInputSuggestion::Command { entry })
-            .collect()
+        history_model.as_ref(ctx).entries().collect()
     }
 
-    /// Returns a collection of history entries that are user AI queries or shell commands in order
-    /// from oldest to most recent.
-    fn collate_ai_and_command_history<'a>(
+    /// Returns local command history ordered from oldest to most recent.
+    fn command_history_suggestions<'a>(
         &'a self,
         ctx: &'a ViewContext<Self>,
-    ) -> Vec<HistoryInputSuggestion<'a>> {
-        let input_config = self.ai_input_model.as_ref(ctx).input_config();
-        let config = UpArrowHistoryConfig::for_input_config(&input_config);
-
-        History::as_ref(ctx).up_arrow_suggestions_for_terminal_surface(
-            self.terminal_view_id,
-            self.active_block_session_id(),
-            config,
-            ctx,
-        )
+    ) -> Vec<&'a HistoryEntry> {
+        History::as_ref(ctx).up_arrow_suggestions(self.active_block_session_id(), ctx)
     }
 
     fn update_last_word_insertion_state(&mut self) {
@@ -13437,19 +13005,6 @@ impl Input {
                     return;
                 }
             }
-            // If the inline history menu is open and has multiple tabs,
-            // shift + tab should cycle between them.
-            InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                if self.is_cloud_mode_input_v2_composing(ctx) {
-                    return;
-                }
-                if self
-                    .inline_history_menu_view
-                    .update(ctx, |view, ctx| view.select_next_tab(ctx))
-                {
-                    return;
-                }
-            }
             // If the conversation menu is open and has multiple tabs,
             // shift + tab should cycle between them.
             InputSuggestionsMode::ConversationMenu => {
@@ -14028,35 +13583,6 @@ impl Input {
             return;
         } else if self.suggestions_mode_model.as_ref(ctx).is_rewind_menu() {
             self.rewind_menu_view
-                .update(ctx, |view, ctx| view.accept_selected_item(ctx));
-            return;
-        } else if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_history_menu()
-            && self.is_cloud_mode_input_v2_composing(ctx)
-            && self
-                .cloud_mode_v2_history_menu_view
-                .as_ref()
-                .is_some_and(|view| view.as_ref(ctx).has_selection(ctx))
-        {
-            if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                view.update(ctx, |view, ctx| view.accept_selected(ctx));
-            }
-            return;
-        } else if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_history_menu()
-            && self
-                .inline_history_menu_view
-                .as_ref(ctx)
-                .model()
-                .as_ref(ctx)
-                .selected_item()
-                .is_some()
-        {
-            self.inline_history_menu_view
                 .update(ctx, |view, ctx| view.accept_selected_item(ctx));
             return;
         } else if self.suggestions_mode_model.as_ref(ctx).is_repos_menu() {
@@ -16725,10 +16251,6 @@ impl TypedActionView for Input {
         match action {
             InputAction::FocusInputBox => self.focus_input_box(ctx),
             InputAction::Up => self.editor_up(ctx),
-            InputAction::SelectPreviousInlineHistoryItem => {
-                self.select_previous_inline_history_item(ctx)
-            }
-            InputAction::SelectNextInlineHistoryItem => self.select_next_inline_history_item(ctx),
             InputAction::PageUp => self.editor_page_up(ctx),
             InputAction::PageDown => self.editor_page_down(ctx),
             InputAction::CtrlD => self.ctrl_d(ctx),
@@ -16889,9 +16411,6 @@ impl TypedActionView for Input {
                         ctx,
                     );
                 }
-            }
-            InputAction::OpenInlineHistoryMenu => {
-                self.open_inline_history_menu(ctx);
             }
             InputAction::DismissCloudModeV2SlashCommandsMenu => {
                 if self.suggestions_mode_model.as_ref(ctx).is_slash_commands() {

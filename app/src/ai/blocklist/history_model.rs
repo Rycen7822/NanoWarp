@@ -42,12 +42,12 @@ use crate::ai::agent::{
 use crate::ai::ambient_agents::AmbientAgentTask;
 use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
-use crate::input_suggestions::HistoryOrder;
 use crate::persistence::ModelEvent;
 use crate::persistence::model::{AgentConversation, AgentConversationData};
 #[cfg(feature = "local_fs")]
 use crate::persistence::{database_file_path_for_current_scope, establish_ro_connection};
 use crate::server::server_api::ServerApiProvider;
+use crate::terminal::history::HistoryOrder;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::view::blocklist_filter;
 use crate::ui_components::icons::Icon;
@@ -3464,24 +3464,6 @@ pub struct AIQueryHistory {
 
     /// The ordering category for this query in history.
     pub history_order: HistoryOrder,
-}
-
-impl AIQueryHistory {
-    /// Creates a new [`AIQueryHistory`] for testing.
-    #[cfg(test)]
-    pub(crate) fn new_for_test(
-        query_text: &str,
-        start_time: DateTime<Local>,
-        history_order: HistoryOrder,
-    ) -> Self {
-        Self {
-            query_text: query_text.to_owned(),
-            start_time,
-            output_status: AIQueryHistoryOutputStatus::Pending,
-            working_directory: None,
-            history_order,
-        }
-    }
 }
 
 fn ai_exchange_to_query_history(

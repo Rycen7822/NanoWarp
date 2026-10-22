@@ -1,6 +1,6 @@
 use warpui::{Entity, ModelContext, ModelHandle};
 
-use super::{BufferState, DynamicEnumSuggestionStatus, InputConfig, InputSuggestionsMode};
+use super::{BufferState, DynamicEnumSuggestionStatus, InputSuggestionsMode};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::terminal::input::buffer_model::InputBufferModel;
 use crate::terminal::input::inline_menu::InlineMenuType;
@@ -32,15 +32,12 @@ impl InputSuggestionsModeModel {
             return;
         }
 
-        let input_config_to_restore = self.mode.input_config_to_restore();
-
         // If we're setting a new non-closed mode while the current mode is also non-closed,
         // first emit a mode change for the implicit close before transitioning to the new mode.
         if self.is_visible() && !matches!(mode, InputSuggestionsMode::Closed) {
             self.mode = InputSuggestionsMode::Closed;
             ctx.emit(InputSuggestionsModeEvent::ModeChanged {
                 buffer_to_restore: None,
-                input_config_to_restore,
             });
         }
 
@@ -62,7 +59,6 @@ impl InputSuggestionsModeModel {
         self.mode = mode;
         ctx.emit(InputSuggestionsModeEvent::ModeChanged {
             buffer_to_restore: None,
-            input_config_to_restore: None,
         });
     }
 
@@ -73,12 +69,8 @@ impl InputSuggestionsModeModel {
         }
 
         let buffer_to_restore = self.buffer_to_restore.take();
-        let input_config_to_restore = self.mode.input_config_to_restore();
         self.mode = InputSuggestionsMode::Closed;
-        ctx.emit(InputSuggestionsModeEvent::ModeChanged {
-            buffer_to_restore,
-            input_config_to_restore,
-        });
+        ctx.emit(InputSuggestionsModeEvent::ModeChanged { buffer_to_restore });
     }
 
     pub fn set_dynamic_enum_status(
@@ -94,7 +86,6 @@ impl InputSuggestionsModeModel {
             *dynamic_enum_status = status;
             ctx.emit(InputSuggestionsModeEvent::ModeChanged {
                 buffer_to_restore: None,
-                input_config_to_restore: None,
             });
         }
     }
@@ -202,10 +193,6 @@ impl InputSuggestionsModeModel {
         }
     }
 
-    pub fn is_inline_history_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::InlineHistoryMenu { .. })
-    }
-
     pub fn is_repos_menu(&self) -> bool {
         matches!(self.mode, InputSuggestionsMode::IndexedReposMenu)
     }
@@ -240,8 +227,5 @@ pub enum InputSuggestionsModeEvent {
         /// The saved buffer state to restore, if this mode change is an inline menu closing.
         /// `None` for all other transitions.
         buffer_to_restore: Option<BufferState>,
-        /// The saved input config to restore, if this mode change closes inline history menu
-        /// without accepting the temporary preview state.
-        input_config_to_restore: Option<InputConfig>,
     },
 }

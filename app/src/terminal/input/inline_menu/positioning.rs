@@ -114,23 +114,6 @@ impl InlineMenuPositioner {
         self.should_render_below_input
     }
 
-    /// Returns `true` if the inline menu should render results in reverse.
-    ///
-    /// If `true`, the 0-index item in the menu is rendered at the bottom of the menu instead of the
-    /// top.
-    pub(super) fn should_render_results_in_reverse(&self, app: &AppContext) -> bool {
-        // History menu should not reverse results - up-arrow history is always cycled
-        // using the up arrow key, so the ordering should be consistent.
-        if self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_inline_history_menu()
-        {
-            return false;
-        }
-        self.should_render_below_input
-    }
-
     /// Returns an 'inset' to be applied to the y position of the top of the blocklist element when:
     /// * in waterfall mode, which is the only mode in which the input may be rendered in a floating
     ///   position between the top and bottom of the viewport.

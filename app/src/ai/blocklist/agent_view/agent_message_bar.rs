@@ -177,7 +177,6 @@ impl AgentMessageBar {
         ctx.subscribe_to_model(&input_suggestions_model, |me, _, event, ctx| match event {
             InputSuggestionsModeEvent::ModeChanged {
                 buffer_to_restore: _,
-                input_config_to_restore: _,
             } => {
                 if me.input_suggestions_model.as_ref(ctx).is_inline_menu_open() {
                     // When opening an inline menu, dismiss any explicit message if we have one.

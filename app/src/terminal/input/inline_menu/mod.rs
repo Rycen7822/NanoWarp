@@ -44,7 +44,6 @@ pub enum InlineMenuType {
     SkillMenu,
     UserQueryMenu,
     RewindMenu,
-    InlineHistoryMenu,
     IndexedReposMenu,
     PlanMenu,
 }
@@ -60,7 +59,6 @@ impl InlineMenuType {
             InlineMenuType::SkillMenu => "/Skills",
             InlineMenuType::UserQueryMenu => "/Fork",
             InlineMenuType::RewindMenu => "/Rewind",
-            InlineMenuType::InlineHistoryMenu => "History",
             InlineMenuType::IndexedReposMenu => "/Repos",
             InlineMenuType::PlanMenu => "/Plans",
         }
@@ -82,9 +80,6 @@ impl InlineMenuType {
                 action: UserQueryMenuAction::Rewind,
                 ..
             } => Some(InlineMenuType::RewindMenu),
-            InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                Some(InlineMenuType::InlineHistoryMenu)
-            }
             InputSuggestionsMode::IndexedReposMenu => Some(InlineMenuType::IndexedReposMenu),
             InputSuggestionsMode::PlanMenu { .. } => Some(InlineMenuType::PlanMenu),
             InputSuggestionsMode::Closed

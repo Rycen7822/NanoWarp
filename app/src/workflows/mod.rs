@@ -74,7 +74,6 @@ pub enum WorkflowSelectionSource {
     WarpAI,
     Notebook,
     SlashMenu,
-    UpArrowHistory,
     WorkflowView,
     AgentMode,
     Undefined,

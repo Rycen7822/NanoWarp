@@ -27765,7 +27765,6 @@ impl TypedActionView for TerminalView {
             | StartNewAgentConversation { .. }
             | ToggleConversationDetailsPanel
             | CancelAmbientAgentTask
-            | OpenInlineHistoryMenu
             | OpenModelSelector
             | ResolvePromptSuggestion(..)
             | AwsBedrockLoginBanner(_)
@@ -28833,11 +28832,6 @@ impl TypedActionView for TerminalView {
                         },
                         ctx,
                     );
-                });
-            }
-            OpenInlineHistoryMenu => {
-                self.input.update(ctx, |input, ctx| {
-                    input.handle_action(&InputAction::OpenInlineHistoryMenu, ctx);
                 });
             }
             OpenModelSelector => {

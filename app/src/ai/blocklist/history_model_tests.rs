@@ -34,7 +34,6 @@ use crate::ai::llms::LLMId;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
 use crate::features::FeatureFlag;
-use crate::input_suggestions::HistoryInputSuggestion;
 use crate::persistence::ModelEvent;
 use crate::persistence::model::{
     AgentConversation, AgentConversationData, AgentConversationRecord, AgentConversationSummary,
@@ -44,14 +43,12 @@ use crate::server::ids::ServerId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::terminal::model::block::BlockId;
-use crate::terminal::model::session::SessionId;
 use crate::test_util::ai_agent_tasks::create_api_task;
 use crate::test_util::settings::{
     initialize_history_persistence_for_tests, initialize_settings_for_tests,
 };
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
-/// Helper function to create a PersistedAIInput for testing
 fn create_persisted_query(
     query_text: &str,
     conversation_id: AIConversationId,
@@ -1202,12 +1199,10 @@ fn prompt_history_candidates_seeds_from_snapshot_then_appends_session_prompts() 
 }
 
 #[test]
-fn test_ai_queries_for_terminal_view_up_arrow_history() {
+fn test_ai_query_history_retains_persisted_and_cleared_prompts() {
     App::test((), |mut app| async move {
         let now = Local::now();
         let terminal_view_id = EntityId::new();
-        let current_session_id = SessionId::from(0);
-        let all_live_session_ids = HashSet::from([current_session_id]);
 
         // Create initial persisted queries
         let conversation_id_1 = AIConversationId::new();
@@ -1230,13 +1225,16 @@ fn test_ai_queries_for_terminal_view_up_arrow_history() {
         let history_model = app
             .add_singleton_model(|_| BlocklistAIHistoryModel::new(persisted_queries, vec![], &[]));
 
-        // Helper function to get and sort AI queries using the same logic as Input
+        // Read the aggregation consumed by the still-live command-search AI source
         let get_sorted_queries = |model: &BlocklistAIHistoryModel| -> Vec<String> {
             model
                 .all_ai_queries(Some(terminal_view_id))
-                .map(|query| HistoryInputSuggestion::AIQuery { entry: query })
-                .sorted_by(|a, b| a.cmp(b, Some(current_session_id), &all_live_session_ids))
-                .map(|suggestion| suggestion.text().to_string())
+                .sorted_by(|a, b| {
+                    a.history_order
+                        .cmp(&b.history_order)
+                        .then(a.start_time.cmp(&b.start_time))
+                })
+                .map(|query| query.query_text)
                 .collect()
         };
 

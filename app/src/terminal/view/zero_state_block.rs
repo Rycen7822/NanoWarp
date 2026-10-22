@@ -219,10 +219,10 @@ impl View for TerminalViewZeroStateBlock {
                             key: "up".to_owned(),
                             ..Default::default()
                         }),
-                        MessageItem::text("cycle past commands and conversations"),
+                        MessageItem::text("cycle past commands"),
                     ],
                     |ctx| {
-                        ctx.dispatch_typed_action(TerminalAction::OpenInlineHistoryMenu);
+                        ctx.dispatch_typed_action(crate::terminal::input::InputAction::Up);
                     },
                     self.state_handles.open_history_menu.clone(),
                 )]),

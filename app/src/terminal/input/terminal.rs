@@ -170,10 +170,6 @@ impl Input {
             .is_conversation_menu();
         let is_prompts_menu = self.suggestions_mode_model.as_ref(app).is_prompts_menu();
         let is_skill_menu = self.suggestions_mode_model.as_ref(app).is_skill_menu();
-        let is_inline_history_menu = self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_inline_history_menu();
         let is_repos_menu = self.suggestions_mode_model.as_ref(app).is_repos_menu();
         let hide_menu = self
             .inline_terminal_menu_positioner
@@ -193,8 +189,6 @@ impl Input {
                             Some(ChildView::new(&self.inline_conversation_menu_view).finish())
                         } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
                             Some(ChildView::new(&self.inline_skill_selector_view).finish())
-                        } else if is_inline_history_menu {
-                            Some(ChildView::new(&self.inline_history_menu_view).finish())
                         } else if is_repos_menu {
                             Some(ChildView::new(&self.inline_repos_menu_view).finish())
                         } else {
@@ -222,8 +216,6 @@ impl Input {
                             Some(ChildView::new(&self.inline_conversation_menu_view).finish())
                         } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
                             Some(ChildView::new(&self.inline_skill_selector_view).finish())
-                        } else if is_inline_history_menu {
-                            Some(ChildView::new(&self.inline_history_menu_view).finish())
                         } else if is_repos_menu {
                             Some(ChildView::new(&self.inline_repos_menu_view).finish())
                         } else {
@@ -254,8 +246,6 @@ impl Input {
                         && !should_render_below
                     {
                         column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-                    } else if is_inline_history_menu && !should_render_below {
-                        column.add_child(ChildView::new(&self.inline_history_menu_view).finish());
                     } else if is_repos_menu && !should_render_below {
                         column.add_child(ChildView::new(&self.inline_repos_menu_view).finish());
                     }
@@ -277,8 +267,6 @@ impl Input {
                         && should_render_below
                     {
                         column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-                    } else if is_inline_history_menu && should_render_below {
-                        column.add_child(ChildView::new(&self.inline_history_menu_view).finish());
                     } else if is_repos_menu && should_render_below {
                         column.add_child(ChildView::new(&self.inline_repos_menu_view).finish());
                     }

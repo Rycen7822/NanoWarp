@@ -21,7 +21,6 @@ use crate::workflows::workflow::Workflow;
 use crate::workflows::{WorkflowId, WorkflowSource, WorkflowType};
 
 mod up_arrow;
-pub use up_arrow::UpArrowHistoryConfig;
 
 /// Data model for a history command persisted to sqlite, used as an intermediate representation
 /// between the sqlite schema (sqlite::model::Command) and the [`History`] model.
@@ -266,7 +265,40 @@ fn serialized_block_is_agent_executed(block: &SerializedBlock) -> bool {
         .is_some_and(|metadata| metadata.requested_command_action_id().is_some())
 }
 
+/// Ordering of history items: other sessions precede the current session.
+#[derive(Eq, PartialEq, Debug, Clone, Copy, Ord, PartialOrd)]
+pub enum HistoryOrder {
+    DifferentSession,
+    CurrentSession,
+}
+
 impl HistoryEntry {
+    pub(crate) fn history_order(&self, current_session_id: Option<SessionId>) -> HistoryOrder {
+        if self.is_for_restored_block
+            || self
+                .session_id
+                .is_some_and(|id| Some(id) == current_session_id)
+        {
+            HistoryOrder::CurrentSession
+        } else {
+            HistoryOrder::DifferentSession
+        }
+    }
+
+    pub(crate) fn cmp_for_history(
+        &self,
+        other: &Self,
+        current_session_id: Option<SessionId>,
+    ) -> std::cmp::Ordering {
+        self.history_order(current_session_id)
+            .cmp(&other.history_order(current_session_id))
+            .then_with(|| {
+                self.start_ts
+                    .unwrap_or_default()
+                    .cmp(&other.start_ts.unwrap_or_default())
+            })
+    }
+
     pub fn command_only<S: Into<String>>(command: S) -> Self {
         Self {
             command: command.into(),

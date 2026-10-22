@@ -38,7 +38,7 @@ use crate::ai::agent::{
     AIAgentActionId, AIAgentExchange, AIAgentInput, AIAgentOutputStatus, UserQueryMode,
 };
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::blocklist::{AIQueryHistory, BlocklistAIPermissions, ResponseStreamId};
+use crate::ai::blocklist::{BlocklistAIPermissions, ResponseStreamId};
 use crate::ai::cloud_agent_settings::{AuthSecretPreference, CloudAgentSettings};
 use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -56,7 +56,7 @@ use crate::changelog_model::ChangelogModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::context_chips::prompt::Prompt;
 use crate::editor::{DisplayPoint, EditorAction, Point, TextStyleOperation};
-use crate::input_suggestions::{HistoryOrder, Item};
+use crate::input_suggestions::Item;
 use crate::network::NetworkStatus;
 use crate::pricing::PricingInfoModel;
 use crate::search::files::model::FileSearchModel;
@@ -942,153 +942,68 @@ fn test_clear_selection_after_insert() {
 }
 
 #[test]
-fn test_merge_ai_and_command_history() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
+fn test_command_history_ordering() {
+    let now = Local::now();
+    let current_session_id = SessionId::from(0);
+    let other_session_id = SessionId::from(1);
 
-        let now = Local::now();
-        let current_session_id = SessionId::from(0);
-        let other_session_id = SessionId::from(1);
-        let all_live_session_ids = HashSet::from([current_session_id, other_session_id]);
+    // Create entries in chronological order (from earliest to most recent)
+    // Restored commands are now treated as CurrentSession
+    let entry_30s = HistoryEntry::command_at_time(
+        "echo 30 sec earlier [restored]".into(),
+        now - Duration::from_secs(30),
+        Some(current_session_id),
+        true,
+    );
+    let entry_20s = HistoryEntry::command_at_time(
+        "echo 20 sec earlier [different session]".into(),
+        now - Duration::from_secs(20),
+        None,
+        false,
+    );
+    let entry_10s = HistoryEntry::command_at_time(
+        "echo 10 sec earlier [current session]".into(),
+        now - Duration::from_secs(10),
+        Some(current_session_id),
+        false,
+    );
+    let entry_5s = HistoryEntry::command_at_time(
+        "echo 5 sec earlier [other session]".into(),
+        now - Duration::from_secs(5),
+        Some(other_session_id),
+        false,
+    );
+    let entry_now =
+        HistoryEntry::command_at_time("echo now [different session]".into(), now, None, false);
 
-        // Create entries in chronological order (from earliest to most recent)
-        // Restored commands are now treated as CurrentSession
-        let entry_30s = HistoryEntry::command_at_time(
-            "echo 30 sec earlier [restored]".into(),
-            now - Duration::from_secs(30),
-            Some(current_session_id),
-            true,
-        );
-        let entry_20s = HistoryEntry::command_at_time(
-            "echo 20 sec earlier [different session]".into(),
-            now - Duration::from_secs(20),
-            None,
-            false,
-        );
-        let entry_10s = HistoryEntry::command_at_time(
-            "echo 10 sec earlier [current session]".into(),
-            now - Duration::from_secs(10),
-            Some(current_session_id),
-            false,
-        );
-        let entry_5s = HistoryEntry::command_at_time(
-            "echo 5 sec earlier [other session]".into(),
-            now - Duration::from_secs(5),
-            Some(other_session_id),
-            false,
-        );
-        let entry_now =
-            HistoryEntry::command_at_time("echo now [different session]".into(), now, None, false);
-
-        let history_commands = vec![
-            HistoryInputSuggestion::Command { entry: &entry_20s },
-            HistoryInputSuggestion::Command { entry: &entry_now },
-            HistoryInputSuggestion::Command { entry: &entry_30s },
-            HistoryInputSuggestion::Command { entry: &entry_10s },
-            HistoryInputSuggestion::Command { entry: &entry_5s },
-        ];
-        let only_history_commands = history_commands
-            .clone()
-            .into_iter()
-            .sorted_by(|a, b| a.cmp(b, Some(current_session_id), &all_live_session_ids))
-            .collect::<Vec<_>>();
-        assert_eq!(only_history_commands.len(), 5);
-        // DifferentSession items sorted by timestamp
-        assert_eq!(
-            only_history_commands[0].text(),
-            "echo 20 sec earlier [different session]"
-        );
-        assert_eq!(
-            only_history_commands[1].text(),
-            "echo 5 sec earlier [other session]"
-        );
-        assert_eq!(
-            only_history_commands[2].text(),
-            "echo now [different session]"
-        );
-        // CurrentSession items sorted by timestamp (restored + current session)
-        assert_eq!(
-            only_history_commands[3].text(),
-            "echo 30 sec earlier [restored]"
-        );
-        assert_eq!(
-            only_history_commands[4].text(),
-            "echo 10 sec earlier [current session]"
-        );
-
-        let ai_queries = vec![
-            HistoryInputSuggestion::AIQuery {
-                entry: AIQueryHistory::new_for_test(
-                    "ai 35 sec earlier [different session]",
-                    now - Duration::from_secs(35),
-                    HistoryOrder::DifferentSession,
-                ),
-            },
-            HistoryInputSuggestion::AIQuery {
-                entry: AIQueryHistory::new_for_test(
-                    "ai 25 sec earlier [different session]",
-                    now - Duration::from_secs(25),
-                    HistoryOrder::DifferentSession,
-                ),
-            },
-            HistoryInputSuggestion::AIQuery {
-                entry: AIQueryHistory::new_for_test(
-                    "ai 15 sec earlier [current session]",
-                    now - Duration::from_secs(15),
-                    HistoryOrder::CurrentSession,
-                ),
-            },
-            HistoryInputSuggestion::AIQuery {
-                entry: AIQueryHistory::new_for_test(
-                    "ai 7 sec earlier [current session]",
-                    now - Duration::from_secs(7),
-                    HistoryOrder::CurrentSession,
-                ),
-            },
-        ];
-        let only_ai_commands = ai_queries
-            .clone()
-            .into_iter()
-            .sorted_by(|a, b| a.cmp(b, Some(current_session_id), &all_live_session_ids))
-            .collect::<Vec<_>>();
-        assert_eq!(only_ai_commands.len(), 4);
-        // DifferentSession items sorted by timestamp
-        assert_eq!(
-            only_ai_commands[0].text(),
-            "ai 35 sec earlier [different session]"
-        );
-        assert_eq!(
-            only_ai_commands[1].text(),
-            "ai 25 sec earlier [different session]"
-        );
-        // CurrentSession items sorted by timestamp
-        assert_eq!(
-            only_ai_commands[2].text(),
-            "ai 15 sec earlier [current session]"
-        );
-        assert_eq!(
-            only_ai_commands[3].text(),
-            "ai 7 sec earlier [current session]"
-        );
-
-        let merged = history_commands
-            .into_iter()
-            .chain(ai_queries)
-            .sorted_by(|a, b| a.cmp(b, Some(current_session_id), &all_live_session_ids))
-            .collect::<Vec<_>>();
-        assert_eq!(merged.len(), 9);
-        // DifferentSession items sorted by timestamp
-        assert_eq!(merged[0].text(), "ai 35 sec earlier [different session]");
-        assert_eq!(merged[1].text(), "ai 25 sec earlier [different session]");
-        assert_eq!(merged[2].text(), "echo 20 sec earlier [different session]");
-        assert_eq!(merged[3].text(), "echo 5 sec earlier [other session]");
-        assert_eq!(merged[4].text(), "echo now [different session]");
-        // CurrentSession items sorted by timestamp
-        assert_eq!(merged[5].text(), "echo 30 sec earlier [restored]");
-        assert_eq!(merged[6].text(), "ai 15 sec earlier [current session]");
-        assert_eq!(merged[7].text(), "echo 10 sec earlier [current session]");
-        assert_eq!(merged[8].text(), "ai 7 sec earlier [current session]");
-    });
+    let history_commands = vec![&entry_20s, &entry_now, &entry_30s, &entry_10s, &entry_5s];
+    let only_history_commands = history_commands
+        .into_iter()
+        .sorted_by(|a, b| a.cmp_for_history(b, Some(current_session_id)))
+        .collect::<Vec<_>>();
+    assert_eq!(only_history_commands.len(), 5);
+    // DifferentSession items sorted by timestamp
+    assert_eq!(
+        only_history_commands[0].command.as_str(),
+        "echo 20 sec earlier [different session]"
+    );
+    assert_eq!(
+        only_history_commands[1].command.as_str(),
+        "echo 5 sec earlier [other session]"
+    );
+    assert_eq!(
+        only_history_commands[2].command.as_str(),
+        "echo now [different session]"
+    );
+    // CurrentSession items sorted by timestamp (restored + current session)
+    assert_eq!(
+        only_history_commands[3].command.as_str(),
+        "echo 30 sec earlier [restored]"
+    );
+    assert_eq!(
+        only_history_commands[4].command.as_str(),
+        "echo 10 sec earlier [current session]"
+    );
 }
 
 #[test]
@@ -3242,135 +3157,6 @@ fn slash_compact_still_queues_while_in_progress() {
                 "/compact should be queued while in progress"
             );
             assert_eq!(queue[0].text(), "/compact");
-        });
-    });
-}
-
-fn selected_inline_history_command(
-    history_menu: &warpui::ViewHandle<super::inline_history::InlineHistoryMenuView>,
-    app: &App,
-) -> Option<String> {
-    history_menu.read(app, |view, ctx| {
-        view.model()
-            .as_ref(ctx)
-            .selected_item()
-            .and_then(|item| item.buffer_replacement_text().cloned())
-    })
-}
-
-#[test]
-fn history_up_does_not_reenter_inline_history_menu_update() {
-    let _inline_history_menu = FeatureFlag::InlineHistoryMenu.override_enabled(true);
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(
-            &mut app,
-            Some(vec!["cd ~".to_string(), "ls".to_string()]),
-            None,
-        )
-        .await;
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        let session_id = input
-            .read(&app, |input, _| input.active_block_session_id())
-            .expect("bootstrapped input should have a session id");
-        simulate_directory_for_completion(session_id, &terminal, &mut app, "/tmp");
-        input.update(&mut app, |input, ctx| {
-            input.open_inline_history_menu(ctx);
-        });
-        input.read(&app, |input, ctx| {
-            assert!(
-                input
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-            );
-        });
-
-        let inline_history_menu =
-            input.read(&app, |input, _| input.inline_history_menu_view.clone());
-        let result_count = inline_history_menu.read(&app, |view, ctx| view.result_count(ctx));
-        assert!(
-            result_count >= 2,
-            "inline history should list both seeded commands, got {result_count}"
-        );
-        let selected_before = selected_inline_history_command(&inline_history_menu, &app);
-        let buffer_before = input.read(&app, |input, ctx| input.buffer_text(ctx).to_owned());
-        assert_eq!(selected_before.as_deref(), Some("ls"));
-        assert_eq!(buffer_before, "ls");
-
-        inline_history_menu.update(&mut app, |_, ctx| {
-            input.update(ctx, |input, ctx| {
-                input.handle_action(&InputAction::Up, ctx);
-            });
-        });
-        input.read(&app, |input, ctx| {
-            assert!(
-                input
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu(),
-                "History/Up must still show inline history after a nested checkout"
-            );
-            assert_eq!(input.buffer_text(ctx), "cd ~");
-        });
-        assert_eq!(
-            selected_inline_history_command(&inline_history_menu, &app).as_deref(),
-            Some("cd ~")
-        );
-
-        inline_history_menu.update(&mut app, |_, ctx| {
-            input.update(ctx, |input, ctx| input.editor_down(ctx));
-        });
-        input.read(&app, |input, ctx| {
-            assert!(
-                input
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-            );
-            assert_eq!(input.buffer_text(ctx), "ls");
-        });
-        assert_eq!(
-            selected_inline_history_command(&inline_history_menu, &app).as_deref(),
-            Some("ls")
-        );
-    });
-}
-
-#[test]
-fn editor_down_does_not_reenter_inline_history_menu_update() {
-    let _inline_history_menu = FeatureFlag::InlineHistoryMenu.override_enabled(true);
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(&mut app, None, None).await;
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        input.update(&mut app, |input, ctx| {
-            input.open_inline_history_menu(ctx);
-        });
-        input.read(&app, |input, ctx| {
-            assert!(
-                input
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu()
-            );
-        });
-
-        let inline_history_menu =
-            input.read(&app, |input, _| input.inline_history_menu_view.clone());
-        inline_history_menu.update(&mut app, |_, ctx| {
-            input.update(ctx, |input, ctx| input.editor_down(ctx));
-        });
-        input.read(&app, |input, ctx| {
-            assert!(
-                !input
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_history_menu(),
-                "Down on empty inline history must close the menu after the nested checkout ends"
-            );
         });
     });
 }
