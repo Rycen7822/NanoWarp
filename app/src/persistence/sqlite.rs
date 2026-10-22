@@ -456,7 +456,6 @@ fn setup_database(database_path: &Path) -> Result<SqliteConnection> {
 pub fn database_file_path_for_scope(scope: &PersistenceScope) -> PathBuf {
     match scope {
         PersistenceScope::App => app_database_file_path(),
-        PersistenceScope::Tui => tui_database_file_path(),
         PersistenceScope::RemoteServerDaemon { identity_key } => {
             remote_server_daemon_database_file_path(identity_key)
         }
@@ -467,7 +466,7 @@ pub fn database_file_path_for_scope(scope: &PersistenceScope) -> PathBuf {
 /// initialized with (see [`super::current_scope`]).
 ///
 /// Ad-hoc read-only connections should use this instead of hardcoding
-/// [`PersistenceScope::App`], so that a TUI process never reads the GUI's
+/// [`PersistenceScope::App`], so that a daemon process never reads the GUI's
 /// database.
 pub fn database_file_path_for_current_scope() -> PathBuf {
     database_file_path_for_scope(&super::current_scope())
@@ -477,10 +476,6 @@ fn app_database_file_path() -> PathBuf {
     warp_core::paths::secure_state_dir()
         .unwrap_or_else(warp_core::paths::state_dir)
         .join(WARP_SQLITE_FILE_NAME)
-}
-
-fn tui_database_file_path() -> PathBuf {
-    warp_core::paths::tui_state_dir().join(WARP_SQLITE_FILE_NAME)
 }
 
 fn remote_server_daemon_database_file_path(identity_key: &str) -> PathBuf {
@@ -2517,7 +2512,7 @@ fn read_sqlite_data(
         });
     }
 
-    let app_state = if data_scope.session_restoration() {
+    let app_state = {
         use schema::windows::dsl::*;
 
         let active_window_id = schema::app::dsl::app
@@ -2724,8 +2719,6 @@ fn read_sqlite_data(
             block_lists: Arc::new(restored_blocks),
             running_mcp_servers,
         })
-    } else {
-        None
     };
 
     let read_context = load_cloud_object_read_context(conn, current_user_id)?;
@@ -2851,39 +2844,25 @@ fn read_sqlite_data(
         .optional()?
         .map(|uid| uid.into());
 
-    // The GUI and TUI both consume command history. Other headless launch
-    // modes skip it.
-    let commands = if data_scope.command_history() {
-        schema::commands::dsl::commands
-            // The newest row for a duplicate command supplies its summary metadata.
-            .order(schema::commands::columns::id.desc())
-            .load_iter::<model::Command, DefaultLoadingMode>(conn)?
-            .filter_map(|command| command.ok())
-            .map(PersistedCommand::from)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let commands = schema::commands::dsl::commands
+        // The newest row for a duplicate command supplies its summary metadata.
+        .order(schema::commands::columns::id.desc())
+        .load_iter::<model::Command, DefaultLoadingMode>(conn)?
+        .filter_map(|command| command.ok())
+        .map(PersistedCommand::from)
+        .collect();
 
-    let user_profiles = if data_scope.user_profiles() {
-        schema::user_profiles::dsl::user_profiles
-            .load_iter::<model::UserProfile, DefaultLoadingMode>(conn)?
-            .filter_map(|user_profile| user_profile.ok())
-            .map(user_profile_from_persistence)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let user_profiles = schema::user_profiles::dsl::user_profiles
+        .load_iter::<model::UserProfile, DefaultLoadingMode>(conn)?
+        .filter_map(|user_profile| user_profile.ok())
+        .map(user_profile_from_persistence)
+        .collect();
 
-    let object_actions: Vec<ObjectAction> = if data_scope.gui_only_data() {
-        schema::object_actions::dsl::object_actions
-            .load_iter::<model::PersistedObjectAction, DefaultLoadingMode>(conn)?
-            .filter_map(|object_action| object_action.ok()) // parse into PersistedObjectAction
-            .filter_map(|action| object_action_from_persisted(action).ok())
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let object_actions: Vec<ObjectAction> = schema::object_actions::dsl::object_actions
+        .load_iter::<model::PersistedObjectAction, DefaultLoadingMode>(conn)?
+        .filter_map(|object_action| object_action.ok()) // parse into PersistedObjectAction
+        .filter_map(|action| object_action_from_persisted(action).ok())
+        .collect();
 
     let server_experiments = schema::server_experiments::dsl::server_experiments
         .load_iter::<model::ServerExperiment, DefaultLoadingMode>(conn)?

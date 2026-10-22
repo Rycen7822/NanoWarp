@@ -2,9 +2,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use settings::Setting as _;
 use warpui::App;
 
 use super::*;
+use crate::LaunchMode;
 use crate::ai::aws_credentials::AwsCredentialRefresher;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::mcp::TemplatableMCPServerManager;
@@ -17,7 +19,7 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::server::sync_queue::SyncQueue;
-use crate::settings::PrivacySettings;
+use crate::settings::{AISettings, PrivacySettings};
 use crate::terminal::input::models::query_model_picker_choices;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team::Team;
@@ -26,7 +28,6 @@ use crate::workspaces::user_workspaces::{
     TeamContextForOperation, TeamlessScopeForTest, UserWorkspaces,
 };
 use crate::workspaces::workspace::Workspace;
-use crate::{LaunchMode, TuiEntryPoint};
 
 // -- DisableReason::should_clear_preference tests --
 
@@ -1292,7 +1293,14 @@ fn preferences_for_profile_model_tests(ctx: &mut ModelContext<LLMPreferences>) -
 #[cfg(not(target_family = "wasm"))]
 fn with_computer_use_test_context(f: impl FnOnce(&mut App) + 'static) {
     App::test((), |mut app| async move {
+        let _file_profiles = FeatureFlag::FileBackedExecutionProfiles.override_enabled(true);
         initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .execution_profiles
+                .set_value(Default::default(), ctx)
+                .unwrap();
+        });
         app.add_singleton_model(|_| ServerApiProvider::new_for_test());
         app.add_singleton_model(|_| AuthStateProvider::new_for_test());
         app.add_singleton_model(AuthManager::new_for_test);
@@ -1304,15 +1312,7 @@ fn with_computer_use_test_context(f: impl FnOnce(&mut App) + 'static) {
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(|ctx| {
-            AIExecutionProfilesModel::new(
-                &LaunchMode::Tui {
-                    entrypoint: TuiEntryPoint::Interactive {
-                        mount: Box::new(|_| {}),
-                        api_key: None,
-                    },
-                },
-                ctx,
-            )
+            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });
         app.add_singleton_model(|ctx| {
             UserWorkspaces::handle(ctx).update(ctx, |workspaces, _| {
@@ -1677,7 +1677,14 @@ fn shared_model_picker_query_orders_filters_and_marks_disabled_choices() {
 #[test]
 fn updating_active_profile_base_model_persists_and_updates_resolution() {
     App::test((), |mut app| async move {
+        let _file_profiles = FeatureFlag::FileBackedExecutionProfiles.override_enabled(true);
         initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .execution_profiles
+                .set_value(Default::default(), ctx)
+                .unwrap();
+        });
         app.add_singleton_model(|_| ServerApiProvider::new_for_test());
         app.add_singleton_model(|_| AuthStateProvider::new_for_test());
         app.add_singleton_model(AuthManager::new_for_test);
@@ -1689,15 +1696,7 @@ fn updating_active_profile_base_model_persists_and_updates_resolution() {
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         let profiles = app.add_singleton_model(|ctx| {
-            AIExecutionProfilesModel::new(
-                &LaunchMode::Tui {
-                    entrypoint: TuiEntryPoint::Interactive {
-                        mount: Box::new(|_| {}),
-                        api_key: None,
-                    },
-                },
-                ctx,
-            )
+            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });
         let preferences = app.add_singleton_model(preferences_for_profile_model_tests);
         let surface_id = EntityId::new();

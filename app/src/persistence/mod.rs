@@ -70,10 +70,6 @@ use crate::workspaces::workspace::{Workspace as WorkspaceMetadata, WorkspaceUid}
 pub enum PersistenceScope {
     /// The GUI app (and other launch modes that share its database).
     App,
-    /// The `warp-tui` front-end, which keeps its own database so GUI/TUI
-    /// version skew can never migrate a shared database out from under the
-    /// older binary. Cloud sync is the cross-front-end sharing mechanism.
-    Tui,
     RemoteServerDaemon {
         identity_key: String,
     },
@@ -108,37 +104,8 @@ pub enum PersistedDataScope {
     /// The GUI app: everything, including window/tab/block session
     /// restoration and command history.
     Full,
-    /// The `warp-tui` front-end: command history, cloud objects, user profiles,
-    /// and agent/conversation state, but no GUI session restoration or pending
-    /// object actions.
-    TuiFrontend,
     /// The remote server daemon: only codebase index metadata.
     CodebaseIndicesOnly,
-}
-
-impl PersistedDataScope {
-    /// Window/tab/pane snapshots and restored blocks.
-    fn session_restoration(self) -> bool {
-        matches!(self, PersistedDataScope::Full)
-    }
-
-    /// Shell-command history consumed by both interactive front-ends.
-    fn command_history(self) -> bool {
-        matches!(
-            self,
-            PersistedDataScope::Full | PersistedDataScope::TuiFrontend
-        )
-    }
-
-    /// User profiles used to identify cloud-object creators in both interactive frontends.
-    fn user_profiles(self) -> bool {
-        self != PersistedDataScope::CodebaseIndicesOnly
-    }
-
-    /// Pending object actions, which only the GUI consumes.
-    fn gui_only_data(self) -> bool {
-        matches!(self, PersistedDataScope::Full)
-    }
 }
 
 /// A conversation whose `summary` column had to be derived from its task

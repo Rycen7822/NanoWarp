@@ -99,22 +99,6 @@ pub fn resolve_cloud_agent_computer_use_state(
 // compiled out there (see `AIExecutionProfilesModel::new` and `migrate_settings_profiles`).
 #[cfg(not(feature = "agent_mode_evals"))]
 pub fn create_default_from_legacy_settings(app: &AppContext) -> AIExecutionProfile {
-    create_default_from_legacy_settings_with_profile(AIExecutionProfile::default(), app)
-}
-
-#[cfg(not(feature = "agent_mode_evals"))]
-fn create_default_for_tui_from_legacy_settings(app: &AppContext) -> AIExecutionProfile {
-    create_default_from_legacy_settings_with_profile(
-        AIExecutionProfile::default_profile_for_tui(),
-        app,
-    )
-}
-
-#[cfg(not(feature = "agent_mode_evals"))]
-fn create_default_from_legacy_settings_with_profile(
-    default_profile: AIExecutionProfile,
-    app: &AppContext,
-) -> AIExecutionProfile {
     // Note that the legacy "Autonomy" and "Code Access" settings are not imported here.
     // The "Code Access" setting defaulted to "Always Ask", which is the most restrictive, so
     // it's impossible for us to infer some hesitancy about autonomy from the setting and we should
@@ -133,7 +117,7 @@ fn create_default_from_legacy_settings_with_profile(
             .cloned()
             .collect(),
         directory_allowlist: ai_settings.agent_mode_coding_file_read_allowlist.clone(),
-        ..default_profile
+        ..AIExecutionProfile::default()
     }
 }
 
