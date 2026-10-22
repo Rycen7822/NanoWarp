@@ -60,9 +60,7 @@ use crate::terminal::input::models::InlineModelSelectorTab;
 use crate::terminal::input::slash_command_model::{
     SlashCommandEntryState, UpdatedSlashCommandModel,
 };
-use crate::terminal::input::{
-    CompletionsTrigger, Event, Input, InputSuggestionsMode, UserQueryMenuAction,
-};
+use crate::terminal::input::{CompletionsTrigger, Event, Input, InputSuggestionsMode};
 #[cfg(feature = "local_fs")]
 use crate::terminal::model::session::Session;
 use crate::terminal::view::{AIQueryRouting, TerminalAction, resolve_ai_query_routing};
@@ -999,9 +997,6 @@ impl Input {
 
                 self.open_profile_selector(ctx);
             }
-            SlashCommandKind::Rewind => {
-                self.open_rewind_menu(ctx);
-            }
             SlashCommandKind::Usage => {
                 ctx.dispatch_typed_action(&TerminalAction::OpenBillingAndUsagePane);
             }
@@ -1124,10 +1119,6 @@ impl Input {
                     initial_attachments,
                     destination,
                 });
-            }
-            SlashCommandKind::ForkFrom => {
-                self.open_user_query_menu(UserQueryMenuAction::ForkFrom, ctx);
-                return true;
             }
             #[cfg(not(target_family = "wasm"))]
             SlashCommandKind::ContinueLocally => {
@@ -1289,12 +1280,6 @@ impl Input {
                     // the live staging is sent and reset, rather than treated as a queued-row fire.
                     self.submit_user_query_now(prompt, ctx);
                 }
-            }
-            SlashCommandKind::OpenRepo => {
-                if !FeatureFlag::InlineRepoMenu.is_enabled() {
-                    return false;
-                }
-                self.open_repos_menu(ctx);
             }
             SlashCommandKind::Compact | SlashCommandKind::Plan | SlashCommandKind::Orchestrate => {
                 // These slash commands just send AI requests with the slash command text as a

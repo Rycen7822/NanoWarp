@@ -313,8 +313,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::WebSearchUI,
         #[cfg(feature = "web_fetch_ui")]
         FeatureFlag::WebFetchUI,
-        #[cfg(feature = "fork_from_command")]
-        FeatureFlag::ForkFromCommand,
         #[cfg(feature = "context_window_usage_v2")]
         FeatureFlag::ContextWindowUsageV2,
         #[cfg(feature = "context_window_usage_breakdown")]
@@ -327,8 +325,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::FileAndDiffSetComments,
         #[cfg(feature = "revert_to_checkpoints")]
         FeatureFlag::RevertToCheckpoints,
-        #[cfg(feature = "rewind_slash_command")]
-        FeatureFlag::RewindSlashCommand,
         #[cfg(feature = "agent_management_view")]
         FeatureFlag::AgentManagementView,
         #[cfg(feature = "agent_management_details_view")]
@@ -375,8 +371,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::NativeShellCompletions,
         #[cfg(feature = "agent_view_conversation_list_view")]
         FeatureFlag::AgentViewConversationListView,
-        #[cfg(feature = "inline_repo_menu")]
-        FeatureFlag::InlineRepoMenu,
         #[cfg(feature = "cloud_mode")]
         FeatureFlag::CloudMode,
         #[cfg(feature = "cloud_mode_from_local_session")]

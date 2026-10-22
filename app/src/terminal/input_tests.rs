@@ -35,7 +35,8 @@ use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionId, AIAgentExchange, AIAgentInput, AIAgentOutputStatus, UserQueryMode,
+    AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
+    UserQueryMode,
 };
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::{BlocklistAIPermissions, ResponseStreamId};

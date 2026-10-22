@@ -1013,7 +1013,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     ResumeConversationButton,
     CodexModal,
     LongRunningCommand,
-    InlineConversationMenu,
     PromptChip,
     OnboardingCallout,
     ConversationListView,
@@ -1064,7 +1063,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::ViewPassiveCodeDiffDetails => Self::ViewPassiveCodeDiffDetails,
             AgentViewEntryOrigin::ResumeConversationButton => Self::ResumeConversationButton,
             AgentViewEntryOrigin::CodexModal => Self::CodexModal,
-            AgentViewEntryOrigin::InlineConversationMenu => Self::InlineConversationMenu,
             AgentViewEntryOrigin::PromptChip => Self::PromptChip,
             AgentViewEntryOrigin::OnboardingCallout => Self::OnboardingCallout,
             AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
@@ -2648,16 +2646,6 @@ pub enum TelemetryEvent {
         origin: TelemetryAgentViewEntryOrigin,
         /// Whether the conversation was empty (had no exchanges) when exiting.
         was_empty: bool,
-    },
-    /// Emitted when the inline conversation menu is opened.
-    InlineConversationMenuOpened {
-        /// Whether the menu was opened in the agent view vs terminal mode.
-        is_in_agent_view: bool,
-    },
-    /// Emitted when an item is selected from the inline conversation menu.
-    InlineConversationMenuItemSelected {
-        /// Whether the item was selected in the agent view vs terminal mode.
-        is_in_agent_view: bool,
     },
     /// Emitted when the agent shortcuts view visibility is toggled.
     AgentShortcutsViewToggled {
@@ -4515,14 +4503,6 @@ impl TelemetryEvent {
                 "origin": origin,
                 "was_empty": was_empty,
             })),
-            TelemetryEvent::InlineConversationMenuOpened { is_in_agent_view } => Some(json!({
-                "is_in_agent_view": is_in_agent_view,
-            })),
-            TelemetryEvent::InlineConversationMenuItemSelected { is_in_agent_view } => {
-                Some(json!({
-                    "is_in_agent_view": is_in_agent_view,
-                }))
-            }
             TelemetryEvent::AgentShortcutsViewToggled { is_visible } => Some(json!({
                 "is_visible": is_visible,
             })),
@@ -4967,8 +4947,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ConversationListLinkCopied { .. }
             | TelemetryEvent::AgentViewEntered { .. }
             | TelemetryEvent::AgentViewExited { .. }
-            | TelemetryEvent::InlineConversationMenuOpened { .. }
-            | TelemetryEvent::InlineConversationMenuItemSelected { .. }
             | TelemetryEvent::AgentShortcutsViewToggled { .. }
             | TelemetryEvent::RecentMenuItemSelected { .. }
             | TelemetryEvent::OpenRepoFolderSubmitted { .. }
@@ -5105,11 +5083,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::ConversationListLinkCopied => {
                 EnablementState::Flag(FeatureFlag::AgentViewConversationListView)
             }
-            Self::AgentViewEntered
-            | Self::AgentViewExited
-            | Self::InlineConversationMenuOpened
-            | Self::InlineConversationMenuItemSelected
-            | Self::AgentShortcutsViewToggled => EnablementState::Flag(FeatureFlag::AgentView),
+            Self::AgentViewEntered | Self::AgentViewExited | Self::AgentShortcutsViewToggled => {
+                EnablementState::Flag(FeatureFlag::AgentView)
+            }
             Self::CreateProjectPromptSubmitted => EnablementState::Flag(FeatureFlag::GetStartedTab),
             Self::CreateProjectPromptSubmittedContent => {
                 EnablementState::Flag(FeatureFlag::GetStartedTab)
@@ -5620,10 +5596,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ConversationListLinkCopied => "ConversationList.LinkCopied",
             Self::AgentViewEntered => "AgentView.Entered",
             Self::AgentViewExited => "AgentView.Exited",
-            Self::InlineConversationMenuOpened => "AgentView.InlineConversationMenuOpened",
-            Self::InlineConversationMenuItemSelected => {
-                "AgentView.InlineConversationMenuItemSelected"
-            }
             Self::AgentShortcutsViewToggled => "AgentView.ShortcutsViewToggled",
             Self::CreateProjectPromptSubmitted => "Create Project Prompt Submitted",
             Self::CreateProjectPromptSubmittedContent => "Create Project Prompt Submitted Content",
@@ -6640,12 +6612,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::AgentViewEntered => "User entered the Agent View",
             Self::AgentViewExited => "User exited the Agent View",
-            Self::InlineConversationMenuOpened => {
-                "User opened the inline conversation menu in Agent View"
-            }
-            Self::InlineConversationMenuItemSelected => {
-                "User selected an item from the inline conversation menu"
-            }
             Self::AgentShortcutsViewToggled => "User toggled the shortcuts view in Agent View",
             Self::CreateProjectPromptSubmitted => {
                 "User submitted a prompt from the create project view"

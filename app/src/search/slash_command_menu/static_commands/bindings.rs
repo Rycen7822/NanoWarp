@@ -18,10 +18,6 @@ pub fn default_binding_for_command(name: &'static str) -> DefaultSlashCommandBin
             mac: "cmd-alt-enter",
             linux_and_windows: "ctrl-alt-enter",
         }),
-        "/open-repo" => DefaultSlashCommandBinding::PerPlatform(PerPlatformKeystroke {
-            mac: "alt-cmd-o",
-            linux_and_windows: "ctrl-alt-o",
-        }),
         _ => DefaultSlashCommandBinding::None,
     }
 }

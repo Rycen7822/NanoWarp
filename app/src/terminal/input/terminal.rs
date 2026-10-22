@@ -164,12 +164,7 @@ impl Input {
 
         let mut column = Flex::column();
         let is_slash_commands = self.suggestions_mode_model.as_ref(app).is_slash_commands();
-        let is_conversation_menu = self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_conversation_menu();
         let is_skill_menu = self.suggestions_mode_model.as_ref(app).is_skill_menu();
-        let is_repos_menu = self.suggestions_mode_model.as_ref(app).is_repos_menu();
         let hide_menu = self
             .inline_terminal_menu_positioner
             .as_ref(app)
@@ -182,12 +177,8 @@ impl Input {
                             None
                         } else if is_slash_commands {
                             Some(ChildView::new(&self.inline_slash_commands_view).finish())
-                        } else if is_conversation_menu {
-                            Some(ChildView::new(&self.inline_conversation_menu_view).finish())
                         } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
                             Some(ChildView::new(&self.inline_skill_selector_view).finish())
-                        } else if is_repos_menu {
-                            Some(ChildView::new(&self.inline_repos_menu_view).finish())
                         } else {
                             None
                         },
@@ -207,12 +198,8 @@ impl Input {
                             None
                         } else if is_slash_commands {
                             Some(ChildView::new(&self.inline_slash_commands_view).finish())
-                        } else if is_conversation_menu {
-                            Some(ChildView::new(&self.inline_conversation_menu_view).finish())
                         } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
                             Some(ChildView::new(&self.inline_skill_selector_view).finish())
-                        } else if is_repos_menu {
-                            Some(ChildView::new(&self.inline_repos_menu_view).finish())
                         } else {
                             None
                         },
@@ -230,17 +217,11 @@ impl Input {
                 if !hide_menu {
                     if is_slash_commands && !should_render_below {
                         column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-                    } else if is_conversation_menu && !should_render_below {
-                        column.add_child(
-                            ChildView::new(&self.inline_conversation_menu_view).finish(),
-                        );
                     } else if FeatureFlag::ListSkills.is_enabled()
                         && is_skill_menu
                         && !should_render_below
                     {
                         column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-                    } else if is_repos_menu && !should_render_below {
-                        column.add_child(ChildView::new(&self.inline_repos_menu_view).finish());
                     }
                 }
 
@@ -249,17 +230,11 @@ impl Input {
                 if !hide_menu {
                     if is_slash_commands && should_render_below {
                         column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-                    } else if is_conversation_menu && should_render_below {
-                        column.add_child(
-                            ChildView::new(&self.inline_conversation_menu_view).finish(),
-                        );
                     } else if FeatureFlag::ListSkills.is_enabled()
                         && is_skill_menu
                         && should_render_below
                     {
                         column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-                    } else if is_repos_menu && should_render_below {
-                        column.add_child(ChildView::new(&self.inline_repos_menu_view).finish());
                     }
                 }
             }

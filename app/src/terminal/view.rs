@@ -278,7 +278,7 @@ use crate::ai::blocklist::{
 };
 use crate::ai::conversation_details_panel::ConversationDetailsPanelEvent;
 use crate::ai::conversation_utils;
-use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentModel, AIDocumentVersion};
+use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::ai::execution_profiles::ExecutionProfileId;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
@@ -3845,7 +3845,6 @@ impl TerminalView {
                 ai_context_model.clone(),
                 ai_input_model.clone(),
                 ai_action_model.clone(),
-                conversation_selection.clone(),
                 cli_subagent_controller.clone(),
                 terminal_view_id,
                 None, // current_repo_path - will be set when CWD is determined
@@ -22821,9 +22820,6 @@ impl TerminalView {
                     flavor: *flavor,
                 });
             }
-            InputEvent::ScrollToExchange { exchange_id } => {
-                self.scroll_to_exchange(*exchange_id, ctx);
-            }
             InputEvent::TriggerEnvironmentSetup { repos } => {
                 self.enter_environment_setup_selector(repos.clone(), ctx);
             }
@@ -27517,7 +27513,6 @@ impl TypedActionView for TerminalView {
             | SetMarkedText { .. }
             | ResumeConversation
             | ForkConversationFromLastKnownGoodState
-            | ToggleAIDocumentPane
             | ClearMarkedText
             | StartLspServer => ActionAccessibilityContent::from_debug(),
             #[cfg(feature = "local_fs")]
@@ -27628,7 +27623,6 @@ impl TypedActionView for TerminalView {
             | ResolvePromptSuggestion(..)
             | AwsBedrockLoginBanner(_)
             | AwsCliNotInstalledBanner(_)
-            | ExecuteRewindFromInlineMenu { .. }
             | ToggleUsageFooter
             | RevealChildAgent { .. }
             | SwitchAgentViewToConversation { .. }
@@ -27744,39 +27738,6 @@ impl TypedActionView for TerminalView {
                 conversation_id,
             } => {
                 self.rewind_ai_conversation(*ai_block_view_id, *exchange_id, *conversation_id, ctx)
-            }
-            ExecuteRewindFromInlineMenu {
-                exchange_id,
-                conversation_id,
-            } => {
-                // Find the ai_block_view_id for this exchange_id
-                let ai_block_view_id = self.rich_content_views.iter().find_map(|rich_content| {
-                    rich_content.ai_block_metadata().and_then(|metadata| {
-                        if metadata.exchange_id == *exchange_id
-                            && metadata.conversation_id == *conversation_id
-                        {
-                            Some(metadata.ai_block_handle.id())
-                        } else {
-                            None
-                        }
-                    })
-                });
-
-                if let Some(ai_block_view_id) = ai_block_view_id {
-                    self.show_rewind_confirmation_dialog(
-                        ai_block_view_id,
-                        *exchange_id,
-                        *conversation_id,
-                        AgentModeRewindEntrypoint::SlashCommand,
-                        ctx,
-                    );
-                } else {
-                    log::warn!(
-                        "Could not find AI block view for exchange_id {:?} in conversation {:?}",
-                        exchange_id,
-                        conversation_id
-                    );
-                }
             }
             CloseContextMenu => self.close_context_menu(ctx, true),
             Paste => self.paste(false, ctx),
@@ -28416,46 +28377,6 @@ impl TypedActionView for TerminalView {
                             initial_attachments: vec![],
                             destination: ForkedConversationDestination::SplitPane,
                         });
-                    }
-                }
-            }
-            ToggleAIDocumentPane => {
-                if let Some(conversation) =
-                    BlocklistAIHistoryModel::as_ref(ctx).active_conversation(self.id())
-                {
-                    let conversation_id = conversation.id();
-                    let doc_model = AIDocumentModel::as_ref(ctx);
-                    let is_plan_for_this_conversation_open = self
-                        .agent_view_controller
-                        .as_ref(ctx)
-                        .pane_group_id()
-                        .is_some_and(|pane_group_id| {
-                            doc_model.is_document_visible_by_conversation_in_pane_group(
-                                &conversation_id,
-                                pane_group_id,
-                            )
-                        });
-                    if is_plan_for_this_conversation_open {
-                        ctx.emit(Event::HideAIDocumentPanes);
-                    } else {
-                        let docs = doc_model.get_all_documents_for_conversation(conversation_id);
-                        match docs.len() {
-                            0 => {} // No plans — nothing to do.
-                            1 => {
-                                let (document_id, doc) = &docs[0];
-                                ctx.emit(Event::OpenAIDocumentPane {
-                                    document_id: *document_id,
-                                    document_version: doc.version,
-                                    is_auto_open: false,
-                                });
-                            }
-                            _ => {
-                                // Multiple plans — open the plan picker menu.
-                                self.input.update(ctx, |input, ctx| {
-                                    input.open_plan_menu(conversation_id, ctx);
-                                });
-                            }
-                        }
                     }
                 }
             }

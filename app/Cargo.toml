@@ -585,7 +585,6 @@ default = [
     "async_find",
     "shared_session_long_running_commands",
     "mcp_grouped_server_context",
-    "fork_from_command",
     "context_window_usage_v2",
     "context_window_usage_breakdown",
     "ambient_agents_command_line",
@@ -636,7 +635,6 @@ default = [
     "active_conversation_requires_interaction",
     "figma_detection",
     "file_based_mcp",
-    "inline_repo_menu",
     "kitty_keyboard_protocol",
     "inline_menu_headers",
     "github_pr_prompt_chip",
@@ -648,7 +646,6 @@ default = [
     "pr_comments_v2",
     "pr_comments_skill",
     "revert_to_checkpoints",
-    "rewind_slash_command",
     "hoa_code_review",
     "warpify_footer",
     "agent_toolbar_editor",
@@ -940,13 +937,11 @@ summarize_conversation_command = []
 mcp_grouped_server_context = []
 web_search_ui = []
 web_fetch_ui = []
-fork_from_command = []
 context_window_usage_v2 = []
 context_window_usage_breakdown = []
 global_search = []
 file_and_diff_set_comments = []
 revert_to_checkpoints = []
-rewind_slash_command = []
 agent_view = []
 agent_view_block_context = ["agent_view"]
 warp_managed_secrets = []
@@ -965,7 +960,6 @@ cloud_mode_from_local_session = []
 cloud_mode_image_context = []
 force_classic_completions = []
 agent_view_conversation_list_view = ["agent_view"]
-inline_repo_menu = ["agent_view"]
 summarization_via_message_replacement = []
 lsp_as_a_tool = []
 inline_model_selector = ["agent_view"]

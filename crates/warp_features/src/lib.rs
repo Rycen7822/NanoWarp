@@ -503,9 +503,6 @@ pub enum FeatureFlag {
     /// Enables rendering markdown images inline in AI block list responses.
     BlocklistMarkdownImages,
 
-    /// Enables the /fork-from slash command.
-    ForkFromCommand,
-
     /// Enables v2 of the context window usage UI.
     ContextWindowUsageV2,
 
@@ -522,9 +519,6 @@ pub enum FeatureFlag {
     /// Enables the revert to checkpoints feature.
     RevertToCheckpoints,
 
-    /// Enables the /rewind slash command.
-    RewindSlashCommand,
-
     /// Agent Management View.
     AgentManagementView,
 
@@ -538,9 +532,6 @@ pub enum FeatureFlag {
 
     /// Enables block context functionality in Agent View.
     AgentViewBlockContext,
-
-    /// Enables the inline repo switcher menu for switching between indexed repos.
-    InlineRepoMenu,
 
     /// Enables cloud mode functionality for ambient agents.
     CloudMode,

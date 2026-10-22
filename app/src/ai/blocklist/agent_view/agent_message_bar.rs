@@ -30,7 +30,6 @@ use crate::ai::blocklist::{
     BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIHistoryEvent,
     BlocklistAIInputEvent, BlocklistAIInputModel, ai_brand_color,
 };
-use crate::ai::document::ai_document_model::{AIDocumentModel, AIDocumentModelEvent};
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::mcp::templatable_manager::{FigmaMcpStatus, TemplatableMCPServerManagerEvent};
 use crate::ai::pricing_promotion::{
@@ -73,8 +72,6 @@ pub struct AgentMessageBarMouseStates {
     pub fork_from_last_known_good_state: MouseStateHandle,
     pub toggle_shortcuts: MouseStateHandle,
     pub toggle_slash_commands: MouseStateHandle,
-    pub toggle_plan: MouseStateHandle,
-    pub toggle_conversation_menu: MouseStateHandle,
     pub toggle_code_review: MouseStateHandle,
     pub handoff_to_cloud: MouseStateHandle,
     pub clear_attached_context: MouseStateHandle,
@@ -209,12 +206,6 @@ impl AgentMessageBar {
                 ctx.notify();
             }
         });
-        ctx.subscribe_to_model(&AIDocumentModel::handle(ctx), |_, _, event, ctx| {
-            if matches!(event, AIDocumentModelEvent::DocumentVisibilityChanged(_)) {
-                ctx.notify();
-            }
-        });
-
         ctx.subscribe_to_model(&context_model, |me, _, event, ctx| {
             if let BlocklistAIContextEvent::UpdatedPendingContext { .. } = event {
                 me.update_figma_detected(ctx);
@@ -589,11 +580,7 @@ impl MessageProvider<AgentMessageArgs<'_>> for ZeroStateMessageProducer {
             return None;
         }
 
-        let AgentViewState::Active {
-            original_conversation_length,
-            ..
-        } = agent_view_controller.agent_view_state()
-        else {
+        let AgentViewState::Active { .. } = agent_view_controller.agent_view_state() else {
             return None;
         };
 
@@ -706,23 +693,6 @@ impl MessageProvider<AgentMessageArgs<'_>> for ZeroStateMessageProducer {
             );
         }
 
-        let plan_count = AIDocumentModel::as_ref(app)
-            .get_all_documents_for_conversation(active_conversation.id())
-            .len();
-        let has_plan = plan_count > 0;
-        let has_conversation_been_updated_since_agent_view_entry =
-            *original_conversation_length != active_conversation.exchange_count();
-
-        if !is_cloud_agent && !has_conversation_been_updated_since_agent_view_entry {
-            items.push(MessageItem::clickable(
-                vec![MessageItem::text("open conversation")],
-                |ctx| {
-                    ctx.dispatch_typed_action(InputAction::ToggleConversationsMenu);
-                },
-                mouse_states.toggle_conversation_menu.clone(),
-            ));
-        }
-
         // Code review only works locally.
         #[cfg(not(target_family = "wasm"))]
         if !is_cloud_agent
@@ -746,36 +716,6 @@ impl MessageProvider<AgentMessageArgs<'_>> for ZeroStateMessageProducer {
             ));
         }
 
-        if has_plan {
-            let is_plan_for_this_conversation_open = agent_view_controller
-                .pane_group_id()
-                .is_some_and(|pane_group_id| {
-                    AIDocumentModel::as_ref(app).is_document_visible_by_conversation_in_pane_group(
-                        &active_conversation.id(),
-                        pane_group_id,
-                    )
-                });
-
-            // If changing this text, ensure the logic is consistent with how TerminalAction::ToggleAIDocumentPane is handled.
-            items.push(MessageItem::clickable(
-                vec![
-                    MessageItem::keystroke(
-                        Keystroke::parse("cmdorctrl-alt-p").expect("keystroke should parse"),
-                    ),
-                    MessageItem::text(if is_plan_for_this_conversation_open {
-                        "to hide plan"
-                    } else if plan_count > 1 {
-                        "to view plans"
-                    } else {
-                        "to view plan"
-                    }),
-                ],
-                |ctx| {
-                    ctx.dispatch_typed_action(TerminalAction::ToggleAIDocumentPane);
-                },
-                mouse_states.toggle_plan.clone(),
-            ));
-        }
         if fork_from_last_known_good_state_exchange_id(active_conversation, terminal_model)
             .is_some()
         {
@@ -879,9 +819,8 @@ impl MessageProvider<AgentMessageArgs<'_>> for ForkSlashCommandMessageProducer {
             return None;
         };
         let command_name = detected_command.command.name;
-        let is_fork_family = command_name == commands::FORK.name
-            || command_name == commands::FORK_FROM.name
-            || command_name == commands::FORK_AND_COMPACT.name;
+        let is_fork_family =
+            command_name == commands::FORK.name || command_name == commands::FORK_AND_COMPACT.name;
         #[cfg(not(target_family = "wasm"))]
         let is_continue_locally = command_name == commands::CONTINUE_LOCALLY.name;
         #[cfg(target_family = "wasm")]

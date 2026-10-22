@@ -163,12 +163,6 @@ pub fn init(app: &mut AppContext) {
             TerminalAction::ForkConversationFromLastKnownGoodState,
             id!("Terminal") & !id!("IMEOpen") & id!(CAN_FORK_FROM_LAST_KNOWN_GOOD_STATE_KEY),
         ),
-        // Toggle AI document pane
-        FixedBinding::new(
-            "cmdorctrl-alt-p",
-            TerminalAction::ToggleAIDocumentPane,
-            id!("Terminal") & !id!("IMEOpen"),
-        ),
         // On the web, we get pastes from system paste events.
         #[cfg(target_family = "wasm")]
         FixedBinding::standard(
@@ -185,27 +179,6 @@ pub fn init(app: &mut AppContext) {
             TerminalAction::ForkConversationFromLastKnownGoodState,
             id!("Terminal") & !id!("IMEOpen") & id!(CAN_FORK_FROM_LAST_KNOWN_GOOD_STATE_KEY),
         )]);
-    }
-
-    // Register binding to toggle plans in agent conversations.
-    {
-        app.register_fixed_bindings([FixedBinding::new(
-            "cmdorctrl-alt-p",
-            TerminalAction::ToggleAIDocumentPane,
-            id!("Terminal") & !id!("IMEOpen"),
-        )]);
-        if cfg!(target_os = "macos") {
-            // On MacOS, if the user has the 'Option as meta' setting enabled, the cmd-alt-p binding
-            // above will not match.
-            //
-            // TODO(zachbai): Consider if, for the purposes of fixed bindings, alt/meta should work
-            // fungibly regardless of underlying setting.
-            app.register_fixed_bindings([FixedBinding::new(
-                "cmd-meta-p",
-                TerminalAction::ToggleAIDocumentPane,
-                id!("Terminal") & !id!("IMEOpen"),
-            )]);
-        }
     }
 
     if ChannelState::channel() == Channel::Integration {

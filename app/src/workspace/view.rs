@@ -426,7 +426,7 @@ use crate::terminal::view::ambient_agent::{AuthSecretFtuxView, AuthSecretFtuxVie
 use crate::terminal::view::docker_sandbox::DEFAULT_DOCKER_SANDBOX_BASE_IMAGE;
 use crate::terminal::view::inline_banner::ZeroStatePromptSuggestionType;
 use crate::terminal::view::load_ai_conversation::{
-    RestorationDirState, RestoreConversationEntryBehavior, RestoredAIConversation,
+    RestoreConversationEntryBehavior, RestoredAIConversation,
 };
 use crate::terminal::view::ssh_file_upload::FileUploadId;
 use crate::terminal::view::{
@@ -13804,7 +13804,6 @@ impl Workspace {
         // for cloud-to-local forks, which would otherwise mask the warping indicator while the
         // agent processes the follow-up. See `BlocklistAIStatusBar::render`'s
         // `ephemeral_message_model.current_message().is_none()` gate.
-        let has_initial_query = summarize_after_fork || initial_prompt.is_some();
 
         let cloud_storage_enabled =
             PrivacySettings::as_ref(ctx).is_cloud_conversation_storage_enabled;
@@ -13866,7 +13865,6 @@ impl Workspace {
                             initial_prompt,
                             initial_attachments,
                             destination,
-                            has_initial_query,
                             source_terminal_view_id,
                             server_forked_id,
                             window_id,
@@ -13884,7 +13882,6 @@ impl Workspace {
                     initial_prompt,
                     initial_attachments,
                     destination,
-                    has_initial_query,
                     source_terminal_view_id,
                     None,
                     window_id,
@@ -13908,7 +13905,6 @@ impl Workspace {
         initial_prompt: Option<String>,
         initial_attachments: Vec<PendingAttachment>,
         destination: ForkedConversationDestination,
-        has_initial_query: bool,
         source_terminal_view_id: Option<EntityId>,
         server_forked_conversation_id: Option<String>,
         window_id: WindowId,
@@ -13969,9 +13965,6 @@ impl Workspace {
                         RestoreConversationEntryBehavior::EnterRestoredConversation,
                         ctx,
                     );
-                    terminal_view
-                        .maybe_show_restore_context_hint(RestorationDirState::Unchanged, ctx);
-
                     terminal_view.redetermine_global_focus(ctx);
                 });
 
@@ -14007,7 +14000,6 @@ impl Workspace {
                 None,
                 Some(ConversationRestorationInNewPaneType::Forked {
                     conversation: forked_conversation,
-                    has_initial_query,
                 }),
                 false,
                 ctx,
@@ -14055,7 +14047,6 @@ impl Workspace {
                 None, /* chosen_shell */
                 Some(ConversationRestorationInNewPaneType::Forked {
                     conversation: forked_conversation.clone(),
-                    has_initial_query,
                 }),
                 ctx,
             );

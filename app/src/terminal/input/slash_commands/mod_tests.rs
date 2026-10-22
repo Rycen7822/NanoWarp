@@ -20,11 +20,9 @@ fn slash_command_is_submitted_as_prompt_only_for_prompt_commands() {
     for command in [
         &*commands::FORK,
         &*commands::FORK_AND_COMPACT,
-        &commands::FORK_FROM,
         &*commands::CONTINUE_LOCALLY,
         &*commands::COMPACT_AND,
         &*commands::MODEL,
-        &commands::REWIND,
         &*commands::QUEUE,
     ] {
         assert!(!slash_command_is_submitted_as_prompt(command));

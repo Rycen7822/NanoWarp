@@ -292,16 +292,6 @@ pub static FEEDBACK: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand {
     argument: Some(Argument::optional().with_execute_on_selection()),
 });
 
-pub const OPEN_REPO: StaticCommand = StaticCommand {
-    name: "/open-repo",
-    description: "Switch to another indexed repository",
-    kind: SlashCommandKind::OpenRepo,
-    icon_path: "bundled/svg/folder.svg",
-    availability: Availability::LOCAL.union(Availability::AI_ENABLED),
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-
 pub const OPEN_RULES: StaticCommand = StaticCommand {
     name: "/open-rules",
     description: "View all of your global and project rules",
@@ -475,19 +465,6 @@ pub static FORK_AND_COMPACT: LazyLock<StaticCommand> = LazyLock::new(|| {
     }
 });
 
-pub const FORK_FROM: StaticCommand = StaticCommand {
-    name: "/fork-from",
-    description: "Fork conversation from a specific query",
-    kind: SlashCommandKind::ForkFrom,
-    icon_path: "bundled/svg/arrow-split.svg",
-    availability: Availability::AGENT_VIEW
-        .union(Availability::NO_LRC_CONTROL)
-        .union(Availability::AI_ENABLED)
-        .union(Availability::NOT_CLOUD_AGENT),
-    auto_enter_ai_mode: true,
-    argument: None,
-};
-
 pub static CONTINUE_LOCALLY: LazyLock<StaticCommand> = LazyLock::new(|| {
     let hint_text = "<optional prompt to send in local conversation>";
     StaticCommand {
@@ -533,18 +510,6 @@ pub const COST: StaticCommand = StaticCommand {
         .union(Availability::AI_ENABLED)
         .union(Availability::NOT_CLOUD_AGENT),
     auto_enter_ai_mode: false,
-    argument: None,
-};
-
-pub const REWIND: StaticCommand = StaticCommand {
-    name: "/rewind",
-    description: "Rewind to a previous point in the conversation",
-    kind: SlashCommandKind::Rewind,
-    icon_path: "bundled/svg/clock-rewind.svg",
-    availability: Availability::AGENT_VIEW
-        .union(Availability::AI_ENABLED)
-        .union(Availability::NOT_CLOUD_AGENT),
-    auto_enter_ai_mode: true,
     argument: None,
 };
 
@@ -714,10 +679,6 @@ fn all_commands() -> Vec<StaticCommand> {
             FORK_AND_COMPACT.clone(),
             CONTINUE_LOCALLY.clone(),
         ]);
-
-        if FeatureFlag::ForkFromCommand.is_enabled() {
-            commands.push(FORK_FROM);
-        }
     }
 
     if !cfg!(target_family = "wasm") {
@@ -742,15 +703,6 @@ fn all_commands() -> Vec<StaticCommand> {
 
     if FeatureFlag::InlineProfileSelector.is_enabled() {
         commands.push(PROFILE.clone());
-    }
-
-    if FeatureFlag::RevertToCheckpoints.is_enabled() && FeatureFlag::RewindSlashCommand.is_enabled()
-    {
-        commands.push(REWIND);
-    }
-
-    if FeatureFlag::InlineRepoMenu.is_enabled() && !cfg!(target_family = "wasm") {
-        commands.push(OPEN_REPO);
     }
 
     commands.push(ORCHESTRATE.clone());

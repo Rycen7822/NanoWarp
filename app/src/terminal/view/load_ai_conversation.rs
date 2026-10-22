@@ -22,9 +22,7 @@ use crate::ai::agent::{
     AIAgentOutput, AIAgentOutputMessage, AIAgentOutputMessageType, CreateDocumentsRequest,
     CreateDocumentsResult, EditDocumentsResult,
 };
-use crate::ai::blocklist::agent_view::{
-    AgentViewEntryBlockParams, AgentViewEntryOrigin, DismissalStrategy, EphemeralMessage,
-};
+use crate::ai::blocklist::agent_view::{AgentViewEntryBlockParams, AgentViewEntryOrigin};
 use crate::ai::blocklist::block::cli_controller::CLISubagentController;
 use crate::ai::blocklist::history_model::{
     BlocklistAIHistoryModel, CLIAgentConversation, CloudConversationData,
@@ -42,7 +40,6 @@ use crate::terminal::conversation_restoration::{
     command_block_indices_for_exchanges, prepare_conversation_block_restoration,
 };
 use crate::terminal::find::TerminalFindModel;
-use crate::terminal::input::message_bar::{Message as InputMessage, MessageItem};
 use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::blocks::RichContentItem;
 use crate::terminal::model::rich_content::RichContentType;
@@ -53,9 +50,8 @@ use crate::terminal::view::{
     AIBlockMetadata, Event, RichContent, RichContentInsertionPosition, RichContentMetadata,
     TerminalView,
 };
-use crate::util::bindings::keybinding_name_to_keystroke;
 
-/// Describes restore-context setup state for directory reconciliation and hinting.
+/// Describes the directory reconciliation needed before restoring a conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RestorationDirState {
     /// No directory issue — terminal is already in the right place.
@@ -93,16 +89,7 @@ pub enum ConversationRestorationInNewPaneType {
 
     /// Fork an existing conversation into this new pane.
     /// This is like Historical but requires special persistence handling.
-    Forked {
-        conversation: AIConversation,
-        /// True when the fork is paired with a follow-up prompt or summarize that
-        /// will be sent immediately after restore.
-        /// We skip the `couldn't find original conversation directory` ephemeral
-        /// hint in that case so the warping indicator (gated on
-        /// `ephemeral_message_model.current_message().is_none()` in
-        /// `BlocklistAIStatusBar::render`) isn't suppressed by the hint.
-        has_initial_query: bool,
-    },
+    Forked { conversation: AIConversation },
 
     /// Load a CLI agent conversation from its downloaded snapshot.
     HistoricalCLIAgent {
@@ -118,17 +105,6 @@ impl ConversationRestorationInNewPaneType {
 
     pub fn is_startup(&self) -> bool {
         matches!(self, Self::Startup { .. })
-    }
-
-    /// Whether restore-context hinting should run for this restoration mode.
-    pub fn should_show_restore_context_hint(&self) -> bool {
-        match self {
-            Self::Startup { .. } => false,
-            Self::Forked {
-                has_initial_query, ..
-            } => !has_initial_query,
-            Self::Historical { .. } | Self::HistoricalCLIAgent { .. } => true,
-        }
     }
 
     /// Use live appearance background color, and don't add a session restoration banner.
@@ -293,11 +269,7 @@ impl TerminalView {
             self.resolve_dir_restoration_state(&cloud_conversation, is_local_conversation);
 
         let restore_and_continue =
-            move |me: &mut TerminalView,
-                  restore_dir_state: RestorationDirState,
-                  ctx: &mut ViewContext<TerminalView>| {
-                me.maybe_show_restore_context_hint(restore_dir_state, ctx);
-
+            move |me: &mut TerminalView, ctx: &mut ViewContext<TerminalView>| {
                 match cloud_conversation {
                     CloudConversationData::Oz(conversation) => {
                         me.restore_conversation_after_view_creation(
@@ -323,29 +295,22 @@ impl TerminalView {
 
         match restore_context_state {
             RestorationDirState::NeedsCd { path } => {
-                let path_for_hint = path.clone();
                 let escaped = self.shell_family(ctx).shell_escape(&path);
                 let did_execute_cd = self.input.update(ctx, |input, ctx| {
                     input.try_execute_command(&format!("cd {escaped}"), ctx)
                 });
                 if did_execute_cd {
                     self.on_next_block_completed(move |me, ctx| {
-                        restore_and_continue(
-                            me,
-                            RestorationDirState::NeedsCd {
-                                path: path_for_hint,
-                            },
-                            ctx,
-                        );
+                        restore_and_continue(me, ctx);
                     });
                 } else {
-                    restore_and_continue(self, RestorationDirState::Unchanged, ctx);
+                    restore_and_continue(self, ctx);
                 }
             }
             RestorationDirState::Unchanged
             | RestorationDirState::MissingOriginalDir
             | RestorationDirState::SkippedNonLocalConversation => {
-                restore_and_continue(self, restore_context_state, ctx);
+                restore_and_continue(self, ctx);
             }
         }
     }
@@ -643,14 +608,6 @@ impl TerminalView {
         let use_live_appearance = conversation_restoration.should_use_live_appearance();
         let is_fork_conversation_in_new_pane = conversation_restoration.is_forked();
         let is_startup = conversation_restoration.is_startup();
-        let should_show_restore_context_hint =
-            conversation_restoration.should_show_restore_context_hint();
-
-        // Save the target working directory so we can detect when the dir doesn't exist on this machine.
-        // Use the same directory the new pane's shell starts in (the latest one for forks) so the
-        // "couldn't find original conversation directory" hint stays consistent with the spawned shell.
-        let target_dir = conversation_restoration.startup_working_directory();
-
         // Extract the active conversation ID if agent view was open (only for startup restoration)
         let active_conversation_id_to_restore = match &conversation_restoration {
             ConversationRestorationInNewPaneType::Startup {
@@ -767,19 +724,6 @@ impl TerminalView {
             }
         }
 
-        // Show a contextual ephemeral hint when the restored conversation's
-        // directory or branch doesn't match the current terminal state.
-        if should_show_restore_context_hint {
-            let restore_context_state =
-                if target_dir.as_ref().is_some_and(|d| !Path::new(d).is_dir()) {
-                    RestorationDirState::MissingOriginalDir
-                } else {
-                    RestorationDirState::Unchanged
-                };
-
-            self.maybe_show_restore_context_hint(restore_context_state, ctx);
-        }
-
         log::info!(
             "Successfully restored {blocks_created} AI blocks on view creation for conversations: {conversation_ids:?}"
         );
@@ -834,56 +778,6 @@ impl TerminalView {
                     block,
                 });
             });
-    }
-
-    /// Show a contextual ephemeral hint when the restored conversation's
-    /// directory doesn't match the current terminal state.
-    pub(crate) fn maybe_show_restore_context_hint(
-        &mut self,
-        restore_context_state: RestorationDirState,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !FeatureFlag::InlineRepoMenu.is_enabled() {
-            return;
-        }
-
-        let open_repo_hint: MessageItem =
-            if let Some(keystroke) = keybinding_name_to_keystroke("/open-repo", ctx) {
-                MessageItem::keystroke(keystroke)
-            } else {
-                MessageItem::text("/open-repo")
-            };
-
-        // Build the message from dir state
-        let mut items: Vec<MessageItem> = Vec::new();
-
-        match &restore_context_state {
-            RestorationDirState::MissingOriginalDir => {
-                items.push(MessageItem::text(
-                    "couldn't find original conversation directory ",
-                ));
-                items.push(open_repo_hint.clone());
-                items.push(MessageItem::text(" change repos"));
-            }
-            RestorationDirState::NeedsCd { .. } => {
-                items.push(MessageItem::text(
-                    "changed directory to continue conversation ",
-                ));
-                items.push(open_repo_hint.clone());
-                items.push(MessageItem::text(" change repos"));
-            }
-            RestorationDirState::Unchanged | RestorationDirState::SkippedNonLocalConversation => {}
-        }
-
-        if !items.is_empty() {
-            let message = InputMessage::new(items);
-            self.ephemeral_message_model.update(ctx, |model, ctx| {
-                model.show_ephemeral_message(
-                    EphemeralMessage::new(message, DismissalStrategy::UntilExplicitlyDismissed),
-                    ctx,
-                );
-            });
-        }
     }
 
     /// Process code diffs from AI output messages and apply them to the AI block for rendering.

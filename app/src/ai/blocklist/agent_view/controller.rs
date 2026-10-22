@@ -152,7 +152,6 @@ pub enum AgentViewEntryOrigin {
     CodeReviewContext,
     /// Entered agent view from codex integration modal.
     CodexModal,
-    InlineConversationMenu,
     OnboardingCallout,
     ConversationListView,
 

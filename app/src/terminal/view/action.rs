@@ -243,11 +243,6 @@ pub enum TerminalAction {
         exchange_id: AIAgentExchangeId,
         conversation_id: AIConversationId,
     },
-    /// Execute rewind from the inline menu (looks up ai_block_view_id from exchange_id)
-    ExecuteRewindFromInlineMenu {
-        exchange_id: AIAgentExchangeId,
-        conversation_id: AIConversationId,
-    },
     SelectAllBlocks,
     ExpandBlockSelectionAbove,
     ExpandBlockSelectionBelow,
@@ -360,7 +355,6 @@ pub enum TerminalAction {
     AgentModeSetupSpeedbumpBanner(AgentModeSetupSpeedbumpBannerAction),
     ResumeConversation,
     ForkConversationFromLastKnownGoodState,
-    ToggleAIDocumentPane,
     ToggleTodoPopup,
     CloseTodoPopup,
     ToggleCodeReviewPane {
@@ -651,7 +645,6 @@ impl fmt::Debug for TerminalAction {
             OpenAIBlockOverflowMenu { .. } => write!(f, "OpenAIBlockOverflowMenu"),
             RewindAIConversation { .. } => write!(f, "RewindAIConversation"),
             ExecuteRewindAIConversation { .. } => write!(f, "ExecuteRewindAIConversation"),
-            ExecuteRewindFromInlineMenu { .. } => write!(f, "ExecuteRewindFromInlineMenu"),
             SelectAIAttachedBlock(_) => write!(f, "SelectAIAttachedBlock"),
             DragAndDropFiles(_) => write!(f, "DragAndDropFiles"),
             SetInputModeAgent => write!(f, "SetInputModeAgent"),
@@ -694,7 +687,6 @@ impl fmt::Debug for TerminalAction {
             ForkConversationFromLastKnownGoodState => {
                 write!(f, "ForkConversationFromLastKnownGoodState")
             }
-            ToggleAIDocumentPane => write!(f, "ToggleAIDocumentPane"),
             ToggleTodoPopup => write!(f, "ToggleTodoPopup"),
             CloseTodoPopup => write!(f, "CloseTodoPopup"),
             ToggleCodeReviewPane { .. } => write!(f, "ToggleCodeReviewPane"),

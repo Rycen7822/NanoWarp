@@ -808,22 +808,6 @@ impl AIDocumentModel {
         self.latest_document_id_by_conversation_id.get(&id).cloned()
     }
 
-    /// Get all documents for a given conversation, sorted by `created_at` ascending
-    /// (oldest first, most recent last).
-    pub fn get_all_documents_for_conversation(
-        &self,
-        conversation_id: AIConversationId,
-    ) -> Vec<(AIDocumentId, AIDocument)> {
-        let mut docs: Vec<_> = self
-            .documents
-            .iter()
-            .filter(|(_, doc)| doc.conversation_id == conversation_id)
-            .map(|(id, doc)| (*id, doc.clone()))
-            .collect();
-        docs.sort_by_key(|(_, doc)| doc.created_at);
-        docs
-    }
-
     pub fn get_conversation_id_for_document_id(
         &self,
         id: &AIDocumentId,

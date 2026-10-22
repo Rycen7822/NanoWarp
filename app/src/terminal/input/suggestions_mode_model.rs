@@ -1,7 +1,6 @@
 use warpui::{Entity, ModelContext, ModelHandle};
 
 use super::{BufferState, DynamicEnumSuggestionStatus, InputSuggestionsMode};
-use crate::ai::agent::conversation::AIConversationId;
 use crate::terminal::input::buffer_model::InputBufferModel;
 use crate::terminal::input::inline_menu::InlineMenuType;
 
@@ -127,10 +126,6 @@ impl InputSuggestionsModeModel {
         matches!(self.mode, InputSuggestionsMode::SlashCommands)
     }
 
-    pub fn is_conversation_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::ConversationMenu)
-    }
-
     pub fn is_inline_model_selector(&self) -> bool {
         matches!(self.mode, InputSuggestionsMode::ModelSelector)
     }
@@ -141,64 +136,6 @@ impl InputSuggestionsModeModel {
 
     pub fn is_skill_menu(&self) -> bool {
         matches!(self.mode, InputSuggestionsMode::SkillMenu)
-    }
-
-    pub fn is_user_query_menu(&self) -> bool {
-        matches!(
-            self.mode,
-            InputSuggestionsMode::UserQueryMenu {
-                action: super::UserQueryMenuAction::ForkFrom,
-                ..
-            }
-        )
-    }
-
-    pub fn is_rewind_menu(&self) -> bool {
-        matches!(
-            self.mode,
-            InputSuggestionsMode::UserQueryMenu {
-                action: super::UserQueryMenuAction::Rewind,
-                ..
-            }
-        )
-    }
-
-    /// Returns the conversation_id if the current mode is UserQueryMenu (ForkFrom).
-    pub fn user_query_conversation_id(&self) -> Option<AIConversationId> {
-        match &self.mode {
-            InputSuggestionsMode::UserQueryMenu {
-                action: super::UserQueryMenuAction::ForkFrom,
-                conversation_id,
-            } => Some(*conversation_id),
-            _ => None,
-        }
-    }
-
-    /// Returns the conversation_id if the current mode is RewindMenu.
-    pub fn rewind_conversation_id(&self) -> Option<AIConversationId> {
-        match &self.mode {
-            InputSuggestionsMode::UserQueryMenu {
-                action: super::UserQueryMenuAction::Rewind,
-                conversation_id,
-            } => Some(*conversation_id),
-            _ => None,
-        }
-    }
-
-    pub fn is_repos_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::IndexedReposMenu)
-    }
-
-    pub fn is_plan_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::PlanMenu { .. })
-    }
-
-    /// Returns the conversation_id if the current mode is PlanMenu.
-    pub fn plan_menu_conversation_id(&self) -> Option<AIConversationId> {
-        match &self.mode {
-            InputSuggestionsMode::PlanMenu { conversation_id } => Some(*conversation_id),
-            _ => None,
-        }
     }
 
     pub fn inline_menu_type(&self) -> Option<InlineMenuType> {

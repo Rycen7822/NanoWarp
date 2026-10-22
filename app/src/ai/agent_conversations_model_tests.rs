@@ -14,13 +14,12 @@ use warpui::{App, EntityId, ModelHandle, SingletonEntity};
 use super::entry::{
     AgentConversationEntryId, AgentConversationNavigationSubject, AgentConversationProvenance,
 };
-use super::query::{DEFAULT_RESULT_COUNT, MAX_SEARCH_RESULTS};
 use super::{
     AgentConversationsModel, AgentConversationsModelEvent, AgentManagementFilters,
     AgentRunDisplayStatus, ArtifactFilter, ConversationMetadata, ConversationUpdateKind,
     EnvironmentFilter, HarnessFilter, InitialConversationLoadState, MAX_PERSONAL_TASKS,
     MAX_TEAM_TASKS, OwnerFilter, RtcTaskRefreshThrottleState, StatusFilter, TaskFetchError,
-    TaskFetchState, query_conversation_entries, record_earliest_rtc_task_refresh_timestamp,
+    TaskFetchState, record_earliest_rtc_task_refresh_timestamp,
 };
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::api::ServerConversationToken;
@@ -799,107 +798,6 @@ fn cloud_conversation_metadata_reports_failed_load() {
 
     model.initial_load_state = InitialConversationLoadState::CloudFailed;
     assert!(model.cloud_conversation_metadata_load_failed());
-}
-
-#[test]
-fn conversation_query_caps_recent_entries_and_places_newest_last() {
-    App::test((), |mut app| async move {
-        add_entry_projection_test_models(&mut app);
-        let now = Utc::now();
-        let mut model = create_test_model();
-        for index in 0..55 {
-            let task_id = make_uuid(9000 + index);
-            let mut task =
-                create_test_task(&task_id, "user-a", now - Duration::seconds(index as i64));
-            task.title = format!("Conversation {index}");
-            model.tasks.insert(task.task_id, task);
-        }
-
-        app.update(|ctx| {
-            let entries = model.get_entries(&all_owner_filters(), &TeamlessScopeForTest, ctx);
-            let results = query_conversation_entries(entries, "");
-
-            assert_eq!(results.len(), DEFAULT_RESULT_COUNT);
-            assert_eq!(
-                results
-                    .first()
-                    .map(|result| result.entry.display.title.as_str()),
-                Some("Conversation 49")
-            );
-            assert_eq!(
-                results
-                    .last()
-                    .map(|result| result.entry.display.title.as_str()),
-                Some("Conversation 0")
-            );
-            assert!(
-                !results
-                    .iter()
-                    .any(|result| result.entry.display.title == "Conversation 50")
-            );
-        });
-    });
-}
-
-#[test]
-fn conversation_query_filters_titles_and_caps_best_fuzzy_results() {
-    App::test((), |mut app| async move {
-        add_entry_projection_test_models(&mut app);
-        let now = Utc::now();
-        let mut model = create_test_model();
-        for index in 0..=MAX_SEARCH_RESULTS + 2 {
-            let task_id = make_uuid(9100 + index);
-            let mut task =
-                create_test_task(&task_id, "user-a", now - Duration::seconds(index as i64));
-            task.title = if index == 1 {
-                "Fix unit tests".to_owned()
-            } else {
-                format!("Deploy service {index}")
-            };
-            model.tasks.insert(task.task_id, task);
-        }
-
-        app.update(|ctx| {
-            let entries = model.get_entries(&all_owner_filters(), &TeamlessScopeForTest, ctx);
-            let results = query_conversation_entries(entries, "deploy");
-
-            assert_eq!(results.len(), MAX_SEARCH_RESULTS);
-            assert!(
-                results
-                    .iter()
-                    .all(|result| result.entry.display.title.contains("Deploy"))
-            );
-            assert!(results.windows(2).all(|window| {
-                window[0].title_match.as_ref().unwrap().score
-                    <= window[1].title_match.as_ref().unwrap().score
-            }));
-        });
-    });
-}
-
-#[test]
-fn conversation_query_orders_equal_fuzzy_scores_by_recency() {
-    App::test((), |mut app| async move {
-        add_entry_projection_test_models(&mut app);
-        let now = Utc::now();
-        let mut model = create_test_model();
-        for index in [0, 2, 1] {
-            let task_id = make_uuid(9700 + index);
-            let mut task =
-                create_test_task(&task_id, "user-a", now - Duration::seconds(index as i64));
-            task.title = "Deploy service".to_owned();
-            model.tasks.insert(task.task_id, task);
-        }
-
-        app.update(|ctx| {
-            let entries = model.get_entries(&all_owner_filters(), &TeamlessScopeForTest, ctx);
-            let results = query_conversation_entries(entries, "deploy");
-
-            assert!(results.windows(2).all(|window| {
-                window[0].entry.display.last_updated <= window[1].entry.display.last_updated
-            }));
-        });
-    });
 }
 
 #[test]

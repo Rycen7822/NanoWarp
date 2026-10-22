@@ -16,7 +16,7 @@ pub use view::{
     InlineMenuHeaderConfig, InlineMenuRowAction, InlineMenuView, QueryResultRendererExt,
 };
 
-use super::{InputSuggestionsMode, UserQueryMenuAction};
+use super::InputSuggestionsMode;
 
 /// Identifies a specific inline menu type.
 #[derive(
@@ -38,13 +38,8 @@ use super::{InputSuggestionsMode, UserQueryMenuAction};
 pub enum InlineMenuType {
     SlashCommands,
     ModelSelector,
-    ConversationMenu,
     ProfileSelector,
     SkillMenu,
-    UserQueryMenu,
-    RewindMenu,
-    IndexedReposMenu,
-    PlanMenu,
 }
 
 impl InlineMenuType {
@@ -52,13 +47,8 @@ impl InlineMenuType {
         match self {
             InlineMenuType::SlashCommands => "/Commands",
             InlineMenuType::ModelSelector => "/Model",
-            InlineMenuType::ConversationMenu => "/Conversations",
             InlineMenuType::ProfileSelector => "/Profiles",
             InlineMenuType::SkillMenu => "/Skills",
-            InlineMenuType::UserQueryMenu => "/Fork",
-            InlineMenuType::RewindMenu => "/Rewind",
-            InlineMenuType::IndexedReposMenu => "/Repos",
-            InlineMenuType::PlanMenu => "/Plans",
         }
     }
 
@@ -66,19 +56,8 @@ impl InlineMenuType {
         match mode {
             InputSuggestionsMode::SlashCommands => Some(InlineMenuType::SlashCommands),
             InputSuggestionsMode::ModelSelector => Some(InlineMenuType::ModelSelector),
-            InputSuggestionsMode::ConversationMenu => Some(InlineMenuType::ConversationMenu),
             InputSuggestionsMode::ProfileSelector => Some(InlineMenuType::ProfileSelector),
             InputSuggestionsMode::SkillMenu => Some(InlineMenuType::SkillMenu),
-            InputSuggestionsMode::UserQueryMenu {
-                action: UserQueryMenuAction::ForkFrom,
-                ..
-            } => Some(InlineMenuType::UserQueryMenu),
-            InputSuggestionsMode::UserQueryMenu {
-                action: UserQueryMenuAction::Rewind,
-                ..
-            } => Some(InlineMenuType::RewindMenu),
-            InputSuggestionsMode::IndexedReposMenu => Some(InlineMenuType::IndexedReposMenu),
-            InputSuggestionsMode::PlanMenu { .. } => Some(InlineMenuType::PlanMenu),
             InputSuggestionsMode::Closed
             | InputSuggestionsMode::HistoryUp { .. }
             | InputSuggestionsMode::CompletionSuggestions { .. }

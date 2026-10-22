@@ -315,10 +315,7 @@ fn conversation_tracks_initial_and_latest_working_directory() {
 fn forked_startup_working_directory_uses_latest_directory() {
     let conversation = conversation_with_dirs("/home/user/code/warp", "/home/user/code/warp/wt");
 
-    let restoration = ConversationRestorationInNewPaneType::Forked {
-        conversation,
-        has_initial_query: false,
-    };
+    let restoration = ConversationRestorationInNewPaneType::Forked { conversation };
 
     // Regression: forking must start the new pane in the conversation's *latest*
     // working directory, not the directory it was originally started in.
