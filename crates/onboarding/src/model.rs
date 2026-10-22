@@ -273,7 +273,6 @@ impl OnboardingStateModel {
                             self.agent_settings.autonomy
                         },
                         cli_agent_toolbar_enabled: self.agent_settings.cli_agent_toolbar_enabled,
-                        session_default: self.agent_settings.session_default,
                         disable_oz: self.agent_settings.disable_oz,
                         // Agent intention always has notifications enabled (no toggle shown).
                         show_agent_notifications: true,

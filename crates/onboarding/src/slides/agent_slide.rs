@@ -63,8 +63,6 @@ pub struct AgentDevelopmentSettings {
     pub autonomy: Option<AgentAutonomy>,
     /// Whether the CLI agent toolbar is enabled (maps to `should_render_cli_agent_footer`).
     pub cli_agent_toolbar_enabled: bool,
-    /// The default session mode chosen during onboarding.
-    pub session_default: crate::SessionDefault,
     /// Whether the user chose to disable the Oz AI assistant.
     pub disable_oz: bool,
     /// Whether agent notifications (mailbox button, toasts, notification items) are shown.
@@ -77,7 +75,6 @@ impl Default for AgentDevelopmentSettings {
             selected_model_id: None,
             autonomy: Some(AgentAutonomy::default()),
             cli_agent_toolbar_enabled: true,
-            session_default: crate::SessionDefault::Agent,
             disable_oz: false,
             show_agent_notifications: true,
         }

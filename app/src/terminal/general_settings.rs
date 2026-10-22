@@ -2,11 +2,67 @@ use std::collections::HashSet;
 
 use warp_core::settings::macros::define_settings_group;
 use warp_core::settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
+use warpui::{AppContext, SingletonEntity};
 
 use crate::banner::BannerState;
 use crate::resource_center::Tip;
 
+/// The default mode for new terminal sessions.
+#[derive(
+    Default,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Copy,
+    Clone,
+    schemars::JsonSchema,
+    settings_value::SettingsValue,
+)]
+#[schemars(
+    description = "Default mode for new sessions.",
+    rename_all = "snake_case"
+)]
+pub enum DefaultSessionMode {
+    /// New sessions start in the terminal mode (default).
+    #[default]
+    Terminal,
+    /// New sessions open a user-defined tab config.
+    /// The specific config is identified by the companion `default_tab_config_path` setting.
+    TabConfig,
+}
+
+settings::macros::implement_setting_for_enum!(
+    DefaultSessionMode,
+    GeneralSettings,
+    SupportedPlatforms::ALL,
+    SyncToCloud::Never,
+    private: false,
+    toml_path: "general.default_session_mode",
+    description: "The default mode for new terminal sessions.",
+);
+
+impl DefaultSessionMode {
+    /// Display name for the settings dropdown.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            DefaultSessionMode::Terminal => "Terminal",
+            DefaultSessionMode::TabConfig => "Tab Config",
+        }
+    }
+}
+
 define_settings_group!(GeneralSettings, settings: [
+    default_session_mode: DefaultSessionMode,
+    // Tab config paths are local to this machine.
+    default_tab_config_path: DefaultTabConfigPath {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "general.default_tab_config_path",
+    },
     show_warning_before_quitting: ShowWarningBeforeQuitting {
         type: bool,
         default: true,
@@ -160,3 +216,23 @@ define_settings_group!(GeneralSettings, settings: [
         private: true,
     },
 ]);
+
+impl GeneralSettings {
+    /// Looks up the `TabConfig` matching the stored `default_tab_config_path`.
+    /// Returns `None` if the path is empty or no loaded config matches.
+    pub fn resolved_default_tab_config(
+        &self,
+        app: &AppContext,
+    ) -> Option<crate::tab_configs::TabConfig> {
+        let path_str = self.default_tab_config_path.as_str();
+        if path_str.is_empty() {
+            return None;
+        }
+        let path = std::path::Path::new(path_str);
+        crate::user_config::WarpConfig::as_ref(app)
+            .tab_configs()
+            .iter()
+            .find(|config| config.source_path.as_deref().is_some_and(|p| p == path))
+            .cloned()
+    }
+}

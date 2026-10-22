@@ -1,5 +1,5 @@
 use onboarding::slides::{AgentAutonomy, AgentDevelopmentSettings};
-use onboarding::{SelectedSettings, SessionDefault, UICustomizationSettings};
+use onboarding::{SelectedSettings, UICustomizationSettings};
 use settings::Setting as _;
 use warp_errors::report_if_error;
 use warpui::{AppContext, SingletonEntity as _};
@@ -7,7 +7,6 @@ use warpui::{AppContext, SingletonEntity as _};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{ActionPermission, WriteToPtyPermission};
 use crate::drive::settings::WarpDriveSettings;
-use crate::settings::ai::DefaultSessionMode;
 use crate::settings::{AISettings, CodeSettings, UsageDisplayUnit};
 use crate::workspace::tab_settings::TabSettings;
 use crate::workspaces::user_workspaces::{TeamContextForOperation, UserWorkspaces};
@@ -196,19 +195,6 @@ fn apply_agent_settings(
     team_context: &TeamContextForOperation,
     app: &mut AppContext,
 ) {
-    // Apply session default mode.
-    let default_mode = match agent_settings.session_default {
-        SessionDefault::Agent => DefaultSessionMode::Agent,
-        SessionDefault::Terminal => DefaultSessionMode::Terminal,
-    };
-    AISettings::handle(app).update(app, |settings, ctx| {
-        report_if_error!(
-            settings
-                .default_session_mode_internal
-                .set_value(default_mode, ctx)
-        );
-    });
-
     let team_autonomy_settings = UserWorkspaces::as_ref(app).ai_autonomy_settings(team_context);
 
     AISettings::handle(app).update(app, |settings, ctx| {

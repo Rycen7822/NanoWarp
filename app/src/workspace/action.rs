@@ -843,7 +843,7 @@ pub enum WorkspaceAction {
     },
     /// Sidecar action: set the hovered item as the Cmd+T default.
     TabConfigSidecarMakeDefault {
-        mode: crate::settings::ai::DefaultSessionMode,
+        mode: crate::terminal::general_settings::DefaultSessionMode,
         tab_config_path: Option<PathBuf>,
         shell: Option<AvailableShell>,
     },

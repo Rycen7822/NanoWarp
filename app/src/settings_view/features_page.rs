@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use ::settings::{Setting, ToggleableSetting};
 use lazy_static::lazy_static;
-use strum::IntoEnumIterator;
 use warp_core::channel::ChannelState;
 use warp_core::context_flag::ContextFlag;
 use warp_core::semantic_selection::{
@@ -64,12 +63,11 @@ use crate::server::telemetry::TelemetryEvent;
 use crate::settings::ai::AISettings;
 use crate::settings::native_preference::{NativePreferenceSettings, UserNativePreference};
 use crate::settings::{
-    AISettingsChangedEvent, AliasExpansionEnabled, AliasExpansionSettings, AppEditorSettings,
-    AtContextMenuInTerminalMode, AutocompleteSymbols, AutosuggestionKeybindingHint,
-    ChangelogSettings, CloudPreferencesSettings, CodeSettings, CommandCorrections,
-    CompletionsOpenWhileTyping, CopyOnSelect, CtrlTabBehavior, DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES,
-    DefaultSessionMode, EnableSlashCommandsInTerminal, ErrorUnderliningEnabled, ExtraMetaKeys,
-    GPUSettings, GlobalHotkeyMode, InputSettings, InputSettingsChangedEvent,
+    AliasExpansionEnabled, AliasExpansionSettings, AppEditorSettings, AtContextMenuInTerminalMode,
+    AutocompleteSymbols, AutosuggestionKeybindingHint, ChangelogSettings, CloudPreferencesSettings,
+    CodeSettings, CommandCorrections, CompletionsOpenWhileTyping, CopyOnSelect, CtrlTabBehavior,
+    DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES, EnableSlashCommandsInTerminal, ErrorUnderliningEnabled,
+    ExtraMetaKeys, GPUSettings, GlobalHotkeyMode, InputSettings, InputSettingsChangedEvent,
     LinuxSelectionClipboard, MiddleClickPasteEnabled, MouseScrollMultiplier,
     NativeShellCompletionsEnabled, OutlineCodebaseSymbolsForAtContextMenu, PreferLowPowerGPU,
     PreferredGraphicsBackend, QUAKE_WINDOW_AUTOHIDE_SUPPORTED, QuakeModeSettings,
@@ -83,8 +81,8 @@ use crate::terminal::alt_screen_reporting::{
     AltScreenReporting, FocusReportingEnabled, MouseReportingEnabled, ScrollReportingEnabled,
 };
 use crate::terminal::general_settings::{
-    GeneralSettings, LinkTooltip, LoginItem, QuitOnLastWindowClosed, RestoreSession,
-    ShowWarningBeforeQuitting,
+    DefaultSessionMode, GeneralSettings, GeneralSettingsChangedEvent, LinkTooltip, LoginItem,
+    QuitOnLastWindowClosed, RestoreSession, ShowWarningBeforeQuitting,
 };
 use crate::terminal::input::OPEN_COMPLETIONS_KEYBINDING_NAME;
 use crate::terminal::keys_settings::{
@@ -2027,14 +2025,14 @@ impl TypedActionView for FeaturesPageView {
             }
             SetDefaultSessionMode(mode) => self.set_default_session_mode(mode, ctx),
             SetDefaultTabConfig(path) => {
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
+                GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(
-                        ai_settings
-                            .default_session_mode_internal
+                        settings
+                            .default_session_mode
                             .set_value(DefaultSessionMode::TabConfig, ctx)
                     );
                     report_if_error!(
-                        ai_settings
+                        settings
                             .default_tab_config_path
                             .set_value(path.clone(), ctx)
                     );
@@ -2309,7 +2307,19 @@ impl FeaturesPageView {
                 ctx.notify()
             },
         );
-        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |_, _, _, ctx| ctx.notify());
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, event, ctx| {
+            if matches!(
+                event,
+                GeneralSettingsChangedEvent::DefaultSessionMode { .. }
+                    | GeneralSettingsChangedEvent::DefaultTabConfigPath { .. }
+            ) {
+                Self::update_default_session_mode_dropdown(
+                    me.default_session_mode_dropdown.clone(),
+                    ctx,
+                );
+            }
+            ctx.notify();
+        });
         ctx.subscribe_to_model(&KeysSettings::handle(ctx), |me, _, _, ctx| {
             me.handle_hotkey_settings_update(ctx);
         });
@@ -2394,20 +2404,6 @@ impl FeaturesPageView {
 
         ctx.subscribe_to_model(&DefaultTerminal::handle(ctx), |_, _, _, ctx| {
             ctx.notify();
-        });
-
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
-            if matches!(
-                event,
-                AISettingsChangedEvent::IsAnyAIEnabled { .. }
-                    | AISettingsChangedEvent::DefaultSessionMode { .. }
-            ) {
-                Self::update_default_session_mode_dropdown(
-                    me.default_session_mode_dropdown.clone(),
-                    ctx,
-                );
-                ctx.notify();
-            }
         });
 
         let pin_position_dropdown = ctx.add_typed_action_view(|ctx| {
@@ -3720,33 +3716,13 @@ impl FeaturesPageView {
         dropdown.update(
             ctx,
             |dropdown: &mut FilterableDropdown<FeaturesPageAction>, ctx| {
-                let is_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-
-                if is_ai_enabled {
-                    dropdown.set_enabled(ctx);
-                } else {
-                    dropdown.set_disabled(ctx);
-                }
-
-                let ai_settings = AISettings::as_ref(ctx);
-                let current_mode = ai_settings.default_session_mode(ctx);
-                let current_tab_config_path = ai_settings.default_tab_config_path().to_string();
-
-                // Build items: built-in modes (skip TabConfig since configs are listed individually,
-                // and skip DockerSandbox when its feature flag is disabled).
-                let docker_sandbox_enabled = FeatureFlag::LocalDockerSandbox.is_enabled();
-                let mut items: Vec<DropdownItem<FeaturesPageAction>> = DefaultSessionMode::iter()
-                    .filter(|val| *val != DefaultSessionMode::TabConfig)
-                    .filter(|val| {
-                        *val != DefaultSessionMode::DockerSandbox || docker_sandbox_enabled
-                    })
-                    .map(|val| {
-                        DropdownItem::new(
-                            val.display_name(),
-                            FeaturesPageAction::SetDefaultSessionMode(val),
-                        )
-                    })
-                    .collect();
+                let general_settings = GeneralSettings::as_ref(ctx);
+                let current_mode = general_settings.default_session_mode;
+                let current_tab_config_path = general_settings.default_tab_config_path.to_string();
+                let mut items = vec![DropdownItem::new(
+                    DefaultSessionMode::Terminal.display_name(),
+                    FeaturesPageAction::SetDefaultSessionMode(DefaultSessionMode::Terminal),
+                )];
 
                 // Append each loaded tab config
                 let tab_configs = WarpConfig::as_ref(ctx).tab_configs().to_vec();
@@ -3786,12 +3762,8 @@ impl FeaturesPageView {
         value: &DefaultSessionMode,
         ctx: &mut ViewContext<Self>,
     ) {
-        AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-            report_if_error!(
-                ai_settings
-                    .default_session_mode_internal
-                    .set_value(*value, ctx)
-            );
+        GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
+            report_if_error!(settings.default_session_mode.set_value(*value, ctx));
         });
     }
 
@@ -7450,7 +7422,7 @@ impl SettingsWidget for DefaultSessionModeWidget {
     type View = FeaturesPageView;
 
     fn search_terms(&self) -> &str {
-        "default session mode agent terminal new pane tab open config"
+        "default session mode terminal new pane tab open config"
     }
 
     fn render(

@@ -477,62 +477,6 @@ pub const VOICE_INPUT_LANGUAGES: &[(&str, &str)] = &[
     ("zu", "Zulu"),
 ];
 
-/// The default mode for new terminal sessions.
-#[derive(
-    Default,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Copy,
-    Clone,
-    EnumIter,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "Default mode for new sessions.",
-    rename_all = "snake_case"
-)]
-pub enum DefaultSessionMode {
-    /// New sessions start in the terminal mode (default).
-    #[default]
-    Terminal,
-    /// New sessions start in agent view.
-    Agent,
-    /// New sessions start in cloud (ambient) agent mode.
-    CloudAgent,
-    /// New sessions open a user-defined tab config.
-    /// The specific config is identified by the companion `default_tab_config_path` setting.
-    TabConfig,
-    /// New sessions open in a local Docker sandbox.
-    /// Requires the `LocalDockerSandbox` feature flag; falls back to `Terminal` when disabled.
-    DockerSandbox,
-}
-
-settings::macros::implement_setting_for_enum!(
-    DefaultSessionMode,
-    AISettings,
-    SupportedPlatforms::ALL,
-    SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    private: false,
-    toml_path: "general.default_session_mode",
-    description: "The default mode for new terminal sessions.",
-);
-
-impl DefaultSessionMode {
-    /// Display name for the settings dropdown.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            DefaultSessionMode::Terminal => "Terminal",
-            DefaultSessionMode::Agent => "Agent",
-            DefaultSessionMode::CloudAgent => "Cloud agent",
-            DefaultSessionMode::TabConfig => "Tab Config",
-            DefaultSessionMode::DockerSandbox => "Local Docker Sandbox",
-        }
-    }
-}
-
 /// Controls how agent thinking/reasoning traces are displayed after streaming.
 #[derive(
     Default,
@@ -1739,22 +1683,6 @@ define_settings_group!(AISettings, settings: [
         private: true,
     }
 
-    // The raw stored default mode for new sessions. Use `default_session_mode()` to retrieve the
-    // effective value, which is gated on AI availability.
-    default_session_mode_internal: DefaultSessionMode,
-
-    // The file path of the tab config used when default_session_mode_internal is TabConfig.
-    // Only read when mode is TabConfig; ignored for all other modes.
-    // Machine-local (tab config paths vary per machine), so never synced to cloud.
-    default_tab_config_path: DefaultTabConfigPath {
-        type: String,
-        default: String::new(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "general.default_tab_config_path",
-    }
-
     // Whether computer use is enabled for cloud agent conversations started from the Warp app.
     // This setting is only used when the AI autonomy setting is AlwaysAsk or not set.
     cloud_agent_computer_use_enabled: CloudAgentComputerUseEnabled {
@@ -1998,54 +1926,6 @@ impl AISettings {
     /// tools panel.
     pub fn is_conversation_history_enabled(&self, app: &AppContext) -> bool {
         *self.show_conversation_history && self.is_conversation_history_available(app)
-    }
-
-    pub fn default_session_mode(&self, app: &AppContext) -> DefaultSessionMode {
-        let mode = *self.default_session_mode_internal.value();
-        match mode {
-            // Terminal and TabConfig don't require AI.
-            DefaultSessionMode::Terminal | DefaultSessionMode::TabConfig => mode,
-            // Agent and CloudAgent require AI to be enabled.
-            DefaultSessionMode::Agent | DefaultSessionMode::CloudAgent => {
-                if self.is_any_ai_enabled(app) {
-                    mode
-                } else {
-                    DefaultSessionMode::Terminal
-                }
-            }
-            // DockerSandbox is gated on its feature flag; fall back to Terminal
-            // when disabled so a stale stored value doesn't wedge the user.
-            DefaultSessionMode::DockerSandbox => {
-                if FeatureFlag::LocalDockerSandbox.is_enabled() {
-                    mode
-                } else {
-                    DefaultSessionMode::Terminal
-                }
-            }
-        }
-    }
-
-    /// Returns the stored default tab config path (only meaningful when mode is `TabConfig`).
-    pub fn default_tab_config_path(&self) -> &str {
-        &self.default_tab_config_path
-    }
-
-    /// Looks up the `TabConfig` matching the stored `default_tab_config_path`.
-    /// Returns `None` if the path is empty or no loaded config matches.
-    pub fn resolved_default_tab_config(
-        &self,
-        app: &AppContext,
-    ) -> Option<crate::tab_configs::TabConfig> {
-        let path_str = self.default_tab_config_path.as_str();
-        if path_str.is_empty() {
-            return None;
-        }
-        let path = std::path::Path::new(path_str);
-        crate::user_config::WarpConfig::as_ref(app)
-            .tab_configs()
-            .iter()
-            .find(|config| config.source_path.as_deref().is_some_and(|p| p == path))
-            .cloned()
     }
 
     pub fn is_active_ai_enabled(&self, app: &warpui::AppContext) -> bool {

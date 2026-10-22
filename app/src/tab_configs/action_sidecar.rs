@@ -9,9 +9,9 @@ use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, SingletonEntity};
 
 use crate::appearance::Appearance;
-use crate::settings::ai::DefaultSessionMode;
 use crate::tab_configs::TabConfig;
 use crate::terminal::available_shells::AvailableShell;
+use crate::terminal::general_settings::DefaultSessionMode;
 use crate::workspace::WorkspaceAction;
 
 pub(crate) const SIDECAR_WIDTH: f32 = 260.;
@@ -20,10 +20,9 @@ const SIDECAR_PADDING: f32 = 12.;
 /// Describes what the sidecar is showing, which determines which buttons appear.
 #[derive(Clone, Debug)]
 pub(crate) enum SidecarItemKind {
-    /// A built-in item (Terminal, a specific shell, Agent, Cloud agent).
+    /// A built-in terminal item or a specific shell.
     BuiltIn {
         name: String,
-        default_mode: DefaultSessionMode,
         shell: Option<AvailableShell>,
     },
     /// A user-created tab config loaded from disk.
@@ -103,12 +102,8 @@ pub(crate) fn render_action_sidecar(
     };
 
     let make_default_action = match item {
-        SidecarItemKind::BuiltIn {
-            default_mode,
-            shell,
-            ..
-        } => WorkspaceAction::TabConfigSidecarMakeDefault {
-            mode: *default_mode,
+        SidecarItemKind::BuiltIn { shell, .. } => WorkspaceAction::TabConfigSidecarMakeDefault {
+            mode: DefaultSessionMode::Terminal,
             tab_config_path: None,
             shell: shell.clone(),
         },
