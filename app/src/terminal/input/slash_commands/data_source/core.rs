@@ -662,7 +662,7 @@ impl InlineItem {
         let appearance = Appearance::as_ref(app);
         Self {
             action: AcceptSlashCommandOrSavedPrompt::SlashCommand { id: *command_id },
-            icon_path: command.supported_surfaces.gui_icon_path(),
+            icon_path: Some(command.icon_path),
             name: command.name.to_owned(),
             description: Some(command.description.to_owned()),
             font_family: appearance.monospace_font_family(),

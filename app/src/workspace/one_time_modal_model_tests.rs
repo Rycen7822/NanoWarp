@@ -21,7 +21,7 @@ use crate::workspaces::workspace::CustomerType;
 fn initialize_app_for_chatgpt_plan_modal(app: &mut App) -> WindowId {
     initialize_app_for_terminal_view(app);
     app.add_singleton_model(|ctx| {
-        CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), true, ctx)
+        CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), ctx)
     });
     add_window_with_id_and_terminal(app, None).0
 }
@@ -616,7 +616,7 @@ fn hoa_onboarding_pre_dismissed_for_new_users_on_auth_complete() {
         let _tab_configs = FeatureFlag::TabConfigs.override_enabled(true);
         initialize_app_for_terminal_view(&mut app);
         app.add_singleton_model(|ctx| {
-            CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), true, ctx)
+            CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), ctx)
         });
         let terminal = add_window_with_terminal(&mut app, None);
 
@@ -644,7 +644,7 @@ fn hoa_onboarding_not_pre_dismissed_for_existing_users_on_auth_complete() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         app.add_singleton_model(|ctx| {
-            CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), true, ctx)
+            CloudPreferencesSyncer::new(false, std::path::PathBuf::new(), ctx)
         });
         let terminal = add_window_with_terminal(&mut app, None);
 

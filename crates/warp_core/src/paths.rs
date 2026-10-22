@@ -139,28 +139,6 @@ pub fn data_dir() -> PathBuf {
     }
 }
 
-/// Returns the GUI application ID for the current channel.
-///
-/// Most TUI channel binaries use the same application ID as the GUI. The OSS
-/// TUI is the exception: it uses `WarpTui`, while the corresponding GUI uses
-/// `NanoWarp`.
-#[cfg(any(not(target_os = "macos"), test))]
-fn gui_app_id_for_channel(channel: Channel, current_app_id: AppId) -> AppId {
-    match channel {
-        Channel::Oss => AppId::new("dev", "nanowarp", "NanoWarp"),
-        Channel::Stable
-        | Channel::Preview
-        | Channel::Dev
-        | Channel::Integration
-        | Channel::Local => current_app_id,
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn gui_app_id() -> AppId {
-    gui_app_id_for_channel(ChannelState::channel(), ChannelState::app_id())
-}
-
 /// Returns the path to the directory where non-portable configuration files
 /// should be stored.
 pub fn config_local_dir() -> PathBuf {
@@ -180,89 +158,6 @@ pub fn config_local_dir() -> PathBuf {
     }
 }
 
-/// Resolves the GUI's non-portable configuration directory from any frontend.
-///
-/// This differs from [`config_local_dir`] when the active process uses a
-/// frontend-specific application ID, as the OSS TUI does on Linux and Windows.
-/// On macOS, development data profiles do not have an unambiguous corresponding
-/// GUI `.nanowarp*` directory, so this fails closed instead of selecting a source
-/// profile implicitly.
-pub fn gui_config_local_dir() -> Option<PathBuf> {
-    if let Some(root) = runtime_root() {
-        return Some(root.join("config"));
-    }
-    cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            if ChannelState::data_profile().is_some() {
-                return None;
-            }
-            dirs::home_dir().map(|home_dir| home_dir.join(macos_config_dir_name()))
-        } else {
-            project_dirs_for_app_id(
-                gui_app_id(),
-                ChannelState::data_profile().as_deref(),
-            )
-            .map(|dirs| dirs.config_local_dir().to_owned())
-        }
-    }
-}
-
-/// Resolves the GUI's global file-based MCP configuration from any frontend.
-///
-/// As with [`gui_config_local_dir`], macOS development data profiles fail
-/// closed because the matching GUI source profile is ambiguous.
-pub fn gui_mcp_config_file_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    if ChannelState::data_profile().is_some() {
-        return None;
-    }
-
-    warp_home_mcp_config_file_path()
-}
-
-/// Returns the macOS config directory name for the TUI front-end (`warp-tui`)
-/// for the current channel.
-///
-/// This mirrors [`macos_config_dir_name`] but under a `.nanowarp-cli*` directory so
-/// the TUI keeps its settings separate from the GUI's `.nanowarp*` directory. Like
-/// the GUI names, these are persisted on disk as directory names and must not be
-/// changed once established.
-#[cfg(target_os = "macos")]
-fn macos_tui_config_dir_name() -> String {
-    macos_config_dir_name().replacen(WARP_CONFIG_DIR, ".nanowarp-cli", 1)
-}
-
-/// Returns the path to the directory where non-portable configuration files for
-/// the TUI front-end (`warp-tui`) should be stored.
-///
-/// This is intentionally distinct from [`config_local_dir`] so the GUI and the
-/// TUI never share (and clobber) a settings file. On macOS it is a sibling
-/// `.nanowarp-cli*` directory; on other platforms —
-/// whose config dirs are already app-id based — it nests under a `cli`
-/// subdirectory of the standard config dir.
-pub fn tui_config_local_dir() -> PathBuf {
-    if let Some(root) = runtime_root() {
-        return root.join("config/cli");
-    }
-    cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            dirs::home_dir()
-                .unwrap_or_default()
-                .join(macos_tui_config_dir_name())
-        } else {
-            config_local_dir().join("cli")
-        }
-    }
-}
-
-/// Returns the path to the TUI front-end's global MCP configuration file.
-///
-/// This is intentionally distinct from [`warp_home_mcp_config_file_path`] so
-/// the GUI and TUI can run different MCP configurations and versions without
-/// reading or modifying each other's files.
-pub fn tui_mcp_config_file_path() -> PathBuf {
-    tui_config_local_dir().join(".mcp.json")
-}
 /// Returns the base directory for general config files. Useful for accessing the config files for
 /// other programs.
 pub fn base_config_dir() -> PathBuf {
@@ -318,19 +213,6 @@ pub fn secure_state_dir() -> Option<PathBuf> {
     }
 
     None
-}
-
-/// Returns the path to the directory where non-portable application state
-/// data for the TUI front-end (`warp-tui`) should be stored.
-///
-/// This is intentionally distinct from the GUI's state directory (see
-/// [`state_dir`] / [`secure_state_dir`]) so the two front-ends never share a
-/// SQLite database: they can be on different versions with different
-/// persistence schemas, and whichever binary is newer would otherwise migrate
-/// the shared database out from under the older one. Like other on-disk
-/// names, the `tui` directory name must not be changed once established.
-pub fn tui_state_dir() -> PathBuf {
-    secure_state_dir().unwrap_or_else(state_dir).join("tui")
 }
 
 /// Returns the path to the directory containing the user's custom themes.

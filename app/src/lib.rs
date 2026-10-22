@@ -1024,9 +1024,6 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     #[cfg(windows)]
     command::windows::init();
 
-    // Select the GUI settings surface before initializing preferences.
-    ::settings::set_settings_mode(::settings::SettingsMode::Gui);
-
     let private_preferences = settings::init_private_user_preferences();
     let (public_preferences, startup_toml_parse_error) = settings::init_public_user_preferences();
 

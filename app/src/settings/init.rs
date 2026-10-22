@@ -361,13 +361,6 @@ pub fn init_public_user_preferences() -> (user_preferences::Model, Option<user_p
 /// 3. The migration-complete marker is absent from the native store
 ///    (handles the case where a user deletes `settings.toml` to reset).
 fn needs_settings_file_migration(ctx: &AppContext) -> bool {
-    // Migration only applies to the GUI surface, which is the one with legacy
-    // native-store settings to move into its TOML file. Other surfaces (e.g.
-    // the TUI) have nothing to migrate and must never run migration or touch
-    // the shared migration-complete marker.
-    if !settings::settings_mode().should_migrate_native_settings() {
-        return false;
-    }
     needs_settings_file_migration_for_path(ctx, &super::user_preferences_toml_file_path())
 }
 

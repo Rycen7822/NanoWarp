@@ -7,7 +7,6 @@ use std::rc::Rc;
 use futures::stream::AbortHandle;
 use repo_metadata::repositories::RepoDetectionSource;
 use repo_metadata::{RepositoryUpdate, TargetFile};
-use settings::SettingsMode;
 use warpui::{App, Entity, ModelHandle};
 
 use super::{
@@ -112,39 +111,18 @@ fn abort_config_parse_cancels_and_removes_inflight_task() {
 }
 
 #[test]
-fn repository_discovery_is_surface_aware() {
+fn repository_discovery_watches_navigation_and_cloud_preparation() {
     assert!(should_watch_repository(
-        RepoDetectionSource::TerminalNavigation,
-        SettingsMode::Gui
+        RepoDetectionSource::TerminalNavigation
     ));
     assert!(should_watch_repository(
-        RepoDetectionSource::CloudEnvironmentPrep,
-        SettingsMode::Gui
+        RepoDetectionSource::CloudEnvironmentPrep
     ));
     assert!(!should_watch_repository(
-        RepoDetectionSource::ProjectRulesIndexing,
-        SettingsMode::Gui
+        RepoDetectionSource::ProjectRulesIndexing
     ));
     assert!(!should_watch_repository(
-        RepoDetectionSource::CodeReviewInitialization,
-        SettingsMode::Gui
-    ));
-
-    assert!(should_watch_repository(
-        RepoDetectionSource::TerminalNavigation,
-        SettingsMode::Tui
-    ));
-    assert!(!should_watch_repository(
-        RepoDetectionSource::ProjectRulesIndexing,
-        SettingsMode::Tui
-    ));
-    assert!(!should_watch_repository(
-        RepoDetectionSource::CodeReviewInitialization,
-        SettingsMode::Tui
-    ));
-    assert!(!should_watch_repository(
-        RepoDetectionSource::CloudEnvironmentPrep,
-        SettingsMode::Tui
+        RepoDetectionSource::CodeReviewInitialization
     ));
 }
 

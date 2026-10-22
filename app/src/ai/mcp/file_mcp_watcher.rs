@@ -169,7 +169,6 @@ pub struct FileMCPWatcher {
 impl FileMCPWatcher {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         let (file_mcp_tx, file_mcp_rx) = async_channel::unbounded::<FileMCPDetectionMessage>();
-        let settings_mode = settings::settings_mode();
 
         ctx.spawn_stream_local(
             file_mcp_rx,
@@ -183,7 +182,7 @@ impl FileMCPWatcher {
             let file_mcp_tx = file_mcp_tx.clone();
             move |me, _, event, ctx| {
                 let DetectedRepositoriesEvent::DetectedGitRepo { repository, source } = event;
-                if should_watch_repository(*source, settings_mode) {
+                if should_watch_repository(*source) {
                     let repo_path = repository.as_ref(ctx).root_dir().to_local_path_lossy();
                     if matches!(source, RepoDetectionSource::CloudEnvironmentPrep) {
                         me.pending_scans.insert(
@@ -690,24 +689,11 @@ impl FileMCPWatcher {
     }
 }
 
-fn should_watch_repository(
-    source: RepoDetectionSource,
-    settings_mode: settings::SettingsMode,
-) -> bool {
-    match settings_mode {
-        settings::SettingsMode::Gui => match source {
-            RepoDetectionSource::TerminalNavigation | RepoDetectionSource::CloudEnvironmentPrep => {
-                true
-            }
-            RepoDetectionSource::ProjectRulesIndexing
-            | RepoDetectionSource::CodeReviewInitialization => false,
-        },
-        settings::SettingsMode::Tui => match source {
-            RepoDetectionSource::TerminalNavigation => true,
-            RepoDetectionSource::ProjectRulesIndexing
-            | RepoDetectionSource::CodeReviewInitialization
-            | RepoDetectionSource::CloudEnvironmentPrep => false,
-        },
+fn should_watch_repository(source: RepoDetectionSource) -> bool {
+    match source {
+        RepoDetectionSource::TerminalNavigation | RepoDetectionSource::CloudEnvironmentPrep => true,
+        RepoDetectionSource::ProjectRulesIndexing
+        | RepoDetectionSource::CodeReviewInitialization => false,
     }
 }
 

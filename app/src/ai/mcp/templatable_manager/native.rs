@@ -1046,7 +1046,6 @@ impl TemplatableMCPServerManager {
         let (oauth_result_tx, oauth_result_rx) = async_channel::unbounded();
 
         let is_headless = AppExecutionMode::as_ref(ctx).is_autonomous();
-        let use_tui_loopback = settings::settings_mode() == settings::SettingsMode::Tui;
 
         let mut persisted_credentials = self.server_credentials.get(&template_uuid).cloned();
         if persisted_credentials.is_none() && FeatureFlag::FileBasedMcp.is_enabled() {
@@ -1066,16 +1065,9 @@ impl TemplatableMCPServerManager {
             let persist_spawner = ctx.spawner();
             let requires_authentication_spawner = ctx.spawner();
             let authenticated_spawner = ctx.spawner();
-            let callback_mode = if use_tui_loopback {
-                OAuthCallbackMode::Loopback
-            } else {
-                OAuthCallbackMode::CustomScheme {
-                    redirect_uri: format!(
-                        "{}://mcp/oauth2callback",
-                        ChannelState::url_scheme()
-                    ),
-                    result_rx: oauth_result_rx,
-                }
+            let callback_mode = OAuthCallbackMode::CustomScheme {
+                redirect_uri: format!("{}://mcp/oauth2callback", ChannelState::url_scheme()),
+                result_rx: oauth_result_rx,
             };
 
             AuthContext {
@@ -1109,7 +1101,7 @@ impl TemplatableMCPServerManager {
                     Box::pin(async move {
                         spawner
                             .spawn(move |manager, ctx| {
-                                if !use_tui_loopback && !csrf_state.is_empty() {
+                                if !csrf_state.is_empty() {
                                     manager.pending_oauth_csrf.insert(csrf_state, uuid);
                                 }
                                 manager.authorization_urls.insert(uuid, auth_url.clone());

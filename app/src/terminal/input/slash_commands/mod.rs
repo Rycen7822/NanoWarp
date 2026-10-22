@@ -908,7 +908,7 @@ impl Input {
                     entrypoint: CodeReviewPaneEntrypoint::SlashCommand,
                 });
             }
-            SlashCommandKind::OpenMcpServers | SlashCommandKind::Mcp => {
+            SlashCommandKind::OpenMcpServers => {
                 ctx.dispatch_typed_action(&TerminalAction::OpenViewMCPPane);
             }
             SlashCommandKind::OpenSettingsFile => {
@@ -1330,30 +1330,6 @@ impl Input {
                 // These slash commands just send AI requests with the slash command text as a
                 // prefix, and special handling is done downstream as an implementation detail
                 // of handling user queries with specific slash command prefixes.
-                return false;
-            }
-            SlashCommandKind::AutoApprove
-            | SlashCommandKind::Statusline
-            | SlashCommandKind::ResetStatusline
-            | SlashCommandKind::ApiKeys
-            | SlashCommandKind::ConnectGrok
-            | SlashCommandKind::Upgrade
-            | SlashCommandKind::ManageBilling
-            | SlashCommandKind::ViewLogs
-            | SlashCommandKind::Voice
-            | SlashCommandKind::NaturalLanguageDetection
-            | SlashCommandKind::Theme
-            | SlashCommandKind::VimMode
-            | SlashCommandKind::Exit
-            | SlashCommandKind::Logout
-            | SlashCommandKind::Clear
-            | SlashCommandKind::Team
-            | SlashCommandKind::Status => {
-                debug_assert!(
-                    false,
-                    "Attempted to execute TUI-only slash command in the GUI: {}",
-                    command.name
-                );
                 return false;
             }
             #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
