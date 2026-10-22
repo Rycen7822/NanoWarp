@@ -46,7 +46,6 @@ use crate::ai::ambient_agents::{
     AgentSource, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
 };
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::history_model::CloudConversationData;
 use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
 use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer;
 use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
@@ -552,11 +551,11 @@ fn test_server_conversation_metadata(
     }
 }
 
-fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> CloudConversationData {
+fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> Box<AIConversation> {
     let mut conversation = AIConversation::new(false, false);
     conversation.set_task_id(task_id);
     conversation.set_server_metadata(test_server_conversation_metadata(Some(task_id)));
-    CloudConversationData::Oz(Box::new(conversation))
+    Box::new(conversation)
 }
 
 fn start_parent_conversation(

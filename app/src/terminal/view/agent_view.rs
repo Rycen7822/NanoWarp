@@ -1,4 +1,3 @@
-use warp_core::features::FeatureFlag;
 use warp_core::send_telemetry_from_ctx;
 use warp_core::ui::appearance::Appearance;
 use warp_errors::report_error;
@@ -13,7 +12,6 @@ use crate::ai::blocklist::agent_view::{
     AutoTriggerBehavior, DismissalStrategy, ENTER_OR_EXIT_CONFIRMATION_WINDOW, EnterAgentViewError,
     EphemeralMessage,
 };
-use crate::ai::blocklist::history_model::CloudConversationData;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
 use crate::persistence::ModelEvent;
 use crate::server::telemetry::TelemetryAgentViewEntryOrigin;
@@ -85,40 +83,6 @@ impl TerminalView {
         self.redetermine_global_focus(ctx);
     }
 
-    // Enters the agent view for a restored CLI agent transcript, setting the title using the
-    // restored CLI conversation metadata if we have it.
-    pub(crate) fn enter_agent_view_for_restored_cli_agent(
-        &mut self,
-        fallback_title: String,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<AIConversationId> {
-        let origin = AgentViewEntryOrigin::ThirdPartyCloudAgent;
-
-        match self.try_enter_agent_view(None, origin.clone(), None, ctx) {
-            Ok(conversation_id) => {
-                let title = fallback_title.trim();
-                if !title.is_empty() {
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
-                        if let Some(conversation) = history.conversation_mut(&conversation_id) {
-                            conversation.set_fallback_display_title(title.to_owned());
-                        }
-                    });
-                }
-                self.redetermine_global_focus(ctx);
-                Some(conversation_id)
-            }
-            Err(e) => {
-                report_error!(
-                    anyhow::Error::new(e).context("Failed to enter agent view for restored CLI agent"),
-                    extra: { "origin" => ?origin }
-                );
-                self.show_error_toast(e.to_string(), ctx);
-                self.redetermine_global_focus(ctx);
-                None
-            }
-        }
-    }
-
     pub fn enter_agent_view_for_conversation(
         &mut self,
         initial_prompt: Option<String>,
@@ -183,30 +147,13 @@ impl TerminalView {
                     );
                     return;
                 };
-                // For Oz conversations, restore data and then re-enter agent view (the
-                // conversation will be in memory after restoration).
-                // For CLI agent conversations, restore the block snapshot only. Because we
-                // don't update the in-memory model in this case, attempting to re-enter agent
-                // view will trigger an infinite loop of fetching and loading conversation data
-                // from the server.
-                #[allow(clippy::type_complexity)]
-                let on_restored: Box<
-                    dyn FnOnce(&mut Self, &mut ViewContext<Self>),
-                > = if matches!(&conversation, CloudConversationData::Oz(_)) {
-                    Box::new(move |me, ctx| {
-                        me.enter_agent_view_for_conversation(
-                            initial_prompt,
-                            origin,
-                            conversation_id,
-                            ctx,
-                        );
-                    })
-                } else {
-                    if !FeatureFlag::AgentHarness.is_enabled() {
-                        log::warn!("AgentHarness flag is disabled; ignoring CLI agent conversation {conversation_id}");
-                        return;
-                    }
-                    Box::new(|_, _| {})
+                let on_restored = move |me: &mut Self, ctx: &mut ViewContext<Self>| {
+                    me.enter_agent_view_for_conversation(
+                        initial_prompt,
+                        origin,
+                        conversation_id,
+                        ctx,
+                    );
                 };
                 let is_local = BlocklistAIHistoryModel::handle(ctx)
                     .as_ref(ctx)

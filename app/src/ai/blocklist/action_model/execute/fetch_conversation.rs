@@ -9,7 +9,6 @@ use crate::BlocklistAIHistoryModel;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversation;
 use crate::ai::agent::{AIAgentActionResultType, AIAgentActionType, conversation_yaml};
-use crate::ai::blocklist::history_model::CloudConversationData;
 
 pub struct FetchConversationExecutor;
 
@@ -33,7 +32,7 @@ impl FetchConversationExecutor {
     ) -> impl Into<AnyActionExecution> + use<> {
         let ExecuteActionInput { action, .. } = input;
         let AIAgentActionType::FetchConversation { conversation_id } = &action.action else {
-            return ActionExecution::<Option<CloudConversationData>>::InvalidAction;
+            return ActionExecution::<Option<Box<AIConversation>>>::InvalidAction;
         };
 
         let conversation_id = conversation_id.clone();
@@ -44,15 +43,7 @@ impl FetchConversationExecutor {
         });
 
         ActionExecution::new_async(load_future, move |cloud_conversation, _ctx| {
-            // TODO(REMOTE-1203): FetchConversation can't materialize non-Oz conversation transcripts yet.
-            let conversation = cloud_conversation.and_then(|cc| match cc {
-                CloudConversationData::Oz(c) => Some(c),
-                CloudConversationData::CLIAgent(_) => {
-                    log::warn!("FetchConversation does not support CLI agent conversations");
-                    None
-                }
-            });
-            materialize_conversation(conversation.map(|c| *c), &conversation_id)
+            materialize_conversation(cloud_conversation.map(|c| *c), &conversation_id)
         })
     }
 

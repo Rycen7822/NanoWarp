@@ -10,7 +10,6 @@ use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::ambient_agents::{AmbientAgentTask, AmbientAgentTaskId};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::history_model::CloudConversationData;
 use crate::pane_group::{PaneGroup, PaneId, TerminalPane, TerminalViewResources};
 use crate::terminal::model::terminal_model::ConversationTranscriptViewerStatus;
 use crate::terminal::view::load_ai_conversation::{
@@ -286,14 +285,14 @@ impl PaneGroup {
             }
             let task = AgentConversationsModel::as_ref(ctx).get_task_data(&task_id);
             let access = match conversation.as_ref() {
-                Some(CloudConversationData::Oz(cloud)) => {
+                Some(cloud) => {
                     completed_child_conversation_access(cloud.server_metadata(), task.as_ref(), ctx)
                 }
                 _ => ConversationAccess::Unknown,
             };
 
             let merged = match conversation {
-                Some(CloudConversationData::Oz(cloud)) => {
+                Some(cloud) => {
                     let tasks: Vec<warp_multi_agent_api::Task> = cloud
                         .all_tasks()
                         .filter_map(|task| task.source().cloned())
@@ -315,13 +314,6 @@ impl PaneGroup {
                             return;
                         }
                     }
-                }
-                Some(CloudConversationData::CLIAgent(_)) => {
-                    log::warn!(
-                        "child transcript upgrade unsupported \
-                         CLI transcript child_conversation_id={child_id:?}"
-                    );
-                    return;
                 }
                 None => {
                     log::warn!(
@@ -398,7 +390,7 @@ impl PaneGroup {
             Self::create_cloud_mode_terminal(resources, view_size, false, ctx);
         Self::load_data_into_restored_ambient_cloud_mode_view(
             terminal_view.clone(),
-            CloudConversationData::Oz(Box::new(merged)),
+            Box::new(merged),
             task_id,
             false,
             ctx,

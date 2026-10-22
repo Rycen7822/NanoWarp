@@ -5509,7 +5509,6 @@ mod simplified_wasm_tab_bar {
     use crate::ai::ambient_agents::{
         AgentSource, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
     };
-    use crate::ai::blocklist::history_model::CloudConversationData;
     use crate::auth::user::TEST_USER_UID;
     use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
     use crate::persistence::model::ConversationUsageMetadata;
@@ -5622,11 +5621,11 @@ mod simplified_wasm_tab_bar {
         }
     }
 
-    fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> CloudConversationData {
+    fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> Box<AIConversation> {
         let mut conversation = AIConversation::new(false, false);
         conversation.set_task_id(task_id);
         conversation.set_server_metadata(test_server_conversation_metadata(Some(task_id)));
-        CloudConversationData::Oz(Box::new(conversation))
+        Box::new(conversation)
     }
 
     fn restore_owned_handoff_cloud_cloud_pane(

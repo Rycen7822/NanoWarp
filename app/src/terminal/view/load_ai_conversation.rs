@@ -24,9 +24,7 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::agent_view::{AgentViewEntryBlockParams, AgentViewEntryOrigin};
 use crate::ai::blocklist::block::cli_controller::CLISubagentController;
-use crate::ai::blocklist::history_model::{
-    BlocklistAIHistoryModel, CLIAgentConversation, CloudConversationData,
-};
+use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::ai::blocklist::model::AIBlockModelImpl;
 use crate::ai::blocklist::{
     AIBlock, BlocklistAIActionModel, BlocklistAIContextModel, BlocklistAIController,
@@ -90,12 +88,6 @@ pub enum ConversationRestorationInNewPaneType {
     /// Fork an existing conversation into this new pane.
     /// This is like Historical but requires special persistence handling.
     Forked { conversation: AIConversation },
-
-    /// Load a CLI agent conversation from its downloaded snapshot.
-    HistoricalCLIAgent {
-        conversation: CLIAgentConversation,
-        should_use_live_appearance: bool,
-    },
 }
 
 impl ConversationRestorationInNewPaneType {
@@ -114,10 +106,6 @@ impl ConversationRestorationInNewPaneType {
             Self::Historical {
                 should_use_live_appearance,
                 ..
-            }
-            | Self::HistoricalCLIAgent {
-                should_use_live_appearance,
-                ..
             } => FeatureFlag::AgentView.is_enabled() || *should_use_live_appearance,
             Self::Startup { .. } => false,
         }
@@ -128,9 +116,6 @@ impl ConversationRestorationInNewPaneType {
         match self {
             Self::Historical { conversation, .. } | Self::Forked { conversation, .. } => {
                 conversation.initial_working_directory()
-            }
-            Self::HistoricalCLIAgent { conversation, .. } => {
-                conversation.metadata.working_directory.clone()
             }
             Self::Startup { .. } => None,
         }
@@ -150,9 +135,7 @@ impl ConversationRestorationInNewPaneType {
             Self::Forked { conversation, .. } => conversation
                 .current_working_directory()
                 .or_else(|| conversation.initial_working_directory()),
-            Self::Startup { .. } | Self::Historical { .. } | Self::HistoricalCLIAgent { .. } => {
-                self.initial_working_directory()
-            }
+            Self::Startup { .. } | Self::Historical { .. } => self.initial_working_directory(),
         }
     }
 }
@@ -216,25 +199,18 @@ impl TerminalView {
     /// already in the right directory, or we need to cd.
     fn resolve_dir_restoration_state(
         &self,
-        cloud_conversation: &CloudConversationData,
+        cloud_conversation: &AIConversation,
         is_local_conversation: bool,
     ) -> RestorationDirState {
         if !is_local_conversation {
             return RestorationDirState::SkippedNonLocalConversation;
         }
 
-        let target_dir = match cloud_conversation {
-            CloudConversationData::Oz(conversation) => {
-                conversation.initial_working_directory().or_else(|| {
-                    conversation
-                        .server_metadata()
-                        .and_then(|metadata| metadata.working_directory.clone())
-                })
-            }
-            CloudConversationData::CLIAgent(cli_conversation) => {
-                cli_conversation.metadata.working_directory.clone()
-            }
-        };
+        let target_dir = cloud_conversation.initial_working_directory().or_else(|| {
+            cloud_conversation
+                .server_metadata()
+                .and_then(|metadata| metadata.working_directory.clone())
+        });
 
         let Some(target_dir) = target_dir else {
             // If we don't have a target dir, no need to cd
@@ -256,7 +232,7 @@ impl TerminalView {
     /// ensuring the conversation does not already exist in this terminal view.
     pub(crate) fn restore_conversation_and_directory_context<F>(
         &mut self,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         use_live_appearance: bool,
         entry_behavior: RestoreConversationEntryBehavior,
         is_local_conversation: bool,
@@ -270,25 +246,13 @@ impl TerminalView {
 
         let restore_and_continue =
             move |me: &mut TerminalView, ctx: &mut ViewContext<TerminalView>| {
-                match cloud_conversation {
-                    CloudConversationData::Oz(conversation) => {
-                        me.restore_conversation_after_view_creation(
-                            RestoredAIConversation::new(*conversation),
-                            use_live_appearance,
-                            entry_behavior,
-                            ctx,
-                        );
-                    }
-                    CloudConversationData::CLIAgent(cli_conversation) => {
-                        if FeatureFlag::AgentHarness.is_enabled() {
-                            me.restore_cli_agent_block_snapshot(cli_conversation.block);
-                        } else {
-                            log::warn!(
-                                "AgentHarness flag is disabled; ignoring CLI agent block snapshot"
-                            );
-                        }
-                    }
-                }
+                let conversation = cloud_conversation;
+                me.restore_conversation_after_view_creation(
+                    RestoredAIConversation::new(*conversation),
+                    use_live_appearance,
+                    entry_behavior,
+                    ctx,
+                );
 
                 on_restored(me, ctx);
             };
@@ -313,18 +277,6 @@ impl TerminalView {
                 restore_and_continue(self, ctx);
             }
         }
-    }
-
-    /// Inserts a CLI agent block snapshot into the terminal model.
-    ///
-    /// CLI agent conversations are represented by a harness-specific transcript and
-    /// a snapshot of the block contents. When restoring a CLI agent conversation, we
-    /// display the block snapshot as if it were restored session contents.
-    fn restore_cli_agent_block_snapshot(&mut self, block: SerializedBlock) {
-        self.model
-            .lock()
-            .block_list_mut()
-            .insert_restored_block(&block);
     }
 
     /// Restore AI documents from exchanges by processing CreateDocuments and EditDocuments actions.
@@ -628,12 +580,6 @@ impl TerminalView {
             }
             ConversationRestorationInNewPaneType::Forked { conversation, .. } => {
                 vec![RestoredAIConversation::new(conversation)]
-            }
-            ConversationRestorationInNewPaneType::HistoricalCLIAgent { conversation, .. } => {
-                if FeatureFlag::AgentHarness.is_enabled() {
-                    self.restore_cli_agent_block_snapshot(conversation.block);
-                }
-                return;
             }
         };
         if restored_conversations.is_empty() {

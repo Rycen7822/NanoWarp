@@ -52,7 +52,6 @@ use crate::terminal::view::blocklist_filter;
 
 mod conversation_loader;
 pub use conversation_loader::{
-    CLIAgentConversation, CloudConversationData,
     convert_persisted_conversation_to_ai_conversation_with_metadata, load_conversation_from_server,
 };
 use warp_errors::report_error;

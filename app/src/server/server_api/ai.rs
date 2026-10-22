@@ -8,7 +8,7 @@ use ai::index::full_source_code_embedding::store_client::{IntermediateNode, Stor
 use ai::index::full_source_code_embedding::{
     self, CodebaseContextConfig, ContentHash, EmbeddingConfig, NodeHash, RepoMetadata,
 };
-use anyhow::{Context as _, anyhow};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
@@ -132,7 +132,6 @@ use warp_graphql::queries::task_git_credentials::{
     TaskGitCredentialsLegacyVariables, TaskGitCredentialsResult, TaskGitCredentialsVariables,
 };
 use warp_multi_agent_api::ConversationData;
-use warp_server_client::PresignedDownloadResponse;
 
 use super::ServerApi;
 #[cfg(not(target_family = "wasm"))]
@@ -173,7 +172,6 @@ use crate::drive::workflows::ai_assist::{GeneratedCommandMetadata, GeneratedComm
 use crate::persistence::model::ConversationUsageMetadata;
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 use crate::server::team_scope::RequestTeamScope;
-use crate::terminal::model::block::SerializedBlock;
 #[cfg(not(feature = "agent_mode_evals"))]
 use crate::{
     server::ids::ServerId,
@@ -1392,11 +1390,6 @@ pub trait AIClient: 'static + Send + Sync {
         &self,
         server_conversation_token: ServerConversationToken,
     ) -> anyhow::Result<AIAgentConversationFormat, anyhow::Error>;
-
-    async fn get_block_snapshot(
-        &self,
-        server_conversation_token: ServerConversationToken,
-    ) -> anyhow::Result<SerializedBlock, anyhow::Error>;
 
     async fn delete_ai_conversation(
         &self,
@@ -2712,27 +2705,6 @@ impl AIClient for ServerApi {
                 Err(anyhow!("Failed to get AI conversation format"))
             }
         }
-    }
-
-    async fn get_block_snapshot(
-        &self,
-        server_conversation_token: ServerConversationToken,
-    ) -> anyhow::Result<SerializedBlock, anyhow::Error> {
-        let conversation_id = server_conversation_token.as_str();
-        // Make sure to use `SerializedBlock::from_json` to correctly handle the serialized
-        // command and output grid contents.
-        let response = self
-            .get_public_api_response(&format!(
-                "agent/conversations/{conversation_id}/block-snapshot?redirect=false"
-            ))
-            .await?;
-        let download = response
-            .json::<PresignedDownloadResponse>()
-            .await
-            .map_err(reqwest::Error::without_url)
-            .context("Failed to decode block snapshot download URL")?;
-        let json_bytes = self.base_client.download_presigned(&download.url).await?;
-        SerializedBlock::from_json(&json_bytes)
     }
 
     async fn delete_ai_conversation(

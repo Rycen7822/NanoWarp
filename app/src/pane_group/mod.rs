@@ -23,7 +23,6 @@ use tree::DEFAULT_FLEX_VALUE;
 use typed_path::TypedPath;
 use url::Url;
 use uuid::Uuid;
-use warp_cli::agent::Harness;
 use warp_core::command::ExitCode;
 use warp_core::context_flag::ContextFlag;
 use warp_errors::report_if_error;
@@ -47,7 +46,7 @@ use warpui::{
 };
 
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-use crate::ai::agent::conversation::{AIAgentHarness, AIConversation, AIConversationId};
+use crate::ai::agent::conversation::{AIConversation, AIConversationId};
 use crate::ai::agent_conversations_model::{
     AgentConversationEntryId, AgentConversationNavigationSubject, AgentConversationsModel,
     AgentConversationsModelEvent,
@@ -57,7 +56,6 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::BlocklistAIHistoryEvent;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::history_model::CloudConversationData;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
 use crate::ai::blocklist::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use crate::ai::blocklist::suggested_rule_modal::SuggestedRuleAndId;
@@ -3695,7 +3693,7 @@ impl PaneGroup {
     /// Uses the active session view as the target.
     pub fn load_data_into_conversation_transcript_viewer(
         &mut self,
-        conversation: CloudConversationData,
+        conversation: Box<AIConversation>,
         ambient_agent_task_id: Option<AmbientAgentTaskId>,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -3716,7 +3714,7 @@ impl PaneGroup {
     fn load_data_into_transcript_viewer(
         &mut self,
         terminal_view: ViewHandle<TerminalView>,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         ambient_agent_task_id: Option<AmbientAgentTaskId>,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -3783,66 +3781,18 @@ impl PaneGroup {
             });
         }
 
-        match cloud_conversation {
-            CloudConversationData::Oz(mut conversation) => {
-                if ambient_agent_task_id.is_some() {
-                    conversation.set_is_viewing_shared_session(true);
-                }
-                terminal_view.update(ctx, |view, ctx| {
-                    view.restore_conversation_after_view_creation(
-                        RestoredAIConversation::new(*conversation),
-                        true,
-                        RestoreConversationEntryBehavior::EnterRestoredConversation,
-                        ctx,
-                    );
-                });
-            }
-            CloudConversationData::CLIAgent(cli_conversation) => {
-                if !FeatureFlag::AgentHarness.is_enabled() {
-                    log::warn!("AgentHarness flag is disabled; ignoring CLI agent conversation");
-                    return;
-                }
-                let harness = match cli_conversation.metadata.harness {
-                    AIAgentHarness::ClaudeCode => Some(Harness::Claude),
-                    AIAgentHarness::Gemini => Some(Harness::Gemini),
-                    AIAgentHarness::Pi => Some(Harness::Pi),
-                    AIAgentHarness::Codex => Some(Harness::Codex),
-                    AIAgentHarness::Oz => None,
-                    AIAgentHarness::Unknown => Some(Harness::Unknown),
-                };
-                let fallback_title = cli_conversation.metadata.title.clone();
-                terminal_view.update(ctx, |view, ctx| {
-                    view.restore_conversation_and_directory_context(
-                        CloudConversationData::CLIAgent(cli_conversation),
-                        true,
-                        RestoreConversationEntryBehavior::PreserveAgentViewState,
-                        false,
-                        |_, _| {},
-                        ctx,
-                    );
-                    // Keep the viewer's AmbientAgentViewModel harness in sync with the loaded run.
-                    if let Some(harness) = harness
-                        && let Some(ambient_agent_view_model) =
-                            view.ambient_agent_view_model().cloned()
-                    {
-                        ambient_agent_view_model.update(ctx, |model, ctx| {
-                            model.set_harness(harness, ctx);
-                        });
-                    }
-                    // 3p runs have no materialized AIConversation, so enter agent view with a
-                    // fresh vehicle conversation and retag the restored snapshot block onto it so
-                    // it passes `should_hide_block`'s agent view filter.
-                    if let Some(vehicle_conversation_id) =
-                        view.enter_agent_view_for_restored_cli_agent(fallback_title, ctx)
-                    {
-                        view.model
-                            .lock()
-                            .block_list_mut()
-                            .attach_non_startup_blocks_to_conversation(vehicle_conversation_id);
-                    }
-                });
-            }
-        };
+        let mut conversation = cloud_conversation;
+        if ambient_agent_task_id.is_some() {
+            conversation.set_is_viewing_shared_session(true);
+        }
+        terminal_view.update(ctx, |view, ctx| {
+            view.restore_conversation_after_view_creation(
+                RestoredAIConversation::new(*conversation),
+                true,
+                RestoreConversationEntryBehavior::EnterRestoredConversation,
+                ctx,
+            );
+        });
 
         // Register the transcript viewer as an ambient session so it appears in the Active section
         // of the conversation list.
@@ -5354,23 +5304,16 @@ impl PaneGroup {
         success
     }
 
-    fn ambient_agent_task_id(
-        cloud_conversation: &CloudConversationData,
-    ) -> Option<AmbientAgentTaskId> {
-        match cloud_conversation {
-            CloudConversationData::Oz(conversation) => conversation
-                .server_metadata()
-                .and_then(|metadata| metadata.ambient_agent_task_id),
-            CloudConversationData::CLIAgent(cli_conversation) => {
-                cli_conversation.metadata.ambient_agent_task_id
-            }
-        }
+    fn ambient_agent_task_id(cloud_conversation: &AIConversation) -> Option<AmbientAgentTaskId> {
+        cloud_conversation
+            .server_metadata()
+            .and_then(|metadata| metadata.ambient_agent_task_id)
     }
 
     fn replace_loading_pane_with_restored_ambient_cloud_mode_pane(
         &mut self,
         loading_pane_id: PaneId,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         task_id: AmbientAgentTaskId,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
@@ -5386,7 +5329,7 @@ impl PaneGroup {
     fn replace_loading_pane_with_restored_ambient_cloud_mode_pane_inner(
         &mut self,
         loading_pane_id: PaneId,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         task_id: AmbientAgentTaskId,
         mark_as_viewing_shared_session: bool,
         ctx: &mut ViewContext<Self>,
@@ -5438,7 +5381,7 @@ impl PaneGroup {
     /// `&mut self` use it to seed the parent's children from server data.
     fn load_data_into_restored_ambient_cloud_mode_view(
         terminal_view: ViewHandle<TerminalView>,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         task_id: AmbientAgentTaskId,
         mark_as_viewing_shared_session: bool,
         ctx: &mut ViewContext<Self>,
@@ -5465,61 +5408,17 @@ impl PaneGroup {
                 .block_list_mut()
                 .set_is_executing_oz_environment_startup_commands(false);
 
-            match cloud_conversation {
-                CloudConversationData::Oz(mut conversation) => {
-                    let id = conversation.id();
-                    conversation.set_is_viewing_shared_session(mark_as_viewing_shared_session);
-                    view.restore_conversation_after_view_creation(
-                        RestoredAIConversation::new(*conversation),
-                        true,
-                        RestoreConversationEntryBehavior::PreserveAgentViewState,
-                        ctx,
-                    );
-                    view.enter_agent_view(None, Some(id), AgentViewEntryOrigin::CloudAgent, ctx);
-                    conversation_id = Some(id);
-                }
-                CloudConversationData::CLIAgent(cli_conversation) => {
-                    if !FeatureFlag::AgentHarness.is_enabled() {
-                        log::warn!(
-                            "AgentHarness flag is disabled; ignoring CLI agent conversation"
-                        );
-                        return;
-                    }
-                    let harness = match cli_conversation.metadata.harness {
-                        AIAgentHarness::ClaudeCode => Some(Harness::Claude),
-                        AIAgentHarness::Gemini => Some(Harness::Gemini),
-                        AIAgentHarness::Pi => Some(Harness::Pi),
-                        AIAgentHarness::Codex => Some(Harness::Codex),
-                        AIAgentHarness::Oz => None,
-                        AIAgentHarness::Unknown => Some(Harness::Unknown),
-                    };
-                    let fallback_title = cli_conversation.metadata.title.clone();
-                    view.restore_conversation_and_directory_context(
-                        CloudConversationData::CLIAgent(cli_conversation),
-                        true,
-                        RestoreConversationEntryBehavior::PreserveAgentViewState,
-                        false,
-                        |_, _| {},
-                        ctx,
-                    );
-                    if let Some(harness) = harness
-                        && let Some(ambient_agent_view_model) =
-                            view.ambient_agent_view_model().cloned()
-                    {
-                        ambient_agent_view_model.update(ctx, |model, ctx| {
-                            model.set_harness(harness, ctx);
-                        });
-                    }
-                    if let Some(vehicle_conversation_id) =
-                        view.enter_agent_view_for_restored_cli_agent(fallback_title, ctx)
-                    {
-                        view.model
-                            .lock()
-                            .block_list_mut()
-                            .attach_non_startup_blocks_to_conversation(vehicle_conversation_id);
-                    }
-                }
-            }
+            let mut conversation = cloud_conversation;
+            let id = conversation.id();
+            conversation.set_is_viewing_shared_session(mark_as_viewing_shared_session);
+            view.restore_conversation_after_view_creation(
+                RestoredAIConversation::new(*conversation),
+                true,
+                RestoreConversationEntryBehavior::PreserveAgentViewState,
+                ctx,
+            );
+            view.enter_agent_view(None, Some(id), AgentViewEntryOrigin::CloudAgent, ctx);
+            conversation_id = Some(id);
 
             if let Some(ambient_agent_view_model) = view.ambient_agent_view_model().cloned() {
                 ambient_agent_view_model.update(ctx, |model, ctx| {
@@ -6475,7 +6374,7 @@ impl PaneGroup {
     pub fn replace_loading_pane_with_terminal(
         &mut self,
         loading_pane_id: PaneId,
-        cloud_conversation: CloudConversationData,
+        cloud_conversation: Box<AIConversation>,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
         if FeatureFlag::HandoffCloudCloud.is_enabled()
@@ -6488,24 +6387,10 @@ impl PaneGroup {
                 ctx,
             );
         }
-        let restoration = match cloud_conversation {
-            CloudConversationData::Oz(conversation) => {
-                ConversationRestorationInNewPaneType::Historical {
-                    conversation: *conversation,
-                    should_use_live_appearance: true,
-                    ambient_agent_task_id: None,
-                }
-            }
-            CloudConversationData::CLIAgent(cli_conversation) => {
-                if !FeatureFlag::AgentHarness.is_enabled() {
-                    log::warn!("AgentHarness flag is disabled; ignoring CLI agent conversation");
-                    return false;
-                }
-                ConversationRestorationInNewPaneType::HistoricalCLIAgent {
-                    conversation: *cli_conversation,
-                    should_use_live_appearance: true,
-                }
-            }
+        let restoration = ConversationRestorationInNewPaneType::Historical {
+            conversation: *cloud_conversation,
+            should_use_live_appearance: true,
+            ambient_agent_task_id: None,
         };
 
         // Get the initial working directory from the restored conversation.
