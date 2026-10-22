@@ -1,18 +1,12 @@
-use std::collections::HashMap;
-
-use settings::Setting as _;
 use warp::integration_testing::command_search::{
     assert_command_search_has_results, assert_command_search_is_open,
     assert_history_filter_is_active,
 };
-use warp::integration_testing::input::assert_workflow_info_box_is_open;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::{
     assert_input_editor_contents, wait_until_bootstrapped_single_pane_for_tab,
 };
-use warp::integration_testing::view_getters::single_input_view;
 use warp::integration_testing::{self};
-use warp::search::command_search::settings::ShowGlobalWorkflowsInUniversalSearch;
 use warp::sqlite_testing::set_user_and_hostname_for_commands;
 use warp::terminal::input::Input;
 use warp::terminal::model::session::get_local_hostname;
@@ -117,86 +111,6 @@ pub fn test_up_arrow_history() -> Builder {
                     )
                 })
             }),
-        )
-}
-
-pub fn test_up_arrow_history_enters_shift_tab_for_workflow() -> Builder {
-    new_builder()
-        .with_setup(|utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                FAKE_HISTORY_SQLITE_FILE,
-                &integration_testing::persistence::database_file_path_for_scope(
-                    &integration_testing::persistence::PersistenceScope::App,
-                ),
-            );
-
-            let local_user = get_local_user();
-            let local_hostname = get_local_hostname().expect("Failed to retrieve system hostname.");
-            set_user_and_hostname_for_commands(local_user, local_hostname);
-
-            let home_dir = utils.test_dir();
-            write_histfiles_for_test(
-                home_dir,
-                vec![r#"echo "foo""#, r#"sed -i '' '/hello/d' foo"#],
-                [
-                    ShellType::Zsh,
-                    ShellType::Bash,
-                    ShellType::Fish,
-                    ShellType::PowerShell,
-                ],
-            );
-        })
-        .with_user_defaults(HashMap::from([(
-            ShowGlobalWorkflowsInUniversalSearch::storage_key().to_owned(),
-            "true".to_owned(),
-        )]))
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(
-            new_step_with_default_assertions(
-                "Enter up key and verify terminal input contains workflow command",
-            )
-            .with_keystrokes(&[
-                "up", // this should move the cursor to the top line
-            ])
-            .add_assertion(|app, window_id| {
-                let input_view = single_input_view(app, window_id);
-                input_view.read(app, |view, ctx| {
-                    // The history menu should be visible.
-                    async_assert!(
-                        view.suggestions_mode_model()
-                            .as_ref(ctx)
-                            .mode()
-                            .is_visible()
-                    )
-                })
-            })
-            .add_named_assertion(
-                "Input contains most recent command",
-                assert_input_editor_contents(0, "sed -i '' '/hello/d' foo"),
-            ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Update \"string\" workflow parameter")
-                .with_keystrokes(&[
-                    "shift-tab", // this should cause the first argument to be highlighted
-                ])
-                .with_typed_characters(&[
-                    "bye", // this should result in us replacing the first argument
-                ])
-                .add_named_assertion(
-                    "First workflow parameter is substituted",
-                    assert_input_editor_contents(0, "sed -i '' '/bye/d' foo"),
-                ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Update \"string\" workflow parameter")
-                .with_keystrokes(&["shift-tab"])
-                .with_typed_characters(&["baz"])
-                .add_named_assertion(
-                    "Second workflow parameter is substituted",
-                    assert_input_editor_contents(0, "sed -i '' '/bye/d' baz"),
-                ),
         )
 }
 
@@ -376,72 +290,6 @@ pub fn test_histfile_left_joined_with_persisted_history() -> Builder {
                 .add_named_assertion(
                     "Input contains history command from histfile",
                     assert_input_editor_contents(0, r#"echo "foo""#),
-                ),
-        )
-}
-
-pub fn test_history_command_is_linked_to_local_workflow() -> Builder {
-    new_builder()
-        .with_setup(|utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                FAKE_HISTORY_SQLITE_FILE,
-                &integration_testing::persistence::database_file_path_for_scope(
-                    &integration_testing::persistence::PersistenceScope::App,
-                ),
-            );
-
-            let local_user = get_local_user();
-            let local_hostname = get_local_hostname().expect("Failed to retrieve system hostname.");
-            set_user_and_hostname_for_commands(local_user, local_hostname);
-
-            let home_dir = utils.test_dir();
-            write_histfiles_for_test(
-                home_dir,
-                vec![r#"echo "foo""#, r#"[[ -n "foo" ]]"#, r#"echo "bar""#],
-                [
-                    ShellType::Zsh,
-                    ShellType::Bash,
-                    ShellType::Fish,
-                    ShellType::PowerShell,
-                ],
-            );
-        })
-        .with_user_defaults(HashMap::from([(
-            ShowGlobalWorkflowsInUniversalSearch::storage_key().to_owned(),
-            "true".to_owned(),
-        )]))
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(
-            new_step_with_default_assertions("Open command search")
-                .with_keystrokes(&["ctrl-r"])
-                .add_named_assertion("Command search is open", assert_command_search_is_open()),
-        )
-        .with_step(
-            new_step_with_default_assertions("Select history filter")
-                .with_typed_characters(&["h"])
-                .with_keystrokes(&["tab"])
-                .add_named_assertion(
-                    "History filter is active",
-                    assert_history_filter_is_active(),
-                ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Wait for history results").add_named_assertion(
-                "Command search has history results",
-                assert_command_search_has_results(),
-            ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Loads history from sqlite")
-                .with_keystrokes(&["up", "enter"])
-                .add_named_assertion(
-                    "Input contains selected history command",
-                    assert_input_editor_contents(0, r#"[[ -n "foo" ]]"#),
-                )
-                .add_named_assertion(
-                    "Workflows info box is open",
-                    assert_workflow_info_box_is_open(0, 0),
                 ),
         )
 }

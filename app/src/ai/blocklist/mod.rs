@@ -82,8 +82,8 @@ pub(crate) use conversation_selection::{
     PendingQueryState,
 };
 pub(crate) use history_model::{
-    AIQueryHistoryOutputStatus, BeginConversationRenameError, BlocklistAIHistoryEvent,
-    BlocklistAIHistoryModel, ConversationStatusUpdate, FORK_PREFIX, PRE_REWIND_PREFIX,
+    BeginConversationRenameError, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
+    ConversationStatusUpdate, FORK_PREFIX, PRE_REWIND_PREFIX,
 };
 pub(crate) use input_model::BlocklistAIInputEvent;
 pub use input_model::{

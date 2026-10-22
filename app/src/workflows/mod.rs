@@ -69,7 +69,6 @@ pub enum WorkflowSource {
 pub enum WorkflowSelectionSource {
     WarpDrive,
     CommandPalette,
-    UniversalSearch,
     Voltron,
     WarpAI,
     Notebook,

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
     Container, CornerRadius, Flex, Hoverable, MouseStateHandle, ParentElement, Radius, Text, Wrap,
@@ -10,22 +9,14 @@ use warpui::platform::Cursor;
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::appearance::Appearance;
-use crate::drive::settings::{WarpDriveSettings, WarpDriveSettingsChangedEvent};
 use crate::search::{FilterChipRenderer, QueryFilter};
-use crate::settings::{AISettings, AISettingsChangedEvent};
 
 lazy_static! {
     /// Map of sample queries to the [`QueryFilter`]s they employ.
     ///
     /// These are rendered as clickable 'chips' in the zero state.
-    static ref SAMPLE_QUERY_TO_FILTER: HashMap<&'static str, QueryFilter> = HashMap::from([
-        ("history: git checkout", QueryFilter::History),
-        ("workflows: run dev server", QueryFilter::Workflows),
-        (
-            "# find \"foo\" in files",
-            QueryFilter::NaturalLanguage
-        ),
-    ]);
+    static ref SAMPLE_QUERY_TO_FILTER: HashMap<&'static str, QueryFilter> =
+        HashMap::from([("history: git checkout", QueryFilter::History)]);
 }
 
 pub enum CommandSearchZeroStateEvent {
@@ -45,21 +36,10 @@ pub struct CommandSearchZeroStateView {
 }
 
 impl CommandSearchZeroStateView {
-    pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |_, _, event, ctx| {
-            if let AISettingsChangedEvent::IsAnyAIEnabled { .. } = event {
-                ctx.notify();
-            }
-        });
-
-        ctx.subscribe_to_model(&WarpDriveSettings::handle(ctx), |_, _, event, ctx| {
-            if let WarpDriveSettingsChangedEvent::EnableWarpDrive { .. } = event {
-                ctx.notify();
-            }
-        });
-
+    pub fn new(_ctx: &mut ViewContext<Self>) -> Self {
         Self {
-            filter_chip_to_mouse_state_handle: QueryFilter::all()
+            filter_chip_to_mouse_state_handle: [QueryFilter::History]
+                .into_iter()
                 .map(|filter| (filter, MouseStateHandle::default()))
                 .collect(),
             sample_query_to_mouse_state_handle: SAMPLE_QUERY_TO_FILTER
@@ -203,7 +183,7 @@ impl View for CommandSearchZeroStateView {
         .with_margin_bottom(styles::COMMAND_SEARCH_TEXT_MARGIN_BOTTOM)
         .finish();
 
-        let valid_filters = valid_query_filters(app);
+        let valid_filters = [QueryFilter::History];
 
         let column = Flex::column()
             .with_child(command_search_text)
@@ -277,24 +257,6 @@ impl TypedActionView for CommandSearchZeroStateView {
             }
         }
     }
-}
-
-fn valid_query_filters(app: &AppContext) -> Vec<QueryFilter> {
-    let mut filters = vec![QueryFilter::History];
-
-    if FeatureFlag::AgentMode.is_enabled() && AISettings::as_ref(app).is_any_ai_enabled(app) {
-        if FeatureFlag::AgentModeWorkflows.is_enabled() {
-            filters.push(QueryFilter::AgentModeWorkflows);
-        }
-        filters.push(QueryFilter::PromptHistory);
-    }
-
-    if WarpDriveSettings::is_warp_drive_enabled(app) {
-        filters.push(QueryFilter::Workflows);
-        filters.push(QueryFilter::EnvironmentVariables);
-    }
-
-    filters
 }
 
 mod styles {

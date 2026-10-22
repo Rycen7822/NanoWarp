@@ -50,7 +50,6 @@ use crate::palette::PaletteMode;
 use crate::pane_group::PaneDragDropLocation;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::search::QueryFilter;
-use crate::search::command_search::searcher::CommandSearchItemAction;
 use crate::server::block::DisplaySetting;
 use crate::server::ids::{ObjectUid, ServerId};
 use crate::settings::AgentModeCodingPermissionsType;
@@ -504,32 +503,6 @@ pub enum WarpDriveSource {
     Legacy,
     LeftPanelToolbelt,
     ForceOpened,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub enum CommandSearchResultType {
-    History,
-    Workflow,
-    OpenWarpAI,
-    TranslateUsingWarpAI,
-    EnvVarCollection,
-    ViewInWarpDrive,
-    AIQuery,
-    Project,
-}
-
-impl From<&CommandSearchItemAction> for CommandSearchResultType {
-    fn from(action: &CommandSearchItemAction) -> Self {
-        use crate::search::command_search::searcher::CommandSearchItemAction::*;
-        match action {
-            AcceptHistory(_) | ExecuteHistory(_) => Self::History,
-            AcceptWorkflow(_) => Self::Workflow,
-            AcceptEnvVarCollection(_) => Self::EnvVarCollection,
-            OpenWarpAI => Self::OpenWarpAI,
-            TranslateUsingWarpAI => Self::TranslateUsingWarpAI,
-            AcceptAIQuery(_) | RunAIQuery(_) => Self::AIQuery,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -1528,20 +1501,6 @@ pub enum TelemetryEvent {
     ResourceCenterTipsCompleted,
     ResourceCenterTipsSkipped,
     KeybindingsPageOpened,
-    CommandSearchOpened {
-        has_initial_query: bool,
-    },
-    CommandSearchExited {
-        query_filter: Option<QueryFilter>,
-        buffer_length: usize,
-    },
-    CommandSearchResultAccepted {
-        result_index: usize,
-        result_type: CommandSearchResultType,
-        query_filter: Option<QueryFilter>,
-        buffer_length: usize,
-        was_immediately_executed: bool,
-    },
     GlobalSearchOpened,
     GlobalSearchQueryStarted,
     GlobalSearchQueryCompleted {
@@ -3176,26 +3135,6 @@ impl TelemetryEvent {
             TelemetryEvent::SaveLaunchConfig { state } => Some(json!({ "state": state })),
             TelemetryEvent::SaveAsWorkflowModal { source } => Some(json!({ "source": source })),
             TelemetryEvent::SetLineHeight { new_value } => Some(json!({ "new_value": new_value })),
-            TelemetryEvent::CommandSearchOpened { has_initial_query } => {
-                Some(json!({ "has_initial_query": has_initial_query }))
-            }
-            TelemetryEvent::CommandSearchExited {
-                buffer_length,
-                query_filter,
-            } => Some(json!({ "buffer_length": buffer_length, "query_filter": query_filter })),
-            TelemetryEvent::CommandSearchResultAccepted {
-                result_index,
-                result_type,
-                query_filter,
-                buffer_length,
-                was_immediately_executed,
-            } => Some(json!({
-                "result_index": result_index,
-                "result_type": result_type,
-                "query_filter": query_filter,
-                "buffer_length": buffer_length,
-                "was_immediately_executed": was_immediately_executed
-            })),
             TelemetryEvent::AICommandSearchOpened { entrypoint } => {
                 Some(json!({ "entrypoint": entrypoint }))
             }
@@ -4899,9 +4838,6 @@ impl TelemetryEvent {
             | TelemetryEvent::GlobalSearchOpened
             | TelemetryEvent::GlobalSearchQueryStarted
             | TelemetryEvent::GlobalSearchQueryCompleted { .. }
-            | TelemetryEvent::CommandSearchOpened { .. }
-            | TelemetryEvent::CommandSearchExited { .. }
-            | TelemetryEvent::CommandSearchResultAccepted { .. }
             | TelemetryEvent::AICommandSearchOpened { .. }
             | TelemetryEvent::OpenNotebook(_)
             | TelemetryEvent::EditNotebook { .. }
@@ -5440,9 +5376,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchOpened => EnablementState::Always,
             Self::GlobalSearchQueryStarted => EnablementState::Always,
             Self::GlobalSearchQueryCompleted => EnablementState::Always,
-            Self::CommandSearchOpened => EnablementState::Always,
-            Self::CommandSearchExited => EnablementState::Always,
-            Self::CommandSearchResultAccepted => EnablementState::Always,
             Self::AICommandSearchOpened => EnablementState::Always,
             Self::OpenedAltScreenFind => EnablementState::Always,
             Self::UserInitiatedClose => EnablementState::Always,
@@ -5922,9 +5855,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchOpened => "Global Search Opened",
             Self::GlobalSearchQueryStarted => "Global Search Query Started",
             Self::GlobalSearchQueryCompleted => "Global Search Query Completed",
-            Self::CommandSearchOpened => "Command Search Opened",
-            Self::CommandSearchExited => "Command Search Exited",
-            Self::CommandSearchResultAccepted => "Command Search Result Accepted",
             Self::AICommandSearchOpened => "AI Command Search opened",
             Self::OpenNotebook => "Notebook Opened",
             Self::EditNotebook => "Notebook Edited",
@@ -6523,11 +6453,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ResourceCenterTipsCompleted => "Completed resource center tips",
             Self::ResourceCenterTipsSkipped => "Skipped welcome tips for new users",
             Self::KeybindingsPageOpened => "Opened the keybinding page within the resource center",
-            Self::CommandSearchOpened => "Opened command search (universal search panel to search)",
-            Self::CommandSearchExited => {
-                "Exited command search (universal search panel to search) without accepting a result"
-            }
-            Self::CommandSearchResultAccepted => "Accepted command search result",
             Self::AICommandSearchOpened => {
                 "Opened the modal for AI Command Search, where you can use natural language to search for commands"
             }

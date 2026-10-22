@@ -226,7 +226,6 @@ use crate::ai::facts::{AIFactManager, AIFactView, AIFactViewEvent};
 use crate::ai::llms::LLMId as HandoffLLMId;
 use crate::ai::llms::LLMPreferences;
 use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::ai_assistant::execution_context::execution_context_for_session;
 use crate::ai_assistant::panel::{AIAssistantPanelEvent, AIAssistantPanelView};
 use crate::ai_assistant::{AI_ASSISTANT_FEATURE_NAME, AI_ASSISTANT_LOGO_COLOR, AskAIType};
 use crate::app_state::{
@@ -324,10 +323,7 @@ use crate::root_view::{NewWorkspaceSource, OpenLaunchConfigArg, quake_mode_windo
 use crate::search::command_palette::view::{
     Event as CommandPaletteEvent, NavigationMode, View as CommandPalette,
 };
-use crate::search::command_search::searcher::{
-    AcceptedHistoryItem, AcceptedWorkflow, CommandSearchItemAction,
-};
-use crate::search::command_search::settings::CommandSearchSettings;
+use crate::search::command_search::searcher::CommandSearchItemAction;
 use crate::search::command_search::view::{CommandSearchEvent, CommandSearchView};
 #[cfg(target_family = "wasm")]
 use crate::search::slash_command_menu::static_commands::commands;
@@ -3095,8 +3091,7 @@ impl Workspace {
         let rewind_confirmation_dialog = Self::build_rewind_confirmation_dialog(ctx);
         let delete_conversation_confirmation_dialog =
             Self::build_delete_conversation_confirmation_dialog(ctx);
-        let command_search_view =
-            ctx.add_typed_action_view(|ctx| CommandSearchView::new(ai_client.clone(), ctx));
+        let command_search_view = ctx.add_typed_action_view(CommandSearchView::new);
         ctx.subscribe_to_view(&command_search_view, |me, _, event, ctx| {
             me.handle_command_search_event(event, ctx);
         });
@@ -17409,28 +17404,11 @@ impl Workspace {
                 InitContent::Custom(query) => query.to_owned(),
             };
 
-            let session_context = active_input_handle.as_ref().and_then(|input_handle| {
-                input_handle.read(ctx, |input, ctx| input.completion_session_context(ctx))
-            });
-
-            let ai_execution_context = session_context
-                .as_ref()
-                .map(|session_context| execution_context_for_session(&session_context.session));
-
             let menu_positioning = active_input_handle
                 .as_ref()
                 .map_or_else(MenuPositioning::default, |input_handle| {
                     input_handle.read(ctx, |input, ctx| input.menu_positioning(ctx))
                 });
-
-            if !self.current_workspace_state.is_command_search_open {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::CommandSearchOpened {
-                        has_initial_query: !initial_query.is_empty(),
-                    },
-                    ctx
-                );
-            }
 
             // Make sure we close any already-open input suggestions panel.
             if let Some(input_handle) = &active_input_handle {
@@ -17443,11 +17421,9 @@ impl Workspace {
             self.command_search_view.update(ctx, |view, ctx| {
                 view.reset_state(
                     session_id,
-                    session_context,
                     initial_query,
                     query_filter,
                     menu_positioning,
-                    ai_execution_context,
                     ctx,
                 );
             });
@@ -18142,140 +18118,20 @@ impl Workspace {
                 self.current_workspace_state.is_command_search_open = false;
                 ctx.notify();
             }
-            ItemSelected { query, payload } => {
-                use CommandSearchItemAction::*;
-                match payload.as_ref() {
-                    AcceptHistory(AcceptedHistoryItem {
-                        command,
-                        linked_workflow_data,
-                    }) => {
-                        // Switch to shell input mode so the history command is
-                        // treated as a shell command, not an agent prompt.
-                        active_input_handle.update(ctx, |input, ctx| {
+            ItemSelected { payload } => {
+                active_input_handle.update(ctx, |input, ctx| {
+                    match payload.as_ref() {
+                        CommandSearchItemAction::AcceptHistory(command) => {
                             input.set_input_mode_terminal(false, ctx);
-                            input.replace_buffer_content(command.as_str(), ctx);
+                            input.replace_buffer_content(command, ctx);
                             input.focus_input_box(ctx);
-                        });
-
-                        if let Some(linked_workflow_data) = linked_workflow_data {
-                            active_input_handle.update(ctx, |input, ctx| {
-                                if let Some((workflow_type, workflow_source)) =
-                                    linked_workflow_data.linked_workflow(ctx)
-                                {
-                                    input.show_workflow_info_box_for_history_command(
-                                        command.as_str(),
-                                        workflow_type,
-                                        workflow_source,
-                                        WorkflowSelectionSource::UniversalSearch,
-                                        ctx,
-                                    );
-                                }
-                                ctx.notify();
-                            });
+                        }
+                        CommandSearchItemAction::ExecuteHistory(command) => {
+                            input.try_execute_command(command, ctx);
                         }
                     }
-                    ExecuteHistory(command) => {
-                        active_input_handle.update(ctx, |input, ctx| {
-                            input.try_execute_command(command.as_str(), ctx);
-                            ctx.notify();
-                        });
-                    }
-                    AcceptWorkflow(accepted) => {
-                        let (workflow, workflow_source) = match accepted {
-                            AcceptedWorkflow::Cloud { id, source } => {
-                                let Some(cloud_workflow) =
-                                    CloudModel::as_ref(ctx).get_workflow(id).cloned()
-                                else {
-                                    self.toast_stack.update(ctx, |view, ctx| {
-                                        view.add_ephemeral_toast(
-                                            DismissibleToast::error(
-                                                "This workflow is no longer available.".to_string(),
-                                            ),
-                                            ctx,
-                                        );
-                                    });
-                                    return;
-                                };
-                                (WorkflowType::Cloud(Box::new(cloud_workflow)), *source)
-                            }
-                            AcceptedWorkflow::Local {
-                                workflow, source, ..
-                            } => ((**workflow).clone(), *source),
-                        };
-                        active_input_handle.update(ctx, |input, ctx| {
-                            input.show_workflows_info_box_on_workflow_selection(
-                                workflow,
-                                workflow_source,
-                                WorkflowSelectionSource::UniversalSearch,
-                                None,
-                                ctx,
-                            );
-                            ctx.notify();
-                        });
-                    }
-                    TranslateUsingWarpAI => {
-                        active_input_handle.update(ctx, |input, ctx| {
-                            let content = format!("# {query}");
-                            input.focus_input_box(ctx);
-                            // Mimic the user replacing the editor text, as the replacement
-                            // is done in response to an explicit user action.
-                            input.user_replace_editor_text(content.as_str(), ctx);
-                            ctx.notify();
-                        });
-                    }
-                    AcceptEnvVarCollection(env_var_collection) => {
-                        self.invoke_environment_variables(
-                            (**env_var_collection).clone(),
-                            false,
-                            ctx,
-                        );
-                    }
-                    OpenWarpAI => {
-                        if !AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                            return;
-                        }
-
-                        if FeatureFlag::AgentMode.is_enabled() {
-                            let active_terminal_view = self.active_session_view(ctx).expect("There must be an active terminal view if the user selected a command search result");
-
-                            active_terminal_view.update(ctx, |terminal_view, ctx| {
-                                terminal_view.ask_blocklist_ai(
-                                    &AskAIType::FromAICommandSearch {
-                                        query: Arc::new(query.to_owned()),
-                                    },
-                                    ctx,
-                                )
-                            });
-                        } else {
-                            active_input_handle.update(ctx, |input, ctx| {
-                                input.replace_buffer_content("", ctx);
-                            });
-
-                            self.ask_ai_assistant(
-                                &AskAIType::FromAICommandSearch {
-                                    query: Arc::new(query.to_string()),
-                                },
-                                ctx,
-                            );
-                        }
-                    }
-                    AcceptAIQuery(ai_query) => {
-                        let active_terminal_view = self.active_session_view(ctx).expect("There must be an active terminal view if the user selected a command search result");
-
-                        active_terminal_view.update(ctx, |terminal_view, ctx| {
-                            terminal_view.set_ai_input_mode_with_query(Some(ai_query), ctx);
-                        });
-                    }
-                    RunAIQuery(ai_query) => {
-                        let active_terminal_view = self.active_session_view(ctx).expect("There must be an active terminal view if the user selected a command search result");
-
-                        active_terminal_view.update(ctx, |terminal_view, ctx| {
-                            terminal_view.set_ai_input_mode_with_query(Some(ai_query), ctx);
-                        });
-
-                        active_input_handle.update(ctx, |input, ctx| input.input_enter(ctx));
-                    }
-                }
+                    ctx.notify();
+                });
             }
             Resize => {
                 // A resize of universal search should write the app snapshot to sqlite.
@@ -23047,7 +22903,6 @@ impl Workspace {
         let window_settings = WindowSettings::as_ref(app);
         let pane_settings = PaneSettings::as_ref(app);
         let keys_settings = KeysSettings::as_ref(app);
-        let command_search_settings = CommandSearchSettings::as_ref(app);
         let ssh_settings = SshSettings::as_ref(app);
 
         let is_compact_mode =
@@ -23582,15 +23437,6 @@ impl Workspace {
                 .set
                 .insert(flags::OUTLINE_CODEBASE_SYMBOLS_FOR_AT_CONTEXT_MENU_FLAG);
         }
-        if *command_search_settings
-            .show_global_workflows_in_universal_search
-            .value()
-        {
-            context
-                .set
-                .insert(flags::GLOBAL_WORKFLOWS_IN_COMMAND_SEARCH_FLAG);
-        }
-
         if ChannelState::enable_debug_features() {
             let block_visibility_settings = BlockVisibilitySettings::as_ref(app);
             if *block_visibility_settings

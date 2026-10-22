@@ -24,7 +24,7 @@ use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 
 use super::RequestInput;
 use super::controller::response_stream::ResponseStreamId;
-use super::persistence::{PersistedAIInput, PersistedAIInputType};
+use super::persistence::PersistedAIInput;
 use crate::GlobalResourceHandlesProvider;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{
@@ -47,10 +47,8 @@ use crate::persistence::model::{AgentConversation, AgentConversationData};
 #[cfg(feature = "local_fs")]
 use crate::persistence::{database_file_path_for_current_scope, establish_ro_connection};
 use crate::server::server_api::ServerApiProvider;
-use crate::terminal::history::HistoryOrder;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::view::blocklist_filter;
-use crate::ui_components::icons::Icon;
 
 mod conversation_loader;
 pub use conversation_loader::{
@@ -2473,109 +2471,6 @@ impl BlocklistAIHistoryModel {
             .contains(&terminal_surface_id)
     }
 
-    /// Returns [`AIQueryHistory`]s from all sources: live conversations, cleared conversations,
-    /// and persisted queries from conversations not loaded in memory.
-    ///
-    /// When `terminal_surface_id` is provided, queries from that terminal surface are categorized as
-    /// `CurrentSession` and all others as `DifferentSession`. When `None`, all queries are
-    /// categorized as `DifferentSession`.
-    ///
-    /// Ambient agent sessions are always excluded.
-    pub(crate) fn all_ai_queries(
-        &self,
-        terminal_surface_id: Option<EntityId>,
-    ) -> impl Iterator<Item = AIQueryHistory> + '_ {
-        // Collect all conversation IDs that are already in memory (live or cleared)
-        // and build query vectors in the same loops
-        let mut loaded_conversation_ids: HashSet<AIConversationId> = HashSet::new();
-
-        let mut live_queries_vec = Vec::new();
-        for (conversation_terminal_surface_id, conversation_ids) in
-            self.live_conversation_ids_for_terminal_surface.iter()
-        {
-            loaded_conversation_ids.extend(conversation_ids);
-
-            // Skip shared ambient agent sessions
-            if self
-                .ambient_agent_terminal_surface_ids
-                .contains(conversation_terminal_surface_id)
-            {
-                continue;
-            }
-
-            let history_order =
-                if terminal_surface_id.is_some_and(|id| id == *conversation_terminal_surface_id) {
-                    HistoryOrder::CurrentSession
-                } else {
-                    HistoryOrder::DifferentSession
-                };
-
-            for conversation_id in conversation_ids {
-                if let Some(conversation) = self.conversations_by_id.get(conversation_id) {
-                    // For child agent conversations, skip the first exchange — it
-                    // contains the synthetic orchestrator prompt, not user input.
-                    // TODO(QUALITY-636): Replace positional skip with an
-                    // `is_agent_initiated` field on the MAA UserQuery proto
-                    // message so the flag survives server restoration.
-                    let skip_count = if conversation.is_child_agent_conversation() {
-                        1
-                    } else {
-                        0
-                    };
-                    for exchange in conversation.root_task_exchanges().skip(skip_count) {
-                        if let Some(query) = ai_exchange_to_query_history(exchange, history_order) {
-                            live_queries_vec.push(query);
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut cleared_queries_vec = Vec::new();
-        for (conversation_terminal_surface_id, conversation_ids) in
-            self.cleared_conversation_ids_for_terminal_surface.iter()
-        {
-            loaded_conversation_ids.extend(conversation_ids);
-
-            let history_order =
-                if terminal_surface_id.is_some_and(|id| id == *conversation_terminal_surface_id) {
-                    HistoryOrder::CurrentSession
-                } else {
-                    HistoryOrder::DifferentSession
-                };
-
-            for conversation_id in conversation_ids {
-                if let Some(conversation) = self.conversations_by_id.get(conversation_id) {
-                    let skip_count = if conversation.is_child_agent_conversation() {
-                        1
-                    } else {
-                        0
-                    };
-                    for exchange in conversation.root_task_exchanges().skip(skip_count) {
-                        if let Some(query) = ai_exchange_to_query_history(exchange, history_order) {
-                            cleared_queries_vec.push(query);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add persisted queries from conversations not loaded in memory
-        let persisted_queries_vec: Vec<_> = self
-            .persisted_queries
-            .iter()
-            .filter(|persisted| !loaded_conversation_ids.contains(&persisted.conversation_id))
-            .filter_map(|persisted| {
-                persisted_ai_input_to_query_history(persisted, HistoryOrder::DifferentSession)
-            })
-            .collect();
-
-        persisted_queries_vec
-            .into_iter()
-            .chain(cleared_queries_vec)
-            .chain(live_queries_vec)
-    }
-
     /// Appends a single user-query prompt to [`Self::prompt_history`], dropping whitespace-only
     /// prompts. Session prompts arrive in submission order, so pushing keeps the vec ascending.
     fn append_session_prompt(&mut self, text: String, start_ts: DateTime<Local>) {
@@ -3446,64 +3341,6 @@ impl Entity for BlocklistAIHistoryModel {
 
 impl SingletonEntity for BlocklistAIHistoryModel {}
 
-/// Helper struct for showing AI history to the user. Guarantees that there is a user query and
-/// contains less data than [`AIAgentExchange`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AIQueryHistory {
-    /// The input originating from the user.
-    pub query_text: String,
-
-    /// The time the input was sent.
-    pub start_time: DateTime<Local>,
-
-    /// The status of the output streaming from the AI API.
-    pub output_status: AIQueryHistoryOutputStatus,
-
-    /// The working directory when the AI query was submitted.
-    pub working_directory: Option<String>,
-
-    /// The ordering category for this query in history.
-    pub history_order: HistoryOrder,
-}
-
-fn ai_exchange_to_query_history(
-    value: &AIAgentExchange,
-    history_order: HistoryOrder,
-) -> Option<AIQueryHistory> {
-    let query = value.input.iter().find_map(AIAgentInput::display_query)?;
-
-    Some(AIQueryHistory {
-        query_text: query,
-        start_time: value.start_time,
-        output_status: AIQueryHistoryOutputStatus::from(&value.output_status),
-        working_directory: value.working_directory.clone(),
-        history_order,
-    })
-}
-
-fn persisted_ai_input_to_query_history(
-    value: &PersistedAIInput,
-    history_order: HistoryOrder,
-) -> Option<AIQueryHistory> {
-    // Extract the query text from the first Query input
-    let query_text = value
-        .inputs
-        .iter()
-        .map(|input| match input {
-            PersistedAIInputType::Query { text, .. } => Some(text.clone()),
-        })
-        .next()
-        .flatten()?;
-
-    Some(AIQueryHistory {
-        query_text,
-        start_time: value.start_ts,
-        output_status: value.output_status.clone(),
-        working_directory: value.working_directory.clone(),
-        history_order,
-    })
-}
-
 /// Status of output streaming from the AI API.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AIQueryHistoryOutputStatus {
@@ -3515,27 +3352,6 @@ pub enum AIQueryHistoryOutputStatus {
     Failed,
     /// Output streaming completed successfully.
     Completed,
-}
-
-impl AIQueryHistoryOutputStatus {
-    /// Returns a string representation of the output status.
-    pub(crate) fn display_text(&self) -> &'static str {
-        match self {
-            AIQueryHistoryOutputStatus::Completed => "Completed successfully",
-            AIQueryHistoryOutputStatus::Pending => "Pending",
-            AIQueryHistoryOutputStatus::Cancelled => "Cancelled by user",
-            AIQueryHistoryOutputStatus::Failed => "Failed",
-        }
-    }
-
-    pub(crate) fn icon(&self) -> Icon {
-        match self {
-            AIQueryHistoryOutputStatus::Completed => Icon::Check,
-            AIQueryHistoryOutputStatus::Pending => Icon::Loading,
-            AIQueryHistoryOutputStatus::Cancelled => Icon::SlashCircle,
-            AIQueryHistoryOutputStatus::Failed => Icon::AlertTriangle,
-        }
-    }
 }
 
 impl From<&AIAgentOutputStatus> for AIQueryHistoryOutputStatus {

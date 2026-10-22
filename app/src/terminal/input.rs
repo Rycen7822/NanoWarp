@@ -8185,29 +8185,6 @@ impl Input {
         );
     }
 
-    pub fn show_workflow_info_box_for_history_command(
-        &mut self,
-        history_command: &str,
-        workflow_type: WorkflowType,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
-        ctx: &mut ViewContext<Input>,
-    ) {
-        // Should not show workflows info box for read-only viewers
-        let should_show_more_info_view = !self.model.lock().shared_session_status().is_reader();
-        let env_vars = workflow_type.as_workflow().default_env_vars();
-        self.insert_workflow_into_input(
-            workflow_type,
-            workflow_source,
-            workflow_selection_source,
-            None,
-            Some(history_command),
-            env_vars,
-            should_show_more_info_view,
-            ctx,
-        );
-    }
-
     /// Helper function to see if the selected history command matches the template of the workflow.
     fn command_matches_workflow_template(
         &self,

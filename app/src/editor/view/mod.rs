@@ -8294,32 +8294,16 @@ impl EditorView {
         }
         let input_settings = InputSettings::as_ref(ctx);
         let is_universal_input_enabled = input_settings.is_universal_developer_input_enabled(ctx);
-        let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
         let should_show_image = !FeatureFlag::AgentView.is_enabled()
             && self.image_context_options.should_show_button()
             && !is_universal_input_enabled;
         let should_show_at_context_menu = !FeatureFlag::AgentView.is_enabled()
             && !is_universal_input_enabled
-            && is_any_ai_enabled
-            && {
-                if !self.is_ai_input {
-                    // In terminal mode, check the setting
-                    if !*InputSettings::as_ref(ctx).at_context_menu_in_terminal_mode {
-                        false
-                    } else {
-                        self.ai_context_menu_state
-                            .as_ref()
-                            .map(|state| state.ai_context_menu.as_ref(ctx).should_render(ctx))
-                            .unwrap_or(false)
-                    }
-                } else {
-                    // In AI mode, always allow if available
-                    self.ai_context_menu_state
-                        .as_ref()
-                        .map(|state| state.ai_context_menu.as_ref(ctx).should_render(ctx))
-                        .unwrap_or(false)
-                }
-            };
+            && self.ai_context_menu_state.as_ref().is_some_and(|state| {
+                AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
+                    && (self.is_ai_input || *input_settings.at_context_menu_in_terminal_mode)
+                    && state.ai_context_menu.as_ref(ctx).should_render(ctx)
+            });
 
         if !should_show_voice && !should_show_image && !should_show_at_context_menu {
             return None;

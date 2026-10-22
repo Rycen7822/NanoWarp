@@ -16,7 +16,8 @@ use super::{
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{AIAgentExchangeId, AIAgentInput, UserQueryMode};
-use crate::ai::blocklist::{AIQueryHistoryOutputStatus, PersistedAIInput, PersistedAIInputType};
+use crate::ai::blocklist::history_model::AIQueryHistoryOutputStatus;
+use crate::ai::blocklist::{PersistedAIInput, PersistedAIInputType};
 use crate::ai::llms::LLMId;
 
 /// Builds an in-memory SQLite database with all migrations applied.
