@@ -39,7 +39,6 @@ use crate::server::server_api::{ServerApi, ServerApiProvider};
 use crate::server::telemetry::AnonymousUserSignupEntrypoint;
 use crate::settings::PrivacySettings;
 use crate::settings::cloud_preferences_syncer::CloudPreferencesSyncer;
-use crate::settings::initializer::SettingsInitializer;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
 #[cfg(target_family = "wasm")]
@@ -321,10 +320,6 @@ impl AuthManager {
 
                 ServerApiProvider::handle(ctx).update(ctx, |provider, ctx| {
                     provider.handle_experiments_fetched(server_experiments, ctx);
-                });
-
-                SettingsInitializer::handle(ctx).update(ctx, |initializer, ctx| {
-                    initializer.handle_user_fetched(self.auth_state.clone(), ctx);
                 });
 
                 // Reset the initial-load condition so that any cloud preference

@@ -9,7 +9,7 @@ use warpui::{AppContext, SingletonEntity};
 use super::EnforceMinimumContrast as EnforceMinimumContrastEnum;
 
 pub const DEFAULT_MONOSPACE_FONT_NAME: &str = "Hack";
-pub const DEFAULT_MONOSPACE_FONT_SIZE: f32 = 13.0;
+pub const DEFAULT_MONOSPACE_FONT_SIZE: f32 = if cfg!(windows) { 16.0 } else { 13.0 };
 pub const DEFAULT_MONOSPACE_FONT_WEIGHT: Weight = Weight::Normal;
 
 define_settings_group!(FontSettings,

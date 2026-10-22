@@ -124,7 +124,7 @@ define_settings_group!(InputSettings,
         },
         input_box_type: InputBoxTypeSetting {
             type: InputBoxType,
-            default: InputBoxType::Classic,
+            default: InputBoxType::Universal,
             supported_platforms: SupportedPlatforms::ALL,
             sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
             private: false,

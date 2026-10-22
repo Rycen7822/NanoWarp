@@ -1,5 +1,10 @@
 use schemars::SchemaGenerator;
+use settings::Setting as _;
 use settings::schema::SettingSchemaEntry;
+
+use crate::settings::{InputBoxType, InputBoxTypeSetting, MonospaceFontSize, Theme};
+use crate::terminal::session_settings::HonorPS1;
+use crate::themes::theme::ThemeKind;
 
 fn entries() -> Vec<&'static SettingSchemaEntry> {
     inventory::iter::<SettingSchemaEntry>.into_iter().collect()
@@ -17,6 +22,17 @@ fn entries() -> Vec<&'static SettingSchemaEntry> {
 /// via `inventory`, giving full coverage of every setting in the application.
 #[test]
 fn file_defaults_validate_against_schema() {
+    assert_eq!(
+        MonospaceFontSize::default_value(),
+        if cfg!(windows) { 16.0 } else { 13.0 }
+    );
+    assert_eq!(
+        InputBoxTypeSetting::default_value(),
+        InputBoxType::Universal
+    );
+    assert!(!HonorPS1::default_value());
+    assert_eq!(Theme::default_value(), ThemeKind::Dark);
+
     let mut failures = Vec::new();
 
     for entry in entries() {

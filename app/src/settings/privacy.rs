@@ -126,14 +126,6 @@ maybe_define_setting!(CustomSecretRegexList, group: PrivacySettings, {
     description: "Custom regex patterns for detecting and redacting secrets.",
 });
 
-maybe_define_setting!(HasInitializedDefaultSecretRegexes, group: PrivacySettings, {
-    type: bool,
-    default: false,
-    supported_platforms: SupportedPlatforms::ALL,
-    sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-    private: true,
-});
-
 /// Singleton model for managing the user's privacy settings (whether the user has enabled crash
 /// reporting and/or telemetry).
 pub struct PrivacySettings {
@@ -142,7 +134,6 @@ pub struct PrivacySettings {
     pub is_telemetry_enabled: bool,
     pub is_crash_reporting_enabled: bool,
     pub is_cloud_conversation_storage_enabled: bool,
-    pub has_initialized_default_secret_regexes: HasInitializedDefaultSecretRegexes,
     /// List of user defined secret regexes.
     /// Enterprise-level secret regexes will always take precedence over user-level secrets,
     /// but they both used to support additive behavior.
@@ -281,8 +272,6 @@ impl PrivacySettings {
 
         let user_secret_regex_list: CustomSecretRegexList =
             CustomSecretRegexList::new_from_storage(ctx);
-        let has_initialized_default_secret_regexes: HasInitializedDefaultSecretRegexes =
-            HasInitializedDefaultSecretRegexes::new_from_storage(ctx);
 
         Self {
             auth_state,
@@ -291,7 +280,6 @@ impl PrivacySettings {
             is_telemetry_enabled,
             is_cloud_conversation_storage_enabled,
             user_secret_regex_list,
-            has_initialized_default_secret_regexes,
             is_telemetry_force_enabled: false,
             is_enterprise_secret_redaction_enabled: false,
             enterprise_secret_regex_list: Vec::new(),
@@ -456,7 +444,6 @@ impl PrivacySettings {
             is_telemetry_enabled: true,
             is_cloud_conversation_storage_enabled: true,
             user_secret_regex_list: CustomSecretRegexList::new(None),
-            has_initialized_default_secret_regexes: HasInitializedDefaultSecretRegexes::new(None),
             is_telemetry_force_enabled: false,
             is_enterprise_secret_redaction_enabled: false,
             enterprise_secret_regex_list: Vec::new(),
@@ -646,35 +633,6 @@ impl PrivacySettings {
         ctx.notify();
     }
 
-    /// Disables the default regex trigger, so that it will not be executed.
-    pub fn disable_default_regex_trigger(&mut self, ctx: &mut ModelContext<Self>) {
-        if self
-            .has_initialized_default_secret_regexes
-            .set_value(true, ctx)
-            .is_err()
-        {
-            report_error!("Failed to disable default regex trigger");
-        }
-    }
-
-    /// Initializes the custom secret regex list with the default regexes.
-    /// This will only be executed once per user, and only if they haven't already initialized.
-    pub fn initialize_default_regexes_once(&mut self, ctx: &mut ModelContext<Self>) {
-        // Only initialize if we haven't done so before
-        if !*self.has_initialized_default_secret_regexes.value() {
-            self.add_all_recommended_regex(ctx);
-
-            // Mark as initialized
-            if self
-                .has_initialized_default_secret_regexes
-                .set_value(true, ctx)
-                .is_err()
-            {
-                report_error!("Failed to set has_initialized_default_secret_regexes flag");
-            }
-        }
-    }
-
     /// Sends request(s) to update server-side user settings with current local values.
     fn update_server_with_local_settings(&self, ctx: &mut ModelContext<Self>) {
         if self.auth_state.is_logged_in() {
@@ -717,7 +675,6 @@ impl PrivacySettings {
     }
 
     fn handle_warp_drive_objects_loaded(&mut self, _: (), ctx: &mut ModelContext<Self>) {
-        self.initialize_default_regexes_once(ctx);
         // Check if the warp drive preferences are set. If they are, and telemetry and crash reporting
         // are set as warp drive prefs, then use those.  Otherwise, update the warp drive prefs to match
         // the values from the legacy user_settings endpoint so that we can use warp drive prefs going forward.
@@ -836,9 +793,6 @@ pub enum PrivacySettingsChangedEvent {
         new_value: bool,
     },
     CustomSecretRegexList {
-        change_event_reason: ChangeEventReason,
-    },
-    HasInitializedDefaultSecretRegexes {
         change_event_reason: ChangeEventReason,
     },
 }

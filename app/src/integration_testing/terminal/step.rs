@@ -40,7 +40,7 @@ pub fn initialize_secret_regexes() -> TestStep {
         move |app, _, _| {
             let privacy_settings = PrivacySettings::handle(app);
             privacy_settings.update(app, |me, ctx| {
-                me.initialize_default_regexes_once(ctx);
+                me.add_all_recommended_regex(ctx);
             });
         },
     )
