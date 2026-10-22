@@ -73,7 +73,6 @@ use crate::settings::{
 use crate::terminal::alt_screen::{should_intercept_mouse, should_intercept_scroll};
 use crate::terminal::block_list_viewport::AutoscrollBehavior;
 use crate::terminal::blockgrid_renderer::BlockGridParams;
-use crate::terminal::input::inline_menu::InlineMenuPositioner;
 use crate::terminal::model::block::{Block, BlockSection, TranscriptScope};
 use crate::terminal::model::blocks::{
     BlockHeight, BlockHeightItem, BlockHeightSummary, BlockList, BlockListPoint, TotalIndex,
@@ -744,8 +743,6 @@ pub struct BlockListElement {
     /// Voice input toggle key code for CLI agent footer integration.
     #[cfg(feature = "voice_input")]
     voice_input_toggle_key_code: Option<KeyCode>,
-
-    inline_menu_positioner: ModelHandle<InlineMenuPositioner>,
 }
 
 #[derive(Debug)]
@@ -889,7 +886,6 @@ impl BlockListElement {
         block_banner: Option<Box<dyn Element>>,
         shared_session_banners: SharedSessionBanners,
         input_size_at_last_frame: Vector2F,
-        inline_menu_positioner: ModelHandle<InlineMenuPositioner>,
         cursor_hint_text_element: Option<Box<dyn Element>>,
     ) -> Self {
         let highlighted_url = terminal_view_render_context
@@ -973,7 +969,6 @@ impl BlockListElement {
             block_footer_elements: HashMap::new(),
             cursor_hint_text_element,
             cli_subagent_views,
-            inline_menu_positioner,
             #[cfg(feature = "voice_input")]
             voice_input_toggle_key_code: None,
         }
@@ -1030,7 +1025,6 @@ impl BlockListElement {
             } else {
                 AutoscrollBehavior::Always
             },
-            self.inline_menu_positioner.clone(),
         )
     }
 
@@ -3245,7 +3239,6 @@ impl Element for BlockListElement {
                     } else {
                         AutoscrollBehavior::Always
                     },
-                    self.inline_menu_positioner.clone(),
                 )
             };
         }
@@ -3760,7 +3753,7 @@ impl Element for BlockListElement {
         }
 
         // Align the grid origin to start exactly at the top of the first visible block
-        grid_origin += vec2f(0., viewport.offset_to_top_of_first_block(app).as_f32());
+        grid_origin += vec2f(0., viewport.offset_to_top_of_first_block().as_f32());
 
         let obfuscate_secrets = get_secret_obfuscation_mode(app);
 

@@ -339,10 +339,6 @@ pub enum FeatureFlag {
     TabCloseButtonOnLeft,
 
     /// Enables AI agent profile settings UI and functionality.
-    ///
-    /// TODO: When cleaning up this flag, also remove the `show_model_selectors_in_prompt`
-    /// setting in [`SessionSettings`] (defined in `app/src/terminal/session_settings.rs`),
-    /// as model selectors are always shown when this flag is enabled.
     ProfilesDesignRevamp,
 
     /// Enables new Search Codebase UI
@@ -710,12 +706,6 @@ pub enum FeatureFlag {
     /// Detects the word "figma" in the terminal input in real-time and shows a
     /// contextual button above the input.
     FigmaDetection,
-
-    /// Enables header rows on all inline menus (label, tabs, resize handle).
-    InlineMenuHeaders,
-    /// Clears the current prompt when opening the inline model selector from the
-    /// model chip, then restores that prompt when the selector closes.
-    RestorePromptOnInlineModelSelectorSearch,
 
     /// Enables associating a tab color with a directory so tabs automatically
     /// adopt the configured color when their working directory matches.

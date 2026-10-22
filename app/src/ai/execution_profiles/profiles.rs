@@ -1150,6 +1150,7 @@ impl AIExecutionProfilesModel {
             })
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn has_multiple_profiles(&self) -> bool {
         if self.settings_are_authoritative() {
             return self.last_settings_profiles.profile_ids().nth(1).is_some();

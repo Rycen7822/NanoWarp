@@ -126,18 +126,11 @@ impl Input {
 
         column.add_child(self.render_input_box(show_vim_status, appearance, app));
 
-        if !(matches!(input_mode, InputMode::PinnedToTop)
-            && self
-                .suggestions_mode_model
-                .as_ref(app)
-                .is_inline_menu_open())
-        {
-            column.add_child(
-                Container::new(Flex::row().finish())
-                    .with_margin_bottom(4.)
-                    .finish(),
-            );
-        }
+        column.add_child(
+            Container::new(Flex::row().finish())
+                .with_margin_bottom(4.)
+                .finish(),
+        );
 
         if matches!(input_mode, InputMode::PinnedToTop)
             && let Some(banner) =
@@ -269,53 +262,12 @@ impl Input {
         .finish();
 
         let mut column = Flex::column();
-        let is_model_selector = self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_inline_model_selector();
-
         match input_mode {
-            InputMode::PinnedToBottom => {
-                column.add_children(
-                    [
-                        if is_model_selector {
-                            Some(ChildView::new(&self.inline_model_selector_view).finish())
-                        } else {
-                            None
-                        },
-                        Some(ChildView::new(&self.agent_status_view).finish()),
-                        Some(input),
-                    ]
-                    .into_iter()
-                    .flatten(),
-                );
-            }
             InputMode::PinnedToTop => {
-                column.add_children(
-                    [
-                        Some(input),
-                        Some(ChildView::new(&self.agent_status_view).finish()),
-                        if is_model_selector {
-                            Some(ChildView::new(&self.inline_model_selector_view).finish())
-                        } else {
-                            None
-                        },
-                    ]
-                    .into_iter()
-                    .flatten(),
-                );
+                column.add_children([input, ChildView::new(&self.agent_status_view).finish()]);
             }
-            InputMode::Waterfall => {
-                let should_render_below = self
-                    .inline_terminal_menu_positioner
-                    .as_ref(app)
-                    .should_render_inline_menu_below_input();
-
+            InputMode::PinnedToBottom | InputMode::Waterfall => {
                 column.add_children([ChildView::new(&self.agent_status_view).finish(), input]);
-
-                if is_model_selector && should_render_below {
-                    column.add_child(ChildView::new(&self.inline_model_selector_view).finish());
-                }
             }
         }
 

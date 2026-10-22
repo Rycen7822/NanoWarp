@@ -366,12 +366,18 @@ fn local_child_dispatch_fails_after_window_team_change() {
                 .terminal_view_from_pane_id(parent_pane_id, ctx)
                 .unwrap();
             let team_a_scope = UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx);
-            LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
-                assert!(preferences.update_active_profile_base_model(
-                    &LLMId::from(team_a_profile_model_id),
-                    Some(terminal_view.id()),
+            AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                let profile_id = profiles
+                    .active_profile(Some(terminal_view.id()), ctx)
+                    .id()
+                    .clone();
+                profiles.set_base_model(
+                    &profile_id,
+                    Some(LLMId::from(team_a_profile_model_id)),
                     ctx,
-                ));
+                );
+            });
+            LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
                 preferences.set_agent_mode_llm_override(
                     &team_a_scope,
                     terminal_view.id(),

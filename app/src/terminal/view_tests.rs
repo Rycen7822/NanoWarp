@@ -5258,7 +5258,7 @@ fn test_viewport_iter_most_recent_at_top() {
                 echo_block.entry_index
             );
             assert!(echo_block.block_height_item.height().into_lines() > Lines::zero());
-            assert_eq!(Pixels::zero(), viewport.offset_to_top_of_first_block(ctx));
+            assert_eq!(Pixels::zero(), viewport.offset_to_top_of_first_block());
             assert_eq!(
                 Some(std::convert::Into::<BlockIndex>::into(2)),
                 viewport.topmost_visible_block()
@@ -5302,15 +5302,12 @@ fn test_viewport_most_recent_at_top() {
                 topmost_visible_block,
                 BlockVisibilityMode::TopOfBlockVisible
             ));
-            assert_eq!(Pixels::zero(), viewport.offset_to_top_of_first_block(ctx));
+            assert_eq!(Pixels::zero(), viewport.offset_to_top_of_first_block());
             assert_eq!(0., viewport.scroll_top_in_lines().as_f64());
             assert!(matches!(
-                viewport.next_scroll_position(
-                    ScrollPositionUpdate::AfterScrollEvent {
-                        scroll_delta: 1.0.into_lines()
-                    },
-                    ctx
-                ),
+                viewport.next_scroll_position(ScrollPositionUpdate::AfterScrollEvent {
+                    scroll_delta: 1.0.into_lines()
+                }),
                 ScrollPosition::FixedAtPosition { .. }
             ));
             assert_eq!(

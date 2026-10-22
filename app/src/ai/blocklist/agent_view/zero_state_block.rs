@@ -66,7 +66,6 @@ const MAX_RECENT_CONVERSATION_COUNT: usize = 3;
 struct StateHandles {
     start_new_conversation: MouseStateHandle,
     start_cloud_conversation: MouseStateHandle,
-    switch_model: MouseStateHandle,
     exit: MouseStateHandle,
     oz_updates: MouseStateHandle,
     changelog_link: MouseStateHandle,
@@ -754,22 +753,6 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
                             ctx.dispatch_typed_action(TerminalAction::EnterCloudAgentView);
                         },
                         state_handles.start_cloud_conversation.clone(),
-                    )]),
-                    app,
-                ),
-                render_standard_message(
-                    Message::new(vec![MessageItem::clickable(
-                        vec![
-                            MessageItem::keystroke(Keystroke {
-                                key: "/model".to_owned(),
-                                ..Default::default()
-                            }),
-                            MessageItem::text("switch model"),
-                        ],
-                        |ctx| {
-                            ctx.dispatch_typed_action(TerminalAction::OpenModelSelector);
-                        },
-                        state_handles.switch_model.clone(),
                     )]),
                     app,
                 ),

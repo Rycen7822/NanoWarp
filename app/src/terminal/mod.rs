@@ -53,7 +53,6 @@ pub mod mock_terminal_manager;
 pub mod model;
 pub mod model_events;
 pub mod platform;
-pub mod profile_model_selector;
 pub mod prompt;
 pub mod prompt_render_helper;
 pub mod recorder;

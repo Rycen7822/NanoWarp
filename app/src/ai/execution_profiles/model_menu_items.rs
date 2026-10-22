@@ -24,17 +24,6 @@ pub fn is_auto(llm: &LLMInfo) -> bool {
         || llm.id.to_string().to_lowercase().contains("auto")
 }
 
-/// Returns true if the given model has other variants with different reasoning levels.
-pub fn has_reasoning_variants(llm: &LLMInfo, all_models: &[&LLMInfo]) -> bool {
-    if !llm.has_reasoning_level() {
-        return false;
-    }
-    all_models
-        .iter()
-        .filter(|other| other.base_model_name() == llm.base_model_name() && other.id != llm.id)
-        .any(|other| other.has_reasoning_level())
-}
-
 fn with_cost_and_profile_info<A: Action + Clone>(
     item: MenuItemFields<A>,
     llm: &LLMInfo,
@@ -76,15 +65,6 @@ fn with_cost_and_profile_info<A: Action + Clone>(
 pub struct CollapsedModelVariants {
     pub auto: bool,
     pub reasoning: bool,
-}
-
-impl CollapsedModelVariants {
-    pub fn all() -> Self {
-        Self {
-            auto: true,
-            reasoning: true,
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]

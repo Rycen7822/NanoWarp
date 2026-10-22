@@ -9,7 +9,6 @@ mod harness_selector;
 mod host_selector;
 mod loading_screen;
 mod model;
-mod model_selector;
 mod progress;
 mod progress_ui_state;
 mod team_required;
@@ -31,9 +30,6 @@ pub use host_selector::{
 };
 pub use loading_screen::{render_cloud_mode_error_screen, render_cloud_mode_loading_screen};
 pub use model::{AgentProgress, AmbientAgentViewModel, AmbientAgentViewModelEvent, Status};
-pub use model_selector::{
-    HarnessSelection, ModelSelection, ModelSelector, ModelSelectorAction, ModelSelectorEvent,
-};
 pub use progress::{ProgressProps, ProgressStep, ProgressStepState, render_progress};
 pub use progress_ui_state::AmbientAgentProgressUIState;
 pub use team_required::{CloudAgentTeamRequiredView, CloudAgentTeamRequiredViewEvent};

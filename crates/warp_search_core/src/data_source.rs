@@ -104,12 +104,6 @@ pub enum QueryFilter {
 
     /// Filter results for known/indexed code repos.
     Repos,
-
-    /// Filter results for base agent models in the inline model selector.
-    BaseModels,
-
-    /// Filter results for full terminal use (CLI) models in the inline model selector.
-    FullTerminalUseModels,
 }
 
 impl QueryFilter {
@@ -129,8 +123,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => "Search launch configurations",
             QueryFilter::Files => "Search files",
             QueryFilter::Repos => "Search code repos",
-            QueryFilter::BaseModels => "Search base models",
-            QueryFilter::FullTerminalUseModels => "Search full terminal use models",
         }
     }
 
@@ -144,8 +136,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => &LAUNCH_CONFIG_FILTER_ATOM,
             QueryFilter::Files => &FILES_FILTER_ATOM,
             QueryFilter::Repos => &REPOS_FILTER_ATOM,
-            QueryFilter::BaseModels => &NO_FILTER_ATOM,
-            QueryFilter::FullTerminalUseModels => &NO_FILTER_ATOM,
         }
     }
 
@@ -159,8 +149,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => "launch configurations",
             QueryFilter::Files => "files",
             QueryFilter::Repos => "repos",
-            QueryFilter::BaseModels => "base models",
-            QueryFilter::FullTerminalUseModels => "full terminal use models",
         }
     }
 
@@ -174,8 +162,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => Some("bundled/svg/navigation.svg"),
             QueryFilter::Files => Some("bundled/svg/completion-file.svg"),
             QueryFilter::Repos => Some("bundled/svg/folder.svg"),
-            QueryFilter::BaseModels => None,
-            QueryFilter::FullTerminalUseModels => None,
         }
     }
 }

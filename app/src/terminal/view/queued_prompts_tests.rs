@@ -1504,23 +1504,12 @@ fn build_panel_with_active_conversation(
     if let Some(panel) = input.read(app, |input, _| input.queued_prompts_panel().cloned()) {
         return (panel, conversation_id, input);
     }
-    let (suggestions_mode_model, host_editor) = input.read(app, |input, _| {
-        (
-            input.suggestions_mode_model().clone(),
-            input.editor().clone(),
-        )
-    });
+    let host_editor = input.read(app, |input, _| input.editor().clone());
     let cli_subagent_controller =
         terminal.read(app, |view, _| view.cli_subagent_controller.clone());
     let panel = terminal.update(app, |_, ctx| {
         ctx.add_view(move |ctx| {
-            QueuedPromptsPanelView::new(
-                terminal_view_id,
-                suggestions_mode_model,
-                cli_subagent_controller,
-                host_editor,
-                ctx,
-            )
+            QueuedPromptsPanelView::new(terminal_view_id, cli_subagent_controller, host_editor, ctx)
         })
     });
     (panel, conversation_id, input)

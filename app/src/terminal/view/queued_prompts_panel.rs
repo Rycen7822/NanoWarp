@@ -47,7 +47,6 @@ use crate::editor::{
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
 use crate::terminal::cli_agent_sessions::{CLIAgentSessionsModel, CLIAgentSessionsModelEvent};
-use crate::terminal::input::suggestions_mode_model::InputSuggestionsModeModel;
 use crate::ui_components::icons::Icon as TerminalIcon;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
@@ -170,7 +169,6 @@ pub struct QueuedPromptsPanelView {
     terminal_view_id: EntityId,
     /// Input's suggestions-mode model. Used by [`Self::should_render`] to hide the panel while an
     /// inline menu (slash commands, model selector, etc.) is open.
-    suggestions_mode_model: ModelHandle<InputSuggestionsModeModel>,
     /// Cached active conversation for this panel. `None` means there is no active conversation in
     /// the parent terminal view; the panel renders nothing in that case.
     active_conversation_id: Option<AIConversationId>,
@@ -236,7 +234,6 @@ impl Entity for QueuedPromptsPanelView {
 impl QueuedPromptsPanelView {
     pub fn new(
         terminal_view_id: EntityId,
-        suggestions_mode_model: ModelHandle<InputSuggestionsModeModel>,
         cli_subagent_controller: ModelHandle<CLISubagentController>,
         host_editor: ViewHandle<EditorView>,
         ctx: &mut ViewContext<Self>,
@@ -277,15 +274,10 @@ impl QueuedPromptsPanelView {
             me.handle_cli_subagent_event(event, ctx);
         });
 
-        ctx.subscribe_to_model(&suggestions_mode_model, |_, _, _, ctx| {
-            ctx.notify();
-        });
-
         let host_editor_was_empty = host_editor.as_ref(ctx).is_empty(ctx);
         let mut me = Self {
             view_id: ctx.view_id(),
             terminal_view_id,
-            suggestions_mode_model,
             active_conversation_id,
             edit_editor,
             edit_editor_is_single_logical_line: true,
@@ -687,13 +679,6 @@ impl QueuedPromptsPanelView {
     /// Visibility predicate used by the host to decide whether to render the panel.
     pub fn should_render(&self, ctx: &AppContext) -> bool {
         if !FeatureFlag::QueueSlashCommand.is_enabled() {
-            return false;
-        }
-        if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_menu_open()
-        {
             return false;
         }
         let Some(conv_id) = self.active_conversation_id else {

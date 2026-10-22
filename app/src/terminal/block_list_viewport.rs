@@ -8,7 +8,6 @@ use sum_tree::{Cursor, SeekBias};
 use warp_core::features::FeatureFlag;
 use warpui::elements::ClippedScrollStateHandle;
 use warpui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use warpui::{AppContext, ModelHandle};
 
 use super::block_list_element::{
     GridType, SnackbarHeader, SnackbarHeaderState, SnackbarPoint, VisibleItem,
@@ -25,7 +24,6 @@ use super::{
     HEIGHT_FUDGE_FACTOR_LINES, SizeInfo, height_in_range_approx, heights_approx_gt,
     heights_approx_gte, heights_approx_lt, heights_approx_lte,
 };
-use crate::terminal::input::inline_menu::InlineMenuPositioner;
 use crate::terminal::model::blocks::RichContentItem;
 use crate::terminal::model::index::Point as IndexPoint;
 
@@ -44,13 +42,8 @@ impl ScrollState {
     }
 
     /// Possibly updates the scroll position, returning whether it was actually changed.
-    pub fn update(
-        &mut self,
-        viewport: ViewportState,
-        update: ScrollPositionUpdate,
-        app: &AppContext,
-    ) -> bool {
-        let next_position = viewport.next_scroll_position(update, app);
+    pub fn update(&mut self, viewport: ViewportState, update: ScrollPositionUpdate) -> bool {
+        let next_position = viewport.next_scroll_position(update);
         if next_position != self.position {
             log::debug!(
                 "updating scroll position from {:?} to {:?} for update {:?}",
@@ -429,8 +422,6 @@ pub struct ViewportState<'a> {
 
     /// Autoscroll behavior for rich content blocks.
     rich_block_autoscroll_behavior: AutoscrollBehavior,
-
-    inline_menu_positioner: ModelHandle<InlineMenuPositioner>,
 }
 
 impl<'a> ViewportState<'a> {
@@ -446,7 +437,6 @@ impl<'a> ViewportState<'a> {
         blocklist_element_size: Vector2F,
         input_size: Vector2F,
         rich_block_autoscroll_behavior: AutoscrollBehavior,
-        inline_menu_positioner: ModelHandle<InlineMenuPositioner>,
     ) -> Self {
         Self {
             block_list,
@@ -459,7 +449,6 @@ impl<'a> ViewportState<'a> {
             blocklist_element_size,
             input_size,
             rich_block_autoscroll_behavior,
-            inline_menu_positioner,
         }
     }
 
@@ -574,7 +563,7 @@ impl<'a> ViewportState<'a> {
 
     /// Returns where the first block starts relative to the grid origin in pixels
     /// If there is no top block, returns a zero offset
-    pub fn offset_to_top_of_first_block(&self, app: &AppContext) -> Pixels {
+    pub fn offset_to_top_of_first_block(&self) -> Pixels {
         let total_block_height = self.block_list.block_heights().summary().height;
 
         let top_of_current_block = if let Some(visible_items) = &self.visible_items {
@@ -610,22 +599,6 @@ impl<'a> ViewportState<'a> {
             if content_element_lines > total_block_height {
                 adjustment += (content_element_lines - total_block_height)
                     .to_pixels(self.size_info.cell_height_px());
-            }
-        }
-
-        if self.block_list.active_gap().is_some() && !self.is_input_rendered_at_bottom_of_pane(app)
-        {
-            // Apply a paint-time translation to the blocklist that accounts for inline menu
-            // visibility/positioning, effectively "sliding" the blocklist contents upwards to
-            // preserve the current input position.
-            //
-            // See doc comments on blocklist_top_inset_when_in_waterfall_mode for context.
-            if let Some(blocklist_inset) = self
-                .inline_menu_positioner
-                .as_ref(app)
-                .blocklist_top_inset_when_in_waterfall_mode(app)
-            {
-                adjustment -= blocklist_inset;
             }
         }
 
@@ -749,14 +722,10 @@ impl<'a> ViewportState<'a> {
         self.iter().next().and_then(|item| item.block_index)
     }
 
-    pub fn next_scroll_position(
-        &self,
-        update: ScrollPositionUpdate,
-        app: &AppContext,
-    ) -> ScrollPosition {
+    pub fn next_scroll_position(&self, update: ScrollPositionUpdate) -> ScrollPosition {
         match update {
             ScrollPositionUpdate::AfterCommandExecutionStarted => {
-                self.scroll_position_after_command_execution(app)
+                self.scroll_position_after_command_execution()
             }
             // When a rich block is inserted, we make the same scroll change
             // as we would when a command is executed (i.e. scroll to end).
@@ -774,14 +743,14 @@ impl<'a> ViewportState<'a> {
                     return self.scroll_position;
                 }
 
-                self.scroll_position_after_command_execution(app)
+                self.scroll_position_after_command_execution()
             }
             ScrollPositionUpdate::AfterKeydownOnTerminal
             | ScrollPositionUpdate::AfterTypedCharacters
             | ScrollPositionUpdate::AfterWriteUserBytesToPty => {
                 // keydown actually has the same semantics for adjusting scroll position
                 // as executing a command.
-                self.scroll_position_after_command_execution(app)
+                self.scroll_position_after_command_execution()
             }
             ScrollPositionUpdate::AfterScrollEvent { scroll_delta } => {
                 self.scroll_position_for_delta(scroll_delta)
@@ -1211,7 +1180,7 @@ impl<'a> ViewportState<'a> {
     }
 
     // Returns whether the input is rendered exactly at the bottom of its pane.
-    fn is_input_rendered_at_bottom_of_pane(&self, app: &AppContext) -> bool {
+    fn is_input_rendered_at_bottom_of_pane(&self) -> bool {
         match self.input_mode {
             InputMode::Waterfall => {
                 let current_scroll_top_px = self.scroll_top_in_pixels();
@@ -1221,24 +1190,14 @@ impl<'a> ViewportState<'a> {
                     .summary()
                     .height
                     .to_pixels(self.size_info.cell_height_px());
-                let (gap_height_px, blocklist_inset_px) =
-                    if let Some(gap) = self.block_list.active_gap() {
-                        (
-                            Some(gap.height().to_pixels(self.size_info.cell_height_px())),
-                            // See doc comment on `blocklist_top_inset_when_in_waterfall_mode`
-                            // for context.
-                            self.inline_menu_positioner
-                                .as_ref(app)
-                                .blocklist_top_inset_when_in_waterfall_mode(app),
-                        )
-                    } else {
-                        (None, None)
-                    };
+                let gap_height_px = self
+                    .block_list
+                    .active_gap()
+                    .map(|gap| gap.height().to_pixels(self.size_info.cell_height_px()));
                 let total_block_height_without_gap_px =
                     total_block_height_px - gap_height_px.unwrap_or_default();
-                let visible_block_height_px = total_block_height_without_gap_px
-                    - current_scroll_top_px
-                    - blocklist_inset_px.unwrap_or_default();
+                let visible_block_height_px =
+                    total_block_height_without_gap_px - current_scroll_top_px;
                 let input_height_px = Pixels::new(self.input_size.y());
                 let max_blocklist_element_height =
                     self.size_info.pane_height_px() - input_height_px;
@@ -1250,7 +1209,7 @@ impl<'a> ViewportState<'a> {
     }
 
     // Returns the scroll position to set after a command has finished executing
-    fn scroll_position_after_command_execution(&self, app: &AppContext) -> ScrollPosition {
+    fn scroll_position_after_command_execution(&self) -> ScrollPosition {
         match (self.input_mode, self.block_list.active_gap()) {
             (InputMode::Waterfall, Some(gap)) => {
                 // In gap waterfall mode, the logic is somewhat complex for how to adjust scroll position
@@ -1270,7 +1229,7 @@ impl<'a> ViewportState<'a> {
                     .to_pixels(self.size_info.cell_height_px());
                 let gap_height_px = gap.height().to_pixels(self.size_info.cell_height_px());
                 let block_heights_without_gap_px = total_block_height_px - gap_height_px;
-                if self.is_input_rendered_at_bottom_of_pane(app) {
+                if self.is_input_rendered_at_bottom_of_pane() {
                     let new_position_in_lines = (block_heights_without_gap_px
                         - Pixels::new(self.blocklist_element_size.y()))
                     .to_lines(self.size_info.cell_height_px());
@@ -1609,9 +1568,9 @@ impl<'a> ViewportState<'a> {
 
     /// Returns the scroll position of any "overhanging" bottom block - this
     /// is a block whose bottom part is scrolled off the bottom of the screen
-    pub fn overhanging_bottom_block(&self, app: &AppContext) -> Option<OverhangingBlock> {
+    pub fn overhanging_bottom_block(&self) -> Option<OverhangingBlock> {
         if matches!(self.input_mode, InputMode::Waterfall)
-            && !self.is_input_rendered_at_bottom_of_pane(app)
+            && !self.is_input_rendered_at_bottom_of_pane()
         {
             // For waterfall mode the input needs to be at the bottom of the pane
             // for there to be an overhang.

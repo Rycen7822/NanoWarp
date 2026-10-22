@@ -56,7 +56,6 @@ use crate::settings::{InputModeSettings, InputSettings, PrivacySettings};
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::input::buffer_model::{InputBufferModel, InputBufferUpdateEvent};
 use crate::terminal::input::message_bar::common::render_wrapping_standard_message_bar;
-use crate::terminal::input::suggestions_mode_model::InputSuggestionsModeModel;
 use crate::terminal::input::{HandoffComposeState, SET_INPUT_MODE_TERMINAL_ACTION_NAME};
 use crate::terminal::model::block::LONG_RUNNING_COMMAND_DURATION_MS;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
@@ -140,7 +139,6 @@ impl BlocklistAIStatusBar {
         terminal_model: Arc<FairMutex<TerminalModel>>,
         shortcut_view_model: ModelHandle<AgentShortcutViewModel>,
         ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
-        input_suggestions_model: ModelHandle<InputSuggestionsModeModel>,
         ephemeral_message_model: ModelHandle<EphemeralMessageModel>,
         handoff_compose_state: ModelHandle<HandoffComposeState>,
         terminal_view_id: EntityId,
@@ -339,7 +337,6 @@ impl BlocklistAIStatusBar {
                 shortcut_view_model.clone(),
                 input_buffer_model,
                 input_model.clone(),
-                input_suggestions_model,
                 context_model.clone(),
                 handoff_compose_state,
                 terminal_model.clone(),

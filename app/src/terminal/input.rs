@@ -5,9 +5,7 @@ mod cli_agent;
 mod common;
 pub mod decorations;
 pub(crate) mod handoff_compose;
-pub mod inline_menu;
 pub mod message_bar;
-pub mod models;
 mod suggestions_mode_menu;
 pub mod suggestions_mode_model;
 mod terminal;
@@ -88,8 +86,7 @@ use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::IntoPixels;
 use warpui::{
     AppContext, Entity, EntityId, FocusContext, ModelAsRef, ModelHandle, SingletonEntity,
-    TypedActionView, View, ViewContext, ViewHandle, ViewUpdateError, WeakViewHandle, end_trace,
-    start_trace,
+    TypedActionView, View, ViewContext, ViewHandle, WeakViewHandle, end_trace, start_trace,
 };
 
 use self::decorations::InputBackgroundJobOptions;
@@ -172,7 +169,6 @@ use crate::ai::connected_self_hosted_workers::{
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::conversation_export::export_conversation_markdown;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::harness_availability::{
     CloudAgentStartBlocker, HarnessAvailabilityModel, cloud_agent_start_blocker,
 };
@@ -259,13 +255,7 @@ use crate::terminal::cli_agent_sessions::{
     CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
 use crate::terminal::input::buffer_model::InputBufferModel;
-use crate::terminal::input::inline_menu::InlineMenuPositioner;
-use crate::terminal::input::models::{
-    InlineModelSelectorEvent, InlineModelSelectorTab, InlineModelSelectorView,
-};
-use crate::terminal::input::suggestions_mode_model::{
-    InputSuggestionsModeEvent, InputSuggestionsModeModel,
-};
+use crate::terminal::input::suggestions_mode_model::InputSuggestionsModeModel;
 use crate::terminal::model::session::shell_quote_arg;
 use crate::terminal::prompt_render_helper::should_render_ps1_prompt;
 use crate::terminal::view::ambient_agent::{
@@ -518,7 +508,6 @@ pub enum TelemetryInputSuggestionsMode {
     NaturalLanguageCommandSearch,
     StaticWorkflowEnumSuggestions,
     DynamicWorkflowEnumSuggestions,
-    ModelSelector,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -552,22 +541,7 @@ impl TabCompletionsMenuPosition {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
-pub struct BufferState {
-    buffer: String,
-    cursor_point: Option<BufferPoint>,
-}
-
-impl BufferState {
-    pub fn new(buffer: String, cursor_point: Option<BufferPoint>) -> Self {
-        Self {
-            buffer,
-            cursor_point,
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Default, PartialEq, Eq, Debug, Clone)]
 pub enum InputSuggestionsMode {
     /// Mode used when arrow-up is pressed.
     HistoryUp {
@@ -637,9 +611,8 @@ pub enum InputSuggestionsMode {
         command: String,
     },
 
-    /// Model selector mode for selecting the Agent base model.
-    ModelSelector,
     /// Mode indicating that no suggestion UI is being shown.
+    #[default]
     Closed,
 }
 
@@ -658,25 +631,6 @@ pub enum DynamicEnumSuggestionStatus {
 impl InputSuggestionsMode {
     pub fn is_visible(&self) -> bool {
         *self != InputSuggestionsMode::Closed
-    }
-
-    pub fn is_inline_menu(&self) -> bool {
-        matches!(self, Self::ModelSelector)
-    }
-
-    /// Whether this mode should snapshot the input buffer on open and restore it on dismiss.
-    fn should_snapshot_and_restore_buffer(&self) -> bool {
-        // For now this just delegates to whether the current mode is an inline menu,
-        // but in the future we might build this out/add more detail here.
-        self.is_inline_menu()
-    }
-
-    /// Returns the placeholder text for this mode, if it has a custom one.
-    pub fn placeholder_text(&self) -> Option<&'static str> {
-        match self {
-            InputSuggestionsMode::ModelSelector => Some("Search models"),
-            _ => None,
-        }
     }
 
     fn to_telemetry_mode(&self) -> TelemetryInputSuggestionsMode {
@@ -698,7 +652,6 @@ impl InputSuggestionsMode {
             InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
                 TelemetryInputSuggestionsMode::DynamicWorkflowEnumSuggestions
             }
-            InputSuggestionsMode::ModelSelector => TelemetryInputSuggestionsMode::ModelSelector,
             InputSuggestionsMode::Closed => unreachable!(),
         }
     }
@@ -1042,7 +995,6 @@ pub enum InputAction {
     ToggleAgentViewShortcuts,
 
     /// Opens the model selector menu.
-    OpenModelSelector,
 
     /// Clears attached blocks and text selection context.
     ClearAttachedContext,
@@ -1280,10 +1232,6 @@ pub trait Autosuggester {
 /// should be positionined above or below the input.
 pub trait MenuPositioningProvider {
     fn menu_position(&self, app: &AppContext) -> MenuPositioning;
-
-    fn inline_menu_position(&self, _inline_menu_height: f32, _app: &AppContext) -> MenuPositioning {
-        MenuPositioning::AboveInputBox
-    }
 }
 
 /// Stores state referenced by the Input view and PromptRenderHelper.
@@ -1615,11 +1563,6 @@ pub struct Input {
     prompt_suggestions_view: ViewHandle<PromptSuggestionsView>,
     handoff_compose_state: ModelHandle<HandoffComposeState>,
 
-    /// Inline model selector for choosing the Agent base model.
-    inline_model_selector_view: ViewHandle<InlineModelSelectorView>,
-
-    inline_terminal_menu_positioner: ModelHandle<InlineMenuPositioner>,
-
     /// Cached flag indicating whether the editor buffer is empty, used to track changes between
     /// empty and non-empty states.
     ///
@@ -1890,7 +1833,7 @@ pub fn init(app: &mut AppContext) {
                 & !id!("IMEOpen")
                 & !id!("VoltronActive")
                 & !id!("WorkflowInfoBox")
-                & !id!("ProfileModelSelectorOpen")
+                & !id!("AgentSelectorOpen")
                 & !id!("PromptChipMenuOpen")
                 & !id!(QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT)
                 & !id!("BuyCreditsBannerOpen"),
@@ -2416,24 +2359,13 @@ impl Input {
         self.agent_status_view.update(ctx, |status_bar, ctx| {
             status_bar.set_ambient_agent_view_model(status_bar_model, ctx);
         });
-        // The /model picker's data source lists a different model set for cloud panes (it suppresses
-        // custom-endpoint models), so keep it in sync for the link-join viewer.
-        let model_selector_model = view_model.clone();
-        self.inline_model_selector_view.update(ctx, |view, ctx| {
-            view.set_ambient_agent_view_model(model_selector_model, ctx);
-        });
         // NOTE: This method is the SINGLE point that wires a (lazily- or eagerly-created) ambient
         // view model into the input tree. Both `Input::new` (eager/composer) and the shared-session
         // viewer's `SessionJoined` path (lazy) funnel through here, so any component that captures
         // `Option<ModelHandle<AmbientAgentViewModel>>` must be wired here (via its
         // `set_ambient_agent_view_model` setter) rather than at construction, otherwise the two
-        // paths drift. Currently propagated: input subscription, harness selector, agent input
-        // footer (which forwards to its environment selector, model/harness selector, V2 model
-        // selector, and display-chip config), agent status bar, slash-command data sources, the
-        // inline model-selector data source, and the inline skill-selector data source.
-        // Intentionally NOT wired here (verified safe): the UDI button bar's selectors (not rendered
-        // in agent view, so unreachable for a cloud viewer) and per-exchange AI blocks / ambient
-        // setup-command blocks (created after the model exists).
+        // paths drift. The input subscription, harness selector, footer environment selector,
+        // display chips, and agent status bar are wired here.
         //
         // The host / auth-secret / FTUX selectors are composer-only: a viewer of an existing run
         // does not compose a new run, so they stay `None` for a shared-session viewer.
@@ -2599,11 +2531,9 @@ impl Input {
 
         let universal_developer_input_button_bar = ctx.add_typed_action_view(|ctx| {
             UniversalDeveloperInputButtonBar::new(
-                menu_positioning_provider.clone(),
                 terminal_view_id,
                 ai_input_model.clone(),
                 cli_subagent_controller.clone(),
-                ambient_agent_view_model.clone(),
                 model.clone(),
                 ctx,
             )
@@ -2618,7 +2548,6 @@ impl Input {
             AgentInputFooter::new(
                 menu_positioning_provider.clone(),
                 terminal_view_id,
-                ai_input_model.clone(),
                 model.clone(),
                 // Wired post-construction via `attach_ambient_agent_view_model`.
                 None,
@@ -2668,15 +2597,8 @@ impl Input {
                 AgentInputFooterEvent::PromptAlert(prompt_alert_event) => {
                     me.handle_prompt_alert(prompt_alert_event, ctx);
                 }
-                AgentInputFooterEvent::ModelSelectorOpened => {
-                    me.close_overlays(false, ctx);
-                }
-                AgentInputFooterEvent::ModelSelectorClosed
-                | AgentInputFooterEvent::EnvironmentSelectorClosed => {
+                AgentInputFooterEvent::EnvironmentSelectorClosed => {
                     me.focus_input_box(ctx);
-                }
-                AgentInputFooterEvent::ToggleInlineModelSelector { initial_tab } => {
-                    me.toggle_inline_model_selector_from_chip(*initial_tab, ctx);
                 }
                 AgentInputFooterEvent::OpenSettings(section) => {
                     ctx.emit(Event::OpenSettings(*section));
@@ -3004,24 +2926,7 @@ impl Input {
         };
 
         let buffer_model = ctx.add_model(|ctx| InputBufferModel::new(&editor, ctx));
-        let suggestions_mode_model =
-            ctx.add_model(|_| InputSuggestionsModeModel::new(buffer_model.clone()));
-
-        let terminal_content_element_position_id =
-            format!("terminal_content_element_{terminal_view_id}");
-        let input_save_position_id = format!("status_free_input_{}", ctx.view_id());
-        let window_id = ctx.window_id();
-        let inline_terminal_menu_positioner = ctx.add_model(|ctx| {
-            InlineMenuPositioner::new(
-                &suggestions_mode_model,
-                &agent_view_controller,
-                terminal_content_element_position_id,
-                input_save_position_id,
-                size_info,
-                window_id,
-                ctx,
-            )
-        });
+        let suggestions_mode_model = ctx.add_model(|_| InputSuggestionsModeModel::default());
 
         let agent_shortcut_view_model = ctx.add_model(|ctx| {
             AgentShortcutViewModel::new(buffer_model.clone(), agent_view_controller.clone(), ctx)
@@ -3166,11 +3071,7 @@ impl Input {
             _ => {}
         });
 
-        ctx.subscribe_to_model(&suggestions_mode_model, |me, _, event, ctx| {
-            let InputSuggestionsModeEvent::ModeChanged { buffer_to_restore } = event;
-            if let Some(buffer_state) = buffer_to_restore {
-                me.restore_buffer_state(buffer_state, ctx);
-            }
+        ctx.subscribe_to_model(&suggestions_mode_model, |me, _, _, ctx| {
             me.set_zero_state_hint_text(ctx);
             ctx.notify();
         });
@@ -3355,23 +3256,6 @@ impl Input {
             me.handle_prompt_suggestions_event(event, ctx);
         });
 
-        let inline_model_selector_view = ctx.add_view(|ctx| {
-            InlineModelSelectorView::new(
-                terminal_view_id,
-                // Wired post-construction via `attach_ambient_agent_view_model`.
-                None,
-                suggestions_mode_model.clone(),
-                agent_view_controller.clone(),
-                &buffer_model,
-                cli_subagent_controller.clone(),
-                &inline_terminal_menu_positioner,
-                ctx,
-            )
-        });
-        ctx.subscribe_to_view(&inline_model_selector_view, |me, _, event, ctx| {
-            me.handle_inline_model_selector_event(event, ctx);
-        });
-
         let ai_req_usage_model = AIRequestUsageModel::handle(ctx);
         ctx.subscribe_to_model(&ai_req_usage_model, |_, _, _, ctx| {
             ctx.notify();
@@ -3415,7 +3299,6 @@ impl Input {
                 agent_shortcut_view_model.clone(),
                 // Wired post-construction via `attach_ambient_agent_view_model`.
                 None,
-                suggestions_mode_model.clone(),
                 ephemeral_message_model.clone(),
                 handoff_compose_state.clone(),
                 terminal_view_id,
@@ -3429,7 +3312,6 @@ impl Input {
             let panel = ctx.add_typed_action_view(|ctx| {
                 QueuedPromptsPanelView::new(
                     terminal_view_id,
-                    suggestions_mode_model.clone(),
                     cli_subagent_controller,
                     host_editor,
                     ctx,
@@ -3515,8 +3397,6 @@ impl Input {
             is_processing_attached_images: false,
             prompt_suggestions_view,
             handoff_compose_state,
-            inline_model_selector_view,
-            inline_terminal_menu_positioner,
             cached_agent_mode_hint_text: None,
             is_editor_empty_on_last_edit: is_editor_empty,
             weak_view_handle: ctx.handle(),
@@ -4332,175 +4212,6 @@ impl Input {
         false
     }
 
-    fn handle_inline_model_selector_event(
-        &mut self,
-        event: &InlineModelSelectorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            InlineModelSelectorEvent::SelectedModel {
-                id,
-                selected_tab,
-                set_as_default,
-            } => {
-                let profile_id = AIExecutionProfilesModel::as_ref(ctx)
-                    .active_profile(Some(self.terminal_view_id), ctx)
-                    .id()
-                    .clone();
-
-                let scope = ResolvedTeamScope::from_scope(
-                    &UserWorkspaces::as_ref(ctx).team_context_for_view(ctx),
-                );
-                match selected_tab {
-                    InlineModelSelectorTab::BaseAgent => {
-                        LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
-                            preferences.update_preferred_agent_mode_llm(
-                                &scope,
-                                id,
-                                self.terminal_view_id,
-                                ctx,
-                            );
-                        });
-                        if *set_as_default {
-                            AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
-                                profiles.set_base_model(&profile_id, Some(id.clone()), ctx);
-                            });
-                        }
-                    }
-                    InlineModelSelectorTab::FullTerminalUse => {
-                        AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
-                            profiles.set_cli_agent_model(&profile_id, Some(id.clone()), ctx);
-                        });
-                    }
-                }
-                // Accept path: close the model selector.
-                let selector_view = self.inline_model_selector_view.as_ref(ctx);
-                let should_restore_buffer = selector_view.prompt_parked_for_search()
-                    || !selector_view.filter_results_by_input();
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_model_selector()
-                    && should_restore_buffer
-                {
-                    // The user had a pre-existing prompt; restore it (do NOT clear buffer).
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.close_and_restore_buffer(ctx);
-                    });
-                    ctx.notify();
-                } else {
-                    // Clear the buffer for:
-                    //  1) Selector open AND input was used as filter query — close menu, then clear.
-                    //  2) Selector not open — just clear.
-                    if self
-                        .suggestions_mode_model
-                        .as_ref(ctx)
-                        .is_inline_model_selector()
-                    {
-                        self.suggestions_mode_model.update(ctx, |model, ctx| {
-                            model.set_mode(InputSuggestionsMode::Closed, ctx);
-                        });
-                        ctx.notify();
-                    }
-                    self.clear_buffer_and_reset_undo_stack(ctx);
-                }
-            }
-            InlineModelSelectorEvent::Dismissed => {
-                if self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_model_selector()
-                {
-                    self.suggestions_mode_model.update(ctx, |model, ctx| {
-                        model.close_and_restore_buffer(ctx);
-                    });
-                    ctx.notify();
-                }
-            }
-        }
-        self.focus_input_box(ctx);
-    }
-
-    fn toggle_inline_model_selector_from_chip(
-        &mut self,
-        initial_tab: InlineModelSelectorTab,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_model_selector()
-        {
-            // Toggling closed via the chip: restore the parked prompt if we
-            // cleared it for search, otherwise just close.
-            if self
-                .inline_model_selector_view
-                .as_ref(ctx)
-                .prompt_parked_for_search()
-            {
-                self.suggestions_mode_model.update(ctx, |model, ctx| {
-                    model.close_and_restore_buffer(ctx);
-                });
-            } else {
-                self.suggestions_mode_model.update(ctx, |model, ctx| {
-                    model.set_mode(InputSuggestionsMode::Closed, ctx);
-                });
-            }
-            ctx.notify();
-            return;
-        }
-
-        self.open_model_selector_and_snapshot_prompt(initial_tab, ctx);
-    }
-
-    /// Opens the inline model selector, parking any pre-existing prompt so the
-    /// input can be used to search models. The parked prompt is restored when the
-    /// selector closes (on model selection or dismissal). Shared by the model
-    /// chip, the `/model` keybinding, and the OpenModelSelector action.
-    fn open_model_selector_and_snapshot_prompt(
-        &mut self,
-        initial_tab: InlineModelSelectorTab,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.close_overlays(false, ctx);
-        let has_input = !self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-        let should_clear_prompt_for_search =
-            has_input && FeatureFlag::RestorePromptOnInlineModelSelectorSearch.is_enabled();
-        match self
-            .inline_model_selector_view
-            .try_update(ctx, |view, ctx| {
-                if has_input && !should_clear_prompt_for_search {
-                    view.set_filter_results_by_input(false);
-                }
-                view.set_prompt_parked_for_search(should_clear_prompt_for_search);
-                view.set_active_tab(initial_tab, ctx);
-            }) {
-            Ok(()) => {}
-            Err(ViewUpdateError::WindowClosed) => return,
-            Err(ViewUpdateError::CircularUpdate) => panic!("Circular view update"),
-        }
-        self.suggestions_mode_model.update(ctx, |model, ctx| {
-            model.set_mode(InputSuggestionsMode::ModelSelector, ctx);
-        });
-        ctx.notify();
-        if should_clear_prompt_for_search {
-            self.editor.update(ctx, |editor, ctx| {
-                editor.system_clear_buffer(false, ctx);
-            });
-        }
-        self.focus_input_box(ctx);
-    }
-
-    fn restore_buffer_state(&mut self, buffer_state: &BufferState, ctx: &mut ViewContext<Self>) {
-        self.editor.update(ctx, |editor, ctx| {
-            editor.set_buffer_text_ignoring_undo(&buffer_state.buffer, ctx);
-            if let Some(original_cursor_point) = &buffer_state.cursor_point {
-                editor.reset_selections_to_point(original_cursor_point, ctx);
-            }
-        });
-        ctx.notify();
-    }
-
     #[cfg(not(target_family = "wasm"))]
     fn export_conversation_to_file(
         &mut self,
@@ -4999,10 +4710,6 @@ impl Input {
         &self.suggestions_mode_model
     }
 
-    pub fn inline_terminal_menu_positioner(&self) -> &ModelHandle<InlineMenuPositioner> {
-        &self.inline_terminal_menu_positioner
-    }
-
     pub fn completer_data(&self) -> CompleterData {
         CompleterData::new(
             self.sessions.clone(),
@@ -5386,16 +5093,6 @@ impl Input {
             UniversalDeveloperInputButtonBarEvent::PromptAlert(prompt_alert_event) => {
                 self.handle_prompt_alert(prompt_alert_event, ctx);
             }
-            UniversalDeveloperInputButtonBarEvent::ModelSelectorOpened => {
-                self.close_overlays(false, ctx);
-            }
-            UniversalDeveloperInputButtonBarEvent::ModelSelectorClosed => {
-                // When the model selector menu closes (model was selected), focus the input field
-                self.focus_input_box(ctx);
-            }
-            UniversalDeveloperInputButtonBarEvent::OpenSettings(section) => {
-                ctx.emit(Event::OpenSettings(*section));
-            }
         }
     }
 
@@ -5572,20 +5269,6 @@ impl Input {
             });
             return;
         }
-        // If the current input suggestions mode has a custom placeholder,
-        // that takes precedence over other placeholders.
-        if let Some(placeholder) = self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .mode()
-            .placeholder_text()
-        {
-            self.editor.update(ctx, |editor, ctx| {
-                editor.set_placeholder_text(placeholder, ctx);
-            });
-            return;
-        }
-
         let toggled_on = *InputSettings::as_ref(ctx).show_hint_text;
 
         if toggled_on
@@ -7181,10 +6864,6 @@ impl Input {
                     | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
                         // If in the future we want to replace the selected arguments with suggestion options as we cycle, this is where we do it
                     }
-                    InputSuggestionsMode::ModelSelector => {
-                        // Model selector selection is handled separately
-                        // This shouldn't be reached since model selector doesn't use InputSuggestions
-                    }
                     InputSuggestionsMode::Closed => {
                         log::warn!("Got a InputSuggestionsEvent::Select when the mode was Closed!");
                     }
@@ -7306,10 +6985,6 @@ impl Input {
                 });
                 true
             }
-            InputSuggestionsMode::ModelSelector => {
-                // Model selector selection is handled separately
-                false
-            }
         }
     }
 
@@ -7364,22 +7039,9 @@ impl Input {
     ) {
         // If the input suggestions view is already closed, don't refocus the input box.
         if !self.suggestions_mode_model.as_ref(ctx).is_closed() {
-            let was_inline_menu_open = self
-                .suggestions_mode_model
-                .as_ref(ctx)
-                .is_inline_menu_open();
-
             self.suggestions_mode_model.update(ctx, |m, ctx| {
                 m.set_mode(InputSuggestionsMode::Closed, ctx);
             });
-
-            // If we're closing an inline menu, trigger autodetection on the buffer contents
-            if was_inline_menu_open {
-                self.run_input_background_jobs(
-                    InputBackgroundJobOptions::default().with_ai_input_detection(),
-                    ctx,
-                );
-            }
 
             if should_focus_input {
                 self.focus_input_box(ctx);
@@ -7513,25 +7175,6 @@ impl Input {
             return;
         }
 
-        // For some input suggestion modes, the menu handles its own actions.
-        let handled = match self.suggestions_mode_model.as_ref(ctx).mode() {
-            InputSuggestionsMode::ModelSelector => {
-                self.inline_model_selector_view.update(ctx, |view, ctx| {
-                    view.select_up(ctx);
-                });
-                true
-            }
-            InputSuggestionsMode::HistoryUp { .. }
-            | InputSuggestionsMode::CompletionSuggestions { .. }
-            | InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-            | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
-            | InputSuggestionsMode::Closed => false,
-        };
-
-        if handled {
-            return;
-        }
-
         // If the input suggestions menu is open, always cycle to the next option.
         if self.suggestions_mode_model.as_ref(ctx).is_visible() && self.can_query_history(ctx) {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
@@ -7598,21 +7241,6 @@ impl Input {
         }
     }
 
-    /// Asks the currently active inline menu whether the buffer should be restored on dismiss
-    /// (defaulting to true for any inline menus that don't have specific behavior requirements for this decision).
-    fn should_restore_buffer_on_inline_menu_dismiss(&self, ctx: &ViewContext<Self>) -> bool {
-        match self.suggestions_mode_model.as_ref(ctx).mode() {
-            // If the input is not being used as a search on the model menu
-            // we should not restore/revert the changes to the input on-dismiss,
-            // unless we parked a prompt to search (then we restore that prompt).
-            InputSuggestionsMode::ModelSelector => {
-                let view = self.inline_model_selector_view.as_ref(ctx);
-                view.prompt_parked_for_search() || view.filter_results_by_input()
-            }
-            _ => true,
-        }
-    }
-
     fn editor_escape(&mut self, ctx: &mut ViewContext<Self>) {
         let vim_mode = self.editor.as_ref(ctx).vim_mode(ctx);
         let has_attached_context = {
@@ -7631,21 +7259,6 @@ impl Input {
             });
         } else if self.prefix_mode(ctx) == InputPrefixMode::CloudHandoff {
             self.exit_cloud_handoff_compose(ctx);
-            ctx.notify();
-        } else if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_menu_open()
-        {
-            if self.should_restore_buffer_on_inline_menu_dismiss(ctx) {
-                self.suggestions_mode_model.update(ctx, |model, ctx| {
-                    model.close_and_restore_buffer(ctx);
-                });
-            } else {
-                self.suggestions_mode_model.update(ctx, |model, ctx| {
-                    model.set_mode(InputSuggestionsMode::Closed, ctx);
-                });
-            }
             ctx.notify();
         } else if self.suggestions_mode_model.as_ref(ctx).is_visible() {
             self.input_suggestions
@@ -7765,25 +7378,6 @@ impl Input {
     }
 
     fn editor_down(&mut self, ctx: &mut ViewContext<Self>) {
-        // For some input suggestion modes, the menu handles its own actions.
-        let handled = match self.suggestions_mode_model.as_ref(ctx).mode() {
-            InputSuggestionsMode::ModelSelector => {
-                self.inline_model_selector_view.update(ctx, |view, ctx| {
-                    view.select_down(ctx);
-                });
-                true
-            }
-            InputSuggestionsMode::HistoryUp { .. }
-            | InputSuggestionsMode::CompletionSuggestions { .. }
-            | InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-            | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
-            | InputSuggestionsMode::Closed => false,
-        };
-
-        if handled {
-            return;
-        }
-
         if self.suggestions_mode_model.as_ref(ctx).is_visible() {
             if self.input_suggestions.as_ref(ctx).is_empty() {
                 // arrow down on an empty suggestions means we should close it.
@@ -8328,14 +7922,6 @@ impl Input {
                     self.run_expansion_on_space(ctx);
                 }
 
-                // Don't run NLD autodetection when an inline menu is open (slash commands,
-                // conversation menu, model selector), as the buffer contents are being used as
-                // a search query for the menu rather than as a command/prompt.
-                let is_inline_menu_open = self
-                    .suggestions_mode_model
-                    .as_ref(ctx)
-                    .is_inline_menu_open();
-
                 // NLD autodetection is irrelevant in cloud mode v2 — the input is always AI.
                 let should_run_ai_input_detection = if self.is_cloud_mode_input_v2_composing(ctx) {
                     false
@@ -8345,19 +7931,15 @@ impl Input {
                         // it is enabled.
                         EditOrigin::UserInitiated
                         | EditOrigin::UserTyped
-                        | EditOrigin::SyncedTerminalInput => {
-                            !is_inline_menu_open
-                                && self
-                                    .ai_input_model
-                                    .as_ref(ctx)
-                                    .should_run_input_autodetection(ctx)
-                        }
+                        | EditOrigin::SyncedTerminalInput => self
+                            .ai_input_model
+                            .as_ref(ctx)
+                            .should_run_input_autodetection(ctx),
                         // Remote edits from shared session viewers should trigger autodetection
                         // on the sharer's side, so that the sharer's input mode adjusts as viewers type.
                         EditOrigin::RemoteEdit => {
                             let is_sharer = self.model.lock().shared_session_status().is_sharer();
-                            !is_inline_menu_open
-                                && is_sharer
+                            is_sharer
                                 && self
                                     .ai_input_model
                                     .as_ref(ctx)
@@ -8713,9 +8295,6 @@ impl Input {
                             self.open_completion_suggestions(CompletionsTrigger::AsYouType, ctx);
                         }
                     }
-                    InputSuggestionsMode::ModelSelector => {
-                        // Model selector handles its own state
-                    }
                 }
             }
             EditorEvent::BufferReplaced => {
@@ -8789,9 +8368,6 @@ impl Input {
                                     /*should_focus_input=*/ true, ctx,
                                 );
                             }
-                        }
-                        InputSuggestionsMode::ModelSelector => {
-                            // Model selector handles its own selection state
                         }
                     }
                 }
@@ -10562,25 +10138,14 @@ impl Input {
     }
 
     fn input_shift_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        match self.suggestions_mode_model.as_ref(ctx).mode() {
-            // If the model selector is open and has multiple tabs,
-            // shift + tab should cycle between them.
-            InputSuggestionsMode::ModelSelector => {
-                if self
-                    .inline_model_selector_view
-                    .update(ctx, |view, ctx| view.select_next_tab(ctx))
-                {
-                    return;
-                }
-            }
-            // If we're in CompletionSuggestions mode, shift tab moves to the previous selection.
-            InputSuggestionsMode::CompletionSuggestions { .. } => {
-                self.input_suggestions.update(ctx, |suggestions, ctx| {
-                    suggestions.select_prev(ctx);
-                });
-                return;
-            }
-            _ => {}
+        // In CompletionSuggestions mode, shift tab moves to the previous selection.
+        if let InputSuggestionsMode::CompletionSuggestions { .. } =
+            self.suggestions_mode_model.as_ref(ctx).mode()
+        {
+            self.input_suggestions.update(ctx, |suggestions, ctx| {
+                suggestions.select_prev(ctx);
+            });
+            return;
         }
 
         if let Some(workflows_info_view) = &self
@@ -11024,16 +10589,6 @@ impl Input {
 
         ctx.emit(Event::Enter);
 
-        if self
-            .suggestions_mode_model
-            .as_ref(ctx)
-            .is_inline_model_selector()
-        {
-            self.inline_model_selector_view
-                .update(ctx, |view, ctx| view.accept_selected_item(false, ctx));
-            return;
-        }
-
         if self.should_insert_newline_on_enter(ctx) {
             self.editor.update(ctx, |editor, ctx| {
                 editor.user_initiated_insert("\n", PlainTextEditorViewAction::NewLine, ctx)
@@ -11328,12 +10883,6 @@ impl Input {
             } => {
                 let editor_model = self.editor.read(ctx, |view, ctx| view.snapshot_model(ctx));
                 self.get_enum_suggestions_async(command.clone(), editor_model, ctx);
-            }
-            InputSuggestionsMode::ModelSelector
-                if FeatureFlag::InlineMenuHeaders.is_enabled() =>
-            {
-                self.inline_model_selector_view
-                    .update(ctx, |view, ctx| view.accept_selected_item(true, ctx));
             }
             _ => {
                 // In cloud mode (ambient agent), Cmd+Enter should exit cloud mode entirely and start a
@@ -13636,12 +13185,6 @@ impl TypedActionView for Input {
                     );
                 }
             }
-            InputAction::OpenModelSelector => {
-                self.open_model_selector_and_snapshot_prompt(
-                    InlineModelSelectorTab::BaseAgent,
-                    ctx,
-                );
-            }
             InputAction::FigmaAddButtonClicked => {
                 TemplatableMCPServerManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.install_figma_from_gallery(ctx);
@@ -13762,19 +13305,6 @@ impl View for Input {
             ctx.set.insert("WorkflowInfoBox");
         }
 
-        let is_profile_model_selector_open = self.should_show_universal_developer_input(app)
-            && self
-                .universal_developer_input_button_bar
-                .as_ref(app)
-                .is_profile_model_selector_open(app);
-        let is_agent_footer_model_selector_open = self
-            .agent_input_footer
-            .as_ref(app)
-            .is_model_selector_open(app);
-        let is_v2_model_selector_open = self
-            .agent_input_footer
-            .as_ref(app)
-            .is_v2_model_selector_open(app);
         let is_v2_host_selector_open = self
             .host_selector()
             .is_some_and(|view| view.as_ref(app).is_menu_open());
@@ -13785,14 +13315,11 @@ impl View for Input {
             .agent_input_footer
             .as_ref(app)
             .is_v2_environment_selector_open(app);
-        if is_profile_model_selector_open
-            || is_agent_footer_model_selector_open
-            || is_v2_model_selector_open
-            || is_v2_host_selector_open
+        if is_v2_host_selector_open
             || is_v2_harness_selector_open
             || is_v2_environment_selector_open
         {
-            ctx.set.insert("ProfileModelSelectorOpen");
+            ctx.set.insert("AgentSelectorOpen");
         }
 
         if self.prompt_render_helper.has_open_chip_menu(app)

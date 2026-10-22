@@ -287,7 +287,6 @@ pub(super) fn add_input_suggestions_overlays(
             );
         }
         // Model selector is rendered separately via inline_model_selector_view
-        InputSuggestionsMode::ModelSelector => {}
         InputSuggestionsMode::Closed => {}
     }
 }

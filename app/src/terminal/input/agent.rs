@@ -231,14 +231,6 @@ impl Input {
         let mut column = Flex::column();
 
         if self
-            .suggestions_mode_model
-            .as_ref(app)
-            .is_inline_model_selector()
-        {
-            column.add_child(ChildView::new(&self.inline_model_selector_view).finish());
-        }
-
-        if self
             .agent_shortcut_view_model
             .as_ref(app)
             .is_shortcut_view_open()

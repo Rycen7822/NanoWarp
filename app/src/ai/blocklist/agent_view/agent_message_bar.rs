@@ -50,9 +50,6 @@ use crate::terminal::input::message_bar::common::{
 use crate::terminal::input::message_bar::{
     ChipHorizontalAlignment, EmptyMessageProducer, Message, MessageItem, MessageProvider,
 };
-use crate::terminal::input::suggestions_mode_model::{
-    InputSuggestionsModeEvent, InputSuggestionsModeModel,
-};
 use crate::terminal::input::{HandoffComposeState, InputAction, SET_INPUT_MODE_AGENT_ACTION_NAME};
 use crate::terminal::model::TerminalModel;
 use crate::terminal::view::TerminalAction;
@@ -89,7 +86,6 @@ pub struct AgentMessageBar {
     shortcut_view_model: ModelHandle<AgentShortcutViewModel>,
     input_buffer_model: ModelHandle<InputBufferModel>,
     input_model: ModelHandle<BlocklistAIInputModel>,
-    input_suggestions_model: ModelHandle<InputSuggestionsModeModel>,
     context_model: ModelHandle<BlocklistAIContextModel>,
     handoff_compose_state: ModelHandle<HandoffComposeState>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -117,7 +113,6 @@ impl AgentMessageBar {
         shortcut_view_model: ModelHandle<AgentShortcutViewModel>,
         input_buffer_model: ModelHandle<InputBufferModel>,
         input_model: ModelHandle<BlocklistAIInputModel>,
-        input_suggestions_model: ModelHandle<InputSuggestionsModeModel>,
         context_model: ModelHandle<BlocklistAIContextModel>,
         handoff_compose_state: ModelHandle<HandoffComposeState>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -165,19 +160,6 @@ impl AgentMessageBar {
         });
         ctx.subscribe_to_model(&shortcut_view_model, |_, _, _, ctx| {
             ctx.notify();
-        });
-        ctx.subscribe_to_model(&input_suggestions_model, |me, _, event, ctx| match event {
-            InputSuggestionsModeEvent::ModeChanged {
-                buffer_to_restore: _,
-            } => {
-                if me.input_suggestions_model.as_ref(ctx).is_inline_menu_open() {
-                    // When opening an inline menu, dismiss any explicit message if we have one.
-                    me.ephemeral_message_model
-                        .update(ctx, |m, ctx| m.try_dismiss_explicit_message(ctx));
-                }
-                me.record_visible_promotion(ctx);
-                ctx.notify();
-            }
         });
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, |_, _, event, ctx| {
@@ -245,7 +227,6 @@ impl AgentMessageBar {
             shortcut_view_model,
             input_buffer_model,
             input_model,
-            input_suggestions_model,
             context_model,
             handoff_compose_state,
             terminal_model,
@@ -295,13 +276,7 @@ impl AgentMessageBar {
     }
 
     fn record_visible_promotion(&self, ctx: &mut ViewContext<Self>) {
-        if cfg!(target_family = "wasm")
-            || !self.agent_view_controller.as_ref(ctx).is_active()
-            || self
-                .input_suggestions_model
-                .as_ref(ctx)
-                .is_inline_menu_open()
-        {
+        if cfg!(target_family = "wasm") || !self.agent_view_controller.as_ref(ctx).is_active() {
             return;
         }
         if PricingPromotionState::as_ref(ctx)
@@ -322,13 +297,6 @@ impl View for AgentMessageBar {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        // If an inline menu is open, a 'message line' is rendered by the inline menu itself,
-        // so defer to that.
-        let input_suggestions_model = self.input_suggestions_model.as_ref(app);
-        if input_suggestions_model.is_inline_menu_open() {
-            return Empty::new().finish();
-        }
-
         let shortcut_view_model = self.shortcut_view_model.as_ref(app);
         let input_buffer_model = self.input_buffer_model.as_ref(app);
         let input_model = self.input_model.as_ref(app);

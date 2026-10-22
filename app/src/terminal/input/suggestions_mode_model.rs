@@ -1,27 +1,14 @@
-use warpui::{Entity, ModelContext, ModelHandle};
+use warpui::{Entity, ModelContext};
 
-use super::{BufferState, DynamicEnumSuggestionStatus, InputSuggestionsMode};
-use crate::terminal::input::buffer_model::InputBufferModel;
-use crate::terminal::input::inline_menu::InlineMenuType;
+use super::{DynamicEnumSuggestionStatus, InputSuggestionsMode};
 
 /// Model responsible for managing the input suggestions mode state.
+#[derive(Default)]
 pub struct InputSuggestionsModeModel {
     mode: InputSuggestionsMode,
-    /// Buffer state saved when an inline menu is opened, so it can be restored on dismiss.
-    buffer_to_restore: Option<BufferState>,
-    /// Handle to the input buffer model, used to snapshot buffer state when opening menus.
-    buffer_model: ModelHandle<InputBufferModel>,
 }
 
 impl InputSuggestionsModeModel {
-    pub fn new(buffer_model: ModelHandle<InputBufferModel>) -> Self {
-        Self {
-            mode: InputSuggestionsMode::Closed,
-            buffer_to_restore: None,
-            buffer_model,
-        }
-    }
-
     pub fn mode(&self) -> &InputSuggestionsMode {
         &self.mode
     }
@@ -35,41 +22,11 @@ impl InputSuggestionsModeModel {
         // first emit a mode change for the implicit close before transitioning to the new mode.
         if self.is_visible() && !matches!(mode, InputSuggestionsMode::Closed) {
             self.mode = InputSuggestionsMode::Closed;
-            ctx.emit(InputSuggestionsModeEvent::ModeChanged {
-                buffer_to_restore: None,
-            });
-        }
-
-        // Snapshot the buffer state when opening a mode that supports buffer restoration.
-        if mode.should_snapshot_and_restore_buffer() {
-            let buffer_model = self.buffer_model.as_ref(ctx);
-            self.buffer_to_restore = Some(BufferState::new(
-                buffer_model.current_value().to_owned(),
-                buffer_model.cursor_point(),
-            ));
-        }
-
-        // When closing via set_mode, we always discard saved buffer state.
-        // To restore buffer state, callers should use close_and_restore_buffer.
-        if matches!(mode, InputSuggestionsMode::Closed) {
-            self.buffer_to_restore = None;
+            ctx.emit(());
         }
 
         self.mode = mode;
-        ctx.emit(InputSuggestionsModeEvent::ModeChanged {
-            buffer_to_restore: None,
-        });
-    }
-
-    /// Closes the current menu, restoring the buffer if it was snapshotted on open.
-    pub fn close_and_restore_buffer(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.is_closed() {
-            return;
-        }
-
-        let buffer_to_restore = self.buffer_to_restore.take();
-        self.mode = InputSuggestionsMode::Closed;
-        ctx.emit(InputSuggestionsModeEvent::ModeChanged { buffer_to_restore });
+        ctx.emit(());
     }
 
     pub fn set_dynamic_enum_status(
@@ -83,9 +40,7 @@ impl InputSuggestionsModeModel {
         } = &mut self.mode
         {
             *dynamic_enum_status = status;
-            ctx.emit(InputSuggestionsModeEvent::ModeChanged {
-                buffer_to_restore: None,
-            });
+            ctx.emit(());
         }
     }
 
@@ -121,28 +76,8 @@ impl InputSuggestionsModeModel {
             InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
         )
     }
-
-    pub fn is_inline_model_selector(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::ModelSelector)
-    }
-
-    pub fn inline_menu_type(&self) -> Option<InlineMenuType> {
-        InlineMenuType::from_suggestions_mode(&self.mode)
-    }
-
-    pub fn is_inline_menu_open(&self) -> bool {
-        self.mode.is_inline_menu()
-    }
 }
 
 impl Entity for InputSuggestionsModeModel {
-    type Event = InputSuggestionsModeEvent;
-}
-
-pub enum InputSuggestionsModeEvent {
-    ModeChanged {
-        /// The saved buffer state to restore, if this mode change is an inline menu closing.
-        /// `None` for all other transitions.
-        buffer_to_restore: Option<BufferState>,
-    },
+    type Event = ();
 }

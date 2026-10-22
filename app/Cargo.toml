@@ -618,7 +618,6 @@ default = [
     "agent_view_block_context",
     "agent_view_conversation_list_view",
     "inline_model_selector",
-    "restore_prompt_on_inline_model_selector_search",
     "oz_launch_modal",
     "open_warp_launch_modal",
     "orchestration_launch_modal",
@@ -633,7 +632,6 @@ default = [
     "figma_detection",
     "file_based_mcp",
     "kitty_keyboard_protocol",
-    "inline_menu_headers",
     "github_pr_prompt_chip",
     "conversations_as_context",
     "markdown_tables",
@@ -958,7 +956,6 @@ agent_view_conversation_list_view = ["agent_view"]
 summarization_via_message_replacement = []
 lsp_as_a_tool = []
 inline_model_selector = ["agent_view"]
-restore_prompt_on_inline_model_selector_search = []
 oz_platform_skills = []
 oz_identity_federation = []
 oz_launch_modal = []
@@ -973,7 +970,6 @@ incremental_auto_reload = []
 pending_user_query_indicator = []
 queue_slash_command = []
 queued_prompts_v2 = ["queue_slash_command"]
-inline_menu_headers = []
 directory_tab_colors = []
 hoa_code_review = []
 vertical_tabs = []

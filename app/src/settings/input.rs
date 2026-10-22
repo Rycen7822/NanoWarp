@@ -1,12 +1,9 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use settings::Setting as _;
 /// TODO: move alias_expansion setting into this group.
 use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud, define_settings_group};
 use warpui::{AppContext, SingletonEntity};
 
-use crate::terminal::input::inline_menu::InlineMenuType;
 use crate::terminal::session_settings::SessionSettings;
 
 pub const MAX_TIMES_TO_SHOW_AUTOSUGGESTION_HINT: i8 = 2;
@@ -153,16 +150,6 @@ define_settings_group!(InputSettings,
             private: false,
             toml_path: "agents.warp_agent.input.show_agent_tips",
             description: "Whether agent tips are displayed in the input.",
-        },
-        // Whether to show the terminal input message bar (contextual hints at the bottom of terminal input).
-        // Only applicable when FeatureFlag::AgentView is enabled.
-        // Per-menu custom content heights set by drag-to-resize. Not user-visible.
-        inline_menu_custom_content_heights: InlineMenuCustomContentHeights {
-            type: HashMap<InlineMenuType, f32>,
-            default: HashMap::default(),
-            supported_platforms: SupportedPlatforms::ALL,
-            sync_to_cloud: SyncToCloud::Never,
-            private: true,
         },
     ]
 );

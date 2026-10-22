@@ -369,14 +369,6 @@ impl CLISubagentController {
             .is_agent_in_control()
     }
 
-    pub(crate) fn is_agent_in_control_or_tagged_in(&self) -> bool {
-        let terminal_model = self.terminal_model.lock();
-        terminal_model
-            .block_list()
-            .active_block()
-            .is_agent_in_control_or_tagged_in()
-    }
-
     pub fn last_snapshot_at(&self, block_id: &BlockId) -> Option<Instant> {
         self.active_subagents_by_block
             .get(block_id)

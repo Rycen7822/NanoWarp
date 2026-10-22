@@ -65,18 +65,11 @@ impl Input {
                 .finish(),
         );
 
-        if !(matches!(input_mode, InputMode::PinnedToTop)
-            && self
-                .suggestions_mode_model
-                .as_ref(app)
-                .is_inline_menu_open())
-        {
-            column.add_child(
-                Container::new(Flex::row().finish())
-                    .with_margin_bottom(8.)
-                    .finish(),
-            );
-        }
+        column.add_child(
+            Container::new(Flex::row().finish())
+                .with_margin_bottom(8.)
+                .finish(),
+        );
 
         if matches!(input_mode, InputMode::PinnedToTop)
             && let Some(banner) = self.render_input_banner(appearance, app, input_mode, false)

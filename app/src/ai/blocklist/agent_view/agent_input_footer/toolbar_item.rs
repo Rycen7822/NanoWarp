@@ -51,7 +51,6 @@ pub enum AgentToolbarItemKind {
     #[schemars(description = "A prompt context chip.")]
     ContextChip(ContextChipKind),
     // Agent view only
-    ModelSelector,
     NLDToggle,
     ContextWindowUsage,
     /// Trigger for the "Conversation" usage popover. Only offered to viewers whose tier
@@ -87,8 +86,7 @@ impl AgentToolbarItemKind {
             | Self::FileAttach
             | Self::ShareSession
             | Self::FileExplorer => ToolbarAvailability::Both,
-            Self::ModelSelector
-            | Self::NLDToggle
+            Self::NLDToggle
             | Self::ContextWindowUsage
             | Self::UsageSummary
             | Self::FastForwardToggle
@@ -112,7 +110,6 @@ impl AgentToolbarItemKind {
             // Handoff is host-initiated; viewers cannot hand off another user's conversation.
             Self::HandoffToCloud => !status.is_viewer(),
             Self::ContextChip(_)
-            | Self::ModelSelector
             | Self::NLDToggle
             | Self::ContextWindowUsage
             | Self::UsageSummary
@@ -124,7 +121,6 @@ impl AgentToolbarItemKind {
     pub fn display_label(&self) -> &'static str {
         match self {
             Self::ContextChip(_) => "Context Chip",
-            Self::ModelSelector => "Model Selector",
             Self::NLDToggle => "Autodetection",
             Self::VoiceInput => "Voice Input",
             Self::FileAttach => "Attach File",
@@ -142,7 +138,6 @@ impl AgentToolbarItemKind {
     pub fn icon(&self) -> Option<Icon> {
         match self {
             Self::ContextChip(kind) => kind.udi_icon(),
-            Self::ModelSelector => Some(Icon::Agent),
             Self::NLDToggle => Some(Icon::NLD),
             Self::VoiceInput => Some(Icon::Microphone),
             Self::FileAttach => Some(Icon::Plus),
@@ -166,7 +161,7 @@ impl AgentToolbarItemKind {
             Self::ContextChip(
                 ContextChipKind::ShellGitBranch | ContextChipKind::GitBranchStatus,
             ) => true,
-            Self::ModelSelector | Self::VoiceInput | Self::FileAttach => true,
+            Self::VoiceInput | Self::FileAttach => true,
             Self::ContextChip(_)
             | Self::NLDToggle
             | Self::ContextWindowUsage
@@ -237,7 +232,6 @@ impl AgentToolbarItemKind {
             Self::ContextChip(ContextChipKind::AgentPlanAndTodoList),
             Self::ContextWindowUsage,
             Self::UsageSummary,
-            Self::ModelSelector,
         ];
         if FeatureFlag::CreatingSharedSessions.is_enabled()
             && FeatureFlag::HOARemoteControl.is_enabled()
@@ -262,7 +256,6 @@ impl AgentToolbarItemKind {
             .map(Self::ContextChip)
             .collect();
         items.extend([
-            Self::ModelSelector,
             Self::NLDToggle,
             Self::VoiceInput,
             Self::FileAttach,

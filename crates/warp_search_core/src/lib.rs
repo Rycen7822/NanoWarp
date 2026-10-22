@@ -1,5 +1,4 @@
 pub mod data_source;
-pub mod inline_menu;
 pub mod item;
 pub mod macros;
 pub mod mixer;

@@ -20,7 +20,6 @@ use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::{AISettings, PrivacySettings};
-use crate::terminal::input::models::query_model_picker_choices;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team::Team;
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -310,13 +309,6 @@ fn endpoint(
         api_key: api_key.into(),
         schema: Default::default(),
         models,
-    }
-}
-
-fn disabled_agent_llm(id: &str, display_name: &str) -> LLMInfo {
-    LLMInfo {
-        disable_reason: Some(DisableReason::Unavailable),
-        ..agent_llm(id, display_name)
     }
 }
 
@@ -699,41 +691,6 @@ fn active_models_fall_back_to_usable_choice_or_custom_endpoint_when_default_disa
                     .id,
                 custom_model_id
             );
-        });
-    });
-}
-
-/// Runs picker-query assertions with searchable, selectable, and disabled model fixtures plus
-/// the app singletons consulted by model eligibility logic. The scope is teamless: these
-/// fixtures exercise ordering and filtering, not team credential policy.
-fn with_model_picker_query_test_context(
-    f: impl FnOnce(&LLMPreferences, &dyn TeamScope, &AppContext) + 'static,
-) {
-    App::test((), |mut app| async move {
-        app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-        app.add_singleton_model(UserWorkspaces::default_mock);
-        let scope = UserWorkspaces::teamless_context_resolver_for_test();
-
-        let agent_mode = AvailableLLMs::new(
-            "auto".into(),
-            vec![
-                agent_llm("auto", "auto (cost-efficient)"),
-                agent_llm("gpt-5", "GPT 5"),
-                disabled_agent_llm("disabled-gpt", "GPT Disabled"),
-            ],
-            None,
-        )
-        .expect("choices are non-empty");
-        UserWorkspaces::handle(&app).update(&mut app, |workspaces, _| {
-            workspaces.set_workspaceless_models_by_feature(ModelsByFeature {
-                agent_mode,
-                ..Default::default()
-            });
-        });
-
-        let preferences = LLMPreferences::for_test(Vec::new());
-        app.read(|app_ctx| {
-            f(&preferences, &scope(app_ctx), app_ctx);
         });
     });
 }
@@ -1398,106 +1355,6 @@ fn resetting_session_model_overrides_restores_the_agent_mode_profile_model() {
                     .id
                     .as_str(),
                 "auto"
-            );
-        });
-    });
-}
-
-#[test]
-fn shared_model_picker_query_orders_filters_and_marks_disabled_choices() {
-    with_model_picker_query_test_context(|preferences, scope, app| {
-        let all = query_model_picker_choices(
-            preferences,
-            preferences.get_base_llm_choices_for_agent_mode(&TeamlessScopeForTest, app),
-            "",
-            None,
-            scope,
-            app,
-        );
-        assert_eq!(
-            all.first().map(|choice| choice.llm.id.as_str()),
-            Some("auto")
-        );
-        assert_eq!(
-            all.last().map(|choice| choice.llm.id.as_str()),
-            Some("disabled-gpt")
-        );
-        assert!(!all.last().expect("disabled choice").is_selectable());
-
-        let filtered = query_model_picker_choices(
-            preferences,
-            preferences.get_base_llm_choices_for_agent_mode(&TeamlessScopeForTest, app),
-            "gpt 5",
-            None,
-            scope,
-            app,
-        );
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].llm.id.as_str(), "gpt-5");
-        assert!(filtered[0].name_match_result.is_some());
-        assert!(filtered[0].is_selectable());
-    });
-}
-
-#[test]
-fn updating_active_profile_base_model_persists_and_updates_resolution() {
-    App::test((), |mut app| async move {
-        let _file_profiles = FeatureFlag::FileBackedExecutionProfiles.override_enabled(true);
-        initialize_settings_for_tests(&mut app);
-        AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            settings
-                .execution_profiles
-                .set_value(Default::default(), ctx)
-                .unwrap();
-        });
-        app.add_singleton_model(|_| ServerApiProvider::new_for_test());
-        app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-        app.add_singleton_model(AuthManager::new_for_test);
-        app.add_singleton_model(|_| NetworkStatus::new());
-        app.add_singleton_model(UserWorkspaces::default_mock);
-        app.add_singleton_model(CloudModel::mock);
-        app.add_singleton_model(TeamTesterStatus::mock);
-        app.add_singleton_model(SyncQueue::mock);
-        app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
-        let profiles = app.add_singleton_model(|ctx| {
-            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
-        });
-        let preferences = app.add_singleton_model(preferences_for_profile_model_tests);
-        let surface_id = EntityId::new();
-        let profile_id = profiles.read(&app, |profiles, ctx| {
-            profiles.active_profile(Some(surface_id), ctx).id().clone()
-        });
-        profiles.update(&mut app, |profiles, ctx| {
-            profiles.set_context_window_limit(&profile_id, Some(123), ctx);
-        });
-
-        let persisted = preferences.update(&mut app, |preferences, ctx| {
-            preferences.update_active_profile_base_model(
-                &LLMId::from("claude-opus"),
-                Some(surface_id),
-                ctx,
-            )
-        });
-
-        assert!(persisted);
-        profiles.read(&app, |profiles, ctx| {
-            let profile = profiles
-                .get_profile_by_id(&profile_id, ctx)
-                .expect("active profile should exist");
-            assert_eq!(
-                profile.data().base_model.as_ref().map(LLMId::as_str),
-                Some("claude-opus")
-            );
-            assert_eq!(profile.data().context_window_limit, None);
-        });
-        preferences.read(&app, |preferences, ctx| {
-            assert_eq!(
-                preferences
-                    .get_active_base_model(&TeamlessScopeForTest, ctx, Some(surface_id))
-                    .id
-                    .as_str(),
-                "claude-opus"
             );
         });
     });

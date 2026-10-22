@@ -405,7 +405,6 @@ use crate::terminal::find::{BlockGridMatch, BlockListMatch, TerminalFindModel};
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::grid_size_util::grid_cell_dimensions;
 use crate::terminal::input::decorations::InputBackgroundJobOptions;
-use crate::terminal::input::inline_menu::InlineMenuPositioner;
 use crate::terminal::input::{
     CommandExecutionSource, InputAction, InputEmptyStateChangeReason, InputState, MenuPositioning,
     MenuPositioningProvider, ShellWidgetApplyMode,
@@ -1291,38 +1290,11 @@ impl SizeUpdateBuilder {
                     model.block_list().block_heights().summary().height - gap.height();
                 let max_scroll_top = viewport.max_scroll_top_in_lines();
                 let input_id = view.input.as_ref(ctx).save_position_id();
-                let mut input_height =
+                let input_height =
                     element_size_at_last_frame(input_id.as_str(), ctx.window_id(), ctx)
                         .map_or(0., |r| r.y())
                         .into_pixels()
                         .to_lines(new_size.cell_height_px());
-
-                // Here there be dragons!!!
-                //
-                // When the inline menu is open in waterfall mode, we apply a paint-time
-                // translation of the blocklist element to simulate the blocklist 'sliding'
-                // upwards, which allows the inline menu to be rendered beneath the blocklist,
-                // but preserves the input's vertical position.
-                //
-                // The fact that this is paint-time is important - it minimizes the surface area of
-                // logic that needs to even be aware of the inline menu visibility.
-                //
-                // However, it also means that the blocklist datamodel (heights in the sumtree)
-                // needs to be totally decoupled from inline menu visibility. This is the one place
-                // where the rendered positioning/size of the input element (which includes the
-                // inline menu) can actually affect sumtree heights -- when we recompute the 'gap'
-                // size in waterfall mode, which depends on the rendered input element size.
-                //
-                // Thus, when there is a gap and the inline menu is open, the gap should not
-                // account for the inline menu being open - it should remain the same size, and
-                // we explicitly subtract the height of the inline menu from the height of the input
-                // we use to determine the new gap height.
-                input_height -= view
-                    .inline_menu_positioner
-                    .as_ref(ctx)
-                    .blocklist_top_inset_when_in_waterfall_mode(ctx)
-                    .unwrap_or_default()
-                    .to_lines(new_size.cell_height_px());
 
                 let new_height = max_scroll_top
                     + new_size
@@ -2507,8 +2479,6 @@ pub struct TerminalView {
 
     /// The input area at the bottom of the viewport.
     input: ViewHandle<Input>,
-
-    inline_menu_positioner: ModelHandle<InlineMenuPositioner>,
 
     /// Colors used for rendering.
     colors: color::List,
@@ -3833,10 +3803,6 @@ impl TerminalView {
             )
         });
 
-        let inline_menu_positioner = input.as_ref(ctx).inline_terminal_menu_positioner().clone();
-        ctx.subscribe_to_model(&inline_menu_positioner, |_, _, _, ctx| {
-            ctx.notify();
-        });
         let suggestions_mode_model = input.as_ref(ctx).suggestions_mode_model().clone();
         ctx.subscribe_to_model(&suggestions_mode_model, |_, _, _, ctx| {
             ctx.notify();
@@ -4336,7 +4302,6 @@ impl TerminalView {
         let mut terminal_view = Self {
             model,
             input,
-            inline_menu_positioner,
             view_handle: ctx.handle(),
             size_info: size_info.into(),
             snackbar_header_state: Default::default(),
@@ -9631,7 +9596,7 @@ impl TerminalView {
         }
         let input_mode = *InputModeSettings::as_ref(ctx).input_mode.value();
         let viewport = self.viewport_state(model.block_list(), input_mode, ctx);
-        if self.scroll_position.update(viewport, update, ctx) {
+        if self.scroll_position.update(viewport, update) {
             ctx.notify();
             // Dismiss any visible tooltips when the scroll position changes
             drop(model);
@@ -9963,7 +9928,6 @@ impl TerminalView {
             } else {
                 AutoscrollBehavior::Always
             },
-            self.inline_menu_positioner.clone(),
         )
     }
 
@@ -16890,9 +16854,6 @@ impl TerminalView {
         self.input.update(ctx, |view, ctx| {
             view.set_size_info(size_update.new_size, ctx);
             view.notify_and_notify_children(ctx);
-        });
-        self.inline_menu_positioner.update(ctx, |positioner, ctx| {
-            positioner.set_size_info(size_update.new_size, ctx);
         });
         *self.size_info = size_update.new_size;
         self.update_scroll_position_locking(ScrollPositionUpdate::AfterResize, ctx);
@@ -25259,7 +25220,6 @@ impl TerminalView {
             block_banner,
             self.inline_banners_state.shared_session_banner_state,
             self.input_size_at_last_frame(app).unwrap_or_default(),
-            self.inline_menu_positioner.clone(),
             None,
         );
 
@@ -25388,48 +25348,7 @@ impl TerminalView {
         } else {
             block_list
         };
-        let element =
-            SavePosition::new(element_to_save, &self.content_element_position_id).finish();
-
-        let is_waterfall_no_gap_mode =
-            matches!(input_mode, InputMode::Waterfall) && model.block_list().active_gap().is_none();
-
-        // If there is an 'inset' to be applied to the blocklist element because the inline menu is
-        // visible, we ensure that the blocklist element height constraint accounts for the inline
-        // menu, in particular when the total blocklist height is less than the total pane size -
-        // in this case, the input would still have room to render underneath the blocklist (since
-        // it doesn't take up the whole pane, and would try to render beneath it, rather than shrinking
-        // the visible blocklist height and 'sliding' it upwards.
-        //
-        // On the other hand, when the blocklist height exceeds the pane height and there is no gap,
-        // this necessarily means that the input is at the bottom of the viewport, so when the inline
-        // menu renders it will necessarily push the blocklist element up because the element is ultimatelyx
-        // wrapped in a Shrinkable.
-        if let Some(blocklist_inset_due_to_inline_menu) = is_waterfall_no_gap_mode
-            .then(|| {
-                self.inline_menu_positioner
-                    .as_ref(app)
-                    .blocklist_top_inset_when_in_waterfall_mode(app)
-            })
-            .flatten()
-        {
-            let total_blocklist_height = model
-                .block_list()
-                .block_heights()
-                .summary()
-                .height
-                .to_pixels(self.size_info.cell_height_px)
-                .as_f32();
-
-            let height = self.size_info.pane_height_px.min(
-                (total_blocklist_height - blocklist_inset_due_to_inline_menu.as_f32()).max(0.),
-            );
-            ConstrainedBox::new(element)
-                .with_max_height(height)
-                .finish()
-        } else {
-            element
-        }
+        SavePosition::new(element_to_save, &self.content_element_position_id).finish()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -25468,7 +25387,6 @@ impl TerminalView {
             self.size_info.cell_height_px(),
             viewport.scroll_top_in_pixels(),
             self.size_info.pane_height_px(),
-            self.inline_menu_positioner.clone(),
         );
 
         let theme = appearance.theme();
@@ -27561,7 +27479,6 @@ impl TypedActionView for TerminalView {
             | StartNewAgentConversation { .. }
             | ToggleConversationDetailsPanel
             | CancelAmbientAgentTask
-            | OpenModelSelector
             | ResolvePromptSuggestion(..)
             | AwsBedrockLoginBanner(_)
             | AwsCliNotInstalledBanner(_)
@@ -28553,11 +28470,6 @@ impl TypedActionView for TerminalView {
                     );
                 });
             }
-            OpenModelSelector => {
-                self.input.update(ctx, |input, ctx| {
-                    input.handle_action(&InputAction::OpenModelSelector, ctx);
-                });
-            }
             ResolvePromptSuggestion(resolution) => {
                 self.resolve_passive_suggestion(*resolution, ctx);
             }
@@ -29040,7 +28952,7 @@ impl View for TerminalView {
             .show_jump_to_bottom_of_block_button
             .value();
         if is_jump_to_bottom_enabled
-            && let Some(overhanging_block) = viewport.overhanging_bottom_block(app)
+            && let Some(overhanging_block) = viewport.overhanging_bottom_block()
         {
             let button_hovered = self.is_jump_to_bottom_of_block_element_hovered();
             let block_hovered = self
@@ -29085,7 +28997,7 @@ impl View for TerminalView {
 
         // Add a border above the input view when there's an overhanging block (or below in input at the top
         // mode).
-        if ((viewport.overhanging_bottom_block(app).is_some()
+        if ((viewport.overhanging_bottom_block().is_some()
             && FeatureFlag::MinimalistUI.is_enabled())
             || *BlockListSettings::as_ref(app).show_block_dividers.value())
             && self.is_input_box_visible(&model, app)
@@ -29564,19 +29476,6 @@ impl MenuPositioningProvider for TerminalViewMenuPositioningProvider {
                 // For Waterfall mode without terminal view context, default to BelowInputBox
                 MenuPositioning::BelowInputBox
             }
-        }
-    }
-
-    fn inline_menu_position(&self, inline_menu_height: f32, app: &AppContext) -> MenuPositioning {
-        let Some(terminal_view) = self.parent.upgrade(app) else {
-            return MenuPositioning::AboveInputBox;
-        };
-
-        let terminal_content_height = terminal_view.as_ref(app).content_element_height_px(app);
-        if terminal_content_height > inline_menu_height {
-            MenuPositioning::AboveInputBox
-        } else {
-            MenuPositioning::BelowInputBox
         }
     }
 }

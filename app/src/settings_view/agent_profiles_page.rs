@@ -74,10 +74,8 @@ use crate::settings::{
     AgentModeCommandExecutionDenylist, AgentModeCommandExecutionPredicate, CodeSettings,
     CodebaseContextEnabled, UsageDisplayUnit,
 };
-use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::util::bindings;
 use crate::view_components::action_button::{ActionButton, ButtonSize, SecondaryTheme};
 use crate::view_components::dropdown::DropdownAction;
 use crate::view_components::{
@@ -516,12 +514,6 @@ impl AgentProfilesPageView {
                 _ => (),
             }
             ctx.notify();
-        });
-
-        ctx.subscribe_to_model(&SessionSettings::handle(ctx), |_, _, event, ctx| {
-            if let SessionSettingsChangedEvent::ShowModelSelectorsInPrompt { .. } = event {
-                ctx.notify();
-            }
         });
 
         let (
@@ -1515,7 +1507,6 @@ pub enum AgentProfilesPageAction {
     RemoveFromProfileDirectoryAllowlist(PathBuf),
     RemoveFromProfileCommandDenylist(AgentModeCommandExecutionPredicate),
     RemoveFromProfileCommandAllowlist(AgentModeCommandExecutionPredicate),
-    ToggleShowBaseModelPickerInPrompt,
     AddToMCPAllowlist(uuid::Uuid),
     RemoveFromMCPAllowlist(uuid::Uuid),
     AddToMCPDenylist(uuid::Uuid),
@@ -1744,19 +1735,6 @@ impl TypedActionView for AgentProfilesPageView {
                 });
                 ctx.notify();
             }
-            AgentProfilesPageAction::ToggleShowBaseModelPickerInPrompt => {
-                SessionSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    if let Err(e) = settings
-                        .show_model_selectors_in_prompt
-                        .toggle_and_save_value(ctx)
-                    {
-                        log::warn!(
-                            "Failed to set value for Show Base Model Picker in Prompt: {e:?}"
-                        );
-                    }
-                });
-                ctx.notify();
-            }
             AgentProfilesPageAction::AddToMCPAllowlist(id) => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
                     let profile = model.default_profile(ctx);
@@ -1845,20 +1823,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "model picker in prompt",
-                builder(SettingsAction::AgentProfiles(
-                    AgentProfilesPageAction::ToggleShowBaseModelPickerInPrompt,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::SHOW_BASE_MODEL_PICKER_IN_PROMPT_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
-        ],
-        app,
-    );
     if !FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
         ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
             vec![ToggleSettingActionPair::new(
@@ -2258,7 +2222,6 @@ impl SettingsWidget for UsageWidget {
 struct AgentsWidget {
     codebase_context_toggle: SwitchStateHandle,
     codebase_context_link_index: HighlightedHyperlink,
-    show_in_prompt_checkbox: MouseStateHandle,
 }
 
 impl SettingsWidget for AgentsWidget {
@@ -2910,58 +2873,13 @@ impl AgentsWidget {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let show_in_prompt_checkbox = {
-            let is_checked = *SessionSettings::as_ref(app).show_model_selectors_in_prompt;
-
-            let mut checkbox = appearance
-                .ui_builder()
-                .checkbox(self.show_in_prompt_checkbox.clone(), None)
-                .check(is_checked);
-
-            if !ai_settings.is_any_ai_enabled(app) {
-                checkbox = checkbox.disabled();
-            }
-
-            Container::new(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children([
-                        checkbox
-                            .build()
-                            .on_click(move |ctx, _, _| {
-                                ctx.dispatch_typed_action(
-                                    AgentProfilesPageAction::ToggleShowBaseModelPickerInPrompt,
-                                );
-                            })
-                            .finish(),
-                        appearance
-                            .ui_builder()
-                            .span("Show model picker in prompt".to_string())
-                            .with_style(UiComponentStyles {
-                                font_color: Some(
-                                    theme.sub_text_color(theme.surface_2()).into_solid(),
-                                ),
-                                font_size: Some(12.0),
-                                ..Default::default()
-                            })
-                            .build()
-                            .finish(),
-                    ])
-                    .finish(),
-            )
-            .with_margin_top(-6.0)
-            .with_margin_left(-4.0)
-            .finish()
-        };
-
         render_dropdown_item(
             appearance,
             "Base model",
             Some(
                 "This model serves as the primary engine behind the Warp Agent. It powers most interactions and invokes other models for tasks like planning or code generation when necessary. Warp may automatically switch to alternate models based on model availability or for auxiliary tasks such as conversation summarization.",
             ),
-            Some(show_in_prompt_checkbox),
+            None,
             LocalOnlyIconState::Hidden,
             (!ai_settings.is_any_ai_enabled(app))
                 .then(|| appearance.theme().disabled_ui_text_color()),
