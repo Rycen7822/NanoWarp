@@ -20,9 +20,6 @@ use crate::ai::ambient_agents::{AgentConfigSnapshot, AmbientAgentTaskId};
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 use crate::server::server_api::ai::AIClient;
 use crate::server::team_scope::RequestTeamScope;
-use crate::terminal::cli_agent_sessions::plugin_manager::{
-    CliAgentPluginManager, plugin_manager_for,
-};
 use crate::terminal::shell::ShellType;
 
 #[derive(Clone)]
@@ -31,38 +28,6 @@ pub(super) struct PreparedLocalHarnessLaunch {
     pub env_vars: HashMap<OsString, OsString>,
     pub run_id: String,
     pub task_id: AmbientAgentTaskId,
-}
-
-async fn ensure_local_claude_child_plugins(manager: &dyn CliAgentPluginManager) {
-    // Most environments should follow the standard Claude plugin setup path so
-    // hidden local children retain the same notification support as regular
-    // Claude sessions. The exception is local marketplace override testing:
-    // installing/updating the notification plugin re-adds the public
-    // claude-code-warp marketplace, which clobbers a developer's local
-    // claude-code-warp-internal override used for oz-harness-support testing.
-    if !manager.has_local_marketplace_override() {
-        let plugin_result = if manager.needs_update() {
-            manager.update().await
-        } else if !manager.is_installed() {
-            manager.install().await
-        } else {
-            Ok(())
-        };
-        if let Err(error) = plugin_result {
-            log::warn!("Claude notification plugin setup failed for child harness: {error}");
-        }
-    }
-
-    let platform_plugin_result = if manager.platform_plugin_needs_update() {
-        manager.update_platform_plugin().await
-    } else if !manager.is_platform_plugin_installed() {
-        manager.install_platform_plugin().await
-    } else {
-        Ok(())
-    };
-    if let Err(error) = platform_plugin_result {
-        log::warn!("Claude platform plugin setup failed for child harness: {error}");
-    }
 }
 
 pub(super) fn normalize_local_child_harness(harness_type: &str) -> Option<Harness> {
@@ -218,9 +183,6 @@ pub(super) async fn prepare_local_harness_child_launch(
                 false,
             )
             .map_err(|error| error.to_string())?;
-            if let Some(manager) = plugin_manager_for(third_party_harness.cli_agent()) {
-                ensure_local_claude_child_plugins(manager.as_ref()).await;
-            }
 
             build_local_claude_child_command(&local_claude_child_prompt(&prompt))
         }

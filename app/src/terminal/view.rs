@@ -36,8 +36,6 @@ mod open_in_warp;
 mod pane_impl;
 mod passive_suggestions;
 mod pending_user_query;
-#[cfg(not(target_family = "wasm"))]
-pub(crate) mod plugin_instructions_block;
 pub mod rich_content;
 mod shared_session;
 mod shell_terminated_banner;
@@ -389,8 +387,6 @@ use crate::terminal::cli_agent_sessions::event::{
     CLIAgentEventType, parse_event,
 };
 use crate::terminal::cli_agent_sessions::listener::{CLIAgentSessionListener, is_agent_supported};
-#[cfg(not(target_family = "wasm"))]
-use crate::terminal::cli_agent_sessions::plugin_manager::{PluginModalKind, plugin_manager_for};
 use crate::terminal::cli_agent_sessions::{
     CLIAgentInputEntrypoint, CLIAgentInputState, CLIAgentRichInputCloseReason, CLIAgentSession,
     CLIAgentSessionContext, CLIAgentSessionStatus, CLIAgentSessionsModel,
@@ -1979,8 +1975,6 @@ pub enum Event {
     OpenAutoReloadModal {
         purchased_credits: i32,
     },
-    #[cfg(not(target_family = "wasm"))]
-    OpenPluginInstructionsPane(CLIAgent, PluginModalKind),
     ShowToast {
         message: String,
         flavor: ToastFlavor,
@@ -8000,19 +7994,6 @@ impl TerminalView {
         &self.sessions
     }
 
-    /// Returns `None` for local sessions, `Some("user@hostname")` for remote.
-    /// Used to key per-host plugin install failure tracking.
-    fn active_session_remote_host<C: ModelAsRef>(&self, ctx: &C) -> Option<String> {
-        self.active_block_session_id().and_then(|session_id| {
-            let session = self.sessions.as_ref(ctx).get(session_id)?;
-            if session.is_local() {
-                None
-            } else {
-                Some(format!("{}@{}", session.user(), session.hostname()))
-            }
-        })
-    }
-
     /// Returns whether a specific session is local, treating shared-session
     /// viewers and conversation transcript viewers as non-local even when
     /// their session hasn't been joined yet.
@@ -12693,13 +12674,11 @@ impl TerminalView {
                                     CLIAgentSessionsModel::handle(ctx).update(
                                         ctx,
                                         |sessions_model, ctx| match detection {
-                                            Some((agent, ref custom_command_prefix))
+                                            Some(agent)
                                                 if !sessions_model
                                                     .session(view_id)
                                                     .is_some_and(|s| s.agent == agent) =>
                                             {
-                                                let remote_host =
-                                                    me.active_session_remote_host(ctx);
                                                 let should_auto_toggle_input =
                                                     *AISettings::as_ref(ctx)
                                                         .auto_open_rich_input_on_cli_agent_start;
@@ -12713,11 +12692,7 @@ impl TerminalView {
                                                         input_state: CLIAgentInputState::Closed,
                                                         should_auto_toggle_input,
                                                         listener: None,
-                                                        plugin_version: None,
-                                                        remote_host,
                                                         draft_text: None,
-                                                        custom_command_prefix:
-                                                            custom_command_prefix.clone(),
                                                         received_rich_notification: false,
                                                     },
                                                     ctx,
@@ -12730,7 +12705,7 @@ impl TerminalView {
                                     // Codex and Grok use OSC 9 (and optional rich OSC 777)
                                     // without requiring a SessionStart sentinel first, so
                                     // create the listener proactively on command detection.
-                                    if let Some((agent @ (CLIAgent::Codex | CLIAgent::Grok), _)) =
+                                    if let Some(agent @ (CLIAgent::Codex | CLIAgent::Grok)) =
                                         detection
                                     {
                                         me.register_cli_agent_listener_without_session_start_event(
@@ -13924,7 +13899,6 @@ impl TerminalView {
         let listener = ctx.add_model(|ctx| {
             CLIAgentSessionListener::new(view_id, agent, &model_events_handle, ctx)
         });
-        let remote_host = self.active_session_remote_host(ctx);
         let should_auto_toggle_input =
             *AISettings::as_ref(ctx).auto_open_rich_input_on_cli_agent_start;
         // Seed context from the event that caused registration before the
@@ -13936,8 +13910,6 @@ impl TerminalView {
                 notification.cwd.clone(),
                 notification.project.clone(),
                 notification.session_id.clone(),
-                notification.payload.plugin_version.clone(),
-                remote_host,
                 should_auto_toggle_input,
                 listener,
                 ctx,
@@ -13952,19 +13924,6 @@ impl TerminalView {
         agent: CLIAgent,
         ctx: &mut ViewContext<Self>,
     ) {
-        #[cfg(not(target_family = "wasm"))]
-        let plugin_version = if matches!(agent, CLIAgent::Codex) {
-            // We use the lack of a plugin version for codex to differentiate between
-            // OSC 9 notification fallback and real plugin.
-            None
-        } else {
-            // No SessionStart event in this path (mid-session install/update).
-            // Assume the just-installed plugin meets the minimum version for this agent
-            // so the update chip doesn't flash before the user runs /reload-plugins.
-            plugin_manager_for(agent).map(|m| m.minimum_plugin_version().to_owned())
-        };
-        #[cfg(target_family = "wasm")]
-        let plugin_version = None;
         let notification = CLIAgentEvent {
             source: CLIAgentEventSource::RichPlugin,
             v: 1,
@@ -13973,10 +13932,7 @@ impl TerminalView {
             session_id: None,
             cwd: None,
             project: None,
-            payload: CLIAgentEventPayload {
-                plugin_version,
-                ..Default::default()
-            },
+            payload: CLIAgentEventPayload::default(),
         };
         if self.register_cli_agent_listener_from_event(&notification, ctx) {
             self.maybe_auto_open_cli_agent_rich_input(ctx);
@@ -14298,13 +14254,6 @@ impl TerminalView {
             && !is_anonymous_or_logged_out;
         let is_launch_modal_open = OneTimeModalModel::as_ref(ctx).is_oz_launch_modal_open();
 
-        let has_plugin_instructions_block = self.rich_content_views.iter().any(|rc| {
-            matches!(
-                rc.metadata(),
-                Some(RichContentMetadata::PluginInstructionsBlock)
-            )
-        });
-
         if FeatureFlag::AgentView.is_enabled()
             && TerminalSettings::as_ref(ctx).should_show_zero_state_block(ctx)
             && !self.model.lock().block_list().is_restored_session()
@@ -14312,7 +14261,6 @@ impl TerminalView {
             && self.onboarding_callout_view.is_none()
             && !is_launch_modal_open
             && !is_subshell_or_ssh
-            && !has_plugin_instructions_block
         {
             let agent_view_zero_state = ctx.add_typed_action_view(|ctx| {
                 TerminalViewZeroStateBlock::new(
@@ -15838,22 +15786,6 @@ impl TerminalView {
         }
 
         self.update_input_prompt_suggestions_banner_state(ctx);
-        ctx.notify();
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    pub(crate) fn remove_plugin_instructions_block(
-        &mut self,
-        block_handle: ViewHandle<plugin_instructions_block::PluginInstructionsBlock>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let block_id = block_handle.id();
-        self.rich_content_views
-            .retain(|rich_content| rich_content.view_id() != block_id);
-        self.model
-            .lock()
-            .block_list_mut()
-            .remove_rich_content(block_id);
         ctx.notify();
     }
 
@@ -22725,13 +22657,6 @@ impl TerminalView {
             }
             InputEvent::TriggerEnvironmentSetup { repos } => {
                 self.enter_environment_setup_selector(repos.clone(), ctx);
-            }
-            InputEvent::RegisterPluginListener(agent) => {
-                self.register_cli_agent_listener_without_session_start_event(*agent, ctx);
-            }
-            #[cfg(not(target_family = "wasm"))]
-            InputEvent::OpenPluginInstructionsPane(agent, kind) => {
-                ctx.emit(Event::OpenPluginInstructionsPane(*agent, *kind));
             }
             InputEvent::OpenShareSessionModal => {
                 self.open_share_session_modal(SharedSessionActionSource::FooterChip, ctx);

@@ -58,7 +58,6 @@ pub(super) fn parse(body: &str) -> Option<CLIAgentEvent> {
             summary: raw.summary,
             tool_name: raw.tool_name,
             tool_input_preview,
-            plugin_version: raw.plugin_version,
             error_type: raw.error_type,
             pending_background_work_count,
         },

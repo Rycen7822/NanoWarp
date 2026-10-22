@@ -445,14 +445,6 @@ pub enum CodePanelsFileOpenEntrypoint {
     GlobalSearch,
 }
 
-/// The kind of plugin chip shown or dismissed (for telemetry purposes).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PluginChipTelemetryKind {
-    Install,
-    Update,
-}
-
 /// Identifies the agent variant that triggered a notification (for telemetry purposes).
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -477,20 +469,6 @@ fn serialize_cli_agent_telemetry_name<S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(agent.telemetry_name())
-}
-
-/// The action taken on a plugin chip (for telemetry purposes).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PluginChipTelemetryAction {
-    /// User clicked the auto-install button.
-    Install,
-    /// User clicked the auto-update button.
-    Update,
-    /// User clicked the manual install instructions button.
-    InstallInstructions,
-    /// User clicked the manual update instructions button.
-    UpdateInstructions,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -2553,34 +2531,6 @@ pub enum TelemetryEvent {
         /// Length of the submitted prompt in characters.
         prompt_length: usize,
     },
-    /// Emitted when the user clicks a plugin chip (install, update, or instructions).
-    CLIAgentPluginChipClicked {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// The specific action taken.
-        action: PluginChipTelemetryAction,
-    },
-    /// Emitted when the user dismisses the plugin chip.
-    CLIAgentPluginChipDismissed {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// Whether this was the install or update chip.
-        chip_kind: PluginChipTelemetryKind,
-    },
-    /// Emitted when auto plugin install or update succeeds.
-    CLIAgentPluginOperationSucceeded {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// Whether this was an install or update operation.
-        operation: PluginChipTelemetryKind,
-    },
-    /// Emitted when auto plugin install or update fails.
-    CLIAgentPluginOperationFailed {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// Whether this was an install or update operation.
-        operation: PluginChipTelemetryKind,
-    },
     /// Emitted when a CLI agent plugin is first recognized (SessionStart event received).
     CLIAgentPluginDetected {
         /// The CLI agent whose plugin was detected.
@@ -4407,31 +4357,6 @@ impl TelemetryEvent {
                 "agent_name": cli_agent.telemetry_name(),
                 "prompt_length": prompt_length,
             })),
-            TelemetryEvent::CLIAgentPluginChipClicked { cli_agent, action } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "action": action,
-            })),
-            TelemetryEvent::CLIAgentPluginChipDismissed {
-                cli_agent,
-                chip_kind,
-            } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "chip_kind": chip_kind,
-            })),
-            TelemetryEvent::CLIAgentPluginOperationSucceeded {
-                cli_agent,
-                operation,
-            } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "operation": operation,
-            })),
-            TelemetryEvent::CLIAgentPluginOperationFailed {
-                cli_agent,
-                operation,
-            } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "operation": operation,
-            })),
             TelemetryEvent::CLIAgentPluginDetected { cli_agent } => Some(json!({
                 "agent_name": cli_agent.telemetry_name(),
             })),
@@ -4924,10 +4849,6 @@ impl TelemetryEvent {
             | TelemetryEvent::CLIAgentToolbarVoiceInputUsed { .. }
             | TelemetryEvent::CLIAgentToolbarImageAttached { .. }
             | TelemetryEvent::CLIAgentToolbarShown { .. }
-            | TelemetryEvent::CLIAgentPluginChipClicked { .. }
-            | TelemetryEvent::CLIAgentPluginChipDismissed { .. }
-            | TelemetryEvent::CLIAgentPluginOperationSucceeded { .. }
-            | TelemetryEvent::CLIAgentPluginOperationFailed { .. }
             | TelemetryEvent::CLIAgentPluginDetected { .. }
             | TelemetryEvent::AgentNotificationShown { .. }
             | TelemetryEvent::CLIAgentRichInputOpened { .. }
@@ -5450,12 +5371,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CLIAgentToolbarVoiceInputUsed { .. } => EnablementState::Always,
             Self::CLIAgentToolbarImageAttached { .. } => EnablementState::Always,
             Self::CLIAgentToolbarShown { .. } => EnablementState::Always,
-            Self::CLIAgentPluginChipClicked { .. }
-            | Self::CLIAgentPluginChipDismissed { .. }
-            | Self::CLIAgentPluginOperationSucceeded { .. }
-            | Self::CLIAgentPluginOperationFailed { .. } => {
-                EnablementState::Flag(FeatureFlag::HOANotifications)
-            }
             Self::CLIAgentPluginDetected { .. } => EnablementState::Always,
             Self::AgentNotificationShown { .. } => {
                 EnablementState::Flag(FeatureFlag::HOANotifications)
@@ -5990,10 +5905,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CLIAgentToolbarVoiceInputUsed { .. } => "CLIAgentFooter.VoiceInputUsed",
             Self::CLIAgentToolbarImageAttached { .. } => "CLIAgentFooter.ImageAttached",
             Self::CLIAgentToolbarShown { .. } => "CLIAgentFooter.Shown",
-            Self::CLIAgentPluginChipClicked { .. } => "CLIAgentPlugin.ChipClicked",
-            Self::CLIAgentPluginChipDismissed { .. } => "CLIAgentPlugin.ChipDismissed",
-            Self::CLIAgentPluginOperationSucceeded { .. } => "CLIAgentPlugin.OperationSucceeded",
-            Self::CLIAgentPluginOperationFailed { .. } => "CLIAgentPlugin.OperationFailed",
             Self::CLIAgentPluginDetected { .. } => "CLIAgentPlugin.Detected",
             Self::AgentNotificationShown { .. } => "AgentNotification.Shown",
             Self::CLIAgentRichInputOpened { .. } => "CLIAgentRichInput.Opened",
@@ -6772,16 +6683,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "User attached an image from the CLI agent footer"
             }
             Self::CLIAgentToolbarShown { .. } => "CLI agent footer was shown to the user",
-            Self::CLIAgentPluginChipClicked { .. } => {
-                "User clicked the plugin install or update chip"
-            }
-            Self::CLIAgentPluginChipDismissed { .. } => {
-                "User dismissed the plugin install or update chip"
-            }
-            Self::CLIAgentPluginOperationSucceeded { .. } => {
-                "Auto plugin install or update completed successfully"
-            }
-            Self::CLIAgentPluginOperationFailed { .. } => "Auto plugin install or update failed",
             Self::CLIAgentPluginDetected { .. } => {
                 "A CLI agent plugin was detected via a SessionStart event"
             }

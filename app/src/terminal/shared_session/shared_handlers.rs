@@ -398,10 +398,7 @@ pub(crate) fn apply_cli_agent_state_update(
                             session_context: CLIAgentSessionContext::default(),
                             input_state: CLIAgentInputState::Closed,
                             listener: None,
-                            plugin_version: None,
-                            remote_host: None,
                             draft_text: None,
-                            custom_command_prefix: None,
                             received_rich_notification: false,
                             // Viewer input is managed by the sync protocol,
                             // not local status-change auto-toggle.

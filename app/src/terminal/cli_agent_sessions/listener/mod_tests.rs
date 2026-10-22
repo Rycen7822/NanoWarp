@@ -145,13 +145,12 @@ fn grok_listener_prefers_rich_events_over_osc9_fallback() {
     assert_eq!(osc9.payload.query.as_deref(), Some("Turn complete · Grok"));
     assert_eq!(osc9.source, CLIAgentEventSource::CodexOsc9Fallback);
 
-    let body = r#"{"v":1,"agent":"grok","event":"session_start","session_id":"s1","plugin_version":"1.0.0"}"#;
+    let body = r#"{"v":1,"agent":"grok","event":"session_start","session_id":"s1"}"#;
     let rich = handler
         .try_parse(Some(CLI_AGENT_NOTIFICATION_SENTINEL), body, false)
         .unwrap();
     assert_eq!(rich.event, CLIAgentEventType::SessionStart);
     assert_eq!(rich.agent, CLIAgent::Grok);
-    assert_eq!(rich.payload.plugin_version.as_deref(), Some("1.0.0"));
 
     assert!(
         handler

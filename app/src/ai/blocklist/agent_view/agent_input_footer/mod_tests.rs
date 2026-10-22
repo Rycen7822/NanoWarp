@@ -50,10 +50,7 @@ fn claude_session() -> CLIAgentSession {
             previous_was_lock_set_with_empty_buffer: true,
         },
         listener: None,
-        plugin_version: None,
-        remote_host: None,
         draft_text: None,
-        custom_command_prefix: None,
         received_rich_notification: false,
         should_auto_toggle_input: false,
     }
