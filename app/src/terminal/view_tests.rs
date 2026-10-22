@@ -7203,7 +7203,7 @@ fn test_prompt_context_menu_items_for_agent_toolbelt_flag() {
 fn agent_footer_updates_chip_groups_when_side_assignment_changes() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
-        FeatureFlag::AgentView.set_enabled(true);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
 
         let terminal = add_window_with_terminal(&mut app, None);
         terminal.update(&mut app, |view, ctx| {
