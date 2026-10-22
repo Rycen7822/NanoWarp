@@ -39,12 +39,6 @@ if test -n "$WARP_INITIAL_WORKING_DIR"
     set -e WARP_INITIAL_WORKING_DIR
 end
 
-# Append additional PATH entries if provided via WARP_PATH_APPEND.
-if test -n "$WARP_PATH_APPEND"
-    set -gx --path PATH "$PATH:$WARP_PATH_APPEND"
-    set -e WARP_PATH_APPEND
-end
-
 function warp_send_json_message
     # Sends a message to the controlling terminal as a DSC control sequence.
     set -l escaped_json (warp_hex_encode_string "$argv")

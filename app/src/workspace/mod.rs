@@ -2,8 +2,6 @@ mod action;
 mod active_session;
 pub(crate) mod auto_handoff;
 pub mod bonus_grant_notification_model;
-#[cfg(target_os = "macos")]
-pub(crate) mod cli_install;
 mod close_session_confirmation_dialog;
 pub(crate) mod cross_window_tab_drag;
 pub mod delete_conversation_confirmation_dialog;
@@ -1256,27 +1254,6 @@ pub fn init(app: &mut AppContext) {
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE))]);
-    }
-
-    // Oz CLI install/uninstall actions (macOS only)
-    #[cfg(target_os = "macos")]
-    {
-        app.register_editable_bindings([
-            EditableBinding::new(
-                "workspace:install_cli",
-                "Install Oz CLI globally for use outside of Warp",
-                WorkspaceAction::InstallOz,
-            )
-            .with_group(bindings::BindingGroup::Settings.as_str())
-            .with_context_predicate(id!("Workspace")),
-            EditableBinding::new(
-                "workspace:uninstall_cli",
-                "Undo global Oz CLI installation (oz will still work within Warp)",
-                WorkspaceAction::UninstallOz,
-            )
-            .with_group(bindings::BindingGroup::Settings.as_str())
-            .with_context_predicate(id!("Workspace")),
-        ]);
     }
 
     if FeatureFlag::Changelog.is_enabled() {

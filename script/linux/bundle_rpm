@@ -11,33 +11,13 @@
 #   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.warp.WarpDev").
 #   - EXECUTABLE_PATH: The path to the compiled executable we want to install.
 #   - BINARY_NAME: The name that the compiled executable should have on the target machine.
-#   - ARTIFACT: Which artifact to build: app or cli.
 
 set -e
 
 # Extract channel suffix from BINARY_NAME
-if [ "$ARTIFACT" = "cli" ]; then
-  CHANNEL_SUFFIX="${BINARY_NAME#oz}"
-else
-  CHANNEL_SUFFIX="${BINARY_NAME#warp}"
-fi
+CHANNEL_SUFFIX="${BINARY_NAME#warp}"
 REPO_NAME="warpdotdev$CHANNEL_SUFFIX"
-
-# On Linux, we keep the `-stable` suffix for stable to avoid package conflicts.
-# The binary name is still `oz`, and the repo name is still `warpdotdev`.
-if [ "$ARTIFACT" = "cli" -a "$RELEASE_CHANNEL" = "stable" ]; then
-  CHANNEL_SUFFIX="-stable"
-fi
-
-ARTIFACT="${ARTIFACT:-app}"
-if [ "$ARTIFACT" = "app" ]; then
-  PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
-elif [ "$ARTIFACT" = "cli" ]; then
-  PACKAGE_NAME="oz$CHANNEL_SUFFIX"
-else
-  echo "::error ::Unknown ARTIFACT: $ARTIFACT (expected 'app' or 'cli')"
-  exit 1
-fi
+PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
 
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 if [ "$BUILD_ARCH" = "aarch64" ]; then
@@ -78,7 +58,7 @@ sed \
      s#@@BUNDLEID@@#$BUNDLE_ID#g; \
      s#@@REPO_NAME@@#$REPO_NAME#g; \
      s#@@RELEASE_CHANNEL@@#$RELEASE_CHANNEL#g" \
-    < "$WORKSPACE_ROOT_DIR/resources/linux/rpm/$ARTIFACT/warp.spec.template" \
+    < "$WORKSPACE_ROOT_DIR/resources/linux/rpm/app/warp.spec.template" \
     > "$RPMBUILD_DIR/SPEC/warp.spec"
 
 # Build the actual package.

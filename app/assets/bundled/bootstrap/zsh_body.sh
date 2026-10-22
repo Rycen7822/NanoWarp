@@ -1350,13 +1350,6 @@ esac
   # hook function array).
   zshaddhistory_functions+=(_warp_zshaddhistory)
 
-  # Append additional PATH entries if provided via WARP_PATH_APPEND. This is after the user's RC
-  # files are sourced in case they reset PATH (/etc/profile on Debian does this, for example).
-  if [[ -n "${WARP_PATH_APPEND:-}" ]]; then
-    export PATH="$PATH:$WARP_PATH_APPEND"
-    unset WARP_PATH_APPEND
-  fi
-
   local -a shell_plugins
 
   if [[ ${precmd_functions[(I)_p9k_precmd]} != 0 ]]; then

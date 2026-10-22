@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
-use itertools::Itertools;
 use warp_core::channel::ChannelState;
 use warp_core::cli_agent_protocol::{
     CLI_AGENT_PROTOCOL_VERSION, WARP_CLI_AGENT_PROTOCOL_VERSION_ENV, WARP_CLIENT_VERSION_ENV,
@@ -17,7 +16,7 @@ use winreg::{RegKey, RegValue};
 
 use crate::focus_env::{FOCUS_URL_ENV, TERMINAL_SESSION_UUID_ENV};
 use crate::local_tty::PtyOptions;
-use crate::local_tty::shell::{ShellStarter, extra_path_entries, ssh_socket_dir};
+use crate::local_tty::shell::{ShellStarter, ssh_socket_dir};
 
 const HONOR_PS1_NAME: &str = "WARP_HONOR_PS1";
 const PROMPT_NODE_VERSION_ENABLED_NAME: &str = "WARP_PROMPT_NODE_VERSION_ENABLED";
@@ -28,7 +27,6 @@ const SHELL_DEBUG_MODE_NAME: &str = "WARP_SHELL_DEBUG_MODE";
 const TERM_PROGRAM_NAME: &str = "TERM_PROGRAM";
 const IS_LOCAL_SESSION_NAME: &str = "WARP_IS_LOCAL_SHELL_SESSION";
 const SSH_SOCKET_DIR: &str = "SSH_SOCKET_DIR";
-const PATH_APPEND_NAME: &str = "WARP_PATH_APPEND";
 const WSLENV: &str = "WSLENV";
 const HISTIGNORE: &str = "HISTIGNORE";
 
@@ -151,18 +149,6 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         EnvEntry {
             preferred_key: SSH_SOCKET_DIR.into(),
             value: ssh_socket_dir.into(),
-        },
-    );
-
-    // Set WARP_PATH_APPEND with additional PATH entries to append
-    let path_append = extra_path_entries()
-        .map(|p| p.to_string_lossy().into_owned())
-        .join(";");
-    env.insert(
-        map_key(PATH_APPEND_NAME.into()),
-        EnvEntry {
-            preferred_key: PATH_APPEND_NAME.into(),
-            value: path_append.into(),
         },
     );
 

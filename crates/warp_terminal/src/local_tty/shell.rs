@@ -27,26 +27,6 @@ pub trait AvailableShell {
     fn get_valid_shell_path_and_type(&self) -> Option<ShellLaunchData>;
 }
 
-/// Returns an iterator of additional PATH entries to append to the shell's PATH.
-/// * On macOS, this includes `$APP_PATH/Contents/Resources/bin`, in which we put a wrapper around the Warp CLI.
-/// * On all other platforms, this is empty.
-pub fn extra_path_entries() -> impl Iterator<Item = PathBuf> {
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            use itertools::Either;
-
-            if let Some(resources_path) = warp_core::paths::bundled_resources_dir() {
-                let bin_path = resources_path.join("bin");
-                Either::Left(std::iter::once(bin_path))
-            } else {
-                Either::Right(std::iter::empty())
-            }
-        } else {
-            std::iter::empty()
-        }
-    }
-}
-
 /// Returns `true` if the given `path_or_command` is a valid, executable command or path to a
 /// executable binary for one of Warp's supported shell types (bash, fish, zsh).
 pub fn is_valid_path_or_command_for_supported_shell(path_or_command: &str) -> bool {

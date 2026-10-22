@@ -36,9 +36,7 @@ use super::{ChildEvent, EventedPty, EventedReadWrite, PtyOptions, SizeInfo};
 use crate::ASSETS;
 use crate::bootstrap::raw_init_shell_script_for_shell;
 use crate::local_tty::docker_sandbox::{DOCKER_SANDBOX_HOME_DIR, DockerSandboxShellStarter};
-use crate::local_tty::shell::{
-    DirectShellStarter, ShellStarter, extra_path_entries, ssh_socket_dir,
-};
+use crate::local_tty::shell::{DirectShellStarter, ShellStarter, ssh_socket_dir};
 use crate::shell::{ShellType, shell_escape_single_quotes};
 
 const BASH_HISTORY_SIZE_SENTINEL: &str = "57265949261";
@@ -406,12 +404,6 @@ fn build_host_shell_command(
         "WARP_PROMPT_NODE_VERSION_ENABLED",
         if node_version_chip_enabled { "1" } else { "0" },
     );
-
-    // Pass through any additional entries to add to PATH.
-    let path_append = extra_path_entries()
-        .map(|p| p.to_string_lossy().into_owned())
-        .join(":");
-    builder.env("WARP_PATH_APPEND", path_append);
 
     if matches!(shell_starter.shell_type(), ShellType::Bash) {
         // Set initial very large values so bash imports the user's existing
@@ -903,10 +895,6 @@ fn build_docker_sandbox_command(
         "WARP_PROMPT_NODE_VERSION_ENABLED",
         if node_version_chip_enabled { "1" } else { "0" },
     );
-    let path_append = extra_path_entries()
-        .map(|p| p.to_string_lossy().into_owned())
-        .join(":");
-    builder.env("WARP_PATH_APPEND", path_append);
     // Sandbox shell is always bash (per the container image convention),
     // matching the host-shell path's behavior for bash shells.
     builder.env("HISTFILESIZE", BASH_HISTORY_SIZE_SENTINEL);

@@ -496,8 +496,6 @@ use crate::workflows::{
 };
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::bonus_grant_notification_model::BonusGrantNotificationEvent;
-#[cfg(target_os = "macos")]
-use crate::workspace::cli_install;
 use crate::workspace::cross_window_tab_drag::{
     AttachTarget, CrossWindowTabDrag, DragResult, DropResult, GhostState,
 };
@@ -9340,66 +9338,6 @@ impl Workspace {
                 });
             }
         }
-    }
-
-    /// Show an ephemeral success toast or persistent failure toast for a CLI command operation.
-    #[cfg(target_os = "macos")]
-    fn handle_cli_command_result(
-        &mut self,
-        result: Result<()>,
-        success_toast: DismissibleToast<WorkspaceAction>,
-        failure_message: &str,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match result {
-            Ok(()) => {
-                self.toast_stack.update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(success_toast, ctx);
-                });
-            }
-            Err(error) => {
-                let error_message = format!("{failure_message}: {error}");
-                log::warn!("{error_message}");
-                self.toast_stack.update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::error(error_message);
-                    toast_stack.add_persistent_toast(toast, ctx);
-                });
-            }
-        }
-    }
-
-    /// Install the Oz CLI by creating a symlink in /usr/local/bin
-    #[cfg(target_os = "macos")]
-    fn install_oz(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.spawn(async { cli_install::install_oz() }, |view, result, ctx| {
-            let command_name = ChannelState::channel().cli_command_name();
-            let message = format!("Installed the Oz CLI globally. You can now run '{command_name}' from any terminal outside of Warp.");
-            let toast = DismissibleToast::success(message).with_link(
-                ToastLink::new("Learn more".to_string())
-                    .with_href("https://docs.warp.dev/reference/cli".to_string()),
-            );
-            view.handle_cli_command_result(result, toast, "Failed to install Oz command", ctx);
-        });
-    }
-
-    /// Uninstall the Oz CLI by removing the symlink from /usr/local/bin
-    #[cfg(target_os = "macos")]
-    fn uninstall_oz(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.spawn(
-            async { cli_install::uninstall_oz() },
-            |view, result, ctx| {
-                let toast = DismissibleToast::success(
-                    "Removed the global Oz CLI installation — it still works inside Warp."
-                        .to_string(),
-                );
-                view.handle_cli_command_result(
-                    result,
-                    toast,
-                    "Failed to uninstall Oz command",
-                    ctx,
-                );
-            },
-        );
     }
 
     fn undo_revert_in_code_review_pane(
@@ -24708,10 +24646,6 @@ impl TypedActionView for Workspace {
                     right_panel_view.log_review_comment_send_status_for_active_tab(ctx);
                 });
             }
-            #[cfg(target_os = "macos")]
-            InstallOz => self.install_oz(ctx),
-            #[cfg(target_os = "macos")]
-            UninstallOz => self.uninstall_oz(ctx),
             UndoRevertInCodeReviewPane { window_id, view_id } => {
                 self.undo_revert_in_code_review_pane(*window_id, *view_id, ctx)
             }

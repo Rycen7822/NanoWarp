@@ -13,10 +13,6 @@ inputs:
   arch:
     description: The architecture we are building for
     required: true
-  artifact:
-    description: The artifact type to build (app or cli)
-    required: false
-    default: app
   settings-schema-source:
     description: The path to the settings schema to package.
     required: true
@@ -46,4 +42,4 @@ runs:
           -e GITHUB_OUTPUT="/dev/null" \
           -e SETTINGS_SCHEMA_SOURCE="/tmp/settings_schema.json" \
           arch-bundle-builder \
-          ${{ inputs.channel }} ${{ inputs.release-tag }} ${{ inputs.arch }} ${{ inputs.artifact }}
+          ${{ inputs.channel }} ${{ inputs.release-tag }} ${{ inputs.arch }}

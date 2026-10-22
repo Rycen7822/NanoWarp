@@ -655,12 +655,6 @@ pub enum WorkspaceAction {
         /// Optional prompt to send after summarization completes successfully.
         initial_prompt: Option<String>,
     },
-    /// Install the Oz CLI command to /usr/local/bin
-    #[cfg(target_os = "macos")]
-    InstallOz,
-    /// Uninstall the Oz CLI command from /usr/local/bin
-    #[cfg(target_os = "macos")]
-    UninstallOz,
     UndoRevertInCodeReviewPane {
         window_id: WindowId,
         view_id: EntityId,
@@ -1238,8 +1232,6 @@ impl WorkspaceAction {
             ViewLogs => false,
             #[cfg(target_os = "macos")]
             SampleProcess => false,
-            #[cfg(target_os = "macos")]
-            InstallOz | UninstallOz => false,
             #[cfg(feature = "local_fs")]
             FileRenamed { .. } => false, // File rename doesn't change workspace state
             #[cfg(feature = "local_fs")]

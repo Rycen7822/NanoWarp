@@ -501,30 +501,6 @@ debug-assertions = true
 [profile.rltoda]
 inherits = "release-lto-debug_assertions"
 
-# A profile tuned for the `oz` CLI tarball. The CLI is shipped over the network
-# and run headlessly, so we trade some compile time and a small amount of
-# runtime perf for a smaller binary by mirroring the size-leaning settings used
-# by `release-wasm`.
-[profile.release-cli]
-inherits = "release-lto"
-opt-level = "s"
-# 4 (not the default 16, and not 1) roughly halves build time versus codegen-units=1 for ~4%
-# larger stripped/gzipped binaries. This profile already uses thin LTO, which does most of the
-# cross-crate size optimization, so 1 was paying a lot of compile time for little extra size.
-codegen-units = 4
-
-# A custom CLI release-like profile that forces debug assertions on, used for
-# dev/local channel CLI bundles.
-[profile.release-cli-debug_assertions]
-inherits = "release-cli"
-debug-assertions = true
-# Short aliases keep Windows build paths below the legacy MAX_PATH limit.
-[profile.rcli]
-inherits = "release-cli"
-
-[profile.rclida]
-inherits = "release-cli-debug_assertions"
-
 [profile.release-wasm]
 inherits = "release"
 opt-level = "s"

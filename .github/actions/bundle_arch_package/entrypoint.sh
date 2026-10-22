@@ -10,4 +10,4 @@ sudo pacman -Sy
 # Run the bundle script, specifying the release channel and tag, skipping
 # building the binary (as we have already done so), and only bundling the
 # Arch package.
-./script/bundle --channel $1 --release-tag $2 --skip-build --packages arch --arch $BUILD_ARCH --artifact $4
+./script/bundle --channel $1 --release-tag $2 --skip-build --packages arch --arch $BUILD_ARCH

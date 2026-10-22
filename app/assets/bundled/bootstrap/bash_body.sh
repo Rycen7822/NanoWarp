@@ -1511,13 +1511,6 @@ esac
     fi
 ## ----- Warp initialization -----
     
-    # Append additional PATH entries if provided via WARP_PATH_APPEND. This is after the user's RC
-    # files are sourced in case they reset PATH (/etc/profile on Debian does this, for example).
-    if [[ ! -z "$WARP_PATH_APPEND" ]]; then
-        export PATH="$PATH:$WARP_PATH_APPEND"
-        unset WARP_PATH_APPEND
-    fi
-
     # Read through shell options to determine if the user has enabled vi mode.
     vi_mode_enabled=0
     IFS=':' read -ra SHELLOPT <<< "$SHELLOPTS"

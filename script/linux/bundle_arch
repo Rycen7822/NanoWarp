@@ -11,31 +11,12 @@
 #   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.warp.WarpDev").
 #   - EXECUTABLE_PATH: The path to the compiled executable we want to install.
 #   - BINARY_NAME: The name that the compiled executable should have on the target machine.
-#   - ARTIFACT: Which artifact to build: app or cli.
 
 set -e
 
 # Extract channel suffix from BINARY_NAME
-if [ "$ARTIFACT" = "cli" ]; then
-  CHANNEL_SUFFIX="${BINARY_NAME#oz}"
-else
-  CHANNEL_SUFFIX="${BINARY_NAME#warp}"
-fi
-
-# On Linux, we keep the `-stable` suffix for stable to avoid package conflicts.
-# The binary name is still `oz`, and the repo name is still `warpdotdev`.
-if [ "$ARTIFACT" = "cli" -a "$RELEASE_CHANNEL" = "stable" ]; then
-  CHANNEL_SUFFIX="-stable"
-fi
-
-if [ "$ARTIFACT" = "app" ]; then
-  PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
-elif [ "$ARTIFACT" = "cli" ]; then
-  PACKAGE_NAME="oz$CHANNEL_SUFFIX"
-else
-  echo "::error ::Unknown ARTIFACT: $ARTIFACT (expected 'app' or 'cli')"
-  exit 1
-fi
+CHANNEL_SUFFIX="${BINARY_NAME#warp}"
+PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
 
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 if [ "$BUILD_ARCH" = "aarch64" ]; then
@@ -72,16 +53,13 @@ VERSION="$GIT_RELEASE_TAG"
 RELEASE=1
 sed \
     "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@VERSION@@#$VERSION#g; s#@@RELEASE@@#$RELEASE#g; s#@@ARCH@@#$ARCH#g; s#@@OUTDIR@@#$OUT_DIR#g; s#@@BINARY_NAME@@#$BINARY_NAME#g" \
-    < "$WORKSPACE_ROOT_DIR/resources/linux/arch/$ARTIFACT/PKGBUILD.template" \
+    < "$WORKSPACE_ROOT_DIR/resources/linux/arch/app/PKGBUILD.template" \
     > "$PKGDIR/PKGBUILD"
 
-# Only create wrapper script for app artifact
-if [ "$ARTIFACT" = "app" ]; then
-  sed \
-      "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@BINARY_NAME@@#$BINARY_NAME#g" \
-      < "$WORKSPACE_ROOT_DIR/resources/linux/arch/$ARTIFACT/warp.sh.template" \
-      > "$PKGDIR/$PACKAGE_NAME.sh"
-fi
+sed \
+    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@BINARY_NAME@@#$BINARY_NAME#g" \
+    < "$WORKSPACE_ROOT_DIR/resources/linux/arch/app/warp.sh.template" \
+    > "$PKGDIR/$PACKAGE_NAME.sh"
 
 # Build the actual package.
 #

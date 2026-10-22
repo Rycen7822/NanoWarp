@@ -1099,13 +1099,6 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
         }
     }
 
-    # Append additional PATH entries if provided via WARP_PATH_APPEND.
-    # This happens after we source RC files in case they reset PATH.
-    if (-not [String]::IsNullOrEmpty($env:WARP_PATH_APPEND)) {
-        $env:PATH = '{0}{1}{2}' -f $env:PATH, [IO.Path]::PathSeparator, $env:WARP_PATH_APPEND
-        Remove-Item -Path env:WARP_PATH_APPEND
-    }
-
     # This is a workaround for oh-my-posh's "transient prompt" feature. When enabled, it causes the
     # whole screen to clear on every command execution. It is implemented by overwriting the Enter
     # and ctrl-c key handlers. Resetting those back to default effectively disables it.

@@ -51,7 +51,6 @@ if [[ -n "$WARP_SCHEME_NAME" ]]; then
   plutil -insert CFBundleURLTypes -xml "<array><dict><key>CFBundleURLName</key><string>Custom App</string><key>CFBundleURLSchemes</key><array><string>$WARP_SCHEME_NAME</string></array></dict></array>" "$WARP_PLIST_PATH"
 fi
 
-if [[ -z "$WARP_PLIST_NO_FILE_TYPES" ]]; then
   echo "Updating plist with supported file types"
   plutil -insert CFBundleDocumentTypes -xml "
   <array>
@@ -250,7 +249,6 @@ if [[ -z "$WARP_PLIST_NO_FILE_TYPES" ]]; then
       </array>
     </dict>
   </array>" "$WARP_PLIST_PATH"
-fi
 
 # Unfortunately, there isn't a single standard UTI (what goes in LSItemContentTypes) for Markdown
 # files. Instead, we list all the common ones - see these for more info:
