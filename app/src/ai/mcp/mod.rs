@@ -446,7 +446,6 @@ impl MCPServerExt for MCPServer {
         ParsedTemplatableMCPServerResult {
             templatable_mcp_server,
             templatable_mcp_server_installation,
-            variable_values,
         }
     }
 

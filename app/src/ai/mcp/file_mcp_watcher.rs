@@ -132,15 +132,6 @@ struct InFlightParse {
     abort_handle: AbortHandle,
 }
 
-/// A batch of config sources whose first parse a consumer waits on before proceeding.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum PendingScan {
-    /// Every provider config file in a cloud-environment repo, keyed by repo root.
-    CloudEnvRepo(PathBuf),
-    /// Every global (home-directory and Warp-managed) config source read at startup.
-    InitialGlobal,
-}
-
 /// Model that watches the filesystem for file-based MCP config changes and emits
 /// [`FileMCPWatcherEvent`]s.
 pub struct FileMCPWatcher {
@@ -160,10 +151,6 @@ pub struct FileMCPWatcher {
     /// Set of project repository root paths we are already watching for file-based MCP configs.
     /// Used purely for deduplication — we never tear down project watchers during the session.
     project_repo_watchers: HashSet<PathBuf>,
-    /// Config sources each in-progress scan still owes a first result for. A source is settled
-    /// by its current parse completing or by an explicit removal; once a scan's set drains, its
-    /// entry is removed and [`FileMCPWatcherEvent::ScanComplete`] is emitted.
-    pending_scans: HashMap<PendingScan, HashSet<(PathBuf, MCPProvider)>>,
 }
 
 impl FileMCPWatcher {
@@ -184,14 +171,6 @@ impl FileMCPWatcher {
                 let DetectedRepositoriesEvent::DetectedGitRepo { repository, source } = event;
                 if should_watch_repository(*source) {
                     let repo_path = repository.as_ref(ctx).root_dir().to_local_path_lossy();
-                    if matches!(source, RepoDetectionSource::CloudEnvironmentPrep) {
-                        me.pending_scans.insert(
-                            PendingScan::CloudEnvRepo(repo_path.clone()),
-                            providers_in_scope(repo_path.clone(), repo_path.clone())
-                                .map(|(provider, config_path)| (config_path, provider))
-                                .collect(),
-                        );
-                    }
                     me.register_repo_for_file_mcp_watching(repo_path, ctx, file_mcp_tx.clone());
                 }
             }
@@ -231,13 +210,6 @@ impl FileMCPWatcher {
             next_parse_generation: 0,
             home_provider_watchers,
             project_repo_watchers: HashSet::new(),
-            pending_scans: HashMap::from([(
-                PendingScan::InitialGlobal,
-                global_configs
-                    .iter()
-                    .map(|(config_path, _, provider)| (config_path.clone(), *provider))
-                    .collect(),
-            )]),
         };
         // Every global source is read explicitly so the initial-global scan settles even when a
         // provider's home subdir watcher never registers. A subdir watcher's own scan of the
@@ -248,7 +220,7 @@ impl FileMCPWatcher {
         watcher
     }
 
-    /// A watcher with no filesystem subscriptions and no owed scans, so tests can feed
+    /// A watcher with no filesystem subscriptions, so tests can feed
     /// consumers a deterministic event sequence.
     #[cfg(test)]
     pub(crate) fn new_inert() -> Self {
@@ -258,7 +230,6 @@ impl FileMCPWatcher {
             next_parse_generation: 0,
             home_provider_watchers: HashMap::new(),
             project_repo_watchers: HashSet::new(),
-            pending_scans: HashMap::new(),
         }
     }
 
@@ -571,34 +542,11 @@ impl FileMCPWatcher {
         ctx: &mut ModelContext<Self>,
     ) {
         self.abort_config_parse(&config_path, provider);
-        ctx.emit(FileMCPWatcherEvent::ConfigRemoved {
+        ctx.emit(FileMCPWatcherEvent::Removed {
             config_path: config_path.clone(),
             root_path,
             provider,
         });
-        self.settle_pending_source(&config_path, provider, ctx);
-    }
-
-    /// Marks the source as no longer owed by any pending scan, emitting
-    /// [`FileMCPWatcherEvent::ScanComplete`] for each scan this drains.
-    fn settle_pending_source(
-        &mut self,
-        config_path: &Path,
-        provider: MCPProvider,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let source = (config_path.to_path_buf(), provider);
-        let mut completed = Vec::new();
-        self.pending_scans.retain(|scan, sources| {
-            sources.remove(&source);
-            if sources.is_empty() {
-                completed.push(scan.clone());
-            }
-            !sources.is_empty()
-        });
-        for scan in completed {
-            ctx.emit(FileMCPWatcherEvent::ScanComplete(scan));
-        }
     }
 
     fn abort_config_parse(&mut self, config_path: &Path, provider: MCPProvider) {
@@ -632,7 +580,7 @@ impl FileMCPWatcher {
     }
 
     /// Asynchronously reads and parses the MCP configuration file at `config_file_path`,
-    /// then emits a [`FileMCPWatcherEvent::ConfigParsed`] event.
+    /// then emits a [`FileMCPWatcherEvent::Parsed`] event.
     ///
     /// Every call for a given `(config_file_path, provider)` source claims a fresh generation
     /// (see [`Self::take_current_in_flight_parse`]) and aborts any in-flight parse for that
@@ -663,7 +611,6 @@ impl FileMCPWatcher {
 
                 let (config_path, provider) = callback_key;
                 emit_parse_outcome(outcome, config_path.clone(), root_path, provider, ctx);
-                me.settle_pending_source(&config_path, provider, ctx);
             },
         );
         self.in_flight_parses.insert(
@@ -788,12 +735,12 @@ fn emit_parse_outcome(
     ctx: &mut ModelContext<FileMCPWatcher>,
 ) {
     match outcome {
-        FileMCPConfigParseOutcome::Missing => ctx.emit(FileMCPWatcherEvent::ConfigRemoved {
+        FileMCPConfigParseOutcome::Missing => ctx.emit(FileMCPWatcherEvent::Removed {
             config_path,
             root_path,
             provider,
         }),
-        FileMCPConfigParseOutcome::Parsed(servers) => ctx.emit(FileMCPWatcherEvent::ConfigParsed {
+        FileMCPConfigParseOutcome::Parsed(servers) => ctx.emit(FileMCPWatcherEvent::Parsed {
             config_path,
             root_path,
             provider,
@@ -801,7 +748,7 @@ fn emit_parse_outcome(
         }),
         FileMCPConfigParseOutcome::Error(diagnostic) => {
             let _ = root_path;
-            ctx.emit(FileMCPWatcherEvent::ConfigError { diagnostic })
+            ctx.emit(FileMCPWatcherEvent::Error { diagnostic })
         }
     }
 }
@@ -914,23 +861,20 @@ async fn parse_mcp_config_file(
 /// Events sent from [`FileMCPWatcher`] to [`FileBasedMCPManager`] via the watcher channel.
 pub enum FileMCPWatcherEvent {
     /// A config file was successfully parsed; delivers the full snapshot for `(root_path, provider)`.
-    ConfigParsed {
+    Parsed {
         config_path: PathBuf,
         root_path: PathBuf,
         provider: MCPProvider,
         servers: Vec<ParsedTemplatableMCPServerResult>,
     },
     /// A config file was deleted; all servers for `(root_path, provider)` should be removed.
-    ConfigRemoved {
+    Removed {
         config_path: PathBuf,
         root_path: PathBuf,
         provider: MCPProvider,
     },
     /// A config could not be read or parsed. Consumers should preserve the last-known-good state.
-    ConfigError { diagnostic: FileMCPConfigDiagnostic },
-    /// Every source owed by the scan has been parsed or removed. Emitted after the events
-    /// carrying those sources' results.
-    ScanComplete(PendingScan),
+    Error { diagnostic: FileMCPConfigDiagnostic },
 }
 
 impl Entity for FileMCPWatcher {

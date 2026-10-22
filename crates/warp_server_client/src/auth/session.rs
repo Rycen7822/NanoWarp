@@ -2,15 +2,13 @@ use std::fmt;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 use firebase::{FetchAccessTokenResponse, FirebaseError};
 use futures::lock::Mutex as AsyncMutex;
 use http::StatusCode;
 use http::header::RETRY_AFTER;
 use instant::{Duration, Instant};
-use oauth2::TokenResponse as _;
 use parking_lot::Mutex;
-use url::Url;
 use warp_core::channel::ChannelState;
 use warp_errors::{ErrorExt, register_error};
 use warp_server_auth::auth_state::AuthState;
@@ -18,7 +16,7 @@ use warp_server_auth::credentials::{
     AuthToken, Credentials, FirebaseToken, LoginToken, RefreshToken,
 };
 use warp_server_auth::user::FirebaseAuthTokens;
-use warpui_core::r#async::{BoxFuture, Timer};
+use warpui_core::r#async::BoxFuture;
 
 use super::UserAuthenticationError;
 
@@ -180,26 +178,16 @@ impl fmt::Debug for AuthEvent {
     }
 }
 
-/// The OAuth client type configured for Warp's device authorization endpoints.
-type OAuth2Client = oauth2::basic::BasicClient<
-    oauth2::EndpointNotSet,
-    oauth2::EndpointSet,
-    oauth2::EndpointNotSet,
-    oauth2::EndpointNotSet,
-    oauth2::EndpointSet,
->;
-
 /// Reusable authentication-session mechanics for server clients.
 ///
 /// An `AuthSession` combines authentication state with the HTTP transport required to
-/// exchange credentials, refresh access tokens, and complete OAuth device authorization.
+/// exchange credentials and refresh access tokens.
 /// Changes in authentication state that may require reactions from application logic are
 /// emitted through an [`AuthEvent`] channel.
 pub struct AuthSession {
     client: Arc<http_client::Client>,
     auth_state: Arc<AuthState>,
     event_sender: async_channel::Sender<AuthEvent>,
-    oauth_client: OAuth2Client,
     refresh_lock: AsyncMutex<()>,
     refresh_state: Mutex<RefreshState>,
     #[cfg(test)]
@@ -220,7 +208,6 @@ impl AuthSession {
             client,
             auth_state,
             event_sender,
-            oauth_client: Self::create_oauth_client(),
             refresh_lock: AsyncMutex::new(()),
             refresh_state: Mutex::new(RefreshState::default()),
             #[cfg(test)]
@@ -399,57 +386,6 @@ impl AuthSession {
             }),
             LoginToken::SessionCookie => Ok(Credentials::SessionCookie),
         }
-    }
-
-    pub async fn request_device_code(
-        &self,
-    ) -> StdResult<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError> {
-        self.oauth_client
-            .exchange_device_code()
-            .request_async(self.client.as_ref())
-            .await
-            .context("Failed to generate device code")
-            .map_err(UserAuthenticationError::Unexpected)
-    }
-
-    pub async fn exchange_device_access_token(
-        &self,
-        details: &oauth2::StandardDeviceAuthorizationResponse,
-        timeout: Duration,
-    ) -> StdResult<FirebaseToken, UserAuthenticationError> {
-        let result = self
-            .oauth_client
-            .exchange_device_access_token(details)
-            .request_async(
-                self.client.as_ref(),
-                |delay| async move {
-                    let _ = Timer::after(delay).await;
-                },
-                Some(timeout),
-            )
-            .await
-            .context("Unable to obtain access token")
-            .map_err(UserAuthenticationError::Unexpected)?;
-        // Firebase does not directly support the device flow, so the server mints a
-        // short-lived custom access token that can be exchanged for a refresh token.
-        Ok(FirebaseToken::Custom(
-            result.access_token().secret().to_string(),
-        ))
-    }
-
-    fn create_oauth_client() -> OAuth2Client {
-        let server_root =
-            Url::parse(&ChannelState::server_root_url()).expect("Server root URL must be valid");
-        let token_url = server_root
-            .join("/api/v1/oauth/token")
-            .expect("Invalid token URL");
-        let device_url = server_root
-            .join("/api/v1/oauth/device/auth")
-            .expect("Invalid device URL");
-
-        oauth2::basic::BasicClient::new(oauth2::ClientId::new("warp-agent-cli".to_string()))
-            .set_token_uri(oauth2::TokenUrl::from_url(token_url))
-            .set_device_authorization_url(oauth2::DeviceAuthorizationUrl::from_url(device_url))
     }
 
     fn fetch_auth_tokens(&self, token: FirebaseToken) -> BoxFuture<'static, TokenRefreshResult> {

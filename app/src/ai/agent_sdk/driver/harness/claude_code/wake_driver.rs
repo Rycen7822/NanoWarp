@@ -12,9 +12,7 @@ use warp_graphql::ai::AgentTaskState;
 use super::super::claude_transcript::{
     ClaudeTranscriptEnvelope, claude_config_dir, write_envelope, write_session_index_entry,
 };
-use super::super::{
-    HarnessSupportSkills, remove_claude_externally_managed_listener_env_vars, task_env_vars,
-};
+use super::super::{remove_claude_externally_managed_listener_env_vars, task_env_vars};
 use super::parent_bridge::{
     ensure_parent_bridge_state_dir, parent_bridge_root,
     prime_parent_bridge_staged_for_self_managed_wake,
@@ -25,7 +23,6 @@ use crate::ai::agent_events::{AgentMessageEventMetadata, MessageHydrator};
 use crate::ai::ambient_agents::{AmbientAgentTaskId, AmbientAgentTaskState};
 use crate::server::server_api::ServerApi;
 use crate::server::server_api::ai::AIClient;
-use crate::server::server_api::harness_support::ResolvePromptRequest;
 use crate::terminal::CLIAgent;
 
 const CLAUDE_WAKE_PROMPT: &str = "A lead agent mailbox message is available for this child run. Review the mailbox context and continue the task.";
@@ -158,13 +155,7 @@ impl ClaudeHarness {
         server_api: Arc<ServerApi>,
     ) -> Result<ClaudeWakeRemoteContext> {
         let resolved = server_api
-            .resolve_prompt_for_task(
-                &task_id,
-                ResolvePromptRequest {
-                    skill: None,
-                    attachments_dir: None,
-                },
-            )
+            .resolve_prompt_for_task(&task_id)
             .await
             .with_context(|| format!("Failed to resolve Claude wake prompt for task {task_id}"))?;
         let bytes = server_api
@@ -207,7 +198,6 @@ impl ClaudeHarness {
             &HashMap::new(),
             &ai::skills::parse_skills_dirs_env(),
             false,
-            HarnessSupportSkills::Plugin,
         )
         .context("Failed to prepare Claude environment for wake")?;
 
@@ -251,7 +241,7 @@ fn local_wake_task_env_vars(
 ) -> HashMap<OsString, OsString> {
     let mut env_vars = task_env_vars(task_id, parent_run_id, Harness::Claude);
     // The local wake command is executed directly in the existing child
-    // terminal, not through `AgentDriver::run_harness`, so Warp does not start
+    // terminal, so Warp does not start
     // `MessageBridge` for this resumed Claude process. Leave the listener in
     // the Claude plugin's self-managed mode; otherwise the hook waits for
     // state files that no managed bridge is producing and the wake message is

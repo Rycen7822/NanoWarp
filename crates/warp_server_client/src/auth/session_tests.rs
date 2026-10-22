@@ -59,13 +59,6 @@ fn retry_after_http_date_uses_remaining_delay() {
 }
 
 #[test]
-fn device_authorization_uses_warp_agent_cli_client() {
-    let client = AuthSession::create_oauth_client();
-
-    assert_eq!(client.client_id().as_str(), "warp-agent-cli");
-}
-
-#[test]
 fn bearer_credentials_are_returned_without_session_refresh_events() {
     let auth_state = Arc::new(AuthState::new_logged_out_for_test());
     auth_state.set_credentials(Some(Credentials::Bearer("daemon-token".to_string())));

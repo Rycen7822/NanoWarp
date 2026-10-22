@@ -29,9 +29,6 @@ use crate::ai::mcp::templatable::CloudTemplatableMCPServer;
 use crate::ai::mcp::templatable_installation::TemplatableMCPServerInstallation;
 use crate::ai::mcp::{FileBasedMCPManager, MCPServerState};
 #[cfg(not(target_family = "wasm"))]
-use crate::ai::mcp::{StaticEnvVar, TransportType};
-
-#[cfg(not(target_family = "wasm"))]
 type ReconnectResultSender =
     tokio::sync::oneshot::Sender<Result<rmcp::Peer<rmcp::RoleClient>, String>>;
 
@@ -50,8 +47,6 @@ pub struct TemplatableMCPServerManager {
     locally_installed_servers: HashMap<Uuid, TemplatableMCPServerInstallation>,
     server_states: HashMap<Uuid, MCPServerState>,
     active_servers: HashMap<Uuid, TemplatableMCPServerInfo>,
-    #[cfg(not(target_family = "wasm"))]
-    runtime_environment: HashMap<String, String>,
 
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     spawned_servers: HashMap<Uuid, SpawnedServerInfo>,
@@ -92,9 +87,6 @@ pub struct TemplatableMCPServerManager {
     /// Short-lived authorization URLs for interactive OAuth flows.
     #[cfg(not(target_family = "wasm"))]
     authorization_urls: HashMap<Uuid, String>,
-    /// UUIDs of MCP servers started via the Oz CLI. We track these so they can be distinguished from
-    /// file-based ephemeral MCP servers, which are directory-scoped.
-    cli_spawned_server_uuids: HashSet<Uuid>,
     /// UUIDs of built-in Warp-hosted servers (e.g. the Factory MCP), which are
     /// spawned automatically from in-code definitions and authenticated with
     /// the logged-in user's session credentials.
@@ -140,25 +132,6 @@ pub enum FigmaMcpStatus {
 }
 
 impl TemplatableMCPServerManager {
-    #[cfg(not(target_family = "wasm"))]
-    fn apply_runtime_environment(&self, transport: &mut TransportType) {
-        if let TransportType::CLIServer(server) = transport {
-            server
-                .static_env_vars
-                .retain(|variable| !self.runtime_environment.contains_key(&variable.name));
-            server
-                .static_env_vars
-                .extend(
-                    self.runtime_environment
-                        .iter()
-                        .map(|(name, value)| StaticEnvVar {
-                            name: name.clone(),
-                            value: value.clone(),
-                        }),
-                );
-        }
-    }
-
     pub fn get_installed_templatable_servers(
         &self,
     ) -> &HashMap<Uuid, TemplatableMCPServerInstallation> {
@@ -367,14 +340,6 @@ impl TemplatableMCPServerManager {
             .collect()
     }
 
-    /// Returns CLI-spawned ephemeral servers (started via `oz agent run --mcp`) that are currently active.
-    pub fn get_active_cli_spawned_servers(&self) -> HashMap<Uuid, &TemplatableMCPServerInfo> {
-        self.cli_spawned_server_uuids
-            .iter()
-            .filter_map(|uuid| self.active_servers.get(uuid).map(|info| (*uuid, info)))
-            .collect()
-    }
-
     /// Returns built-in Warp-hosted servers (e.g. the Factory MCP) that are
     /// currently active.
     pub fn get_active_builtin_servers(&self) -> HashMap<Uuid, &TemplatableMCPServerInfo> {
@@ -390,7 +355,6 @@ impl TemplatableMCPServerManager {
 pub enum TemplatableMCPServerManagerEvent {
     StateChanged {
         uuid: Uuid,
-        state: MCPServerState,
     },
     // TODO(aeybel) Right now most of the app doesn't use these events to communicate
     // We should change them so this manager is source of truth and all communication goes through here

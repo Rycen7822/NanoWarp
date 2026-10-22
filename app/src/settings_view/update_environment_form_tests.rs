@@ -13,7 +13,7 @@ use super::{
 };
 use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
 use crate::ai::ambient_agents::github_auth_url::{self, AuthSource, GithubAuthRedirectTarget};
-use crate::ai::cloud_environments::{BaseImage, GithubRepo};
+use crate::ai::cloud_environments::GithubRepo;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::network::NetworkStatus;
@@ -28,6 +28,7 @@ use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::Workspace;
+use cloud_object_models::BaseImage;
 
 #[test]
 fn test_parse_repo_input_owner_repo() {

@@ -91,15 +91,3 @@ fn default_download_filename_omits_extension_when_content_type_unknown() {
         "artifact-screenshot-123"
     );
 }
-
-#[test]
-#[cfg(feature = "local_fs")]
-fn download_destination_uses_explicit_path() {
-    assert_eq!(
-        download_destination(
-            &sample_file_download_response("report.txt", "outputs/report.txt"),
-            Some(PathBuf::from("downloads/report.txt"))
-        ),
-        PathBuf::from("downloads/report.txt")
-    );
-}

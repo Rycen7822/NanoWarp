@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use cloud_objects::ids::ServerId;
 use cynic::{MutationBuilder, QueryBuilder};
 use firebase::FirebaseError;
-use instant::Duration;
 #[cfg(any(test, feature = "test-util"))]
 use mockall::automock;
 pub use session::*;
@@ -38,7 +37,7 @@ use warp_graphql::queries::api_keys::{
 };
 use warp_graphql::queries::get_user::{GetUser, GetUserVariables, UserOutput as GqlUserOutput};
 use warp_graphql::queries::get_user_settings::{GetUserSettings, GetUserSettingsVariables};
-use warp_server_auth::credentials::{AuthToken, Credentials, FirebaseToken, LoginToken};
+use warp_server_auth::credentials::{AuthToken, Credentials, LoginToken};
 pub use warp_server_auth::user_uid;
 
 use crate::base_client::{BaseClient, TEAM_UID_HEADER};
@@ -139,18 +138,6 @@ pub trait AuthClient: Send + Sync {
     async fn update_user_settings(&self, input: UpdateUserSettingsInput) -> Result<()>;
 
     async fn set_user_is_onboarded(&self) -> Result<bool>;
-
-    /// Requests a device authorization code from the server for headless CLI or SDK authentication.
-    async fn request_device_code(
-        &self,
-    ) -> StdResult<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError>;
-
-    /// Waits for the request to be approved or rejected and exchanges it for a short-lived custom access token.
-    async fn exchange_device_access_token(
-        &self,
-        details: &oauth2::StandardDeviceAuthorizationResponse,
-        timeout: Duration,
-    ) -> StdResult<FirebaseToken, UserAuthenticationError>;
 
     async fn list_api_keys(&self, team_uid: Option<ServerId>) -> Result<Vec<ApiKeyProperties>>;
 
@@ -401,22 +388,6 @@ impl AuthClient for AuthClientImpl {
         }
     }
 
-    async fn request_device_code(
-        &self,
-    ) -> StdResult<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError> {
-        self.auth_session.request_device_code().await
-    }
-
-    async fn exchange_device_access_token(
-        &self,
-        details: &oauth2::StandardDeviceAuthorizationResponse,
-        timeout: Duration,
-    ) -> StdResult<FirebaseToken, UserAuthenticationError> {
-        self.auth_session
-            .exchange_device_access_token(details, timeout)
-            .await
-    }
-
     async fn list_api_keys(&self, team_uid: Option<ServerId>) -> Result<Vec<ApiKeyProperties>> {
         let operation = ApiKeys::build(ApiKeysVariables {
             request_context: warp_graphql::client::get_request_context(),
@@ -495,8 +466,6 @@ pub enum UserAuthenticationError {
     InvalidStateParameter,
     #[error("Missing state parameter in auth redirect")]
     MissingStateParameter,
-    #[error("Timed out requesting a sign-in link after {attempts} attempts")]
-    DeviceCodeRequestTimedOut { attempts: usize },
     #[error("unexpected error occurred when fetching an ID token: {0:#}")]
     Unexpected(#[from] anyhow::Error),
 }
@@ -516,7 +485,6 @@ impl ErrorExt for UserAuthenticationError {
                 log::info!("ignoring user account disabled error: {error:#}");
                 false
             }
-            UserAuthenticationError::DeviceCodeRequestTimedOut { .. } => false,
             UserAuthenticationError::Unexpected(error) => error.is_actionable(),
             UserAuthenticationError::InvalidStateParameter
             | UserAuthenticationError::MissingStateParameter => {

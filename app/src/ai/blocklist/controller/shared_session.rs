@@ -23,31 +23,17 @@ use crate::ai::attachment_utils::{
 };
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
-use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
 use crate::server::server_api::ServerApiProvider;
 use crate::workspaces::user_workspaces::ResolvedTeamScope;
 
 /// Resolution of the local conversation a shared-session-injected prompt should target. See
 /// [`BlocklistAIController::resolve_shared_session_prompt_target`].
 pub(super) enum SharedSessionPromptTarget {
-    /// Deliver to this existing local conversation -- either `server_token` resolved directly
-    /// to it, or (no token) this controller is bound to it for native startup injections.
+    /// Deliver to the conversation identified by the server token.
     Existing(AIConversationId),
-    /// No `server_token` was supplied at all, and this controller isn't bound to a native
-    /// conversation; the caller may create or reuse one via its own bootstrap logic. Only ever
-    /// returned when no token was supplied -- a token that fails to resolve locally must never
-    /// take this path, since the prompt names a specific conversation that already exists
-    /// somewhere (just not known to this client), and creating a new one would silently
-    /// duplicate it rather than deliver to it.
+    /// No token was supplied; the caller may create or reuse a conversation.
     NoToken,
-    /// The prompt cannot be safely delivered anywhere and must be dropped, never used to create
-    /// a new conversation. `target` is `Some` when `server_token` resolves to a different local
-    /// conversation than the one this controller is bound to for native startup injections --
-    /// neither is safe to use, since the token addresses a conversation this controller doesn't
-    /// own and the binding addresses a conversation the prompt wasn't actually sent to. `target`
-    /// is `None` when `server_token` was supplied but doesn't resolve to any locally known
-    /// conversation at all (and this controller isn't bound, so there's no binding to fall back
-    /// to either).
+    /// The supplied token does not resolve locally.
     Rejected { target: Option<AIConversationId> },
 }
 
@@ -523,40 +509,17 @@ impl BlocklistAIController {
             })
     }
 
-    /// Resolves which local conversation a shared-session-injected prompt should target, given
-    /// an optional server-supplied `server_token` and this controller's native startup binding
-    /// (if any). Computed once so `route_native_startup_injection` and
-    /// `execute_warp_agent_prompt_from_shared_session_injection` agree on the same precedence: a
-    /// `server_token` that resolves locally is authoritative over the native binding, and an
-    /// explicit token that *doesn't* resolve locally is never treated the same as no token at
-    /// all -- see [`SharedSessionPromptTarget::NoToken`].
     pub(super) fn resolve_shared_session_prompt_target(
         &self,
         server_token: Option<&ServerConversationToken>,
         ctx: &mut ModelContext<Self>,
     ) -> SharedSessionPromptTarget {
         let Some(server_token) = server_token else {
-            return match self.native_prompt_conversation_id {
-                Some(bound) => SharedSessionPromptTarget::Existing(bound),
-                None => SharedSessionPromptTarget::NoToken,
-            };
+            return SharedSessionPromptTarget::NoToken;
         };
-        let resolved =
-            self.find_existing_conversation_by_server_token(&server_token.to_string(), ctx);
-        match (resolved, self.native_prompt_conversation_id) {
-            (Some(target), Some(bound)) if target != bound => SharedSessionPromptTarget::Rejected {
-                target: Some(target),
-            },
-            (Some(target), _) => SharedSessionPromptTarget::Existing(target),
-            // A token was supplied but doesn't resolve locally. While bound, trust the binding
-            // regardless -- routinely true for early startup follow-ups before the
-            // conversation's token has synced locally (see `route_native_startup_injection`'s
-            // doc comment).
-            (None, Some(bound)) => SharedSessionPromptTarget::Existing(bound),
-            // Otherwise, this token names a conversation this client doesn't know
-            // about, so it must be rejected rather than mistaken for an explicit no-token
-            // request that's free to bootstrap a new conversation.
-            (None, None) => SharedSessionPromptTarget::Rejected { target: None },
+        match self.find_existing_conversation_by_server_token(&server_token.to_string(), ctx) {
+            Some(target) => SharedSessionPromptTarget::Existing(target),
+            None => SharedSessionPromptTarget::Rejected { target: None },
         }
     }
 
@@ -738,23 +701,6 @@ impl BlocklistAIController {
         base: Option<BaseUserQuery>,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Route through the bound native conversation, if any -- see
-        // `route_native_startup_injection`'s doc comment for why this must fully own dispatch
-        // once bound, rather than falling back to token resolution below.
-        if self.route_native_startup_injection(
-            &prompt,
-            server_conversation_token.as_ref(),
-            &attachments,
-            &participant_id,
-            base.as_ref(),
-            ctx,
-        ) {
-            return;
-        }
-        // Not bound to a native conversation (checked by `route_native_startup_injection`
-        // above), so the resolver only ever resolves via `server_conversation_token`, allows
-        // bootstrapping a new conversation for an explicit no-token request (`NoToken`), or
-        // rejects outright -- never bound-vs-token mismatch, since that requires a binding.
         let conversation_id = match self
             .resolve_shared_session_prompt_target(server_conversation_token.as_ref(), ctx)
         {
@@ -879,24 +825,13 @@ impl BlocklistAIController {
         })
     }
 
-    /// The task ID a no-token prompt landing right now must not spawn a native `AIConversation`
-    /// for, because it is (or is configured to be) backed by a third-party CLI-harness session.
-    /// Two independent signals are checked, since either can be true without the other:
-    /// - `LocalAgentTaskSyncModel::cli_harness_task_id_for_terminal_view`: the harness session has been
-    ///   registered for this pane (true from harness setup time, before its process launches).
-    /// - `AmbientAgentTask::is_third_party_harness`: the task's stored config says it runs on a
-    ///   third-party harness, independent of whether a session has registered for this pane yet
-    ///   (e.g. very early in setup, or if registration is ever skipped by a bug).
+    /// Returns a task whose configuration uses a third-party harness.
     fn cli_harness_backed_task_id(&self, ctx: &AppContext) -> Option<AmbientAgentTaskId> {
-        LocalAgentTaskSyncModel::as_ref(ctx)
-            .cli_harness_task_id_for_terminal_view(self.terminal_surface_id)
-            .or_else(|| {
-                self.ambient_agent_task_id.filter(|task_id| {
-                    AgentConversationsModel::as_ref(ctx)
-                        .get_task_data(task_id)
-                        .is_some_and(|task| task.is_third_party_harness())
-                })
-            })
+        self.ambient_agent_task_id.filter(|task_id| {
+            AgentConversationsModel::as_ref(ctx)
+                .get_task_data(task_id)
+                .is_some_and(|task| task.is_third_party_harness())
+        })
     }
 
     /// Tags `conversation_id` as a setup-failure debug bootstrap so `LocalAgentTaskSyncModel`
@@ -958,21 +893,11 @@ impl BlocklistAIController {
             let bootstraps_setup_failure_debug =
                 self.is_open_for_setup_failure_debug_bootstrap(ctx);
 
-            // Defense-in-depth (REMOTE-2661): a task backed by a registered CLI-harness session
-            // must never get a native `AIConversation` from a no-token prompt — its canonical
-            // representation lives in `LocalAgentTaskSyncModel`/`CLIAgentSessionsModel`, never
-            // in `BlocklistAIHistoryModel`, so a conversation created here would silently become
-            // the run's wrong canonical conversation ID once it reports a server token.
-            // `accept_agent_prompt` (`terminal_view_adaptor.rs`) is the primary gate that routes
-            // these prompts to `PendingCliHarnessPromptQueue` before they ever reach this
-            // method; reaching here for such a task means that gate was bypassed by a bug.
             if !bootstraps_setup_failure_debug
                 && let Some(task_id) = self.cli_harness_backed_task_id(ctx)
             {
                 report_error!(
-                    "Refused to create a native conversation for a task backed by a registered \
-                     CLI-harness session; this prompt should have been routed to \
-                     PendingCliHarnessPromptQueue by accept_agent_prompt",
+                    "Refused to create a native conversation for a third-party harness task",
                     extra: { "task_id" => %task_id }
                 );
                 return;

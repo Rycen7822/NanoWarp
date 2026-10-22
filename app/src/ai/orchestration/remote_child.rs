@@ -78,11 +78,7 @@ fn resolve_repo_qualified_skill(
     let spec = SkillSpec::from_str(&path.display().to_string()).ok()?;
     // Bail unless the spec is repo-qualified (has a repo component).
     spec.repo.as_ref()?;
-    Some(
-        resolve_skill_spec(&spec, working_dir, ctx)
-            .map(|resolved| resolved.parsed_skill)
-            .map_err(|error| error.to_string()),
-    )
+    Some(resolve_skill_spec(&spec, working_dir, ctx).map_err(|error| error.to_string()))
 }
 
 #[cfg(target_family = "wasm")]

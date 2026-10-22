@@ -1,18 +1,10 @@
 #[cfg(not(target_family = "wasm"))]
-use std::time::Duration;
-
-#[cfg(not(target_family = "wasm"))]
 use super::apply_geap_refresh_to_params;
 use super::{FailReason, MAX_RECOVERY_ATTEMPTS, RecoveryAction, RecoveryBudget, recovery_action};
 #[cfg(not(target_family = "wasm"))]
 use super::{ResponseStream, ResponseStreamId};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::api::RequestParams;
-// `agent_sdk` (and so the driver's recovery deadline) is native-only.
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::driver::AUTO_RESUME_TIMEOUT;
-#[cfg(not(target_family = "wasm"))]
-use crate::server::retry_strategies::backoff_after_attempts;
 
 // Argument order: has_received_client_actions, is_recoverable, recovery, is_online.
 
@@ -223,25 +215,6 @@ fn spending_an_attempt_preserves_resume_eligibility() {
         recovery_action(true, true, normal, true),
         RecoveryAction::Resume
     );
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[test]
-fn the_recovery_backoff_fits_inside_the_cloud_run_recovery_window() {
-    // The driver re-arms AUTO_RESUME_TIMEOUT per recovery attempt, so what has to fit in
-    // that window is a single attempt's wait, not the whole chain. Assert both anyway: if
-    // the budget or the backoff schedule ever grows enough to approach the deadline, a run
-    // would start dying on the deadline instead of on the failure it was recovering from.
-    let total: Duration = (1..=MAX_RECOVERY_ATTEMPTS)
-        .map(backoff_after_attempts)
-        .sum();
-    assert!(
-        total * 2 < AUTO_RESUME_TIMEOUT,
-        "total recovery backoff {total:?} is too close to AUTO_RESUME_TIMEOUT {AUTO_RESUME_TIMEOUT:?}"
-    );
-    for attempt in 1..=MAX_RECOVERY_ATTEMPTS {
-        assert!(backoff_after_attempts(attempt) * 4 < AUTO_RESUME_TIMEOUT);
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]

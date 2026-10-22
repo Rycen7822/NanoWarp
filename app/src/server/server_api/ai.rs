@@ -13,7 +13,6 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use cloud_object_models::CodeForge;
 use cynic::{MutationBuilder, QueryBuilder};
 use itertools::Itertools;
 #[cfg(test)]
@@ -83,10 +82,6 @@ use warp_graphql::platform_error::PlatformErrorInfo;
 use warp_graphql::queries::codebase_context_config::{
     CodebaseContextConfigQuery, CodebaseContextConfigResult, CodebaseContextConfigVariables,
 };
-#[cfg(not(target_family = "wasm"))]
-use warp_graphql::queries::execution_config::{
-    BootstrapTaskResult, ExecutionBootstrap, ExecutionBootstrapVariables, ExecutionConfiguration,
-};
 use warp_graphql::queries::free_available_models::{
     FreeAvailableModels, FreeAvailableModelsInput, FreeAvailableModelsResult,
     FreeAvailableModelsVariables,
@@ -136,8 +131,6 @@ use warp_graphql::queries::task_git_credentials::{
     TaskGitCredentialsLegacyInput, TaskGitCredentialsLegacyResult,
     TaskGitCredentialsLegacyVariables, TaskGitCredentialsResult, TaskGitCredentialsVariables,
 };
-#[cfg(not(target_family = "wasm"))]
-use warp_graphql::queries::task_secrets::{ManagedSecretValue, TaskSecretsInput};
 use warp_multi_agent_api::ConversationData;
 use warp_server_client::PresignedDownloadResponse;
 
@@ -188,13 +181,6 @@ use crate::{
 };
 
 const AI_ASSISTANT_REQUEST_TIMEOUT_SECONDS: u64 = 30;
-
-#[cfg(not(target_family = "wasm"))]
-pub(crate) struct ExecutionBootstrapData {
-    pub config: ExecutionConfiguration,
-    pub secrets: anyhow::Result<HashMap<String, ManagedSecretValue>>,
-    pub attachments: anyhow::Result<Vec<TaskAttachment>>,
-}
 
 /// A status update for a task, optionally including a platform error code.
 pub struct TaskStatusUpdate {
@@ -475,80 +461,6 @@ pub struct ReportAgentEventRequest {
 pub struct ReportAgentEventResponse {
     pub sequence: i64,
 }
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AgentRunClientEventRequest {
-    pub event_uuid: String,
-    pub event_name: String,
-    pub timestamp: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload: Option<AgentRunClientEventPayload>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(untagged)]
-pub enum AgentRunClientEventPayload {
-    SetupMetric(AgentRunClientSetupMetricPayload),
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AgentRunClientSetupMetricPayload {
-    pub start_ts: DateTime<Utc>,
-    pub finish_ts: DateTime<Utc>,
-    pub latency_ms: i64,
-    pub is_error: bool,
-}
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
-pub struct AgentRunEnvironmentSnapshotRequest {
-    pub captured_at: DateTime<Utc>,
-    pub repositories: Vec<AgentRunRepositoryRevision>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
-pub struct AgentRunRepositoryRevision {
-    pub code_forge: CodeForge,
-    pub repo_owner: String,
-    pub repo_name: String,
-    pub checkout_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requested_checkout_ref: Option<String>,
-    pub resolved_head_sha: String,
-}
-
-impl AgentRunClientEventRequest {
-    pub fn timeline_event(event_name: impl Into<String>, timestamp: DateTime<Utc>) -> Self {
-        Self {
-            event_uuid: uuid::Uuid::new_v4().to_string(),
-            event_name: event_name.into(),
-            timestamp,
-            payload: None,
-        }
-    }
-
-    pub fn setup_metric_event(
-        event_name: impl Into<String>,
-        start_timestamp: DateTime<Utc>,
-        finish_timestamp: DateTime<Utc>,
-        is_error: bool,
-    ) -> Self {
-        Self {
-            event_uuid: uuid::Uuid::new_v4().to_string(),
-            event_name: event_name.into(),
-            timestamp: finish_timestamp,
-            payload: Some(AgentRunClientEventPayload::SetupMetric(
-                AgentRunClientSetupMetricPayload {
-                    start_ts: start_timestamp,
-                    finish_ts: finish_timestamp,
-                    latency_ms: finish_timestamp
-                        .signed_duration_since(start_timestamp)
-                        .num_milliseconds()
-                        .max(0),
-                    is_error,
-                },
-            )),
-        }
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReadAgentMessageResponse {
     pub message_id: String,
@@ -1685,17 +1597,6 @@ pub trait AIClient: 'static + Send + Sync {
         run_id: &str,
         request: ReportAgentEventRequest,
     ) -> anyhow::Result<ReportAgentEventResponse, anyhow::Error>;
-    async fn post_agent_run_client_event(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        request: AgentRunClientEventRequest,
-    ) -> anyhow::Result<(), anyhow::Error>;
-    async fn post_agent_run_environment_snapshot(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        request: AgentRunEnvironmentSnapshotRequest,
-    ) -> anyhow::Result<(), anyhow::Error>;
-
     async fn mark_message_delivered(&self, message_id: &str) -> anyhow::Result<(), anyhow::Error>;
 
     async fn read_agent_message(
@@ -1759,45 +1660,6 @@ fn task_attachments_from_result(result: TaskResult) -> anyhow::Result<Vec<TaskAt
 }
 
 impl ServerApi {
-    #[cfg(not(target_family = "wasm"))]
-    pub(crate) async fn get_execution_bootstrap(
-        &self,
-        task_id: &str,
-        execution_id: &str,
-        workload_token: String,
-        supports_deferred_repositories: bool,
-    ) -> anyhow::Result<ExecutionBootstrapData> {
-        let operation = ExecutionBootstrap::build_with_capabilities(ExecutionBootstrapVariables {
-            execution_id: execution_id.to_string().into(),
-            supports_deferred_repositories,
-            secrets_input: TaskSecretsInput {
-                task_id: task_id.to_string().into(),
-                workload_token,
-            },
-            task_input: TaskInput {
-                task_id: task_id.to_string().into(),
-            },
-            request_context: get_request_context(),
-        })?;
-        let response = self.send_graphql_request(operation, None).await?;
-        let (config, attachments) = match response.task {
-            BootstrapTaskResult::TaskOutput(output) => (
-                output.task.execution_config,
-                Ok(task_attachments_from_list(output.task.attachments)),
-            ),
-            BootstrapTaskResult::UserFacingError(error) => {
-                return Err(anyhow!(get_user_facing_error_message(error)));
-            }
-            BootstrapTaskResult::Unknown => {
-                return Err(anyhow!("Unknown execution task response"));
-            }
-        };
-        Ok(ExecutionBootstrapData {
-            config,
-            secrets: super::managed_secrets::task_secrets_from_result(response.task_secrets),
-            attachments,
-        })
-    }
     async fn get_public_api_with_team_scope<R>(
         &self,
         path: &str,
@@ -1823,29 +1685,6 @@ impl ServerApi {
             .post_public_api_response_for_task(task_id, "agent/messages", &request)
             .await?;
         let response = response.json::<SendAgentMessageResponse>().await?;
-        Ok(response)
-    }
-
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub(crate) async fn list_agent_messages_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        run_id: &str,
-        request: ListAgentMessagesRequest,
-    ) -> anyhow::Result<Vec<AgentMessageHeader>, anyhow::Error> {
-        let mut params = vec![format!("limit={}", request.limit)];
-        if request.unread_only {
-            params.push("unread=true".to_string());
-        }
-        if let Some(since) = request.since {
-            params.push(format!("since={}", urlencoding::encode(&since)));
-        }
-
-        let path = format!("agent/messages/{run_id}?{}", params.join("&"));
-        let response = self
-            .get_public_api_response_for_task(task_id, &path)
-            .await?;
-        let response = response.json::<Vec<AgentMessageHeader>>().await?;
         Ok(response)
     }
 
@@ -3462,33 +3301,6 @@ impl AIClient for ServerApi {
             .await?;
         Ok(response)
     }
-    async fn post_agent_run_client_event(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        request: AgentRunClientEventRequest,
-    ) -> anyhow::Result<(), anyhow::Error> {
-        self.post_public_api_response_for_task(
-            run_id,
-            &format!("agent/runs/{run_id}/client-events"),
-            &request,
-        )
-        .await?;
-        Ok(())
-    }
-    async fn post_agent_run_environment_snapshot(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        request: AgentRunEnvironmentSnapshotRequest,
-    ) -> anyhow::Result<(), anyhow::Error> {
-        self.post_public_api_response_for_task(
-            run_id,
-            &format!("agent/runs/{run_id}/environment-snapshot"),
-            &request,
-        )
-        .await?;
-        Ok(())
-    }
-
     async fn mark_message_delivered(&self, message_id: &str) -> anyhow::Result<(), anyhow::Error> {
         self.post_public_api_unit(&format!("agent/messages/{message_id}/delivered"), &())
             .await

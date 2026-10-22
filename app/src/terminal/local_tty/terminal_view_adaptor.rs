@@ -34,10 +34,6 @@ use crate::ai::agent::BaseUserQuery;
 use crate::ai::agent::conversation::AIConversation;
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
-use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
-use crate::ai::blocklist::pending_cli_harness_prompt_queue::{
-    PendingCliHarnessPromptQueue, QueuedCliHarnessPrompt,
-};
 use crate::ai::blocklist::{
     BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIControllerEvent,
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, InputConfig, SerializedBlockListItem,
@@ -121,15 +117,7 @@ async fn is_setup_failure_debug_prompt_authorized(
         .unwrap_or(false)
 }
 
-/// Honors an already-authorized agent prompt. Callers must have already checked that
-/// `participant_id` may submit this prompt. Routes to exactly one of three destinations:
-/// - A live CLI-harness PTY, when one is already running for this pane.
-/// - `PendingCliHarnessPromptQueue`, when this pane's task is configured for (registered
-///   against) a third-party CLI harness whose session hasn't started a live PTY yet. This must
-///   never fall through to the Oz path below: a 3rd-party-harness task has no local
-///   `AIConversation` representation, so doing so would spawn a wrong, native "canonical"
-///   conversation for the run (see `PendingCliHarnessPromptQueue`'s doc comment).
-/// - The Oz harness, via `BlocklistAIController`, for every other (genuinely native) case.
+/// Delivers an authorized prompt to the active CLI PTY or GUI conversation.
 fn accept_agent_prompt(
     terminal_view: &ViewHandle<TerminalView>,
     request: AgentPromptRequest,
@@ -149,36 +137,6 @@ fn accept_agent_prompt(
         // (telemetry, draft clear, editor buffer clear, pending-image consumption).
         terminal_view.update(ctx, |view, ctx| {
             view.submit_text_to_cli_agent_pty(request.prompt.clone(), ctx);
-        });
-        return;
-    }
-
-    // `register_cli_session` runs at harness setup time, before the harness process is
-    // launched (see its call site in `AgentDriver::subscribe_to_cli_agent_session_events`), so
-    // this is true independent of whether the CLI-harness session above has actually started a
-    // live PTY yet.
-    if let Some(task_id) =
-        LocalAgentTaskSyncModel::as_ref(ctx).cli_harness_task_id_for_terminal_view(terminal_view_id)
-    {
-        log::info!(
-            "event=prompt_routed terminal_id={terminal_view_id:?} participant_id={participant_id} task_id={task_id} destination=pending_cli",
-        );
-        if !request.attachments.is_empty() {
-            log::warn!(
-                "accept_agent_prompt: dropping {} file attachment(s) from a shared-session \
-                 prompt queued for task {task_id}'s not-yet-started CLI-harness session; \
-                 attachment delivery to a CLI harness PTY is not supported",
-                request.attachments.len()
-            );
-        }
-        PendingCliHarnessPromptQueue::handle(ctx).update(ctx, |queue, _ctx| {
-            queue.queue(
-                task_id,
-                QueuedCliHarnessPrompt {
-                    prompt: request.prompt.clone(),
-                    participant_id: participant_id.clone(),
-                },
-            );
         });
         return;
     }
@@ -212,8 +170,7 @@ fn accept_agent_prompt(
 
         view.ai_controller().update(ctx, |ai_controller, ctx| {
             log::info!(
-                "event=prompt_routed terminal_id={terminal_view_id:?} participant_id={participant_id} destination=native bound_conversation_id={:?}",
-                ai_controller.native_prompt_conversation_id(),
+                "event=prompt_routed terminal_id={terminal_view_id:?} participant_id={participant_id} destination=native",
             );
             ai_controller.execute_warp_agent_prompt_from_shared_session_injection(
                 request.prompt.clone(),
@@ -1497,7 +1454,7 @@ impl TerminalManager<TerminalView> {
             } => {
                 // Unconditional receipt log: recorded regardless of how this prompt is
                 // eventually routed or rejected below (feature-flag gate, permission checks,
-                // live PTY / PendingCliHarnessPromptQueue / Oz routing), so every received
+                // live PTY / GUI conversation routing), so every received
                 // shared-session prompt is observable for diagnosing lost or misrouted prompts.
                 log::info!(
                     "Received shared-session agent prompt request id={id:?} \

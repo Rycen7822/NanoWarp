@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 use shell_words::quote as shell_quote;
 use uuid::Uuid;
-use warp_cli::agent::{Harness, HarnessTransport};
+use warp_cli::agent::Harness;
 
 use crate::ai::agent_sdk::driver::AgentDriverError;
 use crate::ai::agent_sdk::driver::harness::claude_code::prepare_claude_environment_config;
 use crate::ai::agent_sdk::driver::harness::{
-    HarnessKind, HarnessSupportSkills, harness_env_vars, harness_kind,
-    remove_claude_externally_managed_listener_env_vars,
+    HarnessKind, harness_env_vars, harness_kind, remove_claude_externally_managed_listener_env_vars,
 };
 use crate::ai::agent_sdk::{task_env_vars, validate_cli_installed};
 use crate::ai::ambient_agents::task::{
@@ -200,8 +199,7 @@ pub(super) async fn prepare_local_harness_child_launch(
                     )
                 })?;
             let HarnessKind::ThirdParty(third_party_harness) =
-                harness_kind(harness, HarnessTransport::Pty)
-                    .map_err(|error: AgentDriverError| error.to_string())?
+                harness_kind(harness).map_err(|error: AgentDriverError| error.to_string())?
             else {
                 unreachable!("Claude resolves to a third-party harness")
             };
@@ -218,7 +216,6 @@ pub(super) async fn prepare_local_harness_child_launch(
                 &HashMap::new(),
                 &ai::skills::parse_skills_dirs_env(),
                 false,
-                HarnessSupportSkills::Plugin,
             )
             .map_err(|error| error.to_string())?;
             if let Some(manager) = plugin_manager_for(third_party_harness.cli_agent()) {
@@ -229,8 +226,7 @@ pub(super) async fn prepare_local_harness_child_launch(
         }
         Harness::Codex => {
             let HarnessKind::ThirdParty(third_party_harness) =
-                harness_kind(harness, HarnessTransport::Pty)
-                    .map_err(|error: AgentDriverError| error.to_string())?
+                harness_kind(harness).map_err(|error: AgentDriverError| error.to_string())?
             else {
                 unreachable!("Codex resolves to a third-party harness")
             };
@@ -283,12 +279,8 @@ pub(super) async fn prepare_local_harness_child_launch(
     // Codex local children never receive a model override — the UI
     // ensures model_id is empty for local Codex.
     env_vars.extend(
-        harness_env_vars(
-            harness,
-            HarnessTransport::Pty,
-            harness_model_config.as_ref(),
-        )
-        .map_err(|error| error.to_string())?,
+        harness_env_vars(harness, harness_model_config.as_ref())
+            .map_err(|error| error.to_string())?,
     );
 
     Ok(PreparedLocalHarnessLaunch {

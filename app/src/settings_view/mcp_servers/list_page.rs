@@ -145,8 +145,8 @@ impl MCPServersListPageView {
                 // Refresh cards when MCP config files are parsed or removed.
                 let file_mcp_watcher = FileMCPWatcher::handle(ctx);
                 ctx.subscribe_to_model(&file_mcp_watcher, |me, _, event, ctx| match event {
-                    FileMCPWatcherEvent::ConfigParsed { .. }
-                    | FileMCPWatcherEvent::ConfigRemoved { .. } => {
+                    FileMCPWatcherEvent::Parsed { .. }
+                    | FileMCPWatcherEvent::Removed { .. } => {
                         me.refresh_file_based_server_cards(ctx);
                     }
                     _ => {}
@@ -1049,7 +1049,7 @@ impl MCPServersListPageView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            TemplatableMCPServerManagerEvent::StateChanged { uuid: _, state: _ }
+            TemplatableMCPServerManagerEvent::StateChanged { uuid: _ }
             | TemplatableMCPServerManagerEvent::ServerInstallationAdded(_)
             | TemplatableMCPServerManagerEvent::ServerInstallationDeleted(_)
             | TemplatableMCPServerManagerEvent::TemplatableMCPServersUpdated

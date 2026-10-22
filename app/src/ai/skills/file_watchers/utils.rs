@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use ai::skills::{
-    ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path, parse_skill,
+    ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path,
     provider_parent_directory_for_skills_root, read_skills,
 };
 use anyhow::Error;
@@ -115,14 +115,6 @@ pub fn read_skills_from_directories(
         .flat_map(|dir| read_skills(&dir))
         .collect()
 }
-/// Reads all skills from the given concrete skill files.
-pub fn read_skills_from_files(skill_files: impl IntoIterator<Item = PathBuf>) -> Vec<ParsedSkill> {
-    skill_files
-        .into_iter()
-        .filter_map(|path| parse_skill(&path).ok())
-        .collect()
-}
-
 pub fn is_skill_file(path: &Path) -> bool {
     extract_skill_parent_directory(&LocalOrRemotePath::Local(path.to_path_buf())).is_ok()
 }

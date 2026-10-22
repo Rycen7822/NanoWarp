@@ -1,8 +1,6 @@
-//! Skill resolution for agent runs.
+//! Skill resolution for repo-qualified child agent requests.
 //!
-//! This module exists primarily for `warp agent run --skill ...` (and related flows) where we need to
-//! resolve a CLI-provided `--skill` specifier (`SkillSpec`) into a concrete `SKILL.md` file and its
-//! parsed instruction body.
+//! Resolve a skill specifier into the parsed `SKILL.md` used in child requests.
 //!
 //! While `SkillManager` maintains a cached view of known skills and can list skills "in scope",
 //! agent runs need a single-shot resolver that:
@@ -16,7 +14,6 @@ use std::path::{Path, PathBuf};
 use ai::skills::{
     ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path, parse_skill,
 };
-use command::r#async::Command as AsyncCommand;
 use command::blocking::Command;
 use warp_cli::skill::SkillSpec;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
@@ -27,19 +24,10 @@ use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
 
 const SKILL_FILE_NAME: &str = "SKILL.md";
 
-#[derive(Debug, Clone)]
-pub struct ResolvedSkill {
-    pub skill_path: PathBuf,
-    pub name: String,
-    pub instructions: String,
-    /// The full parsed skill, used for proto conversion when sending to server.
-    pub parsed_skill: ParsedSkill,
-}
-
 fn resolve_from_skill_dirs_by_directory_scan(
     spec: &SkillSpec,
     skill_dirs: impl IntoIterator<Item = PathBuf>,
-) -> Result<Option<ResolvedSkill>, ResolveSkillError> {
+) -> Result<Option<ParsedSkill>, ResolveSkillError> {
     if spec.is_full_path() {
         return Ok(None);
     }
@@ -53,7 +41,7 @@ fn resolve_from_skill_dirs_by_directory_scan(
                 message: err.to_string(),
             })?;
 
-            return Ok(Some(to_resolved_skill(path, parsed)));
+            return Ok(Some(parsed));
         }
     }
 
@@ -99,12 +87,6 @@ pub enum ResolveSkillError {
     },
     #[error("Failed to parse skill file {path}: {message}")]
     ParseFailed { path: PathBuf, message: String },
-    #[error("Failed to clone repository '{org}/{repo}': {message}")]
-    CloneFailed {
-        org: String,
-        repo: String,
-        message: String,
-    },
 }
 
 /// Resolve a `SkillSpec` (from the `--skill` CLI arg) into a concrete SKILL.md file.
@@ -127,7 +109,7 @@ pub fn resolve_skill_spec(
     spec: &SkillSpec,
     working_dir: &Path,
     ctx: &AppContext,
-) -> Result<ResolvedSkill, ResolveSkillError> {
+) -> Result<ParsedSkill, ResolveSkillError> {
     let skill_manager = SkillManager::as_ref(ctx);
 
     match &spec.repo {
@@ -136,80 +118,13 @@ pub fn resolve_skill_spec(
     }
 }
 
-/// Clone a repository from GitHub into the working directory for skill resolution.
-///
-/// Uses HTTPS format: `https://github.com/org/repo.git`
-///
-/// This is used in sandboxed environments to auto-clone repos when a fully-qualified
-/// skill spec references a repo that doesn't exist locally.
-pub async fn clone_repo_for_skill(
-    org: &str,
-    repo: &str,
-    working_dir: &Path,
-) -> Result<(), ResolveSkillError> {
-    let repo_url = format!("https://github.com/{org}/{repo}.git");
-    let target_dir = working_dir.join(repo);
-
-    // Check if target already exists.
-    if target_dir.exists() {
-        if target_dir.join(".git").is_dir() {
-            log::info!(
-                "Target directory {} already exists and appears to be a git repo, skipping clone",
-                target_dir.display()
-            );
-            return Ok(());
-        }
-
-        return Err(ResolveSkillError::CloneFailed {
-            org: org.to_string(),
-            repo: repo.to_string(),
-            message: format!(
-                "Target directory {} already exists but is not a git repository",
-                target_dir.display()
-            ),
-        });
-    }
-
-    log::info!("Cloning {} into {}", repo_url, target_dir.display());
-    log::debug!(
-        "[GIT OPERATION] resolve_skill_spec.rs clone_repo_for_skill git clone {} {}",
-        repo_url,
-        target_dir.display()
-    );
-
-    let output = AsyncCommand::new("git")
-        .arg("clone")
-        .arg(&repo_url)
-        .arg(&target_dir)
-        .current_dir(working_dir)
-        .output()
-        .await
-        .map_err(|e| ResolveSkillError::CloneFailed {
-            org: org.to_string(),
-            repo: repo.to_string(),
-            message: format!("Failed to execute git clone: {e}"),
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ResolveSkillError::CloneFailed {
-            org: org.to_string(),
-            repo: repo.to_string(),
-            message: stderr.trim().to_string(),
-        });
-    }
-
-    log::info!("Successfully cloned {org}/{repo}");
-    Ok(())
-}
-
 fn resolve_repo_qualified(
     spec: &SkillSpec,
     repo: &str,
     working_dir: &Path,
     skill_manager: &SkillManager,
     _ctx: &AppContext,
-) -> Result<ResolvedSkill, ResolveSkillError> {
+) -> Result<ParsedSkill, ResolveSkillError> {
     // Find directories with skills where the directory name matches the repo.
     // This includes both repo roots and subdirectories.
     let mut candidate_repo_roots: Vec<PathBuf> = skill_manager
@@ -280,7 +195,7 @@ fn resolve_unqualified(
     working_dir: &Path,
     ctx: &AppContext,
     skill_manager: &SkillManager,
-) -> Result<ResolvedSkill, ResolveSkillError> {
+) -> Result<ParsedSkill, ResolveSkillError> {
     // If the skill_path is a full path, skip cache lookup and go straight to disk resolution.
     // Full paths don't match skill names in the cache.
     if spec.is_full_path() {
@@ -307,8 +222,7 @@ fn resolve_unqualified(
 
     if let Some(skill_path) = best_match_by_directory_precedence(home_matches, home_dir.as_deref())
     {
-        return parsed_skill_from_manager_or_disk(skill_manager, &skill_path)
-            .map(|parsed| to_resolved_skill(skill_path, parsed));
+        return parsed_skill_from_manager_or_disk(skill_manager, &skill_path);
     }
 
     if let Some(resolved) =
@@ -342,8 +256,7 @@ fn resolve_unqualified(
 
     if in_scope_matches.len() == 1 {
         let skill_path = in_scope_matches[0].clone();
-        return parsed_skill_from_manager_or_disk(skill_manager, &skill_path)
-            .map(|parsed| to_resolved_skill(skill_path, parsed));
+        return parsed_skill_from_manager_or_disk(skill_manager, &skill_path);
     }
 
     if in_scope_matches.len() > 1 {
@@ -367,7 +280,7 @@ fn resolve_in_single_repo_root(
     spec: &SkillSpec,
     repo_root: &Path,
     skill_manager: &SkillManager,
-) -> Result<ResolvedSkill, ResolveSkillError> {
+) -> Result<ParsedSkill, ResolveSkillError> {
     // If the skill_path is a full path, skip cache lookup and go straight to disk resolution.
     // Full paths don't match skill names in the cache.
     if spec.is_full_path() {
@@ -391,7 +304,7 @@ fn resolve_in_single_repo_root(
 
     if let Some(best_path) = best_match_by_directory_precedence(cached_paths, Some(repo_root)) {
         let parsed = parsed_skill_from_manager_or_disk(skill_manager, &best_path)?;
-        return Ok(to_resolved_skill(best_path, parsed));
+        return Ok(parsed);
     }
 
     // Cold start fallback: check disk in precedence order.
@@ -407,7 +320,7 @@ fn resolve_in_single_repo_root(
 fn resolve_from_root_path_by_directory_scan(
     spec: &SkillSpec,
     root: &Path,
-) -> Result<Option<ResolvedSkill>, ResolveSkillError> {
+) -> Result<Option<ParsedSkill>, ResolveSkillError> {
     // If the skill_path is a full path (contains "/" or ends with ".md"),
     // try to resolve it directly without iterating through SKILL_PROVIDER_DEFINITIONS.
     if spec.is_full_path() {
@@ -426,7 +339,7 @@ fn resolve_from_root_path_by_directory_scan(
                 message: err.to_string(),
             })?;
 
-            return Ok(Some(to_resolved_skill(path, parsed)));
+            return Ok(Some(parsed));
         }
         // If full path doesn't exist, return None (don't fall through to directory scan)
         return Ok(None);
@@ -445,7 +358,7 @@ fn resolve_from_root_path_by_directory_scan(
                 message: err.to_string(),
             })?;
 
-            return Ok(Some(to_resolved_skill(path, parsed)));
+            return Ok(Some(parsed));
         }
     }
 
@@ -467,34 +380,6 @@ fn parsed_skill_from_manager_or_disk(
         path: skill_path.to_path_buf(),
         message: err.to_string(),
     })
-}
-
-fn to_resolved_skill(skill_path: PathBuf, parsed: ParsedSkill) -> ResolvedSkill {
-    let instructions = instructions_body(&parsed);
-    ResolvedSkill {
-        name: parsed.name.clone(),
-        instructions,
-        skill_path,
-        parsed_skill: parsed,
-    }
-}
-
-fn instructions_body(skill: &ParsedSkill) -> String {
-    let Some(line_range) = &skill.line_range else {
-        return skill.content.clone();
-    };
-
-    // line_range is 1-indexed, end-exclusive.
-    let start = line_range.start.saturating_sub(1);
-    let end = line_range.end.saturating_sub(1);
-
-    let lines: Vec<&str> = skill.content.lines().collect();
-    if start >= lines.len() {
-        return String::new();
-    }
-
-    let end = end.min(lines.len());
-    lines[start..end].join("\n").trim().to_string()
 }
 
 fn best_match_by_directory_precedence(

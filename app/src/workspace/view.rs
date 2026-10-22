@@ -13816,7 +13816,7 @@ impl Workspace {
                         let launch =
                             codex_transcript::rehydrate_codex_transcript_from_reader(file)?;
                         Ok(ThirdPartyLocalContinuationLaunch {
-                            command: launch.command,
+                            command: launch,
                         })
                     }
                     _ => anyhow::bail!(

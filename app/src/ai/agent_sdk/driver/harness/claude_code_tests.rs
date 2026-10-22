@@ -12,11 +12,16 @@ use super::*;
 use crate::ai::agent_events::{AgentMessageEventMetadata, MessageHydrator};
 use crate::ai::agent_sdk::driver::OZ_MESSAGE_LISTENER_MANAGED_EXTERNALLY_ENV;
 use crate::ai::agent_sdk::driver::harness::claude_transcript::{
-    encode_cwd, read_envelope_with_diagnostics, write_session_index_entry,
+    ClaudeTranscriptEnvelope, encode_cwd, write_session_index_entry,
 };
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::{AIClient, MockAIClient, ReadAgentMessageResponse};
 
+use super::parent_bridge::*;
+use super::wake_driver::{CLAUDE_WAKE_PROMPT_FILE_NAME, ClaudeWakeRemoteContext};
+use crate::ai::agent_sdk::driver::OZ_MESSAGE_LISTENER_STATE_ROOT_ENV;
+use crate::ai::ambient_agents::AmbientAgentTaskId;
+use shell_words::quote as shell_quote;
 fn sample_parent_bridge_message(
     sequence: i64,
     message_id: &str,
@@ -29,20 +34,6 @@ fn sample_parent_bridge_message(
         sender_run_id: "parent-run-456".to_string(),
         subject: subject.to_string(),
         body: body.to_string(),
-        occurred_at: "2026-04-17T15:46:00Z".to_string(),
-    }
-}
-
-fn sample_staged_parent_bridge_message(
-    sequence: i64,
-    message_id: &str,
-) -> MessageBridgeMessageRecord {
-    MessageBridgeMessageRecord {
-        sequence,
-        message_id: message_id.to_string(),
-        sender_run_id: String::new(),
-        subject: String::new(),
-        body: String::new(),
         occurred_at: "2026-04-17T15:46:00Z".to_string(),
     }
 }
@@ -131,88 +122,6 @@ fn write_session_index_entry_creates_expected_entry() {
 }
 
 #[test]
-fn serialize_claude_mcp_config_cli_server() {
-    let servers = HashMap::from([(
-        "test-server".to_string(),
-        JSONMCPServer {
-            transport_type: JSONTransportType::CLIServer {
-                command: "node".to_string(),
-                args: vec!["server.js".to_string()],
-                env: HashMap::from([("API_KEY".to_string(), "secret".to_string())]),
-                working_directory: None,
-            },
-        },
-    )]);
-    let json = serialize_claude_mcp_config(&servers).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let server = &parsed["mcpServers"]["test-server"];
-    assert_eq!(server["type"], "stdio");
-    assert_eq!(server["command"], "node");
-    assert_eq!(server["args"][0], "server.js");
-    assert_eq!(server["env"]["API_KEY"], "secret");
-}
-
-#[test]
-fn serialize_claude_mcp_config_cli_server_with_cwd() {
-    let servers = HashMap::from([(
-        "test-server".to_string(),
-        JSONMCPServer {
-            transport_type: JSONTransportType::CLIServer {
-                command: "node".to_string(),
-                args: vec!["server.js".to_string()],
-                env: HashMap::new(),
-                working_directory: Some("/opt/mcp".to_string()),
-            },
-        },
-    )]);
-    let json = serialize_claude_mcp_config(&servers).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let server = &parsed["mcpServers"]["test-server"];
-    assert_eq!(server["cwd"], "/opt/mcp");
-}
-
-#[test]
-fn serialize_claude_mcp_config_cli_server_omits_cwd_when_none() {
-    let servers = HashMap::from([(
-        "test-server".to_string(),
-        JSONMCPServer {
-            transport_type: JSONTransportType::CLIServer {
-                command: "node".to_string(),
-                args: vec![],
-                env: HashMap::new(),
-                working_directory: None,
-            },
-        },
-    )]);
-    let json = serialize_claude_mcp_config(&servers).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let server = &parsed["mcpServers"]["test-server"];
-    assert!(server.get("cwd").is_none());
-}
-
-#[test]
-fn serialize_claude_mcp_config_preserves_factory_mcp_auth() {
-    let servers = HashMap::from([(
-        "warp-factory".to_string(),
-        JSONMCPServer {
-            transport_type: JSONTransportType::SSEServer {
-                url: "https://app.warp.dev/api/v1/mcp/factory".to_string(),
-                headers: HashMap::from([(
-                    "Authorization".to_string(),
-                    "Bearer wk-test-key".to_string(),
-                )]),
-            },
-        },
-    )]);
-    let json = serialize_claude_mcp_config(&servers).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let server = &parsed["mcpServers"]["warp-factory"];
-    assert_eq!(server["type"], "http");
-    assert_eq!(server["url"], "https://app.warp.dev/api/v1/mcp/factory");
-    assert_eq!(server["headers"]["Authorization"], "Bearer wk-test-key");
-}
-
-#[test]
 #[serial_test::serial]
 fn parent_bridge_root_prefers_environment_override() {
     let tmp = TempDir::new().unwrap();
@@ -230,7 +139,14 @@ fn stage_parent_bridge_message_writes_message_record() {
     let tmp = TempDir::new().unwrap();
     let state_dir = tmp.path().join("session-123");
     ensure_parent_bridge_state_dir(&state_dir).unwrap();
-    let record = sample_staged_parent_bridge_message(42, "msg-123");
+    let record = MessageBridgeMessageRecord {
+        sequence: 42,
+        message_id: "msg-123".to_string(),
+        sender_run_id: String::new(),
+        subject: String::new(),
+        body: String::new(),
+        occurred_at: "2026-04-17T15:46:00Z".to_string(),
+    };
 
     stage_parent_bridge_message(&state_dir, &record).unwrap();
 
@@ -240,302 +156,6 @@ fn stage_parent_bridge_message_writes_message_record() {
     assert_eq!(staged_record.sequence, 42);
     assert_eq!(staged_record.message_id, "msg-123");
     assert!(staged_record.sender_run_id.is_empty());
-}
-
-#[tokio::test]
-async fn parent_bridge_event_cursor_defaults_to_zero_when_missing() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    assert_eq!(read_parent_bridge_event_cursor(&state_dir).unwrap(), 0);
-    assert!(!parent_bridge_event_cursor_file(&state_dir).exists());
-}
-
-#[tokio::test]
-async fn parent_bridge_event_cursor_round_trips() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    write_parent_bridge_event_cursor(&state_dir, 42).unwrap();
-
-    assert_eq!(read_parent_bridge_event_cursor(&state_dir).unwrap(), 42);
-    assert!(parent_bridge_event_cursor_file(&state_dir).exists());
-}
-
-#[test]
-#[serial_test::serial]
-fn message_bridge_cleanup_preserves_state_for_wakeable_runs() {
-    let tmp = TempDir::new().unwrap();
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::set_var(OZ_MESSAGE_LISTENER_STATE_ROOT_ENV, tmp.path()) };
-
-    let session_id = Uuid::new_v4();
-    let bridge = MessageBridge::new("run-123".to_string(), session_id).unwrap();
-    let state_dir = tmp.path().join(session_id.to_string());
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-    let record = sample_staged_parent_bridge_message(42, "msg-123");
-    stage_parent_bridge_message(&state_dir, &record).unwrap();
-    write_parent_bridge_event_cursor(&state_dir, 42).unwrap();
-
-    bridge
-        .cleanup(MessageBridgeCleanupDisposition::PreserveState)
-        .unwrap();
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::remove_var(OZ_MESSAGE_LISTENER_STATE_ROOT_ENV) };
-
-    assert!(state_dir.exists());
-    assert!(parent_bridge_staged_message_path(&state_dir, 42, "msg-123").exists());
-    assert_eq!(read_parent_bridge_event_cursor(&state_dir).unwrap(), 42);
-}
-
-#[test]
-#[serial_test::serial]
-fn message_bridge_cleanup_removes_state_for_non_wakeable_runs() {
-    let tmp = TempDir::new().unwrap();
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::set_var(OZ_MESSAGE_LISTENER_STATE_ROOT_ENV, tmp.path()) };
-
-    let session_id = Uuid::new_v4();
-    let bridge = MessageBridge::new("run-123".to_string(), session_id).unwrap();
-    let state_dir = tmp.path().join(session_id.to_string());
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-    stage_parent_bridge_message(
-        &state_dir,
-        &sample_staged_parent_bridge_message(42, "msg-123"),
-    )
-    .unwrap();
-    write_parent_bridge_event_cursor(&state_dir, 42).unwrap();
-
-    bridge
-        .cleanup(MessageBridgeCleanupDisposition::RemoveState)
-        .unwrap();
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::remove_var(OZ_MESSAGE_LISTENER_STATE_ROOT_ENV) };
-
-    assert!(!state_dir.exists());
-}
-
-#[tokio::test]
-async fn prepare_parent_bridge_hook_output_moves_selected_messages_to_surfaced_dir() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    let first = sample_parent_bridge_message(
-        42,
-        "msg-123",
-        "Please pivot",
-        "Inspect the failing tests first.",
-    );
-    stage_parent_bridge_message(
-        &state_dir,
-        &sample_staged_parent_bridge_message(42, "msg-123"),
-    )
-    .unwrap();
-    stage_parent_bridge_message(
-        &state_dir,
-        &sample_staged_parent_bridge_message(43, "msg-456"),
-    )
-    .unwrap();
-
-    let mut ai_client = MockAIClient::new();
-    let expected_first = first.clone();
-    ai_client
-        .expect_read_agent_message()
-        .with(eq("msg-123"))
-        .times(1)
-        .returning(move |_| {
-            Ok(ReadAgentMessageResponse {
-                message_id: expected_first.message_id.clone(),
-                sender_run_id: expected_first.sender_run_id.clone(),
-                subject: expected_first.subject.clone(),
-                body: expected_first.body.clone(),
-                sent_at: "2026-04-17T15:46:00Z".to_string(),
-                delivered_at: None,
-                read_at: Some("2026-04-17T15:46:02Z".to_string()),
-            })
-        });
-    let hydrator = MessageHydrator::new(
-        Arc::new(ai_client) as Arc<dyn crate::server::server_api::ai::AIClient>
-    );
-
-    let max_context_chars = parent_bridge_char_count(MESSAGE_BRIDGE_CONTEXT_PREAMBLE)
-        + parent_bridge_char_count(&render_parent_bridge_message_block(&first));
-    prepare_parent_bridge_hook_output(&hydrator, &state_dir, max_context_chars)
-        .await
-        .unwrap();
-
-    let hook_output: MessageBridgeHookOutput =
-        serde_json::from_slice(&fs::read(parent_bridge_hook_output_file(&state_dir)).unwrap())
-            .unwrap();
-    assert_eq!(hook_output.surfaced_count, 1);
-    assert_eq!(hook_output.remaining_staged_count, 1);
-    assert!(hook_output.additional_context.contains("Please pivot"));
-    assert!(!hook_output.additional_context.contains("Second update"));
-    let surfaced_path = parent_bridge_surfaced_message_path(&state_dir, 42, "msg-123");
-    assert!(surfaced_path.exists());
-    assert!(parent_bridge_staged_message_path(&state_dir, 43, "msg-456").exists());
-    assert!(!parent_bridge_staged_message_path(&state_dir, 42, "msg-123").exists());
-    let surfaced_record: MessageBridgeMessageRecord =
-        serde_json::from_slice(&fs::read(&surfaced_path).unwrap()).unwrap();
-    assert_eq!(surfaced_record.subject, first.subject);
-    assert_eq!(surfaced_record.body, first.body);
-}
-
-#[tokio::test]
-async fn acknowledge_parent_bridge_hook_output_marks_messages_delivered_and_clears_state() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    let record = sample_parent_bridge_message(
-        42,
-        "msg-123",
-        "Please pivot",
-        "Inspect the failing tests first.",
-    );
-    write_surfaced_parent_bridge_message(&state_dir, &record);
-    fs::write(
-        parent_bridge_hook_output_file(&state_dir),
-        serde_json::to_vec(&MessageBridgeHookOutput {
-            additional_context: "context".to_string(),
-            remaining_staged_count: 0,
-            surfaced_count: 1,
-        })
-        .unwrap(),
-    )
-    .unwrap();
-    fs::write(parent_bridge_hook_output_ack_file(&state_dir), "").unwrap();
-
-    let mut ai_client = MockAIClient::new();
-    ai_client
-        .expect_mark_message_delivered()
-        .with(eq("msg-123"))
-        .times(1)
-        .returning(|_| Ok(()));
-    let hydrator = MessageHydrator::new(
-        Arc::new(ai_client) as Arc<dyn crate::server::server_api::ai::AIClient>
-    );
-
-    acknowledge_parent_bridge_hook_output(&hydrator, &state_dir)
-        .await
-        .unwrap();
-
-    assert!(!parent_bridge_surfaced_message_path(&state_dir, 42, "msg-123").exists());
-    assert!(!parent_bridge_hook_output_file(&state_dir).exists());
-    assert!(!parent_bridge_hook_output_ack_file(&state_dir).exists());
-}
-
-#[tokio::test]
-async fn prepare_parent_bridge_hook_output_reuses_surfaced_records_without_rehydrating() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    let record = sample_parent_bridge_message(
-        42,
-        "msg-123",
-        "Please pivot",
-        "Inspect the failing tests first.",
-    );
-    write_surfaced_parent_bridge_message(&state_dir, &record);
-
-    let mut ai_client = MockAIClient::new();
-    ai_client.expect_read_agent_message().times(0);
-    let hydrator = MessageHydrator::new(
-        Arc::new(ai_client) as Arc<dyn crate::server::server_api::ai::AIClient>
-    );
-
-    let max_context_chars = parent_bridge_char_count(MESSAGE_BRIDGE_CONTEXT_PREAMBLE)
-        + parent_bridge_char_count(&render_parent_bridge_message_block(&record));
-    prepare_parent_bridge_hook_output(&hydrator, &state_dir, max_context_chars)
-        .await
-        .unwrap();
-
-    let hook_output: MessageBridgeHookOutput =
-        serde_json::from_slice(&fs::read(parent_bridge_hook_output_file(&state_dir)).unwrap())
-            .unwrap();
-    assert_eq!(hook_output.surfaced_count, 1);
-    assert_eq!(hook_output.remaining_staged_count, 0);
-    assert!(hook_output.additional_context.contains(&record.subject));
-}
-
-#[tokio::test]
-async fn prepare_parent_bridge_hook_output_truncates_single_large_message() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-    stage_parent_bridge_message(
-        &state_dir,
-        &sample_staged_parent_bridge_message(42, "msg-123"),
-    )
-    .unwrap();
-
-    let long_body = "x".repeat(200);
-    let mut ai_client = MockAIClient::new();
-    ai_client
-        .expect_read_agent_message()
-        .with(eq("msg-123"))
-        .times(1)
-        .returning(move |_| {
-            Ok(ReadAgentMessageResponse {
-                message_id: "msg-123".to_string(),
-                sender_run_id: "parent-run-456".to_string(),
-                subject: "Please pivot".to_string(),
-                body: long_body.clone(),
-                sent_at: "2026-04-17T15:46:00Z".to_string(),
-                delivered_at: None,
-                read_at: Some("2026-04-17T15:46:02Z".to_string()),
-            })
-        });
-    let hydrator = MessageHydrator::new(
-        Arc::new(ai_client) as Arc<dyn crate::server::server_api::ai::AIClient>
-    );
-
-    let max_context_chars = parent_bridge_char_count(MESSAGE_BRIDGE_CONTEXT_PREAMBLE) + 48;
-    prepare_parent_bridge_hook_output(&hydrator, &state_dir, max_context_chars)
-        .await
-        .unwrap();
-
-    let hook_output: MessageBridgeHookOutput =
-        serde_json::from_slice(&fs::read(parent_bridge_hook_output_file(&state_dir)).unwrap())
-            .unwrap();
-    assert_eq!(hook_output.surfaced_count, 1);
-    assert!(
-        hook_output.additional_context.ends_with("..."),
-        "expected truncated context, got: {}",
-        hook_output.additional_context
-    );
-    assert!(parent_bridge_char_count(&hook_output.additional_context) <= max_context_chars);
-}
-
-#[tokio::test]
-async fn acknowledge_parent_bridge_hook_output_ignores_missing_ack_marker() {
-    let tmp = TempDir::new().unwrap();
-    let state_dir = tmp.path().join("session-123");
-    ensure_parent_bridge_state_dir(&state_dir).unwrap();
-
-    let record = sample_parent_bridge_message(
-        42,
-        "msg-123",
-        "Please pivot",
-        "Inspect the failing tests first.",
-    );
-    write_surfaced_parent_bridge_message(&state_dir, &record);
-
-    let mut ai_client = MockAIClient::new();
-    ai_client.expect_mark_message_delivered().times(0);
-    let hydrator = MessageHydrator::new(
-        Arc::new(ai_client) as Arc<dyn crate::server::server_api::ai::AIClient>
-    );
-
-    acknowledge_parent_bridge_hook_output(&hydrator, &state_dir)
-        .await
-        .unwrap();
-
-    assert!(parent_bridge_surfaced_message_path(&state_dir, 42, "msg-123").exists());
 }
 
 #[test]
@@ -690,15 +310,8 @@ fn prepare_claude_environment_config_without_config_dir_uses_home_global_config(
     unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
 
     let working_dir = home_dir.path().join("workspace/project");
-    prepare_claude_environment_config(
-        &working_dir,
-        &working_dir,
-        &HashMap::new(),
-        &[],
-        false,
-        HarnessSupportSkills::Plugin,
-    )
-    .unwrap();
+    prepare_claude_environment_config(&working_dir, &working_dir, &HashMap::new(), &[], false)
+        .unwrap();
 
     assert!(home_dir.path().join(CLAUDE_JSON_FILE_NAME).exists());
     assert!(
@@ -743,15 +356,8 @@ fn prepare_claude_environment_config_with_config_dir_uses_dir_global_config() {
     unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", claude_config_dir.path()) };
 
     let working_dir = home_dir.path().join("workspace/project");
-    prepare_claude_environment_config(
-        &working_dir,
-        &working_dir,
-        &HashMap::new(),
-        &[],
-        false,
-        HarnessSupportSkills::Plugin,
-    )
-    .unwrap();
+    prepare_claude_environment_config(&working_dir, &working_dir, &HashMap::new(), &[], false)
+        .unwrap();
 
     assert!(
         claude_config_dir
@@ -878,13 +484,14 @@ fn prepare_local_wake_command_rehydrates_transcript_with_self_managed_listener()
     );
     assert!(!parent_bridge_hook_output_file(&state_dir).exists());
 
-    let (restored_envelope, _) =
-        read_envelope_with_diagnostics(session_id, &working_dir, claude_config_dir.path(), false)
-            .unwrap();
-    assert_eq!(restored_envelope.cwd, working_dir);
+    let session_file = claude_config_dir
+        .path()
+        .join("projects")
+        .join(encode_cwd(&working_dir))
+        .join(format!("{session_id}.jsonl"));
     assert_eq!(
-        restored_envelope.entries,
-        vec![serde_json::json!({"type": "assistant", "text": "done"})]
+        serde_json::from_str::<Value>(&fs::read_to_string(session_file).unwrap()).unwrap(),
+        serde_json::json!({"type": "assistant", "text": "done"})
     );
     assert!(
         claude_config_dir
@@ -973,6 +580,7 @@ async fn prime_parent_bridge_staged_for_self_managed_wake_keeps_message_in_stage
     assert_eq!(staged_record.body, expected.body);
     assert_eq!(staged_record.occurred_at, wake_message.occurred_at);
 }
+
 #[test]
 #[serial_test::serial]
 fn suffix_uses_worker_injected_env_when_present() {

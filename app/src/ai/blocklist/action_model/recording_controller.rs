@@ -33,7 +33,6 @@ pub(crate) fn video_recording_enabled() -> bool {
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) enum FinalizeReason {
     StoppedByAgent,
-    RunEnded,
     LimitReached,
     FfmpegExited,
     RunCancelled,
@@ -48,7 +47,6 @@ impl FinalizeReason {
     pub(crate) fn telemetry_key(self) -> &'static str {
         match self {
             FinalizeReason::StoppedByAgent => "agent_stopped",
-            FinalizeReason::RunEnded => "run_ended",
             FinalizeReason::LimitReached => "limit_reached",
             FinalizeReason::FfmpegExited => "encoding_failed",
             FinalizeReason::RunCancelled => "run_cancelled",
@@ -70,9 +68,6 @@ impl FinalizeReason {
                     "Recording stopped before the agent requested it".to_string()
                 }
             },
-            FinalizeReason::RunEnded => {
-                "Finalized because the agent run ended without stopping the recording".to_string()
-            }
             FinalizeReason::LimitReached => {
                 "Stopped at the configured duration or size limit".to_string()
             }

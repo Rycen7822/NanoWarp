@@ -4,53 +4,8 @@ use std::path::Path;
 
 use tempfile::TempDir;
 use uuid::Uuid;
-use warp_harness_usage::api::{CoverageStatus, HarnessUsageSnapshot};
-use warp_harness_usage::{ExtractionOutcome, JsonlReadStatus, extract_claude};
 
 use super::*;
-#[test]
-fn captured_metrics_and_raw_bytes_share_records_before_late_append() {
-    let tmp = TempDir::new().unwrap();
-    let cwd = Path::new("/synthetic/project");
-    let session = Uuid::new_v4();
-    let directory = tmp.path().join("projects").join(encode_cwd(cwd));
-    fs::create_dir_all(&directory).unwrap();
-    let filename = format!("{session}.jsonl");
-    write_file(
-        &directory,
-        &filename,
-        "{\"type\":\"assistant\",\"message\":{\"id\":\"a\",\"usage\":{\"input_tokens\":10}}}\n{\"type\":",
-    );
-    let (envelope, diagnostics) =
-        read_envelope_with_diagnostics(session, cwd, tmp.path(), true).unwrap();
-    let raw = serde_json::to_vec(&envelope).unwrap();
-    write_file(
-        &directory,
-        &filename,
-        "{\"type\":\"assistant\",\"message\":{\"id\":\"b\",\"usage\":{\"input_tokens\":999}}}\n",
-    );
-    let ExtractionOutcome::Usable(extracted) =
-        extract_claude(&session.to_string(), &envelope.entries, [], &diagnostics)
-    else {
-        panic!("expected observed tokens");
-    };
-    let HarnessUsageSnapshot::ClaudeCode(snapshot) = extracted.snapshot else {
-        unreachable!()
-    };
-    assert_eq!(snapshot.coverage.token_status, CoverageStatus::Partial);
-    assert_eq!(
-        serde_json::to_value(snapshot.payload).unwrap()["usage"]["input_tokens"],
-        10
-    );
-    let uploaded: ClaudeTranscriptEnvelope = serde_json::from_slice(&raw).unwrap();
-    assert_eq!(uploaded.entries, envelope.entries);
-    assert!(diagnostics.root.incomplete_trailing_record);
-}
-
-fn write_file(dir: &Path, name: &str, content: &str) {
-    fs::write(dir.join(name), content).unwrap();
-}
-
 #[test]
 fn encode_cwd_matches_claude_project_keys() {
     for (cwd, expected) in [
@@ -99,36 +54,6 @@ fn encode_cwd_matches_claude_long_path_hashes() {
 }
 
 #[test]
-fn capture_reads_literal_windows_claude_layout() {
-    let config = TempDir::new().unwrap();
-    let cwd = Path::new(r"C:\Users\runneradmin\workspace");
-    let session = Uuid::new_v4();
-    let project = config
-        .path()
-        .join("projects")
-        .join("C--Users-runneradmin-workspace");
-    fs::create_dir_all(&project).unwrap();
-    write_file(
-        &project,
-        &format!("{session}.jsonl"),
-        "{\"type\":\"user\"}\n",
-    );
-    let subagents = project.join(session.to_string()).join("subagents");
-    fs::create_dir_all(&subagents).unwrap();
-    write_file(&subagents, "agent-test.jsonl", "{\"type\":\"assistant\"}\n");
-
-    let (envelope, diagnostics) =
-        read_envelope_with_diagnostics(session, cwd, config.path(), true).unwrap();
-    assert_eq!(envelope.entries, vec![serde_json::json!({"type": "user"})]);
-    assert_eq!(
-        envelope.subagents["agent-test"],
-        vec![serde_json::json!({"type": "assistant"})],
-    );
-    assert_eq!(envelope.cwd, cwd);
-    assert_eq!(diagnostics.root.status, JsonlReadStatus::Readable);
-}
-
-#[test]
 fn write_envelope_uses_literal_windows_claude_layout() {
     let config = TempDir::new().unwrap();
     let cwd = Path::new(r"C:\Users\runneradmin\workspace");
@@ -154,20 +79,17 @@ fn write_envelope_uses_literal_windows_claude_layout() {
         .join("projects")
         .join("C--Users-runneradmin-workspace");
     assert_eq!(
-        read_jsonl_capture(&project.join(format!("{session}.jsonl")))
-            .unwrap()
-            .entries,
-        envelope.entries,
+        fs::read(project.join(format!("{session}.jsonl"))).unwrap(),
+        entries_to_jsonl(&envelope.entries).unwrap(),
     );
     assert_eq!(
-        read_jsonl_capture(
-            &project
+        fs::read(
+            project
                 .join(session.to_string())
                 .join("subagents/agent-test.jsonl")
         )
-        .unwrap()
-        .entries,
-        envelope.subagents["agent-test"],
+        .unwrap(),
+        entries_to_jsonl(&envelope.subagents["agent-test"]).unwrap(),
     );
     assert_eq!(envelope.cwd, cwd);
 }
@@ -196,80 +118,10 @@ fn local_continuation_places_windows_files_without_rewriting_cwd() {
         .join("C--Users-runneradmin-local-project")
         .join(format!("{session}.jsonl"));
     assert_eq!(
-        read_jsonl_capture(&session_file).unwrap().entries,
-        envelope.entries
+        fs::read(&session_file).unwrap(),
+        entries_to_jsonl(&envelope.entries).unwrap()
     );
     assert_eq!(envelope.cwd, cloud_cwd);
-}
-
-#[test]
-fn read_envelope_main_only() {
-    let tmp = TempDir::new().unwrap();
-    let cwd = Path::new("/my/project");
-    let uuid = Uuid::new_v4();
-
-    let encoded = encode_cwd(cwd);
-    let projects_dir = tmp.path().join("projects").join(&encoded);
-    fs::create_dir_all(&projects_dir).unwrap();
-    write_file(
-        &projects_dir,
-        &format!("{uuid}.jsonl"),
-        "{\"type\":\"user\"}\n{\"type\":\"assistant\"}\n",
-    );
-
-    let (envelope, _) = read_envelope_with_diagnostics(uuid, cwd, tmp.path(), false).unwrap();
-    assert_eq!(
-        envelope.entries,
-        vec![
-            serde_json::json!({"type": "user"}),
-            serde_json::json!({"type": "assistant"}),
-        ]
-    );
-    assert_eq!(envelope.uuid, uuid);
-    assert_eq!(envelope.cwd, cwd);
-    assert!(envelope.subagents.is_empty());
-    assert!(envelope.todos.is_empty());
-}
-
-#[test]
-fn read_envelope_with_subagents() {
-    let tmp = TempDir::new().unwrap();
-    let cwd = Path::new("/my/project");
-    let uuid = Uuid::new_v4();
-
-    let encoded = encode_cwd(cwd);
-    let projects_dir = tmp.path().join("projects").join(&encoded);
-    fs::create_dir_all(&projects_dir).unwrap();
-    write_file(&projects_dir, &format!("{uuid}.jsonl"), "");
-
-    let subagents_dir = projects_dir.join(uuid.to_string()).join("subagents");
-    fs::create_dir_all(&subagents_dir).unwrap();
-    write_file(
-        &subagents_dir,
-        "agent-abc123def456.jsonl",
-        "{\"type\":\"user\"}\n",
-    );
-
-    let (envelope, _) = read_envelope_with_diagnostics(uuid, cwd, tmp.path(), false).unwrap();
-    assert_eq!(
-        envelope.subagents["agent-abc123def456"],
-        vec![serde_json::json!({"type": "user"})]
-    );
-}
-
-#[test]
-fn read_envelope_missing_session_file() {
-    let tmp = TempDir::new().unwrap();
-    let cwd = Path::new("/my/project");
-    let uuid = Uuid::new_v4();
-
-    let (envelope, diagnostics) =
-        read_envelope_with_diagnostics(uuid, cwd, tmp.path(), false).unwrap();
-    assert!(envelope.entries.is_empty());
-    assert!(envelope.subagents.is_empty());
-    assert!(envelope.todos.is_empty());
-    assert_eq!(diagnostics.root.status, JsonlReadStatus::Missing);
-    assert!(read_envelope_with_diagnostics(uuid, cwd, tmp.path(), true).is_err());
 }
 
 #[test]
@@ -303,8 +155,8 @@ fn write_envelope_creates_files() {
     let session_file = projects_dir.join(format!("{uuid}.jsonl"));
     assert!(session_file.exists(), "session JSONL missing");
     assert_eq!(
-        read_jsonl_capture(&session_file).unwrap().entries,
-        envelope.entries
+        fs::read(&session_file).unwrap(),
+        entries_to_jsonl(&envelope.entries).unwrap()
     );
 
     // Subagent JSONL.
@@ -314,8 +166,8 @@ fn write_envelope_creates_files() {
         .join("agent-abc.jsonl");
     assert!(subagent_file.exists(), "subagent JSONL missing");
     assert_eq!(
-        read_jsonl_capture(&subagent_file).unwrap().entries,
-        envelope.subagents["agent-abc"]
+        fs::read(&subagent_file).unwrap(),
+        entries_to_jsonl(&envelope.subagents["agent-abc"]).unwrap()
     );
 
     // Todo JSON.
@@ -343,109 +195,15 @@ fn write_envelope_round_trip() {
 
     write_envelope(&original, tmp.path()).unwrap();
 
-    let (decoded, _) = read_envelope_with_diagnostics(uuid, cwd, tmp.path(), false).unwrap();
-    assert_eq!(decoded, original);
-}
-
-#[test]
-#[serial_test::serial]
-fn rehydrate_claude_transcript_fails_on_cwd_mismatch() {
-    let config_dir = TempDir::new().unwrap();
-    let old_config_dir = std::env::var_os("CLAUDE_CONFIG_DIR");
-    // SAFETY: `#[serial_test::serial]` ensures no other thread reads or writes the process
-    // environment concurrently with this test.
-    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", config_dir.path()) };
-
-    let uuid = Uuid::new_v4();
-    let mut envelope = ClaudeTranscriptEnvelope {
-        cwd: Path::new("/original/cwd").to_path_buf(),
-        uuid,
-        claude_version: None,
-        entries: vec![serde_json::json!({"type": "user"})],
-        subagents: HashMap::new(),
-        todos: HashMap::new(),
-    };
-
-    let err = rehydrate_claude_transcript(&mut envelope, Path::new("/different/cwd")).unwrap_err();
-    assert!(
-        err.to_string().contains("Unable to resume Claude session"),
-        "unexpected error message: {err:#}"
-    );
-    // Nothing should have been written when the cwd doesn't match.
-    assert!(!config_dir.path().join("projects").exists());
-    assert!(!config_dir.path().join(SESSIONS_INDEX_FILENAME).exists());
-
-    match old_config_dir {
-        // SAFETY: `#[serial_test::serial]` ensures no other thread reads or writes the process
-        // environment concurrently with this test.
-        Some(dir) => unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", dir) },
-        // SAFETY: See above.
-        None => unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") },
-    }
-}
-
-#[test]
-#[serial_test::serial]
-fn rehydrate_claude_transcript_succeeds_when_cwd_matches() {
-    let config_dir = TempDir::new().unwrap();
-    let cwd = Path::new(r"C:\Users\runneradmin\workspace");
-    let key = encode_cwd(cwd);
-    assert!(!key.contains(['/', '\\', ':', '.']));
-    assert!(!Path::new(&key).has_root());
-    let old_config_dir = std::env::var_os("CLAUDE_CONFIG_DIR");
-    // SAFETY: `#[serial_test::serial]` ensures no other thread reads or writes the process
-    // environment concurrently with this test.
-    unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", config_dir.path()) };
-
-    let uuid = Uuid::new_v4();
-    let mut envelope = ClaudeTranscriptEnvelope {
-        cwd: cwd.to_path_buf(),
-        uuid,
-        claude_version: None,
-        entries: vec![serde_json::json!({"type": "user"})],
-        subagents: HashMap::new(),
-        todos: HashMap::new(),
-    };
-
-    let continuation = rehydrate_claude_transcript(&mut envelope, cwd).unwrap();
-    assert_eq!(continuation.command, format!("claude --resume {uuid}"));
-
-    let session_file = config_dir
+    let session_file = tmp
         .path()
         .join("projects")
-        .join("C--Users-runneradmin-workspace")
+        .join(encode_cwd(cwd))
         .join(format!("{uuid}.jsonl"));
-    assert!(session_file.exists(), "session JSONL missing");
-    assert_eq!(envelope.cwd, cwd);
     assert_eq!(
-        read_jsonl_capture(&session_file).unwrap().entries,
-        envelope.entries
+        fs::read(session_file).unwrap(),
+        entries_to_jsonl(&original.entries).unwrap()
     );
-
-    let index: serde_json::Value =
-        serde_json::from_slice(&fs::read(config_dir.path().join(SESSIONS_INDEX_FILENAME)).unwrap())
-            .unwrap();
-    assert_eq!(index[uuid.to_string()]["sessionId"], uuid.to_string());
-    assert_eq!(
-        index[uuid.to_string()]["cwd"],
-        cwd.to_string_lossy().as_ref()
-    );
-    assert_eq!(
-        index[uuid.to_string()]["projectPath"],
-        "C--Users-runneradmin-workspace"
-    );
-    assert_eq!(
-        index[uuid.to_string()]["transcriptPath"],
-        format!("projects/C--Users-runneradmin-workspace/{uuid}.jsonl"),
-    );
-
-    match old_config_dir {
-        // SAFETY: `#[serial_test::serial]` ensures no other thread reads or writes the process
-        // environment concurrently with this test.
-        Some(dir) => unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", dir) },
-        // SAFETY: See above.
-        None => unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") },
-    }
 }
 
 #[test]

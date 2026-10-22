@@ -3,7 +3,6 @@ use std::{env, fs};
 
 use chrono::Utc;
 use tempfile::tempdir;
-use warp_cli::artifact::UploadArtifactArgs;
 
 use super::*;
 use crate::ai::agent::api::ServerConversationToken;
@@ -160,19 +159,6 @@ fn explicit_run_id_wins_over_env_fallback() {
             ambient_task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
         }
     );
-}
-
-#[test]
-fn invalid_explicit_run_id_errors_even_if_env_fallback_exists() {
-    let err = FileArtifactUploadRequest::try_from(UploadArtifactArgs {
-        path: PathBuf::from("outputs/report.txt"),
-        run_id: Some("not-a-run-id".to_string()),
-        conversation_id: None,
-        description: None,
-    })
-    .unwrap_err();
-
-    assert!(err.to_string().contains("Invalid run ID 'not-a-run-id'"));
 }
 
 #[test]

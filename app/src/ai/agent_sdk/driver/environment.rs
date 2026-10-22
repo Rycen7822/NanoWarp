@@ -8,7 +8,6 @@ use std::time::Duration;
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
 };
-use chrono::Utc;
 use cloud_object_models::CodeForge;
 use futures::channel::oneshot;
 use futures::future::{Either, join_all, select};
@@ -27,21 +26,18 @@ use warpui::{ModelContext, ModelSpawner, SingletonEntity};
 use super::cache_setup;
 use super::environment_checkout_protocol::{
     CheckoutBatch, CheckoutFailureKind, CheckoutReport, CheckoutRequest,
-    CloneFailureIdentityDiagnostics, ResolvedHeads, parse_resolved_head_sha,
-    sanitize_git_author_name, sanitize_git_credential_username,
+    CloneFailureIdentityDiagnostics, parse_resolved_head_sha, sanitize_git_author_name,
+    sanitize_git_credential_username,
 };
-use super::environment_preparation::{PreparationPolicy, PreparationRepository};
 use super::terminal::TerminalDriver;
-use super::{AgentDriverError, Harness, failure_output, git_credentials};
-use crate::ai::agent_sdk::environment_snapshot::{
-    EnvironmentSnapshot, EnvironmentSnapshotReporter, RepositoryRevision,
-};
-use crate::ai::agent_sdk::setup_observability::{SetupClientEventReporter, SetupStep};
+use super::{AgentDriverError, failure_output};
+use crate::ai::agent_sdk::setup_observability::{SetupStep, SetupTracer};
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, SourceRepo};
 use crate::server::telemetry::secret_redaction::redact_secrets_in_string;
 use crate::terminal::model::BlockId;
 use crate::terminal::model::session::command_executor::shell_escape_single_quotes;
 use crate::terminal::shell::ShellType;
+use warp_cli::agent::Harness;
 
 const CODEBASE_INDEX_SYNC_TIMEOUT: Duration = Duration::from_secs(60);
 const CLONE_FAILURE_OUTPUT_TRUNCATION_MARKER: &str = "\n… clone output truncated …\n";
@@ -194,131 +190,15 @@ fn clone_failure_output_suffix(output: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-fn checkout_path(working_dir: &Path, repo_name: &str) -> String {
-    working_dir
-        .join(repo_name)
-        .strip_prefix(working_dir)
-        .unwrap_or_else(|_| Path::new(repo_name))
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn environment_snapshot(
-    repos: &[RepositoryCloneRequest],
-    working_dir: &Path,
-    resolved_heads: &ResolvedHeads,
-) -> EnvironmentSnapshot {
-    let repositories = repos
-        .iter()
-        .filter_map(|request| {
-            Some(RepositoryRevision {
-                code_forge: request.remote.code_forge?,
-                repo_owner: request.remote.owner.clone(),
-                repo_name: request.remote.repo.clone(),
-                checkout_path: checkout_path(working_dir, &request.checkout_name),
-                requested_checkout_ref: request
-                    .checkout
-                    .as_ref()
-                    .map(RepositoryHeadRef::value)
-                    .map(str::to_string),
-                resolved_head_sha: resolved_heads.get(&request.checkout_name)?.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
-    if repositories.len() < repos.len() {
-        log::warn!(
-            "Could not capture resolved HEAD for {}/{} structured repositories",
-            repos.len() - repositories.len(),
-            repos.len()
-        );
-    }
-    EnvironmentSnapshot {
-        captured_at: Utc::now(),
-        repositories,
-    }
-}
-
-/// Holds shared workspace inputs for normal run setup and standby preparation.
+/// Holds workspace inputs for environment preparation.
 #[derive(Clone, Default)]
 pub(crate) struct WorkspaceConfiguration {
     pub source_repos: Vec<SourceRepo>,
-    pub deferred_repos: Vec<ResolvedRepository>,
     pub setup_commands: Vec<String>,
-    /// Overrides `WARP_SKILL_DIRS` when present, including an empty list.
-    pub factory_skill_dirs: Option<Vec<PathBuf>>,
-    /// Retains an explicitly selected environment even when it has no repositories or commands.
-    pub has_environment: bool,
-    pub(super) preparation_policy: Option<PreparationPolicy>,
-    resolved_repos: Vec<ResolvedRepository>,
     clone_requests: Vec<RepositoryCloneRequest>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ResolvedRepository {
-    pub source: SourceRepo,
-    pub checkout: Option<RepositoryHeadRef>,
-    pub clone_from: Option<SourceRepo>,
-    pub preserve_origin: bool,
-    pub expected_sha: Option<String>,
-}
-
 impl WorkspaceConfiguration {
-    pub(crate) fn bind_execution(
-        &mut self,
-        task_id: String,
-        execution_id: String,
-        working_dir: PathBuf,
-        supports_deferred_repositories: bool,
-    ) -> anyhow::Result<()> {
-        let records = |repos: &[ResolvedRepository]| -> anyhow::Result<Vec<PreparationRepository>> {
-            repos
-                .iter()
-                .map(|repo| {
-                    let clones = resolved_repository_clone_requests(std::slice::from_ref(repo))?;
-                    let batch = checkout_requests_batch(&clones, &working_dir)?;
-                    let mut request = batch
-                        .repositories
-                        .into_iter()
-                        .next()
-                        .ok_or(PrepareEnvironmentError::InvalidRuntimeState)?;
-                    request.remove_origin = clones[0].remove_origin;
-                    Ok(PreparationRepository {
-                        source: RepositoryIdentity {
-                            code_forge: repository_forge_for_repo(&repo.source)
-                                .ok_or(PrepareEnvironmentError::InvalidRuntimeState)?,
-                            repo_owner: repo.source.owner.clone(),
-                            repo_name: repo.source.repo.clone(),
-                        },
-                        request,
-                    })
-                })
-                .collect()
-        };
-        let policy = PreparationPolicy {
-            task_id,
-            execution_id,
-            working_dir: working_dir.clone(),
-            supports_deferred_repositories,
-            eager: records(&self.resolved_repos)?,
-            deferred: records(&self.deferred_repos)?,
-        };
-        policy.validate()?;
-        self.preparation_policy = Some(policy);
-        Ok(())
-    }
-
-    /// Compares only the checkouts and commands that standby preparation runs, because a run checks
-    /// out its deferred repositories itself.
-    pub(super) fn same_preparation(&self, other: &Self) -> bool {
-        self.source_repos == other.source_repos
-            && self.setup_commands == other.setup_commands
-            && self.clone_requests == other.clone_requests
-    }
-
-    /// Reports whether the workspace requires setup before harness startup.
-    pub fn needs_preparation(&self) -> bool {
-        self.has_environment || !self.source_repos.is_empty() || !self.setup_commands.is_empty()
-    }
     /// Builds a workspace from a locally resolved environment and CLI repository overrides.
     pub fn from_legacy(
         environment: Option<&AmbientAgentEnvironment>,
@@ -339,35 +219,8 @@ impl WorkspaceConfiguration {
             repository_clone_requests(&source_repos, &preparation_overrides, remove_origins)?;
         Ok(Self {
             source_repos,
-            deferred_repos: Vec::new(),
             setup_commands,
-            factory_skill_dirs: None,
-            has_environment: environment.is_some(),
             clone_requests,
-            preparation_policy: None,
-            resolved_repos: Vec::new(),
-        })
-    }
-
-    /// Builds a workspace from server-selected checkouts without resolving an environment locally.
-    pub fn from_resolved(
-        repositories: Vec<ResolvedRepository>,
-        deferred_repos: Vec<ResolvedRepository>,
-        setup_commands: Vec<String>,
-    ) -> Result<Self, PrepareEnvironmentError> {
-        let clone_requests = resolved_repository_clone_requests(&repositories)?;
-        Ok(Self {
-            source_repos: repositories
-                .iter()
-                .map(|repo| repo.source.clone())
-                .collect(),
-            deferred_repos,
-            setup_commands,
-            factory_skill_dirs: None,
-            has_environment: false,
-            clone_requests,
-            preparation_policy: None,
-            resolved_repos: repositories,
         })
     }
 }
@@ -441,8 +294,7 @@ pub(crate) fn prepare_environment(
     is_sandbox: bool,
     harness: Harness,
     workspace: WorkspaceConfiguration,
-    setup_events: SetupClientEventReporter,
-    environment_snapshot_reporter: EnvironmentSnapshotReporter,
+    setup_events: SetupTracer,
     ctx: &mut ModelContext<TerminalDriver>,
 ) -> impl Future<Output = Result<PathBuf, PrepareEnvironmentError>> + use<> {
     let spawner = ctx.spawner();
@@ -450,12 +302,7 @@ pub(crate) fn prepare_environment(
         let WorkspaceConfiguration {
             source_repos,
             setup_commands,
-            factory_skill_dirs: _,
             clone_requests,
-            has_environment: _,
-            deferred_repos: _,
-            preparation_policy: _,
-            resolved_repos: _,
         } = workspace;
         // Only index the codebase for the Oz harness; third-party harnesses (e.g. Claude)
         // have their own methods for navigating a codebase.
@@ -477,7 +324,6 @@ pub(crate) fn prepare_environment(
             should_index_codebase,
             Arc::clone(&repo_channels),
             setup_events,
-            environment_snapshot_reporter,
         )
         .await;
 
@@ -528,73 +374,6 @@ pub(crate) fn merge_repos_deduped(
     Ok(merged)
 }
 
-/// Environment variable carrying the authenticated remote URL of a Factory's
-/// definition repository. Dispatch attaches it only to runs that execute as a
-/// Factory agent whose Factory definition lives in a Warp-managed repository.
-pub(crate) const FACTORY_REPO_CLONE_URL_ENV_VAR: &str = "WARP_FACTORY_REPO_CLONE_URL";
-
-/// Environment variable carrying the directory, relative to the working
-/// directory, that the Factory definition repository is cloned into.
-pub(crate) const FACTORY_REPO_DIR_ENV_VAR: &str = "WARP_FACTORY_REPO_DIR";
-
-/// Prepends the setup command that clones a Factory's definition repository
-/// when the dispatch attached the clone variables to this run, so the checkout
-/// exists before user-declared setup commands run.
-pub(super) fn prepend_factory_definition_clone(
-    setup_commands: &mut Vec<String>,
-    shell_type: Option<ShellType>,
-) {
-    let clone_url = std::env::var(FACTORY_REPO_CLONE_URL_ENV_VAR).unwrap_or_default();
-    let clone_dir = std::env::var(FACTORY_REPO_DIR_ENV_VAR).unwrap_or_default();
-    prepend_factory_definition_clone_for_values(
-        &clone_url,
-        &clone_dir,
-        shell_type.unwrap_or(ShellType::Bash),
-        setup_commands,
-    );
-}
-
-/// Adds the Factory clone command from supplied variables without reading process state.
-pub(crate) fn prepend_factory_definition_clone_for_values(
-    clone_url: &str,
-    clone_dir: &str,
-    shell_type: ShellType,
-    setup_commands: &mut Vec<String>,
-) {
-    if clone_url.trim().is_empty() || clone_dir.trim().is_empty() {
-        return;
-    }
-    // Environments provisioned before run-scoped cloning still persist their
-    // own copy of the clone command; leave that copy in charge rather than
-    // attempting the checkout twice.
-    if setup_commands
-        .iter()
-        .any(|command| command.contains(FACTORY_REPO_CLONE_URL_ENV_VAR))
-    {
-        return;
-    }
-    // The command expands the variables in the session shell instead of
-    // inlining their values so the credential-bearing URL never appears in
-    // command text. There is deliberately no existence guard: a bare clone
-    // into an already-present target directory fails, which is treated as a
-    // fatal setup-command error upstream.
-    setup_commands.insert(0, factory_definition_clone_command(shell_type));
-}
-
-fn factory_definition_clone_command(shell_type: ShellType) -> String {
-    // PowerShell reads environment variables through the `env:` drive; a bare `$NAME` there is
-    // an unset PowerShell variable that expands to an empty string.
-    let env_var_reference = |name: &str| match shell_type {
-        ShellType::PowerShell => format!("$env:{name}"),
-        ShellType::Zsh | ShellType::Bash | ShellType::Fish => format!("${name}"),
-    };
-    format!(
-        "git clone \"{}\" \"{}\"",
-        env_var_reference(FACTORY_REPO_CLONE_URL_ENV_VAR),
-        env_var_reference(FACTORY_REPO_DIR_ENV_VAR)
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn prepare_environment_impl(
     spawner: &ModelSpawner<TerminalDriver>,
@@ -605,8 +384,7 @@ async fn prepare_environment_impl(
     setup_commands: Vec<String>,
     should_index_codebase: bool,
     repo_channels: Arc<Mutex<HashMap<PathBuf, oneshot::Sender<()>>>>,
-    setup_events: SetupClientEventReporter,
-    environment_snapshot_reporter: EnvironmentSnapshotReporter,
+    setup_events: SetupTracer,
 ) -> Result<PathBuf, PrepareEnvironmentError> {
     let working_dir_string = working_dir.to_string_lossy().to_string();
 
@@ -622,23 +400,13 @@ async fn prepare_environment_impl(
     }
     let mut codebase_context_receivers = Vec::new();
 
-    // Snapshot the process-wide identity bootstrap set, before anything below
-    // (cloning, setup commands) has a chance to change it for a given repo.
-    // The post-setup-commands fallback below compares each repo's effective
-    // identity against this baseline to tell whether the customer already
-    // claimed that repo's identity, rather than assuming so from forge count.
-    let git_identity_baseline = git_credentials::global_git_identity();
-
-    let environment_snapshot = if repository_clone_requests.is_empty() {
-        EnvironmentSnapshot::empty()
-    } else {
+    if !repository_clone_requests.is_empty() {
         setup_events
             .record_result(SetupStep::EnvironmentRepoClone, async {
                 clone_checkout_requests(&repository_clone_requests, working_dir, spawner).await
             })
-            .await?
-    };
-    environment_snapshot_reporter.report(environment_snapshot);
+            .await?;
+    }
     if !repository_clone_requests.is_empty() {
         for request in &repository_clone_requests {
             register_cloned_repo(&request.checkout_name, working_dir, is_sandbox, spawner).await?;
@@ -767,22 +535,6 @@ async fn prepare_environment_impl(
         result => result,
     };
 
-    // Fill in a forge-appropriate identity for any repo whose effective
-    // identity is still exactly what bootstrap set — i.e. nothing (a setup
-    // command, or anything else run above) has claimed it yet. This runs
-    // after setup commands specifically so a customer's own git identity
-    // config always wins: repo-local config always beats `--global` config
-    // regardless of write order, so applying Warp's own fallback any earlier
-    // would permanently shadow a later customer override. Runs even if a
-    // setup command failed, so whatever happens next (e.g. a failure-linger
-    // session) still has a usable identity for every repo.
-    for request in &repository_clone_requests {
-        git_credentials::configure_repository_git_identity_if_unset(
-            &working_dir.join(&request.checkout_name),
-            request.remote.code_forge.map(CodeForge::host).unwrap_or(""),
-            git_identity_baseline.clone(),
-        );
-    }
     let remove_origins_result =
         remove_repository_origins_from_repos(&repository_clone_requests, working_dir, spawner)
             .await;
@@ -812,7 +564,7 @@ async fn prepare_environment_impl(
 }
 
 fn record_codebase_indexing(
-    setup_events: SetupClientEventReporter,
+    setup_events: SetupTracer,
     spawner: ModelSpawner<TerminalDriver>,
     codebase_context_receivers: Vec<oneshot::Receiver<()>>,
 ) {
@@ -964,38 +716,6 @@ fn repository_clone_requests(
         .collect()
 }
 
-fn resolved_repository_clone_requests(
-    repositories: &[ResolvedRepository],
-) -> Result<Vec<RepositoryCloneRequest>, PrepareEnvironmentError> {
-    let source_repos: Vec<_> = repositories
-        .iter()
-        .map(|repo| repo.source.clone())
-        .collect();
-    if merge_repos_deduped(source_repos, Vec::new())?.len() != repositories.len() {
-        return Err(
-            PrepareEnvironmentError::InvalidRepositoryPreparationOverrides {
-                reason: "duplicate resolved repository identity".to_owned(),
-            },
-        );
-    }
-    repositories
-        .iter()
-        .map(|repo| {
-            source_repo_identity(&repo.source)?;
-            let remote = repo.clone_from.as_ref().unwrap_or(&repo.source).clone();
-            source_repo_identity(&remote)?;
-            Ok(RepositoryCloneRequest {
-                remote,
-                checkout_name: repo.source.repo.clone(),
-                checkout: repo.checkout.clone(),
-                remove_origin: !repo.preserve_origin,
-                fetch_branch_only: repo.clone_from.is_some()
-                    && matches!(repo.checkout, Some(RepositoryHeadRef::Branch(_))),
-                expected_sha: repo.expected_sha.clone(),
-            })
-        })
-        .collect()
-}
 async fn active_shell_type(spawner: &ModelSpawner<TerminalDriver>) -> ShellType {
     spawner
         .spawn(|driver, ctx| {
@@ -1034,20 +754,6 @@ async fn remove_repository_origins_from_repos(
 
 /// Clone all source repositories to `{working_dir}/{repo.repo}` if they do not already exist.
 /// Multiple repositories are cloned in parallel to reduce environment setup time.
-pub(super) async fn clone_repos(
-    repos: &[SourceRepo],
-    working_dir: &Path,
-    spawner: &ModelSpawner<TerminalDriver>,
-) -> Result<(), PrepareEnvironmentError> {
-    clone_checkout_requests(
-        &repository_clone_requests(repos, &[], false)?,
-        working_dir,
-        spawner,
-    )
-    .await
-    .map(|_| ())
-}
-
 /// Construct a command line for the Git checkout helper, executable in the driver's terminal session.
 fn build_checkout_helper_command(
     executable: &Path,
@@ -1121,20 +827,6 @@ fn read_checkout_report(path: &Path, request_count: usize) -> Option<CheckoutRep
 
 /// The HEAD commits the report resolved, keyed by checkout name. Checkouts whose HEAD the helper
 /// could not resolve are absent.
-fn reported_resolved_heads(report: &CheckoutReport, batch: &CheckoutBatch) -> ResolvedHeads {
-    report
-        .outcomes
-        .iter()
-        .filter_map(|outcome| {
-            let request = batch.repositories.get(outcome.request_index)?;
-            Some((
-                request.checkout_name.clone(),
-                outcome.resolved_head.clone()?,
-            ))
-        })
-        .collect()
-}
-
 /// Logs how each checkout in the batch went, and how long it took.
 fn log_checkout_timing(report: &CheckoutReport, batch: &CheckoutBatch) {
     for outcome in &report.outcomes {
@@ -1264,9 +956,9 @@ async fn clone_checkout_requests(
     repos: &[RepositoryCloneRequest],
     working_dir: &Path,
     spawner: &ModelSpawner<TerminalDriver>,
-) -> Result<EnvironmentSnapshot, PrepareEnvironmentError> {
+) -> Result<(), PrepareEnvironmentError> {
     if repos.is_empty() {
-        return Ok(EnvironmentSnapshot::empty());
+        return Ok(());
     }
     let batch = checkout_requests_batch(repos, working_dir)?;
     let CheckoutHelperResult {
@@ -1327,11 +1019,7 @@ async fn clone_checkout_requests(
             identity_diagnostics,
         });
     }
-    let resolved_heads = report
-        .as_ref()
-        .map(|report| reported_resolved_heads(report, &batch))
-        .unwrap_or_default();
-    Ok(environment_snapshot(repos, working_dir, &resolved_heads))
+    Ok(())
 }
 
 /// Register a cloned source repository with `DetectedRepositories` so that the

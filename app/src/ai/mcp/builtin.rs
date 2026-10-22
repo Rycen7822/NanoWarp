@@ -10,15 +10,6 @@
 //! (attach on login, re-attach on token rotation, detach on logout), gated by
 //! [`warp_core::features::FeatureFlag::FactoryMcp`].
 //!
-//! CLI agent runs (`oz agent run`, including the cloud workers behind
-//! `oz agent run-cloud`) bypass that manager path; the agent driver attaches
-//! the same installation per-run instead (see
-//! `AgentDriver::resolve_mcp_specs_to_json`), with the token pinned for the
-//! duration of the run.
-//!
-//! The preview URLs server is only useful inside a cloud run, so only the agent
-//! driver attaches it, gated by [`warp_core::features::FeatureFlag::PreviewUrlsMcp`].
-//!
 //! [`TemplatableMCPServerManager::sync_builtin_servers`]: super::TemplatableMCPServerManager::sync_builtin_servers
 
 use std::collections::HashMap;
@@ -37,9 +28,6 @@ pub const FACTORY_MCP_INSTALLATION_UUID: Uuid =
 
 /// The server name under which the Factory MCP's tools are grouped.
 pub const FACTORY_MCP_SERVER_NAME: &str = "warp-factory";
-
-/// The server name under which the preview URLs MCP's tools are grouped.
-pub const PREVIEW_URLS_MCP_SERVER_NAME: &str = "warp-preview-urls";
 
 /// Code-owned definition of a streamable-HTTP MCP server hosted by warp-server.
 struct BuiltinMcpServer {
@@ -63,15 +51,6 @@ const FACTORY_MCP: BuiltinMcpServer = BuiltinMcpServer {
                   work in or hand it back.",
     installation_uuid: FACTORY_MCP_INSTALLATION_UUID,
     template_uuid: Uuid::from_u128(0xfac70a11_a55e_4bde_9c3a_1c0ffee0f002),
-};
-
-const PREVIEW_URLS_MCP: BuiltinMcpServer = BuiltinMcpServer {
-    name: PREVIEW_URLS_MCP_SERVER_NAME,
-    path: "/api/v1/mcp/preview-urls",
-    description: "Warp's hosted preview URLs MCP server. Expose a port from this cloud agent \
-                  run's sandbox as a shareable preview URL.",
-    installation_uuid: Uuid::from_u128(0xb6b375a8_1ba5_4a51_a407_22563d4f7e81),
-    template_uuid: Uuid::from_u128(0xb6b375a8_1ba5_4a51_a407_22563d4f7e82),
 };
 
 impl BuiltinMcpServer {
@@ -114,22 +93,6 @@ pub fn factory_mcp_installation(
 ) -> TemplatableMCPServerInstallation {
     builtin_mcp_installation(
         &FACTORY_MCP,
-        &ChannelState::server_root_url(),
-        bearer_token,
-        ambient_headers,
-    )
-}
-
-/// Like [`factory_mcp_installation`], for the preview URLs MCP server at
-/// `/api/v1/mcp/preview-urls`. warp-server binds its calls to this run's
-/// execution through the ambient workload token, so it is only useful for
-/// cloud runs.
-pub fn preview_urls_mcp_installation(
-    bearer_token: &str,
-    ambient_headers: &[(String, String)],
-) -> TemplatableMCPServerInstallation {
-    builtin_mcp_installation(
-        &PREVIEW_URLS_MCP,
         &ChannelState::server_root_url(),
         bearer_token,
         ambient_headers,

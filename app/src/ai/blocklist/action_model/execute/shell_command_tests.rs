@@ -288,58 +288,6 @@ fn terminal_busy_does_not_write_or_cancel_the_running_command() {
     });
 }
 
-#[test]
-fn injection_interrupt_keeps_completion_waiter_until_normal_precmd() {
-    App::test((), |mut app| async move {
-        let sessions = app.add_model(|_| Sessions::new_for_test());
-        let (_tx, rx) = unbounded();
-        let dispatcher = app.add_model(|ctx| ModelEventDispatcher::new(rx, sessions.clone(), ctx));
-        let active_session =
-            app.add_model(|ctx| ActiveSession::new(sessions, dispatcher.clone(), ctx));
-        let model = Arc::new(FairMutex::new(TerminalModel::mock(None, None)));
-        model.lock().simulate_long_running_block("lint", "working");
-        let block_id = model.lock().active_block_id().clone();
-        let executor = app.add_model(|ctx| {
-            ShellCommandExecutor::new(
-                active_session,
-                model.clone(),
-                &dispatcher,
-                EntityId::new(),
-                ctx,
-            )
-        });
-        let (tx, mut rx) = oneshot::channel();
-        executor.update(&mut app, |executor, ctx| {
-            executor
-                .block_finished_senders
-                .insert(BlockSelector::Id(block_id.clone()), tx);
-            executor.interrupt_for_injected_followup(
-                AIConversationId::new(),
-                block_id.clone(),
-                ctx,
-            );
-            assert!(
-                executor
-                    .block_finished_senders
-                    .contains_key(&BlockSelector::Id(block_id.clone()))
-            );
-        });
-        assert_eq!(rx.try_recv().unwrap(), None);
-        model.lock().finish_block();
-        dispatcher.update(&mut app, |_, ctx| {
-            ctx.emit(ModelEvent::BlockMetadataReceived(
-                BlockMetadataReceivedEvent {
-                    block_metadata: BlockMetadata::new(None, Some("/tmp".into())),
-                    block_index: BlockIndex::zero(),
-                    is_after_in_band_command: false,
-                    is_done_bootstrapping: true,
-                },
-            ));
-        });
-        assert_eq!(rx.try_recv().unwrap(), Some(()));
-    });
-}
-
 fn shell_command_executor(
     app: &mut App,
 ) -> (

@@ -249,7 +249,6 @@ use crate::ai::blocklist::codebase_index_speedbump_banner::{
 use crate::ai::blocklist::diff_storage::DiffStorageHelper;
 use crate::ai::blocklist::diff_types::FileDiff;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
 use crate::ai::blocklist::model::{
     AIBlockModel, AIBlockModelHelper, AIBlockModelImpl, AIBlockOutputStatus,
 };
@@ -269,15 +268,15 @@ use crate::ai::blocklist::{
     BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIContextEvent,
     BlocklistAIContextModel, BlocklistAIController, BlocklistAIControllerEvent,
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, BlocklistAIInputEvent, BlocklistAIInputModel,
-    CancellationRoute, ClientIdentifiers, ConversationSelection, ConversationStatusUpdate,
-    InputConfig, InputType, InputTypeAutoDetectionSource, LegacyPassiveSuggestionsEvent,
-    LegacyPassiveSuggestionsModel, MaaPassiveSuggestionsEvent, MaaPassiveSuggestionsModel,
-    PRE_REWIND_PREFIX, PassiveSuggestionsModels, PendingAttachment, PendingQueryState, QueuedQuery,
-    QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, RequestFileEditsFormatKind,
-    ShellCommandExecutor, ShellCommandExecutorEvent, ShellRecoveryResult, SlashCommandRequest,
-    StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest, ai_brand_color,
-    block_context_from_terminal_model, get_ai_block_overflow_menu_element_position_id,
-    get_attached_blocks_chip_element_position_id, is_lrc_auto_queue_active,
+    ClientIdentifiers, ConversationSelection, ConversationStatusUpdate, InputConfig, InputType,
+    InputTypeAutoDetectionSource, LegacyPassiveSuggestionsEvent, LegacyPassiveSuggestionsModel,
+    MaaPassiveSuggestionsEvent, MaaPassiveSuggestionsModel, PRE_REWIND_PREFIX,
+    PassiveSuggestionsModels, PendingAttachment, PendingQueryState, QueuedQuery, QueuedQueryId,
+    QueuedQueryModel, QueuedQueryOrigin, RequestFileEditsFormatKind, ShellCommandExecutor,
+    ShellCommandExecutorEvent, ShellRecoveryResult, SlashCommandRequest, StartAgentExecutor,
+    StartAgentExecutorEvent, StartAgentRequest, ai_brand_color, block_context_from_terminal_model,
+    get_ai_block_overflow_menu_element_position_id, get_attached_blocks_chip_element_position_id,
+    is_lrc_auto_queue_active,
 };
 use crate::ai::conversation_details_panel::ConversationDetailsPanelEvent;
 use crate::ai::conversation_utils;
@@ -5561,7 +5560,6 @@ impl TerminalView {
         let id = QueuedQueryModel::handle(ctx).update(ctx, |model, ctx| {
             model.append(conversation_id, QueuedQuery::new(prompt, origin), ctx)
         });
-        self.maybe_dispatch_steering_prompt_now(conversation_id, ctx);
         Some(id)
     }
 
@@ -5596,37 +5594,12 @@ impl TerminalView {
                     ctx,
                 );
             });
-            self.maybe_dispatch_steering_prompt_now(conversation_id, ctx);
         } else {
             self.send_user_query_after_next_conversation_finished(
                 prompt, /* show_close_button */ true, /* show_send_now_button */ false,
                 ctx,
             );
         }
-    }
-
-    /// If `conversation_id`'s queue is in `Steering` mode and nothing is currently streaming for
-    /// it, attempts to dispatch the just-queued row immediately rather than waiting for a future
-    /// turn-completion event that may never come (e.g. the conversation has nothing else in
-    /// flight right now). No-ops when a stream is already active for the conversation --
-    /// `Steering`'s piggyback-on-next-request and idle-drain mechanisms pick the row up once
-    /// that stream's turn produces a natural boundary, so firing here too would interrupt it.
-    fn maybe_dispatch_steering_prompt_now(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !QueuedQueryModel::as_ref(ctx).is_steering(conversation_id) {
-            return;
-        }
-        if self
-            .ai_controller
-            .as_ref(ctx)
-            .has_active_stream_for_conversation(conversation_id, ctx)
-        {
-            return;
-        }
-        self.drain_queued_prompts(conversation_id, FinishReason::Complete, ctx);
     }
 
     /// Drains one prompt from the queued-query singleton for `conversation_id` when that
@@ -5654,27 +5627,6 @@ impl TerminalView {
                 let action = QueuedQueryModel::as_ref(ctx).peek_autofire(conversation_id);
                 match action {
                     Some(AutofireAction::Submit { query_id, text }) => {
-                        if QueuedQueryModel::as_ref(ctx)
-                            .queue(conversation_id)
-                            .iter()
-                            .any(|row| {
-                                row.id() == query_id && row.shared_session_prompt().is_some()
-                            })
-                        {
-                            // Shared-session injections are normally dispatched via `Steering`'s
-                            // piggyback-on-next-request mechanism, or immediately when queued
-                            // while idle; reaching one here means neither applied (e.g. a prior
-                            // dispatch was deferred because a CLI subagent was active), so try
-                            // dispatching the head row now that this turn finished.
-                            self.ai_controller.update(ctx, |controller, ctx| {
-                                controller.dispatch_queued_warp_agent_prompt(
-                                    conversation_id,
-                                    None,
-                                    ctx,
-                                );
-                            });
-                            return;
-                        }
                         self.input.update(ctx, |input, ctx| {
                             input.submit_queued_prompt_for_active_pane(
                                 text,
@@ -8016,24 +7968,6 @@ impl TerminalView {
                 // user's ctrl-c was directed to the AIBlock instead of the command's shell block.
                 self.ctrl_c(ctx);
             }
-            ShellCommandExecutorEvent::InterruptForInjectedFollowup {
-                conversation_id,
-                block_id,
-            } => {
-                let should_interrupt = {
-                    let model = self.model.lock();
-                    let block = model.block_list().active_block();
-                    block.id() == block_id
-                        && block.ai_conversation_id() == Some(*conversation_id)
-                        && block.is_executing()
-                        && !block
-                            .long_running_control_state()
-                            .is_some_and(|state| state.is_user_in_control())
-                };
-                if should_interrupt {
-                    self.write_to_pty(vec![escape_sequences::C0::ETX], ctx);
-                }
-            }
             ShellCommandExecutorEvent::TransferControlToUser { reason, .. } => {
                 // Transfer control of the long-running command to the user.
                 self.cli_subagent_controller.update(ctx, |controller, ctx| {
@@ -9159,19 +9093,13 @@ impl TerminalView {
             .as_ref(ctx)
             .has_active_stream_for_conversation(conversation_id, ctx);
 
-        let route = self.ai_controller.update(ctx, |controller, ctx| {
-            controller.cancel_conversation_progress_routed(
+        self.ai_controller.update(ctx, |controller, ctx| {
+            controller.cancel_conversation_progress(
                 conversation_id,
                 CancellationReason::ManuallyCancelled,
                 ctx,
             )
         });
-        // An external harness interrupts its own agent's turn and settles the conversation's
-        // status itself; a Ctrl-C to the PTY would kill the agent instead.
-        if route == CancellationRoute::ExternalHarness {
-            return;
-        }
-
         let visible_conversation_id = self
             .agent_view_controller
             .as_ref(ctx)
@@ -14229,51 +14157,6 @@ impl TerminalView {
         }
     }
 
-    /// Resolves the conversation this pane's CLI agent status updates should
-    /// be written to: the conversation whose `task_id` matches the ambient
-    /// task this pane's CLI-harness session is registered under (see
-    /// `LocalAgentTaskSyncModel::register_cli_session`). Prefers the pane's
-    /// active conversation; otherwise falls back to this terminal surface's
-    /// sole live conversation with a matching task_id, if unambiguous.
-    ///
-    /// Returns `None` when this pane has no registered ambient task — e.g. a
-    /// purely interactive CLI agent session with no orchestration/ambient
-    /// run behind it — since there is no `AIConversation` to bridge status
-    /// into in that case. The task_id match also guards against writing
-    /// into an unrelated conversation that happens to be live in the same
-    /// pane (e.g. an earlier native Agent Mode conversation).
-    ///
-    /// Not scoped to child (orchestration) conversations: nothing else in
-    /// the codebase keeps a CLI-harness conversation's `ConversationStatus`
-    /// in sync with the harness's own lifecycle hooks, so a root/standalone
-    /// CLI-harness conversation needs this bridge just as much as a child
-    /// one does (e.g. for orchestration event delivery, which reads
-    /// `ConversationStatus` directly).
-    fn conversation_id_for_cli_agent_status_updates(
-        &self,
-        ctx: &AppContext,
-    ) -> Option<AIConversationId> {
-        let task_id = LocalAgentTaskSyncModel::as_ref(ctx)
-            .cli_harness_task_id_for_terminal_view(self.view_id)?;
-        let matches_task = |conversation: &&AIConversation| conversation.task_id() == Some(task_id);
-
-        let history_model = BlocklistAIHistoryModel::as_ref(ctx);
-        if let Some(conversation_id) = history_model
-            .active_conversation(self.view_id)
-            .filter(matches_task)
-            .map(|conversation| conversation.id())
-        {
-            return Some(conversation_id);
-        }
-
-        let mut conversation_ids = history_model
-            .all_live_conversations_for_terminal_surface(self.view_id)
-            .filter(matches_task)
-            .map(|conversation| conversation.id());
-        let conversation_id = conversation_ids.next()?;
-        conversation_ids.next().is_none().then_some(conversation_id)
-    }
-
     /// If the startup auto-open setting is enabled, auto-opens rich input for a
     /// CLI agent session. Called after creating a command-detected session or
     /// registering a listener so rich input is shown immediately.
@@ -14362,17 +14245,6 @@ impl TerminalView {
 
         if *terminal_view_id != self.view_id {
             return;
-        }
-
-        if let Some(conversation_id) = self.conversation_id_for_cli_agent_status_updates(ctx) {
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                history_model.update_conversation_status(
-                    self.view_id,
-                    conversation_id,
-                    status.to_conversation_status(),
-                    ctx,
-                );
-            });
         }
 
         // Auto-show/hide rich input based on the setting.

@@ -6,9 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
 use blocking::unblock;
-use warp_cli::artifact::UploadArtifactArgs;
 
-use super::common::parse_ambient_task_id;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::ServerAIConversationMetadata;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -31,25 +29,6 @@ pub(crate) struct FileArtifactUploadRequest {
     /// Short badge-visible title for the artifact (e.g. a recording title).
     pub(crate) title: Option<String>,
     pub(crate) description: Option<String>,
-}
-
-impl TryFrom<UploadArtifactArgs> for FileArtifactUploadRequest {
-    type Error = anyhow::Error;
-
-    fn try_from(value: UploadArtifactArgs) -> Result<Self> {
-        let run_id = match value.run_id {
-            Some(run_id) => Some(parse_run_id(&run_id, "Invalid run ID")?),
-            None => None,
-        };
-
-        Ok(Self {
-            path: value.path,
-            run_id,
-            conversation_id: value.conversation_id.map(ServerConversationToken::new),
-            title: None,
-            description: value.description,
-        })
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -293,7 +272,9 @@ fn ambient_task_id_from_conversation_metadata(
 }
 
 fn parse_run_id(run_id: &str, error_prefix: &str) -> Result<AmbientAgentTaskId> {
-    parse_ambient_task_id(run_id, error_prefix)
+    run_id
+        .parse()
+        .map_err(|err| anyhow!("{error_prefix} '{run_id}': {err}"))
 }
 
 fn load_env_run_id() -> Result<Option<String>> {

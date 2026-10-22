@@ -36,8 +36,8 @@ fn resolve_from_skill_dirs_by_directory_scan_resolves_home_skill_dir() -> Result
     let resolved = resolve_from_skill_dirs_by_directory_scan(&spec, [skill_dir])?
         .context("Expected to resolve skill from explicit home skill dir")?;
 
-    assert_eq!(resolved.skill_path, skill_path);
-    assert!(resolved.instructions.contains("Global Warp skill"));
+    assert_eq!(resolved.path.to_local_path().unwrap(), skill_path);
+    assert!(resolved.content.contains("Global Warp skill"));
 
     Ok(())
 }
@@ -82,39 +82,11 @@ fn resolve_from_root_path_by_directory_scan_respects_directory_precedence() -> R
     let resolved = resolve_from_root_path_by_directory_scan(&spec, root)?
         .context("Expected to resolve skill via directory scan")?;
 
-    assert_eq!(resolved.skill_path, agents_skill);
-    assert!(resolved.instructions.contains("Agents version"));
-    assert!(!resolved.instructions.contains("Warp version"));
-    assert!(!resolved.instructions.contains("Claude version"));
-    assert!(!resolved.instructions.contains("Codex version"));
-    assert!(!resolved.instructions.contains("name:"));
-    assert!(!resolved.instructions.contains("description:"));
-    assert!(!resolved.instructions.contains("---"));
-
-    Ok(())
-}
-
-#[test]
-fn instructions_body_strips_front_matter_using_line_range() -> Result<()> {
-    let temp_dir = tempfile::TempDir::new().context("Failed to create temp dir")?;
-    let skill_path = temp_dir.path().join(".agents/skills/my-skill/SKILL.md");
-
-    write_skill_file(
-        &skill_path,
-        "my-skill",
-        "desc",
-        "# Title\n\n## Instructions\nDo the thing.",
-    )?;
-
-    let parsed = ai::skills::parse_skill(&skill_path).context("Failed to parse skill")?;
-    let body = instructions_body(&parsed);
-
-    assert!(body.contains("# Title"));
-    assert!(body.contains("## Instructions"));
-    assert!(body.contains("Do the thing."));
-    assert!(!body.contains("name:"));
-    assert!(!body.contains("description:"));
-    assert!(!body.contains("---"));
+    assert_eq!(resolved.path.to_local_path().unwrap(), agents_skill);
+    assert!(resolved.content.contains("Agents version"));
+    assert!(!resolved.content.contains("Warp version"));
+    assert!(!resolved.content.contains("Claude version"));
+    assert!(!resolved.content.contains("Codex version"));
 
     Ok(())
 }
@@ -161,9 +133,9 @@ fn resolve_with_full_path_skips_directory_precedence() -> Result<()> {
     let resolved = resolve_from_root_path_by_directory_scan(&spec, root)?
         .context("Expected to resolve skill via full path")?;
 
-    assert_eq!(resolved.skill_path, claude_skill);
-    assert!(resolved.instructions.contains("Claude version"));
-    assert!(!resolved.instructions.contains("Agents version"));
+    assert_eq!(resolved.path.to_local_path().unwrap(), claude_skill);
+    assert!(resolved.content.contains("Claude version"));
+    assert!(!resolved.content.contains("Agents version"));
 
     Ok(())
 }
@@ -217,10 +189,10 @@ fn resolve_simple_name_uses_directory_precedence() -> Result<()> {
     let spec = SkillSpec::without_repo("my-skill".to_string());
     let resolved = resolve_from_root_path_by_directory_scan(&spec, root)?
         .context("Expected to resolve skill by name")?;
-    assert_eq!(resolved.skill_path, agents_skill);
-    assert!(resolved.instructions.contains("Agents version"));
-    assert!(!resolved.instructions.contains("Warp version"));
-    assert!(!resolved.instructions.contains("Claude version"));
+    assert_eq!(resolved.path.to_local_path().unwrap(), agents_skill);
+    assert!(resolved.content.contains("Agents version"));
+    assert!(!resolved.content.contains("Warp version"));
+    assert!(!resolved.content.contains("Claude version"));
 
     Ok(())
 }

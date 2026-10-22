@@ -16,8 +16,8 @@ use super::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{
-    AIExecutionProfile, ActionPermission, AskUserQuestionPermission, ComputerUsePermission,
-    ExecutionProfileId, WriteToPtyPermission,
+    AIExecutionProfile, ActionPermission, AskUserQuestionPermission, ExecutionProfileId,
+    WriteToPtyPermission,
 };
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::mcp::TemplatableMCPServerManager;
@@ -633,15 +633,6 @@ impl BlocklistAIPermissions {
     ) -> crate::ai::execution_profiles::ComputerUsePermission {
         if let Some(policy) = Self::team_autonomy_settings(scope, ctx).computer_use_setting {
             return policy;
-        }
-        if let Some(selection) = terminal_view_id
-            .and_then(|id| AIExecutionProfilesModel::as_ref(ctx).session_computer_use(id))
-        {
-            return if selection.enabled {
-                ComputerUsePermission::AlwaysAllow
-            } else {
-                ComputerUsePermission::Never
-            };
         }
         let active_profile =
             AIExecutionProfilesModel::as_ref(ctx).active_profile(terminal_view_id, ctx);

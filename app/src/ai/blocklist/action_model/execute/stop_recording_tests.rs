@@ -82,16 +82,3 @@ fn happy_path_agent_stopped_still_reports_agent_stopped() {
     );
     assert_termination_reason(event, "agent_stopped");
 }
-
-/// A `RunEnded` finalization (the driver's teardown path) surfaces as
-/// `run_ended`, even if a later stop action would have claimed
-/// `StoppedByAgent`.
-#[test]
-fn run_ended_joined_by_stop_action_reports_run_ended() {
-    let event = recording_stopped_telemetry(
-        "rec",
-        FinalizeReason::RunEnded,
-        &success_result(computer_use::RecordingCompletionStatus::StoppedEarly),
-    );
-    assert_termination_reason(event, "run_ended");
-}

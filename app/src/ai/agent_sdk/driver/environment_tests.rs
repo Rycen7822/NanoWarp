@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use cloud_object_models::CodeForge;
 use command::blocking::Command;
@@ -12,111 +14,19 @@ use warp_cli::agent::{
 };
 use warp_core::command::ExitCode;
 
-use super::super::environment_checkout_protocol::{
-    CheckoutBatch, CheckoutRequest, ResolvedHeads, is_valid_git_object_id,
-};
+use super::super::environment_checkout_protocol::is_valid_git_object_id;
+#[cfg(unix)]
+use super::super::environment_checkout_protocol::{CheckoutBatch, CheckoutRequest};
 use super::{
-    CloneFailureIdentityDiagnostics, PrepareEnvironmentError, RepositoryCloneRequest,
-    ResolvedRepository, SETUP_COMMAND_OUTPUT_TRUNCATION_MARKER, SetupCommandPhase,
-    WorkspaceConfiguration, await_setup_phase, build_checkout_helper_command, environment_snapshot,
-    merge_repos_deduped, parse_resolved_head_sha, read_checkout_report, reported_resolved_heads,
-    repository_clone_requests, setup_command_failure, single_repo_name,
+    CloneFailureIdentityDiagnostics, PrepareEnvironmentError,
+    SETUP_COMMAND_OUTPUT_TRUNCATION_MARKER, SetupCommandPhase, WorkspaceConfiguration,
+    await_setup_phase, build_checkout_helper_command, merge_repos_deduped, parse_resolved_head_sha,
+    read_checkout_report, repository_clone_requests, setup_command_failure, single_repo_name,
     validate_repository_preparation_overrides,
 };
 use crate::ai::agent_sdk::driver::AgentDriverError;
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, SourceRepo};
 use crate::terminal::shell::ShellType;
-
-#[test]
-fn resolved_repositories_apply_origin_policy_per_checkout() {
-    let first = SourceRepo::new(CodeForge::GitHub, "owner".into(), "first".into());
-    let second = SourceRepo::new(CodeForge::GitLab, "owner".into(), "second".into());
-    let workspace = WorkspaceConfiguration::from_resolved(
-        vec![
-            ResolvedRepository {
-                expected_sha: None,
-
-                source: first,
-                checkout: None,
-                clone_from: None,
-                preserve_origin: true,
-            },
-            ResolvedRepository {
-                expected_sha: None,
-
-                source: second,
-                checkout: Some(RepositoryHeadRef::Branch("feature".into())),
-                clone_from: Some(SourceRepo::new(
-                    CodeForge::GitLab,
-                    "source".into(),
-                    "second".into(),
-                )),
-                preserve_origin: false,
-            },
-        ],
-        Vec::new(),
-        vec!["make setup".into()],
-    )
-    .unwrap();
-    assert_eq!(workspace.setup_commands, vec!["make setup"]);
-    let requests = workspace.clone_requests;
-    assert!(!requests[0].remove_origin);
-    assert!(requests[1].remove_origin);
-    assert!(requests[1].fetch_branch_only);
-    assert_eq!(requests[1].remote.owner, "source");
-}
-
-#[test]
-fn deferred_policy_keeps_same_name_identities_for_unused_target_selection() {
-    let root = tempfile::TempDir::new().unwrap();
-    let mut workspace = WorkspaceConfiguration::from_resolved(
-        Vec::new(),
-        vec![
-            resolved_repo(CodeForge::GitHub, "first", "api"),
-            resolved_repo(CodeForge::GitLab, "second", "api"),
-        ],
-        Vec::new(),
-    )
-    .unwrap();
-    workspace
-        .bind_execution(
-            "task".into(),
-            "execution".into(),
-            root.path().to_owned(),
-            true,
-        )
-        .unwrap();
-    let policy = workspace.preparation_policy.unwrap();
-    let mut requests = policy
-        .deferred
-        .iter()
-        .map(|record| record.request.clone())
-        .collect::<Vec<_>>();
-    requests[1].checkout_name = "api-second".into();
-    let mut batch = CheckoutBatch {
-        working_dir: root.path().to_owned(),
-        repositories: requests,
-    };
-    policy.resolve(&mut batch, true, false).unwrap();
-    assert_eq!(batch.repositories[0].checkout_name, "api");
-    assert_eq!(batch.repositories[1].checkout_name, "api-second");
-    assert!(workspace.source_repos.is_empty());
-}
-
-#[test]
-fn duplicate_resolved_repositories_fail_before_clone() {
-    let repositories = (0..2)
-        .map(|_| ResolvedRepository {
-            expected_sha: None,
-
-            source: SourceRepo::new(CodeForge::GitHub, "owner".into(), "repo".into()),
-            checkout: None,
-            clone_from: None,
-            preserve_origin: true,
-        })
-        .collect::<Vec<_>>();
-    assert!(WorkspaceConfiguration::from_resolved(repositories, Vec::new(), Vec::new()).is_err());
-}
 
 #[test]
 fn setup_timeout_covers_command_start_and_exit_without_resetting_deadline() {
@@ -157,30 +67,6 @@ fn setup_timeout_covers_command_start_and_exit_without_resetting_deadline() {
         });
     }
 }
-#[test]
-fn reported_heads_are_keyed_by_checkout_name_and_omit_unresolved_heads() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("report.json");
-    let sha = "0123456789abcdef0123456789abcdef01234567";
-    std::fs::write(
-        &path,
-        format!(
-            r#"{{"outcomes":[
-                {{"request_index":0,"failure":null,"diagnostics":"","duration_ms":12,"resolved_head":"{sha}"}},
-                {{"request_index":1,"failure":null,"diagnostics":"","duration_ms":34,"resolved_head":"not-a-sha"}}
-            ]}}"#
-        ),
-    )
-    .unwrap();
-    let report = read_checkout_report(&path, 2).unwrap();
-    assert!(!path.exists());
-    assert_eq!(report.outcomes[0].duration_ms, 12);
-    assert_eq!(
-        reported_resolved_heads(&report, &checkout_batch(["warp", "invalid"])),
-        ResolvedHeads::from([("warp".to_owned(), sha.to_owned())])
-    );
-}
-
 #[cfg(unix)]
 #[test]
 fn head_probe_timeout_preserves_later_snapshot_repositories() {
@@ -192,8 +78,6 @@ fn head_probe_timeout_preserves_later_snapshot_repositories() {
                 "--nocapture",
             ])
             .env("WARP_TEST_HEAD_PROBE", "1")
-            .env(super::super::environment_preparation::MODE_ENV, "legacy")
-            .env(super::super::environment_preparation::FILE_ENV, "")
             .env("WARP_EXECUTION_ID", "")
             .output()
             .unwrap();
@@ -290,36 +174,8 @@ fn head_probe_timeout_preserves_later_snapshot_repositories() {
             (5, Some(later.as_str()))
         ]
     );
-    let requests = repository_clone_requests(
-        &[
-            repo(CodeForge::GitHub, "warpdotdev", "before"),
-            repo(CodeForge::GitHub, "warpdotdev", "slow-1"),
-            repo(CodeForge::GitHub, "warpdotdev", "slow-2"),
-            repo(CodeForge::GitHub, "warpdotdev", "slow-3"),
-            repo(CodeForge::GitHub, "warpdotdev", "slow-4"),
-            repo(CodeForge::GitHub, "warpdotdev", "later"),
-        ],
-        &[],
-        false,
-    )
-    .unwrap();
-    let snapshot = environment_snapshot(
-        &requests,
-        directory.path(),
-        &reported_resolved_heads(&report, &batch),
-    );
-    assert_eq!(
-        snapshot
-            .repositories
-            .iter()
-            .map(|revision| (
-                revision.checkout_path.as_str(),
-                revision.resolved_head_sha.as_str()
-            ))
-            .collect::<Vec<_>>(),
-        vec![("before", before.as_str()), ("later", later.as_str())]
-    );
 }
+#[cfg(unix)]
 fn checkout_batch<const COUNT: usize>(checkout_names: [&str; COUNT]) -> CheckoutBatch {
     CheckoutBatch {
         working_dir: PathBuf::from("/workspace"),
@@ -575,64 +431,6 @@ fn parse_resolved_head_sha_accepts_trimmed_valid_object_ids() {
     assert_eq!(parse_resolved_head_sha(""), None);
 }
 
-#[test]
-fn environment_snapshot_matches_resolved_heads_to_requests_by_checkout_name() {
-    let requests = vec![
-        clone_request(
-            repo(CodeForge::GitHub, "warpdotdev", "warp"),
-            Some(RepositoryHeadRef::Branch("main".to_string())),
-        ),
-        clone_request(
-            repo(CodeForge::GitLab, "platform/backend", "api"),
-            Some(RepositoryHeadRef::CommitSha(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-            )),
-        ),
-    ];
-    let first_sha = "0123456789abcdef0123456789abcdef01234567";
-    let second_sha = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-
-    let snapshot = environment_snapshot(
-        &requests,
-        Path::new("/workspace"),
-        &ResolvedHeads::from([
-            ("api".to_owned(), second_sha.to_owned()),
-            ("warp".to_owned(), first_sha.to_owned()),
-        ]),
-    );
-
-    assert_eq!(snapshot.repositories.len(), 2);
-    assert_eq!(snapshot.repositories[0].repo_owner, "warpdotdev");
-    assert_eq!(snapshot.repositories[0].checkout_path, "warp");
-    assert_eq!(
-        snapshot.repositories[0].requested_checkout_ref.as_deref(),
-        Some("main")
-    );
-    assert_eq!(snapshot.repositories[0].resolved_head_sha, first_sha);
-    assert_eq!(snapshot.repositories[1].code_forge, CodeForge::GitLab);
-    assert_eq!(snapshot.repositories[1].resolved_head_sha, second_sha);
-}
-
-#[test]
-fn environment_snapshot_omits_unresolved_heads() {
-    let requests = vec![
-        clone_request(repo(CodeForge::GitHub, "one", "first"), None),
-        clone_request(repo(CodeForge::GitHub, "two", "second"), None),
-    ];
-
-    let snapshot = environment_snapshot(
-        &requests,
-        Path::new("/workspace"),
-        &ResolvedHeads::from([(
-            "second".to_owned(),
-            "0123456789abcdef0123456789abcdef01234567".to_owned(),
-        )]),
-    );
-
-    assert_eq!(snapshot.repositories.len(), 1);
-    assert_eq!(snapshot.repositories[0].repo_name, "second");
-}
-
 fn substitution_override(
     owner: &str,
     repo: &str,
@@ -651,19 +449,6 @@ fn substitution_override(
             repo_name: target_repo.to_string(),
         }),
         preserve_origin: true,
-    }
-}
-
-fn clone_request(repo: SourceRepo, checkout: Option<RepositoryHeadRef>) -> RepositoryCloneRequest {
-    let checkout_name = repo.repo.clone();
-    RepositoryCloneRequest {
-        expected_sha: None,
-
-        remote: repo,
-        checkout_name,
-        checkout,
-        remove_origin: false,
-        fetch_branch_only: false,
     }
 }
 
@@ -766,76 +551,6 @@ fn legacy_workspace_merges_environment_and_task_additions_without_deferred_inven
             repo(CodeForge::GitHub, "warpdotdev", "warp-server"),
         ]
     );
-    assert!(workspace.deferred_repos.is_empty());
-}
-
-#[test]
-fn resolved_empty_eager_membership_skips_preparation_with_deferred_inventory() {
-    let deferred = vec![resolved_repo(CodeForge::GitLab, "platform/backend", "api")];
-    let workspace =
-        WorkspaceConfiguration::from_resolved(Vec::new(), deferred.clone(), Vec::new()).unwrap();
-    assert!(workspace.source_repos.is_empty());
-    assert!(workspace.clone_requests.is_empty());
-    assert_eq!(workspace.deferred_repos, deferred);
-    assert_eq!(single_repo_name(&workspace.source_repos), None);
-}
-
-#[test]
-fn resolved_workspace_keeps_deferred_inventory_out_of_preparation() {
-    let eager = repo(CodeForge::GitHub, "acme", "billing");
-    let deferred = vec![resolved_repo(CodeForge::GitLab, "other", "billing")];
-    let workspace = WorkspaceConfiguration::from_resolved(
-        vec![ResolvedRepository {
-            expected_sha: None,
-
-            source: eager.clone(),
-            checkout: None,
-            clone_from: None,
-            preserve_origin: true,
-        }],
-        deferred.clone(),
-        Vec::new(),
-    )
-    .unwrap();
-    assert_eq!(workspace.source_repos, vec![eager.clone()]);
-    assert_eq!(workspace.deferred_repos, deferred);
-    assert_eq!(workspace.clone_requests.len(), 1);
-    assert_eq!(workspace.clone_requests[0].remote, eager);
-    assert_eq!(
-        single_repo_name(&workspace.source_repos),
-        Some("billing".to_owned())
-    );
-}
-
-#[test]
-fn resolved_repositories_reject_clone_directory_collisions() {
-    let result = WorkspaceConfiguration::from_resolved(
-        vec![
-            ResolvedRepository {
-                expected_sha: None,
-
-                source: repo(CodeForge::GitHub, "a", "widget"),
-                checkout: None,
-                clone_from: None,
-                preserve_origin: true,
-            },
-            ResolvedRepository {
-                expected_sha: None,
-
-                source: repo(CodeForge::GitLab, "b", "widget"),
-                checkout: None,
-                clone_from: None,
-                preserve_origin: true,
-            },
-        ],
-        Vec::new(),
-        Vec::new(),
-    );
-
-    assert!(matches!(
-        result,
-        Err(PrepareEnvironmentError::CloneDirectoryCollision { repo_name, .. }) if repo_name == "widget"
-    ));
 }
 
 #[test]
@@ -908,13 +623,7 @@ fn substituted_request_uses_target_identity_and_source_checkout_path() {
     let requests = repository_clone_requests(&repos, &overrides, true).unwrap();
 
     assert_eq!(requests[0].checkout_name, "warp");
-    let snapshot = environment_snapshot(
-        &requests,
-        Path::new("/workspace"),
-        &ResolvedHeads::from([("warp".to_owned(), source_sha.to_owned())]),
-    );
-    assert_eq!(snapshot.repositories[0].repo_name, "warp-for-benchmarks");
-    assert_eq!(snapshot.repositories[0].checkout_path, "warp");
+    assert_eq!(requests[0].remote.repo, "warp-for-benchmarks");
 }
 
 #[test]
@@ -1374,150 +1083,4 @@ fn blobless_clone_walks_path_limited_history_without_network() {
     );
     let commit_count = String::from_utf8(output.stdout).unwrap().lines().count();
     assert_eq!(commit_count, 2, "expected both commits touching notes.md");
-}
-
-#[test]
-fn factory_clone_is_prepended_when_clone_values_are_present() {
-    let mut setup_commands = vec!["make setup".to_string()];
-    super::prepend_factory_definition_clone_for_values(
-        "https://t:token@definitions.example.com/team/factory.git",
-        "acme_factory_repo",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    assert_eq!(
-        setup_commands,
-        vec![
-            "git clone \"$WARP_FACTORY_REPO_CLONE_URL\" \"$WARP_FACTORY_REPO_DIR\"".to_string(),
-            "make setup".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn factory_clone_references_env_vars_with_the_session_shells_syntax() {
-    let posix_command = "git clone \"$WARP_FACTORY_REPO_CLONE_URL\" \"$WARP_FACTORY_REPO_DIR\"";
-    let powershell_command =
-        "git clone \"$env:WARP_FACTORY_REPO_CLONE_URL\" \"$env:WARP_FACTORY_REPO_DIR\"";
-    for (shell_type, expected) in [
-        (ShellType::Bash, posix_command),
-        (ShellType::Zsh, posix_command),
-        (ShellType::Fish, posix_command),
-        (ShellType::PowerShell, powershell_command),
-    ] {
-        let mut setup_commands = Vec::new();
-        super::prepend_factory_definition_clone_for_values(
-            "https://t:token@definitions.example.com/team/factory.git",
-            "acme_factory_repo",
-            shell_type,
-            &mut setup_commands,
-        );
-        assert_eq!(setup_commands, vec![expected.to_string()], "{shell_type:?}");
-    }
-}
-
-#[test]
-fn factory_clone_is_skipped_without_clone_values() {
-    let mut setup_commands = vec!["make setup".to_string()];
-    super::prepend_factory_definition_clone_for_values(
-        "",
-        "",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    super::prepend_factory_definition_clone_for_values(
-        "url",
-        "  ",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    super::prepend_factory_definition_clone_for_values(
-        "  ",
-        "dir",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    assert_eq!(setup_commands, vec!["make setup".to_string()]);
-}
-
-#[test]
-fn factory_clone_defers_to_a_persisted_environment_copy() {
-    // Environments provisioned before run-scoped cloning persist their own
-    // copy of the clone command. Detection keys off the URL env var name,
-    // not the command's exact shape, so this must still be recognized and
-    // left alone rather than duplicated.
-    let persisted =
-        "git clone \"$WARP_FACTORY_REPO_CLONE_URL\" \"$WARP_FACTORY_REPO_DIR\"".to_string();
-    let mut setup_commands = vec![persisted.clone(), "make setup".to_string()];
-    super::prepend_factory_definition_clone_for_values(
-        "https://t:token@definitions.example.com/team/factory.git",
-        "acme_factory_repo",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    assert_eq!(setup_commands, vec![persisted, "make setup".to_string()]);
-}
-
-#[test]
-fn factory_clone_defers_to_a_persisted_bare_clone_copy() {
-    // A persisted copy in the bare (no target dir) shape must also be
-    // recognized, since detection is shape-independent.
-    let persisted = "git clone \"$WARP_FACTORY_REPO_CLONE_URL\"".to_string();
-    let mut setup_commands = vec![persisted.clone(), "make setup".to_string()];
-    super::prepend_factory_definition_clone_for_values(
-        "https://t:token@definitions.example.com/team/factory.git",
-        "acme_factory_repo",
-        ShellType::Bash,
-        &mut setup_commands,
-    );
-    assert_eq!(setup_commands, vec![persisted, "make setup".to_string()]);
-}
-
-fn resolved_repo(forge: CodeForge, owner: &str, name: &str) -> ResolvedRepository {
-    ResolvedRepository {
-        source: repo(forge, owner, name),
-        checkout: None,
-        clone_from: None,
-        preserve_origin: true,
-        expected_sha: None,
-    }
-}
-
-#[test]
-fn deferred_inventory_keeps_source_path_and_all_frozen_preparation() {
-    let root = tempfile::TempDir::new().unwrap();
-    let sha = "0123456789abcdef0123456789abcdef01234567";
-    let deferred = ResolvedRepository {
-        source: repo(CodeForge::GitHub, "source", "source-name"),
-        clone_from: Some(repo(CodeForge::GitHub, "benchmarks", "substitute")),
-        checkout: Some(RepositoryHeadRef::Branch(format!("benchmark-base/{sha}"))),
-        expected_sha: Some(sha.into()),
-        preserve_origin: true,
-    };
-    let mut workspace =
-        WorkspaceConfiguration::from_resolved(Vec::new(), vec![deferred], Vec::new()).unwrap();
-    workspace
-        .bind_execution(
-            "task".into(),
-            "execution".into(),
-            root.path().to_owned(),
-            true,
-        )
-        .unwrap();
-    let policy = workspace.preparation_policy.unwrap();
-    assert!(policy.eager.is_empty());
-    assert_eq!(policy.deferred[0].source.repo_owner, "source");
-    assert_eq!(policy.deferred[0].source.repo_name, "source-name");
-    let request = &policy.deferred[0].request;
-    request.validate().unwrap();
-    assert_eq!(request.source.repo_owner, "benchmarks");
-    assert_eq!(request.source.repo_name, "substitute");
-    assert_eq!(request.checkout_name, "source-name");
-    assert_eq!(
-        request.head,
-        Some(RepositoryHeadRef::Branch(format!("benchmark-base/{sha}")))
-    );
-    assert_eq!(request.expected_sha.as_deref(), Some(sha));
-    assert!(request.fetch_branch_only);
-    assert!(!request.remove_origin);
 }

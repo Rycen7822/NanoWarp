@@ -1153,26 +1153,6 @@ fn profile_sources_preserve_state_across_migration_and_rollout() {
         restored_settings_model.read(&app, |model, ctx| {
             assert_eq!(model.default_profile(ctx).data().name, "Settings default");
         });
-
-        let cli_model = {
-            let _guard = FeatureFlag::FileBackedExecutionProfiles.override_enabled(true);
-            app.add_model(|ctx| {
-                AIExecutionProfilesModel::new(
-                    &LaunchMode::CommandLine {
-                        command: warp_cli::CliCommand::Whoami,
-                        global_options: warp_cli::GlobalOptions::default(),
-                        debug: false,
-                        is_sandboxed: true,
-                        computer_use_override: None,
-                    },
-                    ctx,
-                )
-            })
-        };
-        cli_model.read(&app, |model, ctx| {
-            assert_ne!(model.default_profile(ctx).data().name, "Settings default");
-            assert!(model.default_profile(ctx).sync_id().is_none());
-        });
     });
 }
 

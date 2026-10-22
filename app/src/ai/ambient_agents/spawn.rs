@@ -17,10 +17,6 @@ use crate::server::server_api::ai::{
 use crate::server::team_scope::RequestTeamScope;
 use crate::terminal::shared_session;
 
-/// How long to poll for the agent to be ready.
-/// This should be long enough that the shared session will be joinable.
-pub const TASK_STATUS_POLLING_DURATION: Duration = Duration::from_secs(80);
-
 #[cfg(not(test))]
 const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(3);
 #[cfg(test)]

@@ -3106,9 +3106,8 @@ fn drain_family_events_primary_routes_mixed_batch_and_delivers_inbox() {
 }
 
 #[test]
-fn drain_family_events_primary_does_not_queue_delivery_for_an_external_harness_owner() {
-    // The owner's turns are authored by an external harness (e.g. an ACP agent), so nothing
-    // may be queued for native injection into it; the server wakes such runs itself. Child
+fn drain_family_events_primary_does_not_queue_delivery_for_a_transcript_owner() {
+    // A restored CLI transcript is read-only, so nothing may be queued for native injection. Child
     // tracking, watched-run status fan-out, and the Primary cursor all still advance.
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
@@ -3127,7 +3126,7 @@ fn drain_family_events_primary_does_not_queue_delivery_for_an_external_harness_o
 
         let mut conversation = AIConversation::new(false, false);
         conversation.set_run_id(parent_run_id.clone());
-        conversation.set_driver(ConversationDriver::ExternalHarness);
+        conversation.set_driver(ConversationDriver::CliAgentTranscript);
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {

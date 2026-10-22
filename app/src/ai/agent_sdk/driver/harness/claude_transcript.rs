@@ -1,20 +1,4 @@
-//! Claude Code transcript layout + rehydration helpers.
-//!
-//! This module owns:
-//! - [`ClaudeTranscriptEnvelope`] — the on-wire/on-GCS shape of a saved Claude session
-//!   (main jsonl entries + subagent jsonl files + per-agent todo JSONs), plus reader/writer
-//!   functions that interoperate with Claude's own `~/.claude` layout.
-//! - [`ClaudeResumeInfo`] — everything the harness runner needs to resume an existing
-//!   Claude conversation: the Warp server conversation id to reuse, the Claude session uuid
-//!   to pass to `claude --resume`, and the decoded envelope to rehydrate onto disk.
-//! - [`write_session_index_entry`] — update of `~/.claude/sessions-index.json` so Claude's
-//!   `--resume <uuid>` lookup can find the freshly-rehydrated jsonl. Upstream versions vary in
-//!   how they use this index (claude-code#33912, #39667, #5768); we write a conservative entry.
-//!   Callers treat write failures as hard errors rather than warnings, since this index is required
-//!   by some Claude Code versions.
-//!
-//! Split out from `claude_code.rs` so the `AIClient` transcript-fetch impl can deserialize
-//! envelopes without pulling in the rest of the harness runner.
+//! Transcript envelopes and GUI continuation helpers.
 use std::collections::HashMap;
 use std::fs::{create_dir_all, write};
 use std::io::Read;
@@ -25,16 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 use warp_core::safe_warn;
-use warp_harness_usage::{CaptureDiagnostics, JsonlCapture, JsonlDiagnostics, JsonlReadStatus};
 
 use super::json_utils::entries_to_jsonl;
-use super::transcript_persistence::read_jsonl_capture;
-use crate::ai::agent::api::ServerConversationToken;
 
-/// JSON envelope sent to the server for one captured Claude Code session.
-///
-/// Valid records are retained when a native file is incomplete; capture diagnostics are not
-/// serialized into this raw transcript shape.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ClaudeTranscriptEnvelope {
     /// The directory that the Claude Code session started in.
@@ -52,32 +29,13 @@ pub(crate) struct ClaudeTranscriptEnvelope {
     pub(crate) todos: HashMap<String, Value>,
 }
 
-/// Everything needed to resume an existing Claude conversation.
-///
-/// Populated from a `--conversation` id after the client fetches the stored envelope from
-/// the server. Passed into `ClaudeHarnessRunner::new` so the runner reuses the existing
-/// session and server conversation ids instead of minting fresh ones.
-#[derive(Debug)]
-pub(crate) struct ClaudeResumeInfo {
-    /// The Warp server-side conversation id. The runner stores this instead of calling
-    /// `create_external_conversation` so subsequent transcript/block-snapshot uploads overwrite
-    /// the same GCS objects.
-    pub(crate) conversation_id: ServerConversationToken,
-    /// The Claude session uuid to pass to `claude --resume`. Matches `envelope.uuid`.
-    pub(crate) session_id: Uuid,
-    /// Envelope from the server. Its `cwd` field must match the current run's working directory
-    /// — [`rehydrate_claude_transcript`] rejects the resume rather than silently rewriting `cwd`,
-    /// since jsonl entries embed their own `cwd` fields that can't be retroactively fixed up, and
-    /// a rewritten top-level `cwd` alone would still leave those stale.
-    pub(crate) envelope: ClaudeTranscriptEnvelope,
-}
-
 #[derive(Debug)]
 pub(crate) struct ClaudeLocalContinuation {
     pub(crate) command: String,
 }
 
-/// Encode a working directory as Claude Code's project-directory key.
+const SESSIONS_INDEX_FILENAME: &str = "sessions-index.json";
+
 pub(crate) fn encode_cwd(cwd: &Path) -> String {
     let cwd = cwd.to_string_lossy();
     let mut encoded = String::with_capacity(cwd.len());
@@ -113,11 +71,6 @@ pub(crate) fn encode_cwd(cwd: &Path) -> String {
     encoded
 }
 
-/// Resolve the Claude config directory.
-///
-/// Reads `$CLAUDE_CONFIG_DIR` if set, otherwise falls back to `~/.claude`.
-//
-/// TODO(REMOTE-1209): Use the transcript path reported by our hook.
 pub(crate) fn claude_config_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
         return Ok(PathBuf::from(dir));
@@ -127,8 +80,6 @@ pub(crate) fn claude_config_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("could not determine home directory"))
 }
 
-/// In tests on Windows, `dirs::home_dir()` ignores `HOME`, so we check it
-/// manually so that tests can override the home directory.
 pub(super) fn home_dir_for_claude_config() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(home) = std::env::var_os("HOME")
@@ -139,140 +90,6 @@ pub(super) fn home_dir_for_claude_config() -> Option<PathBuf> {
     dirs::home_dir()
 }
 
-/// Where Claude Code writes the main transcript of `session_uuid` started in `cwd`.
-pub(super) fn session_transcript_path(
-    config_root: &Path,
-    cwd: &Path,
-    session_uuid: Uuid,
-) -> PathBuf {
-    projects_dir(config_root, cwd).join(format!("{session_uuid}.jsonl"))
-}
-
-fn projects_dir(config_root: &Path, cwd: &Path) -> PathBuf {
-    config_root.join("projects").join(encode_cwd(cwd))
-}
-
-/// Captures the session envelope and diagnostics from the same native reads.
-///
-/// A required root must exist and contain a complete readable record. Usable partial root and
-/// subagent records are retained, while subagent discovery/read failures degrade diagnostics.
-pub(super) fn read_envelope_with_diagnostics(
-    session_uuid: Uuid,
-    cwd: &Path,
-    config_root: &Path,
-    require_main_transcript: bool,
-) -> Result<(ClaudeTranscriptEnvelope, CaptureDiagnostics)> {
-    let projects_dir = projects_dir(config_root, cwd);
-
-    // Main session transcript.
-    let session_file = session_transcript_path(config_root, cwd, session_uuid);
-    let root = read_jsonl_capture(&session_file)?;
-    if require_main_transcript && root.diagnostics.status == JsonlReadStatus::Missing {
-        anyhow::bail!(
-            "Claude Code transcript does not exist after harness termination: {}",
-            session_file.display()
-        );
-    }
-    if root.diagnostics.status == JsonlReadStatus::Unreadable && root.entries.is_empty() {
-        anyhow::bail!("Native root transcript could not be read");
-    }
-    if require_main_transcript && root.entries.is_empty() {
-        anyhow::bail!("Native root transcript has no complete readable records");
-    }
-    let entries = root.entries;
-    let mut diagnostics = CaptureDiagnostics {
-        root: root.diagnostics,
-        ..Default::default()
-    };
-
-    // Subagents are stored in a directory named after the session UUID.
-    let mut subagents: HashMap<String, Vec<Value>> = HashMap::new();
-    let subagents_dir = projects_dir
-        .join(session_uuid.to_string())
-        .join("subagents");
-    match std::fs::read_dir(&subagents_dir) {
-        Ok(directory) => {
-            for entry in directory {
-                let Ok(entry) = entry else {
-                    diagnostics.subagent_discovery_incomplete = true;
-                    continue;
-                };
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                    continue;
-                }
-                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                    diagnostics.subagent_discovery_incomplete = true;
-                    continue;
-                };
-                let capture = read_jsonl_capture(&path).unwrap_or_else(|_| JsonlCapture {
-                    diagnostics: JsonlDiagnostics {
-                        status: JsonlReadStatus::Unreadable,
-                        ..Default::default()
-                    },
-                    entries: Vec::new(),
-                });
-                diagnostics
-                    .subagents
-                    .insert(stem.to_owned(), capture.diagnostics);
-                subagents.insert(stem.to_owned(), capture.entries);
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => diagnostics.subagent_discovery_incomplete = true,
-    }
-
-    // Per-agent todo lists.
-    let mut todos: HashMap<String, Value> = HashMap::new();
-    let todos_dir = config_root.join("todos");
-    let todos_prefix = format!("{session_uuid}-agent-");
-    if todos_dir.is_dir() {
-        for entry in std::fs::read_dir(&todos_dir)
-            .with_context(|| format!("Failed to read todos dir {}", todos_dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if !stem.starts_with(&todos_prefix) {
-                continue;
-            }
-            match std::fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(value) => {
-                        todos.insert(stem.to_owned(), value);
-                    }
-                    Err(e) => log::warn!("Failed to parse todos file {}: {e}", path.display()),
-                },
-                Err(e) => log::warn!("Failed to read todos file {}: {e}", path.display()),
-            }
-        }
-    }
-
-    Ok((
-        ClaudeTranscriptEnvelope {
-            cwd: cwd.to_path_buf(),
-            uuid: session_uuid,
-            claude_version: None,
-            entries,
-            subagents,
-            todos,
-        },
-        diagnostics,
-    ))
-}
-
-/// Write a [`ClaudeTranscriptEnvelope`] back to disk using the same layout
-/// that Claude Code uses.
-///
-/// Creates:
-/// - `<config_root>/projects/<encoded_cwd>/<uuid>.jsonl` - main transcript
-/// - `<config_root>/projects/<encoded_cwd>/<uuid>/subagents/<stem>.jsonl` - subagents
-/// - `<config_root>/todos/<stem>.json` - per-agent todo lists
 pub(crate) fn write_envelope(
     envelope: &ClaudeTranscriptEnvelope,
     config_root: &Path,
@@ -316,51 +133,6 @@ pub(crate) fn write_envelope(
     Ok(())
 }
 
-/// Rehydrate a Claude transcript fetched for a `--conversation` cloud resume.
-///
-/// Requires `envelope.cwd` (the working directory the session was originally saved under) to
-/// match `local_cwd` (this run's working directory) exactly. Claude's `--resume <uuid>` lookup
-/// is scoped to the project directory derived from the literal cwd string, and each jsonl entry
-/// also embeds its own `cwd` field that isn't rewritten here — so resuming under a different
-/// directory would either leave Claude unable to find the session at all, or hand it a
-/// transcript with a `cwd` that no longer matches where it's actually running. Both are worse
-/// than failing loudly up front.
-pub(crate) fn rehydrate_claude_transcript(
-    envelope: &mut ClaudeTranscriptEnvelope,
-    local_cwd: &Path,
-) -> Result<ClaudeLocalContinuation> {
-    if envelope.cwd != local_cwd {
-        anyhow::bail!(
-            "Unable to resume Claude session {}: it was saved with working directory {}, but \
-             this run's working directory is {}.",
-            envelope.uuid,
-            envelope.cwd.display(),
-            local_cwd.display()
-        );
-    }
-    let session_id = envelope.uuid;
-    let config_root = claude_config_dir().context("Failed to resolve Claude config dir")?;
-    write_envelope(envelope, &config_root).context("Failed to rehydrate Claude transcript")?;
-    write_session_index_entry(session_id, local_cwd, &config_root)
-        .context("Failed to update Claude sessions-index.json")?;
-
-    Ok(ClaudeLocalContinuation {
-        command: format!("claude --resume {session_id}"),
-    })
-}
-
-/// Write a [`ClaudeTranscriptEnvelope`] to a project directory derived from `storage_cwd`,
-/// without mutating `envelope.cwd`.
-///
-/// Used by the local continuation path so the transcript's recorded working directory
-/// (the original cloud cwd) is preserved as-is while the file is placed under
-/// `~/.claude/projects/<encoded(storage_cwd)>/` where Claude's per-project lookup can find it.
-/// Cloud resume uses [`write_envelope`] instead, which derives the path from `envelope.cwd`.
-///
-/// Creates:
-/// - `<config_root>/projects/<encoded(storage_cwd)>/<uuid>.jsonl` — main transcript
-/// - `<config_root>/projects/<encoded(storage_cwd)>/<uuid>/subagents/<stem>.jsonl` — subagents
-/// - `<config_root>/todos/<stem>.json` — per-agent todo lists (same location as cloud resume)
 pub(crate) fn write_envelope_for_local_continuation(
     envelope: &ClaudeTranscriptEnvelope,
     storage_cwd: &Path,
@@ -404,13 +176,6 @@ pub(crate) fn write_envelope_for_local_continuation(
     Ok(())
 }
 
-/// Rehydrate a Claude transcript downloaded from a remote cloud run for local continuation.
-///
-/// Unlike [`rehydrate_claude_transcript`] (used by the cloud resume harness runner), this
-/// function does **not** mutate the envelope's `cwd` field — the remote session's original
-/// working directory is preserved as-is in the transcript. The session file is stored under
-/// `~/.claude/projects/<encoded(home_dir)>/` so Claude's per-project session lookup finds it
-/// when the user runs `claude --resume <uuid>` from their home directory.
 pub(crate) fn rehydrate_claude_transcript_from_reader(
     reader: impl Read,
 ) -> Result<ClaudeLocalContinuation> {
@@ -429,19 +194,6 @@ pub(crate) fn rehydrate_claude_transcript_from_reader(
     })
 }
 
-/// Filename of Claude's global session index.
-const SESSIONS_INDEX_FILENAME: &str = "sessions-index.json";
-
-/// Upsert an entry for `session_uuid` into `<config_root>/sessions-index.json` so Claude's`
-/// `claude --resume <uuid>` lookup can find the rehydrated jsonl.
-///
-/// Upstream Claude versions vary in how the index is keyed and what fields they read; this
-/// writer uses a conservative session-uuid-keyed schema (session id, cwd, jsonl path) that
-/// mirrors the fragments documented in claude-code#33912 / #39667 / #5768. Unknown fields are
-/// preserved on existing entries, and we never remove other entries.
-///
-/// A missing or malformed index file is treated as an empty index and overwritten rather than
-/// failing (see the read branch below).
 pub(crate) fn write_session_index_entry(
     session_uuid: Uuid,
     cwd: &Path,

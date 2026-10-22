@@ -545,17 +545,6 @@ pub enum GrokRefreshOutcome {
     Failed,
 }
 
-/// Controls how AWS credentials are refreshed by [`ApiKeyManager`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum AwsCredentialsRefreshStrategy {
-    /// Load credentials from the local AWS credential chain (~/.aws). This is the default.
-    #[default]
-    LocalChain,
-    /// An agent run mints them via OIDC/STS and refreshes them itself; ambient triggers must
-    /// leave them alone. Also forces them onto requests regardless of the per-user setting.
-    OidcManaged,
-}
-
 struct CustomEndpointState {
     definitions: Option<CustomEndpointDefinitions>,
     settings_valid: bool,
@@ -600,7 +589,6 @@ pub struct ApiKeyManager {
     #[cfg(not(target_family = "wasm"))]
     pub(crate) geap_last_mint_failure: Option<SystemTime>,
     pub(crate) aws_credentials_state: AwsCredentialsState,
-    aws_credentials_refresh_strategy: AwsCredentialsRefreshStrategy,
     /// In-memory Gemini Enterprise (GEAP) credential state.
     pub(crate) geap_credentials_state: GeapCredentialsState,
     secure_storage_write_version: u64,
@@ -680,7 +668,6 @@ impl ApiKeyManager {
             #[cfg(not(target_family = "wasm"))]
             geap_last_mint_failure: None,
             aws_credentials_state: AwsCredentialsState::Missing,
-            aws_credentials_refresh_strategy: AwsCredentialsRefreshStrategy::default(),
             geap_credentials_state: GeapCredentialsState::Missing,
             secure_storage_write_version: 0,
             grok_secure_storage_write_version: 0,
@@ -1098,21 +1085,6 @@ impl ApiKeyManager {
         &self.aws_credentials_state
     }
 
-    pub fn aws_credentials_refresh_strategy(&self) -> AwsCredentialsRefreshStrategy {
-        self.aws_credentials_refresh_strategy.clone()
-    }
-
-    pub fn set_aws_credentials_refresh_strategy(
-        &mut self,
-        strategy: AwsCredentialsRefreshStrategy,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if self.aws_credentials_refresh_strategy != strategy {
-            self.aws_credentials_refresh_strategy = strategy;
-            self.set_aws_credentials_state(AwsCredentialsState::Missing, ctx);
-        }
-    }
-
     /// Builds the `CustomModelProviders` registry that ships with every agent request.
     ///
     /// Emits one [`CustomModelProvider`] per configured [`CustomEndpoint`], each populated with
@@ -1202,14 +1174,7 @@ impl ApiKeyManager {
             .flatten()
             .unwrap_or_default();
 
-        // Also include credentials when running with OIDC-managed Bedrock inference, regardless
-        // of the per-user setting flag (which only applies to the local credential chain path).
-        let include_aws = include_aws_bedrock_credentials
-            || matches!(
-                self.aws_credentials_refresh_strategy,
-                AwsCredentialsRefreshStrategy::OidcManaged
-            );
-        let aws_credentials = include_aws
+        let aws_credentials = include_aws_bedrock_credentials
             .then(|| match self.aws_credentials_state {
                 AwsCredentialsState::Loaded {
                     ref credentials, ..

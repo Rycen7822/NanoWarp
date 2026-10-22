@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -94,7 +94,6 @@ impl CheckoutReport {
 
 /// Resolved HEAD commit of each checkout, keyed by checkout name. Checkouts whose HEAD could not
 /// be resolved are absent.
-pub type ResolvedHeads = BTreeMap<String, String>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

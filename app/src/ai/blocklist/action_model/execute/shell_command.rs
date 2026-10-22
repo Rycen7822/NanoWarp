@@ -20,7 +20,6 @@ use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::lrc_activity::{LrcActivityMonitor, SAMPLE_INTERVAL};
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
-use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentActionId, AIAgentActionResultType, AIAgentActionType, AIAgentPtyWriteMode, LrcActivity,
     ReadShellCommandOutputResult, RequestCommandOutputResult, ShellCommandDelay, ShellCommandError,
@@ -108,18 +107,6 @@ impl ShellCommandExecutor {
             shell_recovery: None,
             recovering_block_id: Arc::new(Mutex::new(None)),
         }
-    }
-
-    pub(crate) fn interrupt_for_injected_followup(
-        &self,
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        ctx.emit(ShellCommandExecutorEvent::InterruptForInjectedFollowup {
-            conversation_id,
-            block_id,
-        });
     }
 
     /// Begins collecting liveness signals for the command this action will
@@ -1212,10 +1199,6 @@ pub enum ShellCommandExecutorEvent {
         mode: AIAgentPtyWriteMode,
     },
     CancelExecution,
-    InterruptForInjectedFollowup {
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-    },
     /// Emitted when the agent requests to transfer control of a long-running command to the user.
     TransferControlToUser {
         action_id: AIAgentActionId,

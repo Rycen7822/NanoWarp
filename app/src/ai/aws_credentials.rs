@@ -1,24 +1,13 @@
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 pub use ai::api_keys::AwsCredentials;
-use ai::api_keys::{ApiKeyManager, AwsCredentialsRefreshStrategy, AwsCredentialsState};
-use anyhow::Context;
+use ai::api_keys::{ApiKeyManager, AwsCredentialsState};
 use aws_credential_types::provider::ProvideCredentials;
 use aws_credential_types::provider::error::CredentialsError;
-use futures::channel::oneshot::channel;
-use futures::future::BoxFuture;
 use parking_lot::FairMutex;
-use tokio::sync::Mutex;
-use vec1::vec1;
-use warp_errors::report_error;
-use warp_managed_secrets::client::IdentityTokenOptions;
 use warpui::{ModelContext, ModelHandle, SingletonEntity};
 
-use crate::server::server_api::managed_secrets::{
-    AppManagedSecretManager as ManagedSecretManager, IdentityTokenUserFacingError,
-};
-use crate::server::team_scope::RequestTeamScope;
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::terminal::event::{AfterBlockCompletedEvent, BlockType};
 use crate::terminal::model::terminal_model::TerminalModel;
@@ -90,55 +79,6 @@ fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &s
 }
 
 impl std::error::Error for LoadAwsCredentialsError {}
-
-pub(crate) const AWS_BEDROCK_STS_AUDIENCE: &str = "sts.amazonaws.com";
-pub(crate) const BEDROCK_IDENTITY_TOKEN_DURATION: Duration = Duration::from_secs(60 * 60);
-
-#[derive(Clone)]
-pub(crate) struct BedrockOidcCredentialsConfig {
-    pub task_id: String,
-    pub role_arn: String,
-    pub region: String,
-}
-
-pub(crate) fn bedrock_identity_token_error(error: anyhow::Error) -> anyhow::Error {
-    const MESSAGE: &str = "Failed to mint AWS Bedrock task identity token";
-    let message = match error.downcast_ref::<IdentityTokenUserFacingError>() {
-        Some(detail) => format!("{MESSAGE}: {detail}"),
-        None => MESSAGE.to_string(),
-    };
-    error.context(message)
-}
-
-pub(crate) fn aws_role_session_name(run_id: &str) -> String {
-    format!("Oz_Run_{run_id}")
-}
-
-/// Cached STS client for OIDC credential refreshes -- cached on the last region used.
-/// (in practice, there should only ever be 1 region used per warp app lifetime)
-///
-/// `AssumeRoleWithWebIdentity` is unauthenticated (the web identity token is the
-/// credential), so we skip the default credentials chain via `no_credentials()`
-/// and reuse a single client across refreshes.
-static STS_CLIENT_CACHE: Mutex<Option<(String, aws_sdk_sts::Client)>> = Mutex::const_new(None);
-
-pub(crate) async fn sts_client(region: &str) -> aws_sdk_sts::Client {
-    let mut cache = STS_CLIENT_CACHE.lock().await;
-    if let Some((cached_region, client)) = cache.as_ref()
-        && cached_region == region
-    {
-        return client.clone();
-    }
-
-    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .no_credentials()
-        .region(aws_config::Region::new(region.to_string()))
-        .load()
-        .await;
-    let client = aws_sdk_sts::Client::new(&config);
-    *cache = Some((region.to_string(), client.clone()));
-    client
-}
 
 fn aws_credentials_state_for_error(err: LoadAwsCredentialsError) -> AwsCredentialsState {
     match err {
@@ -271,18 +211,10 @@ impl AwsCredentialRefresher for ApiKeyManager {
 
 /// Refreshes AWS credentials from the local AWS SDK credential chain (~/.aws).
 ///
-/// No-op under [`AwsCredentialsRefreshStrategy::OidcManaged`]: those credentials are minted and
-/// refreshed by the agent driver, which holds the role, region, task id, and request scope. This
-/// runs from ambient triggers (team metadata, settings changes, the auth-command detector) and
-/// must not overwrite a live STS session with the local chain's answer.
 pub(crate) fn refresh_local_chain_aws_credentials(
     manager: &mut ApiKeyManager,
     ctx: &mut ModelContext<ApiKeyManager>,
 ) {
-    if manager.aws_credentials_refresh_strategy() == AwsCredentialsRefreshStrategy::OidcManaged {
-        return;
-    }
-
     // Credential loading is a background `ApiKeyManager` job with no window behind it, and
     // there is one local AWS credential store, so it runs if any of the user's teams enables
     // Bedrock. Whether a given request may then carry those credentials is decided separately.
@@ -302,12 +234,6 @@ pub(crate) fn refresh_local_chain_aws_credentials(
     let _ = ctx.spawn(
         async move { load_aws_credentials_from_sdk(&profile).await },
         move |manager, result, ctx| {
-            // Ignore a local-chain result that completed after the agent driver switched to OIDC.
-            if manager.aws_credentials_refresh_strategy()
-                != AwsCredentialsRefreshStrategy::LocalChain
-            {
-                return;
-            }
             let new_state = match result {
                 Ok(credentials) => AwsCredentialsState::Loaded {
                     credentials,
@@ -318,111 +244,6 @@ pub(crate) fn refresh_local_chain_aws_credentials(
             manager.set_aws_credentials_state(new_state, ctx);
         },
     );
-}
-
-/// Refreshes credentials via OIDC identity token + STS AssumeRoleWithWebIdentity.
-pub(crate) fn refresh_aws_credentials_oidc(
-    config: BedrockOidcCredentialsConfig,
-    request_scope: Option<RequestTeamScope>,
-    manager: &mut ApiKeyManager,
-    ctx: &mut ModelContext<ApiKeyManager>,
-) -> BoxFuture<'static, Result<(), String>> {
-    // Skip if credentials are already loaded and have not yet expired.
-    if let AwsCredentialsState::Loaded { credentials, .. } = manager.aws_credentials_state() {
-        let still_valid = credentials
-            .expires_at()
-            .and_then(|exp| exp.duration_since(SystemTime::now()).ok())
-            .is_some();
-        if still_valid {
-            log::info!("Bedrock OIDC: credentials still valid, skipping refresh");
-            return Box::pin(async { Ok(()) });
-        }
-    }
-
-    log::info!(
-        "Bedrock OIDC: preparing token mint for task {:?}",
-        config.task_id
-    );
-    manager.set_aws_credentials_state(AwsCredentialsState::Refreshing, ctx);
-    let token_future = ManagedSecretManager::handle(ctx)
-        .as_ref(ctx)
-        .issue_task_identity_token(
-            request_scope,
-            IdentityTokenOptions {
-                audience: AWS_BEDROCK_STS_AUDIENCE.to_string(),
-                requested_duration: BEDROCK_IDENTITY_TOKEN_DURATION,
-                subject_template: vec1!["scoped_principal".to_string()],
-            },
-        );
-
-    let (tx, rx) = channel();
-    let _ = ctx.spawn(
-        async move {
-            let token = token_future.await.map_err(bedrock_identity_token_error)?;
-
-            let client = sts_client(&config.region).await;
-            let session_name = aws_role_session_name(&config.task_id);
-            let credentials = client
-                .assume_role_with_web_identity()
-                .role_arn(&config.role_arn)
-                .role_session_name(session_name)
-                .web_identity_token(token.token)
-                .send()
-                .await
-                .map_err(|err| {
-                    // Surface the AWS service error message for a user-friendly error.
-                    let detail = err
-                        .as_service_error()
-                        .map(|e| e.to_string())
-                        .unwrap_or_else(|| err.to_string());
-                    report_error!(
-                        anyhow::Error::new(err)
-                            .context("Bedrock OIDC: STS AssumeRoleWithWebIdentity SDK error")
-                    );
-                    anyhow::anyhow!("STS AssumeRoleWithWebIdentity failed: {detail}")
-                })?
-                .credentials
-                .context("STS response did not include credentials")?;
-
-            anyhow::Ok(AwsCredentials::new(
-                credentials.access_key_id().to_string(),
-                credentials.secret_access_key().to_string(),
-                Some(credentials.session_token().to_string()),
-                SystemTime::try_from(*credentials.expiration()).ok(),
-            ))
-        },
-        move |manager, result, ctx| {
-            let loaded_successfully = result.is_ok();
-            let (new_state, tx_result) = match result {
-                Ok(credentials) => (
-                    AwsCredentialsState::Loaded {
-                        credentials,
-                        loaded_at: SystemTime::now(),
-                    },
-                    Ok(()),
-                ),
-                Err(e) => {
-                    let message = e.to_string();
-                    report_error!(e.context("Bedrock OIDC: failed to load credentials"));
-                    (
-                        AwsCredentialsState::Failed {
-                            message: message.clone(),
-                        },
-                        Err(message),
-                    )
-                }
-            };
-            manager.set_aws_credentials_state(new_state, ctx);
-            if loaded_successfully {
-                log::info!("Bedrock OIDC: credentials loaded successfully");
-            }
-            let _ = tx.send(tx_result);
-        },
-    );
-    Box::pin(async move {
-        rx.await
-            .unwrap_or_else(|_| Err("Credential refresh was interrupted".to_string()))
-    })
 }
 
 #[cfg(test)]

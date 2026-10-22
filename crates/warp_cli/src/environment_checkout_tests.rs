@@ -1,11 +1,11 @@
 use clap::Parser as _;
 
 use super::*;
-use crate::{Args, CliCommand, Command};
+use crate::{Args, Command, WorkerCommand};
 #[test]
 fn strict_checkout_parses_and_conflicts_with_origin_cleanup() {
     let command = [
-        "oz",
+        "nanowarp",
         "environment-checkout",
         "--requests-file",
         "request.json",
@@ -14,10 +14,7 @@ fn strict_checkout_parses_and_conflicts_with_origin_cleanup() {
         "--fail-if-target-exists",
     ];
     let args = Args::try_parse_from(command).unwrap();
-    let Some(Command::CommandLine(parsed)) = args.command() else {
-        panic!("CLI command")
-    };
-    let CliCommand::EnvironmentCheckout(args) = parsed.as_ref() else {
+    let Some(Command::Worker(WorkerCommand::EnvironmentCheckout(args))) = args.command() else {
         panic!("checkout command")
     };
     assert!(args.fail_if_target_exists);
@@ -32,7 +29,7 @@ fn strict_checkout_parses_and_conflicts_with_origin_cleanup() {
 #[test]
 fn hidden_command_parses_paths_and_traces_without_payload() {
     let args = Args::try_parse_from([
-        "oz",
+        "nanowarp",
         "environment-checkout",
         "--requests-file",
         "a path/request.json",
@@ -41,11 +38,7 @@ fn hidden_command_parses_paths_and_traces_without_payload() {
         "--remove-origins-only",
     ])
     .unwrap();
-    let Some(Command::CommandLine(command)) = args.command() else {
-        panic!("CLI command")
-    };
-    assert_eq!(command.as_str_for_tracing(), "environment_checkout");
-    let CliCommand::EnvironmentCheckout(args) = command.as_ref() else {
+    let Some(Command::Worker(WorkerCommand::EnvironmentCheckout(args))) = args.command() else {
         panic!("checkout command")
     };
     assert_eq!(args.requests_file, PathBuf::from("a path/request.json"));

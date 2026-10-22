@@ -1,78 +1,24 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use futures::stream::AbortHandle;
 use repo_metadata::repositories::RepoDetectionSource;
 use repo_metadata::{RepositoryUpdate, TargetFile};
-use warpui::{App, Entity, ModelHandle};
+use warpui::{App, Entity};
 
 use super::{
     FileMCPConfigDiagnosticKind, FileMCPConfigParseOutcome, FileMCPWatcher, FileMCPWatcherEvent,
-    InFlightParse, PendingScan, config_change_flags, home_subdir_to_watch, parse_mcp_config_file,
+    InFlightParse, config_change_flags, home_subdir_to_watch, parse_mcp_config_file,
     providers_in_scope, should_watch_repository, substitute_env_vars,
 };
 use crate::ai::mcp::MCPProvider;
 use crate::test_util::terminal::initialize_app_for_terminal_view;
 
-fn setup_watcher(
-    app: &mut App,
-    pending_scans: HashMap<PendingScan, HashSet<(PathBuf, MCPProvider)>>,
-) -> ModelHandle<FileMCPWatcher> {
-    app.add_singleton_model(|_| FileMCPWatcher {
-        pending_scans,
-        ..FileMCPWatcher::new_inert()
-    })
-}
-
 struct WatcherEventCollector;
 
 impl Entity for WatcherEventCollector {
     type Event = ();
-}
-
-/// Records every watcher event. The returned collector handle must outlive the assertions.
-fn collect_watcher_events(
-    app: &mut App,
-    watcher: &ModelHandle<FileMCPWatcher>,
-) -> (
-    ModelHandle<WatcherEventCollector>,
-    Rc<RefCell<Vec<CollectedEvent>>>,
-) {
-    let events = Rc::new(RefCell::new(Vec::new()));
-    let collector = app.add_model(|_| WatcherEventCollector);
-    collector.update(app, {
-        let events = events.clone();
-        |_, ctx| {
-            ctx.subscribe_to_model(watcher, move |_, _, event, _| {
-                events.borrow_mut().push(CollectedEvent::from(event));
-            });
-        }
-    });
-    (collector, events)
-}
-
-#[derive(Debug, Eq, PartialEq)]
-enum CollectedEvent {
-    ConfigParsed(MCPProvider),
-    ConfigRemoved(MCPProvider),
-    ConfigError(MCPProvider),
-    ScanComplete(PendingScan),
-}
-
-impl From<&FileMCPWatcherEvent> for CollectedEvent {
-    fn from(event: &FileMCPWatcherEvent) -> Self {
-        match event {
-            FileMCPWatcherEvent::ConfigParsed { provider, .. } => Self::ConfigParsed(*provider),
-            FileMCPWatcherEvent::ConfigRemoved { provider, .. } => Self::ConfigRemoved(*provider),
-            FileMCPWatcherEvent::ConfigError { diagnostic } => {
-                Self::ConfigError(diagnostic.provider)
-            }
-            FileMCPWatcherEvent::ScanComplete(scan) => Self::ScanComplete(scan.clone()),
-        }
-    }
 }
 
 fn cleanup_env_vars(vars: &[&str]) {
@@ -101,7 +47,6 @@ fn abort_config_parse_cancels_and_removes_inflight_task() {
         next_parse_generation: 1,
         home_provider_watchers: HashMap::new(),
         project_repo_watchers: HashSet::new(),
-        pending_scans: HashMap::new(),
     };
 
     watcher.abort_config_parse(&config_path, MCPProvider::Warp);
@@ -309,100 +254,6 @@ async fn parse_outcomes_distinguish_missing_invalid_and_valid_configs() {
 }
 
 #[test]
-fn pending_scan_completes_once_every_owed_source_settles() {
-    let repo = PathBuf::from("/work/repository");
-    let claude = (repo.join(".mcp.json"), MCPProvider::Claude);
-    let codex = (repo.join(".codex/config.toml"), MCPProvider::Codex);
-    let scan = PendingScan::CloudEnvRepo(repo.clone());
-
-    App::test((), |mut app| async move {
-        let watcher = setup_watcher(
-            &mut app,
-            HashMap::from([(scan.clone(), HashSet::from([claude.clone(), codex.clone()]))]),
-        );
-        let (_collector, events) = collect_watcher_events(&mut app, &watcher);
-
-        // Settling the same source repeatedly must not stand in for the sources still owed.
-        for _ in 0..2 {
-            watcher.update(&mut app, |watcher, ctx| {
-                watcher.settle_pending_source(&claude.0, claude.1, ctx);
-            });
-            assert!(events.borrow().is_empty());
-        }
-
-        watcher.update(&mut app, |watcher, ctx| {
-            watcher.remove_config(codex.0.clone(), repo.clone(), codex.1, ctx);
-        });
-        assert_eq!(
-            *events.borrow(),
-            vec![
-                CollectedEvent::ConfigRemoved(MCPProvider::Codex),
-                CollectedEvent::ScanComplete(scan),
-            ]
-        );
-        watcher.read(&app, |watcher, _| assert!(watcher.pending_scans.is_empty()));
-    });
-}
-
-#[test]
-fn scan_completes_after_the_current_parse_of_a_reparsed_source() {
-    let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let root = directory.path().to_path_buf();
-    let config_path = root.join("config.json");
-    std::fs::write(
-        &config_path,
-        r#"{"mcpServers":{"test":{"command":"test-command"}}}"#,
-    )
-    .expect("valid config should be written");
-    let source = (config_path.clone(), MCPProvider::Warp);
-
-    App::test((), |mut app| async move {
-        let watcher = setup_watcher(
-            &mut app,
-            HashMap::from([(PendingScan::InitialGlobal, HashSet::from([source]))]),
-        );
-        let (_collector, events) = collect_watcher_events(&mut app, &watcher);
-        let (tx, rx) = futures::channel::oneshot::channel();
-        let mut tx = Some(tx);
-        let completion = app.add_model(|_| WatcherEventCollector);
-        completion.update(&mut app, |_, ctx| {
-            ctx.subscribe_to_model(&watcher, move |_, _, event, _| {
-                if matches!(event, FileMCPWatcherEvent::ScanComplete(_))
-                    && let Some(tx) = tx.take()
-                {
-                    let _ = tx.send(());
-                }
-            });
-        });
-
-        watcher.update(&mut app, |watcher, ctx| {
-            for _ in 0..2 {
-                watcher.update_servers_from_config_file(
-                    &config_path,
-                    root.clone(),
-                    MCPProvider::Warp,
-                    ctx,
-                );
-            }
-        });
-        rx.await.expect("scan should complete");
-
-        assert_eq!(
-            *events.borrow(),
-            vec![
-                CollectedEvent::ConfigParsed(MCPProvider::Warp),
-                CollectedEvent::ScanComplete(PendingScan::InitialGlobal),
-            ],
-            "only the current parse may report a result or settle the scan"
-        );
-        watcher.read(&app, |watcher, _| {
-            assert!(watcher.pending_scans.is_empty());
-            assert!(watcher.in_flight_parses.is_empty());
-        });
-    });
-}
-
-#[test]
 fn stale_completion_callback_cannot_reclaim_a_superseded_source() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
     let root = directory.path().to_path_buf();
@@ -415,7 +266,7 @@ fn stale_completion_callback_cannot_reclaim_a_superseded_source() {
     let key = (config_path.clone(), MCPProvider::Warp);
 
     App::test((), |mut app| async move {
-        let watcher = setup_watcher(&mut app, HashMap::new());
+        let watcher = app.add_singleton_model(|_| FileMCPWatcher::new_inert());
         let stale_generation = watcher.update(&mut app, |watcher, ctx| {
             watcher.update_servers_from_config_file(
                 &config_path,
@@ -446,7 +297,7 @@ fn stale_completion_callback_cannot_reclaim_a_superseded_source() {
 
 #[test]
 #[serial_test::serial]
-fn startup_scan_parses_existing_subdir_config_before_completion() {
+fn startup_scan_parses_existing_subdir_config() {
     let home = tempfile::tempdir().expect("temporary home should be created");
     let codex_dir = home.path().join(".codex");
     std::fs::create_dir_all(&codex_dir).expect("Codex directory should be created");
@@ -466,29 +317,22 @@ fn startup_scan_parses_existing_subdir_config_before_completion() {
         let collector = app.add_model(|_| WatcherEventCollector);
         let (tx, rx) = futures::channel::oneshot::channel();
         let mut tx = Some(tx);
-        let mut parsed_codex = false;
         collector.update(&mut app, |_, ctx| {
             ctx.subscribe_to_model(&watcher, move |_, _, event, _| match event {
-                FileMCPWatcherEvent::ConfigParsed { provider, .. }
-                    if *provider == MCPProvider::Codex =>
-                {
-                    parsed_codex = true;
-                }
-                FileMCPWatcherEvent::ScanComplete(PendingScan::InitialGlobal) => {
+                FileMCPWatcherEvent::Parsed { provider, .. } if *provider == MCPProvider::Codex => {
                     if let Some(sender) = tx.take() {
-                        let _ = sender.send(parsed_codex);
+                        let _ = sender.send(true);
                     }
                 }
-                FileMCPWatcherEvent::ConfigParsed { .. }
-                | FileMCPWatcherEvent::ConfigRemoved { .. }
-                | FileMCPWatcherEvent::ConfigError { .. }
-                | FileMCPWatcherEvent::ScanComplete(PendingScan::CloudEnvRepo(_)) => {}
+                FileMCPWatcherEvent::Parsed { .. }
+                | FileMCPWatcherEvent::Removed { .. }
+                | FileMCPWatcherEvent::Error { .. } => {}
             });
         });
 
         assert!(
-            rx.await.expect("startup scan should complete"),
-            "the Codex config must be parsed before startup scan completion"
+            rx.await.expect("startup config should be parsed"),
+            "the Codex config must be parsed at startup"
         );
     });
 

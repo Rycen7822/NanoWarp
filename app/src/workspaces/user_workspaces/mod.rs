@@ -45,11 +45,11 @@ use crate::workspaces::workspace::{
 use crate::workspaces::workspace::{AiOverages, UsageBasedPricingSettings, UserTier};
 pub(crate) mod billing_workspace_settings;
 pub(crate) mod team_workspace_settings;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) use team_workspace_settings::GeminiEnterpriseBackgroundHost;
 pub(crate) use team_workspace_settings::TeamContextForOperationResolver;
 #[cfg(test)]
 pub(crate) use team_workspace_settings::TeamlessScopeForTest;
-#[cfg(not(target_family = "wasm"))]
-pub(crate) use team_workspace_settings::{GeminiEnterpriseBackgroundHost, HeadlessTeamScope};
 pub use team_workspace_settings::{
     ResolvedTeamScope, TeamContext, TeamContextForOperation, TeamContextResolver, TeamScope,
 };

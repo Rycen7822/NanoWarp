@@ -7,6 +7,10 @@ use http::StatusCode;
 
 use super::*;
 use crate::server::graphql::GraphQLError;
+use crate::server::retry_strategies::{
+    MAX_ATTEMPTS, is_transient_graphql_or_http_error, is_transient_http_error,
+    with_bounded_retry_using,
+};
 use crate::server::server_api::presigned_upload::HttpStatusError;
 
 fn http_err(status: u16) -> anyhow::Error {

@@ -12,9 +12,6 @@ pub enum ConversationDriver {
     CliAgentTranscript,
     /// Placeholder for a child agent executing on a remote worker, whose own client drives it.
     RemoteChild,
-    /// A harness running outside Warp's agent loop in this client's session; it authors the MAA
-    /// events itself and runs its own tools.
-    ExternalHarness,
 }
 
 impl ConversationDriver {
@@ -22,10 +19,7 @@ impl ConversationDriver {
     pub fn owns_turn_lifecycle(self) -> bool {
         match self {
             Self::Native => true,
-            Self::SharedSessionViewer
-            | Self::CliAgentTranscript
-            | Self::RemoteChild
-            | Self::ExternalHarness => false,
+            Self::SharedSessionViewer | Self::CliAgentTranscript | Self::RemoteChild => false,
         }
     }
 
@@ -33,10 +27,7 @@ impl ConversationDriver {
     pub fn executes_tool_calls_locally(self) -> bool {
         match self {
             Self::Native => true,
-            Self::SharedSessionViewer
-            | Self::CliAgentTranscript
-            | Self::RemoteChild
-            | Self::ExternalHarness => false,
+            Self::SharedSessionViewer | Self::CliAgentTranscript | Self::RemoteChild => false,
         }
     }
 
@@ -44,7 +35,7 @@ impl ConversationDriver {
     /// of being inserted by the local executor when the request is sent.
     pub fn reconstructs_inputs_from_messages(self) -> bool {
         match self {
-            Self::SharedSessionViewer | Self::ExternalHarness => true,
+            Self::SharedSessionViewer => true,
             Self::Native | Self::CliAgentTranscript | Self::RemoteChild => false,
         }
     }
@@ -52,7 +43,7 @@ impl ConversationDriver {
     /// This client reports the conversation's status to the task sync model.
     pub fn reports_task_status(self) -> bool {
         match self {
-            Self::Native | Self::CliAgentTranscript | Self::ExternalHarness => true,
+            Self::Native | Self::CliAgentTranscript => true,
             Self::SharedSessionViewer | Self::RemoteChild => false,
         }
     }
@@ -62,14 +53,14 @@ impl ConversationDriver {
     pub fn is_read_only_ui(self) -> bool {
         match self {
             Self::SharedSessionViewer | Self::CliAgentTranscript => true,
-            Self::Native | Self::RemoteChild | Self::ExternalHarness => false,
+            Self::Native | Self::RemoteChild => false,
         }
     }
 
     /// The conversation is persisted to the local session database.
     pub fn is_persisted_locally(self) -> bool {
         match self {
-            Self::Native | Self::CliAgentTranscript | Self::ExternalHarness => true,
+            Self::Native | Self::CliAgentTranscript => true,
             Self::SharedSessionViewer | Self::RemoteChild => false,
         }
     }

@@ -104,36 +104,6 @@ pub enum McpIntegration {
 }
 
 impl TemplatableMCPServerManager {
-    pub(crate) fn replace_runtime_environment(
-        &mut self,
-        environment: HashMap<String, String>,
-        ctx: &mut ModelContext<Self>,
-    ) -> (
-        Vec<TemplatableMCPServerInstallation>,
-        Vec<oneshot::Receiver<()>>,
-    ) {
-        let uuids: HashSet<_> = self
-            .active_servers
-            .keys()
-            .chain(self.spawned_servers.keys())
-            .copied()
-            .collect();
-        let retained = uuids
-            .iter()
-            .filter(|uuid| {
-                !self.cli_spawned_server_uuids.contains(uuid)
-                    && !self.builtin_server_uuids.contains(uuid)
-            })
-            .filter_map(|uuid| self.reconnectable_installation(*uuid).cloned())
-            .collect();
-        self.runtime_environment = environment;
-        let stopped = uuids
-            .into_iter()
-            .map(|uuid| self.shutdown_server_and_wait(uuid, ctx))
-            .collect();
-        (retained, stopped)
-    }
-
     /// Returns `true` if the given MCP integration is currently running.
     pub fn is_mcp_server_running(&self, integration: McpIntegration) -> bool {
         match integration {
@@ -277,11 +247,7 @@ impl TemplatableMCPServerManager {
             } => {
                 me.purge_file_based_server_credentials(installation_hashes, ctx);
             }
-            // Notification for cloud-environment / initial-global-scan readiness; handled by
-            // the AgentDriver.
-            FileBasedMCPManagerEvent::CloudEnvMcpScanComplete { .. }
-            | FileBasedMCPManagerEvent::InitialGlobalMcpScanComplete { .. }
-            | FileBasedMCPManagerEvent::ServersChanged
+            FileBasedMCPManagerEvent::ServersChanged
             | FileBasedMCPManagerEvent::ConfigDiagnosticChanged => {}
         });
 
@@ -386,8 +352,7 @@ impl TemplatableMCPServerManager {
                 AuthManagerEvent::CreateAnonymousUserFailed
                 | AuthManagerEvent::AttemptedLoginGatedFeature { .. }
                 | AuthManagerEvent::LoginOverrideDetected(_)
-                | AuthManagerEvent::MintCustomTokenFailed(_)
-                | AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
+                | AuthManagerEvent::MintCustomTokenFailed(_) => {}
             });
 
             let server_api_provider = ServerApiProvider::handle(ctx);
@@ -415,7 +380,6 @@ impl TemplatableMCPServerManager {
             cloud_templatable_mcp_servers: Default::default(),
             server_states: Default::default(),
             active_servers: Default::default(),
-            runtime_environment: Default::default(),
             spawned_servers: Default::default(),
             reconnectable_ephemeral_installations: Default::default(),
             server_credentials: Default::default(),
@@ -427,7 +391,6 @@ impl TemplatableMCPServerManager {
             pending_reconnections: Default::default(),
             pending_oauth_csrf: Default::default(),
             authorization_urls: Default::default(),
-            cli_spawned_server_uuids: Default::default(),
             builtin_server_uuids: Default::default(),
             builtin_server_token: Default::default(),
             server_loggers: Default::default(),
@@ -536,7 +499,6 @@ impl TemplatableMCPServerManager {
         self.server_states.insert(installation_uuid, new_state);
         ctx.emit(TemplatableMCPServerManagerEvent::StateChanged {
             uuid: installation_uuid,
-            state: new_state,
         });
     }
 
@@ -674,15 +636,6 @@ impl TemplatableMCPServerManager {
         });
     }
 
-    /// Get all runnable MCP servers (templatable installations).
-    pub fn get_all_runnable_mcp_servers(ctx: &AppContext) -> Vec<(Uuid, String)> {
-        TemplatableMCPServerManager::as_ref(ctx)
-            .get_installed_templatable_servers()
-            .iter()
-            .map(|(uuid, installation)| (*uuid, installation.templatable_mcp_server().name.clone()))
-            .collect()
-    }
-
     /// Get all cloud synced MCP servers (templatable templates).
     pub fn get_all_cloud_synced_mcp_servers(ctx: &AppContext) -> HashMap<Uuid, String> {
         TemplatableMCPServerManager::as_ref(ctx)
@@ -774,16 +727,6 @@ impl TemplatableMCPServerManager {
             },
             ctx,
         );
-    }
-
-    /// Spawns an ephemeral MCP server started via the CLI (`oz agent run --mcp`).
-    pub fn spawn_cli_ephemeral_server(
-        &mut self,
-        installation: TemplatableMCPServerInstallation,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.cli_spawned_server_uuids.insert(installation.uuid());
-        self.spawn_ephemeral_server(installation, ctx);
     }
 
     /// Reconciles built-in Warp-hosted MCP servers (currently the Factory
@@ -937,7 +880,6 @@ impl TemplatableMCPServerManager {
             }
         };
 
-        self.apply_runtime_environment(&mut server.transport_type);
         // If we're executing a CLI MCP server, ensure that the environment variables includes
         // PATH.
         if let TransportType::CLIServer(cli_server) = &mut server.transport_type {

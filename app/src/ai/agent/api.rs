@@ -16,7 +16,6 @@ pub use convert_from::{
     MessageToAIAgentOutputMessageError, user_inputs_from_messages,
 };
 #[cfg_attr(target_family = "wasm", allow(unused_imports))]
-pub(crate) use convert_to::serde_json_to_prost;
 use futures_lite::Stream;
 pub use r#impl::generate_multi_agent_output;
 use mcp::TemplatableMCPServerInfo;
@@ -284,13 +283,6 @@ impl RequestParams {
                         .values(),
                 );
             }
-
-            // Include any ephemeral MCP servers started via the Oz CLI.
-            active_servers.extend(
-                templatable_manager
-                    .get_active_cli_spawned_servers()
-                    .values(),
-            );
 
             // Include built-in Warp-hosted servers (e.g. the Factory MCP).
             active_servers.extend(templatable_manager.get_active_builtin_servers().values());

@@ -11,12 +11,9 @@ use warpui::{App, Entity, ModelHandle, SingletonEntity as _};
 use watcher::HomeDirectoryWatcher;
 
 use super::{
-    CloudEnvMcpScanServer, FileBasedMCPManager, FileBasedMCPManagerEvent, FileBasedMCPServerScope,
-    MCPProvider, home_dir,
+    FileBasedMCPManager, FileBasedMCPManagerEvent, FileBasedMCPServerScope, MCPProvider, home_dir,
 };
-use crate::ai::mcp::file_mcp_watcher::{
-    FileMCPConfigDiagnostic, FileMCPConfigDiagnosticKind, PendingScan,
-};
+use crate::ai::mcp::file_mcp_watcher::{FileMCPConfigDiagnostic, FileMCPConfigDiagnosticKind};
 use crate::ai::mcp::{FileMCPWatcher, FileMCPWatcherEvent, ParsedTemplatableMCPServerResult};
 use crate::auth::AuthStateProvider;
 use crate::settings::{AISettings, FocusedTerminalInfo};
@@ -49,14 +46,6 @@ fn parse_mcp_json(json: &str) -> Vec<ParsedTemplatableMCPServerResult> {
 struct ManagerEvents {
     spawned_uuids: Vec<Uuid>,
     despawned_uuids: Vec<Uuid>,
-    scan_completions: Vec<ScanCompletion>,
-}
-
-#[derive(Clone, Debug)]
-struct ScanCompletion {
-    repo_path: PathBuf,
-    detected_servers: Vec<CloudEnvMcpScanServer>,
-    wait_server_uuids: Vec<Uuid>,
 }
 
 impl Entity for ManagerEvents {
@@ -104,18 +93,6 @@ fn subscribe_events(
             FileBasedMCPManagerEvent::PurgeCredentials { .. }
             | FileBasedMCPManagerEvent::ServersChanged
             | FileBasedMCPManagerEvent::ConfigDiagnosticChanged => {}
-            FileBasedMCPManagerEvent::CloudEnvMcpScanComplete {
-                repo_path,
-                detected_servers,
-                wait_server_uuids,
-            } => {
-                me.scan_completions.push(ScanCompletion {
-                    repo_path: repo_path.clone(),
-                    detected_servers: detected_servers.clone(),
-                    wait_server_uuids: wait_server_uuids.clone(),
-                });
-            }
-            FileBasedMCPManagerEvent::InitialGlobalMcpScanComplete { .. } => {}
         });
     });
     events
@@ -184,7 +161,7 @@ fn test_config_error_preserves_last_known_good_servers() {
             assert_eq!(manager.file_based_servers.len(), 1);
 
             manager.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigError {
+                &FileMCPWatcherEvent::Error {
                     diagnostic: FileMCPConfigDiagnostic {
                         config_path: config_path.clone(),
                         provider: MCPProvider::Warp,
@@ -223,7 +200,7 @@ fn all_config_diagnostics_are_owned_sorted_and_cleared_independently() {
                 (first_path.clone(), MCPProvider::Claude, "first diagnostic"),
             ] {
                 manager.handle_watcher_event(
-                    &FileMCPWatcherEvent::ConfigError {
+                    &FileMCPWatcherEvent::Error {
                         diagnostic: FileMCPConfigDiagnostic {
                             config_path,
                             provider,
@@ -241,7 +218,7 @@ fn all_config_diagnostics_are_owned_sorted_and_cleared_independently() {
             assert_eq!(diagnostics[1].config_path, second_path);
 
             manager.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigParsed {
+                &FileMCPWatcherEvent::Parsed {
                     config_path: first_path.clone(),
                     root_path: first_root,
                     provider: MCPProvider::Claude,
@@ -591,79 +568,6 @@ fn test_project_scoped_servers_never_auto_spawn() {
 }
 
 #[test]
-fn test_project_scoped_cloud_scan_has_detected_servers_but_empty_wait_set() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-    let repo_path = PathBuf::from("/tmp/warp-test-cloud-repo");
-    let claude_parsed =
-        parse_mcp_json(r#"{"proj-claude": {"command": "npx", "args": ["proj-claude"]}}"#);
-    let warp_parsed = parse_mcp_json(r#"{"proj-warp": {"command": "npx", "args": ["proj-warp"]}}"#);
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-        let events = subscribe_events(&mut app, &manager);
-
-        manager.update(&mut app, |m, ctx| {
-            m.apply_parsed_servers(repo_path.clone(), MCPProvider::Claude, claude_parsed, ctx);
-            m.apply_parsed_servers(repo_path.clone(), MCPProvider::Warp, warp_parsed, ctx);
-            m.handle_cloud_environment_scan_complete(&repo_path, ctx);
-        });
-
-        events.update(&mut app, |e, _| {
-            assert_eq!(e.scan_completions.len(), 1);
-            let scan = &e.scan_completions[0];
-            assert_eq!(scan.repo_path, repo_path);
-            assert_eq!(scan.detected_servers.len(), 2);
-            assert!(
-                scan.wait_server_uuids.is_empty(),
-                "Project-scoped servers must not be included in the AgentDriver wait set, got: {:?}",
-                scan.wait_server_uuids
-            );
-            assert!(
-                scan.detected_servers
-                    .iter()
-                    .all(|server| !server.auto_start_eligible),
-                "Project-scoped servers should not be auto-start eligible: {:?}",
-                scan.detected_servers
-            );
-        });
-    });
-}
-
-#[test]
-fn test_auto_started_cloud_scan_uuids_are_in_wait_set() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-    let Some(warp_mcp_config_path) = warp_managed_mcp_config_path() else {
-        return;
-    };
-    let root_path = warp_mcp_config_path.root_path;
-    let parsed = parse_mcp_json(r#"{"global-warp": {"command": "npx", "args": ["warp"]}}"#);
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-        let events = subscribe_events(&mut app, &manager);
-
-        manager.update(&mut app, |m, ctx| {
-            m.apply_parsed_servers(root_path.clone(), MCPProvider::Warp, parsed, ctx);
-            m.handle_cloud_environment_scan_complete(&root_path, ctx);
-        });
-
-        events.update(&mut app, |e, _| {
-            assert_eq!(e.spawned_uuids.len(), 1);
-            assert_eq!(e.scan_completions.len(), 1);
-            let scan = &e.scan_completions[0];
-            assert_eq!(scan.detected_servers.len(), 1);
-            assert_eq!(scan.wait_server_uuids, e.spawned_uuids);
-            assert!(
-                scan.detected_servers[0].auto_start_eligible,
-                "Global Warp server should be auto-start eligible"
-            );
-        });
-    });
-}
-
-/// An installation referenced from both a global location and a project location
-/// is considered global (and thus gated only by the toggle for non-Warp providers).
-#[test]
 fn test_server_referenced_from_both_global_and_project_is_global() {
     let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
     let Some(home_dir) = home_dir() else {
@@ -833,198 +737,6 @@ fn test_update_file_based_servers_removes_server_only_when_no_refs() {
             assert!(
                 !manager.file_based_servers.contains_key(&server_hash),
                 "Server should be completely removed"
-            );
-        });
-    });
-}
-
-/// Before the watcher's completion event arrives, `initial_global_scan_result` must report
-/// `Pending` (i.e. `None`), and the frozen wait set must only include UUIDs auto-started
-/// from a global-scoped parse — not from an ordinary project or cloud-environment scan.
-#[test]
-fn initial_global_scan_result_pending_until_watcher_signals_completion() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-    let Some(warp_mcp_config_path) = warp_managed_mcp_config_path() else {
-        return;
-    };
-    let global_root = warp_mcp_config_path.root_path;
-    let project_root = PathBuf::from("/tmp/warp-test-initial-scan-project");
-    let global_parsed = parse_mcp_json(r#"{"global-warp": {"command": "npx", "args": ["warp"]}}"#);
-    let project_parsed =
-        parse_mcp_json(r#"{"proj-warp": {"command": "npx", "args": ["proj-warp"]}}"#);
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-
-        manager.update(&mut app, |m, _| {
-            assert_eq!(
-                m.initial_global_scan_result(),
-                None,
-                "scan must be pending before any events arrive"
-            );
-        });
-
-        manager.update(&mut app, |m, ctx| {
-            // Global Warp parse: contributes its auto-started UUID when the scan later
-            // freezes.
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigParsed {
-                    config_path: global_root.join(".mcp.json"),
-                    root_path: global_root.clone(),
-                    provider: MCPProvider::Warp,
-                    servers: global_parsed,
-                },
-                ctx,
-            );
-            // A project-scoped parse: even though these servers never auto-start, this
-            // also must not be counted toward the initial scan.
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigParsed {
-                    config_path: project_root.join(".warp/.mcp.json"),
-                    root_path: project_root.clone(),
-                    provider: MCPProvider::Warp,
-                    servers: project_parsed,
-                },
-                ctx,
-            );
-        });
-
-        manager.update(&mut app, |m, _| {
-            assert_eq!(
-                m.initial_global_scan_result(),
-                None,
-                "scan must remain pending until the watcher signals completion"
-            );
-        });
-
-        let spawned_uuid = manager.update(&mut app, |m, _| {
-            let servers = m.file_based_servers();
-            assert_eq!(servers.len(), 2, "both installations should be tracked");
-            m.global_warp_servers()
-                .into_iter()
-                .map(|s| s.uuid())
-                .next()
-                .expect("the global Warp server should be tracked")
-        });
-
-        manager.update(&mut app, |m, ctx| {
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ScanComplete(PendingScan::InitialGlobal),
-                ctx,
-            );
-        });
-
-        manager.update(&mut app, |m, _| {
-            assert_eq!(
-                m.initial_global_scan_result(),
-                Some(vec![spawned_uuid]),
-                "only the global-scoped auto-started UUID should be in the wait set"
-            );
-        });
-    });
-}
-
-/// The wait set is frozen at completion: a global server auto-started by a later config
-/// update stays dynamic but is not retroactively added to the first-turn wait set.
-#[test]
-fn initial_global_wait_set_freezes_at_completion() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-    let Some(warp_mcp_config_path) = warp_managed_mcp_config_path() else {
-        return;
-    };
-    let global_root = warp_mcp_config_path.root_path;
-    let config_path = global_root.join(".mcp.json");
-    let first_parsed = parse_mcp_json(r#"{"first": {"command": "npx", "args": ["first"]}}"#);
-    let second_parsed = parse_mcp_json(
-        r#"{"first": {"command": "npx", "args": ["first"]}, "second": {"command": "npx", "args": ["second"]}}"#,
-    );
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-        let events = subscribe_events(&mut app, &manager);
-
-        manager.update(&mut app, |m, ctx| {
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigParsed {
-                    config_path: config_path.clone(),
-                    root_path: global_root.clone(),
-                    provider: MCPProvider::Warp,
-                    servers: first_parsed,
-                },
-                ctx,
-            );
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ScanComplete(PendingScan::InitialGlobal),
-                ctx,
-            );
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ConfigParsed {
-                    config_path,
-                    root_path: global_root,
-                    provider: MCPProvider::Warp,
-                    servers: second_parsed,
-                },
-                ctx,
-            );
-        });
-
-        let spawned = events.read(&app, |events, _| events.spawned_uuids.clone());
-        assert_eq!(spawned.len(), 2, "both global servers should auto-start");
-        manager.read(&app, |m, _| {
-            assert_eq!(
-                m.initial_global_scan_result(),
-                Some(vec![spawned[0]]),
-                "only the server auto-started before completion belongs to the wait set"
-            );
-        });
-    });
-}
-
-/// A consumer that queries `initial_global_scan_result` after the scan has already completed
-/// must receive the cached snapshot immediately — this is what lets `AgentDriver` avoid missing
-/// the transient completion event when it subscribes well after application startup.
-#[test]
-fn initial_global_scan_result_returns_cached_snapshot_after_completion() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-        manager.update(&mut app, |m, ctx| {
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ScanComplete(PendingScan::InitialGlobal),
-                ctx,
-            );
-        });
-
-        // A "late" consumer, analogous to an `AgentDriver` constructed long after startup.
-        manager.read(&app, |m, _| {
-            assert_eq!(m.initial_global_scan_result(), Some(Vec::new()));
-        });
-    });
-}
-
-/// A scan with no configured or eligible global servers must resolve to an immediate, empty
-/// result rather than staying pending.
-#[test]
-fn initial_global_scan_with_no_sources_resolves_to_empty_result() {
-    let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        let manager = setup_app(&mut app);
-        manager.update(&mut app, |m, _| {
-            assert_eq!(m.initial_global_scan_result(), None);
-        });
-        manager.update(&mut app, |m, ctx| {
-            m.handle_watcher_event(
-                &FileMCPWatcherEvent::ScanComplete(PendingScan::InitialGlobal),
-                ctx,
-            );
-        });
-        manager.update(&mut app, |m, _| {
-            assert_eq!(
-                m.initial_global_scan_result(),
-                Some(Vec::new()),
-                "no sources and no auto-started servers should still settle to an empty result"
             );
         });
     });
