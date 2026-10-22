@@ -2226,8 +2226,6 @@ impl AIExecutionProfilesModel {
             }
             TemplatableMCPServerManagerEvent::LegacyServerConverted
             | TemplatableMCPServerManagerEvent::StateChanged { uuid: _, state: _ }
-            | TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid: _ }
-            | TemplatableMCPServerManagerEvent::CredentialsChanged { uuid: _ }
             | TemplatableMCPServerManagerEvent::ServerInstallationAdded(_)
             | TemplatableMCPServerManagerEvent::ServerInstallationDeleted(_) => {}
         }

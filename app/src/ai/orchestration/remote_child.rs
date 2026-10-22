@@ -17,7 +17,6 @@ use warp_multi_agent_api as multi_agent_api;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::{AppContext, SingletonEntity as _};
 
-use crate::ChannelState;
 use crate::ai::agent::UserQueryMode;
 use crate::ai::ambient_agents::task::{
     HarnessAuthSecretsConfig, HarnessConfig, normalize_orchestrator_agent_name,
@@ -96,11 +95,8 @@ fn resolve_repo_qualified_skill(
 }
 
 /// Frontend-neutral output used to launch one remote child.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub struct PreparedRemoteChildLaunch {
-    pub display_name: String,
-    pub orchestration_harness: Harness,
     pub spawn_request: SpawnAgentRequest,
 }
 
@@ -129,21 +125,6 @@ pub enum CloudAgentStartupBlocker {
     GitHubAuthRequired { message: String, auth_url: String },
 }
 
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
-impl CloudAgentStartupBlocker {
-    pub fn message(&self) -> &str {
-        match self {
-            Self::GitHubAuthRequired { message, .. } => message,
-        }
-    }
-
-    pub fn primary_url(&self) -> &str {
-        match self {
-            Self::GitHubAuthRequired { auth_url, .. } => auth_url,
-        }
-    }
-}
-
 /// A terminal cloud-agent startup failure.
 ///
 /// The GUI represents these as `ambient_agent::Status::Failed`. Unlike a
@@ -155,26 +136,6 @@ pub enum CloudAgentStartupFailure {
     OutOfCredits { message: String },
     ServerOverloaded { message: String },
     Other { message: String },
-}
-
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
-impl CloudAgentStartupFailure {
-    pub fn message(&self) -> &str {
-        match self {
-            Self::Capacity { message }
-            | Self::OutOfCredits { message }
-            | Self::ServerOverloaded { message }
-            | Self::Other { message } => message,
-        }
-    }
-}
-
-/// Whether authentication can resume a retained launch or requires the user to rerun it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CloudAgentStartupAuthFlow {
-    RetryRetainedRequest,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    RerunOrchestrationRequest,
 }
 
 /// Renderer-neutral content for a cloud-agent startup card.
@@ -196,18 +157,10 @@ impl CloudAgentStartupPresentation {
         }
     }
 
-    pub fn github_auth(auth_url: impl Into<String>, flow: CloudAgentStartupAuthFlow) -> Self {
-        let detail = match flow {
-            CloudAgentStartupAuthFlow::RetryRetainedRequest => {
-                "Please authenticate with GitHub to continue"
-            }
-            CloudAgentStartupAuthFlow::RerunOrchestrationRequest => {
-                "Authenticate with GitHub, then run the orchestration request again."
-            }
-        };
+    pub fn github_auth(auth_url: impl Into<String>) -> Self {
         Self {
             title: "GitHub Authentication Required",
-            detail: detail.to_string(),
+            detail: "Please authenticate with GitHub to continue".to_string(),
             action_label: Some("Authenticate with GitHub"),
             primary_url: Some(auth_url.into()),
         }
@@ -250,7 +203,6 @@ pub fn prepare_remote_child_launch(
     };
     let runtime_skills = resolve_runtime_skills(&skill_references, &working_dir, ctx)?;
     let agent_name = normalize_orchestrator_agent_name(&request.name);
-    let display_name = agent_name.clone().unwrap_or_default();
     let environment_id = Some(environment_id).filter(|id| !id.trim().is_empty());
     let mut model_id = (!model_id.is_empty()).then_some(model_id);
     let harness_override = if harness_type.is_empty() {
@@ -323,11 +275,7 @@ pub fn prepare_remote_child_launch(
         snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
         orchestration_handoff: None,
     };
-    Ok(PreparedRemoteChildLaunch {
-        display_name,
-        orchestration_harness,
-        spawn_request,
-    })
+    Ok(PreparedRemoteChildLaunch { spawn_request })
 }
 
 /// Maps server/client launch failures into shared startup presentation.
@@ -387,12 +335,6 @@ pub(crate) fn should_disable_snapshot(ctx: &AppContext) -> bool {
         UserWorkspaces::as_ref(ctx).get_cloud_conversation_storage_enablement_setting(),
         AdminEnablementSetting::Disable
     )
-}
-
-/// Builds the Oz web URL for a server-assigned agent run ID.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
-pub fn oz_run_url(run_id: &str) -> String {
-    format!("{}/runs/{run_id}", ChannelState::oz_root_url())
 }
 
 fn resolve_runtime_skills(

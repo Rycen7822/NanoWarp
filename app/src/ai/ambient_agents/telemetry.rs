@@ -20,15 +20,6 @@ pub enum CloudModeEntryPoint {
     EntryBlock,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HandoffSurface {
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    Gui,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    Tui,
-}
-
 /// The entry point through which a local-to-cloud handoff was initiated.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,7 +111,7 @@ pub enum CloudAgentTelemetryEvent {
         /// How the handoff was triggered.
         entry_point: HandoffEntryPoint,
         /// Frontend that initiated the handoff.
-        surface: HandoffSurface,
+        surface: &'static str,
         /// Whether the handoff forked an existing conversation.
         forked_existing_conversation: bool,
         /// Whether the user submitted with an empty prompt buffer.

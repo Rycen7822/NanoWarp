@@ -38,7 +38,7 @@ use crate::ai::agent::conversation::{AIConversation, AIConversationId};
 use crate::ai::agent::{CancellationReason, extract_user_query_mode};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::telemetry::{
-    CloudAgentTelemetryEvent, HandoffEntryPoint, HandoffInjectionPath, HandoffSurface,
+    CloudAgentTelemetryEvent, HandoffEntryPoint, HandoffInjectionPath,
 };
 use crate::ai::blocklist::orchestration_topology::descendant_conversation_ids_in_spawn_order;
 use crate::ai::blocklist::{
@@ -49,8 +49,8 @@ use crate::ai::execution_profiles::resolve_cloud_agent_computer_use_state;
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::orchestration::{
     CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
-    classify_cloud_agent_startup_error, oz_run_url, resolve_default_environment_id,
-    resolve_default_host_slug, should_disable_snapshot,
+    classify_cloud_agent_startup_error, resolve_default_environment_id, resolve_default_host_slug,
+    should_disable_snapshot,
 };
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::server::ids::{ServerId, SyncId};
@@ -83,9 +83,7 @@ pub struct HandoffPrepareInput {
     launch: Option<PendingCloudLaunch>,
     transfer_pending_attachments: bool,
     environment_id: Option<SyncId>,
-    environment_required: bool,
     entry_point: HandoffEntryPoint,
-    surface: HandoffSurface,
     cancellation_reason: CancellationReason,
     require_in_progress_source: bool,
 }
@@ -98,7 +96,6 @@ impl HandoffPrepareInput {
         context: ModelHandle<BlocklistAIContextModel>,
         snapshot_target: SnapshotUploadTarget,
         entry_point: HandoffEntryPoint,
-        surface: HandoffSurface,
     ) -> Self {
         Self {
             terminal_surface_id,
@@ -113,9 +110,7 @@ impl HandoffPrepareInput {
             launch: None,
             transfer_pending_attachments: true,
             environment_id: None,
-            environment_required: false,
             entry_point,
-            surface,
             cancellation_reason: CancellationReason::ManuallyCancelled,
             require_in_progress_source: false,
         }
@@ -169,12 +164,6 @@ impl HandoffPrepareInput {
         self
     }
 
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub fn with_environment_required(mut self, environment_required: bool) -> Self {
-        self.environment_required = environment_required;
-        self
-    }
-
     pub fn with_cancellation_reason(mut self, cancellation_reason: CancellationReason) -> Self {
         self.cancellation_reason = cancellation_reason;
         self
@@ -207,8 +196,6 @@ pub enum HandoffPrepareError {
     MissingServerConversationToken,
     /// Local-to-cloud handoff became disabled before execution.
     HandoffDisabled,
-    /// The caller requires an environment, but none is selected.
-    MissingRequiredEnvironment,
     /// The selected environment is no longer present in the current catalog.
     InvalidEnvironment,
     /// The selected model cannot run as a cloud Oz model.
@@ -282,11 +269,8 @@ pub struct PendingHandoff {
     request_attachments: Vec<AttachmentInput>,
     restoration: Option<HandoffRestoration>,
     selected_environment_id: Option<SyncId>,
-    environment_required: bool,
-    environment_selection_is_explicit: bool,
     valid_environment_ids: HashSet<SyncId>,
     selected_model_id: String,
-    model_selection_is_explicit: bool,
     model_is_cloud_runnable: bool,
     config: AgentConfigSnapshot,
     snapshot_target: SnapshotUploadTarget,
@@ -306,43 +290,6 @@ impl PendingHandoff {
         }
     }
 
-    /// Applies an environment selection to the final agent configuration.
-    ///
-    /// Once a frontend records an explicit user selection, later implicit
-    /// defaults cannot replace it.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub fn set_environment_id(&mut self, environment_id: Option<SyncId>, is_explicit: bool) {
-        if !is_explicit && self.environment_selection_is_explicit {
-            return;
-        }
-        self.selected_environment_id = environment_id;
-        self.environment_selection_is_explicit |= is_explicit;
-        self.config.environment_id = environment_id.map(|id| id.to_string());
-    }
-
-    /// Applies a model selection and records whether it is cloud-runnable.
-    ///
-    /// Once a frontend records an explicit user selection, later implicit
-    /// defaults cannot replace it.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub fn set_model_id(&mut self, model_id: String, is_explicit: bool, ctx: &AppContext) {
-        if !is_explicit && self.model_selection_is_explicit {
-            return;
-        }
-        let preferences = LLMPreferences::as_ref(ctx);
-        let model_id = if is_explicit {
-            model_id
-        } else {
-            preferences.cloud_runnable_oz_model_id_or_fallback(&LLMId::from(model_id.as_str()))
-        };
-
-        self.model_is_cloud_runnable =
-            preferences.is_cloud_runnable_oz_model_id(&LLMId::from(model_id.as_str()));
-        self.selected_model_id = model_id.clone();
-        self.model_selection_is_explicit |= is_explicit;
-        self.config.model_id = Some(model_id);
-    }
-
     /// Replaces the environment catalog used by [`Self::validate`].
     ///
     /// Frontends call this when their environment projection changes while
@@ -353,9 +300,6 @@ impl PendingHandoff {
 
     /// Validates the editable selections without starting external work.
     pub fn validate(&self) -> Result<(), HandoffPrepareError> {
-        if self.environment_required && self.selected_environment_id.is_none() {
-            return Err(HandoffPrepareError::MissingRequiredEnvironment);
-        }
         if self
             .selected_environment_id
             .is_some_and(|id| !self.valid_environment_ids.contains(&id))
@@ -404,9 +348,7 @@ pub fn prepare_handoff(
         launch,
         transfer_pending_attachments,
         environment_id: selected_environment_id,
-        environment_required,
         entry_point,
-        surface,
         cancellation_reason,
         require_in_progress_source,
     } = input;
@@ -533,7 +475,6 @@ pub fn prepare_handoff(
         });
     }
 
-    let environment_selection_is_explicit = selected_environment_id.is_some();
     let environment_id = selected_environment_id.or_else(|| {
         resolve_default_environment_id(ctx)
             .and_then(|id| ServerId::try_from(id.as_str()).ok())
@@ -572,7 +513,7 @@ pub fn prepare_handoff(
     send_telemetry_from_ctx!(
         CloudAgentTelemetryEvent::HandoffInitiated {
             entry_point,
-            surface,
+            surface: "gui",
             forked_existing_conversation: source_conversation.is_some(),
             empty_prompt,
             injection_path,
@@ -590,11 +531,8 @@ pub fn prepare_handoff(
         request_attachments,
         restoration,
         selected_environment_id: environment_id,
-        environment_required,
-        environment_selection_is_explicit,
         valid_environment_ids,
         selected_model_id: model_id,
-        model_selection_is_explicit: false,
         model_is_cloud_runnable,
         config,
         snapshot_target,
@@ -611,8 +549,6 @@ pub fn prepare_handoff(
 pub struct HandoffCreated {
     pub task_id: AmbientAgentTaskId,
     pub run_id: String,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub url: String,
     pub at_capacity: bool,
     pub request: SpawnAgentRequest,
     pub derived_workspace_had_content: bool,
@@ -840,7 +776,6 @@ async fn execute_validated_handoff(
     HandoffCommitOutcome::Created(HandoffCreated {
         task_id: response.task_id,
         run_id: response.run_id.clone(),
-        url: oz_run_url(&response.run_id),
         at_capacity: response.at_capacity,
         request,
         derived_workspace_had_content: settled.derived_workspace_had_content,
@@ -902,11 +837,8 @@ async fn prepare_snapshot_for_spawn(forked: ForkedHandoff) -> SnapshotSettledHan
         request_attachments,
         restoration,
         selected_environment_id: _,
-        environment_required: _,
-        environment_selection_is_explicit: _,
         valid_environment_ids: _,
         selected_model_id: _,
-        model_selection_is_explicit: _,
         model_is_cloud_runnable: _,
         config,
         snapshot_target,

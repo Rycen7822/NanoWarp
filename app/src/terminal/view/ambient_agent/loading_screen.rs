@@ -19,7 +19,7 @@ use warpui::{AppContext, Entity, ModelHandle, SingletonEntity, WeakViewHandle};
 
 use crate::ai::agent_tips::{AITip, AITipModel};
 use crate::ai::loading::shimmering_warp_loading_text;
-use crate::ai::orchestration::{CloudAgentStartupAuthFlow, CloudAgentStartupPresentation};
+use crate::ai::orchestration::CloudAgentStartupPresentation;
 use crate::terminal::view::ambient_agent::CloudModeTip;
 use crate::ui_components::blended_colors;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -304,10 +304,7 @@ pub fn render_cloud_mode_github_auth_required_screen(
     _app: &AppContext,
 ) -> Box<dyn Element> {
     let theme = appearance.theme();
-    let presentation = CloudAgentStartupPresentation::github_auth(
-        auth_url,
-        CloudAgentStartupAuthFlow::RetryRetainedRequest,
-    );
+    let presentation = CloudAgentStartupPresentation::github_auth(auth_url);
 
     // Use main text color for the icon and title
     let title_color = blended_colors::text_main(theme, theme.surface_1());

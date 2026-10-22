@@ -15,9 +15,6 @@ mod validation;
 
 pub use config_state::{AuthSecretSelection, OrchestrationConfigState};
 pub use edit_state::OrchestrationEditState;
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
-pub use providers::ORCHESTRATION_ENV_NONE_LABEL;
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
 pub use providers::resolve_default_environment_id;
 pub use providers::{
     ORCHESTRATION_WARP_WORKER_HOST, persist_environment_selection, persist_host_selection,
@@ -28,18 +25,12 @@ pub(crate) use providers::{
     populate_default_auth_secret_for_execution,
 };
 pub(crate) use remote_child::should_disable_snapshot;
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
 pub use remote_child::{
-    CloudAgentStartupAuthFlow, CloudAgentStartupBlocker, CloudAgentStartupFailure,
-    CloudAgentStartupIssue, CloudAgentStartupPresentation, PrepareRemoteChildLaunchError,
-    PreparedRemoteChildLaunch, RemoteChildLaunchConfig, classify_cloud_agent_startup_error,
-    oz_run_url, prepare_remote_child_launch,
+    CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
+    CloudAgentStartupPresentation, RemoteChildLaunchConfig, classify_cloud_agent_startup_error,
+    prepare_remote_child_launch,
 };
 pub(crate) use snapshots::AUTH_SECRET_INHERIT_LABEL;
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
-pub use snapshots::location_snapshot;
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
-pub use snapshots::oz_model_snapshot;
 pub use snapshots::{
     OptionBadge, OptionFooter, OptionRow, OptionSnapshot, OptionSourceStatus, api_key_snapshot,
     build_runner_snapshot, environment_snapshot, harness_snapshot, host_snapshot, model_snapshot,
@@ -48,5 +39,3 @@ pub use validation::{
     accept_disabled_reason_with_auth, empty_env_recommendation_message,
     should_show_auth_secret_picker,
 };
-#[cfg_attr(not(feature = "tui"), allow(unused_imports))]
-pub use validation::{auth_secret_selection_required, harness_is_selectable};

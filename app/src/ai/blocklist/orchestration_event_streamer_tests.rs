@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use mockall::predicate::eq;
@@ -3148,23 +3146,6 @@ fn drain_family_events_primary_does_not_queue_delivery_for_an_external_harness_o
         let streamer = app.add_singleton_model(|ctx| {
             OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
         });
-        let watched_statuses = Rc::new(RefCell::new(Vec::new()));
-        app.update(|ctx| {
-            let watched_statuses = Rc::clone(&watched_statuses);
-            ctx.subscribe_to_model(&streamer, move |_, event, _| {
-                if let OrchestrationEventStreamerEvent::WatchedRunStatusChanged {
-                    run_id,
-                    status,
-                    ..
-                } = event
-                {
-                    watched_statuses
-                        .borrow_mut()
-                        .push((run_id.clone(), status.clone()));
-                }
-            });
-        });
-
         // Non-terminal child lifecycle events only: a terminal one would also evict the child's
         // cached task through `AgentConversationsModel`, which this fixture does not register.
         let events = vec![
@@ -3205,19 +3186,6 @@ fn drain_family_events_primary_does_not_queue_delivery_for_an_external_harness_o
                 "neither the inbox message nor the child lifecycle may be queued for injection"
             );
         });
-        assert_eq!(
-            *watched_statuses.borrow(),
-            vec![
-                (child.clone(), ConversationStatus::InProgress),
-                (
-                    child.clone(),
-                    ConversationStatus::Blocked {
-                        blocked_action: String::new(),
-                    },
-                ),
-            ],
-            "watched-run status updates still reach the pill bar"
-        );
         history_model.read(&app, |model, _| {
             assert_eq!(
                 model

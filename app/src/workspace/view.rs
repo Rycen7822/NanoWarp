@@ -185,9 +185,9 @@ use crate::ai::agent_management::view::{AgentManagementView, AgentManagementView
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent_sdk::driver::harness::{claude_transcript, codex_transcript};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use crate::ai::ambient_agents::telemetry::{HandoffEntryPoint, HandoffSurface};
+use crate::ai::ambient_agents::telemetry::HandoffEntryPoint;
+use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::agent_view::agent_input_footer::editor::AgentToolbarEditorMode;
 use crate::ai::blocklist::agent_view::editor::{AgentToolbarEditorEvent, AgentToolbarEditorModal};
@@ -15963,7 +15963,6 @@ impl Workspace {
             context,
             snapshot_target,
             intent.entry_point(),
-            HandoffSurface::Gui,
         )
         .with_expected_conversation_id(intent.expected_conversation_id())
         .with_source_conversation_id(source_conversation_id)
@@ -16201,7 +16200,6 @@ impl Workspace {
             HandoffPrepareError::SourceConversationChanged
             | HandoffPrepareError::SourceNotInProgress
             | HandoffPrepareError::HandoffDisabled
-            | HandoffPrepareError::MissingRequiredEnvironment
             | HandoffPrepareError::InvalidEnvironment => {
                 "Couldn't start the handoff. Check your selection and try again."
             }

@@ -6,9 +6,9 @@ use tempfile::TempDir;
 use warpui::{App, SingletonEntity as _};
 
 use super::{
-    CloudAgentStartupAuthFlow, CloudAgentStartupBlocker, CloudAgentStartupFailure,
-    CloudAgentStartupIssue, CloudAgentStartupPresentation, RemoteChildLaunchConfig,
-    classify_cloud_agent_startup_error, prepare_remote_child_launch,
+    CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
+    CloudAgentStartupPresentation, RemoteChildLaunchConfig, classify_cloud_agent_startup_error,
+    prepare_remote_child_launch,
 };
 use crate::ai::agent::{StartAgentExecutionMode, UserQueryMode};
 use crate::ai::blocklist::StartAgentRequest;
@@ -143,7 +143,6 @@ fn prepared_remote_request_matches_gui_wire_semantics() {
                 ctx,
             )
             .unwrap();
-            assert_eq!(prepared.display_name, "researcher");
             assert_eq!(
                 prepared.spawn_request.prompt.as_deref(),
                 Some("Inspect the code")
@@ -325,7 +324,7 @@ fn github_auth_error_is_a_shared_blocker_with_cloud_callback_url() {
 }
 
 #[test]
-fn cloud_startup_presentations_preserve_gui_copy_and_child_retry_semantics() {
+fn cloud_startup_presentations_preserve_gui_copy() {
     assert_eq!(
         CloudAgentStartupPresentation::failure("Server error"),
         CloudAgentStartupPresentation {
@@ -336,24 +335,13 @@ fn cloud_startup_presentations_preserve_gui_copy_and_child_retry_semantics() {
         }
     );
     assert_eq!(
-        CloudAgentStartupPresentation::github_auth(
-            "https://example.com/auth",
-            CloudAgentStartupAuthFlow::RetryRetainedRequest,
-        ),
+        CloudAgentStartupPresentation::github_auth("https://example.com/auth",),
         CloudAgentStartupPresentation {
             title: "GitHub Authentication Required",
             detail: "Please authenticate with GitHub to continue".to_string(),
             action_label: Some("Authenticate with GitHub"),
             primary_url: Some("https://example.com/auth".to_string()),
         }
-    );
-    assert_eq!(
-        CloudAgentStartupPresentation::github_auth(
-            "https://example.com/auth",
-            CloudAgentStartupAuthFlow::RerunOrchestrationRequest,
-        )
-        .detail,
-        "Authenticate with GitHub, then run the orchestration request again."
     );
 }
 

@@ -554,7 +554,7 @@ impl FileBasedMCPManager {
             .map(|(hash, _)| *hash)
     }
     /// Returns owned snapshots of every current file-config diagnostic.
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn config_diagnostics(&self) -> Vec<FileMCPConfigDiagnostic> {
         self.config_diagnostics_by_path
             .values()
@@ -567,7 +567,7 @@ impl FileBasedMCPManager {
             .collect()
     }
 
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn global_warp_servers(&self) -> Vec<&TemplatableMCPServerInstallation> {
         self.file_based_servers
             .iter()
@@ -582,7 +582,7 @@ impl FileBasedMCPManager {
     }
     /// Returns owned file-based installations with every config source that
     /// currently references each installation.
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn file_based_servers_with_sources(&self) -> Vec<FileBasedMCPServerWithSources> {
         self.file_based_servers
             .iter()
@@ -616,7 +616,7 @@ impl FileBasedMCPManager {
     }
 
     /// Returns a file-based installation by its stable content hash.
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn installation_by_hash(&self, hash: u64) -> Option<&TemplatableMCPServerInstallation> {
         self.file_based_servers.get(&hash)
     }
@@ -687,7 +687,7 @@ impl FileBasedMCPManager {
     }
 }
 
-#[cfg(any(feature = "tui", test))]
+#[cfg(test)]
 fn provider_sort_key(provider: MCPProvider) -> u8 {
     match provider {
         MCPProvider::Warp => 0,
@@ -703,7 +703,7 @@ pub enum FileBasedMCPServerScope {
     Project,
 }
 
-#[cfg(any(feature = "tui", test))]
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileBasedMCPServerSource {
     pub provider: MCPProvider,
@@ -711,7 +711,7 @@ pub struct FileBasedMCPServerSource {
     pub scope: FileBasedMCPServerScope,
 }
 
-#[cfg(any(feature = "tui", test))]
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct FileBasedMCPServerWithSources {
     pub installation: TemplatableMCPServerInstallation,
