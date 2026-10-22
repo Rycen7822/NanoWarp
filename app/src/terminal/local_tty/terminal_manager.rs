@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -57,7 +56,7 @@ use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::model::terminal_model::{ExitReason, ShellProcessInfo};
 #[cfg(unix)]
 use crate::terminal::model_events::ModelEvent as TerminalModelEvent;
-use crate::terminal::model_events::{ModelEventDispatcher, SshRemoteServerSupport};
+use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::session_settings::{SessionSettings, ToolbarChipSelection};
 use crate::terminal::shared_session::sharer::network::Network;
 use crate::terminal::shared_session::{IsSharedSessionCreator, SharedSessionStatus};
@@ -274,21 +273,6 @@ pub struct TerminalManagerInit<S> {
     pub manager: ModelHandle<Box<dyn TerminalManagerTrait>>,
     pub surface: ViewHandle<S>,
 }
-/// Adapts a TUI-owned surface manager to Warp's type-erased manager contract.
-struct TuiTerminalManager<S>(TerminalManager<S>);
-
-impl<S: 'static> TerminalManagerTrait for TuiTerminalManager<S> {
-    fn model(&self) -> Arc<FairMutex<TerminalModel>> {
-        self.0.model()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        &self.0
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        &mut self.0
-    }
-}
 
 impl<S> Drop for TerminalManager<S> {
     fn drop(&mut self) {
@@ -320,90 +304,7 @@ impl<S> TerminalManager<S> {
         Self: TerminalManagerTrait,
         PostWire: FnOnce(&mut Self, &ViewHandle<S>, &mut AppContext),
     {
-        Self::create_model_with_manager(
-            startup_directory,
-            env_vars,
-            is_shared_session_creator,
-            all_restored_blocks,
-            user_default_shell_unsupported_banner_model_handle,
-            initial_size,
-            model_event_sender,
-            chosen_shell,
-            BlockSpacing::for_gui(ctx),
-            SshRemoteServerSupport::Enabled,
-            ctx,
-            create_surface,
-            |manager| Box::new(manager),
-        )
-    }
-
-    /// Creates a local terminal manager for a TUI-owned terminal surface.
-    /// `block_spacing` is the TUI frontend's spacing baked into block heights.
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_tui_model<PostWire>(
-        startup_directory: Option<PathBuf>,
-        env_vars: HashMap<OsString, OsString>,
-        is_shared_session_creator: IsSharedSessionCreator,
-        all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
-        user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
-        initial_size: Vector2F,
-        model_event_sender: Option<SyncSender<ModelEvent>>,
-        chosen_shell: Option<AvailableShell>,
-        block_spacing: BlockSpacing,
-        ctx: &mut AppContext,
-        create_surface: impl FnOnce(
-            TerminalSurfaceInit,
-            &mut AppContext,
-        ) -> TerminalSurfaceResult<S, PostWire>,
-    ) -> TerminalManagerInit<S>
-    where
-        S: TerminalSurface,
-        <S as Entity>::Event: PtyIntentEvent,
-        PostWire: FnOnce(&mut Self, &ViewHandle<S>, &mut AppContext),
-    {
-        Self::create_model_with_manager(
-            startup_directory,
-            env_vars,
-            is_shared_session_creator,
-            all_restored_blocks,
-            user_default_shell_unsupported_banner_model_handle,
-            initial_size,
-            model_event_sender,
-            chosen_shell,
-            block_spacing,
-            SshRemoteServerSupport::Disabled,
-            ctx,
-            create_surface,
-            |manager| Box::new(TuiTerminalManager(manager)),
-        )
-    }
-
-    /// Creates a manager using the supplied type-erasure adapter.
-    #[allow(clippy::too_many_arguments)]
-    fn create_model_with_manager<PostWire, BoxManager>(
-        startup_directory: Option<PathBuf>,
-        env_vars: HashMap<OsString, OsString>,
-        is_shared_session_creator: IsSharedSessionCreator,
-        all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
-        user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
-        initial_size: Vector2F,
-        model_event_sender: Option<SyncSender<ModelEvent>>,
-        chosen_shell: Option<AvailableShell>,
-        block_spacing: BlockSpacing,
-        ssh_remote_server_support: SshRemoteServerSupport,
-        ctx: &mut AppContext,
-        create_surface: impl FnOnce(
-            TerminalSurfaceInit,
-            &mut AppContext,
-        ) -> TerminalSurfaceResult<S, PostWire>,
-        box_manager: BoxManager,
-    ) -> TerminalManagerInit<S>
-    where
-        S: TerminalSurface,
-        <S as Entity>::Event: PtyIntentEvent,
-        PostWire: FnOnce(&mut Self, &ViewHandle<S>, &mut AppContext),
-        BoxManager: FnOnce(Self) -> Box<dyn TerminalManagerTrait> + 'static,
-    {
+        let block_spacing = BlockSpacing::for_gui(ctx);
         let (wakeups_tx, wakeups_rx) = async_channel::unbounded();
         let (events_tx, events_rx) = async_channel::unbounded();
         let (executor_command_tx, executor_command_rx) = async_channel::unbounded();
@@ -420,14 +321,8 @@ impl<S> TerminalManager<S> {
         // Initialize the sessions model.
         let sessions = ctx.add_model(|ctx| Sessions::new(executor_command_tx.clone(), ctx));
 
-        let model_events = ctx.add_model(|ctx| {
-            ModelEventDispatcher::new_with_ssh_remote_server_support(
-                events_rx,
-                sessions.clone(),
-                ssh_remote_server_support,
-                ctx,
-            )
-        });
+        let model_events =
+            ctx.add_model(|ctx| ModelEventDispatcher::new(events_rx, sessions.clone(), ctx));
 
         let preferred_shell = chosen_shell.unwrap_or_else(|| {
             AvailableShells::handle(ctx)
@@ -578,7 +473,7 @@ impl<S> TerminalManager<S> {
         };
 
         let terminal_manager_model = ctx.add_model(|ctx| {
-            let terminal_manager = box_manager(terminal_manager);
+            let terminal_manager: Box<dyn TerminalManagerTrait> = Box::new(terminal_manager);
             ctx.subscribe_to_model(
                 &sessions,
                 |terminal_manager: &mut Box<dyn TerminalManagerTrait>, _, event, ctx| {

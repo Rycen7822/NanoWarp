@@ -25,8 +25,6 @@ use crate::terminal::{ShellLaunchData, SizeUpdate};
 /// resizing, command execution, and native shell completions.
 pub enum PtyIntent {
     CtrlD,
-    #[cfg(not(target_family = "wasm"))]
-    Interrupt,
     ShutdownPty,
     WriteBytes(Cow<'static, [u8]>),
     WriteAgentInput {
@@ -51,8 +49,7 @@ pub trait PtyIntentEvent {
 /// A terminal frontend surface driven by `TerminalManager`.
 ///
 /// Each surface defines how its own event type collapses into a PTY/session intent.
-/// This is bounded by [`Entity`] instead of [`View`](warpui::View) so the same
-/// manager can drive both GUI views and TUI views.
+/// The manager uses the surface's entity and event interfaces for this projection.
 pub trait TerminalSurface: Entity + 'static
 where
     <Self as Entity>::Event: PtyIntentEvent,
