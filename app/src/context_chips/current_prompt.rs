@@ -1131,7 +1131,7 @@ impl CurrentPrompt {
             *AISettings::as_ref(ctx).should_render_cli_agent_footer
                 && CLIAgentSessionsModel::as_ref(ctx)
                     .session(terminal_view_id)
-                    .is_some_and(|session| session.agent.supports_cli_agent_footer())
+                    .is_some()
         });
 
         ActiveChipSurfaces {

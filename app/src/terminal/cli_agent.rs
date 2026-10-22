@@ -178,8 +178,6 @@ pub enum CLIAgent {
     Grok,
     Kiro,
     Muse,
-    /// Warp's own headless TUI.
-    WarpTui,
     /// Represents an unknown/custom CLI agent matched by user-configured regex patterns.
     Unknown,
 }
@@ -206,7 +204,6 @@ impl CLIAgent {
             CLIAgent::Grok => "Grok",
             CLIAgent::Kiro => "Kiro",
             CLIAgent::Muse => "Muse",
-            CLIAgent::WarpTui => "WarpTui",
             CLIAgent::Unknown => "Unknown",
         }
     }
@@ -229,14 +226,6 @@ impl CLIAgent {
             CLIAgent::Hermes => &["hermes"],
             CLIAgent::Vibe => &["vibe", "vibe-acp"],
             CLIAgent::Antigravity => &["agy", "antigravity"],
-            CLIAgent::WarpTui => &[
-                "warp",
-                "warp-preview",
-                "warp-dev",
-                "warp-tui",
-                "warp-tui-oss",
-                "run-tui",
-            ],
             CLIAgent::Grok => &["grok"],
             CLIAgent::Kiro => &["kiro-cli", "kiro"],
             CLIAgent::Muse => &["muse"],
@@ -298,7 +287,6 @@ impl CLIAgent {
             CLIAgent::Grok => "Grok Build",
             CLIAgent::Kiro => "Kiro CLI",
             CLIAgent::Muse => "Muse Code",
-            CLIAgent::WarpTui => "Warp TUI",
             CLIAgent::Unknown => "CLI Agent",
         }
     }
@@ -327,7 +315,6 @@ impl CLIAgent {
             CLIAgent::Grok => Some(Icon::GrokLogo),
             CLIAgent::Kiro => Some(Icon::KiroLogo),
             CLIAgent::Muse => Some(Icon::MuseLogo),
-            CLIAgent::WarpTui => Some(Icon::Warp),
             CLIAgent::Unknown => None,
         }
     }
@@ -367,7 +354,6 @@ impl CLIAgent {
                 SkillProvider::Claude,
                 SkillProvider::Codex,
             ],
-            CLIAgent::WarpTui => &[],
             CLIAgent::Unknown => &[],
         }
     }
@@ -400,11 +386,6 @@ impl CLIAgent {
         )
     }
 
-    /// Whether Warp should show its CLI-agent footer for this agent.
-    pub(crate) fn supports_cli_agent_footer(&self) -> bool {
-        !matches!(self, CLIAgent::WarpTui)
-    }
-
     /// Returns the brand color for this CLI agent, or `None` for unknown/custom agents.
     pub fn brand_color(&self) -> Option<ColorU> {
         match self {
@@ -426,7 +407,6 @@ impl CLIAgent {
             CLIAgent::Grok => Some(GROK_COLOR),
             CLIAgent::Kiro => Some(KIRO_PURPLE),
             CLIAgent::Muse => Some(MUSE_COLOR),
-            CLIAgent::WarpTui => Some(ColorU::black()),
             CLIAgent::Unknown => None,
         }
     }

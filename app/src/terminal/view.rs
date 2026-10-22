@@ -8845,13 +8845,6 @@ impl TerminalView {
         if model.is_read_only() {
             return false;
         }
-        // Warp's own headless TUI (`warp_tui`) is itself an agent surface, so
-        // suppress the outer agent input bar while it runs in this pane. Uses
-        // the same command-based detection as the CLI agent footer (see
-        // `is_running_warp_tui`).
-        if self.is_running_warp_tui(model, app) {
-            return false;
-        }
         if self.conversation_ended_tombstone_view_id.is_some() {
             return false;
         }
@@ -12953,9 +12946,8 @@ impl TerminalView {
                                             {
                                                 let remote_host =
                                                     me.active_session_remote_host(ctx);
-                                                let should_auto_toggle_input = agent
-                                                    .supports_cli_agent_footer()
-                                                    && *AISettings::as_ref(ctx)
+                                                let should_auto_toggle_input =
+                                                    *AISettings::as_ref(ctx)
                                                         .auto_open_rich_input_on_cli_agent_start;
                                                 sessions_model.set_session(
                                                     view_id,
@@ -14179,8 +14171,8 @@ impl TerminalView {
             CLIAgentSessionListener::new(view_id, agent, &model_events_handle, ctx)
         });
         let remote_host = self.active_session_remote_host(ctx);
-        let should_auto_toggle_input = agent.supports_cli_agent_footer()
-            && *AISettings::as_ref(ctx).auto_open_rich_input_on_cli_agent_start;
+        let should_auto_toggle_input =
+            *AISettings::as_ref(ctx).auto_open_rich_input_on_cli_agent_start;
         // Seed context from the event that caused registration before the
         // listener subscribes to future events.
         CLIAgentSessionsModel::handle(ctx).update(ctx, |sessions_model, ctx| {
@@ -14296,7 +14288,7 @@ impl TerminalView {
         }
         let should_open = CLIAgentSessionsModel::as_ref(ctx)
             .session(self.view_id)
-            .is_some_and(|s| s.agent.supports_cli_agent_footer() && s.should_auto_toggle_input);
+            .is_some_and(|s| s.should_auto_toggle_input);
         if should_open && !self.has_active_cli_agent_input_session(ctx) {
             self.open_cli_agent_rich_input(CLIAgentInputEntrypoint::AutoShow, ctx);
         }
@@ -14393,11 +14385,7 @@ impl TerminalView {
         {
             let should_auto_toggle_input = CLIAgentSessionsModel::as_ref(ctx)
                 .session(self.view_id)
-                .is_some_and(|s| {
-                    s.agent.supports_cli_agent_footer()
-                        && s.supports_rich_status()
-                        && s.should_auto_toggle_input
-                });
+                .is_some_and(|s| s.supports_rich_status() && s.should_auto_toggle_input);
             if should_auto_toggle_input {
                 match status {
                     CLIAgentSessionStatus::Blocked { .. } => {
@@ -29187,12 +29175,7 @@ impl View for TerminalView {
 
                     column.add_child(Shrinkable::new(1., output_area).finish());
 
-                    // Suppress the "Use agent" footer when the nested program is
-                    // Warp's own TUI (`warp_tui`) — it's already an agent surface,
-                    // so the outer footer would just stack on top of it. Other
-                    // full-screen TUIs (vim, htop, …) still get the footer.
                     if model.is_alt_screen_active()
-                        && !self.is_running_warp_tui(&model, app)
                         && self.should_render_use_agent_footer(&model, app)
                     {
                         column.add_child(ChildView::new(&self.use_agent_footer).finish());
@@ -29721,11 +29704,12 @@ impl View for TerminalView {
             context.set.insert(init::KEYBOARD_PROTOCOL_ENABLED_KEY);
         }
 
-        if let Some(session) = CLIAgentSessionsModel::as_ref(app).session(self.view_id) {
+        if CLIAgentSessionsModel::as_ref(app)
+            .session(self.view_id)
+            .is_some()
+        {
             context.set.insert(init::CLI_AGENT_SESSION_ACTIVE_KEY);
-            if session.agent.supports_cli_agent_footer()
-                && *AISettings::as_ref(app).should_render_cli_agent_footer
-            {
+            if *AISettings::as_ref(app).should_render_cli_agent_footer {
                 context.set.insert(flags::CLI_AGENT_FOOTER_ENABLED);
 
                 if is_rich_input_chip_in_cli_toolbar(app) {
