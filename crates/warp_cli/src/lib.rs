@@ -30,7 +30,6 @@ pub mod federate;
 pub mod harness_support;
 pub mod integration;
 pub mod json_filter;
-pub mod local_control;
 pub mod mcp;
 pub mod memory_store;
 pub mod model;
@@ -123,8 +122,7 @@ pub struct GlobalOptions {
 /// Normal argument parser for the shared Warp executable across all channels.
 ///
 /// Oz commands are subcommands of this parser, so invoking an `oz` symlink does
-/// not require a mode flag. Warp Control uses its separate [`local_control::ControlArgs`]
-/// parser, selected before this parser sees the arguments.
+/// not require a mode flag.
 #[derive(Debug, Default, Parser, Clone)]
 #[command(
     name = "oz",

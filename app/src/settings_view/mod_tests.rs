@@ -134,7 +134,6 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Keybindings,
     SettingsSection::Privacy,
     SettingsSection::Referrals,
-    SettingsSection::Scripting,
     SettingsSection::SharedBlocks,
     SettingsSection::Teams,
     SettingsSection::WarpDrive,
@@ -168,7 +167,6 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Keybindings
             | SettingsSection::Privacy
             | SettingsSection::Referrals
-            | SettingsSection::Scripting
             | SettingsSection::SharedBlocks
             | SettingsSection::Teams
             | SettingsSection::WarpDrive
@@ -233,7 +231,7 @@ fn slugs_were_seeded_from_the_display_labels_they_replaced() {
 #[test]
 fn renamed_sections_keep_the_slug_they_were_seeded_with() {
     // The section dropped "Oz" from what the user reads, but persisted sessions
-    // and `surface.settings.open --page` still speak the original slug.
+    // still use the original slug.
     assert_eq!(
         SettingsSection::WarpCloudAgentAPIKeys.to_string(),
         "API keys"
@@ -295,7 +293,7 @@ fn from_slug_accepts_legacy_spellings() {
 #[test]
 fn from_slug_maps_superseded_page_names_to_the_page_that_replaced_them() {
     // `AI`, `Code` and `MCP Servers` named pages that have since been split or
-    // moved. Persisted sessions and warpctrl callers still use them, so they
+    // moved. Persisted sessions still use them, so they
     // resolve here, at the boundary, rather than existing as sections of their
     // own that every caller would have to remember to normalize.
     assert_eq!(
