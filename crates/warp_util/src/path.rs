@@ -1,10 +1,9 @@
 //! This module contains utilities for dealing with file/directory paths throughout Warp.
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::env::{self, VarError};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
-use std::str;
+use std::{env, str};
 
 #[cfg(not(target_family = "wasm"))]
 use itertools::Itertools as _;
@@ -326,27 +325,6 @@ pub fn is_posix_portable_pathname(s: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
     })
-}
-
-#[derive(Error, Debug)]
-pub enum TargetDirError {
-    #[error("Could not retrieve the manifest directory: {0}")]
-    CouldNotRetrieveManifestDir(#[from] VarError),
-    #[error("No parent was found for the manifest directory")]
-    NoManifestDirParent,
-}
-
-/// Retrieves the target directory.
-pub fn app_target_dir(profile: &str) -> Result<PathBuf, TargetDirError> {
-    // TODO(CORE-2805): Make sure this works in distribution.
-    // Ideally we would use `CARGO_TARGET_DIR` but this isn't always available.
-    // See https://github.com/rust-lang/cargo/issues/9661.
-    let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
-    let manifest_dir = Path::new(&manifest_dir);
-    let Some(workspace_dir) = manifest_dir.parent().and_then(Path::parent) else {
-        return Err(TargetDirError::NoManifestDirParent);
-    };
-    Ok(Path::new(workspace_dir).join("target").join(profile))
 }
 
 #[derive(Error, Debug)]

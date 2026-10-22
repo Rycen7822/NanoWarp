@@ -699,6 +699,9 @@ pub fn log_directory() -> Result<std::path::PathBuf> {
 }
 
 fn init_log_directory() -> Result<std::path::PathBuf> {
+    if let Some(root) = warp_core::paths::runtime_root() {
+        return Ok(root.join("logs"));
+    }
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
             Ok(dirs::home_dir()

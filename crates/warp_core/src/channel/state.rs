@@ -37,7 +37,7 @@ pub struct ChannelState {
 impl ChannelState {
     pub fn init() -> Self {
         let channel = Channel::Oss;
-        let app_id = AppId::new("dev", "warp", "WarpOss");
+        let app_id = AppId::new("dev", "nanowarp", "NanoWarp");
         Self {
             channel,
             additional_features: Default::default(),
@@ -416,13 +416,13 @@ impl ChannelState {
 
     pub fn url_scheme() -> &'static str {
         match Self::channel() {
-            Channel::Stable => "warp",
-            Channel::Preview => "warppreview",
-            Channel::Dev => "warpdev",
+            Channel::Stable => "nanowarp-stable",
+            Channel::Preview => "nanowarp-preview",
+            Channel::Dev => "nanowarp-dev",
             // Dummy value--integration tests shouldn't support URL schemes.
-            Channel::Integration => "warpintegration",
-            Channel::Local => "warplocal",
-            Channel::Oss => "warposs",
+            Channel::Integration => "nanowarp-integration",
+            Channel::Local => "nanowarp-local",
+            Channel::Oss => "nanowarp",
         }
     }
 }

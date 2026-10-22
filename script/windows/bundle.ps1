@@ -12,7 +12,7 @@ Param (
     [String]$ARTIFACT = 'app',
 
     [ValidateSet('local', 'dev', 'preview', 'stable', 'oss')]
-    [String]$CHANNEL = 'dev',
+    [String]$CHANNEL = 'oss',
 
     [Alias('release-tag')]
     [String]$RELEASE_TAG = '',
@@ -101,8 +101,16 @@ function Assert-ValidSignature {
     }
 }
 
-$WORKSPACE_ROOT_DIR = $PWD.Path
-$CARGO_TARGET_DIR = $WORKSPACE_ROOT_DIR + '\target'
+$WORKSPACE_ROOT_DIR = (Resolve-Path "$PSScriptRoot\..\..").Path
+if ($PWD.Path -ne $WORKSPACE_ROOT_DIR) {
+    throw "Run this script from $WORKSPACE_ROOT_DIR."
+}
+$CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR) {
+    [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+} else {
+    Join-Path $WORKSPACE_ROOT_DIR '.work\target'
+}
+$env:CARGO_TARGET_DIR = $CARGO_TARGET_DIR
 $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
 $IS_TUI = $ARTIFACT -eq 'tui'
 $IS_CLI = $ARTIFACT -eq 'cli'
@@ -157,7 +165,7 @@ if ("$CHANNEL" -eq 'local') {
 } elseif ("$CHANNEL" -eq 'oss') {
     $WARP_BIN = 'warp-oss'
     $BINARY_NAME = 'warp-oss.exe'
-    $APP_NAME = 'WarpOss'
+    $APP_NAME = 'NanoWarp'
     # The OSS channel does not ship Sentry, so drop the crash_reporting feature
     # (which would otherwise pull in the Sentry SDK as a dependency).
     $FEATURES = 'release_bundle,gui'
@@ -211,8 +219,8 @@ if ($IS_TUI) {
 }
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
-$BUNDLE_ID = "dev.warp.$APP_NAME"
-$INSTALLER_OUTPUT_DIR = "$WINDOWS_INSTALLER_DIR\Output"
+$BUNDLE_ID = "dev.nanowarp.$APP_NAME"
+$INSTALLER_OUTPUT_DIR = Join-Path $CARGO_TARGET_OUTPUT_DIR 'installer'
 $INSTALLER_NAME = "$($APP_NAME)$($FILE_ENDING)"
 $INSTALLER_PATH = "$($INSTALLER_OUTPUT_DIR)\$($INSTALLER_NAME).exe"
 $PDB_BASENAME = if ($IS_TUI) {
@@ -243,7 +251,7 @@ if ($DEBUG_BUILD) {
 # then exit.  We use this script to invoke `cargo check` to ensure that we are
 # using the same feature flags and profile that we would be using in production.
 if ($CHECK_ONLY) {
-    cargo check -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
+    cargo +1.92.0 check --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 4
     if (-Not $?) {
         Write-Error "Failed to verify Warp $WARP_BIN compilation with profile $CARGO_PROFILE"
         exit 1
@@ -255,7 +263,7 @@ if (-Not $SKIP_BUILD_BINARY) {
     Write-Output "Building Warp for channel $CHANNEL and bundle id $BUNDLE_ID"
     $env:CARGO_BIN_NAME = $CHANNEL
     $env:WARP_APP_NAME = $APP_NAME
-    cargo build -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
+    cargo +1.92.0 build --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 4
     if (-Not $?) {
         Write-Error "Failed to build Warp $WARP_BIN binary with profile $CARGO_PROFILE"
         exit 1
@@ -346,6 +354,7 @@ if ($IS_CLI) {
 Write-Output 'Building Warp installer'
 $ISCC_ARGS = @(
     "$INSTALLER_SCRIPT",
+    "/O$INSTALLER_OUTPUT_DIR",
     "/DReleaseChannel=$CHANNEL",
     "/DMyAppExeName=$BINARY_NAME",
     "/DTargetProfileDir=$CARGO_TARGET_OUTPUT_DIR",

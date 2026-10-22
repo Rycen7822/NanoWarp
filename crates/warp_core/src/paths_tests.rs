@@ -4,15 +4,26 @@ use super::*;
 
 #[test]
 fn test_data_dir_path() {
+    if let Some(root) = std::env::var_os("NANOWARP_DATA_DIR") {
+        let root = PathBuf::from(root);
+        assert_eq!(data_dir(), root.join("data"));
+        assert_eq!(state_dir(), root.join("state"));
+        assert_eq!(config_local_dir(), root.join("config"));
+        assert_eq!(cache_dir(), root.join("cache"));
+        assert_eq!(warp_home_config_dir(), Some(root.join("config")));
+        assert_eq!(gui_config_local_dir(), Some(root.join("config")));
+        assert_eq!(secure_state_dir(), None);
+        return;
+    }
     let home_dir = home_dir().expect("Should be able to compute home directory");
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(data_dir(), home_dir.join(".warp-oss"));
+            assert_eq!(data_dir(), home_dir.join(".nanowarp-oss"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(data_dir(), home_dir.join(".local/share/warp-oss"));
+            assert_eq!(data_dir(), home_dir.join(".local/share/nanowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(data_dir(), home_dir.join("AppData\\Roaming\\warp\\WarpOss\\data"));
+            assert_eq!(data_dir(), home_dir.join("AppData\\Roaming\\nanowarp\\NanoWarp\\data"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -25,11 +36,11 @@ fn test_config_local_dir_path() {
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(config_local_dir(), home_dir.join(".warp-oss"));
+            assert_eq!(config_local_dir(), home_dir.join(".nanowarp-oss"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(config_local_dir(), home_dir.join(".config/warp-oss"));
+            assert_eq!(config_local_dir(), home_dir.join(".config/nanowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(config_local_dir(), home_dir.join("AppData\\Local\\warp\\WarpOss\\config"));
+            assert_eq!(config_local_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\config"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -39,21 +50,24 @@ fn test_config_local_dir_path() {
 #[cfg(target_os = "macos")]
 #[test]
 fn test_macos_config_dir_name_scopes_to_data_profile() {
-    assert_eq!(macos_config_dir_name_for(Channel::Stable, None), ".warp");
+    assert_eq!(
+        macos_config_dir_name_for(Channel::Stable, None),
+        ".nanowarp"
+    );
     assert_eq!(
         macos_config_dir_name_for(Channel::Local, None),
-        ".warp-local"
+        ".nanowarp-local"
     );
 
     // Each development profile must get its own directory so shared config
     // (notably settings.toml) cannot leak between profiles.
     assert_eq!(
         macos_config_dir_name_for(Channel::Local, Some("myprofile")),
-        ".warp-local-myprofile"
+        ".nanowarp-local-myprofile"
     );
     assert_eq!(
         macos_config_dir_name_for(Channel::Stable, Some("myprofile")),
-        ".warp-myprofile"
+        ".nanowarp-myprofile"
     );
 }
 
@@ -61,7 +75,7 @@ fn test_macos_config_dir_name_scopes_to_data_profile() {
 fn test_gui_app_id_maps_oss_tui_to_oss_gui() {
     let gui_app_id = gui_app_id_for_channel(Channel::Oss, AppId::new("dev", "warp", "WarpTui"));
 
-    assert_eq!(gui_app_id.to_string(), "dev.warp.WarpOss");
+    assert_eq!(gui_app_id.to_string(), "dev.nanowarp.NanoWarp");
 }
 
 #[test]
@@ -71,13 +85,13 @@ fn test_gui_config_and_mcp_paths_resolve_explicit_sources() {
 
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(gui_config_dir, home_dir.join(".warp-oss"));
+            assert_eq!(gui_config_dir, home_dir.join(".nanowarp-oss"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(gui_config_dir, home_dir.join(".config/warp-oss"));
+            assert_eq!(gui_config_dir, home_dir.join(".config/nanowarp"));
         } else if #[cfg(windows)] {
             assert_eq!(
                 gui_config_dir,
-                home_dir.join("AppData\\Local\\warp\\WarpOss\\config")
+                home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\config")
             );
         } else {
             unimplemented!("Need to update tests for current platform!");
@@ -90,8 +104,8 @@ fn test_gui_config_and_mcp_paths_resolve_explicit_sources() {
 fn test_warp_home_config_dir_path() {
     let home_dir = home_dir().expect("Should be able to compute home directory");
     let expected_dir_name = match ChannelState::data_profile() {
-        Some(data_profile) => format!(".warp-oss-{data_profile}"),
-        None => ".warp-oss".to_string(),
+        Some(data_profile) => format!(".nanowarp-oss-{data_profile}"),
+        None => ".nanowarp-oss".to_string(),
     };
 
     assert_eq!(
@@ -130,11 +144,11 @@ fn test_cache_dir_path() {
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(cache_dir(), home_dir.join("Library/Application Support/dev.warp.WarpOss"));
+            assert_eq!(cache_dir(), home_dir.join("Library/Application Support/dev.nanowarp.NanoWarp"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(cache_dir(), home_dir.join(".cache/warp-oss"));
+            assert_eq!(cache_dir(), home_dir.join(".cache/nanowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(cache_dir(), home_dir.join("AppData\\Local\\warp\\WarpOss\\cache"));
+            assert_eq!(cache_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\cache"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -147,11 +161,11 @@ fn test_state_dir_path() {
     cfg_if::cfg_if! {
         // ChannelState, by default, is configured for Channel::Oss.
         if #[cfg(target_os = "macos")] {
-            assert_eq!(state_dir(), home_dir.join("Library/Application Support/dev.warp.WarpOss"));
+            assert_eq!(state_dir(), home_dir.join("Library/Application Support/dev.nanowarp.NanoWarp"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(state_dir(), home_dir.join(".local/state/warp-oss"));
+            assert_eq!(state_dir(), home_dir.join(".local/state/nanowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(state_dir(), home_dir.join("AppData\\Local\\warp\\WarpOss\\data"));
+            assert_eq!(state_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\data"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }

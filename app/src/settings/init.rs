@@ -284,6 +284,15 @@ fn handle_warp_config_change(
 /// Used directly for private settings, and also as the fallback for public
 /// settings when the settings file feature flag is disabled.
 fn init_platform_native_preferences() -> user_preferences::Model {
+    #[cfg(not(any(test, target_family = "wasm")))]
+    if warp_core::paths::runtime_root().is_some() {
+        return Box::new(
+            user_preferences::file_backed::FileBackedUserPreferences::new(
+                super::user_preferences_file_path(),
+            )
+            .expect("Could not open NanoWarp runtime preferences"),
+        );
+    }
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             Box::<user_preferences::in_memory::InMemoryPreferences>::default()

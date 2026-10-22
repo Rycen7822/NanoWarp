@@ -2,7 +2,6 @@ use std::mem::transmute;
 use std::path::Path;
 
 use thiserror::Error;
-use warp_util::path::TargetDirError;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{COORD, HPCON};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
@@ -36,8 +35,6 @@ pub struct ConptyApi {
 
 #[derive(Error, Debug)]
 pub enum ConptyApiError {
-    #[error("Failed to construct target directory: {0}")]
-    NoTargetDirectory(#[from] TargetDirError),
     #[error(
         "Failed to load ConPTY library module: {windows_error:#}. DLL file exists: {dll_file_exists:?}"
     )]

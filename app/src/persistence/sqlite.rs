@@ -368,7 +368,10 @@ pub(super) fn init_db(scope: &PersistenceScope) -> Result<SqliteConnection> {
         ensure_owner_only_dir(db_parent)?;
     }
 
-    if matches!(scope, PersistenceScope::App) {
+    if matches!(scope, PersistenceScope::App)
+        && warp_core::channel::ChannelState::channel() != warp_core::channel::Channel::Oss
+        && warp_core::paths::runtime_root().is_none()
+    {
         migrate_old_sqlite_into_secure_container_if_needed(&db_path);
     }
 

@@ -25,17 +25,25 @@ use crate::channel::{Channel, ChannelState};
 /// The name of the directory in which to put non-global Warp-specific files.
 ///
 /// This should be used, for example, as the base directory under which
-/// repository workflows would be stored (in "./.warp/workflows").
-pub const WARP_CONFIG_DIR: &str = ".warp";
+/// repository configuration would be stored (in "./.nanowarp").
+pub const WARP_CONFIG_DIR: &str = ".nanowarp";
 
 /// The name of the folder that stores Warp execution logs and network logs.
 /// This is currently only used on Windows to maintain backwards compatibility.
 pub const WARP_LOGS_DIR: &str = "logs";
 
+/// Overrides application-owned runtime directories without changing the user's shell home.
+pub fn runtime_root() -> Option<PathBuf> {
+    let root = PathBuf::from(std::env::var_os("NANOWARP_DATA_DIR")?);
+    assert!(
+        root.is_absolute(),
+        "NANOWARP_DATA_DIR must be an absolute path"
+    );
+    Some(root)
+}
+
 fn base_warp_config_dir_name() -> String {
     match ChannelState::channel() {
-        // Preview shares the same directory as Stable for backward
-        // compatibility — existing users already have config in `.warp`.
         Channel::Stable | Channel::Preview => WARP_CONFIG_DIR.to_owned(),
         Channel::Oss => format!("{WARP_CONFIG_DIR}-oss"),
         Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
@@ -46,8 +54,7 @@ fn base_warp_config_dir_name() -> String {
 
 /// Returns the home-relative Warp config directory name for the current channel and data profile.
 ///
-/// This preserves the historical `.warp*` directory shape while still isolating dev, local,
-/// integration, oss, and optional development profiles.
+/// Channels and development profiles use separate `.nanowarp*` directories.
 pub fn warp_home_config_dir_name() -> String {
     let base_dir_name = base_warp_config_dir_name();
 
@@ -61,9 +68,12 @@ pub fn warp_home_config_dir_name() -> String {
 /// Returns the home-relative Warp config directory for the current channel and data profile.
 ///
 /// Unlike [`data_dir`] and [`config_local_dir`] on non-macOS platforms, this intentionally keeps
-/// Warp-authored, user-facing config under a `.warp*` directory in the home directory instead of
+/// user-facing config under a `.nanowarp*` directory in the home directory instead of
 /// using the platform XDG/AppData project directories.
 pub fn warp_home_config_dir() -> Option<PathBuf> {
+    if let Some(root) = runtime_root() {
+        return Some(root.join("config"));
+    }
     dirs::home_dir().map(|home_dir| home_dir.join(warp_home_config_dir_name()))
 }
 
@@ -78,16 +88,14 @@ pub fn warp_home_mcp_config_file_path() -> Option<PathBuf> {
 /// Returns the macOS config directory name for the current channel and data
 /// profile.
 ///
-/// Stable uses `.warp`, while other channels include a channel suffix
-/// (e.g., `.warp-dev`, `.warp-local`).
+/// Stable uses `.nanowarp`, while other channels include a channel suffix.
 ///
 /// Development data profiles append a further `-{profile}` suffix. Without it,
 /// every profile of a channel would share this directory — and with it the
 /// public settings in `settings.toml` — defeating the isolation that profiles
 /// already provide for UserDefaults, Application Support, and the keychain.
 ///
-/// These suffixes are persisted on disk as directory names and must not be
-/// changed once established, or existing user data will be orphaned.
+/// These suffixes are persisted on disk as directory names.
 #[cfg(target_os = "macos")]
 fn macos_config_dir_name() -> String {
     macos_config_dir_name_for(
@@ -117,6 +125,9 @@ fn macos_config_dir_name_for(channel: Channel, data_profile: Option<&str>) -> St
 ///
 /// This is the appropriate home for things like custom themes and workflows.
 pub fn data_dir() -> PathBuf {
+    if let Some(root) = runtime_root() {
+        return root.join("data");
+    }
     cfg_if! {
         if #[cfg(target_os = "macos")] {
             // TODO(vorporeal): We should do something better than return a
@@ -132,11 +143,11 @@ pub fn data_dir() -> PathBuf {
 ///
 /// Most TUI channel binaries use the same application ID as the GUI. The OSS
 /// TUI is the exception: it uses `WarpTui`, while the corresponding GUI uses
-/// `WarpOss`.
+/// `NanoWarp`.
 #[cfg(any(not(target_os = "macos"), test))]
 fn gui_app_id_for_channel(channel: Channel, current_app_id: AppId) -> AppId {
     match channel {
-        Channel::Oss => AppId::new("dev", "warp", "WarpOss"),
+        Channel::Oss => AppId::new("dev", "nanowarp", "NanoWarp"),
         Channel::Stable
         | Channel::Preview
         | Channel::Dev
@@ -153,6 +164,9 @@ fn gui_app_id() -> AppId {
 /// Returns the path to the directory where non-portable configuration files
 /// should be stored.
 pub fn config_local_dir() -> PathBuf {
+    if let Some(root) = runtime_root() {
+        return root.join("config");
+    }
     cfg_if! {
         if #[cfg(target_os = "macos")] {
             // TODO(vorporeal): We should do something better than return a
@@ -171,9 +185,12 @@ pub fn config_local_dir() -> PathBuf {
 /// This differs from [`config_local_dir`] when the active process uses a
 /// frontend-specific application ID, as the OSS TUI does on Linux and Windows.
 /// On macOS, development data profiles do not have an unambiguous corresponding
-/// GUI `.warp*` directory, so this fails closed instead of selecting a source
+/// GUI `.nanowarp*` directory, so this fails closed instead of selecting a source
 /// profile implicitly.
 pub fn gui_config_local_dir() -> Option<PathBuf> {
+    if let Some(root) = runtime_root() {
+        return Some(root.join("config"));
+    }
     cfg_if! {
         if #[cfg(target_os = "macos")] {
             if ChannelState::data_profile().is_some() {
@@ -206,13 +223,13 @@ pub fn gui_mcp_config_file_path() -> Option<PathBuf> {
 /// Returns the macOS config directory name for the TUI front-end (`warp-tui`)
 /// for the current channel.
 ///
-/// This mirrors [`macos_config_dir_name`] but under a `.warp_cli*` directory so
-/// the TUI keeps its settings separate from the GUI's `.warp*` directory. Like
+/// This mirrors [`macos_config_dir_name`] but under a `.nanowarp-cli*` directory so
+/// the TUI keeps its settings separate from the GUI's `.nanowarp*` directory. Like
 /// the GUI names, these are persisted on disk as directory names and must not be
 /// changed once established.
 #[cfg(target_os = "macos")]
 fn macos_tui_config_dir_name() -> String {
-    macos_config_dir_name().replacen(WARP_CONFIG_DIR, ".warp_cli", 1)
+    macos_config_dir_name().replacen(WARP_CONFIG_DIR, ".nanowarp-cli", 1)
 }
 
 /// Returns the path to the directory where non-portable configuration files for
@@ -220,10 +237,13 @@ fn macos_tui_config_dir_name() -> String {
 ///
 /// This is intentionally distinct from [`config_local_dir`] so the GUI and the
 /// TUI never share (and clobber) a settings file. On macOS it is a sibling
-/// `.warp_cli*` directory (mirroring the GUI's `.warp*`); on other platforms —
+/// `.nanowarp-cli*` directory; on other platforms —
 /// whose config dirs are already app-id based — it nests under a `cli`
 /// subdirectory of the standard config dir.
 pub fn tui_config_local_dir() -> PathBuf {
+    if let Some(root) = runtime_root() {
+        return root.join("config/cli");
+    }
     cfg_if! {
         if #[cfg(target_os = "macos")] {
             dirs::home_dir()
@@ -258,6 +278,9 @@ pub fn base_config_dir() -> PathBuf {
 /// contains durable but non-critical and non-portable data like what windows
 /// the user had open and cached state of known Warp Drive objects.
 pub fn state_dir() -> PathBuf {
+    if let Some(root) = runtime_root() {
+        return root.join("state");
+    }
     let Some(project_dirs) = project_dirs() else {
         return PathBuf::new();
     };
@@ -275,6 +298,9 @@ pub fn state_dir() -> PathBuf {
 ///
 /// On macOS, this will use the App Group container directory if available.
 pub fn secure_state_dir() -> Option<PathBuf> {
+    if runtime_root().is_some() || ChannelState::channel() == Channel::Oss {
+        return None;
+    }
     // Do not use the secure state directory in integration tests, which have a temporary home directory instead.
     if ChannelState::channel() == Channel::Integration {
         return None;
@@ -319,6 +345,9 @@ pub fn themes_dir() -> PathBuf {
 /// we don't want to fetch on every launch of the app but can be safely
 /// deleted by the OS.
 pub fn cache_dir() -> PathBuf {
+    if let Some(root) = runtime_root() {
+        return root.join("cache");
+    }
     let Some(project_dirs) = project_dirs() else {
         return PathBuf::new();
     };

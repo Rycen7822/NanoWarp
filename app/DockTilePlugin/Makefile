@@ -1,4 +1,5 @@
 BUNDLE_NAME = WarpDockTilePlugin.docktileplugin
+OUTPUT_DIR ?= .
 OBJC_FILES = WarpDockTilePlugin.m
 FRAMEWORKS = -framework Cocoa -framework AppKit -framework Foundation
 # Compile a universal binary for both arm64 and x86_64.
@@ -10,11 +11,11 @@ LDFLAGS = -ObjC
 all: $(BUNDLE_NAME)
 
 $(BUNDLE_NAME): $(OBJC_FILES)
-	mkdir -p $(BUNDLE_NAME)/Contents/MacOS
-	clang $(CFLAGS) $(LDFLAGS) $(FRAMEWORKS) $(OBJC_FILES) -o $(BUNDLE_NAME)/Contents/MacOS/WarpDockTilePlugin
-	cp Info.plist $(BUNDLE_NAME)/Contents/
-	mkdir -p $(BUNDLE_NAME)/Contents/Resources
-	cp Resources/* $(BUNDLE_NAME)/Contents/Resources/
+	mkdir -p "$(OUTPUT_DIR)/$(BUNDLE_NAME)/Contents/MacOS"
+	clang $(CFLAGS) $(LDFLAGS) $(FRAMEWORKS) $(OBJC_FILES) -o "$(OUTPUT_DIR)/$(BUNDLE_NAME)/Contents/MacOS/WarpDockTilePlugin"
+	cp Info.plist "$(OUTPUT_DIR)/$(BUNDLE_NAME)/Contents/"
+	mkdir -p "$(OUTPUT_DIR)/$(BUNDLE_NAME)/Contents/Resources"
+	cp Resources/* "$(OUTPUT_DIR)/$(BUNDLE_NAME)/Contents/Resources/"
 
 clean:
-	rm -rf $(BUNDLE_NAME)
+	rm -rf "$(OUTPUT_DIR)/$(BUNDLE_NAME)"

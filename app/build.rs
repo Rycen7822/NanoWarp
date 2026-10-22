@@ -15,7 +15,6 @@ use warp_util::assets::{
     ASSETS_DIR, ASYNC_ASSETS_DIR, CONPTY_DLL_FILE, DXCOMPILER_DLL_FILE, DXIL_DLL_FILE,
     OPEN_CONSOLE_EXE_FILE, REMOTE_ASSETS_DIR, WINDOWS_ASSETS_DIR,
 };
-use warp_util::path::app_target_dir;
 
 fn main() -> Result<()> {
     cfg_aliases! {
@@ -52,48 +51,15 @@ fn main() -> Result<()> {
 
         let min_macos_version = env::var("MACOSX_DEPLOYMENT_TARGET")
             .expect("MACOSX_DEPLOYMENT_TARGET must be set for macos builds");
+        let target_dir = app_target_dir();
         let status = Command::new("make")
             .current_dir("DockTilePlugin")
+            .arg(format!("OUTPUT_DIR={}", target_dir.display()))
             .env("MACOSX_DEPLOYMENT_TARGET", min_macos_version)
             .status()
             .expect("Failed to build dock tile plugin");
         if !status.success() {
             panic!("Dock tile plugin build failed");
-        }
-
-        // Copy the dock tile plugin to the output directory
-        let profile = get_build_profile_name();
-        let target_dir = app_target_dir(&profile).expect("Failed to get app target directory");
-        let plugin_src = Path::new("DockTilePlugin/WarpDockTilePlugin.docktileplugin");
-        let plugin_dst = target_dir.join("WarpDockTilePlugin.docktileplugin");
-
-        if !status.success() {
-            fs::remove_dir_all(plugin_src).expect("Failed to clean up plugin directory");
-            panic!("Dock tile plugin build failed");
-        }
-
-        if plugin_src.exists() {
-            fs::remove_dir_all(&plugin_dst).ok(); // Remove existing if any
-            fs::create_dir_all(&plugin_dst).expect("Failed to create plugin directory");
-
-            // Copy the plugin directory recursively
-            for entry in WalkDir::new(plugin_src) {
-                let entry = entry.expect("Failed to read plugin directory");
-                let path = entry.path();
-                let relative = path
-                    .strip_prefix(plugin_src)
-                    .expect("Failed to strip path prefix");
-                let target = plugin_dst.join(relative);
-
-                if path.is_dir() {
-                    fs::create_dir_all(target).expect("Failed to create plugin subdirectory");
-                } else {
-                    fs::copy(path, target).expect("Failed to copy plugin file");
-                }
-            }
-
-            // Clean up the source plugin directory after copying
-            fs::remove_dir_all(plugin_src).expect("Failed to clean up plugin directory");
         }
 
         // In standalone mode, embed the Info.plist file. We don't use embed_plist! for this
@@ -119,21 +85,7 @@ fn main() -> Result<()> {
         println!("cargo:rerun-if-env-changed=CARGO_BIN_NAME");
         println!("cargo:rerun-if-env-changed=GIT_RELEASE_TAG");
         println!("cargo:rerun-if-env-changed=WARP_APP_NAME");
-        // Retrieve the Cargo profile name so that we can put a copy of ConPTY in
-        // the correct target subdirectory.
-        //
-        // `CARGO_FULL_PROFILE` is set by bundle scripts for custom profiles (e.g.
-        // release-lto). Fall back to Cargo's built-in `PROFILE` ("debug"/"release")
-        // for direct `cargo build` invocations. See also:
-        // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
-        //
-        // Ideally we could access `CARGO_TARGET_DIR` but this doesn't exist at build time.
-        // See https://github.com/rust-lang/cargo/issues/9661.
-        let cargo_full_profile = env::var("CARGO_FULL_PROFILE")
-            .or_else(|_| env::var("PROFILE"))
-            .unwrap_or_else(|_| String::from("debug"));
-        let target_dir =
-            app_target_dir(&cargo_full_profile).expect("Could not get app target directory");
+        let target_dir = app_target_dir();
         copy_windows_assets(&target_dir);
 
         #[cfg(windows)]
@@ -215,17 +167,14 @@ fn generate_channel_config_if_needed(target_family: &str, target_os: &str) {
     }
 }
 
-fn get_build_profile_name() -> String {
-    // The profile name is always the 3rd last part of the path (with 1 based indexing).
-    // e.g. /code/core/target/cli/build/my-build-info-9f91ba6f99d7a061/out
+fn app_target_dir() -> PathBuf {
+    // OUT_DIR retains the actual target root, target triple and custom profile selected by Cargo.
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set"));
     out_dir
         .ancestors()
         .nth(3)
-        .and_then(Path::file_name)
-        .expect("could not get profile name")
-        .to_string_lossy()
-        .into_owned()
+        .expect("OUT_DIR must be inside a Cargo profile directory")
+        .to_path_buf()
 }
 
 fn add_features(target_family: &str, target_os: &str) {
@@ -469,7 +418,7 @@ fn embed_resource_file(target_dir: &Path) {
     use std::io::Write;
 
     let version = env::var("GIT_RELEASE_TAG").unwrap_or("v0".to_owned());
-    let app_name = env::var("WARP_APP_NAME").unwrap_or("Warp".to_owned());
+    let app_name = env::var("WARP_APP_NAME").unwrap_or("NanoWarp".to_owned());
     let bin_name = env::var("CARGO_BIN_NAME").unwrap_or("local".to_owned());
 
     let icon_path = Path::new("channels")
@@ -504,13 +453,13 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",      "Denver Technologies, Inc\0"
+            VALUE "CompanyName",      "NanoWarp contributors\0"
             VALUE "FileDescription",  "{app_name}\0"
             VALUE "FileVersion",      "{version}\0"
             VALUE "LegalCopyright",   "© 2025, Denver Technologies, Inc\0"
             VALUE "InternalName",     "\0"
             VALUE "OriginalFilename", "\0"
-            VALUE "ProductName",      "Warp\0"
+            VALUE "ProductName",      "NanoWarp\0"
             VALUE "ProductVersion",   "{version}\0"
         END
     END
