@@ -1539,13 +1539,28 @@ pub(crate) fn initialize_app(
     });
 
     let user_is_logged_in = auth_state.is_logged_in();
+    let is_screen_reader_enabled = ctx.is_screen_reader_enabled();
+    let from_relaunch = launch_mode.args().finish_update;
 
-    if user_is_logged_in {
-        // Set the first frame callback to record the app's startup time.
-        // This is only sent for logged-in users so that new users don't skew performance metrics.
-        let is_screen_reader_enabled = ctx.is_screen_reader_enabled();
-        let from_relaunch = launch_mode.args().finish_update;
-        ctx.on_first_frame_drawn(move |ctx| {
+    ctx.on_first_frame_drawn(move |ctx| {
+        GPUState::handle(ctx).update(ctx, |gpu_state, ctx| {
+            gpu_state.set_has_lower_power_gpu(warpui::rendering::is_low_power_gpu_available(), ctx);
+        });
+
+        for window_id in ctx.window_ids().collect_vec() {
+            for settings in ctx
+                .views_of_type::<settings_view::SettingsView>(window_id)
+                .into_iter()
+                .flatten()
+            {
+                settings.update(ctx, |settings, ctx| {
+                    settings.refresh_preferred_graphics_backend_dropdown(ctx);
+                });
+            }
+        }
+
+        // Only logged-in users contribute to the existing startup metric.
+        if user_is_logged_in {
             let timing_data = IntervalTimer::handle(ctx).update(ctx, |timer, _| {
                 timer.mark_interval_end("FIRST_FRAME_DRAWN");
                 timer.compute_stats()
@@ -1558,29 +1573,18 @@ pub(crate) fn initialize_app(
                 timing_data,
             });
 
-            GPUState::handle(ctx).update(ctx, |gpu_state, ctx| {
-                gpu_state
-                    .set_has_lower_power_gpu(warpui::rendering::is_low_power_gpu_available(), ctx);
-            });
-
-            for window_id in ctx.window_ids().collect_vec() {
-                SettingsPaneManager::handle(ctx)
-                    .read(ctx, |model, _| model.settings_view(window_id))
-                    .update(ctx, |settings, ctx| {
-                        settings.refresh_preferred_graphics_backend_dropdown(ctx);
-                    })
-            }
-
             send_telemetry_from_app_ctx!(event, ctx);
-        });
+        }
+    });
 
-        #[cfg(enable_crash_recovery)]
-        ctx.on_frame_drawn(|ctx, window_id| {
-            crash_recovery::CrashRecovery::handle(ctx).update(ctx, |crash_recovery, ctx| {
-                crash_recovery.on_frame_drawn(window_id, ctx);
-            });
-        })
-    } else {
+    #[cfg(enable_crash_recovery)]
+    ctx.on_frame_drawn(|ctx, window_id| {
+        crash_recovery::CrashRecovery::handle(ctx).update(ctx, |crash_recovery, ctx| {
+            crash_recovery.on_frame_drawn(window_id, ctx);
+        });
+    });
+
+    if !user_is_logged_in {
         // If the app was opened while logged out, record an event for measuring new users.
         // This is sent immediately in case they quit the app on the signup screen.
         send_telemetry_sync_from_app_ctx!(TelemetryEvent::LoggedOutStartup, ctx);
