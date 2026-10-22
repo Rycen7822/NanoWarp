@@ -147,7 +147,7 @@ The `--org` flag checks each reporter's org membership via the GitHub API, filte
 Whenever the markdown draft credits a PR author, contributor, or issue reporter, render the username as a GitHub profile link such as `[@username](https://github.com/username)`.
 
 ### Step 6 — Classify unmarked PRs
-Determine TUI impact independently from the regular changelog category for every PR. Explicit `CHANGELOG-TUI` and `CHANGELOG-OZ` markers are authoritative entries and may coexist with New Feature, Improvement, or Bug Fix entries. When a PR has an explicit TUI entry, preserve its other explicit entries. Otherwise, if `commit_subject` contains `TUI` as a standalone case-insensitive token, route any explicit New Feature, Improvement, or Bug Fix text to `TUI` instead of its regular category. This keeps clearly TUI-labeled changes out of the desktop changelog while allowing explicitly marked shared changes to appear on both surfaces.
+Explicit `CHANGELOG-OZ` markers are authoritative entries and may coexist with New Feature, Improvement, or Bug Fix entries.
 
 For each PR that has no explicit `CHANGELOG-*` entries, decide whether to include it and under which category.
 
@@ -160,7 +160,6 @@ For each unmarked PR, produce a classification:
   "include": true,
   "category": "IMPROVEMENT",
   "text": "Proposed changelog line",
-  "impacts_tui": true,
   "confidence": "high",
   "rationale": "...",
   "feature_flag": null,
@@ -172,7 +171,6 @@ For each unmarked PR, produce a classification:
 - PRs that only touch CI, tests, docs, or internal tooling → `include: false`
 - PRs behind dogfood-only feature flags → `include: false` for stable channel
 - PRs behind preview flags → `include: false` for stable, `include: true` for preview
-- Set `impacts_tui: true` when Warp Agent CLI users observe the change, including shared Agent capabilities such as tool-call or edit-file behavior
 - When in doubt, set `needs_review: true` and `confidence: "low"`
 - Bot PRs (dependabot, renovate, etc.) → `include: false`
 
@@ -187,12 +185,11 @@ Combine explicit entries (Step 2) and inferred entries (Step 6) into the final r
 1. `NEW-FEATURE` — New Features
 2. `IMPROVEMENT` — Improvements
 3. `BUG-FIX` — Bug Fixes
-4. `TUI` — TUI Updates
-5. `OZ` — Oz Updates
+4. `OZ` — Oz Updates
 
 PRs marked with `CHANGELOG-NONE` are explicitly opted out and must never appear in the changelog markdown.
 
-Preserve every explicit entry independently. For an inferred regular entry with `impacts_tui: true`, also create a `TUI` entry with the same user-facing text and PR metadata. Do not duplicate an inferred entry whose category is already `TUI`.
+Preserve every explicit entry independently.
 
 When creating entries, copy `pr_number`, `url`, `author`, `source_repo`, and `internal_pr` from the normalized PR record. The release JSON converter uses `url` directly; do not invent public PR URLs from PR numbers.
 
@@ -216,9 +213,6 @@ Write two files to `output_dir`:
 
 ## Bug Fixes
 - Fixed crash on startup ([#1236](https://github.com/warpdotdev/warp/pull/1236))
-
-## TUI Updates
-- Added inline command menus to Warp Agent CLI ([#1238](https://github.com/warpdotdev/warp/pull/1238))
 
 ## Oz Updates
 - Improved agent memory ([#1237](https://github.com/warpdotdev/warp/pull/1237))

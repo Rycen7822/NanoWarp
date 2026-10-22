@@ -34,7 +34,6 @@
 - Fixed Ctrl-G not closing CLI agent rich input on linux when editor is focused ([#10030](https://github.com/warpdotdev/warp/pull/10030))
 - Pressing backspace in the agent view when the buffer is empty no longer resets the conversation. ([#10114](https://github.com/warpdotdev/warp/pull/10114))
 - Fixed unnecessary reconnect attempts for remote SSH sessions after system sleep, reducing error noise ([#10096](https://github.com/warpdotdev/warp/pull/10096))
-- Fixes issue with repeated TUI redraws for CLI agents on terminal pane resize. ([#9877](https://github.com/warpdotdev/warp/pull/9877))
 - Fix new-session "+" dropdown alignment when the Tabs Panel is placed on the right side of the header toolbar. ([#9492](https://github.com/warpdotdev/warp/pull/9492))
 - Copy keybinding now prioritizes selected text in the input over a selected block when both are active. ([#9491](https://github.com/warpdotdev/warp/pull/9491))
 - [Windows] Fix hotkey window. ([#9891](https://github.com/warpdotdev/warp/pull/9891))

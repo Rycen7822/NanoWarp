@@ -17,7 +17,7 @@ import sys
 
 # Matches lines like: CHANGELOG-NEW-FEATURE: Added dark mode
 MARKER_RE = re.compile(
-    r"^CHANGELOG-(NEW-FEATURE|IMPROVEMENT|BUG-FIX|IMAGE|OZ|TUI|NONE)\s*:?\s*(.*)$",
+    r"^CHANGELOG-(NEW-FEATURE|IMPROVEMENT|BUG-FIX|IMAGE|OZ|NONE)\s*:?\s*(.*)$",
     re.MULTILINE,
 )
 

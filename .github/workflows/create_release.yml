@@ -851,7 +851,7 @@ jobs:
           NO_LICENSES: "1"
           SKIP_SETTINGS_SCHEMA: "1"
 
-      # Unlike the TUI job above, the cli artifact doesn't stage a copy into
+      # The cli artifact doesn't stage a copy into
       # bundle/linux, so executable_path and debug_executable_path are
       # already the raw target/<profile>/<bin>[.debug] Cargo output paths;
       # no derivation is needed to satisfy --skip-build below.
@@ -2328,23 +2328,15 @@ jobs:
           channel: ${{ inputs.channel }}
           github_auth_token: ${{ steps.github_app_auth.outputs.token }}
           version: ${{ needs.prepare_release.outputs.release_tag }}
-      - name: Add TUI updates to legacy changelog (non-stable only)
+      - name: Write legacy changelog to release format file (non-stable only)
         if: inputs.channel != 'stable'
         shell: bash
         env:
-          GH_TOKEN: ${{ steps.github_app_auth.outputs.token }}
           LEGACY_CHANGELOG: ${{ steps.legacy_changelog.outputs.changelog }}
         run: |
           CHANGELOG_DIR="${{ runner.temp }}/changelog-draft"
-          LEGACY_CHANGELOG_FILE="$CHANGELOG_DIR/changelog-legacy.json"
           mkdir -p "$CHANGELOG_DIR"
-          printf '%s\n' "$LEGACY_CHANGELOG" > "$LEGACY_CHANGELOG_FILE"
-          python3 .agents/skills/changelog-draft/scripts/add_tui_updates.py \
-            --input "$LEGACY_CHANGELOG_FILE" \
-            --output "$CHANGELOG_DIR/changelog-release.json" \
-            --repo "${{ github.repository }}" \
-            --channel "${{ inputs.channel }}" \
-            --release-tag "${{ needs.prepare_release.outputs.release_tag }}"
+          printf '%s\n' "$LEGACY_CHANGELOG" > "$CHANGELOG_DIR/changelog-release.json"
 
       - name: Load changelog into step output
         id: generate_changelog
@@ -2428,10 +2420,8 @@ jobs:
           IMAGE=$(echo $CHANGELOG | jq -r '.images | if length > 0 then .[-1] else "" end')
           # Extract Oz updates as a JSON array
           OZ_UPDATES=$(echo $CHANGELOG | jq -c '.oz_updates // []')
-          # Extract TUI updates as a JSON array
-          TUI_UPDATES=$(echo $CHANGELOG | jq -c '.tui_updates // []')
           # Tweak the structure of the JSON, add in a top-level date field, and add in the markdown_sections field
-          CHANGELOG=$(echo $CHANGELOG_SECTIONS | jq --arg date "$DATE" --arg new_features "$NEW_FEATURES" --arg improvements "$IMPROVEMENTS" --arg image "$IMAGE" --argjson oz_updates "$OZ_UPDATES" --argjson tui_updates "$TUI_UPDATES" '{"date": $date, "sections": to_entries | map({"title": .key, "items": .value}), "markdown_sections": [{"title": "New features", "markdown": $new_features}, {"title": "Improvements", "markdown": $improvements}, {"title": "Coming soon", "markdown": ""}]} + (if $image != "" then {"image_url": $image} else {} end) + (if ($oz_updates | length) > 0 then {"oz_updates": $oz_updates} else {} end) + (if ($tui_updates | length) > 0 then {"tui_updates": $tui_updates} else {} end)')
+          CHANGELOG=$(echo $CHANGELOG_SECTIONS | jq --arg date "$DATE" --arg new_features "$NEW_FEATURES" --arg improvements "$IMPROVEMENTS" --arg image "$IMAGE" --argjson oz_updates "$OZ_UPDATES" '{"date": $date, "sections": to_entries | map({"title": .key, "items": .value}), "markdown_sections": [{"title": "New features", "markdown": $new_features}, {"title": "Improvements", "markdown": $improvements}, {"title": "Coming soon", "markdown": ""}]} + (if $image != "" then {"image_url": $image} else {} end) + (if ($oz_updates | length) > 0 then {"oz_updates": $oz_updates} else {} end)')
 
           echo $CHANGELOG > changelog.json
           cat changelog.json
