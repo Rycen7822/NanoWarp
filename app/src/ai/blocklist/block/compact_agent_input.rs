@@ -35,7 +35,6 @@ impl CompactAgentInput {
                 autogrow: true,
                 soft_wrap: true,
                 text: text_options,
-                include_ai_context_menu: true,
                 propagate_and_no_op_escape_key: PropagateAndNoOpEscapeKey::PropagateFirst,
                 propagate_and_no_op_vertical_navigation_keys:
                     PropagateAndNoOpNavigationKeys::Always,

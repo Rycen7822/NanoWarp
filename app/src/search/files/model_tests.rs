@@ -484,3 +484,39 @@ mod integration_tests {
         assert!(button_component.is_some());
     }
 }
+
+#[test]
+fn test_apply_path_proximity_ranking_direct() {
+    let path = "/src/components/button.rs";
+
+    // Test the proximity ranking function directly
+    let matched_indices_near_end = vec![15, 16, 17]; // Near "button"
+    let matched_indices_at_start = vec![1, 2, 3]; // Near "src"
+
+    let base_score = 1000;
+
+    let score_near_end =
+        FileSearchModel::apply_path_proximity_ranking(path, &matched_indices_near_end, base_score);
+    let score_at_start =
+        FileSearchModel::apply_path_proximity_ranking(path, &matched_indices_at_start, base_score);
+
+    // Matches closer to the end should get a higher bonus
+    assert!(
+        score_near_end > score_at_start,
+        "Expected matches near end to get higher scores. Near end: {score_near_end}, At start: {score_at_start}"
+    );
+
+    // Both should be higher than the base score
+    assert!(score_near_end > base_score);
+    assert!(score_at_start > base_score);
+}
+
+#[test]
+fn test_proximity_ranking_empty_indices() {
+    let path = "/src/components/button.rs";
+    let base_score = 1000;
+
+    // Empty matched indices should return the original score
+    let result = FileSearchModel::apply_path_proximity_ranking(path, &[], base_score);
+    assert_eq!(result, base_score);
+}

@@ -81,8 +81,6 @@ pub enum InputTypeAutoDetectionSource {
     ClassicModeReset,
     /// Toggling voice input forced AI mode.
     VoiceInputToggle,
-    /// Inserting from the AI `@` context menu forced AI mode.
-    AtContextMenuInsert,
 }
 
 impl From<InputClassifierDecisionSource> for InputTypeAutoDetectionSource {

@@ -777,8 +777,7 @@ impl TerminalView {
             input.on_session_share_joined(input_replica_id, presence_manager, ctx);
         });
 
-        // Mark this terminal as a viewer for chips and AI context menu once on join
-        let is_ambient = self.is_ambient_agent_session(ctx);
+        // Mark this terminal as a viewer for chips once on join.
         self.input().update(ctx, |input, ctx| {
             input
                 .prompt_render_helper
@@ -786,15 +785,6 @@ impl TerminalView {
                 .update(ctx, |prompt_display, ctx| {
                     prompt_display.update_shared_session_viewer_status(true, ctx);
                 });
-
-            input.editor().update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.set_is_shared_session_viewer(true, ctx);
-                        menu.set_is_in_ambient_agent(is_ambient, ctx);
-                    });
-                }
-            });
         });
 
         // If viewer joined as an executor, make sure the view state is updated.

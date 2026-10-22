@@ -2356,19 +2356,6 @@ pub enum TelemetryEvent {
         /// Current input mode when voice was used
         current_input_mode: InputType,
     },
-    /// User interacted with @-menu for context attachment
-    AtMenuInteracted {
-        /// Length of the query string
-        query_length: Option<usize>,
-        /// "opened", "item_selected", "cancelled"
-        action: String,
-        /// How many items were available in the menu
-        item_count: Option<usize>,
-        /// Whether or not Universal Developer Input mode is enabled
-        is_udi_enabled: bool,
-        /// Current input mode when @ menu was used
-        current_input_mode: InputType,
-    },
     TabCloseButtonPositionUpdated {
         position: TabCloseButtonPosition,
     },
@@ -3893,19 +3880,6 @@ impl TelemetryEvent {
                 "is_udi_enabled": is_udi_enabled,
                 "current_input_mode": current_input_mode,
             })),
-            TelemetryEvent::AtMenuInteracted {
-                action,
-                query_length,
-                item_count,
-                is_udi_enabled,
-                current_input_mode,
-            } => Some(json!({
-                "action": action,
-                "query_length": query_length,
-                "item_count": item_count,
-                "is_udi_enabled": is_udi_enabled,
-                "current_input_mode": current_input_mode,
-            })),
             TelemetryEvent::TabCloseButtonPositionUpdated { position } => Some(json!({
                 "position": position,
             })),
@@ -4963,7 +4937,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SearchCodebaseRepoUnavailable { .. }
             | TelemetryEvent::InputUXModeChanged { .. }
             | TelemetryEvent::VoiceInputUsed { .. }
-            | TelemetryEvent::AtMenuInteracted { .. }
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::TabCloseButtonPositionUpdated { .. }
             | TelemetryEvent::ExpandedCodeSuggestions { .. }
@@ -5498,7 +5471,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ShellTerminatedPrematurely { .. } => EnablementState::Always,
             Self::InputUXModeChanged { .. } => EnablementState::Always,
             Self::VoiceInputUsed { .. } => EnablementState::Always,
-            Self::AtMenuInteracted { .. } => EnablementState::Always,
             Self::UserMenuUpgradeClicked => EnablementState::Always,
             Self::TabCloseButtonPositionUpdated { .. } => EnablementState::Always,
             Self::ExpandedCodeSuggestions { .. } => EnablementState::Always,
@@ -6035,7 +6007,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::InputUXModeChanged { .. } => "Input.InputUXModeChanged",
             Self::VoiceInputUsed { .. } => "Input.VoiceInputUsed",
-            Self::AtMenuInteracted { .. } => "Input.AtMenuInteracted",
             Self::UserMenuUpgradeClicked => "User Menu Upgrade Clicked",
             Self::TabCloseButtonPositionUpdated { .. } => "Update Tab Close Button Position",
             Self::ExpandedCodeSuggestions { .. } => "Expanded Code Suggestion",
@@ -6796,7 +6767,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::InputUXModeChanged { .. } => "Changed the input UX mode",
             Self::VoiceInputUsed { .. } => "Used voice input",
-            Self::AtMenuInteracted { .. } => "Interacted with the @ menu",
             Self::UserMenuUpgradeClicked => "Clicked the 'Upgrade' menu item in the user menu",
             Self::TabCloseButtonPositionUpdated { .. } => "Updated the tab close button position",
             Self::ExpandedCodeSuggestions { .. } => "Expanded the passive code diff suggestion",

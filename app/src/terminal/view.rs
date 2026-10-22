@@ -220,8 +220,6 @@ use crate::ai::agent::{
     PassiveCodeDiffEntry, PassiveSuggestionResultType, PassiveSuggestionTrigger, RenderableAIError,
     ServerOutputId, ShellCommandCompletedTrigger,
 };
-#[cfg(feature = "local_fs")]
-use crate::ai::agent::{CurrentHead, DiffBase};
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::{
     AmbientAgentTaskId, AmbientConversationStatus, conversation_output_status_from_conversation,
@@ -310,18 +308,9 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, GenericStringObjectFormat, JsonObjectType};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
-#[cfg(feature = "local_fs")]
-use crate::code_review::DiffSetScope;
 use crate::code_review::comments::{
     AttachedReviewComment, PendingImportedReviewComment, convert_insert_review_comments,
 };
-#[cfg(feature = "local_fs")]
-use crate::code_review::context::{
-    convert_file_diffs_to_diffset_hunks, create_attachment_reference_and_key,
-    register_diffset_attachment,
-};
-#[cfg(feature = "local_fs")]
-use crate::code_review::diff_state::LocalDiffStateModel;
 use crate::code_review::diff_state::{DiffMode, GitDeltaPreference};
 use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusModel, GitStatusMetadata};
 use crate::code_review::github_repo_model::GitHubRepoModel;
@@ -7491,70 +7480,6 @@ impl TerminalView {
         )
     }
 
-    #[cfg(feature = "local_fs")]
-    fn handle_attach_diffset_context(&mut self, diff_mode: DiffMode, ctx: &mut ViewContext<Self>) {
-        let Some(repo_path) = self.current_local_repo_path().map(Path::to_path_buf) else {
-            return;
-        };
-
-        // Get branch information from the per-repo sub-model.
-        let metadata = self.git_status_metadata(ctx);
-        let current_branch = metadata.map(|m| m.current_branch_name.clone());
-        let current = current_branch.map(CurrentHead::BranchName);
-
-        let base = match &diff_mode {
-            DiffMode::Head => DiffBase::UncommittedChanges,
-            DiffMode::MainBranch => metadata
-                .map(|m| DiffBase::BranchName(m.main_branch_name.clone()))
-                .unwrap_or(DiffBase::UncommittedChanges),
-            DiffMode::OtherBranch(branch_name) => DiffBase::BranchName(branch_name.clone()),
-        };
-
-        // Create attachment reference and key using the shared function
-        let main_branch_name = metadata.map(|m| m.main_branch_name.clone());
-        let (attachment_reference, diff_set_key) = create_attachment_reference_and_key(
-            &DiffSetScope::All,
-            &diff_mode,
-            main_branch_name.as_deref(),
-        );
-
-        // Insert the reference into the terminal input immediately
-        self.input.update(ctx, |input, ctx| {
-            // Remove the @-trigger text (e.g. "@uncom") that was used to open the context menu.
-            input.replace_at_symbol_with_text(&attachment_reference, ctx);
-            input.ensure_agent_mode_for_ai_features(
-                true,
-                Some(InputTypeAutoDetectionSource::AttachmentForcedAi),
-                ctx,
-            );
-        });
-
-        // Load the diff data asynchronously and complete the attachment when done
-        let ai_context_model = self.ai_context_model.clone();
-        let diff_mode_clone = diff_mode.clone();
-        let repo_path_clone = repo_path.clone();
-        let future = async move {
-            LocalDiffStateModel::load_diff_data_for_mode(diff_mode_clone, repo_path_clone).await
-        };
-
-        ctx.spawn(future, move |_me, git_diff_data_opt, ctx| {
-            let Some(git_diff_data) = git_diff_data_opt else {
-                return;
-            };
-
-            let file_diffs = convert_file_diffs_to_diffset_hunks(git_diff_data.files.iter());
-
-            register_diffset_attachment(
-                &ai_context_model,
-                diff_set_key,
-                file_diffs,
-                current,
-                base,
-                ctx,
-            );
-        });
-    }
-
     fn update_context_blocks_and_exchanges(&mut self, ctx: &mut ViewContext<Self>) {
         // If there is new active conversation history, update the context block
         // and AI exchange IDs in the `ai_render_context` for the active conversations.
@@ -12340,12 +12265,9 @@ impl TerminalView {
                             match &repo_path_opt {
                                 Some(LocalOrRemotePath::Remote(remote_path)) => {
                                     #[cfg(not(target_family = "wasm"))]
-                                    DetectedRepositories::handle(ctx).update(
-                                        ctx,
-                                        |repos, _| {
-                                            repos.register_remote_repo_root(remote_path.clone());
-                                        },
-                                    );
+                                    DetectedRepositories::handle(ctx).update(ctx, |repos, _| {
+                                        repos.register_remote_repo_root(remote_path.clone());
+                                    });
 
                                     // Remote sessions can only materialize their working
                                     // directory after repo detection has resolved the host.
@@ -12353,14 +12275,6 @@ impl TerminalView {
                                     // is known so the active session's working directory catches up.
                                     ctx.emit(Event::AppStateChanged);
 
-                                    if FeatureFlag::AIContextMenuEnabled.is_enabled() {
-                                        me.input.update(ctx, |input, ctx| {
-                                            input
-                                                .check_and_update_ai_context_menu_disabled_state(
-                                                    ctx,
-                                                );
-                                        });
-                                    }
                                     ctx.emit(Event::Pane(PaneEvent::RemoteRepoNavigated {
                                         remote_path: remote_path.clone(),
                                     }));
@@ -12387,9 +12301,7 @@ impl TerminalView {
                                         };
 
                                         let Ok(active_directory) =
-                                            CanonicalizedPath::try_from(
-                                                active_directory,
-                                            )
+                                            CanonicalizedPath::try_from(active_directory)
                                         else {
                                             return;
                                         };
@@ -12411,30 +12323,16 @@ impl TerminalView {
                                             },
                                         );
 
-                                        if old_repo_path
-                                            .as_ref()
-                                            .and_then(|p| p.to_local_path())
+                                        if old_repo_path.as_ref().and_then(|p| p.to_local_path())
                                             != Some(repo_path.as_path())
                                         {
-                                                me.clear_git_repo_status_subscription(ctx);
+                                            me.clear_git_repo_status_subscription(ctx);
                                             me.update_git_status_subscription(ctx);
                                         }
 
                                         me.input.update(ctx, |input, ctx| {
-                                            input.update_repo_path(
-                                                Some(repo_path.clone()),
-                                                ctx,
-                                            );
+                                            input.update_repo_path(Some(repo_path.clone()), ctx);
                                         });
-
-                                        if FeatureFlag::AIContextMenuEnabled.is_enabled() {
-                                            me.input.update(ctx, |input, ctx| {
-                                                input
-                                                    .check_and_update_ai_context_menu_disabled_state(
-                                                        ctx,
-                                                    );
-                                            });
-                                        }
 
                                         me.start_lsp_server_in_active_pwd(ctx);
 
@@ -22868,13 +22766,6 @@ impl TerminalView {
                     focus_new_pane: true,
                     cli_agent: None,
                 }));
-            }
-            InputEvent::AttachDiffSetContext {
-                #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-                diff_mode,
-            } => {
-                #[cfg(feature = "local_fs")]
-                self.handle_attach_diffset_context(diff_mode.clone(), ctx);
             }
             InputEvent::OpenProjectRulesPane => {
                 self.handle_action(&TerminalAction::OpenProjectRulesPane, ctx);

@@ -60,19 +60,19 @@ use crate::server::telemetry::TelemetryEvent;
 use crate::settings::ai::AISettings;
 use crate::settings::native_preference::{NativePreferenceSettings, UserNativePreference};
 use crate::settings::{
-    AliasExpansionEnabled, AliasExpansionSettings, AppEditorSettings, AtContextMenuInTerminalMode,
-    AutocompleteSymbols, AutosuggestionKeybindingHint, ChangelogSettings, CloudPreferencesSettings,
-    CodeSettings, CommandCorrections, CompletionsOpenWhileTyping, CopyOnSelect, CtrlTabBehavior,
+    AliasExpansionEnabled, AliasExpansionSettings, AppEditorSettings, AutocompleteSymbols,
+    AutosuggestionKeybindingHint, ChangelogSettings, CloudPreferencesSettings, CodeSettings,
+    CommandCorrections, CompletionsOpenWhileTyping, CopyOnSelect, CtrlTabBehavior,
     DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES, EnableSlashCommandsInTerminal, ErrorUnderliningEnabled,
     ExtraMetaKeys, GPUSettings, GlobalHotkeyMode, InputSettings, InputSettingsChangedEvent,
     LinuxSelectionClipboard, MiddleClickPasteEnabled, MouseScrollMultiplier,
-    NativeShellCompletionsEnabled, OutlineCodebaseSymbolsForAtContextMenu, PreferLowPowerGPU,
-    PreferredGraphicsBackend, QUAKE_WINDOW_AUTOHIDE_SUPPORTED, QuakeModeSettings,
-    RightClickBehavior, RightClickBehaviorSetting, ScrollSettings, ScrollSettingsChangedEvent,
-    SelectionSettings, SelectionSettingsChangedEvent, ShowAutosuggestionIgnoreButton,
-    ShowChangelogAfterUpdate, ShowTerminalInputMessageBar, SshSettings, SyntaxHighlighting,
-    TabBehavior, UserNativeRedirectPreference, VimModeEnabled, VimStatusBar,
-    VimUnnamedSystemClipboard, WarpCompletionsEnabled,
+    NativeShellCompletionsEnabled, PreferLowPowerGPU, PreferredGraphicsBackend,
+    QUAKE_WINDOW_AUTOHIDE_SUPPORTED, QuakeModeSettings, RightClickBehavior,
+    RightClickBehaviorSetting, ScrollSettings, ScrollSettingsChangedEvent, SelectionSettings,
+    SelectionSettingsChangedEvent, ShowAutosuggestionIgnoreButton, ShowChangelogAfterUpdate,
+    ShowTerminalInputMessageBar, SshSettings, SyntaxHighlighting, TabBehavior,
+    UserNativeRedirectPreference, VimModeEnabled, VimStatusBar, VimUnnamedSystemClipboard,
+    WarpCompletionsEnabled,
 };
 use crate::terminal::alt_screen_reporting::{
     AltScreenReporting, FocusReportingEnabled, MouseReportingEnabled, ScrollReportingEnabled,
@@ -604,22 +604,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         )
         .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
     );
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
-            "'@' context menu in terminal mode",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleAtContextMenuInTerminalMode,
-            )),
-            context,
-            flags::AT_CONTEXT_MENU_IN_TERMINAL_FLAG,
-        )
-        .is_supported_on_current_platform(
-            InputSettings::as_ref(app)
-                .at_context_menu_in_terminal_mode
-                .is_supported_on_current_platform(),
-        ),
-    );
-
     toggle_binding_pairs.push(ToggleSettingActionPair::new(
         "preserve input focus on block selection",
         builder(SettingsAction::FeaturesPageToggle(
@@ -642,23 +626,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             .is_supported_on_current_platform(
                 InputSettings::as_ref(app)
                     .enable_slash_commands_in_terminal
-                    .is_supported_on_current_platform(),
-            ),
-        );
-    }
-    if FeatureFlag::AIContextMenuCode.is_enabled() {
-        toggle_binding_pairs.push(
-            ToggleSettingActionPair::new(
-                "codebase symbols in the '@' context menu",
-                builder(SettingsAction::FeaturesPageToggle(
-                    FeaturesPageAction::ToggleOutlineCodebaseSymbolsForAtContextMenu,
-                )),
-                context,
-                flags::OUTLINE_CODEBASE_SYMBOLS_FOR_AT_CONTEXT_MENU_FLAG,
-            )
-            .is_supported_on_current_platform(
-                InputSettings::as_ref(app)
-                    .outline_codebase_symbols_for_at_context_menu
                     .is_supported_on_current_platform(),
             ),
         );
@@ -803,9 +770,7 @@ pub enum FeaturesPageAction {
     ToggleForceX11,
     ToggleAutosuggestionKeybindingHint,
     ToggleShowAutosuggestionIgnoreButton,
-    ToggleAtContextMenuInTerminalMode,
     ToggleSlashCommandsInTerminalMode,
-    ToggleOutlineCodebaseSymbolsForAtContextMenu,
     ToggleAutoOpenCodeReviewPane,
     ToggleShowTerminalInputMessageLine,
     TogglePreserveInputFocusOnBlockSelection,
@@ -1289,14 +1254,6 @@ impl FeaturesPageAction {
                     value: to_string(setting),
                 }
             }
-            Self::ToggleAtContextMenuInTerminalMode => TelemetryEvent::FeaturesPageAction {
-                action: "ToggleAtContextMenuInTerminalMode".to_string(),
-                value: to_string(
-                    *InputSettings::as_ref(ctx)
-                        .at_context_menu_in_terminal_mode
-                        .value(),
-                ),
-            },
             Self::ToggleSlashCommandsInTerminalMode => TelemetryEvent::FeaturesPageAction {
                 action: "ToggleSlashCommandsInTerminalMode".to_string(),
                 value: to_string(
@@ -1305,16 +1262,6 @@ impl FeaturesPageAction {
                         .value(),
                 ),
             },
-            Self::ToggleOutlineCodebaseSymbolsForAtContextMenu => {
-                TelemetryEvent::FeaturesPageAction {
-                    action: "ToggleOutlineCodebaseSymbolsForAtContextMenu".to_string(),
-                    value: to_string(
-                        *InputSettings::as_ref(ctx)
-                            .outline_codebase_symbols_for_at_context_menu
-                            .value(),
-                    ),
-                }
-            }
             Self::MakeWarpDefaultTerminal => TelemetryEvent::FeaturesPageAction {
                 action: "MakeWarpDefaultTerminal".to_string(),
                 value: to_string(DefaultTerminal::as_ref(ctx).is_warp_default()),
@@ -2121,29 +2068,11 @@ impl TypedActionView for FeaturesPageView {
             ToggleLoginItem => GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
                 report_if_error!(settings.add_app_as_login_item.toggle_and_save_value(ctx));
             }),
-            ToggleAtContextMenuInTerminalMode => {
-                InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
-                    report_if_error!(
-                        input_settings
-                            .at_context_menu_in_terminal_mode
-                            .toggle_and_save_value(ctx)
-                    );
-                });
-            }
             ToggleSlashCommandsInTerminalMode => {
                 InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
                     report_if_error!(
                         input_settings
                             .enable_slash_commands_in_terminal
-                            .toggle_and_save_value(ctx)
-                    );
-                });
-            }
-            ToggleOutlineCodebaseSymbolsForAtContextMenu => {
-                InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
-                    report_if_error!(
-                        input_settings
-                            .outline_codebase_symbols_for_at_context_menu
                             .toggle_and_save_value(ctx)
                     );
                 });
@@ -2937,29 +2866,12 @@ impl FeaturesPageView {
             editor_widgets.push(Box::new(AutosuggestionIgnoreButtonWidget::default()));
         }
 
-        if input_settings
-            .at_context_menu_in_terminal_mode
-            .is_supported_on_current_platform()
-        {
-            editor_widgets.push(Box::new(AtContextMenuInTerminalModeWidget::default()));
-        }
-
         if FeatureFlag::AgentView.is_enabled()
             && input_settings
                 .enable_slash_commands_in_terminal
                 .is_supported_on_current_platform()
         {
             editor_widgets.push(Box::new(SlashCommandsInTerminalModeWidget::default()));
-        }
-
-        if input_settings
-            .outline_codebase_symbols_for_at_context_menu
-            .is_supported_on_current_platform()
-            && FeatureFlag::AIContextMenuCode.is_enabled()
-        {
-            editor_widgets.push(Box::new(
-                OutlineCodebaseSymbolsForAtContextMenuWidget::default(),
-            ));
         }
 
         if FeatureFlag::AgentView.is_enabled() {
@@ -6325,58 +6237,6 @@ impl SettingsWidget for VimModeWidget {
 }
 
 #[derive(Default)]
-struct AtContextMenuInTerminalModeWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for AtContextMenuInTerminalModeWidget {
-    type View = FeaturesPageView;
-
-    fn search_terms(&self) -> &str {
-        "@ at sign context menu terminal mode AI assistant"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        render_body_item::<FeaturesPageAction>(
-            "Enable '@' context menu in terminal mode".into(),
-            None,
-            LocalOnlyIconState::for_setting(
-                AtContextMenuInTerminalMode::storage_key(),
-                AtContextMenuInTerminalMode::sync_to_cloud(),
-                &mut view
-                    .button_mouse_states
-                    .local_only_icon_tooltip_states
-                    .borrow_mut(),
-                app,
-            ),
-            ToggleState::Enabled,
-            appearance,
-            ui_builder
-                .switch(self.switch_state.clone())
-                .check(
-                    *InputSettings::as_ref(app)
-                        .at_context_menu_in_terminal_mode
-                        .value(),
-                )
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(
-                        FeaturesPageAction::ToggleAtContextMenuInTerminalMode,
-                    );
-                })
-                .finish(),
-            None,
-        )
-    }
-}
-
-#[derive(Default)]
 struct SlashCommandsInTerminalModeWidget {
     switch_state: SwitchStateHandle,
 }
@@ -6424,58 +6284,6 @@ impl SettingsWidget for SlashCommandsInTerminalModeWidget {
                 .on_click(move |ctx, _, _| {
                     ctx.dispatch_typed_action(
                         FeaturesPageAction::ToggleSlashCommandsInTerminalMode,
-                    );
-                })
-                .finish(),
-            None,
-        )
-    }
-}
-
-#[derive(Default)]
-struct OutlineCodebaseSymbolsForAtContextMenuWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for OutlineCodebaseSymbolsForAtContextMenuWidget {
-    type View = FeaturesPageView;
-
-    fn search_terms(&self) -> &str {
-        "outline codebase symbols context menu code indexing"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        render_body_item::<FeaturesPageAction>(
-            "Outline codebase symbols for '@' context menu".into(),
-            None,
-            LocalOnlyIconState::for_setting(
-                OutlineCodebaseSymbolsForAtContextMenu::storage_key(),
-                OutlineCodebaseSymbolsForAtContextMenu::sync_to_cloud(),
-                &mut view
-                    .button_mouse_states
-                    .local_only_icon_tooltip_states
-                    .borrow_mut(),
-                app,
-            ),
-            ToggleState::Enabled,
-            appearance,
-            ui_builder
-                .switch(self.switch_state.clone())
-                .check(
-                    *InputSettings::as_ref(app)
-                        .outline_codebase_symbols_for_at_context_menu
-                        .value(),
-                )
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(
-                        FeaturesPageAction::ToggleOutlineCodebaseSymbolsForAtContextMenu,
                     );
                 })
                 .finish(),

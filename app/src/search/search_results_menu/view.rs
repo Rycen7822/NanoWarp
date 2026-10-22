@@ -6,7 +6,6 @@ use warpui::elements::{
     ConstrainedBox, Container, Empty, Flex, ParentElement, SavePosition, ScrollStateHandle,
     Scrollable, ScrollableElement, ScrollbarWidth, Text, UniformList, UniformListState,
 };
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, View, ViewContext,
     ViewHandle, WeakViewHandle,
@@ -19,9 +18,6 @@ use crate::search::mixer::SearchMixer;
 use crate::search::search_bar::{
     CreateQueryResultRendererFn, SearchBar, SearchBarEvent, SearchBarState, SearchResultOrdering,
 };
-
-const HEADER_HORIZONTAL_PADDING: f32 = 16.;
-const HEADER_VERTICAL_PADDING: f32 = 4.;
 
 #[derive(Clone, Copy)]
 pub struct SearchResultsMenuConfig {
@@ -283,35 +279,7 @@ impl<T: Action + Clone> SearchResultsMenuView<T> {
         let selected_index = state.selected_index();
         let query_result_renderers = state.query_result_renderers();
 
-        let active_filter = state.active_query_filter();
-        let appearance = Appearance::as_ref(app);
-
         let mut column = Flex::column();
-
-        if let Some(title) = active_filter.and_then(renderable_title_name) {
-            column.add_child(
-                Container::new(
-                    appearance
-                        .ui_builder()
-                        .span(title)
-                        .with_style(UiComponentStyles {
-                            font_color: Some(
-                                appearance
-                                    .theme()
-                                    .sub_text_color(appearance.theme().background())
-                                    .into(),
-                            ),
-                            font_size: Some(12.),
-                            ..Default::default()
-                        })
-                        .build()
-                        .finish(),
-                )
-                .with_padding_bottom(HEADER_VERTICAL_PADDING)
-                .with_horizontal_padding(HEADER_HORIZONTAL_PADDING)
-                .finish(),
-            );
-        }
 
         column.add_child(match query_result_renderers {
             Some(query_result_renderers) if query_result_renderers.is_empty() => {
@@ -337,12 +305,4 @@ impl<T: Action + Clone> View for SearchResultsMenuView<T> {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         self.render_search_results(app)
     }
-}
-
-fn renderable_title_name(query_filter: QueryFilter) -> Option<&'static str> {
-    if matches!(query_filter, QueryFilter::AgentModeWorkflows) {
-        return Some("Prompts");
-    }
-
-    None
 }

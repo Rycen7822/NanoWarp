@@ -25,7 +25,28 @@ use warpui::{AppContext, Element, SingletonEntity};
 
 use crate::appearance::Appearance;
 use crate::search::ItemHighlightState;
-use crate::search::ai_context_menu::safe_truncate;
+
+/// Safely truncate a string at the given byte index, ensuring we don't split UTF-8 characters
+fn safe_truncate(s: &mut String, new_len: usize) {
+    if new_len >= s.len() {
+        return;
+    }
+    let safe_len = floor_char_boundary(s, new_len);
+    s.truncate(safe_len);
+}
+
+/// Find the largest valid character boundary at or before the given byte index
+fn floor_char_boundary(original_string: &str, idx: usize) -> usize {
+    if idx >= original_string.len() {
+        original_string.len()
+    } else {
+        let mut curr = idx;
+        while curr > 0 && !original_string.is_char_boundary(curr) {
+            curr -= 1;
+        }
+        curr
+    }
+}
 
 pub const MAX_COMBINED_LENGTH: usize = 55;
 

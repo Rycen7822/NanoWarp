@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use pathfinder_color::ColorU;
 #[cfg(not(target_family = "wasm"))]
-use settings::Setting as _;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::color::contrast::{
@@ -34,26 +33,19 @@ use crate::ai::AIRequestUsageModel;
 use crate::ai::blocklist::block::cli_controller::CLISubagentController;
 use crate::ai::blocklist::prompt::PromptIconButtonTheme;
 use crate::ai::blocklist::prompt::prompt_alert::{PromptAlertEvent, PromptAlertView};
-use crate::ai::blocklist::{
-    BlocklistAIHistoryEvent, BlocklistAIInputModel, InputConfig, InputType,
-};
+use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIInputModel, InputType};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::llms::LLMPreferences;
 use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::network::NetworkStatus;
 #[cfg(not(target_family = "wasm"))]
-use crate::search::ai_context_menu::view::AIContextMenu;
 use crate::server::ids::ServerId;
 #[cfg(not(target_family = "wasm"))]
-use crate::settings::InputSettings;
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::settings_view::SettingsSection;
 use crate::terminal::input::MenuPositioningProvider;
 use crate::terminal::keys::TerminalKeybindings;
-use crate::terminal::model::block::BlockMetadata;
 #[cfg(not(target_family = "wasm"))]
-use crate::terminal::model::session::SessionType;
-use crate::terminal::model::session::Sessions;
 use crate::terminal::profile_model_selector::{
     ProfileModelSelector, ProfileModelSelectorEvent, calculate_max_profile_name_width,
     calculate_scaled_font_size,
@@ -66,128 +58,6 @@ use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, NakedTheme, TooltipAlignment,
 };
 use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces};
-
-pub enum AtContextMenuDisabledReason {
-    #[cfg(target_family = "wasm")]
-    Wasm,
-    #[cfg(not(target_family = "wasm"))]
-    NoObjectsAvailable,
-    #[cfg(not(target_family = "wasm"))]
-    SshWithoutRemoteServer,
-    #[cfg(not(target_family = "wasm"))]
-    Subshell,
-    #[cfg(not(target_family = "wasm"))]
-    DisabledInTerminalMode,
-}
-
-impl AtContextMenuDisabledReason {
-    fn tooltip_text(&self) -> String {
-        match self {
-            #[cfg(not(target_family = "wasm"))]
-            AtContextMenuDisabledReason::NoObjectsAvailable => {
-                "No available objects in the current context.".to_string()
-            }
-            #[cfg(not(target_family = "wasm"))]
-            AtContextMenuDisabledReason::SshWithoutRemoteServer => {
-                "Not supported in SSH sessions without remote server".to_string()
-            }
-            #[cfg(not(target_family = "wasm"))]
-            AtContextMenuDisabledReason::Subshell => "Not supported in subshells".to_string(),
-            #[cfg(target_family = "wasm")]
-            AtContextMenuDisabledReason::Wasm => "Requires a filesystem".to_string(),
-            #[cfg(not(target_family = "wasm"))]
-            AtContextMenuDisabledReason::DisabledInTerminalMode => {
-                "Disabled in terminal mode, re-enable in settings".to_string()
-            }
-        }
-    }
-
-    #[cfg(target_family = "wasm")]
-    pub fn get_disable_reason(
-        _active_block_metadata: Option<&BlockMetadata>,
-        _sessions: &Sessions,
-        _input_config: &InputConfig,
-        _ctx: &AppContext,
-    ) -> Option<AtContextMenuDisabledReason> {
-        Some(AtContextMenuDisabledReason::Wasm)
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    pub fn get_disable_reason(
-        active_block_metadata: Option<&BlockMetadata>,
-        sessions: &Sessions,
-        input_config: &InputConfig,
-        ctx: &AppContext,
-    ) -> Option<AtContextMenuDisabledReason> {
-        // Derive session information from block metadata and sessions
-        let (is_ssh_without_remote_server, is_subshell) = active_block_metadata
-            .and_then(|metadata| metadata.session_id())
-            .and_then(|session_id| sessions.get(session_id))
-            .map(|session| {
-                let session_type = session.session_type();
-                let has_connected_remote_server = matches!(
-                    session_type,
-                    SessionType::WarpifiedRemote { host_id: Some(_) }
-                );
-                // The @ menu requires repo metadata which is only available for:
-                // - Local sessions
-                // - WarpifiedRemote sessions with a connected remote server (host_id is Some)
-                //
-                // Block when:
-                // - SSH wrapper session without a remote server upgrade
-                // - WarpifiedRemote still connecting (host_id is None)
-                //
-                // Note: is_ssh_wrapper_session() is set at bootstrap time and stays true
-                // even after the session transitions to WarpifiedRemote with a host_id.
-                // So we must check has_connected_remote_server first to avoid
-                // incorrectly blocking upgraded sessions.
-                let is_ssh_without_remote_server = !has_connected_remote_server
-                    && (session.is_ssh_wrapper_session()
-                        || matches!(session_type, SessionType::WarpifiedRemote { host_id: None }));
-                let is_subshell = session.subshell_info().is_some();
-                (is_ssh_without_remote_server, is_subshell)
-            })
-            .unwrap_or((false, false));
-
-        // Only check the setting if we're in shell mode
-        if input_config.input_type == InputType::Shell
-            && !*InputSettings::as_ref(ctx)
-                .at_context_menu_in_terminal_mode
-                .value()
-        {
-            return Some(AtContextMenuDisabledReason::DisabledInTerminalMode);
-        }
-
-        if is_ssh_without_remote_server {
-            return Some(AtContextMenuDisabledReason::SshWithoutRemoteServer);
-        }
-        if is_subshell {
-            return Some(AtContextMenuDisabledReason::Subshell);
-        }
-
-        // Allow @ context menu outside of git repositories, when we have categories available.
-        // Repo-based restrictions will be enforced at the category level
-        // (e.g., Code will only be available inside a git repository).
-
-        // This condition kicks in if we're locked in shell mode and not in a git repository, so we have
-        // no categories available.
-        if AIContextMenu::get_categories_for_mode(
-            input_config.input_type.is_ai() || !input_config.is_locked,
-            false,
-            false, /* is_in_ambient_agent */
-            false, /* is_cli_agent_input */
-            ctx,
-        )
-        .is_empty()
-        {
-            return Some(AtContextMenuDisabledReason::NoObjectsAvailable);
-        }
-
-        None
-    }
-}
-
-const AT_CONTEXT_TOOLTIP: &str = "Attach context";
 
 const BLURRED_OPACITY: Opacity = 50;
 
@@ -295,7 +165,6 @@ pub struct UniversalDeveloperInputButtonBar {
     terminal_view_id: EntityId,
     view_handle: WeakViewHandle<Self>,
     mic_button: ViewHandle<ActionButton>,
-    at_button: ViewHandle<ActionButton>,
     file_button: ViewHandle<ActionButton>,
     slash_command_button: ViewHandle<ActionButton>,
     profile_model_selector_full: ViewHandle<ProfileModelSelector>,
@@ -312,7 +181,6 @@ pub enum UniversalDeveloperInputButtonBarAction {
     #[cfg(feature = "voice_input")]
     ToggleVoiceInput,
     SelectFile,
-    SetAIContextMenuOpen(bool),
     OpenSlashCommandMenu,
 }
 
@@ -322,7 +190,6 @@ pub enum UniversalDeveloperInputButtonBarEvent {
     InputTypeSelected(InputType),
     EnableAutoDetection,
     SelectFile,
-    SetAIContextMenuOpen(bool),
     PromptAlert(PromptAlertEvent),
     ModelSelectorOpened,
     ModelSelectorClosed,
@@ -358,20 +225,6 @@ impl UniversalDeveloperInputButtonBar {
                 });
             }
             button
-        });
-
-        let at_button_view = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", PromptIconButtonTheme::new(false))
-                .with_icon(Icon::AtSign)
-                .with_tooltip(AT_CONTEXT_TOOLTIP)
-                .with_size(button_size)
-                .with_disabled_theme(UDIDisabledButtonTheme)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(
-                        UniversalDeveloperInputButtonBarAction::SetAIContextMenuOpen(true),
-                    );
-                })
         });
 
         let file_button_view = ctx.add_typed_action_view(|_ctx| {
@@ -602,7 +455,6 @@ impl UniversalDeveloperInputButtonBar {
             terminal_view_id,
             view_handle: ctx.handle(),
             mic_button: mic_button_view,
-            at_button: at_button_view,
             file_button: file_button_view,
             slash_command_button: slash_command_menu_view,
             profile_model_selector_full,
@@ -694,24 +546,6 @@ impl UniversalDeveloperInputButtonBar {
             });
     }
 
-    /// Update the at button's disabled state based on whether AI context menu should render
-    pub fn set_at_button_disabled(
-        &mut self,
-        disable_reason: Option<AtContextMenuDisabledReason>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.at_button.update(ctx, |button, ctx| {
-            button.set_disabled(disable_reason.is_some(), ctx);
-            button.set_tooltip(
-                disable_reason
-                    .map(|reason| reason.tooltip_text())
-                    .or(Some(AT_CONTEXT_TOOLTIP.to_string())),
-                ctx,
-            );
-            ctx.notify();
-        });
-    }
-
     /// Update the slash button's disabled state based on whether the buffer is empty.
     pub fn set_slash_button_disabled(&mut self, should_disable: bool, ctx: &mut ViewContext<Self>) {
         self.slash_command_button.update(ctx, |button, ctx| {
@@ -762,10 +596,6 @@ impl UniversalDeveloperInputButtonBar {
         let theme = PromptIconButtonTheme::new(is_blurred);
 
         self.mic_button.update(ctx, |button, ctx| {
-            button.set_theme(theme.clone(), ctx);
-        });
-
-        self.at_button.update(ctx, |button, ctx| {
             button.set_theme(theme.clone(), ctx);
         });
 
@@ -844,8 +674,6 @@ impl View for UniversalDeveloperInputButtonBar {
                 buttons = buttons.with_child(ChildView::new(&self.mic_button).finish());
             }
 
-            buttons = buttons.with_child(ChildView::new(&self.at_button).finish());
-
             // Viewers cannot attach files in shared sessions at this point.
             if !self
                 .terminal_model
@@ -922,11 +750,6 @@ impl TypedActionView for UniversalDeveloperInputButtonBar {
             }
             UniversalDeveloperInputButtonBarAction::SelectFile => {
                 ctx.emit(UniversalDeveloperInputButtonBarEvent::SelectFile);
-            }
-            UniversalDeveloperInputButtonBarAction::SetAIContextMenuOpen(open) => {
-                ctx.emit(UniversalDeveloperInputButtonBarEvent::SetAIContextMenuOpen(
-                    *open,
-                ));
             }
             UniversalDeveloperInputButtonBarAction::OpenSlashCommandMenu => {
                 ctx.emit(UniversalDeveloperInputButtonBarEvent::OpenSlashCommandMenu);

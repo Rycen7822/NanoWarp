@@ -1298,11 +1298,6 @@ impl AgentConversationsModel {
         }
     }
 
-    /// Returns an iterator over all ambient agent tasks.
-    pub fn tasks_iter(&self) -> impl Iterator<Item = &AmbientAgentTask> {
-        self.tasks.values()
-    }
-
     /// Seeds the task cache so tests can exercise cache-hit paths without a
     /// server round trip.
     #[cfg(test)]

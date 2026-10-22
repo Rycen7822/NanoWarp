@@ -123,10 +123,6 @@ impl InputSuggestionsModeModel {
         )
     }
 
-    pub fn is_ai_context_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::AIContextMenu { .. })
-    }
-
     pub fn is_slash_commands(&self) -> bool {
         matches!(self.mode, InputSuggestionsMode::SlashCommands)
     }

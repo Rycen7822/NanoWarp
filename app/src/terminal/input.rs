@@ -54,7 +54,7 @@ use session_sharing_protocol::common::{AgentAttachment, ParticipantId, ServerCon
 use settings::{Setting as _, ToggleableSetting};
 use string_offset::{ByteOffset, CharOffset};
 use vec1::Vec1;
-use vim::vim::{VimHandler, VimMode};
+use vim::vim::VimMode;
 use warp_cli::agent::Harness;
 use warp_completer::completer::{
     self, CompleterOptions, CompletionContext, CompletionsFallbackStrategy, Description,
@@ -84,9 +84,9 @@ use warpui::color::ColorU;
 use warpui::elements::{
     Align, AnchorPair, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DispatchEventResult, DropTargetData, Element, EventHandler, Flex,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, OffsetType, ParentAnchor,
-    ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius, ResizableStateHandle,
-    SavePosition, SelectionHandle, Text, Wrap, XAxisAnchor, YAxisAnchor, resizable_state_handle,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetType, ParentAnchor, ParentElement,
+    Radius, ResizableStateHandle, SavePosition, SelectionHandle, Text, Wrap, YAxisAnchor,
+    resizable_state_handle,
 };
 pub use warpui::elements::{ParentElement as _, Stack};
 pub use warpui::geometry::vector::{Vector2F, vec2f};
@@ -215,7 +215,6 @@ use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{CloudObject, CloudObjectLookup as _, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
-use crate::code_review::diff_state::DiffMode;
 use crate::completer::SessionContext;
 use crate::context_chips::display::{PromptDisplay, PromptDisplayEvent};
 use crate::context_chips::display_chip::{DisplayChipConfig, PromptChipShellCommand};
@@ -247,9 +246,6 @@ use crate::resource_center::{
     Tip, TipAction, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
 use crate::search::QueryFilter;
-use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
-use crate::search::ai_context_menu::search::is_valid_search_query;
-use crate::search::ai_context_menu::view::AIContextMenuAction;
 use crate::search::slash_command_menu::static_commands::commands::{self, COMMAND_REGISTRY};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::SyncId;
@@ -310,9 +306,7 @@ use crate::terminal::input::terminal_message_bar::TerminalInputMessageBar;
 use crate::terminal::input::user_query::{UserQueryMenuEvent, UserQueryMenuView};
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::shell_quote_arg;
-use crate::terminal::package_installers::command_at_cursor_has_common_package_installer_prefix;
 use crate::terminal::prompt_render_helper::should_render_ps1_prompt;
-use crate::terminal::universal_developer_input::AtContextMenuDisabledReason;
 use crate::terminal::view::ambient_agent::{
     AuthSecretFtuxView, AuthSecretFtuxViewEvent, AuthSecretSelector, AuthSecretSelectorEvent,
     HarnessSelector, HarnessSelectorEvent, HostSelector, HostSelectorEvent, NakedHeaderButtonTheme,
@@ -575,7 +569,6 @@ pub enum TelemetryInputSuggestionsMode {
     NaturalLanguageCommandSearch,
     StaticWorkflowEnumSuggestions,
     DynamicWorkflowEnumSuggestions,
-    AIContextMenu,
     SlashCommands,
     ConversationMenu,
     ModelSelector,
@@ -701,13 +694,6 @@ pub enum InputSuggestionsMode {
         command: String,
     },
 
-    AIContextMenu {
-        /// Text typed after the "@" for filtering
-        filter_text: String,
-        /// Byte position of the "@" symbol that triggered this menu
-        at_symbol_position: usize,
-    },
-
     SlashCommands,
 
     /// Conversation menu mode for selecting AI conversations.
@@ -825,9 +811,6 @@ impl InputSuggestionsMode {
             }
             InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
                 TelemetryInputSuggestionsMode::DynamicWorkflowEnumSuggestions
-            }
-            InputSuggestionsMode::AIContextMenu { .. } => {
-                TelemetryInputSuggestionsMode::AIContextMenu
             }
             InputSuggestionsMode::SlashCommands => TelemetryInputSuggestionsMode::SlashCommands,
             InputSuggestionsMode::ConversationMenu => {
@@ -1069,10 +1052,6 @@ pub enum Event {
         layout: external_editor::settings::EditorLayout,
     },
     OpenCodeReviewPane,
-    /// Request to attach a diff set as context to the AI conversation
-    AttachDiffSetContext {
-        diff_mode: DiffMode,
-    },
     OpenViewMCPPane,
     OpenAddMCPPane,
     OpenProjectRulesPane,
@@ -1184,7 +1163,6 @@ pub enum InputAction {
     TryHandlePassiveCodeDiff(CodeDiffAction),
 
     /// Clears the AI context menu search query back to the @ character and resets menu state.
-    ClearAndResetAIContextMenuQuery,
 
     /// Sets the hover state of the Universal Developer Input
     SetUDIHovered(bool),
@@ -2092,7 +2070,6 @@ pub fn init(app: &mut AppContext) {
                 & !id!("ProfileModelSelectorOpen")
                 & !id!("PromptChipMenuOpen")
                 & !id!(QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT)
-                & !id!("AIContextMenuOpen")
                 & !id!("BuyCreditsBannerOpen"),
         ),
     ]);
@@ -2263,14 +2240,6 @@ pub fn init(app: &mut AppContext) {
                 & !id!("IMEOpen"),
         )
         .with_key_binding("alt-shift-I"),
-        EditableBinding::new(
-            "input:clear_and_reset_ai_context_menu_query",
-            "Clear and reset AI context menu query",
-            InputAction::ClearAndResetAIContextMenuQuery,
-        )
-        .with_context_predicate(id!("Input") & id!("AIContextMenuOpen") & !id!("IMEOpen"))
-        .with_mac_key_binding("cmd-shift-backspace")
-        .with_linux_or_windows_key_binding("ctrl-shift-backspace"),
     ]);
 
     let slash_command_bindings = COMMAND_REGISTRY
@@ -2382,14 +2351,6 @@ impl Input {
         ctx: &mut ViewContext<Self>,
     ) {
         ctx.subscribe_to_model(view_model, |me, handle, event, ctx| {
-            let is_ambient = handle.as_ref(ctx).is_ambient_agent();
-            me.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.set_is_in_ambient_agent(is_ambient, ctx);
-                    });
-                }
-            });
             // Surface async snapshot upload failures as a toast.
             if let AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed { error_message } = event
             {
@@ -3057,16 +3018,6 @@ impl Input {
                 }
             }
 
-            // Set the CLI agent flag after the mode switch so that
-            // refresh_categories_state sees the correct is_ai_or_autodetect_mode.
-            let is_cli_agent_input = matches!(new_input_state, CLIAgentInputState::Open { .. });
-            me.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.set_is_cli_agent_input(is_cli_agent_input, ctx);
-                    });
-                }
-            });
             // Sync the editor text colors with the (now active or inactive)
             // alt-screen CLI agent background so input text stays legible.
             me.update_cli_agent_editor_text_colors(ctx);
@@ -3115,7 +3066,7 @@ impl Input {
                 #[cfg(feature = "voice_input")]
                 me.update_voice_transcription_options(ctx);
                 me.update_image_context_options(ctx);
-                me.update_ai_context_menu(ctx);
+                me.update_editor_input_mode(ctx);
                 me.check_slash_menu_disabled_state(ctx);
             });
 
@@ -3244,10 +3195,6 @@ impl Input {
                     // and we don't want to double-paste.
                     middle_click_paste: false,
                     allow_user_cursor_preference: true,
-                    #[cfg(not(target_family = "wasm"))]
-                    include_ai_context_menu: true,
-                    #[cfg(target_family = "wasm")]
-                    include_ai_context_menu: false,
                     delegate_paste_handling: true,
                     keymap_context_modifier: Some(Box::new(move |context, app| {
                         context
@@ -4083,7 +4030,7 @@ impl Input {
         #[cfg(feature = "voice_input")]
         input.update_voice_transcription_options(ctx);
         input.update_image_context_options(ctx);
-        input.update_ai_context_menu(ctx);
+        input.update_editor_input_mode(ctx);
         // Ambient wiring goes through the single setter path (`attach_ambient_agent_view_model`)
         // so construction and the lazy shared-session viewer attach share one implementation.
         if let Some(ambient_agent_view_model) = ambient_agent_view_model {
@@ -4118,10 +4065,9 @@ impl Input {
         });
     }
 
-    fn update_ai_context_menu(&mut self, ctx: &mut ViewContext<Self>) {
+    fn update_editor_input_mode(&mut self, ctx: &mut ViewContext<Self>) {
         let ai_input_model = self.ai_input_model.as_ref(ctx);
         let is_ai_input = ai_input_model.input_type().is_ai();
-        self.check_and_update_ai_context_menu_disabled_state(ctx);
         self.editor.update(ctx, move |editor, ctx| {
             editor.set_is_ai_input(is_ai_input, ctx);
             ctx.notify();
@@ -4893,21 +4839,6 @@ impl Input {
         false
     }
 
-    /// Update the at button's disabled state based on whether AI context menu should render
-    pub fn check_and_update_ai_context_menu_disabled_state(&mut self, ctx: &mut ViewContext<Self>) {
-        let disable_reason = AtContextMenuDisabledReason::get_disable_reason(
-            self.active_block_metadata.as_ref(),
-            self.sessions.as_ref(ctx),
-            &self.ai_input_model.as_ref(ctx).input_config(),
-            ctx,
-        );
-
-        self.universal_developer_input_button_bar
-            .update(ctx, |button_bar, ctx| {
-                button_bar.set_at_button_disabled(disable_reason, ctx);
-            });
-    }
-
     fn check_slash_menu_disabled_state(&mut self, ctx: &mut ViewContext<Self>) {
         let should_disable =
             !self.editor().as_ref(ctx).is_empty(ctx) || self.is_locked_in_shell_mode(ctx);
@@ -4915,219 +4846,6 @@ impl Input {
             .update(ctx, |button_bar, ctx| {
                 button_bar.set_slash_button_disabled(should_disable, ctx);
             });
-    }
-
-    fn handle_ai_context_menu_search(&mut self, is_navigation: bool, ctx: &mut ViewContext<Self>) {
-        let InputSuggestionsMode::AIContextMenu {
-            at_symbol_position,
-            filter_text: prev_query,
-        } = self.suggestions_mode_model.as_ref(ctx).mode()
-        else {
-            return;
-        };
-        let at_symbol_position = *at_symbol_position;
-        let prev_query = prev_query.clone();
-        let cursor_position = self
-            .editor
-            .read(ctx, |editor, ctx| {
-                editor.start_byte_index_of_last_selection(ctx)
-            })
-            .as_usize();
-
-        let buffer_text = self
-            .editor
-            .read(ctx, |editor, _ctx| editor.buffer_text(ctx));
-
-        let first_char_pos = at_symbol_position + 1;
-        let num_chars = cursor_position.saturating_sub(first_char_pos);
-
-        // Extract text between @ and cursor
-        let filter_text = buffer_text
-            .chars()
-            .skip(first_char_pos)
-            .take(num_chars)
-            .collect::<String>();
-
-        if !is_valid_search_query(is_navigation, &prev_query, &filter_text) {
-            self.close_ai_context_menu(ctx);
-        } else {
-            self.suggestions_mode_model.update(ctx, |m, ctx| {
-                m.set_mode(
-                    InputSuggestionsMode::AIContextMenu {
-                        filter_text: filter_text.clone(),
-                        at_symbol_position,
-                    },
-                    ctx,
-                );
-            });
-            // Update the search bar in the AI context menu with the new filter text
-            self.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.update_search_query(filter_text, ctx);
-                    });
-                }
-            });
-        }
-    }
-
-    fn render_ai_context_menu(
-        &self,
-        stack: &mut Stack,
-        menu_positioning: &MenuPositioning,
-        app: &AppContext,
-    ) {
-        if let Some(ai_context_menu) = self.editor.as_ref(app).render_ai_context_menu() {
-            let position = position_id_for_cursor(self.editor.id());
-
-            let y_anchor = if self.is_cloud_mode_input_v2_composing(app) {
-                AnchorPair::new(YAxisAnchor::Bottom, YAxisAnchor::Top)
-            } else {
-                menu_positioning.completion_suggestions_y_anchor()
-            };
-
-            stack.add_positioned_overlay_child(
-                ai_context_menu,
-                OffsetPositioning::from_axes(
-                    PositioningAxis::relative_to_stack_child(
-                        &position,
-                        PositionedElementOffsetBounds::WindowByPosition,
-                        OffsetType::Pixel(0.),
-                        AnchorPair::new(XAxisAnchor::Left, XAxisAnchor::Left),
-                    ),
-                    PositioningAxis::relative_to_stack_child(
-                        &position,
-                        PositionedElementOffsetBounds::Unbounded,
-                        OffsetType::Pixel(0.),
-                        y_anchor,
-                    ),
-                ),
-            );
-        }
-    }
-
-    fn close_ai_context_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.suggestions_mode_model.as_ref(ctx).is_ai_context_menu() {
-            return;
-        }
-
-        // Reset the AI context menu to the main menu position when closing
-        self.editor.update(ctx, |editor, ctx| {
-            if let Some(ai_context_menu) = editor.ai_context_menu() {
-                ai_context_menu.update(ctx, |menu, ctx| {
-                    menu.close(ctx);
-                });
-            }
-        });
-
-        // Directly close the menu without trying to update search state
-        self.suggestions_mode_model.update(ctx, |m, ctx| {
-            m.set_mode(InputSuggestionsMode::Closed, ctx);
-        });
-        self.focus_input_box(ctx);
-        ctx.notify();
-    }
-
-    fn clear_and_reset_ai_context_menu_query(&mut self, ctx: &mut ViewContext<Self>) {
-        if let InputSuggestionsMode::AIContextMenu {
-            at_symbol_position, ..
-        } = self.suggestions_mode_model.as_ref(ctx).mode()
-        {
-            let at_pos = *at_symbol_position;
-
-            // Clear text from cursor back to the @ character (keeping the @)
-            self.editor.update(ctx, |editor, ctx| {
-                let cursor_pos = editor.start_byte_index_of_last_selection(ctx).as_usize();
-
-                // Only clear if cursor is after the @ symbol
-                if cursor_pos > at_pos {
-                    // Calculate the range to delete (from @ + 1 to cursor position)
-                    let start_pos = at_pos + 1; // Keep the @ character
-                    let end_pos = cursor_pos;
-
-                    if start_pos < end_pos {
-                        editor.select_and_replace(
-                            "",
-                            [ByteOffset::from(start_pos)..ByteOffset::from(end_pos)],
-                            PlainTextEditorViewAction::Delete,
-                            ctx,
-                        );
-                    }
-                }
-
-                // Reset the AI context menu state
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.reset_menu_state(ctx);
-                    });
-                }
-            });
-        }
-    }
-
-    fn set_ai_context_menu_open(&mut self, open: bool, ctx: &mut ViewContext<Self>) {
-        if FeatureFlag::AIContextMenuEnabled.is_enabled() && open {
-            let cursor_position = self.editor.read(ctx, |editor, ctx| {
-                editor.start_byte_index_of_last_selection(ctx)
-            });
-
-            let buffer_text = self
-                .editor
-                .read(ctx, |editor, _ctx| editor.buffer_text(ctx));
-
-            if buffer_text
-                .chars()
-                .nth(cursor_position.as_usize().saturating_sub(1))
-                != Some('@')
-            {
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.insert_char('@', ctx);
-                });
-            }
-
-            // Update AI context menu input mode based on current state
-            // Show AI categories if we're in AI mode OR if autodetection is enabled (not locked)
-            let ai_input_model = self.ai_input_model.as_ref(ctx);
-            let is_ai_or_autodetect_mode =
-                ai_input_model.input_type().is_ai() || !ai_input_model.is_input_type_locked();
-
-            self.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |menu, ctx| {
-                        menu.set_input_mode(is_ai_or_autodetect_mode, ctx);
-                    });
-                }
-            });
-
-            self.suggestions_mode_model.update(ctx, |m, ctx| {
-                m.set_mode(
-                    InputSuggestionsMode::AIContextMenu {
-                        filter_text: "".to_owned(),
-                        at_symbol_position: cursor_position.as_usize(),
-                    },
-                    ctx,
-                );
-            });
-
-            // Emit telemetry for @ menu opened
-            let is_udi_enabled =
-                InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-            let current_input_mode = self.ai_input_model.as_ref(ctx).input_type();
-
-            send_telemetry_from_ctx!(
-                TelemetryEvent::AtMenuInteracted {
-                    action: "opened".to_string(),
-                    item_count: None,
-                    query_length: None,
-                    is_udi_enabled,
-                    current_input_mode,
-                },
-                ctx
-            );
-        } else if self.suggestions_mode_model.as_ref(ctx).is_ai_context_menu() {
-            self.close_ai_context_menu(ctx);
-        }
-        ctx.notify();
     }
 
     fn open_slash_commands_menu(&mut self, ctx: &mut ViewContext<Self>) {
@@ -6597,10 +6315,6 @@ impl Input {
                 self.set_zero_state_hint_text(ctx);
                 ctx.notify();
             }
-            InputSettingsChangedEvent::AtContextMenuInTerminalMode { .. } => {
-                self.check_and_update_ai_context_menu_disabled_state(ctx);
-                ctx.notify();
-            }
             InputSettingsChangedEvent::CompletionsMenuWidth { .. } => {
                 let new_value = *input_settings.as_ref(ctx).completions_menu_width.value();
                 if let Ok(mut guard) = self.completions_menu_resizable_width.lock() {
@@ -6845,10 +6559,6 @@ impl Input {
             }
             UniversalDeveloperInputButtonBarEvent::SelectFile => {
                 self.select_image(ctx);
-            }
-            UniversalDeveloperInputButtonBarEvent::SetAIContextMenuOpen(open) => {
-                self.focus_input_box(ctx);
-                self.set_ai_context_menu_open(*open, ctx);
             }
             UniversalDeveloperInputButtonBarEvent::PromptAlert(prompt_alert_event) => {
                 self.handle_prompt_alert(prompt_alert_event, ctx);
@@ -8697,10 +8407,6 @@ impl Input {
                     | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
                         // If in the future we want to replace the selected arguments with suggestion options as we cycle, this is where we do it
                     }
-                    InputSuggestionsMode::AIContextMenu { .. } => {
-                        // AI context menu selection is handled separately
-                        // This shouldn't be reached since AI context menu doesn't use InputSuggestions
-                    }
                     InputSuggestionsMode::SlashCommands => {
                         // Slash commands selection is handled separately
                         // This shouldn't be reached since slash commands doesn't use InputSuggestions
@@ -8849,11 +8555,6 @@ impl Input {
                     );
                 });
                 true
-            }
-            InputSuggestionsMode::AIContextMenu { .. } => {
-                // AI context menu selection is handled separately
-                // For now, just close the menu
-                false
             }
             InputSuggestionsMode::SlashCommands => {
                 // Slash commands selection is handled separately
@@ -9093,16 +8794,6 @@ impl Input {
 
         // For some input suggestion modes, the menu handles its own actions.
         let handled = match self.suggestions_mode_model.as_ref(ctx).mode() {
-            InputSuggestionsMode::AIContextMenu { .. } => {
-                self.editor.update(ctx, |editor, ctx| {
-                    if let Some(ai_context_menu) = editor.ai_context_menu() {
-                        ai_context_menu.update(ctx, |menu, ctx| {
-                            menu.handle_action(&AIContextMenuAction::Prev, ctx);
-                        });
-                    }
-                });
-                true
-            }
             InputSuggestionsMode::SlashCommands => {
                 if self.is_cloud_mode_input_v2_composing(ctx) {
                     if let Some(view) = self.cloud_mode_v2_slash_commands_view.clone() {
@@ -9279,9 +8970,6 @@ impl Input {
             self.editor.update(ctx, |editor, editor_ctx| {
                 editor.handle_action(&EditorAction::VimEscape, editor_ctx);
             });
-        } else if self.suggestions_mode_model.as_ref(ctx).is_ai_context_menu() {
-            // Handle AI context menu escape specifically to ensure proper state reset
-            self.close_ai_context_menu(ctx);
         } else if self.suggestions_mode_model.as_ref(ctx).is_slash_commands() {
             if self.maybe_clear_v2_slash_section_filter(ctx) {
                 return;
@@ -9430,16 +9118,6 @@ impl Input {
     fn editor_down(&mut self, ctx: &mut ViewContext<Self>) {
         // For some input suggestion modes, the menu handles its own actions.
         let handled = match self.suggestions_mode_model.as_ref(ctx).mode() {
-            InputSuggestionsMode::AIContextMenu { .. } => {
-                self.editor.update(ctx, |editor, ctx| {
-                    if let Some(ai_context_menu) = editor.ai_context_menu() {
-                        ai_context_menu.update(ctx, |menu, ctx| {
-                            menu.handle_action(&AIContextMenuAction::Next, ctx);
-                        });
-                    }
-                });
-                true
-            }
             InputSuggestionsMode::SlashCommands => {
                 if self.is_cloud_mode_input_v2_composing(ctx) {
                     if let Some(view) = self.cloud_mode_v2_slash_commands_view.clone() {
@@ -9963,139 +9641,12 @@ impl Input {
         )
     }
 
-    fn should_close_ai_context_menu(
-        &self,
-        event: &EditorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let InputSuggestionsMode::AIContextMenu {
-            at_symbol_position, ..
-        } = *self.suggestions_mode_model.as_ref(ctx).mode()
-        else {
-            return false;
-        };
-
-        if matches!(
-            event,
-            EditorEvent::DeleteAllLeft
-                | EditorEvent::CtrlC { .. }
-                | EditorEvent::BackspaceOnEmptyBuffer
-                | EditorEvent::BackspaceAtBeginningOfBuffer
-                | EditorEvent::SetAIContextMenuOpen(false)
-        ) {
-            return true;
-        }
-        if !matches!(
-            event,
-            EditorEvent::Edited(_)
-                | EditorEvent::BufferReplaced
-                | EditorEvent::InsertLastWordPrevCommand
-                | EditorEvent::AutosuggestionAccepted { .. }
-                | EditorEvent::MiddleClickPaste
-        ) {
-            return false;
-        }
-        let buffer = self.editor.as_ref(ctx).buffer_text(ctx);
-        let cursor_pos = self
-            .editor
-            .as_ref(ctx)
-            .start_byte_index_of_last_selection(ctx)
-            .as_usize();
-        // If the cursor is to the left of the "@", we should close the AI context menu.
-        if cursor_pos < at_symbol_position {
-            return true;
-        }
-        let chars_before_cursor: Vec<char> = buffer.as_str().chars().take(cursor_pos).collect();
-        let iter = chars_before_cursor.into_iter().rev();
-        let mut prev_char_was_space = false;
-        for c in iter {
-            if c.is_whitespace() && c != ' ' {
-                return true;
-            }
-            if c == '@' {
-                return prev_char_was_space;
-            }
-            if c == ' ' {
-                if prev_char_was_space {
-                    return true;
-                }
-                prev_char_was_space = true;
-            } else {
-                prev_char_was_space = false;
-            }
-        }
-        true
-    }
-
-    /// Helper function to replace "@" symbol and filter text with new text
-    pub(super) fn replace_at_symbol_with_text(&mut self, text: &str, ctx: &mut ViewContext<Self>) {
-        let is_ai_mode = self.ai_input_model.as_ref(ctx).is_ai_input_enabled();
-
-        // Capture the at_symbol_position before it might be cleared
-        let at_symbol_position = if let InputSuggestionsMode::AIContextMenu {
-            at_symbol_position,
-            ..
-        } = self.suggestions_mode_model.as_ref(ctx).mode()
-        {
-            Some(*at_symbol_position)
-        } else {
-            None
-        };
-
-        if let Some(at_pos) = at_symbol_position {
-            let cursor_position = self.editor.read(ctx, |editor, ctx| {
-                editor.start_byte_index_of_last_selection(ctx)
-            });
-
-            let replacement_range =
-                ByteOffset::from(at_pos)..ByteOffset::from(cursor_position.as_usize());
-            self.editor.update(ctx, |editor, ctx| {
-                // Delete the range (@ symbol and any filter text) using system delete
-                editor.system_delete(replacement_range, ctx);
-
-                // Insert the text, optionally with a space in AI mode
-                let text_to_insert = if is_ai_mode {
-                    format!("{text} ")
-                } else {
-                    text.to_string()
-                };
-                editor.user_insert(&text_to_insert, ctx);
-            });
-        } else {
-            // Fallback: search for the most recent "@" symbol in the buffer
-            let buffer_text = self.editor.read(ctx, |editor, ctx| editor.buffer_text(ctx));
-            let cursor_position = self.editor.read(ctx, |editor, ctx| {
-                editor.start_byte_index_of_last_selection(ctx)
-            });
-
-            if let Some(at_position) = buffer_text[..cursor_position.as_usize()].rfind('@') {
-                let replacement_range =
-                    ByteOffset::from(at_position)..ByteOffset::from(cursor_position.as_usize());
-                self.editor.update(ctx, |editor, ctx| {
-                    // Delete the range (@ symbol and any filter text) using system delete
-                    editor.system_delete(replacement_range, ctx);
-
-                    let text_to_insert = if is_ai_mode {
-                        format!("{text} ")
-                    } else {
-                        text.to_string()
-                    };
-                    editor.user_insert(&text_to_insert, ctx);
-                });
-            }
-        }
-    }
-
     fn handle_editor_event(&mut self, event: &EditorEvent, ctx: &mut ViewContext<Self>) {
         // We want to clear the token description hover on any editor action
         self.hide_x_ray(ctx);
 
         if !matches!(event, EditorEvent::InsertLastWordPrevCommand) {
             self.update_last_word_insertion_state();
-        }
-
-        if self.should_close_ai_context_menu(event, ctx) {
-            self.close_ai_context_menu(ctx);
         }
 
         self.check_slash_menu_disabled_state(ctx);
@@ -10162,14 +9713,6 @@ impl Input {
 
                 let mut short_circuit_highlighting = false;
                 let mut check_alias_expansion = false;
-                let mut should_open_ai_context_menu = false;
-
-                let cursor_position = self.editor.read(ctx, |editor, editor_ctx| {
-                    editor.start_byte_index_of_last_selection(editor_ctx)
-                });
-
-                let is_alias_expansion_enabled = self.should_expand_aliases(ctx);
-                let session_context = self.completion_session_context(ctx);
 
                 self.editor.read(ctx, |editor, editor_ctx| {
                     let last_action = editor.get_last_action(editor_ctx);
@@ -10177,26 +9720,6 @@ impl Input {
                         && *edit_origin == EditOrigin::UserTyped
                     {
                         check_alias_expansion = true;
-                    }
-
-                    // Check if "@" was just typed in a valid context
-                    if FeatureFlag::AIContextMenuEnabled.is_enabled()
-                        && (is_ai_input_enabled || FeatureFlag::AtMenuOutsideOfAIMode.is_enabled())
-                        && Some(PlainTextEditorViewAction::InsertChar) == last_action
-                        && *edit_origin == EditOrigin::UserTyped
-                    {
-                        let buffer_text = editor.buffer_text(ctx);
-                        let should_enable = self.should_enable_ai_context(
-                            &buffer_text,
-                            cursor_position.as_usize(),
-                            is_alias_expansion_enabled,
-                            session_context.as_ref(),
-                            editor.shell_family().unwrap_or(ShellFamily::Posix),
-                            ctx,
-                        );
-                        if should_enable {
-                            should_open_ai_context_menu = true;
-                        }
                     }
 
                     if SHORT_CIRCUIT_HIGHLIGHTING_ACTIONS.contains(&last_action) {
@@ -10213,66 +9736,6 @@ impl Input {
                             Some(InputTypeAutoDetectionSource::AttachmentForcedAi),
                             ctx,
                         );
-                    }
-                }
-
-                if should_open_ai_context_menu {
-                    let cursor_pos = self.editor.read(ctx, |editor, ctx| {
-                        editor.start_byte_index_of_last_selection(ctx)
-                    });
-                    self.suggestions_mode_model.update(ctx, |m, ctx| {
-                        m.set_mode(
-                            InputSuggestionsMode::AIContextMenu {
-                                filter_text: "".to_string(),
-                                // -1 since cursor is after the @ symbol
-                                at_symbol_position: cursor_pos.as_usize().saturating_sub(1),
-                            },
-                            ctx,
-                        );
-                    });
-
-                    // Update AI context menu input mode based on current state
-                    // Show AI categories if we're in AI mode OR if autodetection is enabled (not locked)
-                    let ai_input_model = self.ai_input_model.as_ref(ctx);
-                    let is_ai_or_autodetect_mode = ai_input_model.input_type().is_ai()
-                        || !ai_input_model.is_input_type_locked();
-
-                    self.editor.update(ctx, |editor, ctx| {
-                        if let Some(ai_context_menu) = editor.ai_context_menu() {
-                            ai_context_menu.update(ctx, |menu, ctx| {
-                                menu.set_input_mode(is_ai_or_autodetect_mode, ctx);
-                            });
-                        }
-                    });
-
-                    ctx.notify();
-                }
-
-                // Update filter text for AI context menu when text changes
-                self.handle_ai_context_menu_search(false, ctx);
-
-                // Check if cursor is exactly at '@' position after deletion and reset menu state if appropriate
-                if let InputSuggestionsMode::AIContextMenu {
-                    at_symbol_position, ..
-                } = self.suggestions_mode_model.as_ref(ctx).mode()
-                {
-                    let cursor_pos = self
-                        .editor
-                        .as_ref(ctx)
-                        .start_byte_index_of_last_selection(ctx)
-                        .as_usize();
-
-                    // If cursor is exactly at the @ position, reset the menu state
-                    if cursor_pos == *at_symbol_position + 1
-                        && *edit_origin == EditOrigin::UserInitiated
-                    {
-                        self.editor.update(ctx, |editor, ctx| {
-                            if let Some(ai_context_menu) = editor.ai_context_menu() {
-                                ai_context_menu.update(ctx, |menu, ctx| {
-                                    menu.reset_menu_state(ctx);
-                                });
-                            }
-                        });
                     }
                 }
 
@@ -10665,9 +10128,6 @@ impl Input {
                             self.open_completion_suggestions(CompletionsTrigger::AsYouType, ctx);
                         }
                     }
-                    InputSuggestionsMode::AIContextMenu { .. } => {
-                        self.handle_ai_context_menu_search(false, ctx);
-                    }
                     InputSuggestionsMode::SlashCommands => {
                         // empty for now
                     }
@@ -10765,24 +10225,6 @@ impl Input {
                                     /*should_focus_input=*/ true, ctx,
                                 );
                             }
-                        }
-                        InputSuggestionsMode::AIContextMenu {
-                            at_symbol_position, ..
-                        } => {
-                            let at_symbol_position = *at_symbol_position;
-                            // Close the AI context menu if cursor moves to the left of the @ position
-                            let cursor_pos = self
-                                .editor
-                                .as_ref(ctx)
-                                .start_byte_index_of_last_selection(ctx)
-                                .as_usize();
-
-                            if cursor_pos <= at_symbol_position {
-                                self.close_ai_context_menu(ctx);
-                                return;
-                            }
-
-                            self.handle_ai_context_menu_search(true, ctx);
                         }
                         InputSuggestionsMode::SlashCommands => {
                             let cursor_pos = self
@@ -10910,19 +10352,6 @@ impl Input {
             }
             EditorEvent::Navigate(NavigationKey::ShiftTab) => {
                 self.input_shift_tab(ctx);
-            }
-            EditorEvent::Navigate(NavigationKey::Right) => {
-                // If the AI context menu is open and we're at the end of the buffer,
-                // make right arrow act like enter and select the current item
-                if self.suggestions_mode_model.as_ref(ctx).is_ai_context_menu() {
-                    self.editor.update(ctx, |editor, ctx| {
-                        if let Some(ai_context_menu) = editor.ai_context_menu() {
-                            ai_context_menu.update(ctx, |menu, ctx| {
-                                menu.select_current_item(ctx);
-                            });
-                        }
-                    });
-                }
             }
             EditorEvent::Enter => self.input_enter(ctx),
             EditorEvent::CmdEnter => self.input_cmd_enter(ctx),
@@ -11063,135 +10492,6 @@ impl Input {
                 } else {
                     self.set_zero_state_hint_text(ctx);
                 }
-            }
-            EditorEvent::SetAIContextMenuOpen(open) => {
-                self.set_ai_context_menu_open(*open, ctx);
-            }
-            EditorEvent::SelectAIContextMenuCategory { .. } => {
-                // Get the at_symbol_position and clear the text
-                if let Some(at_pos) = if let InputSuggestionsMode::AIContextMenu {
-                    at_symbol_position,
-                    ..
-                } = self.suggestions_mode_model.as_ref(ctx).mode()
-                {
-                    Some(*at_symbol_position)
-                } else {
-                    None
-                } {
-                    let cursor_position = self.editor.read(ctx, |editor, ctx| {
-                        editor.start_byte_index_of_last_selection(ctx)
-                    });
-
-                    // Delete text from @ to cursor using system delete
-                    let replacement_range =
-                        ByteOffset::from(at_pos + 1)..ByteOffset::from(cursor_position.as_usize());
-                    self.editor.update(ctx, |editor, ctx| {
-                        editor.system_delete(replacement_range, ctx);
-                    });
-                }
-            }
-            EditorEvent::AcceptAIContextMenuItem(action) => {
-                // Handle different action types
-                match action {
-                    AIContextMenuSearchableAction::InsertText { text } => {
-                        // Only enter AI mode if we're in autodetect mode (not locked in terminal mode)
-                        if self
-                            .ai_input_model
-                            .as_ref(ctx)
-                            .should_run_input_autodetection(ctx)
-                        {
-                            self.enter_ai_mode(
-                                Some(InputTypeAutoDetectionSource::AtContextMenuInsert),
-                                ctx,
-                            );
-                        }
-
-                        // For InsertText, we replace the "@" and any filter text with the provided text
-                        self.replace_at_symbol_with_text(text, ctx);
-                    }
-                    AIContextMenuSearchableAction::InsertFilePath { file_path } => {
-                        // Handle file/directory path insertion
-                        let is_ai_mode = self.ai_input_model.as_ref(ctx).is_ai_input_enabled();
-                        let file_path = if is_ai_mode {
-                            file_path.to_string()
-                        } else {
-                            #[cfg(feature = "local_fs")]
-                            {
-                                // Try to get current working directory and process the file path
-                                let processed_path = self
-                                    .active_block_metadata
-                                    .as_ref()
-                                    .and_then(BlockMetadata::current_working_directory)
-                                    .and_then(|pwd| {
-                                        // Find git repo and construct absolute path
-                                        use repo_metadata::repositories::DetectedRepositories;
-                                        use warp_util::local_or_remote_path::LocalOrRemotePath;
-                                        let git_repo_path = DetectedRepositories::as_ref(ctx)
-                                            .get_root_for_path(&LocalOrRemotePath::Local(
-                                                Path::new(pwd).to_path_buf(),
-                                            ))
-                                            .and_then(|r| PathBuf::try_from(r).ok())?;
-                                        let absolute_path = git_repo_path.join(file_path);
-
-                                        // Try to get relative path if it's shorter
-                                        let is_wsl = self
-                                            .active_session(ctx)
-                                            .map(|session| session.is_wsl())
-                                            .unwrap_or(false);
-
-                                        let relative_path = warp_util::path::to_relative_path(
-                                            is_wsl,
-                                            &absolute_path,
-                                            Path::new(pwd),
-                                        );
-
-                                        match relative_path {
-                                            Some(rel)
-                                                if rel.len()
-                                                    < absolute_path.to_string_lossy().len() =>
-                                            {
-                                                Some(rel)
-                                            }
-                                            _ => Some(absolute_path.to_string_lossy().to_string()),
-                                        }
-                                    });
-
-                                processed_path.unwrap_or_else(|| file_path.to_string())
-                            }
-
-                            #[cfg(not(feature = "local_fs"))]
-                            file_path.to_string()
-                        };
-                        self.replace_at_symbol_with_text(&file_path, ctx);
-                    }
-                    AIContextMenuSearchableAction::InsertDriveObject {
-                        object_type,
-                        object_uid,
-                    } => {
-                        // For InsertDriveObject, format as <object_type:uid> and replace the "@" and any filter text
-                        let drive_object_text = format!("<{object_type}:{object_uid}>");
-                        self.replace_at_symbol_with_text(&drive_object_text, ctx);
-                    }
-                    AIContextMenuSearchableAction::InsertPlan { ai_document_uid } => {
-                        // For InsertPlan, format as <plan:uid> and replace the "@" and any filter text
-                        let ai_document_text = format!("<plan:{ai_document_uid}>");
-                        self.replace_at_symbol_with_text(&ai_document_text, ctx);
-                    }
-                    AIContextMenuSearchableAction::InsertConversation { conversation_id } => {
-                        let conversation_text = format!("<convo:{conversation_id}>");
-                        self.replace_at_symbol_with_text(&conversation_text, ctx);
-                    }
-                    AIContextMenuSearchableAction::InsertDiffSet { diff_mode } => {
-                        // Emit event to the TerminalView to attach the diff set
-                        ctx.emit(Event::AttachDiffSetContext {
-                            diff_mode: diff_mode.clone(),
-                        });
-                    }
-                    AIContextMenuSearchableAction::InsertSkill { name } => {
-                        self.replace_at_symbol_with_text(&format!("/{name}"), ctx);
-                    }
-                }
-                self.close_ai_context_menu(ctx);
             }
             EditorEvent::Paste => {
                 self.process_paste_event(ctx);
@@ -11923,66 +11223,6 @@ impl Input {
         *InputSettings::as_ref(app)
             .completions_open_while_typing
             .value()
-    }
-
-    /// Returns true if an AI context menu should be enabled at the current cursor position based
-    /// on the buffer text and surrounding context. This is triggered when the user just typed '@'
-    /// in a valid context and the menu is not disabled for other reasons.
-    fn should_enable_ai_context(
-        &self,
-        buffer_text: &str,
-        cursor_position: usize,
-        is_alias_expansion_enabled: bool,
-        session_context: Option<&SessionContext>,
-        shell_family: ShellFamily,
-        app: &AppContext,
-    ) -> bool {
-        if cursor_position == 0 {
-            return false;
-        }
-
-        if buffer_text.chars().nth(cursor_position.saturating_sub(1)) != Some('@') {
-            return false;
-        }
-
-        // Check if '@' is at beginning of line or after non-alphanumeric
-        let is_valid_context = if cursor_position == 1 {
-            true // '@' is the first character
-        } else {
-            buffer_text
-                .chars()
-                .nth(cursor_position.saturating_sub(2))
-                .is_some_and(|c| !c.is_alphanumeric())
-        };
-
-        if !is_valid_context {
-            return false;
-        }
-
-        let is_disabled = AtContextMenuDisabledReason::get_disable_reason(
-            self.active_block_metadata.as_ref(),
-            self.sessions.as_ref(app),
-            &self.ai_input_model.as_ref(app).input_config(),
-            app,
-        )
-        .is_some();
-
-        if is_disabled {
-            return false;
-        }
-
-        // Don't trigger in shell mode for common package installer prefixes, where '@' is valid input.
-        let is_shell_mode = !self.ai_input_model.as_ref(app).is_ai_input_enabled();
-        let looks_like_package_install = is_shell_mode
-            && command_at_cursor_has_common_package_installer_prefix(
-                buffer_text,
-                cursor_position - 1,
-                shell_family,
-                is_alias_expansion_enabled,
-                session_context,
-            );
-
-        !looks_like_package_install
     }
 
     fn is_classic_completions_enabled(&self, ctx: &AppContext) -> bool {
@@ -12971,19 +12211,6 @@ impl Input {
     /// If tab is not bound to "open completion suggestions menu" nor is the suggestions menu
     /// already open, inserts a tab char into the input editor.
     fn input_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        if matches!(
-            self.suggestions_mode_model.as_ref(ctx).mode(),
-            InputSuggestionsMode::AIContextMenu { .. }
-        ) {
-            self.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |ai_context_menu, ctx| {
-                        ai_context_menu.select_current_item(ctx);
-                    });
-                }
-            });
-            return;
-        }
         // We have to manually check if "tab" is bound to
         // `InputAction::MaybeOpenCompletionSuggestions` here because the child `EditorView`
         // handles the actual tab keypress event -- the handler method attached to the
@@ -13260,22 +12487,6 @@ impl Input {
     /// handled by the ongoing process corresponding to the active/long running command.
     pub(crate) fn input_enter(&mut self, ctx: &mut ViewContext<Self>) {
         if CLIAgentSessionsModel::as_ref(ctx).is_input_open(self.terminal_view_id) {
-            // If the @ context menu is open, Enter selects the highlighted item
-            // instead of submitting the CLI agent input.
-            if matches!(
-                self.suggestions_mode_model.as_ref(ctx).mode(),
-                InputSuggestionsMode::AIContextMenu { .. }
-            ) {
-                self.editor.update(ctx, |editor, ctx| {
-                    if let Some(ai_context_menu) = editor.ai_context_menu() {
-                        ai_context_menu.update(ctx, |ai_context_menu, ctx| {
-                            ai_context_menu.select_current_item(ctx);
-                        });
-                    }
-                });
-                return;
-            }
-
             // If the skill selector menu is open, Enter selects the highlighted skill.
             if self.suggestions_mode_model.as_ref(ctx).is_skill_menu() {
                 self.inline_skill_selector_view
@@ -13339,18 +12550,6 @@ impl Input {
             self.editor.update(ctx, |editor, ctx| {
                 editor.user_initiated_insert("\n", PlainTextEditorViewAction::NewLine, ctx)
             });
-        } else if matches!(
-            self.suggestions_mode_model.as_ref(ctx).mode(),
-            InputSuggestionsMode::AIContextMenu { .. }
-        ) {
-            self.editor.update(ctx, |editor, ctx| {
-                if let Some(ai_context_menu) = editor.ai_context_menu() {
-                    ai_context_menu.update(ctx, |ai_context_menu, ctx| {
-                        ai_context_menu.select_current_item(ctx);
-                    });
-                }
-            });
-            return;
         } else if self
             .suggestions_mode_model
             .as_ref(ctx)
@@ -16072,9 +15271,6 @@ impl TypedActionView for Input {
                     }
                 });
             }
-            InputAction::ClearAndResetAIContextMenuQuery => {
-                self.clear_and_reset_ai_context_menu_query(ctx);
-            }
             InputAction::SetUDIHovered(is_hovered) => {
                 self.universal_developer_input_button_bar
                     .update(ctx, |button_bar, ctx| {
@@ -16344,12 +15540,7 @@ impl View for Input {
             ctx.set.insert("VimNormalMode");
         }
 
-        if matches!(
-            self.suggestions_mode_model.as_ref(app).mode(),
-            InputSuggestionsMode::AIContextMenu { .. }
-        ) {
-            ctx.set.insert("AIContextMenuOpen");
-        } else if self
+        if self
             .suggestions_mode_model
             .as_ref(app)
             .is_conversation_menu()

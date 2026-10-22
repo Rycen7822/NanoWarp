@@ -298,12 +298,6 @@ pub enum FeatureFlag {
     /// Persist codebase indices to disk.
     CodebaseIndexPersistence,
 
-    /// Enables the AI context menu, or at-menu.
-    AIContextMenuEnabled,
-
-    /// Enables the AI context menu outside of AI input mode.
-    AtMenuOutsideOfAIMode,
-
     /// Enables the resume button for cancelled AI conversations.
     AIResumeButton,
 
@@ -328,17 +322,8 @@ pub enum FeatureFlag {
     /// Enables file search functionality in command palette
     CommandPaletteFileSearch,
 
-    /// Enables the AI context menu nesting and commands
-    AIContextMenuCommands,
-
     /// Enables sending stderr warnings in FileGlobV2 results.
     FileGlobV2Warnings,
-
-    /// Enables code symbols in AI context menu
-    AIContextMenuCode,
-
-    /// Enables Warp Drive objects (like workflows) as context in AI context menu
-    DriveObjectsAsContext,
 
     /// Expands code diff edits to replace the current pane instead of opening in a new tab.
     ExpandEditToPane,
