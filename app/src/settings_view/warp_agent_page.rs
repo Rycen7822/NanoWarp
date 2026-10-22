@@ -95,14 +95,14 @@ use crate::server::telemetry::{
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent,
     AgentModeQuerySuggestionsEnabled, AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin,
-    AwsBedrockCredentialsEnabled, CanUseWarpCreditsForFallback, EnableAiCommandSearchHashTrigger,
-    GeminiEnterpriseCredentialsEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory,
-    InputSettings, IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode,
-    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OrchestrationMessageDisplayMode,
-    PromptSubmissionMode, SharedBlockTitleGenerationEnabled,
-    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState, ShowAgentTips,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VOICE_INPUT_LANGUAGES,
-    VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
+    AwsBedrockCredentialsEnabled, CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
+    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
+    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, NLDInTerminalEnabled,
+    NaturalLanguageAutosuggestionsEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
+    SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
+    ShouldShowOzUpdatesInZeroState, ShowAgentTips, ShowConversationHistory, ShowHintText,
+    ThinkingDisplayMode, VOICE_INPUT_LANGUAGES, VoiceInputEnabled, VoiceInputLanguage,
+    VoiceInputToggleKey,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -199,20 +199,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "'#' trigger for AI command search",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleAiCommandSearchHashTrigger,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::AI_COMMAND_SEARCH_HASH_TRIGGER_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
         ],
         app,
     );
@@ -2331,7 +2317,6 @@ impl WarpAgentPageView {
             vec![
                 Box::new(NaturalLanguageDetectionWidget::default()),
                 Box::new(ShowInputHintTextWidget::default()),
-                Box::new(AiCommandSearchHashTriggerWidget::default()),
                 Box::new(ShowAgentTipsWidget::default()),
                 Box::new(IncludeAgentCommandsInHistoryWidget::default()),
                 Box::new(AutoApproveBypassesCommandDenylistWidget::default()),
@@ -2557,7 +2542,6 @@ pub enum WarpAgentPageAction {
     ToggleCanUseWarpCreditsForFallback,
     HyperlinkClick(HyperlinkUrl),
     ToggleShowInputHintText,
-    ToggleAiCommandSearchHashTrigger,
     ToggleShowAgentTips,
     ToggleShowOzUpdatesInZeroState,
     SetThinkingDisplayMode(ThinkingDisplayMode),
@@ -2889,25 +2873,6 @@ impl TypedActionView for WarpAgentPageView {
                         TelemetryEvent::FeaturesPageAction {
                             action: "ToggleShowInputHintText".to_string(),
                             value: format!("{}", *input_settings.show_hint_text),
-                        },
-                        ctx
-                    );
-                });
-            }
-            WarpAgentPageAction::ToggleAiCommandSearchHashTrigger => {
-                InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
-                    report_if_error!(
-                        input_settings
-                            .enable_ai_command_search_hash_trigger
-                            .toggle_and_save_value(ctx)
-                    );
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::FeaturesPageAction {
-                            action: "ToggleAiCommandSearchHashTrigger".to_string(),
-                            value: format!(
-                                "{}",
-                                *input_settings.enable_ai_command_search_hash_trigger
-                            ),
                         },
                         ctx
                     );
@@ -3725,37 +3690,6 @@ impl SettingsWidget for ShowInputHintTextWidget {
             "Show input hint text",
             WarpAgentPageAction::ToggleShowInputHintText,
             *InputSettings::as_ref(app).show_hint_text,
-            is_any_ai_enabled,
-            self.toggle.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        )
-    }
-}
-
-#[derive(Default)]
-struct AiCommandSearchHashTriggerWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for AiCommandSearchHashTriggerWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "# hash pound trigger ai command search shorthand shell comment"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_any_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
-        render_ai_setting_toggle::<EnableAiCommandSearchHashTrigger>(
-            "Enable '#' trigger for AI Command Search",
-            WarpAgentPageAction::ToggleAiCommandSearchHashTrigger,
-            *InputSettings::as_ref(app).enable_ai_command_search_hash_trigger,
             is_any_ai_enabled,
             self.toggle.clone(),
             &view.local_only_icon_tooltip_states,

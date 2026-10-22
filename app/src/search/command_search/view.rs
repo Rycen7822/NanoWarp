@@ -59,13 +59,7 @@ pub enum CommandSearchEvent {
     ItemSelected {
         payload: Box<CommandSearchItemAction>,
     },
-    Close {
-        /// The query when Command Search was closed.
-        query: String,
-
-        /// The filter when Command Search was closed, if any.
-        filter: Option<QueryFilter>,
-    },
+    Close,
     Blur,
     Resize,
 }
@@ -281,9 +275,7 @@ impl CommandSearchView {
     }
 
     fn close(&self, ctx: &mut ViewContext<Self>) {
-        let query = self.search_bar.as_ref(ctx).query(ctx);
-        let filter = self.search_bar_state.as_ref(ctx).active_query_filter();
-        ctx.emit(CommandSearchEvent::Close { query, filter });
+        ctx.emit(CommandSearchEvent::Close);
     }
 
     fn blur(&self, ctx: &mut ViewContext<Self>) {

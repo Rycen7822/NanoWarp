@@ -59,18 +59,12 @@ pub enum AskAIType {
         block_index: BlockIndex,
     },
     /// Which blocks to attach to a block list AI query.
-    FromBlocks {
-        block_indices: HashSet<BlockIndex>,
-    },
-    FromAICommandSearch {
-        query: Arc<String>,
-    },
+    FromBlocks { block_indices: HashSet<BlockIndex> },
 }
 
 impl From<&AskAIType> for OpenedWarpAISource {
     fn from(value: &AskAIType) -> Self {
         match value {
-            AskAIType::FromAICommandSearch { .. } => OpenedWarpAISource::FromAICommandSearch,
             AskAIType::FromBlock { .. } | AskAIType::FromBlocks { .. } => {
                 OpenedWarpAISource::HelpWithBlock
             }

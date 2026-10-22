@@ -403,19 +403,6 @@ impl AIAssistantPanelView {
                 });
                 ctx.notify();
             }
-            AskAIType::FromAICommandSearch { query } => {
-                let truncated = if query.chars().count() > PROMPT_CHARACTER_LIMIT {
-                    // Reserve 3 for the ellpisis
-                    let truncated: String =
-                        query.chars().take(PROMPT_CHARACTER_LIMIT - 3).collect();
-                    format!("{truncated}...")
-                } else {
-                    query.to_string()
-                };
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_buffer_text(truncated.as_str(), ctx);
-                });
-            }
             // Not supported by the AI Assistant. Only supported by blocklist AI.
             AskAIType::FromBlocks { .. } => (),
         }

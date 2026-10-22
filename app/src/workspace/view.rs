@@ -18101,14 +18101,11 @@ impl Workspace {
             return;
         };
         match event {
-            Close {
-                query: query_when_closed,
-                filter: filter_when_closed,
-            } => {
+            Close => {
                 self.current_workspace_state.is_command_search_open = false;
 
                 active_input_handle.update(ctx, |input, ctx| {
-                    input.handle_command_search_closed(query_when_closed, filter_when_closed, ctx);
+                    input.focus_input_box(ctx);
                     ctx.notify();
                 });
 
@@ -23423,12 +23420,6 @@ impl Workspace {
         if *input_settings.at_context_menu_in_terminal_mode.value() {
             context.set.insert(flags::AT_CONTEXT_MENU_IN_TERMINAL_FLAG);
         }
-        if *input_settings.enable_ai_command_search_hash_trigger.value() {
-            context
-                .set
-                .insert(flags::AI_COMMAND_SEARCH_HASH_TRIGGER_FLAG);
-        }
-
         if *input_settings
             .outline_codebase_symbols_for_at_context_menu
             .value()

@@ -15,7 +15,6 @@ use warpui::{
     TypedActionView, View, ViewContext, WindowId,
 };
 
-use super::WELCOME_TIP_FEATURE_LENGTH;
 use crate::appearance::Appearance;
 use crate::resource_center::{Tip, TipAction, TipsCompleted};
 use crate::themes::theme::{Blend, Fill};
@@ -141,12 +140,6 @@ impl TipsView {
                 "History Search".to_string(),
                 "Find, edit and re-run previously executed commands.".to_string(),
                 TipAction::HistorySearch,
-                ctx,
-            ),
-            TipItem::new(
-                "AI Command Search".to_string(),
-                "Generate shell commands with natural language.".to_string(),
-                TipAction::AiCommandSearch,
                 ctx,
             ),
             TipItem::new(
@@ -599,7 +592,11 @@ impl View for TipsView {
             ),
         );
 
-        if tips_completed.completed_count() == WELCOME_TIP_FEATURE_LENGTH {
+        if self
+            .tip_items
+            .iter()
+            .all(|item| tips_completed.features_used.contains(&item.tip_feature))
+        {
             stack.add_positioned_child(
                 self.render_completed_overlay(appearance),
                 OffsetPositioning::offset_from_save_position_element(

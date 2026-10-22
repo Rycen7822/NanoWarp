@@ -90,15 +90,8 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
 
     maximize_warp_items.push(FeatureItem::new(
         "Command search",
-        "Find and run previously executed commands, workflows, and more.",
+        "Find and run previously executed commands.",
         Tip::Action(TipAction::CommandSearch),
-        ctx,
-    ));
-
-    maximize_warp_items.push(FeatureItem::new(
-        "AI command search",
-        "Generate shell commands with natural language.",
-        Tip::Action(TipAction::AiCommandSearch),
         ctx,
     ));
 

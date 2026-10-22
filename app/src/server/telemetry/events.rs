@@ -74,7 +74,6 @@ use crate::terminal::view::{
     NotificationsErrorBannerAction, NotificationsTrigger, PromptPart,
 };
 use crate::terminal::{CLIAgent, ShareBlockType};
-use crate::tips::WelcomeTipFeature;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::settings::EditorLayout;
 #[cfg(feature = "local_fs")]
@@ -531,7 +530,6 @@ pub enum OpenedWarpAISource {
     GlobalEntryButton,
     HelpWithBlock,
     HelpWithTextSelection,
-    FromAICommandSearch,
     WarmWelcome,
 }
 
@@ -565,12 +563,6 @@ pub enum LaunchConfigUiLocation {
     AppMenu,
     TabMenu,
     Uri,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum AICommandSearchEntrypoint {
-    ShortHandTrigger,
-    Keybinding,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -681,10 +673,6 @@ pub enum AgentModeEntrypoint {
     /// The stars button in the hoverable block "toolbelt".
     #[serde(rename = "block_toolbelt")]
     BlockToolbelt,
-
-    /// The "Ask Agent Mode" option from AI command search.
-    #[serde(rename = "ai_command_search")]
-    AICommandSearch,
 
     /// Context menu item(s) that attach a blocklist selection as context to an Agent Mode query.
     #[serde(rename = "context_menu")]
@@ -1367,10 +1355,6 @@ pub enum TelemetryEvent {
     OpenWorkflowSearch,
     OpenQuakeModeWindow,
     OpenWelcomeTips,
-    CompleteWelcomeTipFeature {
-        total_completed_count: usize,
-        tip_name: WelcomeTipFeature,
-    },
     DismissWelcomeTips,
     ShowNotificationsDiscoveryBanner,
     NotificationsDiscoveryBannerAction(NotificationsDiscoveryBannerAction),
@@ -1519,9 +1503,6 @@ pub enum TelemetryEvent {
         /// source completed.
         remote_source_failures: usize,
     },
-    AICommandSearchOpened {
-        entrypoint: AICommandSearchEntrypoint,
-    },
     OpenNotebook(NotebookTelemetryMetadata),
     EditNotebook {
         metadata: NotebookTelemetryMetadata,
@@ -1593,7 +1574,6 @@ pub enum TelemetryEvent {
     InputSelectAll,
     InputPaste,
     InputCommandSearch,
-    InputAICommandSearch,
     InputAskWarpAI,
     SaveAsWorkflowModal {
         source: SaveAsWorkflowModalSource,
@@ -3069,12 +3049,6 @@ impl TelemetryEvent {
             }
             TelemetryEvent::WorkflowExecuted(metadata) => Some(json!(metadata)),
             TelemetryEvent::WorkflowSelected(metadata) => Some(json!(metadata)),
-            TelemetryEvent::CompleteWelcomeTipFeature {
-                total_completed_count,
-                tip_name,
-            } => Some(
-                json!({ "total_completed_count": total_completed_count, "tip_name": tip_name }),
-            ),
             TelemetryEvent::NotificationsDiscoveryBannerAction(action) => {
                 Some(json!({ "action": action }))
             }
@@ -3135,9 +3109,6 @@ impl TelemetryEvent {
             TelemetryEvent::SaveLaunchConfig { state } => Some(json!({ "state": state })),
             TelemetryEvent::SaveAsWorkflowModal { source } => Some(json!({ "source": source })),
             TelemetryEvent::SetLineHeight { new_value } => Some(json!({ "new_value": new_value })),
-            TelemetryEvent::AICommandSearchOpened { entrypoint } => {
-                Some(json!({ "entrypoint": entrypoint }))
-            }
             TelemetryEvent::OpenNotebook(metadata) => Some(json!(metadata)),
             TelemetryEvent::EditNotebook {
                 metadata,
@@ -4036,7 +4007,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputSelectAll
             | TelemetryEvent::InputPaste
             | TelemetryEvent::InputCommandSearch
-            | TelemetryEvent::InputAICommandSearch
             | TelemetryEvent::InputAskWarpAI
             | TelemetryEvent::SetNewWindowsAtCustomSize
             | TelemetryEvent::DisableInputSync
@@ -4773,7 +4743,6 @@ impl TelemetryEvent {
             | TelemetryEvent::OpenWorkflowSearch
             | TelemetryEvent::OpenQuakeModeWindow
             | TelemetryEvent::OpenWelcomeTips
-            | TelemetryEvent::CompleteWelcomeTipFeature { .. }
             | TelemetryEvent::DismissWelcomeTips
             | TelemetryEvent::ShowNotificationsDiscoveryBanner
             | TelemetryEvent::NotificationsDiscoveryBannerAction(_)
@@ -4838,7 +4807,6 @@ impl TelemetryEvent {
             | TelemetryEvent::GlobalSearchOpened
             | TelemetryEvent::GlobalSearchQueryStarted
             | TelemetryEvent::GlobalSearchQueryCompleted { .. }
-            | TelemetryEvent::AICommandSearchOpened { .. }
             | TelemetryEvent::OpenNotebook(_)
             | TelemetryEvent::EditNotebook { .. }
             | TelemetryEvent::NotebookAction(_)
@@ -4868,7 +4836,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputSelectAll
             | TelemetryEvent::InputPaste
             | TelemetryEvent::InputCommandSearch
-            | TelemetryEvent::InputAICommandSearch
             | TelemetryEvent::InputAskWarpAI
             | TelemetryEvent::SaveAsWorkflowModal { .. }
             | TelemetryEvent::ExperimentTriggered { .. }
@@ -5315,7 +5282,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::OpenWorkflowSearch => EnablementState::Always,
             Self::OpenQuakeModeWindow => EnablementState::Always,
             Self::OpenWelcomeTips => EnablementState::Always,
-            Self::CompleteWelcomeTipFeature => EnablementState::Always,
             Self::DismissWelcomeTips => EnablementState::Always,
             Self::ShowNotificationsDiscoveryBanner => EnablementState::Always,
             Self::NotificationsDiscoveryBannerAction => EnablementState::Always,
@@ -5376,7 +5342,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchOpened => EnablementState::Always,
             Self::GlobalSearchQueryStarted => EnablementState::Always,
             Self::GlobalSearchQueryCompleted => EnablementState::Always,
-            Self::AICommandSearchOpened => EnablementState::Always,
             Self::OpenedAltScreenFind => EnablementState::Always,
             Self::UserInitiatedClose => EnablementState::Always,
             Self::QuitModalShown => EnablementState::Always,
@@ -5402,7 +5367,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputSelectAll => EnablementState::Always,
             Self::InputPaste => EnablementState::Always,
             Self::InputCommandSearch => EnablementState::Always,
-            Self::InputAICommandSearch => EnablementState::Always,
             Self::InputAskWarpAI => EnablementState::Always,
             Self::SaveAsWorkflowModal => EnablementState::Always,
             Self::ExperimentTriggered => EnablementState::Always,
@@ -5802,7 +5766,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::FeaturesPageAction => "Features Page Action",
             Self::OpenQuakeModeWindow => "Open Quake Mode Window",
             Self::OpenWelcomeTips => "Open Welcome Tips",
-            Self::CompleteWelcomeTipFeature => "Complete Welcome Tip",
             Self::DismissWelcomeTips => "Dismiss Welcome Tips",
             Self::ShowNotificationsDiscoveryBanner => "ShowNotificationsDiscoveryBanner",
             Self::NotificationsDiscoveryBannerAction => "Notifications Discovery Banner Action",
@@ -5855,7 +5818,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchOpened => "Global Search Opened",
             Self::GlobalSearchQueryStarted => "Global Search Query Started",
             Self::GlobalSearchQueryCompleted => "Global Search Query Completed",
-            Self::AICommandSearchOpened => "AI Command Search opened",
             Self::OpenNotebook => "Notebook Opened",
             Self::EditNotebook => "Notebook Edited",
             Self::NotebookAction => "Notebook Action",
@@ -5888,7 +5850,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputSelectAll => "InputBoxSelectAll",
             Self::InputPaste => "InputBoxPaste",
             Self::InputCommandSearch => "InputBoxCommandSearch",
-            Self::InputAICommandSearch => "InputBoxAICommandSearch",
             Self::InputAskWarpAI => "InputBoxAskWarpAI",
             Self::SaveAsWorkflowModal => "Opened Save As Workflow Modal",
             Self::ExperimentTriggered => "experiments.client.enroll_client",
@@ -6365,7 +6326,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Toggled quake mode window when previously hidden or closed"
             }
             Self::OpenWelcomeTips => "Opened welcome tips in app",
-            Self::CompleteWelcomeTipFeature => "Completed all welcome tips items",
             Self::DismissWelcomeTips => "Dismissed Welcome tips",
             Self::ShowNotificationsDiscoveryBanner => {
                 "Showed notifications discovery banner in the block list"
@@ -6453,9 +6413,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ResourceCenterTipsCompleted => "Completed resource center tips",
             Self::ResourceCenterTipsSkipped => "Skipped welcome tips for new users",
             Self::KeybindingsPageOpened => "Opened the keybinding page within the resource center",
-            Self::AICommandSearchOpened => {
-                "Opened the modal for AI Command Search, where you can use natural language to search for commands"
-            }
             Self::OpenNotebook => "Opened a notebook",
             Self::EditNotebook => "Edited a notebook",
             Self::NotebookAction => {
@@ -6515,9 +6472,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::InputCommandSearch => {
                 "Opened Command Search via the Input Editor's context menu (right clicking the buffer)"
-            }
-            Self::InputAICommandSearch => {
-                "Opened AI Command Search via the Input Editor's context menu (right clicking the buffer)"
             }
             Self::InputAskWarpAI => "Clicked \"Ask Warp AI\" from the Input Editor's context menu",
             Self::SaveAsWorkflowModal => {

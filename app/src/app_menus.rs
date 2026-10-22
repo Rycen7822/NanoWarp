@@ -523,11 +523,6 @@ fn make_new_ai_menu(ctx: &AppContext) -> Menu {
         ctx,
     ));
 
-    items.extend([
-        MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::AISearch, ctx),
-    ]);
-
     if FeatureFlag::AIRules.is_enabled() {
         items.extend([
             MenuItem::Separator,
