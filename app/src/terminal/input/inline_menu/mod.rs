@@ -36,28 +36,19 @@ use super::InputSuggestionsMode;
     rename_all = "snake_case"
 )]
 pub enum InlineMenuType {
-    SlashCommands,
     ModelSelector,
-    ProfileSelector,
-    SkillMenu,
 }
 
 impl InlineMenuType {
     fn display_label(&self) -> &'static str {
         match self {
-            InlineMenuType::SlashCommands => "/Commands",
             InlineMenuType::ModelSelector => "/Model",
-            InlineMenuType::ProfileSelector => "/Profiles",
-            InlineMenuType::SkillMenu => "/Skills",
         }
     }
 
     pub(crate) fn from_suggestions_mode(mode: &InputSuggestionsMode) -> Option<Self> {
         match mode {
-            InputSuggestionsMode::SlashCommands => Some(InlineMenuType::SlashCommands),
             InputSuggestionsMode::ModelSelector => Some(InlineMenuType::ModelSelector),
-            InputSuggestionsMode::ProfileSelector => Some(InlineMenuType::ProfileSelector),
-            InputSuggestionsMode::SkillMenu => Some(InlineMenuType::SkillMenu),
             InputSuggestionsMode::Closed
             | InputSuggestionsMode::HistoryUp { .. }
             | InputSuggestionsMode::CompletionSuggestions { .. }

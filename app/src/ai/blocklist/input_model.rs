@@ -62,7 +62,6 @@ pub enum InputTypeAutoDetectionSource {
     /// Ask-AI flow (text/block selection, programmatic Ask-AI lock) forced AI mode.
     AskAi,
     /// Detected/composing slash or skill command forced AI mode.
-    SlashCommand,
     /// Entering inline agent view force-locked AI without an explicit user toggle.
     InlineAgentViewEntry,
     /// Activating cloud handoff compose (`&` prefix or programmatic) force-locked AI.

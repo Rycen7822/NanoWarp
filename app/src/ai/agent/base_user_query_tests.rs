@@ -93,7 +93,7 @@ fn accessors_report_unset_fields_as_none() {
 }
 
 #[test]
-fn seed_uses_the_server_text_and_normalizes_a_prefix_the_server_did_not_classify() {
+fn seed_uses_the_server_text_without_parsing_a_command_prefix() {
     let seeded = base(api::request::input::UserQuery {
         query: "/plan from the server".to_string(),
         intended_agent: AgentType::Cli.into(),
@@ -108,8 +108,8 @@ fn seed_uses_the_server_text_and_normalizes_a_prefix_the_server_did_not_classify
     assert_eq!(
         seeded,
         (
-            "from the server".to_string(),
-            UserQueryMode::Plan,
+            "/plan from the server".to_string(),
+            UserQueryMode::Normal,
             Some(AgentType::Cli)
         )
     );
@@ -148,7 +148,7 @@ fn seed_prefers_the_server_mode_when_it_sent_no_text() {
 }
 
 #[test]
-fn seed_strips_a_prefix_that_agrees_with_the_server_mode() {
+fn seed_preserves_server_text_with_an_explicit_mode() {
     let seeded = base(api::request::input::UserQuery {
         query: "/plan foo".to_string(),
         mode: Some(plan_mode()),
@@ -156,7 +156,7 @@ fn seed_strips_a_prefix_that_agrees_with_the_server_mode() {
     })
     .seed_input_fields(String::new(), UserQueryMode::Normal, None);
 
-    assert_eq!(seeded, ("foo".to_string(), UserQueryMode::Plan, None));
+    assert_eq!(seeded, ("/plan foo".to_string(), UserQueryMode::Plan, None));
 }
 
 #[test]

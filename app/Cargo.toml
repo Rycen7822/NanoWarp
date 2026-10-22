@@ -580,7 +580,6 @@ default = [
     "artifact_command",
     "conversation_api",
     "cloud_environments",
-    "create_environment_slash_command",
     "code_review_find",
     "async_find",
     "shared_session_long_running_commands",
@@ -618,7 +617,6 @@ default = [
     "agent_view",
     "agent_view_block_context",
     "agent_view_conversation_list_view",
-    "inline_slash_commands",
     "inline_model_selector",
     "restore_prompt_on_inline_model_selector_search",
     "oz_launch_modal",
@@ -627,7 +625,6 @@ default = [
     "agent_cli_launch_modal",
     "new_tab_styling",
     "richtext_multiselect",
-    "inline_profile_selector",
     "web_fetch_ui",
     "oz_changelog_updates",
     "skill_arguments",
@@ -755,7 +752,6 @@ ambient_agents_command_line = []
 ambient_agents_image_upload = []
 scheduled_ambient_agents = []
 allow_ignoring_input_suggestions = []
-inline_slash_commands = ["agent_view"]
 
 # Enable this feature to track heap usage and automatically produce a heap
 # profile report when app memory usage exceeds a 10GB threshold.
@@ -932,7 +928,6 @@ cloud_environments = []
 cloud_runners = []
 cloud_agent_runners = []
 cloud_agent_execution_config = []
-create_environment_slash_command = []
 summarize_conversation_command = []
 mcp_grouped_server_context = []
 web_search_ui = []
@@ -963,7 +958,6 @@ agent_view_conversation_list_view = ["agent_view"]
 summarization_via_message_replacement = []
 lsp_as_a_tool = []
 inline_model_selector = ["agent_view"]
-inline_profile_selector = ["agent_view"]
 restore_prompt_on_inline_model_selector_search = []
 oz_platform_skills = []
 oz_identity_federation = []

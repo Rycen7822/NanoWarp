@@ -1,26 +1,4 @@
-use super::{InlineMenuResultsUpdate, InlineMenuSelection, InputDrivenInlineMenuLifecycle};
-
-#[test]
-fn manual_dismissal_remains_disabled_until_input_is_cleared() {
-    let mut lifecycle = InputDrivenInlineMenuLifecycle::default();
-
-    assert!(lifecycle.input_changed(false, true));
-    lifecycle.disable_until_empty_buffer(false);
-    assert!(!lifecycle.input_changed(false, true));
-    assert!(!lifecycle.input_changed(false, true));
-    assert!(lifecycle.input_changed(true, false));
-    assert!(lifecycle.input_changed(false, true));
-}
-
-#[test]
-fn adding_a_new_trigger_reenables_after_manual_dismissal() {
-    let mut lifecycle = InputDrivenInlineMenuLifecycle::default();
-
-    assert!(lifecycle.input_changed(false, true));
-    lifecycle.disable_until_empty_buffer(false);
-    assert!(!lifecycle.input_changed(false, false));
-    assert!(lifecycle.input_changed(false, true));
-}
+use super::{InlineMenuResultsUpdate, InlineMenuSelection};
 
 #[test]
 fn reset_to_best_clears_selection_when_no_item_is_enabled() {

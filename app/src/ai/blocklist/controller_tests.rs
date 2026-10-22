@@ -390,8 +390,8 @@ fn input_for_query_seeds_query_mode_and_agent_from_the_base() {
                 panic!("expected UserQuery");
             };
 
-            assert_eq!(query, "from the server");
-            assert_eq!(user_query_mode, UserQueryMode::Plan);
+            assert_eq!(query, "/plan from the server");
+            assert_eq!(user_query_mode, UserQueryMode::Normal);
             assert_eq!(intended_agent, Some(AgentType::Cli));
             assert!(referenced_attachments.contains_key("notes.md"));
             assert_eq!(input_base, Some(base));

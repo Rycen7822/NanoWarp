@@ -26,7 +26,6 @@ use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::appearance::Appearance;
 use crate::context_chips::spacing::{self};
-use crate::editor::position_id_for_cursor;
 use crate::features::FeatureFlag;
 use crate::settings::InputModeSettings;
 use crate::terminal::settings::TerminalSettings;
@@ -204,8 +203,6 @@ impl Input {
         let border_color = if self.handoff_compose_state.as_ref(app).is_active() {
             appearance.theme().ansi_fg_magenta()
         } else if !self.ai_input_model.as_ref(app).is_ai_input_enabled()
-            && !self.suggestions_mode_model.as_ref(app).is_slash_commands()
-            && !self.slash_command_model.as_ref(app).state().is_detected_command()
             // If NLD, don't color the border if the input is empty, because the current
             // classification is necessarily stale (intentionally inherited from the last
             // classification prior to clearing the input)
@@ -239,21 +236,6 @@ impl Input {
             .is_inline_model_selector()
         {
             column.add_child(ChildView::new(&self.inline_model_selector_view).finish());
-        } else if FeatureFlag::InlineProfileSelector.is_enabled()
-            && self
-                .suggestions_mode_model
-                .as_ref(app)
-                .is_profile_selector()
-        {
-            column.add_child(ChildView::new(&self.inline_profile_selector_view).finish());
-        } else if self.suggestions_mode_model.as_ref(app).is_slash_commands()
-            && !self.is_cloud_mode_input_v2_composing(app)
-        {
-            column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-        } else if FeatureFlag::ListSkills.is_enabled()
-            && self.suggestions_mode_model.as_ref(app).is_skill_menu()
-        {
-            column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
         }
 
         if self
@@ -344,7 +326,6 @@ impl Input {
                 .on_left_mouse_down(|ctx, _, _| {
                     ctx.dispatch_typed_action(TerminalAction::ClearSelectionsWhenShellMode);
                     ctx.dispatch_typed_action(InputAction::FocusInputBox);
-                    ctx.dispatch_typed_action(InputAction::DismissCloudModeV2SlashCommandsMenu);
                     DispatchEventResult::StopPropagation
                 })
                 .finish()
@@ -353,29 +334,6 @@ impl Input {
         };
 
         stack.add_child(centered_content);
-
-        if self.suggestions_mode_model.as_ref(app).is_slash_commands()
-            && let Some(view) = self.cloud_mode_v2_slash_commands_view.as_ref()
-        {
-            let cursor_position = position_id_for_cursor(self.editor.id());
-            stack.add_positioned_overlay_child(
-                ChildView::new(view).finish(),
-                OffsetPositioning::from_axes(
-                    PositioningAxis::relative_to_stack_child(
-                        &cursor_position,
-                        PositionedElementOffsetBounds::WindowByPosition,
-                        OffsetType::Pixel(0.),
-                        AnchorPair::new(XAxisAnchor::Left, XAxisAnchor::Left),
-                    ),
-                    PositioningAxis::relative_to_stack_child(
-                        &cursor_position,
-                        PositionedElementOffsetBounds::Unbounded,
-                        OffsetType::Pixel(4.),
-                        AnchorPair::new(YAxisAnchor::Bottom, YAxisAnchor::Top),
-                    ),
-                ),
-            );
-        }
 
         if let Some(selected_workflow_state) = self.workflows_state.selected_workflow_state.as_ref()
             && selected_workflow_state.should_show_more_info_view

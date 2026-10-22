@@ -38,10 +38,6 @@ lazy_static! {
         primary_text: "files:",
         aliases: vec![]
     };
-    static ref STATIC_SLASH_COMMANDS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "slash:",
-        aliases: vec![]
-    };
     static ref REPOS_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "repos:",
         aliases: vec![]
@@ -109,8 +105,6 @@ pub enum QueryFilter {
     /// Filter results for known/indexed code repos.
     Repos,
 
-    StaticSlashCommands,
-
     /// Filter results for base agent models in the inline model selector.
     BaseModels,
 
@@ -135,7 +129,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => "Search launch configurations",
             QueryFilter::Files => "Search files",
             QueryFilter::Repos => "Search code repos",
-            QueryFilter::StaticSlashCommands => "Search static slash commands",
             QueryFilter::BaseModels => "Search base models",
             QueryFilter::FullTerminalUseModels => "Search full terminal use models",
         }
@@ -151,7 +144,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => &LAUNCH_CONFIG_FILTER_ATOM,
             QueryFilter::Files => &FILES_FILTER_ATOM,
             QueryFilter::Repos => &REPOS_FILTER_ATOM,
-            QueryFilter::StaticSlashCommands => &STATIC_SLASH_COMMANDS_FILTER_ATOM,
             QueryFilter::BaseModels => &NO_FILTER_ATOM,
             QueryFilter::FullTerminalUseModels => &NO_FILTER_ATOM,
         }
@@ -167,7 +159,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => "launch configurations",
             QueryFilter::Files => "files",
             QueryFilter::Repos => "repos",
-            QueryFilter::StaticSlashCommands => "slash commands",
             QueryFilter::BaseModels => "base models",
             QueryFilter::FullTerminalUseModels => "full terminal use models",
         }
@@ -183,7 +174,6 @@ impl QueryFilter {
             QueryFilter::LaunchConfigurations => Some("bundled/svg/navigation.svg"),
             QueryFilter::Files => Some("bundled/svg/completion-file.svg"),
             QueryFilter::Repos => Some("bundled/svg/folder.svg"),
-            QueryFilter::StaticSlashCommands => None,
             QueryFilter::BaseModels => None,
             QueryFilter::FullTerminalUseModels => None,
         }

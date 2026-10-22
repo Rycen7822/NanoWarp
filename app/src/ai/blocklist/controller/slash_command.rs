@@ -20,8 +20,6 @@ use crate::ai::blocklist::context_model::{
     BlocklistAIContextModel, PendingAttachment, PendingFile,
 };
 use crate::ai::blocklist::queued_query::{QueuedQueryId, QueuedQueryModel};
-use crate::search::slash_command_menu::static_commands::commands;
-use crate::terminal::input::slash_commands::SlashCommandTrigger;
 use crate::workspaces::user_workspaces::ResolvedTeamScope;
 
 pub enum SlashCommandRequest {
@@ -47,24 +45,6 @@ pub enum SlashCommandRequest {
 }
 
 impl SlashCommandRequest {
-    /// Parses user input into a SlashCommandRequest for slash commands that are handled
-    /// via the AI query flow (as opposed to action-based slash commands handled in input.rs).
-    pub fn from_query(query: &str) -> Option<SlashCommandRequest> {
-        // Check if this is an exact /init query and route it to InitProjectRules instead
-        if query == "/init" {
-            return Some(Self::InitProjectRules);
-        }
-
-        // Check if query starts with /compact and route to summarize conversation
-        if let Some(prompt) = query.strip_prefix(commands::COMPACT.name) {
-            return Some(Self::Summarize {
-                prompt: prompt.strip_prefix(' ').map(String::from),
-            });
-        }
-
-        None
-    }
-
     pub(super) fn send_request(
         self,
         controller: &mut BlocklistAIController,
@@ -136,12 +116,7 @@ impl SlashCommandRequest {
             if FeatureFlag::AgentView.is_enabled() {
                 controller.context_model.update(ctx, |context_model, ctx| {
                     context_model
-                        .try_start_new_conversation(
-                            AgentViewEntryOrigin::SlashCommand {
-                                trigger: SlashCommandTrigger::input(),
-                            },
-                            ctx,
-                        )
+                        .try_start_new_conversation(AgentViewEntryOrigin::SlashCommand, ctx)
                         .ok()
                 })
             } else {

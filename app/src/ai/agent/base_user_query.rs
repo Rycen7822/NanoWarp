@@ -28,8 +28,8 @@ use warp_errors::report_error;
 use warp_multi_agent_api as api;
 use warp_multi_agent_api::AgentType;
 
+use super::UserQueryMode;
 use super::api::convert_user_query_mode;
-use super::{UserQueryMode, extract_user_query_mode};
 
 /// Boxed for size only: the proto is ~1 KiB inline, which would bloat every `AIAgentInput` and
 /// `QueuedQueryKind` variant (clippy `large_enum_variant`). Nothing shares it across threads.
@@ -163,30 +163,19 @@ impl BaseUserQuery {
     /// The text, mode, and intended agent an `AIAgentInput::UserQuery` built on this base
     /// should carry.
     ///
-    /// The server's fields win where it set them; the client's values fill in what it left
-    /// unset. Text the server sent is normalized like typed text (a `/plan` or `/orchestrate`
-    /// prefix is stripped into the mode), unless the server classified the mode differently,
-    /// in which case the text is kept verbatim so the prefix is neither lost nor doubled when
-    /// the mode is rendered back in front of it.
+    /// The server's fields win where it set them; the client's values fill in
+    /// unset fields. Query text is kept verbatim.
     pub(crate) fn seed_input_fields(
         &self,
         client_query: String,
         client_mode: UserQueryMode,
         client_agent: Option<AgentType>,
     ) -> (String, UserQueryMode, Option<AgentType>) {
-        let base_mode = self.user_query_mode();
-        let (query, mode) = match self.query() {
-            None => (client_query, base_mode.unwrap_or(client_mode)),
-            Some(text) => {
-                let (stripped, text_mode) = extract_user_query_mode(text.to_owned());
-                match base_mode {
-                    None => (stripped, text_mode),
-                    Some(mode) if mode == text_mode => (stripped, mode),
-                    Some(mode) => (text.to_owned(), mode),
-                }
-            }
-        };
-        (query, mode, self.intended_agent().or(client_agent))
+        (
+            self.query().map(str::to_owned).unwrap_or(client_query),
+            self.user_query_mode().unwrap_or(client_mode),
+            self.intended_agent().or(client_agent),
+        )
     }
 
     /// The decoded query, cloned so the outgoing request's user query can be written over it.

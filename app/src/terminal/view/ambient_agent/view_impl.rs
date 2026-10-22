@@ -20,8 +20,8 @@ use super::loading_screen::{
 };
 use super::{AmbientAgentEntryBlock, AmbientAgentViewModel, AmbientAgentViewModelEvent};
 use crate::ai::AIRequestUsageModel;
+use crate::ai::agent::RenderableAIError;
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
-use crate::ai::agent::{RenderableAIError, display_user_query_with_mode};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent_sdk::driver::harness::auth_check_command_for;
 use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
@@ -156,16 +156,10 @@ impl TerminalView {
                     // Render the queued cloud prompt while the shared-session transcript catches
                     // up. Empty-prompt handoffs may substitute a wire prompt or keep it absent;
                     // the display follows that wire value and omits the block when none exists.
-                    // Reapply a stripped `/plan` or `/orchestrate` prefix from `request.mode`.
                     let prompt = ambient_agent_view_model
                         .as_ref(ctx)
                         .request()
-                        .and_then(|request| {
-                            request
-                                .prompt
-                                .as_deref()
-                                .map(|prompt| display_user_query_with_mode(request.mode, prompt))
-                        })
+                        .and_then(|request| request.prompt.clone())
                         .unwrap_or_default();
                     if !prompt.is_empty() {
                         let queued_prompt_id = FeatureFlag::QueuedPromptsV2

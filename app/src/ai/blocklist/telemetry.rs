@@ -227,8 +227,6 @@ pub struct RunAgentsCompletedEvent {
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OrchestrationEntrySource {
-    /// `/orchestrate` slash-command mode on a user query.
-    SlashCommandOrchestrate,
     /// `run_agents` confirmation card was shown (not auto-launched).
     RunAgentsCardShown,
 }

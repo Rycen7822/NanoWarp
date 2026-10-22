@@ -55,7 +55,6 @@ use crate::code::editor_management::CodeSource;
 use crate::code_review::comments::{
     AttachedReviewComment as CodeReviewComment, ReviewCommentBatch,
 };
-use crate::search::slash_command_menu::static_commands::commands;
 use crate::server::server_api::{AIApiError, DeserializationError};
 use crate::terminal::model::block::BlockId;
 use crate::terminal::shell::ShellType;
@@ -2940,31 +2939,6 @@ pub enum UserQueryMode {
     Orchestrate,
 }
 
-pub fn extract_user_query_mode(query: String) -> (String, UserQueryMode) {
-    if let Some(query) = commands::strip_command_prefix(&query, commands::PLAN_NAME) {
-        (query, UserQueryMode::Plan)
-    } else if let Some(query) = commands::strip_command_prefix(&query, commands::ORCHESTRATE_NAME) {
-        (query, UserQueryMode::Orchestrate)
-    } else {
-        (query, UserQueryMode::Normal)
-    }
-}
-
-/// Reconstructs the display form of a user query that has been stripped via
-/// [`extract_user_query_mode`], by re-prepending the slash-command prefix
-/// associated with [`UserQueryMode`].
-///
-/// This is the inverse of [`extract_user_query_mode`] and the canonical way
-/// for UI to render a stored `(mode, query)` pair so the displayed prompt
-/// always matches what the user originally submitted.
-pub fn display_user_query_with_mode(mode: UserQueryMode, query: &str) -> String {
-    match mode {
-        UserQueryMode::Normal => query.to_owned(),
-        UserQueryMode::Plan => format!("{} {query}", commands::PLAN.name),
-        UserQueryMode::Orchestrate => format!("{} {query}", commands::ORCHESTRATE.name),
-    }
-}
-
 // TODO(zachbai): Refactor this to consolidate with `LongRunningCommandSnapshot` and `Snapshot`
 // variants of `ReadShellCommandOutputResult` and `WriteToLongRunningShellCommandResult`.
 #[derive(Clone, Debug, PartialEq)]
@@ -3226,11 +3200,7 @@ impl AIAgentInput {
     /// this returns `Some` for several input variants.
     pub fn display_query(&self) -> Option<String> {
         match self {
-            Self::UserQuery {
-                query,
-                user_query_mode,
-                ..
-            } => Some(display_user_query_with_mode(*user_query_mode, query)),
+            Self::UserQuery { query, .. } => Some(query.clone()),
             Self::CreateNewProject { query, .. } => Some(query.clone()),
             Self::CloneRepository {
                 clone_repo_url: url,
@@ -3281,37 +3251,10 @@ impl AIAgentInput {
         }
     }
 
-    /// Returns the user query text as it should be displayed in the UI.
-    /// This includes the "/agent" prefix for the initial conversation query.
-    pub fn display_user_query(
-        &self,
-        initial_conversation_query: Option<&String>,
-    ) -> Option<String> {
-        let mut query = self.display_query()?;
-        if self
-            .user_query_mode()
-            .is_none_or(|mode| matches!(mode, UserQueryMode::Normal))
-            && Some(&query) == initial_conversation_query
-            && !self.has_custom_display_query()
-        {
-            query = format!("/agent {query}");
-        }
-        Some(query)
-    }
-
     /// Returns the raw user query text for the [`Self::UserQuery`] variant.
     pub fn user_query(&self) -> Option<String> {
         match self {
             AIAgentInput::UserQuery { query, .. } => Some(query.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn user_query_mode(&self) -> Option<UserQueryMode> {
-        match self {
-            AIAgentInput::UserQuery {
-                user_query_mode, ..
-            } => Some(*user_query_mode),
             _ => None,
         }
     }
@@ -3421,17 +3364,6 @@ impl AIAgentInput {
 
     pub fn is_auto_code_diff_query(&self) -> bool {
         matches!(self, AIAgentInput::AutoCodeDiffQuery { .. })
-    }
-
-    /// Returns true if this input type provides its own display query that should be preserved
-    /// without prepending "/agent".
-    pub fn has_custom_display_query(&self) -> bool {
-        matches!(
-            self,
-            AIAgentInput::InitProjectRules { .. }
-                | AIAgentInput::CreateEnvironment { .. }
-                | AIAgentInput::InvokeSkill { .. }
-        )
     }
 }
 

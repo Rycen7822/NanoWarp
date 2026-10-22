@@ -3842,13 +3842,6 @@ impl AIConversation {
         new_task_id
     }
 
-    /// Clears an optimistic CLI subagent without emitting UI events.
-    #[cfg(test)]
-    pub(crate) fn clear_optimistic_cli_subagent_task_for_test(&mut self) {
-        if let Some(task_id) = self.optimistic_cli_subagent_subtask_id.take() {
-            self.task_store.remove(&task_id);
-        }
-    }
     pub fn is_subagent_task_finished(
         &self,
         subagent_task_id: &TaskId,

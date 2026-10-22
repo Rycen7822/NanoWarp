@@ -1,7 +1,7 @@
 use serde_json::json;
 use warp_core::telemetry::TelemetryEvent;
 
-use super::{PricingPromotionState, PricingPromotionSurface, PricingPromotionTelemetryEvent};
+use super::{PricingPromotionSurface, PricingPromotionTelemetryEvent};
 
 #[test]
 fn promotion_telemetry_payload_includes_surface() {
@@ -20,9 +20,9 @@ fn promotion_telemetry_payload_includes_surface() {
         ),
         (
             PricingPromotionTelemetryEvent::Dismissed {
-                surface: PricingPromotionSurface::TerminalMessageBar,
+                surface: PricingPromotionSurface::AgentMessageBar,
             },
-            "terminal_message_bar",
+            "agent_message_bar",
         ),
     ] {
         assert_eq!(
@@ -32,19 +32,4 @@ fn promotion_telemetry_payload_includes_surface() {
             }))
         );
     }
-}
-
-#[test]
-fn agent_and_terminal_dismissals_are_independent() {
-    let mut state = PricingPromotionState {
-        agent_dismissed: true,
-        terminal_dismissed: false,
-        displayed_surfaces: Default::default(),
-    };
-    assert!(state.is_dismissed(PricingPromotionSurface::AgentMessageBar));
-    assert!(!state.is_dismissed(PricingPromotionSurface::TerminalMessageBar));
-
-    state.terminal_dismissed = true;
-    assert!(state.is_dismissed(PricingPromotionSurface::TerminalMessageBar));
-    assert!(state.is_dismissed(PricingPromotionSurface::AgentMessageBar));
 }

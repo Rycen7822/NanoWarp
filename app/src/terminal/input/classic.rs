@@ -1,9 +1,8 @@
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting;
 use warpui::elements::{
-    Border, ChildAnchor, ChildView, Clipped, Container, DropTarget, Element, Empty, Flex,
-    Hoverable, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, SavePosition,
-    Stack,
+    Border, ChildAnchor, ChildView, Container, DropTarget, Element, Empty, Flex, Hoverable,
+    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, SavePosition, Stack,
 };
 use warpui::{AppContext, SingletonEntity};
 
@@ -17,7 +16,7 @@ use crate::terminal::block_list_settings::BlockListSettings;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_vim_status_to_stack,
-    add_voltron_overlay, add_workflow_info_overlay, should_show_terminal_input_message_bar,
+    add_voltron_overlay, add_workflow_info_overlay,
     wrap_input_with_terminal_padding_and_focus_handler,
 };
 use crate::terminal::input::{InputDropTargetData, get_input_box_top_border_width};
@@ -127,11 +126,7 @@ impl Input {
 
         column.add_child(self.render_input_box(show_vim_status, appearance, app));
 
-        if should_show_terminal_input_message_bar(&model, app) {
-            column.add_child(
-                Clipped::new(ChildView::new(&self.terminal_input_message_bar).finish()).finish(),
-            );
-        } else if !(matches!(input_mode, InputMode::PinnedToTop)
+        if !(matches!(input_mode, InputMode::PinnedToTop)
             && self
                 .suggestions_mode_model
                 .as_ref(app)
@@ -274,12 +269,10 @@ impl Input {
         .finish();
 
         let mut column = Flex::column();
-        let is_slash_commands = self.suggestions_mode_model.as_ref(app).is_slash_commands();
         let is_model_selector = self
             .suggestions_mode_model
             .as_ref(app)
             .is_inline_model_selector();
-        let is_skill_menu = self.suggestions_mode_model.as_ref(app).is_skill_menu();
 
         match input_mode {
             InputMode::PinnedToBottom => {
@@ -287,10 +280,6 @@ impl Input {
                     [
                         if is_model_selector {
                             Some(ChildView::new(&self.inline_model_selector_view).finish())
-                        } else if is_slash_commands {
-                            Some(ChildView::new(&self.inline_slash_commands_view).finish())
-                        } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
-                            Some(ChildView::new(&self.inline_skill_selector_view).finish())
                         } else {
                             None
                         },
@@ -308,10 +297,6 @@ impl Input {
                         Some(ChildView::new(&self.agent_status_view).finish()),
                         if is_model_selector {
                             Some(ChildView::new(&self.inline_model_selector_view).finish())
-                        } else if is_slash_commands {
-                            Some(ChildView::new(&self.inline_slash_commands_view).finish())
-                        } else if FeatureFlag::ListSkills.is_enabled() && is_skill_menu {
-                            Some(ChildView::new(&self.inline_skill_selector_view).finish())
                         } else {
                             None
                         },
@@ -326,26 +311,10 @@ impl Input {
                     .as_ref(app)
                     .should_render_inline_menu_below_input();
 
-                if is_slash_commands && !should_render_below {
-                    column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-                } else if FeatureFlag::ListSkills.is_enabled()
-                    && is_skill_menu
-                    && !should_render_below
-                {
-                    column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-                }
-
                 column.add_children([ChildView::new(&self.agent_status_view).finish(), input]);
 
                 if is_model_selector && should_render_below {
                     column.add_child(ChildView::new(&self.inline_model_selector_view).finish());
-                } else if is_slash_commands && should_render_below {
-                    column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-                } else if FeatureFlag::ListSkills.is_enabled()
-                    && is_skill_menu
-                    && should_render_below
-                {
-                    column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
                 }
             }
         }

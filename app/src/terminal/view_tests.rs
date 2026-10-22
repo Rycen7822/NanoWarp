@@ -4366,15 +4366,12 @@ fn pending_cloud_mode_query_clears_when_streaming_exchange_becomes_renderable() 
             let conversation = BlocklistAIHistoryModel::as_ref(ctx)
                 .conversation(&conversation_id)
                 .expect("conversation should exist");
-            let initial_user_query = conversation.initial_user_query();
             let exchange = conversation
                 .exchange_with_id(exchange_id)
                 .expect("exchange should exist");
             assert_eq!(
-                exchange.input[0]
-                    .display_user_query(initial_user_query.as_ref())
-                    .as_deref(),
-                Some("/agent write an ode about stones")
+                exchange.input[0].display_query().as_deref(),
+                Some("write an ode about stones")
             );
         });
     });

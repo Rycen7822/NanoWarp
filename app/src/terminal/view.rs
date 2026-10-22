@@ -125,8 +125,7 @@ use settings::{Setting, ToggleableSetting};
 use shared_session::cloud_conversation_continuation::CloudConversationContinuationUiState;
 pub(crate) use shared_session::cloud_conversation_continuation::{
     AIQueryRouting, CloudRoutingIndicator, CompletedChildPresentation, ConversationAccess,
-    completed_child_conversation_access, completed_child_presentation,
-    is_retained_setup_failure_debug_editable_for_task, resolve_ai_query_routing,
+    completed_child_conversation_access, completed_child_presentation, resolve_ai_query_routing,
     resolve_ambient_agent_task_id,
 };
 use shared_session::{SharedSessionAdapter, Viewer};
@@ -247,9 +246,7 @@ use crate::ai::blocklist::codebase_index_speedbump_banner::{
 use crate::ai::blocklist::diff_storage::DiffStorageHelper;
 use crate::ai::blocklist::diff_types::FileDiff;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::model::{
-    AIBlockModel, AIBlockModelHelper, AIBlockModelImpl, AIBlockOutputStatus,
-};
+use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelImpl, AIBlockOutputStatus};
 use crate::ai::blocklist::orchestration_topology::OrchestrationNavigationDirection;
 use crate::ai::blocklist::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use crate::ai::blocklist::suggested_rule_modal::SuggestedRuleAndId;
@@ -341,7 +338,6 @@ use crate::remote_server::manager::{
 use crate::resource_center::{
     Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
-use crate::search::slash_command_menu::static_commands::commands;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ObjectUid, SyncId};
 use crate::server::server_api::ServerApi;
@@ -410,8 +406,6 @@ use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::grid_size_util::grid_cell_dimensions;
 use crate::terminal::input::decorations::InputBackgroundJobOptions;
 use crate::terminal::input::inline_menu::InlineMenuPositioner;
-#[cfg(not(target_family = "wasm"))]
-use crate::terminal::input::slash_commands::fork_button_action;
 use crate::terminal::input::{
     CommandExecutionSource, InputAction, InputEmptyStateChangeReason, InputState, MenuPositioning,
     MenuPositioningProvider, ShellWidgetApplyMode,
@@ -3262,16 +3256,6 @@ impl TerminalView {
                                         | AgentViewEntryOrigin::ThirdPartyCloudAgent
                                 );
                             if should_insert_zero_state_block {
-                                let mut should_show_init_callout = false;
-                                if let Some(directory) = me.current_local_repo_path() {
-                                    should_show_init_callout = me
-                                        .should_show_agent_mode_setup_for_directory(directory, ctx);
-                                    if should_show_init_callout {
-                                        me.mark_agent_init_callout_as_shown_for_directory(
-                                            directory, ctx,
-                                        );
-                                    }
-                                }
                                 let agent_view_zero_state = ctx.add_typed_action_view(|ctx| {
                                     AgentViewZeroStateBlock::new(
                                         *conversation_id,
@@ -3281,21 +3265,12 @@ impl TerminalView {
                                         me.ambient_agent_view_model.as_ref(),
                                         me.model.clone(),
                                         &me.model_events_handle,
-                                        should_show_init_callout,
                                         ctx,
                                     )
                                 });
                                 ctx.subscribe_to_view(
                                     &agent_view_zero_state,
                                     |me, _, event, ctx| match event {
-                                        AgentViewZeroStateEvent::ClickedInitCallout => {
-                                            me.input.update(ctx, |input, ctx| {
-                                                input.replace_buffer_content(
-                                                    commands::INIT.name,
-                                                    ctx,
-                                                );
-                                            });
-                                        }
                                         AgentViewZeroStateEvent::OpenConversation {
                                             conversation_id,
                                         } => {
@@ -3853,7 +3828,6 @@ impl TerminalView {
                 // Pass the model in so `Input::new` self-wires internally through
                 // `attach_ambient_agent_view_model` (the same setter the lazy viewer path uses).
                 ambient_agent_view_model.clone(),
-                active_session.clone(),
                 ephemeral_message_model.clone(),
                 ctx,
             )
@@ -6110,14 +6084,10 @@ impl TerminalView {
             return;
         }
 
-        let initial_conversation_query = ai_block_model
-            .conversation(ctx)
-            .and_then(|conversation| conversation.initial_user_query());
-        let has_renderable_user_query = ai_block_model.inputs_to_render(ctx).iter().any(|input| {
-            input
-                .display_user_query(initial_conversation_query.as_ref())
-                .is_some()
-        });
+        let has_renderable_user_query = ai_block_model
+            .inputs_to_render(ctx)
+            .iter()
+            .any(|input| input.display_query().is_some());
         if !has_renderable_user_query {
             return;
         }
@@ -8739,9 +8709,7 @@ impl TerminalView {
             return false;
         }
 
-        if FeatureFlag::CreateEnvironmentSlashCommand.is_enabled()
-            && self.active_init_environment_block(app).is_some()
-        {
+        if self.active_init_environment_block(app).is_some() {
             return false;
         }
 
@@ -21369,32 +21337,6 @@ impl TerminalView {
                     );
                 });
                 self.handle_resume_conversation(conversation_id, ctx);
-            }
-            AIBlockEvent::InsertForkSlashCommand => {
-                #[cfg(target_family = "wasm")]
-                let command_name = commands::FORK.name;
-
-                #[cfg(not(target_family = "wasm"))]
-                let command_name = {
-                    let is_cloud_agent_context = self.is_ambient_agent_session(ctx)
-                        || self.input.as_ref(ctx).is_cloud_mode_input_v2_composing(ctx);
-                    let conversation_id = self
-                        .agent_view_controller
-                        .as_ref(ctx)
-                        .agent_view_state()
-                        .active_conversation_id()
-                        .or_else(|| {
-                            BlocklistAIHistoryModel::as_ref(ctx)
-                                .active_conversation(self.view_id)
-                                .map(|conv| conv.id())
-                        });
-                    fork_button_action(conversation_id, is_cloud_agent_context, ctx).command_name
-                };
-
-                self.input.update(ctx, |input, ctx| {
-                    input.replace_buffer_content(&format!("{} ", command_name), ctx);
-                    ctx.focus_self();
-                });
             }
             AIBlockEvent::ChildViewTextSelected => {
                 self.clear_selected_text_except(Some(block.id()), ctx);

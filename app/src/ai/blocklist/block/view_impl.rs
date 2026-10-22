@@ -895,10 +895,6 @@ impl View for AIBlock {
             comments: &self.comment_states,
             addressed_comment_ids: &addressed_comment_ids,
         };
-        let initial_conversation_query = self
-            .model
-            .conversation(app)
-            .and_then(|c| c.initial_user_query());
         let query_and_index = self
             .model
             .inputs_to_render(app)
@@ -906,9 +902,8 @@ impl View for AIBlock {
             .enumerate()
             .find_map(|(input_index, input)| {
                 let element_below_user_query = input.element_below_user_query(input_props, app);
-                let user_query = input.display_user_query(initial_conversation_query.as_ref())?;
-                let query_prefix_highlight_len =
-                    common::query_prefix_highlight_len(input, &user_query);
+                let user_query = input.display_query()?;
+                let query_prefix_highlight_len = common::query_prefix_highlight_len(input);
 
                 Some((
                     user_query,
@@ -1068,13 +1063,6 @@ impl View for AIBlock {
         );
         drop(terminal_model);
 
-        #[cfg(not(target_family = "wasm"))]
-        let is_cloud_agent_context = FeatureFlag::CloudMode.is_enabled()
-            && self
-                .ambient_agent_view_model
-                .as_ref()
-                .is_some_and(|model| model.as_ref(app).is_ambient_agent());
-
         contents.add_child(output::render(
             output::Props {
                 model: self.model.as_ref(),
@@ -1132,8 +1120,6 @@ impl View for AIBlock {
                 shared_session_status: &shared_session_status,
                 terminal_view_id: self.terminal_view_id,
                 is_conversation_transcript_viewer,
-                #[cfg(not(target_family = "wasm"))]
-                is_cloud_agent_context,
                 aws_bedrock_credentials_error_view: self
                     .aws_bedrock_credentials_error_view
                     .as_ref(),

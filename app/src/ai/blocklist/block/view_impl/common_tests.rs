@@ -27,7 +27,6 @@ use crate::ai::agent::{
     AgentOutputMermaidDiagram, MessageId, UserQueryMode,
 };
 use crate::features::FeatureFlag;
-use crate::search::slash_command_menu::static_commands::commands;
 
 #[test]
 fn query_prefix_highlight_len_highlights_invoke_skill_inputs() {
@@ -45,10 +44,7 @@ fn query_prefix_highlight_len_highlights_invoke_skill_inputs() {
         user_query: None,
     };
 
-    assert_eq!(
-        query_prefix_highlight_len(&input, "/review-pr tighten the summary"),
-        Some("/review-pr".len())
-    );
+    assert_eq!(query_prefix_highlight_len(&input), Some("/review-pr".len()));
 }
 
 #[test]
@@ -64,29 +60,7 @@ fn query_prefix_highlight_len_does_not_guess_from_plain_user_query_text() {
         base: None,
     };
 
-    assert_eq!(
-        query_prefix_highlight_len(&input, "/review-pr tighten the summary"),
-        None
-    );
-}
-
-#[test]
-fn query_prefix_highlight_len_keeps_existing_plan_highlighting() {
-    let input = AIAgentInput::UserQuery {
-        query: "write tests".to_string(),
-        context: Arc::new([]),
-        static_query_type: None,
-        referenced_attachments: HashMap::new(),
-        user_query_mode: UserQueryMode::Plan,
-        running_command: None,
-        intended_agent: None,
-        base: None,
-    };
-
-    assert_eq!(
-        query_prefix_highlight_len(&input, "/plan write tests"),
-        Some(commands::PLAN.name.len())
-    );
+    assert_eq!(query_prefix_highlight_len(&input), None);
 }
 
 #[test]

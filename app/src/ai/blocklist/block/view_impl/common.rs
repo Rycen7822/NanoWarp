@@ -55,7 +55,7 @@ use crate::ai::agent::{
     AgentOutputImage, AgentOutputImageLayout, AgentOutputMermaidDiagram, AgentOutputTable,
     AgentOutputTableRendering, ChatGPTSubscriptionErrorAction, ChatGPTSubscriptionErrorActionKind,
     MessageId, ProgrammingLanguage, RenderableAIError, ShellCommandDelay, SummarizationType,
-    UserQueryMode, WebSearchStatus, icons,
+    WebSearchStatus, icons,
 };
 use crate::ai::blocklist::block::find::FindState;
 use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarAction;
@@ -89,7 +89,6 @@ use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::code::editor::view::CodeEditorView;
 use crate::code::editor_management::CodeSource;
 use crate::notebooks::editor::{markdown_table_appearance, rich_text_styles};
-use crate::search::slash_command_menu::static_commands::commands;
 use crate::settings::{FontSettings, InputSettings};
 use crate::settings_view::SettingsSection;
 use crate::terminal::find::TerminalFindModel;
@@ -3759,53 +3758,10 @@ pub struct UserQueryProps<'a> {
     pub find_context: Option<FindContext<'a>>,
     pub font_properties: &'a Properties,
 }
-pub(crate) fn user_query_mode_prefix_highlight_len(mode: UserQueryMode) -> Option<usize> {
-    match mode {
-        UserQueryMode::Normal => None,
-        UserQueryMode::Plan => Some(commands::PLAN.name.len()),
-        UserQueryMode::Orchestrate => Some(commands::ORCHESTRATE.name.len()),
-    }
-}
-
-pub(super) fn query_prefix_highlight_len(
-    input: &AIAgentInput,
-    displayed_query: &str,
-) -> Option<usize> {
-    if let AIAgentInput::UserQuery {
-        user_query_mode, ..
-    } = input
-        && let Some(prefix_len) = user_query_mode_prefix_highlight_len(*user_query_mode)
-    {
-        return Some(prefix_len);
-    }
-
-    if displayed_query.starts_with(commands::CREATE_ENVIRONMENT.name) {
-        Some(commands::CREATE_ENVIRONMENT.name.len())
-    } else if displayed_query.starts_with(commands::AGENT.name) {
-        Some(commands::AGENT.name.len())
-    } else if displayed_query.starts_with(commands::NEW.name) {
-        Some(commands::NEW.name.len())
-    } else {
-        match input {
-            AIAgentInput::InvokeSkill { skill, .. } => Some(1 + skill.name.len()),
-            AIAgentInput::UserQuery { .. }
-            | AIAgentInput::AutoCodeDiffQuery { .. }
-            | AIAgentInput::ResumeConversation { .. }
-            | AIAgentInput::InitProjectRules { .. }
-            | AIAgentInput::CreateEnvironment { .. }
-            | AIAgentInput::TriggerPassiveSuggestion { .. }
-            | AIAgentInput::CreateNewProject { .. }
-            | AIAgentInput::CloneRepository { .. }
-            | AIAgentInput::CodeReview { .. }
-            | AIAgentInput::SummarizeConversation { .. }
-            | AIAgentInput::StartFromAmbientRunPrompt { .. }
-            | AIAgentInput::ActionResult { .. }
-            | AIAgentInput::MessagesReceivedFromAgents { .. }
-            | AIAgentInput::EventsFromAgents { .. }
-            | AIAgentInput::PassiveSuggestionResult { .. }
-            | AIAgentInput::OrchestrationConfigUpdate { .. }
-            | AIAgentInput::AgentWake => None,
-        }
+pub(super) fn query_prefix_highlight_len(input: &AIAgentInput) -> Option<usize> {
+    match input {
+        AIAgentInput::InvokeSkill { skill, .. } => Some(1 + skill.name.len()),
+        _ => None,
     }
 }
 

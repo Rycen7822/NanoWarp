@@ -122,20 +122,8 @@ impl InputSuggestionsModeModel {
         )
     }
 
-    pub fn is_slash_commands(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::SlashCommands)
-    }
-
     pub fn is_inline_model_selector(&self) -> bool {
         matches!(self.mode, InputSuggestionsMode::ModelSelector)
-    }
-
-    pub fn is_profile_selector(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::ProfileSelector)
-    }
-
-    pub fn is_skill_menu(&self) -> bool {
-        matches!(self.mode, InputSuggestionsMode::SkillMenu)
     }
 
     pub fn inline_menu_type(&self) -> Option<InlineMenuType> {

@@ -16,7 +16,6 @@ use crate::ai::blocklist::orchestration_topology::{
 };
 use crate::terminal::TerminalModel;
 use crate::terminal::input::message_bar::{Message, MessageItem};
-use crate::terminal::input::slash_commands::SlashCommandTrigger;
 use crate::util::bindings::keybinding_name_to_keystroke;
 
 /// Error returned when entering the agent view fails.
@@ -141,9 +140,7 @@ pub enum AgentViewEntryOrigin {
     /// Entered agent view by adding an image (drag-and-drop or paste).
     ImageAdded,
     /// Entered agent view by executing a slash command that requires agent mode.
-    SlashCommand {
-        trigger: SlashCommandTrigger,
-    },
+    SlashCommand,
     SlashInit,
     CreateEnvironment,
     /// Entered agent view from the new-conversation keybinding.
@@ -215,9 +212,7 @@ impl AgentViewEntryOrigin {
             AgentViewEntryOrigin::Input {
                 was_prompt_autodetected,
             } if *was_prompt_autodetected => AutoTriggerBehavior::Always,
-            AgentViewEntryOrigin::SlashCommand { trigger } if !trigger.is_keybinding() => {
-                AutoTriggerBehavior::Always
-            }
+            AgentViewEntryOrigin::SlashCommand => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::Cli => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::AcceptedPromptSuggestion => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::LinearDeepLink => AutoTriggerBehavior::Never,

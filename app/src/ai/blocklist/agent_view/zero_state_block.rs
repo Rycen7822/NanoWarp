@@ -68,7 +68,6 @@ struct StateHandles {
     start_cloud_conversation: MouseStateHandle,
     switch_model: MouseStateHandle,
     exit: MouseStateHandle,
-    init_callout: MouseStateHandle,
     oz_updates: MouseStateHandle,
     changelog_link: MouseStateHandle,
     recent_conversations: [MouseStateHandle; MAX_RECENT_CONVERSATION_COUNT],
@@ -85,7 +84,6 @@ pub struct AgentViewZeroStateBlock {
     current_working_directory: Option<String>,
     cached_recent_conversations: Vec<ConversationNavigationData>,
     should_hide: bool,
-    should_show_init_callout: bool,
     has_parent_terminal: bool,
     state_handles: StateHandles,
     is_oz_updates_expanded: bool,
@@ -101,7 +99,6 @@ impl AgentViewZeroStateBlock {
         cloud_agent_view_model: Option<&ModelHandle<AmbientAgentViewModel>>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         model_events_dispatcher: &ModelHandle<ModelEventDispatcher>,
-        should_show_init_callout: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let cloud_agent_view_model_clone = cloud_agent_view_model.cloned();
@@ -274,7 +271,6 @@ impl AgentViewZeroStateBlock {
             current_working_directory,
             cached_recent_conversations,
             should_hide,
-            should_show_init_callout,
             has_parent_terminal,
             state_handles,
             is_oz_updates_expanded,
@@ -459,7 +455,6 @@ impl View for AgentViewZeroStateBlock {
             ZeroStateBodyProps {
                 origin: self.origin.clone(),
                 has_parent_terminal: self.has_parent_terminal,
-                should_show_init_callout: self.should_show_init_callout,
                 recent_conversations: &self.cached_recent_conversations,
                 active_session: active_session.as_deref(),
                 current_working_directory: self.current_working_directory.as_deref(),
@@ -498,7 +493,6 @@ impl View for AgentViewZeroStateBlock {
 
 #[derive(Debug, Clone)]
 pub enum AgentViewZeroStateEvent {
-    ClickedInitCallout,
     OpenConversation { conversation_id: AIConversationId },
 }
 
@@ -508,7 +502,6 @@ impl Entity for AgentViewZeroStateBlock {
 
 #[derive(Debug, Clone)]
 pub enum AgentViewZeroStateAction {
-    ClickedInitCallout,
     ToggleOzUpdates,
     OpenConversation { conversation_id: AIConversationId },
 }
@@ -518,9 +511,6 @@ impl TypedActionView for AgentViewZeroStateBlock {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            AgentViewZeroStateAction::ClickedInitCallout => {
-                ctx.emit(AgentViewZeroStateEvent::ClickedInitCallout);
-            }
             AgentViewZeroStateAction::ToggleOzUpdates => {
                 let is_expanded = self.is_oz_updates_expanded;
                 self.is_oz_updates_expanded = !is_expanded;
@@ -699,7 +689,6 @@ fn render_title_and_description(props: HeaderProps, app: &AppContext) -> Vec<Box
 struct ZeroStateBodyProps<'a> {
     origin: AgentViewEntryOrigin,
     has_parent_terminal: bool,
-    should_show_init_callout: bool,
     recent_conversations: &'a [ConversationNavigationData],
     active_session: Option<&'a Session>,
     current_working_directory: Option<&'a str>,
@@ -710,7 +699,6 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
     let ZeroStateBodyProps {
         origin,
         has_parent_terminal,
-        should_show_init_callout,
         recent_conversations,
         active_session,
         current_working_directory,
@@ -721,7 +709,7 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
     if origin.is_cloud_agent() {
         return vec![];
     }
-    let mut body_items = match render_recent_conversations_section(
+    match render_recent_conversations_section(
         RecentConversationProps {
             recent_conversations,
             active_session,
@@ -809,45 +797,7 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
 
             body_items
         }
-    };
-
-    if should_show_init_callout {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let main_text_color = theme.main_text_color(theme.background()).into_solid();
-        let init_message = Message::new(vec![
-            MessageItem::keystroke(Keystroke {
-                key: "/init".to_owned(),
-                ..Default::default()
-            }),
-            MessageItem::text(
-                "to index this codebase and generate an AGENTS.md for optimal performance",
-            ),
-        ])
-        .with_text_color(main_text_color);
-        body_items.push(
-            Hoverable::new(state_handles.init_callout.clone(), move |_| {
-                Container::new(render_standard_message(init_message.clone(), app))
-                    .with_background_color(
-                        theme
-                            .accent()
-                            .with_opacity(12)
-                            .into_solid_bias_right_color(),
-                    )
-                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-                    .with_vertical_padding(4.)
-                    .with_horizontal_padding(4.)
-                    .finish()
-            })
-            .on_click(|ctx, _, _| {
-                ctx.dispatch_typed_action(AgentViewZeroStateAction::ClickedInitCallout);
-            })
-            .with_cursor(Cursor::PointingHand)
-            .finish(),
-        );
     }
-
-    body_items
 }
 
 struct RecentConversationProps<'a> {

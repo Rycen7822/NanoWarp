@@ -34,8 +34,8 @@ use warpui::{AppContext, EntityId, ModelHandle, SingletonEntity};
 use super::snapshot::{HandoffUploadResult, SnapshotUploadTarget, upload_handoff_snapshot};
 use super::touched_repos::extract_paths_from_conversation;
 use super::{HandoffLaunchAttachments, PendingCloudLaunch};
+use crate::ai::agent::CancellationReason;
 use crate::ai::agent::conversation::{AIConversation, AIConversationId};
-use crate::ai::agent::{CancellationReason, extract_user_query_mode};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::telemetry::{
     CloudAgentTelemetryEvent, HandoffEntryPoint, HandoffInjectionPath,
@@ -916,18 +916,10 @@ fn build_spawn_request(
         (None, false, true) => Some(HANDOFF_APPLY_SNAPSHOT_PROMPT.to_owned()),
         (None, false, false) => None,
     };
-    let (prompt, mode) = match raw_wire_prompt {
-        Some(prompt) => {
-            let (prompt, mode) = extract_user_query_mode(prompt);
-            (Some(prompt), mode)
-        }
-        None => (None, Default::default()),
-    };
-
     SpawnAgentRequest {
         metadata: Default::default(),
-        prompt,
-        mode,
+        prompt: raw_wire_prompt,
+        mode: Default::default(),
         config: Some(config),
         title,
         team: Some(team_scope.team_uid().is_some()),

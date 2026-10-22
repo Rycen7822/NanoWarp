@@ -262,8 +262,8 @@ fn empty_prompt_substitution_matrix_matches_gui_behavior() {
     );
     assert!(request_for_prompt("", false, None).prompt.is_none());
     let plan = request_for_prompt("/plan investigate", false, None);
-    assert_eq!(plan.prompt.as_deref(), Some("investigate"));
-    assert_eq!(plan.mode, UserQueryMode::Plan);
+    assert_eq!(plan.prompt.as_deref(), Some("/plan investigate"));
+    assert_eq!(plan.mode, UserQueryMode::Normal);
     assert_eq!(plan.team, Some(true));
 }
 

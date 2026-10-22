@@ -133,19 +133,7 @@ impl Input {
         )
         .finish();
 
-        // Render inline menus (slash commands, skills) above the input,
-        // matching the pattern used by the agent view input in agent.rs.
-        // These must be outside the Hoverable so that mouse events on the menu
-        // don't trigger SetUDIHovered, which would cause layout jitter.
-        let mut outer_column = Flex::column();
-        if self.suggestions_mode_model.as_ref(app).is_slash_commands() {
-            outer_column.add_child(ChildView::new(&self.inline_slash_commands_view).finish());
-        } else if self.suggestions_mode_model.as_ref(app).is_skill_menu() {
-            outer_column.add_child(ChildView::new(&self.inline_skill_selector_view).finish());
-        }
-        outer_column.add_child(input);
-
-        SavePosition::new(outer_column.finish(), &self.save_position_id()).finish()
+        SavePosition::new(input, &self.save_position_id()).finish()
     }
 
     /// Keep the rich input editor's text colors legible when it's rendered on

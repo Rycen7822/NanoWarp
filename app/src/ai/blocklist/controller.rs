@@ -53,7 +53,6 @@ use crate::ai::agent::{
     EntrypointType, FileContext, FinishedAIAgentOutput, PassiveSuggestionResultType,
     PassiveSuggestionTrigger, PassiveSuggestionTriggerType, RenderableAIError, RequestCost,
     RequestMetadata, RunningCommand, StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
-    extract_user_query_mode,
 };
 use crate::ai::agent_events::AgentMessageEventMetadata;
 #[cfg(not(target_family = "wasm"))]
@@ -714,40 +713,6 @@ impl BlocklistAIController {
             self.cancel_conversation_progress(active_conversation_id, cancellation_reason, ctx);
         }
 
-        if let Some(slash_command_request) = SlashCommandRequest::from_query(query.as_str()) {
-            // Only fired queued rows carry `queued_query_id`. For those rows, keep slash commands
-            // (e.g. queued `/compact`) on the conversation they were queued on; direct slash
-            // submissions still re-derive their target from the current UI selection.
-            let conversation_id_override = input_query
-                .queued_query_id
-                .is_some()
-                .then_some(conversation_id);
-            slash_command_request.send_request(
-                self,
-                input_query.queued_query_id,
-                conversation_id_override,
-                ctx,
-            );
-            return;
-        }
-
-        let (query, user_query_mode) = extract_user_query_mode(query);
-
-        // Attribute /orchestrate queries to the slash-command entry surface.
-        if matches!(user_query_mode, UserQueryMode::Orchestrate) {
-            send_telemetry_from_ctx!(
-                super::telemetry::BlocklistOrchestrationTelemetryEvent::OrchestrationEntered(
-                    super::telemetry::OrchestrationEnteredEvent {
-                        conversation_id,
-                        plan_id: None,
-                        entry_source:
-                            super::telemetry::OrchestrationEntrySource::SlashCommandOrchestrate,
-                    }
-                ),
-                ctx
-            );
-        }
-
         let should_prepend_finished_action_results = matches!(
             input_query.input_query,
             InputQueryType::UserSubmittedQueryFromInput { .. }
@@ -833,7 +798,7 @@ impl BlocklistAIController {
                     &task_id,
                     conversation_id,
                     static_query_type,
-                    user_query_mode,
+                    UserQueryMode::Normal,
                     running_command,
                     base,
                     additional_attachments,

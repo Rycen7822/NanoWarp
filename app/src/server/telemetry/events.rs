@@ -848,11 +848,6 @@ pub enum AgentModeAutoDetectionSettingOrigin {
     /// The AI settings page.
     #[serde(rename = "settings_page")]
     SettingsPage,
-
-    /// A TUI slash command (`/enable-natural-language-detection` or
-    /// `/disable-natural-language-detection`).
-    #[serde(rename = "slash_command")]
-    SlashCommand,
 }
 
 /// Payload for the [`AgentModePotentialAutodetectionFalsePositive`] event.
@@ -1056,7 +1051,7 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::Cli => Self::Cli,
             AgentViewEntryOrigin::Tui => Self::Tui,
             AgentViewEntryOrigin::ImageAdded => Self::ImageAdded,
-            AgentViewEntryOrigin::SlashCommand { .. } => Self::SlashCommand,
+            AgentViewEntryOrigin::SlashCommand => Self::SlashCommand,
             AgentViewEntryOrigin::CodeReviewContext => Self::CodeReviewContext,
             AgentViewEntryOrigin::LongRunningCommand => Self::LongRunningCommand,
             AgentViewEntryOrigin::ContinueConversationButton => Self::ContinueConversationButton,
@@ -1078,12 +1073,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::JumpToLatestAgentMessage => Self::JumpToLatestAgentMessage,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-pub enum SlashMenuSource {
-    SlashButton,
-    UserTyped,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -1127,15 +1116,6 @@ impl From<QueuedQueryOrigin> for TelemetryQueuedQueryOrigin {
 pub enum QueuedPromptSendNowTrigger {
     SendNowButton,
     EnterOnEmptyInput,
-}
-
-/// Details about which type of slash command was accepted
-#[derive(Clone, Debug, Serialize)]
-pub enum SlashCommandAcceptedDetails {
-    /// A built-in static command with its specific name (e.g., "/init", "/diff-review")
-    StaticCommand { command_name: String },
-    /// A user-created saved prompt/workflow
-    SavedPrompt,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -2396,18 +2376,6 @@ pub enum TelemetryEvent {
         inputs: Vec<AIAgentInput>,
         active_server_conversation_id: Option<ServerConversationToken>,
         active_client_conversation_id: Option<AIConversationId>,
-    },
-    OpenSlashMenu {
-        source: SlashMenuSource,
-        /// Whether the inline slash commands UI is enabled.
-        is_inline_ui_enabled: bool,
-        /// Whether the menu was opened in the agent view vs terminal mode.
-        is_in_agent_view: bool,
-    },
-    SlashCommandAccepted {
-        command_details: SlashCommandAcceptedDetails,
-        /// Whether the command was accepted in the agent view vs terminal mode.
-        is_in_agent_view: bool,
     },
     AgentModeSetupBannerAccepted,
     AgentModeSetupBannerDismissed,
@@ -4227,22 +4195,6 @@ impl TelemetryEvent {
                 "active_server_conversation_id": active_server_conversation_id,
                 "active_client_conversation_id": active_client_conversation_id,
             })),
-            TelemetryEvent::OpenSlashMenu {
-                source,
-                is_inline_ui_enabled,
-                is_in_agent_view,
-            } => Some(json!({
-                "source": source,
-                "is_inline_ui_enabled": is_inline_ui_enabled,
-                "is_in_agent_view": is_in_agent_view,
-            })),
-            TelemetryEvent::SlashCommandAccepted {
-                command_details,
-                is_in_agent_view,
-            } => Some(json!({
-                "command_details": command_details,
-                "is_in_agent_view": is_in_agent_view,
-            })),
             TelemetryEvent::AgentModeSetupBannerAccepted => None,
             TelemetryEvent::AgentModeSetupBannerDismissed => None,
             TelemetryEvent::AgentModeSetupProjectScopedRulesAction { action } => Some(json!({
@@ -4929,8 +4881,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AIExecutionProfileRemovedFromDenylist { .. }
             | TelemetryEvent::AIExecutionProfileModelSelected { .. }
             | TelemetryEvent::AIExecutionProfileContextWindowSelected { .. }
-            | TelemetryEvent::OpenSlashMenu { .. }
-            | TelemetryEvent::SlashCommandAccepted { .. }
             | TelemetryEvent::AgentModeSetupBannerAccepted
             | TelemetryEvent::AgentModeSetupBannerDismissed
             | TelemetryEvent::AgentModeSetupProjectScopedRulesAction { .. }
@@ -5462,8 +5412,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 EnablementState::Flag(FeatureFlag::MultiProfile)
             }
             Self::AIInputNotSent { .. } => EnablementState::Always,
-            Self::OpenSlashMenu { .. } => EnablementState::Always,
-            Self::SlashCommandAccepted { .. } => EnablementState::Always,
             Self::AgentModeSetupBannerAccepted { .. } => EnablementState::Always,
             Self::AgentModeSetupBannerDismissed => EnablementState::Always,
             Self::AgentModeSetupProjectScopedRulesAction { .. } => EnablementState::Always,
@@ -6004,8 +5952,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AI Execution Profile: Context Window Selected"
             }
             Self::AIInputNotSent { .. } => "AI Input Not Sent",
-            Self::OpenSlashMenu { .. } => "Open Slash Menu",
-            Self::SlashCommandAccepted { .. } => "Slash Command Accepted",
             Self::AgentModeSetupBannerAccepted => "Agent Mode Setup Banner Accepted",
             Self::AgentModeSetupBannerDismissed => "Agent Mode Setup Banner Dismissed",
             Self::AgentModeSetupProjectScopedRulesAction { .. } => {
@@ -6757,8 +6703,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "An AI model was selected for an AI execution profile"
             }
             Self::AIInputNotSent { .. } => "The AI input was not sent",
-            Self::OpenSlashMenu { .. } => "Opened the slash commands menu",
-            Self::SlashCommandAccepted { .. } => "User accepted a slash command",
             Self::AgentModeSetupBannerAccepted { .. } => "Agent Mode setup banner accepted",
             Self::AgentModeSetupBannerDismissed => "Agent Mode setup banner dismissed",
             Self::AgentModeSetupProjectScopedRulesAction { .. } => {

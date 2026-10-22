@@ -10,27 +10,23 @@ use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
 use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
 
 const AGENT_DISMISSED_KEY: &str = "pricing_promotion_agent_dismissed";
-const TERMINAL_DISMISSED_KEY: &str = "pricing_promotion_terminal_dismissed";
 const DISMISSED_VALUE: &str = "true";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PricingPromotionSurface {
     AgentMessageBar,
-    TerminalMessageBar,
 }
 
 impl PricingPromotionSurface {
     fn as_str(self) -> &'static str {
         match self {
             Self::AgentMessageBar => "agent_message_bar",
-            Self::TerminalMessageBar => "terminal_message_bar",
         }
     }
 
     fn dismissal_key(self) -> &'static str {
         match self {
             Self::AgentMessageBar => AGENT_DISMISSED_KEY,
-            Self::TerminalMessageBar => TERMINAL_DISMISSED_KEY,
         }
     }
 }
@@ -42,7 +38,6 @@ pub enum PricingPromotionStateEvent {
 
 pub struct PricingPromotionState {
     agent_dismissed: bool,
-    terminal_dismissed: bool,
     displayed_surfaces: HashSet<PricingPromotionSurface>,
 }
 
@@ -57,7 +52,6 @@ impl PricingPromotionState {
 
         Self {
             agent_dismissed: Self::read_dismissed(AGENT_DISMISSED_KEY, ctx),
-            terminal_dismissed: Self::read_dismissed(TERMINAL_DISMISSED_KEY, ctx),
             displayed_surfaces: HashSet::new(),
         }
     }
@@ -92,7 +86,6 @@ impl PricingPromotionState {
     pub fn dismiss(&mut self, surface: PricingPromotionSurface, ctx: &mut ModelContext<Self>) {
         match surface {
             PricingPromotionSurface::AgentMessageBar => self.agent_dismissed = true,
-            PricingPromotionSurface::TerminalMessageBar => self.terminal_dismissed = true,
         }
         if let Err(error) = ctx
             .private_user_preferences()
@@ -108,7 +101,6 @@ impl PricingPromotionState {
     fn is_dismissed(&self, surface: PricingPromotionSurface) -> bool {
         match surface {
             PricingPromotionSurface::AgentMessageBar => self.agent_dismissed,
-            PricingPromotionSurface::TerminalMessageBar => self.terminal_dismissed,
         }
     }
 

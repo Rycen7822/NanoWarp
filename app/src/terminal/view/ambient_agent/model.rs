@@ -15,7 +15,6 @@ use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity, WeakVi
 use super::AmbientAgentProgressUIState;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::extract_user_query_mode;
 use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::ambient_agents::spawn::monitor_spawned_task;
@@ -1149,11 +1148,10 @@ impl AmbientAgentViewModel {
     ) {
         let config = Some(self.build_default_spawn_config(scope, ctx));
 
-        let (prompt, mode) = extract_user_query_mode(prompt);
         let request = SpawnAgentRequest {
             metadata: Default::default(),
             prompt: Some(prompt),
-            mode,
+            mode: Default::default(),
             config,
             title: None,
             team: Some(scope.team_uid().is_some()),

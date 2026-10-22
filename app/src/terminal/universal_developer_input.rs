@@ -166,7 +166,6 @@ pub struct UniversalDeveloperInputButtonBar {
     view_handle: WeakViewHandle<Self>,
     mic_button: ViewHandle<ActionButton>,
     file_button: ViewHandle<ActionButton>,
-    slash_command_button: ViewHandle<ActionButton>,
     profile_model_selector_full: ViewHandle<ProfileModelSelector>,
     profile_model_selector_compact: ViewHandle<ProfileModelSelector>,
     segmented_control: ViewHandle<SegmentedControl<InputToggleMode>>,
@@ -181,7 +180,6 @@ pub enum UniversalDeveloperInputButtonBarAction {
     #[cfg(feature = "voice_input")]
     ToggleVoiceInput,
     SelectFile,
-    OpenSlashCommandMenu,
 }
 
 pub enum UniversalDeveloperInputButtonBarEvent {
@@ -194,7 +192,6 @@ pub enum UniversalDeveloperInputButtonBarEvent {
     ModelSelectorOpened,
     ModelSelectorClosed,
     OpenSettings(SettingsSection),
-    OpenSlashCommandMenu,
 }
 
 impl UniversalDeveloperInputButtonBar {
@@ -236,20 +233,6 @@ impl UniversalDeveloperInputButtonBar {
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(UniversalDeveloperInputButtonBarAction::SelectFile);
-                })
-        });
-
-        let slash_command_menu_view = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", PromptIconButtonTheme::new(false))
-                .with_icon(Icon::SlashCommands)
-                .with_tooltip("Slash commands")
-                .with_size(button_size)
-                .with_disabled_theme(UDIDisabledButtonTheme)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(
-                        UniversalDeveloperInputButtonBarAction::OpenSlashCommandMenu,
-                    );
                 })
         });
 
@@ -456,7 +439,6 @@ impl UniversalDeveloperInputButtonBar {
             view_handle: ctx.handle(),
             mic_button: mic_button_view,
             file_button: file_button_view,
-            slash_command_button: slash_command_menu_view,
             profile_model_selector_full,
             profile_model_selector_compact,
             segmented_control: segmented_control_view,
@@ -546,14 +528,6 @@ impl UniversalDeveloperInputButtonBar {
             });
     }
 
-    /// Update the slash button's disabled state based on whether the buffer is empty.
-    pub fn set_slash_button_disabled(&mut self, should_disable: bool, ctx: &mut ViewContext<Self>) {
-        self.slash_command_button.update(ctx, |button, ctx| {
-            button.set_disabled(should_disable, ctx);
-            ctx.notify();
-        });
-    }
-
     pub fn set_is_in_active_terminal(
         &mut self,
         is_in_active_terminal: bool,
@@ -596,10 +570,6 @@ impl UniversalDeveloperInputButtonBar {
         let theme = PromptIconButtonTheme::new(is_blurred);
 
         self.mic_button.update(ctx, |button, ctx| {
-            button.set_theme(theme.clone(), ctx);
-        });
-
-        self.slash_command_button.update(ctx, |button, ctx| {
             button.set_theme(theme.clone(), ctx);
         });
 
@@ -666,8 +636,6 @@ impl View for UniversalDeveloperInputButtonBar {
                         .finish(),
                 );
             buttons = buttons.with_child(create_divider());
-
-            buttons = buttons.with_child(ChildView::new(&self.slash_command_button).finish());
 
             #[cfg(feature = "voice_input")]
             if is_voice_input_enabled {
@@ -750,9 +718,6 @@ impl TypedActionView for UniversalDeveloperInputButtonBar {
             }
             UniversalDeveloperInputButtonBarAction::SelectFile => {
                 ctx.emit(UniversalDeveloperInputButtonBarEvent::SelectFile);
-            }
-            UniversalDeveloperInputButtonBarAction::OpenSlashCommandMenu => {
-                ctx.emit(UniversalDeveloperInputButtonBarEvent::OpenSlashCommandMenu);
             }
         }
     }

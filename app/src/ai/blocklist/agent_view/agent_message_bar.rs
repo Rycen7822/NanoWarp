@@ -39,7 +39,6 @@ use crate::ai::request_usage_model::{
     AIRequestUsageModel, AIRequestUsageModelEvent, AMBIENT_AGENT_TRIAL_CREDIT_THRESHOLD,
 };
 use crate::auth::auth_manager::AuthManager;
-use crate::search::slash_command_menu::static_commands::commands;
 use crate::settings::{AISettings, AISettingsChangedEvent, UsageDisplayUnit};
 use crate::terminal::input::buffer_model::{InputBufferModel, InputBufferUpdateEvent};
 use crate::terminal::input::message_bar::attached_context::{
@@ -51,7 +50,6 @@ use crate::terminal::input::message_bar::common::{
 use crate::terminal::input::message_bar::{
     ChipHorizontalAlignment, EmptyMessageProducer, Message, MessageItem, MessageProvider,
 };
-use crate::terminal::input::slash_command_model::{SlashCommandEntryState, SlashCommandModel};
 use crate::terminal::input::suggestions_mode_model::{
     InputSuggestionsModeEvent, InputSuggestionsModeModel,
 };
@@ -71,7 +69,6 @@ pub struct AgentMessageBarMouseStates {
     pub resume_conversation: MouseStateHandle,
     pub fork_from_last_known_good_state: MouseStateHandle,
     pub toggle_shortcuts: MouseStateHandle,
-    pub toggle_slash_commands: MouseStateHandle,
     pub toggle_code_review: MouseStateHandle,
     pub handoff_to_cloud: MouseStateHandle,
     pub clear_attached_context: MouseStateHandle,
@@ -93,7 +90,6 @@ pub struct AgentMessageBar {
     input_buffer_model: ModelHandle<InputBufferModel>,
     input_model: ModelHandle<BlocklistAIInputModel>,
     input_suggestions_model: ModelHandle<InputSuggestionsModeModel>,
-    slash_command_model: ModelHandle<SlashCommandModel>,
     context_model: ModelHandle<BlocklistAIContextModel>,
     handoff_compose_state: ModelHandle<HandoffComposeState>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -122,7 +118,6 @@ impl AgentMessageBar {
         input_buffer_model: ModelHandle<InputBufferModel>,
         input_model: ModelHandle<BlocklistAIInputModel>,
         input_suggestions_model: ModelHandle<InputSuggestionsModeModel>,
-        slash_command_model: ModelHandle<SlashCommandModel>,
         context_model: ModelHandle<BlocklistAIContextModel>,
         handoff_compose_state: ModelHandle<HandoffComposeState>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -184,13 +179,6 @@ impl AgentMessageBar {
                 ctx.notify();
             }
         });
-        ctx.subscribe_to_model(&slash_command_model, |_, _, _, ctx| {
-            ctx.notify();
-        });
-        ctx.subscribe_to_model(&handoff_compose_state, |_, _, _, ctx| {
-            ctx.notify();
-        });
-
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, |_, _, event, ctx| {
             if matches!(
@@ -258,7 +246,6 @@ impl AgentMessageBar {
             input_buffer_model,
             input_model,
             input_suggestions_model,
-            slash_command_model,
             context_model,
             handoff_compose_state,
             terminal_model,
@@ -347,7 +334,6 @@ impl View for AgentMessageBar {
         let input_model = self.input_model.as_ref(app);
         let agent_view_controller = self.agent_view_controller.as_ref(app);
         let context_model = self.context_model.as_ref(app);
-        let slash_command_model = self.slash_command_model.as_ref(app);
         let handoff_compose_state = self.handoff_compose_state.as_ref(app);
         let terminal_model = self.terminal_model.lock();
 
@@ -371,7 +357,6 @@ impl View for AgentMessageBar {
             shortcut_view_model,
             input_buffer_model,
             input_model,
-            slash_command_model,
             context_model,
             handoff_compose_state,
             terminal_model: &terminal_model,
@@ -384,7 +369,6 @@ impl View for AgentMessageBar {
         let Some(mut message) = ephemeral_message_model
             .produce_message(args)
             .or_else(|| BootstrappingMessageProducer.produce_message(args))
-            .or_else(|| ForkSlashCommandMessageProducer.produce_message(args))
             .or_else(|| AttachedBlocksMessageProducer.produce_message(args))
             .or_else(|| AttachedTextSelectionMessageProducer.produce_message(args))
             .or_else(|| AutodetectedBashModeMessageProducer.produce_message(args))
@@ -505,7 +489,6 @@ pub struct AgentMessageArgs<'a> {
     pub shortcut_view_model: &'a AgentShortcutViewModel,
     pub input_buffer_model: &'a InputBufferModel,
     pub input_model: &'a BlocklistAIInputModel,
-    pub slash_command_model: &'a SlashCommandModel,
     pub context_model: &'a BlocklistAIContextModel,
     pub handoff_compose_state: &'a HandoffComposeState,
     pub terminal_model: &'a TerminalModel,
@@ -635,30 +618,6 @@ impl MessageProvider<AgentMessageArgs<'_>> for ZeroStateMessageProducer {
                     ctx.dispatch_typed_action(InputAction::ToggleAgentViewShortcuts);
                 },
                 mouse_states.toggle_shortcuts.clone(),
-            )
-            .with_is_disabled(!is_buffer_empty),
-        );
-
-        items.push(
-            MessageItem::clickable(
-                vec![
-                    MessageItem::Keystroke {
-                        keystroke: Keystroke {
-                            key: "/".to_owned(),
-                            ..Default::default()
-                        },
-                        color: color_override_for_shortcuts_and_commands,
-                        background_color: bg_color_override_for_shortcuts_and_commands,
-                    },
-                    MessageItem::Text {
-                        content: "for commands".into(),
-                        color: color_override_for_shortcuts_and_commands,
-                    },
-                ],
-                |ctx| {
-                    ctx.dispatch_typed_action(InputAction::ToggleSlashCommandsMenu);
-                },
-                mouse_states.toggle_slash_commands.clone(),
             )
             .with_is_disabled(!is_buffer_empty),
         );
@@ -809,53 +768,6 @@ fn should_fork_from_last_known_good_state(
     }
 }
 
-struct ForkSlashCommandMessageProducer;
-
-impl MessageProvider<AgentMessageArgs<'_>> for ForkSlashCommandMessageProducer {
-    fn produce_message(&self, args: AgentMessageArgs<'_>) -> Option<Message> {
-        let SlashCommandEntryState::SlashCommand(detected_command) =
-            args.slash_command_model.state()
-        else {
-            return None;
-        };
-        let command_name = detected_command.command.name;
-        let is_fork_family =
-            command_name == commands::FORK.name || command_name == commands::FORK_AND_COMPACT.name;
-        #[cfg(not(target_family = "wasm"))]
-        let is_continue_locally = command_name == commands::CONTINUE_LOCALLY.name;
-        #[cfg(target_family = "wasm")]
-        let is_continue_locally = false;
-        if !is_fork_family && !is_continue_locally {
-            return None;
-        }
-        let modifier_keystroke = if cfg!(target_os = "macos") {
-            Keystroke {
-                key: "enter".to_owned(),
-                cmd: true,
-                ..Default::default()
-            }
-        } else {
-            Keystroke {
-                key: "enter".to_owned(),
-                ctrl: true,
-                shift: true,
-                ..Default::default()
-            }
-        };
-
-        // All fork-style commands open a new pane on Enter and a new tab on Cmd/Ctrl+Enter.
-        Some(Message::new(vec![
-            MessageItem::keystroke(Keystroke {
-                key: "enter".to_owned(),
-                ..Default::default()
-            }),
-            MessageItem::text(" new pane"),
-            MessageItem::keystroke(modifier_keystroke),
-            MessageItem::text(" new tab"),
-        ]))
-    }
-}
-
 struct HideShortcutsMessageProducer;
 
 impl MessageProvider<AgentMessageArgs<'_>> for HideShortcutsMessageProducer {
@@ -889,13 +801,11 @@ impl MessageProvider<AgentMessageArgs<'_>> for AutodetectedBashModeMessageProduc
             input_model,
             appearance,
             app,
-            slash_command_model,
             ..
         } = args;
         if input_model.is_ai_input_enabled()
             || input_model.is_input_type_locked()
             || input_buffer_model.current_value().is_empty()
-            || slash_command_model.state().is_detected_command()
         {
             return None;
         }

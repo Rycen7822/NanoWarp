@@ -3,11 +3,9 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use regex::RegexBuilder;
-use warpui::SingletonEntity;
 
 use super::{AIBlock, TextLocation};
 use crate::ai::agent::{AIAgentTextSection, MessageId};
-use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::terminal::find::{FindOptions, FindableRichContentView, RichContentMatchId};
 
 /// Represents the location of a find match in an AI block.
@@ -57,13 +55,9 @@ impl FindableRichContentView for AIBlock {
         self.clear_matches(ctx);
 
         let mut new_match_ids = vec![];
-        // Match against the displayed query (including any "/agent" prefix added for the
-        // initial conversation query) so highlight ranges line up with the rendered text.
-        let initial_conversation_query = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&self.client_ids.conversation_id)
-            .and_then(|conversation| conversation.initial_user_query());
+        // Match against the same query text that is rendered.
         for (i, input) in self.model.inputs_to_render(ctx).iter().enumerate() {
-            if let Some(query) = input.display_user_query(initial_conversation_query.as_ref()) {
+            if let Some(query) = input.display_query() {
                 for find_match_range in compute_find_matches(&query, options).into_iter() {
                     let id = RichContentMatchId::default();
                     new_match_ids.push(id);

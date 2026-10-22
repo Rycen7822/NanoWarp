@@ -209,7 +209,7 @@ use crate::view_components::action_button::{
 };
 use crate::view_components::compactible_action_button::CompactibleActionButton;
 use crate::view_components::find::FindEvent;
-use crate::workspace::{ForkAIConversationParams, ForkedConversationDestination, WorkspaceAction};
+use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{
@@ -452,7 +452,6 @@ pub(super) struct AIBlockStateHandles {
     resume_conversation_handle: MouseStateHandle,
 
     /// Mouse state handle for the fork conversation button
-    fork_conversation_handle: MouseStateHandle,
 
     /// Mouse state handle for the usage button
     usage_button_handle: MouseStateHandle,
@@ -1575,7 +1574,7 @@ impl AIBlock {
             terminal_view_handle,
             ask_user_question_view: None,
         };
-        me.run_secret_redaction_on_user_query(me.client_ids.conversation_id, ctx);
+        me.run_secret_redaction_on_user_query(ctx);
         me.spawn_link_detection(ctx);
 
         if let AIBlockOutputStatus::PartiallyReceived { output } = me.model.status(ctx) {
@@ -1643,7 +1642,7 @@ impl AIBlock {
         self.shell_launch_data = shell_launch_data;
 
         // Re-run secret redaction on the user query with the new shell launch data.
-        self.run_secret_redaction_on_user_query(self.client_ids.conversation_id, ctx);
+        self.run_secret_redaction_on_user_query(ctx);
 
         // Re-run link detection with the new shell launch data.
         self.spawn_link_detection(ctx);
@@ -1651,11 +1650,7 @@ impl AIBlock {
         ctx.notify();
     }
 
-    fn run_secret_redaction_on_user_query(
-        &mut self,
-        conversation_id: AIConversationId,
-        app: &AppContext,
-    ) {
+    fn run_secret_redaction_on_user_query(&mut self, app: &AppContext) {
         self.detected_links_state
             .detected_links_by_location
             .retain(|location, _| !matches!(location, TextLocation::Query { .. }));
@@ -1678,12 +1673,9 @@ impl AIBlock {
 
         self.secret_redaction_state.clear_user_query_locations();
 
-        let initial_conversation_query = BlocklistAIHistoryModel::as_ref(app)
-            .conversation(&conversation_id)
-            .and_then(|conversation| conversation.initial_user_query());
         let secret_redaction_mode = get_secret_obfuscation_mode(app);
         for (input_index, input) in self.model.inputs_to_render(app).iter().enumerate() {
-            let Some(query) = input.display_user_query(initial_conversation_query.as_ref()) else {
+            let Some(query) = input.display_query() else {
                 continue;
             };
             if secret_redaction_mode.should_redact_secret() {
@@ -1722,11 +1714,8 @@ impl AIBlock {
         };
 
         // Include user query texts for link detection.
-        let initial_conversation_query = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&self.client_ids.conversation_id)
-            .and_then(|conversation| conversation.initial_user_query());
         for (input_index, input) in self.model.inputs_to_render(ctx).iter().enumerate() {
-            if let Some(query) = input.display_user_query(initial_conversation_query.as_ref()) {
+            if let Some(query) = input.display_query() {
                 texts.push((query, TextLocation::Query { input_index }));
             }
         }
@@ -1865,7 +1854,7 @@ impl AIBlock {
         let user_avatar_info = user_avatar_info_for_ai_block(self.model.as_ref(), ctx);
         self.profile_image_path = user_avatar_info.profile_image_path;
         self.user_display_name = user_avatar_info.display_name;
-        self.run_secret_redaction_on_user_query(new_conversation_id, ctx);
+        self.run_secret_redaction_on_user_query(ctx);
 
         // Re-detect all links for the new conversation.
         self.spawn_link_detection(ctx);
@@ -6300,7 +6289,6 @@ pub enum AIBlockEvent {
     ContinueWithWarpCredits {
         conversation_id: AIConversationId,
     },
-    InsertForkSlashCommand,
     ToggleCodeReviewPane {
         entrypoint: CodeReviewPaneEntrypoint,
     },
@@ -6360,7 +6348,6 @@ pub enum AIBlockAction {
     ContinueWithWarpCredits,
 
     /// Fork the conversation
-    ForkConversation,
 
     /// Manually cancel sending an AI request or streaming an AI response for a requested action.
     /// View-based inline actions (`RequestedCommandView`, etc.) should be handling AI block
@@ -6581,32 +6568,6 @@ impl TypedActionView for AIBlock {
                 ctx.emit(AIBlockEvent::ContinueWithWarpCredits {
                     conversation_id: self.client_ids.conversation_id,
                 });
-            }
-            AIBlockAction::ForkConversation => {
-                // Fully reset the fork button's interaction state before navigation.
-                // This avoids an immediate re-hover (and stuck tooltip) from synthetic mouse events
-                // that can occur while the new pane is being created.
-                if let Ok(mut state) = self.state_handles.fork_conversation_handle.lock() {
-                    state.reset_interaction_state();
-                }
-
-                let is_read_only = self.terminal_model.lock().is_read_only();
-                if FeatureFlag::AgentView.is_enabled() && !is_read_only {
-                    ctx.emit(AIBlockEvent::InsertForkSlashCommand);
-                } else {
-                    ctx.dispatch_global_action(
-                        "workspace:fork_ai_conversation",
-                        ForkAIConversationParams {
-                            conversation_id: self.client_ids.conversation_id,
-                            fork_from_exchange: None,
-                            summarize_after_fork: false,
-                            summarization_prompt: None,
-                            initial_prompt: None,
-                            destination: ForkedConversationDestination::SplitPane,
-                        },
-                    );
-                }
-                ctx.notify();
             }
             AIBlockAction::SelectText => {
                 // A plain click (no drag) produces an empty selection, but the enclosing

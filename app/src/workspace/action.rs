@@ -616,7 +616,6 @@ pub enum WorkspaceAction {
         harness: AIAgentHarness,
     },
     /// Insert the /fork slash command into the active terminal's input.
-    InsertForkSlashCommand,
     /// Open a local-to-cloud handoff pane next to the active conversation
     /// (REMOTE-1486). Triggered by the `/move-to-cloud` slash command
     /// and the footer chip of the same name. The dispatch site reads the
@@ -1136,7 +1135,6 @@ impl WorkspaceAction {
             | RunAISuggestedCommand { .. }
             | RunCommand { .. }
             | InsertInInput { .. }
-            | InsertForkSlashCommand
             | AttemptLoginGatedAIUpgrade
             | UndoTrash(_)
             | OpenFilePath { .. }

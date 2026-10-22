@@ -67,10 +67,6 @@ pub(crate) enum CloudRoutingIndicator {
 }
 
 impl AIQueryRouting {
-    pub(crate) fn is_local(&self) -> bool {
-        matches!(self, Self::Local)
-    }
-
     /// Live-VM requires an ambient task id so shared local session viewers stay unmarked.
     pub(crate) fn cloud_routing_indicator(&self) -> Option<CloudRoutingIndicator> {
         match self {
@@ -287,18 +283,6 @@ pub(crate) fn resolve_ai_query_routing(
 fn is_retained_setup_failure_debug_editable(task: &AmbientAgentTask, app: &AppContext) -> bool {
     task.is_setup_failure_debug_session_open()
         && task_ownership_access(task, app) == ConversationAccess::Edit
-}
-
-/// Task-id-only entry point for [`is_retained_setup_failure_debug_editable`], for callers that
-/// know the ambient task id but don't hold a locked [`TerminalModel`]. Returns `false` when the
-/// task hasn't been fetched into [`AgentConversationsModel`] yet.
-pub(crate) fn is_retained_setup_failure_debug_editable_for_task(
-    task_id: AmbientAgentTaskId,
-    app: &AppContext,
-) -> bool {
-    AgentConversationsModel::as_ref(app)
-        .get_task_data(&task_id)
-        .is_some_and(|task| is_retained_setup_failure_debug_editable(&task, app))
 }
 
 fn continuation_ui_state_for_harness_and_access(

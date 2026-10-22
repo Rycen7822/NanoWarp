@@ -1,44 +1,4 @@
-//! Headless lifecycle, result, and selection state shared by inline-menu frontends.
-/// Whether an input-driven inline menu may react to buffer updates.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct InputDrivenInlineMenuLifecycle {
-    state: InputDrivenInlineMenuState,
-    previous_input_had_trigger: bool,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum InputDrivenInlineMenuState {
-    #[default]
-    Enabled,
-    DisabledUntilEmptyBuffer,
-}
-
-impl InputDrivenInlineMenuLifecycle {
-    pub fn is_enabled(&self) -> bool {
-        matches!(self.state, InputDrivenInlineMenuState::Enabled)
-    }
-
-    /// Prevents the menu from reopening after a manual dismissal while input remains.
-    pub fn disable_until_empty_buffer(&mut self, input_is_empty: bool) {
-        if input_is_empty {
-            return;
-        }
-        self.state = InputDrivenInlineMenuState::DisabledUntilEmptyBuffer;
-    }
-
-    /// Updates lifecycle state for the latest buffer contents and returns whether menu processing
-    /// is enabled. Clearing the buffer or adding a new trigger re-enables a manually dismissed
-    /// menu.
-    pub fn input_changed(&mut self, input_is_empty: bool, input_has_trigger: bool) -> bool {
-        let did_add_trigger = input_has_trigger && !self.previous_input_had_trigger;
-        if input_is_empty || did_add_trigger {
-            self.state = InputDrivenInlineMenuState::Enabled;
-        }
-        self.previous_input_had_trigger = input_has_trigger;
-        self.is_enabled()
-    }
-}
-
+//! Result and selection state shared by inline menus.
 /// Surface-neutral outcome after reconciling an inline menu with its latest result set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineMenuResultsUpdate {
