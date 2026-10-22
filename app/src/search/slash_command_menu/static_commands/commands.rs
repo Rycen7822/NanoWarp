@@ -536,26 +536,6 @@ pub const COST: StaticCommand = StaticCommand {
     argument: None,
 };
 
-pub const CONVERSATIONS: StaticCommand = StaticCommand {
-    name: "/conversations",
-    description: "Open conversation history",
-    kind: SlashCommandKind::Conversations,
-    icon_path: "bundled/svg/conversation.svg",
-    availability: Availability::AI_ENABLED,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-
-pub static PROMPTS: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand {
-    name: "/prompts",
-    description: "Search saved prompts",
-    kind: SlashCommandKind::Prompts,
-    icon_path: "bundled/svg/prompt.svg",
-    availability: Availability::AI_ENABLED,
-    auto_enter_ai_mode: false,
-    argument: None,
-});
-
 pub const REWIND: StaticCommand = StaticCommand {
     name: "/rewind",
     description: "Rewind to a previous point in the conversation",
@@ -690,7 +670,6 @@ fn all_commands() -> Vec<StaticCommand> {
         RENAME_TAB.clone(),
         SET_TAB_COLOR.clone(),
         USAGE,
-        CONVERSATIONS,
         EXPORT_TO_CLIPBOARD,
         COPY_DEBUGGING_ID,
         MODEL.clone(),
@@ -708,10 +687,6 @@ fn all_commands() -> Vec<StaticCommand> {
 
     if FeatureFlag::Changelog.is_enabled() {
         commands.push(CHANGELOG);
-    }
-
-    if FeatureFlag::AgentView.is_enabled() {
-        commands.push(PROMPTS.clone());
     }
 
     commands.push(OPEN_CODE_REVIEW);

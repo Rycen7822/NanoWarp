@@ -48,7 +48,7 @@ const SCORE_MULTIPLIER: OrderedFloat<f64> = OrderedFloat(1000.0);
 /// Slash commands that are available in CLI agent rich input mode.
 /// Add command names here to make them accessible when composing prompts
 /// for a running CLI agent (Claude Code, Codex, etc.).
-const CLI_AGENT_INPUT_ALLOWED_COMMANDS: &[&str] = &["/prompts", "/skills"];
+const CLI_AGENT_INPUT_ALLOWED_COMMANDS: &[&str] = &["/skills"];
 
 fn split_command_and_argument(buffer: &str) -> (&str, Option<&str>) {
     buffer
@@ -581,8 +581,6 @@ pub trait SlashCommandDataSource {
         let prioritized_commands = vec![
             &*commands::CREATE_ENVIRONMENT,
             &*commands::EDIT,
-            &commands::CONVERSATIONS,
-            &commands::PROMPTS,
             &*commands::PLAN,
             &commands::AGENT,
         ];

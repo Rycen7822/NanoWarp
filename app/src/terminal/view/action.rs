@@ -380,7 +380,6 @@ pub enum TerminalAction {
     },
     OpenAddPromptPane,
     OpenBillingAndUsagePane,
-    OpenConversationsPalette,
     PickRepoToOpen,
     OpenFilesPalette {
         source: PaletteSource,
@@ -710,7 +709,6 @@ impl fmt::Debug for TerminalAction {
             OpenEditSkillPane { .. } => write!(f, "OpenEditSkillPane"),
             OpenAddPromptPane => write!(f, "OpenAddPromptPane"),
             OpenBillingAndUsagePane => write!(f, "OpenBillingAndUsagePane"),
-            OpenConversationsPalette => write!(f, "OpenConversationsPalette"),
             PickRepoToOpen => write!(f, "PickRepoToOpen"),
             OpenFilesPalette { .. } => write!(f, "OpenFilesPalette"),
             DismissCodeToolbeltTooltip => write!(f, "DismissCodeToolbeltTooltip"),

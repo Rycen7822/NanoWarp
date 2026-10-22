@@ -1982,7 +1982,6 @@ pub enum Event {
     },
 
     OpenThemeChooser,
-    OpenConversationHistory,
     OpenMCPSettingsPage {
         page: Option<MCPServersSettingsPage>,
     },
@@ -22877,9 +22876,6 @@ impl TerminalView {
                 #[cfg(feature = "local_fs")]
                 self.handle_attach_diffset_context(diff_mode.clone(), ctx);
             }
-            InputEvent::OpenConversationHistory => {
-                ctx.emit(Event::OpenConversationHistory);
-            }
             InputEvent::OpenProjectRulesPane => {
                 self.handle_action(&TerminalAction::OpenProjectRulesPane, ctx);
             }
@@ -27732,7 +27728,6 @@ impl TypedActionView for TerminalView {
             | SummarizeConversation
             | ToggleLongRunningCommandControl
             | ToggleHideCliResponses
-            | OpenConversationsPalette
             | ExitAgentView
             | EnterCloudAgentView
             | StartNewAgentConversation { .. }
@@ -28749,9 +28744,6 @@ impl TypedActionView for TerminalView {
             StartLspServer => {
                 #[cfg(feature = "local_fs")]
                 self.start_lsp_server_in_active_pwd(ctx);
-            }
-            OpenConversationsPalette => {
-                ctx.emit(Event::OpenConversationHistory);
             }
             ToggleLongRunningCommandControl => {
                 let terminal_model = self.model.lock();

@@ -11,10 +11,8 @@ use warpui::{
 };
 
 use crate::appearance::Appearance;
-use crate::drive::settings::WarpDriveSettings;
 use crate::search::QueryFilter;
 use crate::search::command_palette::FilterChipRenderer;
-use crate::settings::AISettings;
 use crate::workspace::Workspace;
 
 /// A zero-state view for the command palette.
@@ -81,20 +79,7 @@ impl ZeroState {
         app: &AppContext,
         window_id: WindowId,
     ) -> impl Iterator<Item = QueryFilter> + use<> {
-        let show_warp_drive = WarpDriveSettings::is_warp_drive_enabled(app);
-
         let mut valid_filters = vec![];
-        if show_warp_drive {
-            valid_filters.push(QueryFilter::Workflows);
-            if FeatureFlag::AgentModeWorkflows.is_enabled()
-                && AISettings::as_ref(app).is_any_ai_enabled(app)
-            {
-                valid_filters.push(QueryFilter::AgentModeWorkflows);
-            }
-            valid_filters.push(QueryFilter::Notebooks);
-
-            valid_filters.push(QueryFilter::EnvironmentVariables);
-        }
 
         // Don't show Files filter if the user is a viewer of a shared session
         if FeatureFlag::CommandPaletteFileSearch.is_enabled() {
@@ -109,17 +94,10 @@ impl ZeroState {
             }
         }
 
-        if show_warp_drive {
-            valid_filters.push(QueryFilter::Drive);
-        }
         valid_filters.extend([QueryFilter::Actions, QueryFilter::Sessions]);
 
         if ContextFlag::LaunchConfigurations.is_enabled() {
             valid_filters.push(QueryFilter::LaunchConfigurations);
-        }
-
-        if AISettings::as_ref(app).is_any_ai_enabled(app) {
-            valid_filters.push(QueryFilter::Conversations);
         }
 
         valid_filters.into_iter()

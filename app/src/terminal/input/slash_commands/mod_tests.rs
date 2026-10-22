@@ -25,7 +25,6 @@ fn slash_command_is_submitted_as_prompt_only_for_prompt_commands() {
         &*commands::COMPACT_AND,
         &*commands::MODEL,
         &commands::REWIND,
-        &commands::CONVERSATIONS,
         &*commands::QUEUE,
     ] {
         assert!(!slash_command_is_submitted_as_prompt(command));

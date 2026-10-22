@@ -40,7 +40,6 @@ pub enum InlineMenuType {
     ModelSelector,
     ConversationMenu,
     ProfileSelector,
-    PromptsMenu,
     SkillMenu,
     UserQueryMenu,
     RewindMenu,
@@ -55,7 +54,6 @@ impl InlineMenuType {
             InlineMenuType::ModelSelector => "/Model",
             InlineMenuType::ConversationMenu => "/Conversations",
             InlineMenuType::ProfileSelector => "/Profiles",
-            InlineMenuType::PromptsMenu => "/Prompts",
             InlineMenuType::SkillMenu => "/Skills",
             InlineMenuType::UserQueryMenu => "/Fork",
             InlineMenuType::RewindMenu => "/Rewind",
@@ -70,7 +68,6 @@ impl InlineMenuType {
             InputSuggestionsMode::ModelSelector => Some(InlineMenuType::ModelSelector),
             InputSuggestionsMode::ConversationMenu => Some(InlineMenuType::ConversationMenu),
             InputSuggestionsMode::ProfileSelector => Some(InlineMenuType::ProfileSelector),
-            InputSuggestionsMode::PromptsMenu => Some(InlineMenuType::PromptsMenu),
             InputSuggestionsMode::SkillMenu => Some(InlineMenuType::SkillMenu),
             InputSuggestionsMode::UserQueryMenu {
                 action: UserQueryMenuAction::ForkFrom,

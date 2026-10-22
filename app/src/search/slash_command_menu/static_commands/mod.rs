@@ -93,8 +93,6 @@ pub enum SlashCommandKind {
     Usage,
     RemoteControl,
     Cost,
-    Conversations,
-    Prompts,
     Rewind,
     ExportToClipboard,
     ExportToFile,

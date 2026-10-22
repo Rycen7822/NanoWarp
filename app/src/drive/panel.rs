@@ -57,8 +57,6 @@ struct MouseStateHandles {
 
 #[derive(Clone, Debug)]
 pub enum DrivePanelAction {
-    /// Open the search dialog.
-    OpenSearch,
     /// Focus WD panel (via single click)
     FocusDriveIndex,
 }
@@ -70,7 +68,6 @@ pub enum DrivePanelEvent {
         env_var_collection: Box<CloudEnvVarCollection>,
         in_subshell: bool,
     },
-    OpenSearch,
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
     OpenTeamSettingsPage,
     OpenAIFactCollection,
@@ -738,7 +735,6 @@ impl TypedActionView for DrivePanel {
 
     fn handle_action(&mut self, action: &DrivePanelAction, ctx: &mut ViewContext<Self>) {
         match action {
-            DrivePanelAction::OpenSearch => ctx.emit(DrivePanelEvent::OpenSearch),
             DrivePanelAction::FocusDriveIndex => {
                 ctx.focus(&self.index_view);
                 // should_scroll is set to false here in order to not let menu clicks autoscroll WD index
@@ -746,11 +742,6 @@ impl TypedActionView for DrivePanel {
             }
         }
     }
-}
-
-pub(crate) mod styles {
-    /// Right padding between the search button and the close button.
-    pub const SEARCH_BUTTON_PADDING_RIGHT: f32 = 4.;
 }
 
 #[cfg(test)]

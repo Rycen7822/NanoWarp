@@ -46,10 +46,8 @@ use crate::features::FeatureFlag;
 use crate::launch_configs::save_modal::SaveState;
 use crate::notebooks::telemetry::NotebookTelemetryAction;
 use crate::notebooks::{NotebookId, NotebookLocation};
-use crate::palette::PaletteMode;
 use crate::pane_group::PaneDragDropLocation;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
-use crate::search::QueryFilter;
 use crate::server::block::DisplaySetting;
 use crate::server::ids::{ObjectUid, ServerId};
 use crate::settings::AgentModeCodingPermissionsType;
@@ -416,11 +414,9 @@ pub enum PaletteSource {
     PrefixChange,
     Keybinding,
     CtrlTab { shift_pressed_initially: bool },
-    WarpDrive,
     QuitModal,
     LogOutModal,
     IntegrationTest,
-    ConversationManager,
     ContextChip,
     PaneHeader,
     AgentTip,
@@ -1399,21 +1395,6 @@ pub enum TelemetryEvent {
     },
     ShowedSuggestedAgentModeWorkflowModal {
         logging_id: SuggestedLoggingId,
-    },
-    SelectNavigationPaletteItem,
-    SelectCommandPaletteOption(String),
-    PaletteSearchOpened {
-        mode: PaletteMode,
-        source: PaletteSource,
-    },
-    PaletteSearchResultAccepted {
-        result_type: &'static str,
-        filter: Option<QueryFilter>,
-        buffer_length: usize,
-    },
-    PaletteSearchExited {
-        filter: Option<QueryFilter>,
-        buffer_length: usize,
     },
     AuthCommonQuestionClicked {
         question: &'static str,
@@ -3075,21 +3056,6 @@ impl TelemetryEvent {
             TelemetryEvent::ToggleFindOption { option, enabled } => {
                 Some(json!({ "option": option, "enabled": enabled }))
             }
-            TelemetryEvent::SelectCommandPaletteOption(option) => Some(json!({ "option": option })),
-            TelemetryEvent::PaletteSearchOpened { mode, source } => {
-                Some(json!({ "mode": mode, "source": source }))
-            }
-            TelemetryEvent::PaletteSearchResultAccepted {
-                result_type,
-                filter: mode,
-                buffer_length,
-            } => Some(
-                json!({ "result_type": result_type, "mode": mode, "buffer_length": buffer_length }),
-            ),
-            TelemetryEvent::PaletteSearchExited {
-                filter: mode,
-                buffer_length,
-            } => Some(json!({ "mode": mode, "buffer_length": buffer_length })),
             TelemetryEvent::AuthCommonQuestionClicked { question } => Some(json!(question)),
             TelemetryEvent::AuthToggleFAQ { open } => {
                 let payload = if *open { "open" } else { "close" };
@@ -3972,7 +3938,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SignUpButtonClicked
             | TelemetryEvent::OpenNewSessionFromFilePath
             | TelemetryEvent::OpenTeamFromURI
-            | TelemetryEvent::SelectNavigationPaletteItem
             | TelemetryEvent::DragAndDropTab
             | TelemetryEvent::DragAndDropTabGroup
             | TelemetryEvent::TriedToExecuteBeforePrecmd
@@ -4760,11 +4725,6 @@ impl TelemetryEvent {
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { .. }
             | TelemetryEvent::OpenNewSessionFromFilePath
             | TelemetryEvent::OpenTeamFromURI
-            | TelemetryEvent::SelectNavigationPaletteItem
-            | TelemetryEvent::SelectCommandPaletteOption(_)
-            | TelemetryEvent::PaletteSearchOpened { .. }
-            | TelemetryEvent::PaletteSearchResultAccepted { .. }
-            | TelemetryEvent::PaletteSearchExited { .. }
             | TelemetryEvent::AuthCommonQuestionClicked { .. }
             | TelemetryEvent::AuthToggleFAQ { .. }
             | TelemetryEvent::OpenAuthPrivacySettings { .. }
@@ -5297,11 +5257,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::LoginButtonClicked => EnablementState::Always,
             Self::OpenNewSessionFromFilePath => EnablementState::Always,
             Self::OpenTeamFromURI => EnablementState::Always,
-            Self::SelectCommandPaletteOption => EnablementState::Always,
-            Self::PaletteSearchOpened => EnablementState::Always,
-            Self::PaletteSearchResultAccepted => EnablementState::Always,
-            Self::PaletteSearchExited => EnablementState::Always,
-            Self::SelectNavigationPaletteItem => EnablementState::Always,
             Self::AuthCommonQuestionClicked => EnablementState::Always,
             Self::AuthToggleFAQ => EnablementState::Always,
             Self::OpenAuthPrivacySettings => EnablementState::Always,
@@ -5783,10 +5738,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::LoginButtonClicked => "Log In Button Clicked in App",
             Self::OpenNewSessionFromFilePath => "New Session From Directory",
             Self::OpenTeamFromURI => "Open Team from URI",
-            Self::SelectCommandPaletteOption => "Select Command Palette Option",
-            Self::PaletteSearchOpened => "Open Palette",
-            Self::PaletteSearchResultAccepted => "Command Palette Search Accepted",
-            Self::PaletteSearchExited => "Command Palette Search Exited",
             Self::AuthCommonQuestionClicked => "Auth Common Question Clicked in App",
             Self::AuthToggleFAQ => "Auth: Toggle Common Questions",
             Self::OpenAuthPrivacySettings => "Auth: Open Privacy Settings Overlay",
@@ -5809,7 +5760,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::OpenLaunchConfigFile => "Open Launch Config File",
             Self::OpenLaunchConfig => "Open Launch Config",
             Self::LogOut => "Log Out",
-            Self::SelectNavigationPaletteItem => "Select Navigation Palette Item",
             Self::SetLineHeight => "Set Line Height",
             Self::ResourceCenterOpened => "Resource Center Opened",
             Self::ResourceCenterTipsCompleted => "Resource Center Tips Completed",
@@ -6353,13 +6303,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::OpenTeamFromURI => {
                 "Showed settings view of their newly joined team within the app"
-            }
-            Self::SelectCommandPaletteOption => "Selected option from command palette (i.e. CMD-P)",
-            Self::PaletteSearchOpened => "Opened the palette",
-            Self::PaletteSearchResultAccepted => "Accepted a command palette search result",
-            Self::PaletteSearchExited => "Exited command palette search without accepting a result",
-            Self::SelectNavigationPaletteItem => {
-                "Selected session from the Session Navigation Palette (search across panes, tabs, and windows)"
             }
             Self::AuthCommonQuestionClicked => "Clicked on \"Common Question\" when logging in",
             Self::AuthToggleFAQ => "Toggled FAQ Page when logging in",

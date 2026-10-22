@@ -2120,7 +2120,6 @@ pub enum PromptDisplayChipEvent {
         open: bool,
     },
     OpenCodeReview,
-    OpenConversationHistory,
     OpenCommandPaletteFiles,
     TryExecuteCommand(PromptChipShellCommand),
     RunAgentQuery(String),

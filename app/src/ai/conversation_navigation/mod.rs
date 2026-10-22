@@ -11,6 +11,9 @@ use crate::terminal::view::blocklist_filter;
 use crate::undo_close::UndoCloseStack;
 use crate::workspace::{PaneViewLocator, WorkspaceRegistry};
 
+#[cfg(test)]
+mod mod_tests;
+
 /// Result from matching a conversation.
 /// terminal_view_id and window_id are optional because, when we add restored conversations,
 /// these conversations will not have associated windows or terminal views.
@@ -117,26 +120,6 @@ impl ConversationNavigationData {
 
     pub fn id(&self) -> AIConversationId {
         self.id
-    }
-
-    pub fn title(&self) -> &str {
-        &self.title
-    }
-
-    pub fn last_updated(&self) -> chrono::DateTime<chrono::Local> {
-        self.last_updated
-    }
-
-    pub fn pane_view_locator(&self) -> Option<PaneViewLocator> {
-        self.pane_view_locator
-    }
-
-    pub fn is_in_active_pane(&self) -> bool {
-        self.is_in_active_pane
-    }
-
-    pub fn window_id(&self) -> Option<WindowId> {
-        self.window_id
     }
 
     // A conversation is historical if it does not have an open terminal view associated with it

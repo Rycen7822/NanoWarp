@@ -66,7 +66,6 @@ use crate::cloud_object::{
     GenericCloudObject, GenericStringObjectFormat, JsonObjectType, NumInFlightRequests, ObjectType,
     Space,
 };
-use crate::drive::panel::DrivePanelAction;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
 use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
@@ -502,7 +501,6 @@ struct MouseStateHandles {
     payment_issue_banner_button_mouse_state: MouseStateHandle,
     anonymous_sign_up_button_mouse_state: MouseStateHandle,
     anonymous_object_limit_close_button_mouse_state: MouseStateHandle,
-    search_button_mouse_state: MouseStateHandle,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -2555,22 +2553,6 @@ impl DriveIndex {
         if self.num_errored_objects > 0 && self.is_online(app) {
             title_right_side.add_child(self.render_retry_button(appearance));
         }
-
-        let search_button = icon_button(
-            appearance,
-            Icon::Search,
-            false,
-            self.mouse_state_handles.search_button_mouse_state.clone(),
-        )
-        .build()
-        .on_click(|ctx, _, _| ctx.dispatch_typed_action(DrivePanelAction::OpenSearch))
-        .finish();
-
-        title_right_side.add_child(
-            Container::new(Align::new(search_button).finish())
-                .with_padding_right(crate::drive::panel::styles::SEARCH_BUTTON_PADDING_RIGHT)
-                .finish(),
-        );
 
         title_right_side.add_child(self.render_sorting_button(appearance));
 

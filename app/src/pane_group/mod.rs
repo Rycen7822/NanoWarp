@@ -677,7 +677,6 @@ pub enum Event {
     },
     OpenThemeChooser,
     InvalidatedActiveConversation,
-    OpenConversationHistory,
     OpenMCPSettingsPage {
         page: Option<MCPServersSettingsPage>,
     },

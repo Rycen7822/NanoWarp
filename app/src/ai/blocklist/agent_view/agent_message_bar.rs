@@ -713,16 +713,9 @@ impl MessageProvider<AgentMessageArgs<'_>> for ZeroStateMessageProducer {
         let has_conversation_been_updated_since_agent_view_entry =
             *original_conversation_length != active_conversation.exchange_count();
 
-        if !is_cloud_agent
-            && !has_conversation_been_updated_since_agent_view_entry
-            && let Some(conversations_keystroke) =
-                keybinding_name_to_keystroke(commands::CONVERSATIONS.name, app)
-        {
+        if !is_cloud_agent && !has_conversation_been_updated_since_agent_view_entry {
             items.push(MessageItem::clickable(
-                vec![
-                    MessageItem::keystroke(conversations_keystroke),
-                    MessageItem::text("open conversation"),
-                ],
+                vec![MessageItem::text("open conversation")],
                 |ctx| {
                     ctx.dispatch_typed_action(InputAction::ToggleConversationsMenu);
                 },

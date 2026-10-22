@@ -698,9 +698,8 @@ fn matches_originating_command(
     previous_filter: Section,
 ) -> bool {
     let target_name = match previous_filter {
-        Section::Prompts => "/prompts",
         Section::Skills => "/skills",
-        Section::Commands => return false,
+        Section::Commands | Section::Prompts => return false,
     };
     let NoSearchActiveRow::Item { section, item_idx } = *row else {
         return false;

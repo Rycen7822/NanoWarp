@@ -48,7 +48,6 @@ use crate::app_state::{AmbientAgentPaneSnapshot, LeafContents, TerminalPaneSnaps
 use crate::code::buffer_location::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use crate::pane_group::CodeSource;
-use crate::pane_group::Event::OpenConversationHistory;
 use crate::pane_group::child_agent::{
     ErrorChildAgentConversationRequest, create_error_child_agent_conversation,
 };
@@ -1311,9 +1310,6 @@ fn handle_terminal_view_event(
                 ctx.emit(pane_group::Event::FileUploadPasswordPending {
                     local_pane_id: terminal_pane_id,
                 });
-            }
-            Event::OpenConversationHistory => {
-                ctx.emit(OpenConversationHistory);
             }
             Event::FileUploadFinished(exit_code) => {
                 ctx.emit(pane_group::Event::FileUploadFinished {

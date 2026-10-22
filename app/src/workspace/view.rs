@@ -5493,7 +5493,7 @@ impl Workspace {
             // we want to close the palette so that we don't get into a state where the palette
             // is open but doesn't have focus.
             if self.is_palette_open() {
-                self.close_palette(false, None, ctx);
+                self.close_palette(false, false, ctx);
             }
 
             // If the agent management view is open, we want to close it when we activate a new tab.
@@ -11949,7 +11949,7 @@ impl Workspace {
     }
 
     pub fn open_launch_config_save_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.close_palette(true, None, ctx); // close palettes if any are open
+        self.close_palette(true, false, ctx); // close palettes if any are open
         self.launch_config_save_modal.open();
         self.current_workspace_state
             .is_launch_config_save_modal_open = true;
@@ -14580,15 +14580,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn open_conversations_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.palette.update(ctx, |view, ctx| {
-            view.reset(ctx);
-            view.set_active_query_filter(QueryFilter::Conversations, ctx);
-            view.set_initial_selection_offset(0, ctx);
-        });
-        ctx.notify();
-    }
-
     fn open_ctrl_tab_palette(
         &mut self,
         query_filter: QueryFilter,
@@ -14647,15 +14638,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn open_warp_drive_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.palette.update(ctx, |view, ctx| {
-            view.reset(ctx);
-            view.set_active_query_filter(QueryFilter::Drive, ctx);
-            ctx.focus(&self.palette);
-        });
-        ctx.notify();
-    }
-
     fn set_navigation_palette_session_source(
         &mut self,
         source: PaletteSource,
@@ -14708,7 +14690,7 @@ impl Workspace {
     fn close_palette(
         &mut self,
         focus_active_tab: bool,
-        accepted_action_type: Option<&'static str>,
+        accepted_action: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         self.current_workspace_state.is_palette_open = false;
@@ -14719,7 +14701,7 @@ impl Workspace {
             // If the user did not do any action on the command palette (eg. closed via shortcut or clicking away)
             // we always force the focus back onto the terminal input
             // Otherwise we check if any other views are open before moving focus back to terminal input
-            && (accepted_action_type.is_none()
+            && (!accepted_action
                 || !self
                     .current_workspace_state
                     .is_any_non_terminal_view_open(ctx))
@@ -14822,14 +14804,10 @@ impl Workspace {
                 _ => self.open_navigation_palette(ctx),
             },
             PaletteMode::LaunchConfig => self.open_launch_config_palette(ctx),
-            PaletteMode::WarpDrive => self.open_warp_drive_palette(ctx),
             PaletteMode::Files => self.open_files_palette(ctx),
-            PaletteMode::Conversations => self.open_conversations_palette(ctx),
         }
 
         ctx.focus(&self.palette);
-
-        send_telemetry_from_ctx!(TelemetryEvent::PaletteSearchOpened { mode, source }, ctx);
 
         ctx.notify();
     }
@@ -14877,7 +14855,7 @@ impl Workspace {
                         && self.current_workspace_state.is_ctrl_tab_palette_open)
                         || self.current_workspace_state.is_palette_open);
             if is_palette_mode_already_open {
-                self.close_palette(true, None, ctx);
+                self.close_palette(true, false, ctx);
             } else {
                 self.set_palette_sources(source, ctx);
                 self.open_palette(palette_mode, source, ctx);
@@ -14887,39 +14865,8 @@ impl Workspace {
 
     fn handle_palette_event(&mut self, event: &CommandPaletteEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            CommandPaletteEvent::Close {
-                accepted_action_type,
-            } => self.close_palette(true, *accepted_action_type, ctx),
-            CommandPaletteEvent::ExecuteWorkflow { id } => {
-                let Some(workflow) = CloudModel::as_ref(ctx).get_workflow(id) else {
-                    log::warn!("Tried to execute workflow for id {id:?} but it does not exist");
-                    return;
-                };
-
-                self.run_cloud_workflow_in_active_input(
-                    workflow.clone(),
-                    WorkflowSelectionSource::CommandPalette,
-                    TerminalSessionFallbackBehavior::default(),
-                    ctx,
-                );
-            }
-            CommandPaletteEvent::InvokeEnvironmentVariables { id } => {
-                let Some(env_var_collection) = CloudModel::as_ref(ctx).get_env_var_collection(id)
-                else {
-                    log::warn!("Tried to execute EVC for id {id:?} but it does not exist");
-                    return;
-                };
-
-                self.invoke_environment_variables(env_var_collection.clone(), false, ctx);
-            }
-            CommandPaletteEvent::OpenNotebook { id } => self.open_notebook(
-                &NotebookSource::Existing(*id),
-                &OpenWarpDriveObjectSettings::default(),
-                ctx,
-                true,
-            ),
-            CommandPaletteEvent::ViewInWarpDrive { id } => {
-                self.view_in_and_focus_warp_drive(WarpDriveItemId::Object(*id), ctx);
+            CommandPaletteEvent::Close { accepted_action } => {
+                self.close_palette(true, *accepted_action, ctx)
             }
             #[allow(unused_variables)]
             CommandPaletteEvent::OpenFile {
@@ -17121,14 +17068,6 @@ impl Workspace {
             pane_group::Event::OpenThemeChooser => {
                 self.show_theme_chooser_for_custom_theme(ctx);
             }
-            pane_group::Event::OpenConversationHistory => {
-                self.open_palette_action(
-                    PaletteMode::Conversations,
-                    PaletteSource::ConversationManager,
-                    None,
-                    ctx,
-                );
-            }
             pane_group::Event::OpenAddPromptPane { initial_content } => {
                 if UserWorkspaces::as_ref(ctx).personal_drive(ctx).is_some() {
                     self.update_warp_drive_view(ctx, |drive_view, ctx| {
@@ -17719,14 +17658,6 @@ impl Workspace {
                 self.open_workflow_with_existing(
                     *workflow_id,
                     &OpenWarpDriveObjectSettings::default(),
-                    ctx,
-                );
-            }
-            DrivePanelEvent::OpenSearch => {
-                self.open_palette_action(
-                    PaletteMode::WarpDrive,
-                    PaletteSource::WarpDrive,
-                    None,
                     ctx,
                 );
             }
