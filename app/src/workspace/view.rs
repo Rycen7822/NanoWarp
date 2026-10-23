@@ -416,7 +416,6 @@ use crate::terminal::view::ambient_agent::AmbientAgentViewModel as HandoffAmbien
 use crate::terminal::view::ambient_agent::{AuthSecretFtuxView, AuthSecretFtuxViewEvent};
 #[cfg(feature = "local_tty")]
 use crate::terminal::view::docker_sandbox::DEFAULT_DOCKER_SANDBOX_BASE_IMAGE;
-use crate::terminal::view::inline_banner::ZeroStatePromptSuggestionType;
 use crate::terminal::view::load_ai_conversation::{
     RestoreConversationEntryBehavior, RestoredAIConversation,
 };
@@ -514,10 +513,7 @@ use crate::workspace::view::feature_intro_modal::{
     FeatureIntroCtaTarget, FeatureIntroId, FeatureIntroModal, FeatureIntroModalEvent,
     feature_intro_by_id,
 };
-use crate::workspace::view::free_ai_removal_modal::{
-    FreeAiRemovalModal, FreeAiRemovalModalEvent, FreeAiRemovalModalTelemetryEvent,
-    FreeAiRemovalModalVariant,
-};
+use crate::workspace::view::free_ai_removal_modal::{FreeAiRemovalModal, FreeAiRemovalModalEvent};
 use crate::workspace::view::global_search::view::GlobalSearchEntryFocus;
 use crate::workspace::view::launch_modal::{LaunchModal, LaunchModalEvent, OzLaunchSlide};
 use crate::workspace::view::left_panel::{
@@ -1137,9 +1133,6 @@ pub struct Workspace {
     codex_modal: ViewHandle<CodexModal>,
     cloud_agent_capacity_modal: ViewHandle<CloudAgentCapacityModal>,
     free_ai_removal_modal: ViewHandle<FreeAiRemovalModal>,
-    /// Second instance of the free-AI-removal modal, opened on demand when a
-    /// Free user activates Prompt Suggestions while out of credits.
-    prompt_suggestions_unavailable_modal: ViewHandle<FreeAiRemovalModal>,
     toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
     agent_toast_stack: ViewHandle<AgentToastStack>,
     update_toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
@@ -3002,22 +2995,10 @@ impl Workspace {
             me.handle_cloud_agent_capacity_modal_event(event, ctx);
         });
 
-        let free_ai_removal_modal = ctx.add_typed_action_view(|ctx| {
-            FreeAiRemovalModal::new(FreeAiRemovalModalVariant::Notice, ctx)
-        });
+        let free_ai_removal_modal = ctx.add_typed_action_view(|_| FreeAiRemovalModal::default());
         ctx.subscribe_to_view(&free_ai_removal_modal, |me, _, event, ctx| {
             me.handle_free_ai_removal_modal_event(event, ctx);
         });
-
-        let prompt_suggestions_unavailable_modal = ctx.add_typed_action_view(|ctx| {
-            FreeAiRemovalModal::new(FreeAiRemovalModalVariant::PromptSuggestions, ctx)
-        });
-        ctx.subscribe_to_view(
-            &prompt_suggestions_unavailable_modal,
-            |me, _, event, ctx| {
-                me.handle_prompt_suggestions_unavailable_modal_event(event, ctx);
-            },
-        );
 
         let require_login_modal = Self::build_require_login_modal(ctx);
 
@@ -3553,7 +3534,6 @@ impl Workspace {
             codex_modal,
             cloud_agent_capacity_modal,
             free_ai_removal_modal,
-            prompt_suggestions_unavailable_modal,
             lightbox_view: None,
             hoa_onboarding_flow: None,
             hoa_vtabs_callout_pinned_position: None,
@@ -4173,7 +4153,7 @@ impl Workspace {
                 );
                 // Enter agent mode with the environment creation query.
                 self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.start_agent_mode_in_new_pane(initial_query.as_deref(), None, ctx);
+                    pane_group.start_agent_mode_in_new_pane(initial_query.as_deref(), ctx);
                 });
                 self.check_and_trigger_onboarding(ctx);
             }
@@ -4859,11 +4839,7 @@ impl Workspace {
     }
 
     /// Add and focus a new terminal pane in AI mode in a new tab.
-    fn add_terminal_tab_in_ai_mode(
-        &mut self,
-        zero_state_prompt_suggestion_type: Option<ZeroStatePromptSuggestionType>,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn add_terminal_tab_in_ai_mode(&mut self, ctx: &mut ViewContext<Self>) {
         self.add_new_session_tab(
             NewSessionSource::Tab,
             Some(ctx.window_id()),
@@ -4873,23 +4849,15 @@ impl Workspace {
             ctx,
         );
         self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-            pane_group.start_agent_mode_in_new_pane(None, zero_state_prompt_suggestion_type, ctx);
+            pane_group.start_agent_mode_in_new_pane(None, ctx);
         });
     }
 
     /// Add and focus a new terminal pane in AI mode. Add the terminal pane to the right of
     /// all other panes, as a split on the root node.
-    fn add_terminal_pane_in_ai_mode(
-        &mut self,
-        zero_state_prompt_suggestion_type: Option<ZeroStatePromptSuggestionType>,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn add_terminal_pane_in_ai_mode(&mut self, ctx: &mut ViewContext<Self>) {
         self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-            pane_group.add_terminal_pane_in_agent_mode(
-                None,
-                zero_state_prompt_suggestion_type,
-                ctx,
-            );
+            pane_group.add_terminal_pane_in_agent_mode(None, ctx);
         });
     }
 
@@ -19068,40 +19036,6 @@ impl Workspace {
         }
     }
 
-    fn handle_prompt_suggestions_unavailable_modal_event(
-        &mut self,
-        event: &FreeAiRemovalModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            FreeAiRemovalModalEvent::Close => {
-                self.current_workspace_state
-                    .is_prompt_suggestions_unavailable_modal_open = false;
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
-    }
-
-    pub fn open_prompt_suggestions_unavailable_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        // Same free-AI-removal messaging as the startup notice, so it's equally
-        // out of place on WASM (e.g. an executor-role shared-session viewer).
-        if cfg!(target_family = "wasm") {
-            return;
-        }
-
-        self.current_workspace_state
-            .is_prompt_suggestions_unavailable_modal_open = true;
-        send_telemetry_from_ctx!(
-            FreeAiRemovalModalTelemetryEvent::Shown {
-                variant: FreeAiRemovalModalVariant::PromptSuggestions,
-            },
-            ctx
-        );
-        ctx.focus(&self.prompt_suggestions_unavailable_modal);
-        ctx.notify();
-    }
-
     fn handle_codex_modal_event(&mut self, event: &CodexModalEvent, ctx: &mut ViewContext<Self>) {
         use crate::AIExecutionProfilesModel;
         use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
@@ -23055,18 +22989,6 @@ impl Workspace {
         if ai_settings.is_nld_in_terminal_enabled(app) {
             context.set.insert(flags::NLD_IN_TERMINAL_FLAG);
         }
-        if ai_settings.is_prompt_suggestions_enabled(app) {
-            context.set.insert(flags::PROMPT_SUGGESTIONS_FLAG);
-        }
-        if ai_settings.is_code_suggestions_enabled(app) {
-            context.set.insert(flags::CODE_SUGGESTIONS_FLAG);
-        }
-        if ai_settings.is_natural_language_autosuggestions_enabled(app) {
-            context
-                .set
-                .insert(flags::NATURAL_LANGUAGE_AUTOSUGGESTIONS_FLAG);
-        }
-
         if ai_settings.is_shared_block_title_generation_enabled(app) {
             context
                 .set
@@ -23980,7 +23902,7 @@ impl TypedActionView for Workspace {
                     "My settings.toml file has an error: {error_description}. Please fix it."
                 );
                 self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.add_terminal_pane_in_agent_mode(None, None, ctx);
+                    pane_group.add_terminal_pane_in_agent_mode(None, ctx);
                     if let Some(terminal_view) = pane_group.focused_session_view(ctx) {
                         terminal_view.update(ctx, |terminal_view, terminal_view_ctx| {
                             // The modify-settings skill should always be available for
@@ -24045,9 +23967,6 @@ impl TypedActionView for Workspace {
                 search_query,
                 section,
             } => self.show_settings_with_search(search_query, *section, ctx),
-            OpenPromptSuggestionsUnavailableModal => {
-                self.open_prompt_suggestions_unavailable_modal(ctx)
-            }
             ShowThemeChooser(mode) => self.show_theme_chooser(Some(*mode), ctx),
             ShowThemeChooserForActiveTheme => self.show_theme_chooser_for_active_theme(ctx),
             IncreaseFontSize => self.increase_font_size(ctx),
@@ -24607,10 +24526,7 @@ impl TypedActionView for Workspace {
             OpenFilePath { path } => {
                 ctx.open_file_path(path);
             }
-            NewTabInAgentMode {
-                entrypoint,
-                zero_state_prompt_suggestion_type,
-            } => {
+            NewTabInAgentMode { entrypoint } => {
                 send_telemetry_from_ctx!(
                     TelemetryEvent::AgentModeClickedEntrypoint {
                         entrypoint: entrypoint.clone(),
@@ -24618,12 +24534,9 @@ impl TypedActionView for Workspace {
                     ctx
                 );
 
-                self.add_terminal_tab_in_ai_mode(*zero_state_prompt_suggestion_type, ctx);
+                self.add_terminal_tab_in_ai_mode(ctx);
             }
-            NewPaneInAgentMode {
-                entrypoint,
-                zero_state_prompt_suggestion_type,
-            } => {
+            NewPaneInAgentMode { entrypoint } => {
                 send_telemetry_from_ctx!(
                     TelemetryEvent::AgentModeClickedEntrypoint {
                         entrypoint: entrypoint.clone(),
@@ -24631,7 +24544,7 @@ impl TypedActionView for Workspace {
                     ctx
                 );
 
-                self.add_terminal_pane_in_ai_mode(*zero_state_prompt_suggestion_type, ctx);
+                self.add_terminal_pane_in_ai_mode(ctx);
             }
             OpenCloudAgentSetupGuide => {
                 if AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
@@ -24996,7 +24909,7 @@ impl TypedActionView for Workspace {
             }
             FixInAgentMode { query } => {
                 self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.add_terminal_pane_in_agent_mode(None, None, ctx);
+                    pane_group.add_terminal_pane_in_agent_mode(None, ctx);
                     if let Some(terminal_view) = pane_group.focused_session_view(ctx) {
                         terminal_view.update(ctx, |terminal_view, terminal_view_ctx| {
                             terminal_view.ai_controller().update(
@@ -27009,13 +26922,6 @@ impl View for Workspace {
 
         if should_show_modal && one_time_modal_model.is_free_ai_removal_modal_open() {
             stack.add_child(ChildView::new(&self.free_ai_removal_modal).finish());
-        }
-
-        if self
-            .current_workspace_state
-            .is_prompt_suggestions_unavailable_modal_open
-        {
-            stack.add_child(ChildView::new(&self.prompt_suggestions_unavailable_modal).finish());
         }
 
         if let Some(hoa_flow) = &self.hoa_onboarding_flow {

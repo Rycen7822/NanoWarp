@@ -18,8 +18,6 @@ pub enum ToolToAIAgentActionError {
     MissingTool,
     #[error("Could not parse args for MCP tool call: {0}")]
     CallMCPToolArgsError(String),
-    #[error("Error converting suggest prompt tool call: {0}")]
-    SuggestPromptError(String),
     #[error("Required coordinates for computer use action were missing")]
     MissingComputerUseCoordinates,
     #[error("Required scroll distance for mouse wheel action was missing")]

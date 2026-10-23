@@ -525,7 +525,6 @@ fn prepare_orders_guards_cancellation_token_check_and_attachment_transfer() {
                             computer_use_model_id: LLMId::from("test-computer-use-model"),
                             shared_session_response_initiator: None,
                             request_start_ts: Local::now(),
-                            supported_tools_override: None,
                         },
                         stream_id.clone(),
                         terminal_surface_id,

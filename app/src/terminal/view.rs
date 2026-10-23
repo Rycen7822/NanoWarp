@@ -34,7 +34,6 @@ pub(crate) mod docker_sandbox;
 mod link_detection;
 mod open_in_warp;
 mod pane_impl;
-mod passive_suggestions;
 mod pending_user_query;
 pub mod rich_content;
 mod shared_session;
@@ -213,9 +212,8 @@ use crate::ai::agent::todos::popup::{AgentTodosPopupEvent, AgentTodosPopupView};
 use crate::ai::agent::{
     AIAgentActionId, AIAgentActionType, AIAgentCitation, AIAgentContext, AIAgentExchangeId,
     AIAgentInput, AIAgentOutputStatus, AIAgentPtyWriteMode, AIAgentTextSection,
-    AgentReviewCommentBatch, CancellationReason, FileLocations, FinishedAIAgentOutput,
-    PassiveCodeDiffEntry, PassiveSuggestionResultType, PassiveSuggestionTrigger, RenderableAIError,
-    ServerOutputId, ShellCommandCompletedTrigger,
+    AgentReviewCommentBatch, CancellationReason, FinishedAIAgentOutput, RenderableAIError,
+    ServerOutputId,
 };
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::{
@@ -241,15 +239,13 @@ use crate::ai::blocklist::block::{AIBlockAction, FinishReason};
 use crate::ai::blocklist::codebase_index_speedbump_banner::{
     CodebaseIndexSpeedbumpBannerAction, CodebaseIndexSpeedbumpBannerState, VisibilityState,
 };
-use crate::ai::blocklist::diff_storage::DiffStorageHelper;
-use crate::ai::blocklist::diff_types::FileDiff;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelImpl, AIBlockOutputStatus};
+use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelImpl};
 use crate::ai::blocklist::orchestration_topology::OrchestrationNavigationDirection;
 use crate::ai::blocklist::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use crate::ai::blocklist::suggested_rule_modal::SuggestedRuleAndId;
 use crate::ai::blocklist::summarization_cancel_dialog::SummarizationCancelDialog;
-use crate::ai::blocklist::telemetry_banner::{TelemetryBanner, should_collect_ai_ugc_telemetry};
+use crate::ai::blocklist::telemetry_banner::TelemetryBanner;
 use crate::ai::blocklist::usage::conversation_usage_view::{
     ConversationUsageInfo, ConversationUsageView, TimingInfo,
 };
@@ -262,10 +258,8 @@ use crate::ai::blocklist::{
     BlocklistAIContextModel, BlocklistAIController, BlocklistAIControllerEvent,
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, BlocklistAIInputEvent, BlocklistAIInputModel,
     ClientIdentifiers, ConversationSelection, ConversationStatusUpdate, InputConfig, InputType,
-    InputTypeAutoDetectionSource, LegacyPassiveSuggestionsEvent, LegacyPassiveSuggestionsModel,
-    MaaPassiveSuggestionsEvent, MaaPassiveSuggestionsModel, PRE_REWIND_PREFIX,
-    PassiveSuggestionsModels, PendingAttachment, PendingQueryState, QueuedQuery, QueuedQueryId,
-    QueuedQueryModel, QueuedQueryOrigin, RequestFileEditsFormatKind, ShellCommandExecutor,
+    InputTypeAutoDetectionSource, PRE_REWIND_PREFIX, PendingAttachment, PendingQueryState,
+    QueuedQuery, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, ShellCommandExecutor,
     ShellCommandExecutorEvent, ShellRecoveryResult, SlashCommandRequest, StartAgentExecutor,
     StartAgentExecutorEvent, StartAgentRequest, ai_brand_color, block_context_from_terminal_model,
     get_ai_block_overflow_menu_element_position_id, get_attached_blocks_chip_element_position_id,
@@ -281,11 +275,6 @@ use crate::ai::llms::{LLMId, LLMModelHost, LLMPreferences};
 use crate::ai::loading::shimmering_warp_loading_text;
 #[cfg(feature = "local_fs")]
 use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::ai::predict::prompt_suggestions::{
-    has_pending_code_or_unit_test_prompt_suggestion,
-    is_accept_prompt_suggestion_bound_to_cmd_enter,
-    is_accept_prompt_suggestion_bound_to_ctrl_enter,
-};
 use crate::ai_assistant::{ASK_AI_ASSISTANT_TEXT, AskAIType};
 use crate::antivirus::AntivirusInfo;
 use crate::appearance::{Appearance, AppearanceEvent};
@@ -342,10 +331,10 @@ use crate::server::server_api::ServerApi;
 use crate::server::telemetry::{
     self, AgentModeAttachContextMethod, AgentModeEntrypoint, AgentModeRewindEntrypoint,
     AnonymousUserSignupEntrypoint, BootstrappingInfo, CloudAgentShellExitDetection,
-    CloudAgentShellRecoveryFailureClass, CloudAgentShellRecoveryOutcome, InteractionSource,
-    NotificationAgentVariant, NotificationsTurnedOnSource, PaletteSource, PromptSuggestionViewType,
-    SaveAsWorkflowModalSource, SecretInteraction, SharingDialogSource, SlowBootstrapInfo,
-    TelemetryEvent, ToggleBlockFilterSource, WorkflowTelemetryMetadata,
+    CloudAgentShellRecoveryFailureClass, CloudAgentShellRecoveryOutcome, NotificationAgentVariant,
+    NotificationsTurnedOnSource, PaletteSource, SaveAsWorkflowModalSource, SecretInteraction,
+    SharingDialogSource, SlowBootstrapInfo, TelemetryEvent, ToggleBlockFilterSource,
+    WorkflowTelemetryMetadata,
 };
 use crate::session_management::{CommandContext, SessionNavigationPromptElements};
 use crate::settings::ai::FocusedTerminalInfo;
@@ -455,9 +444,8 @@ use crate::terminal::view::init_environment::{InitEnvironmentBlock, InitEnvironm
 use crate::terminal::view::inline_banner::{
     AgentModeSetupSpeedbumpBannerAction, AgentModeSetupSpeedbumpBannerState,
     AliasExpansionBannerState, NotificationsDiscoveryBannerState, NotificationsErrorBannerState,
-    PromptSuggestionBannerState, VimModeBannerState, render_agent_mode_setup_banner,
+    VimModeBannerState, render_agent_mode_setup_banner,
 };
-use crate::terminal::view::passive_suggestions::PromptSuggestionResolution;
 pub use crate::terminal::view::rich_content::{
     AIBlockMetadata, AgentViewEntryMetadata, RichContent, RichContentInsertionPosition,
     RichContentMetadata,
@@ -472,7 +460,6 @@ use crate::terminal::view::ssh_remote_server_failed_banner::{
 use crate::terminal::view::ssh_tmux_deprecation_banner::{
     SshTmuxDeprecationBanner, SshTmuxDeprecationBannerEvent,
 };
-use crate::terminal::view::telemetry::PromptSuggestionFallbackReason;
 use crate::terminal::view::zero_state_block::TerminalViewZeroStateBlock;
 use crate::terminal::warpify::SubshellSource;
 use crate::terminal::warpify::render::render_subshell_separator;
@@ -526,8 +513,8 @@ use crate::workspace::{
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::workspaces::workspace::{ChargeUnit, CustomerType};
 use crate::{
-    AIAgentActionResultType, AIRequestUsageModel, ActiveSession as WindowActiveSession, safe_error,
-    safe_warn, send_telemetry_from_ctx, send_telemetry_sync_from_ctx,
+    AIAgentActionResultType, ActiveSession as WindowActiveSession, safe_error, safe_warn,
+    send_telemetry_from_ctx, send_telemetry_sync_from_ctx,
 };
 
 lazy_static! {
@@ -963,52 +950,6 @@ struct ShellProcessTerminatedBanner {
     was_premature_termination: bool,
 }
 
-#[derive(Debug, Clone)]
-pub enum AgentModePromptSuggestion {
-    Success(PromptSuggestion),
-    None,
-    Error,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PromptSuggestion {
-    pub id: String,
-
-    /// The query that is displayed in the Prompt Suggestion chip to the user.
-    /// If this is None, we default to using the prompt itself as the label.
-    pub label: Option<String>,
-
-    /// The prompt that is used as the input to Agent Mode.
-    pub prompt: String,
-
-    /// If this is some, we eagerly pre-fetch the Agent Mode response for this query.
-    pub coding_query_context: Option<Vec<FileLocations>>,
-
-    /// If this is a static prompt suggestion, we store the name of the suggestion type here.
-    pub static_prompt_suggestion_name: Option<String>,
-
-    // Whether or not accepting this prompt suggestion should start a new conversation or continue
-    // the existing one. Only applies when in agent view; in terminal view, prompt suggestions
-    // always start a new conversation.
-    pub should_start_new_conversation: bool,
-}
-
-impl PromptSuggestion {
-    pub fn is_coding_query(&self) -> bool {
-        self.coding_query_context.is_some()
-    }
-
-    /// Returns specified label for Prompt Suggestion if it exists, otherwise returns the query
-    /// (which is considered to be the "default" label).
-    pub fn label(&self) -> &String {
-        self.label.as_ref().unwrap_or(&self.prompt)
-    }
-
-    pub fn is_static_prompt_suggestion(&self) -> bool {
-        self.static_prompt_suggestion_name.is_some()
-    }
-}
-
 /// A unique identifier for an inline banner.
 pub type InlineBannerId = usize;
 
@@ -1017,7 +958,6 @@ pub type InlineBannerId = usize;
 pub enum InlineBannerType {
     NotificationsDiscovery,
     NotificationsError,
-    PromptSuggestions,
     AliasExpansion,
     SharedSessionStart,
     SharedSessionEnd,
@@ -1036,8 +976,7 @@ impl InlineBannerType {
     pub fn is_visible_in_agent_view(&self) -> bool {
         match self {
             // Agent-related banners: visible in agent view
-            Self::PromptSuggestions
-            | Self::CodebaseIndexSpeedbump
+            Self::CodebaseIndexSpeedbump
             | Self::AgentModeSetup
             | Self::AwsBedrockLogin
             | Self::AwsCliNotInstalled => true,
@@ -1078,8 +1017,6 @@ struct InlineBannersState {
     /// State for the different notification banners.
     notifications_discovery_banner: NotificationsDiscoveryBanner,
     notifications_error_banner: NotificationsErrorBanner,
-
-    prompt_suggestions_banner: Option<PromptSuggestionBannerState>,
 
     alias_expansion_banner: AliasExpansionBanner,
 
@@ -1630,15 +1567,6 @@ enum SelectionFocusPolicy {
     /// completes, so a selection made before or during the command doesn't prevent
     /// focus from returning to the input box.
     HoldsFocusOnlyWhileSelecting,
-}
-
-/// Actions that can be taken on a passive code diff via the input editor.
-#[derive(Clone, Debug)]
-pub enum CodeDiffAction {
-    Accept,
-    Reject,
-    Edit,
-    ScrollToExpand,
 }
 
 pub enum Event {
@@ -2397,11 +2325,6 @@ enum SecretTooltip {
     },
 }
 
-pub fn is_prompt_suggestions_enabled(app: &AppContext) -> bool {
-    AISettings::as_ref(app).is_prompt_suggestions_enabled(app)
-        && UserWorkspaces::as_ref(app).is_prompt_suggestions_toggleable()
-}
-
 type TerminalViewCallback = Box<dyn FnOnce(&mut TerminalView, &mut ViewContext<TerminalView>)>;
 type ConversationFinishedCallback =
     Box<dyn FnOnce(&mut TerminalView, FinishReason, &mut ViewContext<TerminalView>)>;
@@ -2697,7 +2620,6 @@ pub struct TerminalView {
     hover_near_snackbar_area: bool,
 
     ai_controller: ModelHandle<BlocklistAIController>,
-    passive_suggestions_models: PassiveSuggestionsModels,
     ai_action_model: ModelHandle<BlocklistAIActionModel>,
     ai_input_model: ModelHandle<BlocklistAIInputModel>,
     ai_context_model: ModelHandle<BlocklistAIContextModel>,
@@ -3151,8 +3073,6 @@ impl TerminalView {
                     origin,
                     ..
                 } => {
-                    // Clear prompt suggestions shown in the context of the terminal mode or prior agent view.
-                    me.clear_prompt_suggestions(ctx);
                     match display_mode {
                         AgentViewDisplayMode::Inline => {
                             // Insert the inline agent view header as rich content
@@ -3250,8 +3170,6 @@ impl TerminalView {
                     is_exit_before_new_entrance,
                     ..
                 } => {
-                    // Prompt suggestions should not follow the user back to terminal view.
-                    me.clear_prompt_suggestions(ctx);
                     // The transcript navigation cursor is agent-view-scoped; drop it so its
                     // visual feedback doesn't linger into the terminal view or a re-entered
                     // agent view.
@@ -3508,40 +3426,6 @@ impl TerminalView {
                 ctx,
             )
         });
-        let maa_passive_suggestions_model = ctx.add_model(|ctx| {
-            MaaPassiveSuggestionsModel::new(
-                active_session.clone(),
-                model.clone(),
-                ai_controller.clone(),
-                &model_events_handle,
-                ambient_agent_view_model.clone(),
-                terminal_view_id,
-                ctx,
-            )
-        });
-        ctx.subscribe_to_model(
-            &maa_passive_suggestions_model,
-            Self::handle_maa_passive_suggestions_event,
-        );
-        let legacy_passive_suggestions_model = ctx.add_model(|ctx| {
-            LegacyPassiveSuggestionsModel::new(
-                active_session.clone(),
-                model.clone(),
-                ai_controller.clone(),
-                &model_events_handle,
-                terminal_view_id,
-                ctx,
-            )
-        });
-        ctx.subscribe_to_model(
-            &legacy_passive_suggestions_model,
-            Self::handle_legacy_passive_suggestions_event,
-        );
-        let passive_suggestions_models = PassiveSuggestionsModels {
-            maa: maa_passive_suggestions_model,
-            legacy: legacy_passive_suggestions_model,
-        };
-
         let find_model = ctx.add_model(|ctx| TerminalFindModel::new(model.clone(), ctx));
 
         ctx.subscribe_to_model(
@@ -3743,7 +3627,6 @@ impl TerminalView {
             Input::new(
                 model.clone(),
                 resources.tips_completed.clone(),
-                resources.server_api.clone(),
                 sessions.clone(),
                 size_info,
                 menu_positioning_provider,
@@ -4342,7 +4225,6 @@ impl TerminalView {
             show_snackbar: true,
             hover_near_snackbar_area: false,
             ai_controller,
-            passive_suggestions_models,
             ai_action_model,
             ai_render_context,
             get_relevant_files_controller,
@@ -5339,55 +5221,6 @@ impl TerminalView {
                 );
             }
 
-            // If the most recent action in the current interaction turn created or updated a plan
-            // document, show an "Execute this plan" prompt suggestion.
-            let mut should_show_execute_plan_suggestion = false;
-            for view in self.rich_content_views.iter().rev() {
-                if let Some(ai_metadata) = view.ai_block_metadata() {
-                    let block = ai_metadata.ai_block_handle.as_ref(ctx);
-
-                    if let Some(output) = block.output_status(ctx).output_to_render()
-                        && let Some(most_recent_action) = output.get().actions().last()
-                    {
-                        should_show_execute_plan_suggestion = matches!(
-                            &most_recent_action.action,
-                            AIAgentActionType::CreateDocuments(_)
-                                | AIAgentActionType::EditDocuments(_)
-                        );
-                        break;
-                    }
-
-                    if block.has_user_input(ctx) {
-                        // We reached the start of the current interaction turn.
-                        break;
-                    }
-                }
-            }
-
-            if should_show_execute_plan_suggestion
-                && !FeatureFlag::PromptSuggestionsViaMAA.is_enabled()
-                && let Some(block) = self.last_ai_block()
-            {
-                let block_id = BlockId::from(block.id().to_string());
-                let suggestion = AgentModePromptSuggestion::Success(PromptSuggestion {
-                    id: Uuid::new_v4().to_string(),
-                    label: Some("Execute this plan".to_string()),
-                    prompt: "Execute this plan".to_string(),
-                    coding_query_context: None,
-                    static_prompt_suggestion_name: Some("EXECUTE_CREATED_PLAN".to_string()),
-                    should_start_new_conversation: false,
-                });
-
-                self.on_legacy_prompt_suggestion_generated(
-                    suggestion,
-                    block_id,
-                    "".to_string(),
-                    0,
-                    ctx,
-                );
-            }
-
-            self.update_input_prompt_suggestions_banner_state(ctx);
             ctx.notify();
         }
     }
@@ -5668,49 +5501,6 @@ impl TerminalView {
         };
 
         self.drain_queued_prompts(conversation_id, FinishReason::Complete, ctx);
-    }
-
-    fn handle_legacy_passive_suggestions_event(
-        &mut self,
-        _: ModelHandle<LegacyPassiveSuggestionsModel>,
-        event: &LegacyPassiveSuggestionsEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            LegacyPassiveSuggestionsEvent::PromptSuggestionsGenerated {
-                prompt_suggestion,
-                block_id,
-                command,
-                request_duration_ms,
-            } => {
-                self.on_legacy_prompt_suggestion_generated(
-                    prompt_suggestion.clone(),
-                    block_id.clone(),
-                    command.clone(),
-                    *request_duration_ms,
-                    ctx,
-                );
-            }
-            LegacyPassiveSuggestionsEvent::PassiveCodeDiffRequestStarted {
-                prompt_suggestion_id,
-                code_exchange_id,
-                block_id,
-            } => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::SuggestedCodeDiffBannerShown {
-                        prompt_suggestion_id: prompt_suggestion_id.clone(),
-                        code_exchange_id: *code_exchange_id,
-                        block_id: Some(block_id.to_string()),
-                        request_duration_ms: 0,
-                        server_request_token: None,
-                    },
-                    ctx
-                );
-            }
-            LegacyPassiveSuggestionsEvent::PassiveCodeDiffFailed { reason } => {
-                self.try_clear_prompt_suggestions_banner_code_state(*reason, ctx);
-            }
-        }
     }
 
     fn build_agent_todos_popup(
@@ -6220,7 +6010,6 @@ impl TerminalView {
                 exchange_id,
                 task_id,
                 conversation_id,
-                is_hidden,
                 response_stream_id,
                 ..
             } => {
@@ -6361,7 +6150,6 @@ impl TerminalView {
                     );
                 });
                 let ai_block_clone = ai_block.clone();
-                let is_passive_conversation = ai_block_clone.as_ref(ctx).is_passive_conversation();
                 self.find_model.update(ctx, move |find_model, _ctx| {
                     find_model.register_findable_rich_content_view(ai_block_clone);
                 });
@@ -6379,12 +6167,6 @@ impl TerminalView {
                     },
                     ctx,
                 );
-
-                if !is_hidden && !is_passive_conversation {
-                    // Clear agent mode query banners and hidden blocks when a new AI block is created.
-                    self.clear_prompt_suggestions(ctx);
-                    self.drop_hidden_passive_ai_blocks(ctx);
-                }
 
                 self.update_context_blocks_and_exchanges(ctx);
 
@@ -7454,12 +7236,9 @@ impl TerminalView {
                             .auto_open_code_review_pane_on_first_agent_change;
 
                         if !already_opened
-                                && should_auto_open
-                                && FeatureFlag::AutoOpenCodeReviewPane.is_enabled()
-                                && self.can_auto_open_code_review_panel(ctx)
-                                // we shouldn't auto open if this was triggered from a passive code review diff
-                                && !BlocklistAIHistoryModel::as_ref(ctx)
-                                .is_entirely_passive_conversation(&conversation_id)
+                            && should_auto_open
+                            && FeatureFlag::AutoOpenCodeReviewPane.is_enabled()
+                            && self.can_auto_open_code_review_panel(ctx)
                         {
                             self.open_code_review_pane(
                                 GitDeltaPreference::Always,
@@ -8904,19 +8683,6 @@ impl TerminalView {
         cleared_buffer_len: usize,
         ctx: &mut ViewContext<Self>,
     ) {
-        let did_resolve_prompt_suggestion = self
-            .resolve_passive_suggestion(PromptSuggestionResolution::Reject { ctrl_c: true }, ctx);
-        if did_resolve_prompt_suggestion {
-            if FeatureFlag::AgentView.is_enabled()
-                && self.agent_view_controller.as_ref(ctx).is_active()
-            {
-                self.agent_view_controller.update(ctx, |controller, ctx| {
-                    controller.clear_pending_exit_confirmation(ctx);
-                });
-            }
-            return;
-        }
-
         if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(ctx).is_active()
         {
             if cleared_buffer_len > 0 {
@@ -9217,14 +8983,6 @@ impl TerminalView {
             active_init_env_block.update(ctx, |init_env_block, ctx| {
                 init_env_block.handle_ctrl_c(ctx);
             });
-        } else if self
-            .passive_suggestions_models
-            .legacy
-            .as_ref(ctx)
-            .is_passive_code_diff_being_generated()
-        {
-            // Handle Ctrl-C for passive code generation blocks ("Generating fix..." state)
-            self.abort_prompt_and_code_suggestions(ctx);
         } else if let Some(active_env_var_block) = self.active_env_var_collection_block(ctx) {
             active_env_var_block.update(ctx, |env_var_block, ctx| {
                 env_var_block.handle_ctrl_c(ctx);
@@ -10376,229 +10134,6 @@ impl TerminalView {
         });
     }
 
-    /// Returns the view type for prompt suggestion telemetry based on whether agent view is active.
-    fn prompt_suggestion_view_type(&self, ctx: &ViewContext<Self>) -> PromptSuggestionViewType {
-        if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(ctx).is_active()
-        {
-            PromptSuggestionViewType::AgentView
-        } else {
-            PromptSuggestionViewType::TerminalView
-        }
-    }
-
-    fn resolve_prompt_suggestion(
-        &mut self,
-        resolution: PromptSuggestionResolution,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let interaction_source = match resolution {
-            PromptSuggestionResolution::Accept { interaction_source } => interaction_source,
-            PromptSuggestionResolution::Reject { ctrl_c } => {
-                // ctrl-c shouldn't clear prompt suggestions, but all other rejections should.
-                if !ctrl_c {
-                    self.clear_prompt_suggestions(ctx);
-                }
-                return false;
-            }
-        };
-
-        // Return early if we've run out of AI usage.
-        let has_any_ai = {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_view(ctx);
-            AIRequestUsageModel::as_ref(ctx).has_any_ai_remaining(&scope, ctx)
-        };
-        if !has_any_ai {
-            return false;
-        }
-
-        let Some(banner_state) = &self.inline_banners_state.prompt_suggestions_banner else {
-            return false;
-        };
-
-        // Return early if the banner is not visible to the user.
-        if banner_state.should_hide {
-            return false;
-        }
-
-        let view = self.prompt_suggestion_view_type(ctx);
-        let suggestion = &banner_state.prompt_suggestion;
-        let prompt = suggestion.prompt.clone();
-        let suggestion_id = suggestion.id.clone();
-        let is_static_suggestion = suggestion.static_prompt_suggestion_name.is_some();
-        let trigger = banner_state.trigger.clone();
-        let should_start_new_conversation = suggestion.should_start_new_conversation;
-        let conversation_id = banner_state.conversation_id;
-        let trigger_block_id = trigger.as_ref().and_then(|t| t.block_id());
-        log::debug!(
-            "[passive-suggestions] accepting prompt suggestion: trigger={}, trigger_block_id={}",
-            if trigger.is_some() { "Some" } else { "None" },
-            if trigger_block_id.is_some() {
-                "Some"
-            } else {
-                "None"
-            },
-        );
-
-        if FeatureFlag::PromptSuggestionsViaMAA.is_enabled() {
-            let conversation_id = if let Some(conversation_id) = conversation_id {
-                conversation_id
-            } else {
-                match self.try_enter_agent_view(
-                    None,
-                    AgentViewEntryOrigin::AcceptedPromptSuggestion,
-                    None,
-                    ctx,
-                ) {
-                    Ok(conversation_id) => {
-                        if let Some(block_id) = trigger_block_id.as_ref() {
-                            self.associate_and_promote_block_for_conversation(
-                                block_id.clone(),
-                                conversation_id,
-                                ctx,
-                            );
-                        }
-                        conversation_id
-                    }
-                    Err(e) => {
-                        report_error!(
-                            anyhow::Error::new(e)
-                                .context("Failed to enter agent view for passive code diff")
-                        );
-                        return false;
-                    }
-                }
-            };
-
-            self.ai_controller.update(ctx, |controller, ctx| {
-                controller.send_passive_suggestion_result(
-                    Some(conversation_id),
-                    PassiveSuggestionResultType::Prompt { prompt },
-                    trigger,
-                    ctx,
-                );
-            });
-        } else {
-            if let Some(PassiveSuggestionTrigger::ShellCommandCompleted(c)) = &banner_state.trigger
-            {
-                let block_id = c.executed_shell_command.id.clone();
-                self.ai_context_model.update(ctx, |context_model, ctx| {
-                    context_model.set_pending_context_block_ids(vec![block_id], true, ctx);
-                });
-            }
-            // When `should_start_new_conversation` is false and agent view is already
-            // active, continue in the existing conversation rather than starting a new one.
-            let conversation_id = if !should_start_new_conversation {
-                self.agent_view_controller
-                    .as_ref(ctx)
-                    .agent_view_state()
-                    .active_conversation_id()
-            } else {
-                None
-            };
-            self.enter_agent_view(
-                Some(prompt),
-                conversation_id,
-                AgentViewEntryOrigin::AcceptedPromptSuggestion,
-                ctx,
-            );
-        }
-
-        // Send telemetry.
-        if is_static_suggestion {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::StaticPromptSuggestionAccepted {
-                    id: suggestion_id,
-                    view,
-                    interaction_source,
-                },
-                ctx
-            );
-        } else {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::PromptSuggestionAccepted {
-                    id: suggestion_id,
-                    view,
-                    interaction_source,
-                },
-                ctx
-            );
-        }
-
-        true
-    }
-
-    /// Try clearing agent mode query banner's passive code generation state.
-    /// Called when a suggested code diff fails and we need to fall back to prompt suggestions.
-    fn try_clear_prompt_suggestions_banner_code_state(
-        &mut self,
-        fallback_reason: PromptSuggestionFallbackReason,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Some(banner) = &mut self.inline_banners_state.prompt_suggestions_banner {
-            banner.should_hide = false;
-            banner.prompt_suggestion.coding_query_context = None;
-            self.input.update(ctx, |input, ctx| {
-                input.maybe_set_prompt_suggestions_banner_state_should_hide(false);
-                input.notify_and_notify_children(ctx);
-            });
-            send_telemetry_from_ctx!(
-                TelemetryEvent::SuggestedCodeDiffFailed {
-                    prompt_suggestion_id: banner.prompt_suggestion.id.clone(),
-                    reason: fallback_reason,
-                },
-                ctx
-            );
-        }
-    }
-
-    fn associate_and_promote_block_for_conversation(
-        &mut self,
-        block_id: BlockId,
-        conversation_id: AIConversationId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.ai_context_model.update(ctx, |context_model, ctx| {
-            context_model.set_pending_context_block_ids([block_id.clone()], false, ctx);
-        });
-        let associated_blocks = self
-            .model
-            .lock()
-            .block_list_mut()
-            .associate_blocks_with_conversation([&block_id].into_iter(), conversation_id);
-        self.model
-            .lock()
-            .block_list_mut()
-            .promote_blocks_to_attached_from_conversation(conversation_id);
-
-        if let Some(sender) = GlobalResourceHandlesProvider::as_ref(ctx)
-            .get()
-            .model_event_sender
-            .as_ref()
-        {
-            for (block_id, agent_view_visibility) in associated_blocks {
-                if let Err(e) =
-                    sender.send(persistence::ModelEvent::UpdateBlockAgentViewVisibility {
-                        block_id: block_id.to_string(),
-                        agent_view_visibility: agent_view_visibility.into(),
-                    })
-                {
-                    log::warn!("Error sending UpdateBlockAgentViewVisibility event: {e:#}");
-                }
-            }
-        }
-    }
-
-    fn passive_code_diffs_enabled(ctx: &mut ViewContext<Self>) -> bool {
-        // Prompt suggestions must be enabled since the current implementation of passive code diffs
-        // depends on generating a prompt suggestion.
-        let ai_settings = AISettings::as_ref(ctx);
-        let is_prompt_suggestions_enabled = ai_settings.is_prompt_suggestions_enabled(ctx);
-        let is_setting_enabled = ai_settings.is_code_suggestions_enabled(ctx);
-        let is_setting_toggleable = UserWorkspaces::as_ref(ctx).is_code_suggestions_toggleable();
-        is_prompt_suggestions_enabled && is_setting_enabled && is_setting_toggleable
-    }
-
     fn insert_alias_expansion_banner(
         &mut self,
         aliased_command: AliasedCommand,
@@ -11477,98 +11012,6 @@ impl TerminalView {
         false
     }
 
-    // Abort any pending prompt or code suggestions, which may now be irrelevant.
-    fn abort_prompt_and_code_suggestions(&mut self, ctx: &mut ViewContext<Self>) {
-        // Abort both models to handle any in-flight requests from before a
-        // feature flag change.
-        self.passive_suggestions_models
-            .maa
-            .update(ctx, |model, ctx| model.abort_pending_requests(ctx));
-        let pending_stream_ids = self
-            .passive_suggestions_models
-            .legacy
-            .update(ctx, |model, ctx| model.abort_pending_requests(ctx));
-        for stream_id in pending_stream_ids {
-            if let Some(passive_block) =
-                self.rich_content_views
-                    .iter()
-                    .rev()
-                    .find_map(|rich_content| {
-                        let ai_metadata = rich_content.ai_block_metadata()?;
-                        if ai_metadata
-                            .ai_block_handle
-                            .as_ref(ctx)
-                            .response_stream_id()
-                            .is_some_and(|id| id == &stream_id)
-                        {
-                            return Some(ai_metadata.ai_block_handle.clone());
-                        }
-                        None
-                    })
-            {
-                self.cleanup_and_remove_conversation_for_ai_block(&passive_block, ctx);
-            }
-        }
-    }
-
-    /// Cleans up and removes the conversation associated with the given AI block.
-    ///
-    /// This removes the AI block from the blocklist (and cached `rich_content_views` list) and
-    /// deletes its associated conversation.
-    ///
-    /// This assumes that the deleted conversation only contains a single block -- should there
-    /// be other blocks besides `passive_block` in the same conversation, we're left in invalid
-    /// state (AI blocks rely on conversation state in the history model to render). If there is
-    /// more than one AI block corresponding to the same conversation as `passive_block`, does
-    /// nothing.
-    fn cleanup_and_remove_conversation_for_ai_block(
-        &mut self,
-        passive_block: &ViewHandle<AIBlock>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let Some((rich_content_idx, _)) =
-            self.rich_content_views
-                .iter()
-                .enumerate()
-                .find_map(|(idx, rich_content)| {
-                    let ai_metadata = rich_content.ai_block_metadata()?;
-                    (ai_metadata.ai_block_handle.id() == passive_block.id())
-                        .then(|| (idx, ai_metadata.ai_block_handle.clone()))
-                })
-        else {
-            return;
-        };
-
-        let has_other_blocks_in_same_conversation =
-            self.rich_content_views.iter().any(|rich_content| {
-                if let Some(ai_metadata) = rich_content.ai_block_metadata() {
-                    ai_metadata.ai_block_handle.id() != passive_block.id()
-                        && ai_metadata.ai_block_handle.as_ref(ctx).conversation_id()
-                            == passive_block.as_ref(ctx).conversation_id()
-                } else {
-                    false
-                }
-            });
-        if has_other_blocks_in_same_conversation {
-            report_error!(
-                "Attempted to clean up and delete conversation for block with other blocks in the same conversation"
-            );
-            return;
-        }
-
-        passive_block.update(ctx, |ai_block, ctx| {
-            ai_block.cleanup_block(ctx);
-        });
-        let conversation_id = passive_block.as_ref(ctx).conversation_id();
-        conversation_utils::remove_conversation(conversation_id, self.view_id, true, ctx);
-        self.rich_content_views.remove(rich_content_idx);
-        self.model
-            .lock()
-            .block_list_mut()
-            .remove_rich_content(passive_block.id());
-        ctx.notify();
-    }
-
     /// Replaces an idle local shell and completes after the new shell bootstraps.
     pub fn replace_shell(
         &mut self,
@@ -12444,10 +11887,6 @@ impl TerminalView {
                     .block_list_mut()
                     .active_block_mut()
                     .set_prompt_snapshot(prompt_snapshot);
-
-                // Clear any previously active AM query suggestion banners and hidden blocks.
-                self.clear_prompt_suggestions(ctx);
-                self.drop_hidden_passive_ai_blocks(ctx);
 
                 // If the first word of the command is a shell alias, expand it
                 // for subshell/SSH detection. This enables warpification for
@@ -15241,81 +14680,6 @@ impl TerminalView {
         }
     }
 
-    fn clear_prompt_suggestions(&mut self, ctx: &mut ViewContext<Self>) {
-        if self
-            .inline_banners_state
-            .prompt_suggestions_banner
-            .take()
-            .is_some()
-        {
-            self.input.update(ctx, |input, ctx| {
-                input.set_prompt_suggestions_banner_state(None, ctx);
-                input.notify_and_notify_children(ctx);
-            });
-        }
-        if let Some(ai_block) = self.last_ai_block() {
-            ai_block.update(ctx, |ai_block, ctx| {
-                ai_block.ignore_passive_actions(ctx);
-            });
-        };
-    }
-
-    fn update_input_prompt_suggestions_banner_state(&mut self, ctx: &mut ViewContext<Self>) {
-        for rich_content in &self.rich_content_views {
-            if let Some(ai_metadata) = rich_content.ai_block_metadata() {
-                // If the passive code gen fails, show the prompt suggestion banner as a fallback
-                if ai_metadata
-                    .ai_block_handle
-                    .as_ref(ctx)
-                    .is_passive_conversation()
-                    && matches!(
-                        ai_metadata.ai_block_handle.as_ref(ctx).status(ctx),
-                        AIBlockOutputStatus::Failed { .. }
-                    )
-                {
-                    // Try to update the state of the prompt suggestions banner
-                    self.input.update(ctx, |input, ctx| {
-                        input.maybe_set_prompt_suggestions_banner_state_should_hide(false);
-                        input.notify_and_notify_children(ctx);
-                    });
-
-                    break;
-                }
-            }
-        }
-    }
-
-    /// Removes hidden AI blocks for passive requests from the sumtree.
-    ///
-    /// Hidden AI blocks are only generated when generating passive codegen suggestions after a
-    /// compiler error.
-    fn drop_hidden_passive_ai_blocks(&mut self, ctx: &mut ViewContext<Self>) {
-        let mut ai_block_ids_to_remove = vec![];
-        self.rich_content_views.retain(|rich_content| {
-            if let Some(ai_metadata) = rich_content.ai_block_metadata() {
-                let is_hidden = ai_metadata.ai_block_handle.read(ctx, |ai_block, ctx| {
-                    ai_block.is_passive_conversation() && ai_block.is_hidden(ctx)
-                });
-                if is_hidden {
-                    ai_block_ids_to_remove.push(ai_metadata.ai_block_handle.id());
-                }
-                !is_hidden
-            } else {
-                true
-            }
-        });
-
-        for view_id in ai_block_ids_to_remove {
-            self.model
-                .lock()
-                .block_list_mut()
-                .remove_rich_content(view_id);
-        }
-
-        self.update_input_prompt_suggestions_banner_state(ctx);
-        ctx.notify();
-    }
-
     /// Removes AI blocks from `rich_content_views` that match the given conversation and exchange IDs.
     /// This handles cleanup of the block, removal from the block list model, and notifying the
     /// new last AI block in the conversation so it re-renders with the footer.
@@ -15377,389 +14741,6 @@ impl TerminalView {
 
         // Update scroll position to ensure we don't have blank space
         self.update_scroll_position_locking(ScrollPositionUpdate::AfterEnd, ctx);
-    }
-
-    fn handle_maa_passive_suggestions_event(
-        &mut self,
-        _: ModelHandle<MaaPassiveSuggestionsModel>,
-        event: &MaaPassiveSuggestionsEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            MaaPassiveSuggestionsEvent::NewPromptSuggestion {
-                prompt,
-                label,
-                request_duration_ms,
-                trigger,
-                conversation_id,
-                server_request_token,
-            } => {
-                self.on_maa_prompt_suggestion_generated(
-                    prompt,
-                    &label.clone(),
-                    *request_duration_ms,
-                    trigger.clone(),
-                    *conversation_id,
-                    server_request_token.clone(),
-                    ctx,
-                );
-            }
-            MaaPassiveSuggestionsEvent::NewCodeDiffSuggestion {
-                diffs,
-                edit_format_kind,
-                title,
-                original_edits,
-                conversation_id,
-                request_duration_ms,
-                trigger,
-                server_request_token,
-            } => {
-                self.on_maa_code_diff_generated(
-                    diffs.clone(),
-                    *edit_format_kind,
-                    title.clone(),
-                    original_edits.clone(),
-                    *conversation_id,
-                    *request_duration_ms,
-                    trigger.clone(),
-                    server_request_token.clone(),
-                    ctx,
-                );
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn on_maa_prompt_suggestion_generated(
-        &mut self,
-        prompt: &str,
-        label: &Option<String>,
-        _request_duration_ms: u64,
-        trigger: Option<PassiveSuggestionTrigger>,
-        conversation_id: Option<AIConversationId>,
-        server_request_token: Option<String>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if prompt.is_empty() {
-            return;
-        }
-
-        self.clear_prompt_suggestions(ctx);
-        let suggestion_id = Uuid::new_v4().to_string();
-        let banner_id = self.inline_banners_state.next_banner_id();
-        let banner_state = PromptSuggestionBannerState {
-            banner_id,
-            prompt_suggestion: PromptSuggestion {
-                id: suggestion_id.clone(),
-                label: label.clone(),
-                prompt: prompt.to_string(),
-                coding_query_context: None,
-                static_prompt_suggestion_name: None,
-                should_start_new_conversation: false,
-            },
-            accept_button_mouse_state: Default::default(),
-            llm_warning_learn_more_hyperlink: Default::default(),
-            should_hide: false,
-            trigger,
-            conversation_id,
-            server_request_token: server_request_token.clone(),
-        };
-
-        self.inline_banners_state.prompt_suggestions_banner = Some(banner_state.clone());
-        self.input.update(ctx, |input, ctx| {
-            input.set_prompt_suggestions_banner_state(Some(banner_state), ctx);
-            input.notify_and_notify_children(ctx);
-        });
-
-        ctx.notify();
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn on_maa_code_diff_generated(
-        &mut self,
-        diffs: Vec<FileDiff>,
-        edit_format_kind: RequestFileEditsFormatKind,
-        title: Option<String>,
-        original_edits: Vec<PassiveCodeDiffEntry>,
-        conversation_id: Option<AIConversationId>,
-        request_duration_ms: u64,
-        trigger: PassiveSuggestionTrigger,
-        server_request_token: Option<String>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let action_id = AIAgentActionId::from(uuid::Uuid::new_v4().to_string());
-        use crate::ai::agent::AIIdentifiers;
-        use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffViewEvent;
-
-        let identifiers = AIIdentifiers::default();
-        let title_for_result = title.clone();
-
-        let session_platform = self
-            .active_session
-            .as_ref(ctx)
-            .shell_launch_data(ctx)
-            .map(Into::into);
-
-        let diff_view = ctx.add_typed_action_view(|ctx| {
-            CodeDiffView::new_passive(
-                &action_id,
-                title,
-                identifiers,
-                edit_format_kind,
-                false,
-                session_platform,
-                ctx,
-            )
-        });
-
-        diff_view.update(ctx, |view, ctx| {
-            view.set_candidate_diffs(diffs, ctx);
-        });
-
-        let wrapper_view = {
-            let diff_view_for_wrapper = diff_view.clone();
-            ctx.add_view(move |_ctx| inline_banner::PassiveCodeDiff {
-                diff_view: diff_view_for_wrapper,
-            })
-        };
-
-        let trigger_block_id = match &trigger {
-            PassiveSuggestionTrigger::ShellCommandCompleted(trigger) => {
-                Some(trigger.executed_shell_command.id.clone())
-            }
-            _ => None,
-        };
-        // Capture the string form for telemetry before `trigger_block_id` is
-        // moved into the subscribe_to_view closure below.
-        let trigger_block_id_str = trigger_block_id.as_ref().map(|id| id.to_string());
-
-        let wrapper_view_id = wrapper_view.id();
-        ctx.subscribe_to_view(&diff_view, move |me, view, event, ctx| {
-            match event {
-                CodeDiffViewEvent::TryAccept => {
-                    // Persist the accepted (possibly edited) passive suggestion
-                    // through the shared DiffStorageHelper flow. The result
-                    // isn't surfaced to the LLM on this path; failed writes
-                    // surface per-file toasts from the view's save
-                    // subscriptions.
-                    let _save_future = view.update(ctx, |diff_view, ctx| {
-                        diff_view.send_malformed_line_telemetry(ctx);
-                        DiffStorageHelper::accept_and_save(diff_view, ctx)
-                    });
-                    ctx.notify();
-                }
-                CodeDiffViewEvent::CancelPassive => {
-                    me.model
-                        .lock()
-                        .block_list_mut()
-                        .remove_rich_content(wrapper_view_id);
-                    me.rich_content_views
-                        .retain(|rc| rc.view_id() != wrapper_view_id);
-                    ctx.notify();
-                }
-                CodeDiffViewEvent::ContinuePassiveCodeDiffWithAgent { accepted } => {
-                    let conversation_id =
-                        if let Some(conversation_id) = conversation_id {
-                            conversation_id
-                        } else {
-                            // No existing conversation (ephemeral shell-command trigger): start a
-                            // new one and open the agent view.
-                            match me.try_enter_agent_view(
-                                None,
-                                AgentViewEntryOrigin::AcceptedPassiveCodeDiff,
-                                None,
-                                ctx,
-                            ) {
-                                Ok(conversation_id) => {
-                                    if let Some(block_id) = trigger_block_id.as_ref() {
-                                        me.associate_and_promote_block_for_conversation(
-                                            block_id.clone(),
-                                            conversation_id,
-                                            ctx,
-                                        );
-                                    }
-                                    me.set_rich_content_agent_view_conversation_id(
-                                        wrapper_view_id,
-                                        conversation_id,
-                                    );
-                                    conversation_id
-                                }
-                                Err(e) => {
-                                    report_error!(anyhow::Error::new(e).context(
-                                        "Failed to enter agent view for passive code diff"
-                                    ));
-                                    return;
-                                }
-                            }
-                        };
-
-                    // Use the passive diff summary as the conversation title.
-                    if let Some(title) = title_for_result.as_ref() {
-                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _ctx| {
-                            if let Some(conversation) = history.conversation_mut(&conversation_id) {
-                                conversation.set_fallback_display_title(title.clone());
-                            }
-                        });
-                    }
-
-                    let summary = title_for_result.clone().unwrap_or_default();
-                    let diffs = original_edits.clone();
-                    if *accepted {
-                        me.ai_controller.update(ctx, |controller, ctx| {
-                            controller.send_passive_suggestion_result(
-                                Some(conversation_id),
-                                PassiveSuggestionResultType::CodeDiff {
-                                    diffs,
-                                    summary,
-                                    accepted: true,
-                                },
-                                Some(trigger.clone()),
-                                ctx,
-                            );
-                        });
-                    } else {
-                        // Queue the result so it's included with the next
-                        // user-initiated request on this conversation.
-                        me.ai_controller.update(ctx, |controller, _ctx| {
-                            controller.queue_passive_suggestion_result(
-                                conversation_id,
-                                PassiveSuggestionResultType::CodeDiff {
-                                    diffs,
-                                    summary,
-                                    accepted: false,
-                                },
-                                Some(trigger.clone()),
-                            );
-                        });
-                    }
-                }
-                CodeDiffViewEvent::EditModeChanged { enabled } => {
-                    if *enabled {
-                        me.open_code_diff(view.clone(), ctx);
-                    }
-                    ctx.notify();
-                }
-                CodeDiffViewEvent::ToggleCodeReviewPane { entrypoint } => {
-                    me.toggle_code_review_pane(GitDeltaPreference::Always, *entrypoint, true, ctx);
-                }
-                CodeDiffViewEvent::DisplayModeChanged => {
-                    // Re-render wrapper when the diff view expands/collapses.
-                    ctx.notify();
-                }
-                CodeDiffViewEvent::Blur => {
-                    me.focus_terminal(ctx);
-                }
-                _ => {}
-            }
-        });
-
-        let suggestion_id = Uuid::new_v4().to_string();
-        send_telemetry_from_ctx!(
-            TelemetryEvent::SuggestedCodeDiffBannerShown {
-                prompt_suggestion_id: suggestion_id,
-                code_exchange_id: None,
-                block_id: trigger_block_id_str,
-                request_duration_ms,
-                server_request_token,
-            },
-            ctx
-        );
-
-        self.insert_rich_content(
-            None,
-            wrapper_view,
-            None,
-            RichContentInsertionPosition::Append {
-                insert_below_long_running_block: true,
-            },
-            ctx,
-        );
-    }
-
-    fn on_legacy_prompt_suggestion_generated(
-        &mut self,
-        prompt_suggestion: AgentModePromptSuggestion,
-        block_id: BlockId,
-        command: String,
-        request_duration_ms: u64,
-        ctx: &mut ViewContext<TerminalView>,
-    ) {
-        match prompt_suggestion {
-            AgentModePromptSuggestion::Success(suggestion) => {
-                if suggestion.prompt.is_empty() {
-                    return;
-                }
-
-                let (query_string, block_command) = if should_collect_ai_ugc_telemetry(
-                    ctx,
-                    PrivacySettings::as_ref(ctx).is_telemetry_enabled,
-                ) {
-                    (Some(suggestion.prompt.to_string()), Some(command))
-                } else {
-                    (None, None)
-                };
-
-                let banner_id = self.inline_banners_state.next_banner_id();
-
-                self.clear_prompt_suggestions(ctx);
-
-                // Don't show banner if is coding query
-                let is_coding_query =
-                    suggestion.is_coding_query() && Self::passive_code_diffs_enabled(ctx);
-                let static_prompt_suggestion_name =
-                    suggestion.static_prompt_suggestion_name.clone();
-                let suggestion_id = suggestion.id.clone();
-
-                let trigger = {
-                    let model = self.model.lock();
-                    let Some(block_context) =
-                        block_context_from_terminal_model(&model, &block_id, false)
-                    else {
-                        return;
-                    };
-                    PassiveSuggestionTrigger::ShellCommandCompleted(ShellCommandCompletedTrigger {
-                        executed_shell_command: Box::new(block_context),
-                        relevant_files: vec![],
-                    })
-                };
-
-                let banner_state = PromptSuggestionBannerState {
-                    banner_id,
-                    prompt_suggestion: suggestion,
-                    accept_button_mouse_state: Default::default(),
-                    llm_warning_learn_more_hyperlink: Default::default(),
-                    should_hide: is_coding_query,
-                    trigger: Some(trigger),
-                    conversation_id: None,
-                    server_request_token: None,
-                };
-
-                self.inline_banners_state.prompt_suggestions_banner = Some(banner_state.clone());
-
-                self.input.update(ctx, |input, ctx| {
-                    input.set_prompt_suggestions_banner_state(Some(banner_state), ctx);
-                    input.notify_and_notify_children(ctx);
-                });
-
-                if let Some(static_name) = static_prompt_suggestion_name {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::StaticPromptSuggestionsBannerShown {
-                            id: suggestion_id,
-                            query: query_string,
-                            block_id: block_id.to_string(),
-                            block_command,
-                            static_prompt_suggestion_name: static_name,
-                            request_duration_ms,
-                            view: self.prompt_suggestion_view_type(ctx),
-                        },
-                        ctx
-                    );
-                }
-
-                ctx.notify();
-            }
-            AgentModePromptSuggestion::None | AgentModePromptSuggestion::Error => {}
-        }
     }
 
     /// Generates command corrections, if applicable.
@@ -15992,9 +14973,7 @@ impl TerminalView {
         else {
             return;
         };
-        if conversation.is_entirely_passive()
-            || !conversation.status().should_trigger_notification()
-        {
+        if !conversation.status().should_trigger_notification() {
             return;
         }
 
@@ -19104,8 +18083,6 @@ impl TerminalView {
 
         self.rich_content_views.clear();
 
-        self.update_input_prompt_suggestions_banner_state(ctx);
-
         // Clear screen will remove all blocks except the started block so insert
         // the label mouse state here to make sure this is handled.
         self.block_list_mouse_states
@@ -19125,14 +18102,11 @@ impl TerminalView {
         if matches!(self.current_state.state, TerminalViewState::Errored) {
             self.set_current_state(TerminalViewState::Normal, ctx);
         }
-
-        self.abort_prompt_and_code_suggestions(ctx);
         self.input.update(ctx, |input, ctx| {
             input
                 .editor()
                 .update(ctx, |editor, ctx| editor.clear_autosuggestion(ctx))
         });
-        self.clear_prompt_suggestions(ctx);
 
         // Note: we set this here since clear_screen at the TerminalModel and BlockList levels is
         // called much more often (on every new session/block it seems), and we only want to track explicit
@@ -20499,16 +19473,6 @@ impl TerminalView {
                 self.focus_ai_block_if_self_focused(&block, ctx);
                 self.maybe_send_agent_mode_desktop_notification(&conversation_id, ctx);
             }
-            AIBlockEvent::PassiveCodeDiffLoaded => {
-                if is_restored {
-                    return;
-                }
-                self.model
-                    .lock()
-                    .block_list_mut()
-                    .refresh_heights_for_loaded_passive_code_diff(block.id());
-                ctx.notify();
-            }
             AIBlockEvent::Finished => {
                 if is_restored {
                     return;
@@ -20530,12 +19494,6 @@ impl TerminalView {
                 }
                 self.open_code_diff(view.clone(), ctx);
                 ctx.notify();
-            }
-            AIBlockEvent::DismissedPassiveBlock => {
-                if is_restored {
-                    return;
-                }
-                self.cleanup_and_remove_conversation_for_ai_block(&block, ctx);
             }
             AIBlockEvent::ActionFinished => {
                 if is_restored {
@@ -20661,35 +19619,6 @@ impl TerminalView {
             }
             AIBlockEvent::ContinueConversation { conversation_id } => {
                 self.handle_continue_conversation(conversation_id, ctx);
-            }
-            AIBlockEvent::ContinuePassiveCodeDiffWithAgent {
-                conversation_id,
-                trigger_block_id,
-                auto_resume,
-            } => {
-                if let Some(block_id) = trigger_block_id {
-                    self.associate_and_promote_block_for_conversation(
-                        block_id.clone(),
-                        *conversation_id,
-                        ctx,
-                    );
-                }
-
-                if !self
-                    .agent_view_controller
-                    .as_ref(ctx)
-                    .agent_view_state()
-                    .is_active()
-                {
-                    self.set_rich_content_agent_view_conversation_id(block.id(), *conversation_id);
-                    self.handle_continue_conversation(conversation_id, ctx);
-                }
-
-                if *auto_resume {
-                    self.ai_controller.update(ctx, |controller, ctx| {
-                        controller.request_follow_up_after_actions(*conversation_id, ctx);
-                    });
-                }
             }
             AIBlockEvent::ResumeConversation { conversation_id } => {
                 self.handle_resume_conversation(conversation_id, ctx);
@@ -20945,10 +19874,8 @@ impl TerminalView {
             let ai_metadata = rich_content.ai_block_metadata()?;
             let ai_block = ai_metadata.ai_block_handle.as_ref(ctx);
 
-            (!ai_block.is_finished()
-                && !ai_block.is_passive_conversation()
-                && !ai_block.is_hidden(ctx))
-            .then_some(&ai_metadata.ai_block_handle)
+            (!ai_block.is_finished() && !ai_block.is_hidden(ctx))
+                .then_some(&ai_metadata.ai_block_handle)
         })
     }
 
@@ -21681,7 +20608,6 @@ impl TerminalView {
 
     fn handle_input_event(&mut self, event: &InputEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            InputEvent::Enter => self.clear_prompt_suggestions(ctx),
             InputEvent::PageUp => self.page_up(ctx),
             InputEvent::PageDown => self.page_down(ctx),
             InputEvent::ExecuteCommand(event) => {
@@ -21781,26 +20707,6 @@ impl TerminalView {
                 // When an AI query autosuggestion is accepted, there might be attached context
                 // blocks we need to render the border for.
                 ctx.notify()
-            }
-            InputEvent::UnhandledCmdEnter => {
-                if is_accept_prompt_suggestion_bound_to_cmd_enter(ctx) {
-                    self.resolve_passive_suggestion(
-                        PromptSuggestionResolution::Accept {
-                            interaction_source: InteractionSource::Keybinding,
-                        },
-                        ctx,
-                    );
-                }
-            }
-            InputEvent::CtrlEnter => {
-                if is_accept_prompt_suggestion_bound_to_ctrl_enter(ctx) {
-                    self.resolve_passive_suggestion(
-                        PromptSuggestionResolution::Accept {
-                            interaction_source: InteractionSource::Keybinding,
-                        },
-                        ctx,
-                    );
-                }
             }
             InputEvent::EnterAgentView {
                 initial_prompt,
@@ -21922,9 +20828,6 @@ impl TerminalView {
                         }
                     }
                 }
-
-                // Ignore any passive blocks on escape.
-                self.clear_prompt_suggestions(ctx);
 
                 if self
                     .model
@@ -22079,9 +20982,6 @@ impl TerminalView {
             }
             InputEvent::OpenFilesPalette { source } => {
                 ctx.emit(Event::OpenFilesPalette { source: *source })
-            }
-            InputEvent::TryHandlePassiveCodeDiff(action) => {
-                self.resolve_prompt_suggestion_diff(action.clone(), ctx);
             }
             InputEvent::ToggleAIDocumentPane {
                 document_id,
@@ -22799,7 +21699,7 @@ impl TerminalView {
                 // from the currently-mounted blocks: when entering from the terminal
                 // the blocks mount over later frames, so the latest block may not
                 // exist yet this tick. Use the latest *visible* exchange so we land on
-                // a block that actually renders (skipping passive/hidden exchanges).
+                // a block that actually renders (skipping hidden exchanges).
                 let Some(exchange_id) = history
                     .conversation(&active_conversation_id)
                     .and_then(|conversation| conversation.latest_visible_exchange())
@@ -26701,7 +25601,6 @@ impl TypedActionView for TerminalView {
             | StartNewAgentConversation { .. }
             | ToggleConversationDetailsPanel
             | CancelAmbientAgentTask
-            | ResolvePromptSuggestion(..)
             | AwsBedrockLoginBanner(_)
             | AwsCliNotInstalledBanner(_)
             | ToggleUsageFooter
@@ -27655,9 +26554,6 @@ impl TypedActionView for TerminalView {
                     );
                 });
             }
-            ResolvePromptSuggestion(resolution) => {
-                self.resolve_passive_suggestion(*resolution, ctx);
-            }
             AwsBedrockLoginBanner(action) => {
                 self.handle_aws_bedrock_login_banner_action(*action, ctx);
             }
@@ -28411,15 +27307,6 @@ impl View for TerminalView {
         // for the in-block banner) is active, so the ctrl-i keybinding works.
         if self.use_agent_footer.as_ref(app).is_warpify_active(app) {
             context.set.insert("SubshellBanner");
-        }
-
-        if self
-            .inline_banners_state
-            .prompt_suggestions_banner
-            .is_some()
-            || has_pending_code_or_unit_test_prompt_suggestion(&model_lock, app)
-        {
-            context.set.insert(flags::HAS_PENDING_PROMPT_SUGGESTION);
         }
 
         if AISettings::as_ref(app).is_any_ai_enabled(app) {

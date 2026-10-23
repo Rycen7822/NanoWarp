@@ -87,19 +87,16 @@ use crate::editor::{
     SingleLineEditorOptions, TextColors, TextOptions,
 };
 use crate::modal::{Modal, ModalEvent, ModalViewState};
-use crate::server::telemetry::{
-    AgentModeAutoDetectionSettingOrigin, ToggleCodeSuggestionsSettingSource,
-};
+use crate::server::telemetry::AgentModeAutoDetectionSettingOrigin;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent,
-    AgentModeQuerySuggestionsEnabled, AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin,
-    AwsBedrockCredentialsEnabled, CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
-    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
-    LongRunningCommandSubmissionMode, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
-    OrchestrationMessageDisplayMode, PromptSubmissionMode, SharedBlockTitleGenerationEnabled,
-    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VOICE_INPUT_LANGUAGES,
-    VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
+    AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin, AwsBedrockCredentialsEnabled,
+    CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled, GitOperationsAutogenEnabled,
+    IncludeAgentCommandsInHistory, InputSettings, LongRunningCommandSubmissionMode,
+    NLDInTerminalEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
+    SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
+    ShouldShowOzUpdatesInZeroState, ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
+    VOICE_INPUT_LANGUAGES, VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -115,10 +112,6 @@ use crate::{TelemetryEvent, UserWorkspaces, send_telemetry_from_ctx};
 const AI_SETTINGS_DROPDOWN_WIDTH: f32 = 250.;
 const AI_SETTINGS_DROPDOWN_MAX_HEIGHT: f32 = 250.;
 
-const PROMPT_SUGGESTIONS_DESCRIPTION: &str = "Let AI suggest natural language prompts, as inline banners in the input, based on recent commands and their outputs.";
-const SUGGESTED_CODE_BANNERS_DESCRIPTION: &str = "Let AI suggest code diffs and queries as inline banners in the blocklist, based on recent commands and their outputs.";
-const NATURAL_LANGUAGE_AUTOSUGGESTIONS: &str =
-    "Let AI suggest natural language autosuggestions, based on recent commands and their outputs.";
 const SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION: &str =
     "Let AI generate a title for your shared block based on the command and output.";
 const GIT_OPERATIONS_AUTOGEN_DESCRIPTION: &str =
@@ -195,36 +188,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "prompt suggestions",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::TogglePromptSuggestions,
-                )),
-                &(context.clone() & id!(flags::IS_ACTIVE_AI_ENABLED)),
-                flags::PROMPT_SUGGESTIONS_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "code suggestions",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleCodeSuggestions,
-                )),
-                &(context.clone()
-                    & id!(flags::IS_ACTIVE_AI_ENABLED)
-                    & id!(flags::PROMPT_SUGGESTIONS_FLAG)),
-                flags::CODE_SUGGESTIONS_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
         ],
         app,
     );
@@ -357,21 +320,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             .collect();
         app.register_fixed_bindings(lrc_mode_bindings);
     }
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "natural language autosuggestions",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleNaturalLanguageAutosuggestions,
-                )),
-                &(context.clone() & id!(flags::IS_ACTIVE_AI_ENABLED)),
-                flags::NATURAL_LANGUAGE_AUTOSUGGESTIONS_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| FeatureFlag::PredictAMQueries.is_enabled()),
-        ],
-        app,
-    );
     ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
         vec![
             ToggleSettingActionPair::new(
@@ -2234,26 +2182,16 @@ impl WarpAgentPageView {
 
         let mut categories: Vec<Category<Self>> = Vec::new();
 
-        if ai_settings
-            .prompt_suggestions_enabled_internal
-            .is_supported_on_current_platform()
-            || (FeatureFlag::PredictAMQueries.is_enabled()
-                && ai_settings
-                    .natural_language_autosuggestions_enabled_internal
-                    .is_supported_on_current_platform())
-            || (FeatureFlag::SharedBlockTitleGeneration.is_enabled()
-                && ai_settings
-                    .shared_block_title_generation_enabled_internal
-                    .is_supported_on_current_platform())
+        if (FeatureFlag::SharedBlockTitleGeneration.is_enabled()
+            && ai_settings
+                .shared_block_title_generation_enabled_internal
+                .is_supported_on_current_platform())
             || (FeatureFlag::GitOperationsInCodeReview.is_enabled()
                 && ai_settings
                     .git_operations_autogen_enabled_internal
                     .is_supported_on_current_platform())
         {
             let active_ai_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-                Box::new(PromptSuggestionsWidget::default()),
-                Box::new(SuggestedCodeBannersWidget::default()),
-                Box::new(NaturalLanguageAutosuggestionsWidget::default()),
                 Box::new(SharedBlockTitleGenerationWidget::new(ctx)),
                 Box::new(GitOperationsAutogenWidget::default()),
             ];
@@ -2482,9 +2420,6 @@ pub enum WarpAgentPageAction {
     SetVoiceInputLanguage(String),
     ToggleGlobalAI,
     ToggleActiveAI,
-    TogglePromptSuggestions,
-    ToggleCodeSuggestions,
-    ToggleNaturalLanguageAutosuggestions,
     ToggleSharedTitleGeneration,
     ToggleGitOperationsAutogen,
     ToggleAIInputAutoDetection,
@@ -2593,72 +2528,6 @@ impl TypedActionView for WarpAgentPageView {
                     }
                     Err(e) => {
                         log::warn!("Failed to set value for Active AI setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::TogglePromptSuggestions => {
-                if !UserWorkspaces::as_ref(ctx).is_prompt_suggestions_toggleable() {
-                    return;
-                }
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .prompt_suggestions_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::TogglePromptSuggestionsSetting {
-                                is_prompt_suggestions_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Prompt Suggestions setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleCodeSuggestions => {
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .code_suggestions_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleCodeSuggestionsSetting {
-                                source: ToggleCodeSuggestionsSettingSource::Settings,
-                                is_code_suggestions_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Code Suggestions setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleNaturalLanguageAutosuggestions => {
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .natural_language_autosuggestions_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleNaturalLanguageAutosuggestionsSetting {
-                                is_natural_language_autosuggestions_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to set value for Natural Language Autosuggestions setting: {e:?}"
-                        );
                     }
                 }
                 ctx.notify();
@@ -3198,28 +3067,6 @@ fn render_global_ai_toggle(
     row.finish()
 }
 
-fn is_prompt_suggestions_toggleable(app: &AppContext) -> bool {
-    UserWorkspaces::as_ref(app).is_prompt_suggestions_toggleable()
-        && AISettings::as_ref(app)
-            .prompt_suggestions_enabled_internal
-            .is_supported_on_current_platform()
-}
-
-fn is_suggested_code_banners_toggleable(app: &AppContext) -> bool {
-    (is_prompt_suggestions_toggleable(app)
-        || UserWorkspaces::as_ref(app).is_code_suggestions_toggleable())
-        && AISettings::as_ref(app)
-            .code_suggestions_enabled_internal
-            .is_supported_on_current_platform()
-}
-
-fn is_natural_language_autosuggestions_toggleable(app: &AppContext) -> bool {
-    FeatureFlag::PredictAMQueries.is_enabled()
-        && AISettings::as_ref(app)
-            .natural_language_autosuggestions_enabled_internal
-            .is_supported_on_current_platform()
-}
-
 // TODO: Check if the user's enterprise billing policy allows toggling this feature.
 fn is_shared_block_title_generation_toggleable(
     view_handle: &WeakViewHandle<WarpAgentPageView>,
@@ -3259,141 +3106,6 @@ fn render_active_ai_toggle(toggle: &SwitchStateHandle, app: &AppContext) -> Box<
     ))
     .with_padding_right(TOGGLE_BUTTON_RIGHT_PADDING)
     .finish()
-}
-
-#[derive(Default)]
-struct PromptSuggestionsWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for PromptSuggestionsWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. prompt suggestions"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_prompt_suggestions_toggleable(app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-        Flex::column()
-            .with_child(
-                render_ai_setting_toggle::<AgentModeQuerySuggestionsEnabled>(
-                    "Prompt Suggestions",
-                    WarpAgentPageAction::TogglePromptSuggestions,
-                    *ai_settings.prompt_suggestions_enabled_internal,
-                    is_toggleable,
-                    self.toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
-                    app,
-                ),
-            )
-            .with_child(render_ai_setting_description(
-                PROMPT_SUGGESTIONS_DESCRIPTION,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
-}
-
-#[derive(Default)]
-struct SuggestedCodeBannersWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for SuggestedCodeBannersWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. code diffs suggested banners"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_suggested_code_banners_toggleable(app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-        Flex::column()
-            .with_child(
-                render_ai_setting_toggle::<AgentModeQuerySuggestionsEnabled>(
-                    "Suggested Code Banners",
-                    WarpAgentPageAction::ToggleCodeSuggestions,
-                    *ai_settings.code_suggestions_enabled_internal,
-                    is_toggleable,
-                    self.toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
-                    app,
-                ),
-            )
-            .with_child(render_ai_setting_description(
-                SUGGESTED_CODE_BANNERS_DESCRIPTION,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
-}
-
-#[derive(Default)]
-struct NaturalLanguageAutosuggestionsWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for NaturalLanguageAutosuggestionsWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. natural language autosuggestions passive"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_natural_language_autosuggestions_toggleable(app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-        Flex::column()
-            .with_child(render_ai_setting_toggle::<
-                NaturalLanguageAutosuggestionsEnabled,
-            >(
-                "Natural Language Autosuggestions",
-                WarpAgentPageAction::ToggleNaturalLanguageAutosuggestions,
-                *ai_settings.natural_language_autosuggestions_enabled_internal,
-                is_toggleable,
-                self.toggle.clone(),
-                &view.local_only_icon_tooltip_states,
-                app,
-            ))
-            .with_child(render_ai_setting_description(
-                NATURAL_LANGUAGE_AUTOSUGGESTIONS,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
 }
 
 struct SharedBlockTitleGenerationWidget {

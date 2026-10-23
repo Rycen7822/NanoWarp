@@ -64,56 +64,10 @@ impl UserWorkspaces {
             })
     }
 
-    /// Returns `true` if active AI is allowed for the current workspace, based on billing config.
-    ///
-    /// In the future, we should store active AI enablement on the policy directly. For now, we
-    /// proxy whether active AI by checking whether any active AI feature is enabled.
-    pub fn is_active_ai_allowed(&self) -> bool {
-        self.current_workspace().is_none_or(|workspace| {
-            workspace
-                .billing_metadata
-                .tier
-                .warp_ai_policy
-                .is_none_or(|policy| {
-                    policy.is_prompt_suggestions_toggleable
-                        || policy.is_code_suggestions_toggleable
-                        || policy.is_git_operations_ai_enabled
-                })
-        })
-    }
-
     pub fn ai_allowed_for_team(team: Option<&Team>) -> bool {
         !team.is_some_and(|team| team.billing_metadata.customer_type == CustomerType::Enterprise)
             || team.is_some_and(|team| team.billing_metadata.is_warp_plan())
             || ChannelState::channel().is_dogfood()
-    }
-
-    /// Whether Prompt Suggestions should be toggleable for the current user, based on the active policies.
-    /// Note that the value may be incorrect if called before the team's billing metadata has been fetched.
-    pub fn is_prompt_suggestions_toggleable(&self) -> bool {
-        self.current_workspace()
-            // If the user has no team, they can toggle prompt suggestions (no restrictions).
-            .is_none_or(|workspace| {
-                workspace
-                    .billing_metadata
-                    .tier
-                    .warp_ai_policy
-                    .is_some_and(|policy| policy.is_prompt_suggestions_toggleable)
-            })
-    }
-
-    /// Whether Code Suggestions should be toggleable for the current user, based on the active policies.
-    /// Note that the value may be incorrect if called before the team's billing metadata has been fetched.
-    pub fn is_code_suggestions_toggleable(&self) -> bool {
-        self.current_workspace()
-            // If the user has no team, they can toggle code suggestions (no restrictions).
-            .is_none_or(|workspace| {
-                workspace
-                    .billing_metadata
-                    .tier
-                    .warp_ai_policy
-                    .is_some_and(|policy| policy.is_code_suggestions_toggleable)
-            })
     }
 
     /// Whether Git Operations AI is enabled for the current user, based on the active policies.

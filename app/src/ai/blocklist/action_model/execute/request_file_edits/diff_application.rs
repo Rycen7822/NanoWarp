@@ -186,7 +186,6 @@ pub(crate) async fn apply_edits<F, Fut>(
     ai_identifiers: &AIIdentifiers,
     background_executor: Arc<Background>,
     auth_state: Arc<AuthState>,
-    passive_diff: bool,
     read_file: F,
 ) -> Result<Vec<AIRequestedCodeDiff>, Vec1<DiffApplicationError>>
 where
@@ -218,7 +217,6 @@ where
                     RequestFileEditsTelemetryEvent::DiffMatchFailed(DiffMatchFailedEvent {
                         identifiers: ai_identifiers.clone(),
                         failures: match_failures.clone(),
-                        passive_diff,
                     }),
                     background_executor
                 );
@@ -242,7 +240,6 @@ where
             RequestFileEditsTelemetryEvent::DiffInvalidFile(DiffInvalidFileEvent {
                 count: invalid_file_count,
                 identifiers: ai_identifiers.clone(),
-                passive_diff,
             }),
             background_executor
         );
@@ -264,7 +261,6 @@ where
             RequestFileEditsTelemetryEvent::MissingLineNumbers(MissingLineNumbersEvent {
                 identifiers: ai_identifiers.clone(),
                 count: total_missing_line_numbers,
-                passive_diff,
             }),
             background_executor
         );

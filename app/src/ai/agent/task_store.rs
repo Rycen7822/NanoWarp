@@ -264,7 +264,6 @@ impl TaskStore {
                         AIAgentInput::UserQuery { context, .. } => Some(context),
                         AIAgentInput::ResumeConversation { context, .. } => Some(context),
                         AIAgentInput::ActionResult { context, .. } => Some(context),
-                        AIAgentInput::TriggerPassiveSuggestion { context, .. } => Some(context),
                         _ => None,
                     };
 

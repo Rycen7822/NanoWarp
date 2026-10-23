@@ -115,7 +115,6 @@ pub const LOAD_OUTPUT_MESSAGE: &str = "Warping...";
 /// The trailing ellipsis every in-progress status message ends with.
 pub const STATUS_MESSAGE_ELLIPSIS: &str = "...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_ADJUSTING: &str = "Adjusting tasks...";
-pub const LOAD_OUTPUT_MESSAGE_FOR_PASSIVE_CODE_GEN: &str = "Generating fix...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF: &str = "Creating diff...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_PREPARING_QUESTION: &str = "Preparing question...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN: &str = "Generating plan...";
@@ -338,8 +337,6 @@ pub fn render_warping_indicator<V: View>(
         naming_model(LOAD_OUTPUT_MESSAGE_FOR_UPDATING_PLAN)
     } else if props.model.contains_create_document_action(app) {
         naming_model(LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN)
-    } else if props.model.request_type(app).is_passive_code_diff() {
-        naming_model(LOAD_OUTPUT_MESSAGE_FOR_PASSIVE_CODE_GEN)
     } else if is_last_message_requesting_file_edits {
         naming_model(LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF)
     } else if is_last_message_asking_user_question {
@@ -525,7 +522,6 @@ pub fn render_warping_indicator<V: View>(
             } else {
                 None
             },
-            is_passive_code_diff: props.model.request_type(app).is_passive_code_diff(),
             secondary_element: props.secondary_element,
         },
         app,
@@ -548,7 +544,6 @@ pub struct WarpingIndicatorProps {
     /// today for the `Check now` affordance next to `Last seen by agent ...`.
     pub non_shimmering_suffix: Option<Box<dyn Element>>,
     pub buttons: Option<Box<dyn Element>>,
-    pub is_passive_code_diff: bool,
     pub secondary_element: Option<Box<dyn Element>>,
 }
 
@@ -583,7 +578,6 @@ pub fn render_warping_indicator_base(
         non_shimmering_text,
         non_shimmering_suffix,
         buttons,
-        is_passive_code_diff,
         secondary_element,
     } = props;
     // Whether a secondary element (an agent tip or fallback-model explanation)
@@ -681,33 +675,24 @@ pub fn render_warping_indicator_base(
 
     let content = Clipped::new(row.finish()).finish();
 
-    if is_passive_code_diff {
-        Container::new(content)
-            // Use custom padding for the passive code diff block
-            .with_padding_top(8.)
-            .with_padding_bottom(4.)
-            .with_horizontal_padding(CONTENT_HORIZONTAL_PADDING)
-            .finish()
+    let mut container = Container::new(
+        ConstrainedBox::new(content)
+            .with_height(warping_footer_height(
+                appearance.monospace_font_size(),
+                has_secondary_element,
+            ))
+            .finish(),
+    )
+    .with_padding_right(CONTENT_HORIZONTAL_PADDING);
+
+    if FeatureFlag::AgentView.is_enabled() {
+        container = container.with_padding_left(*terminal::view::PADDING_LEFT);
     } else {
-        let mut container = Container::new(
-            ConstrainedBox::new(content)
-                .with_height(warping_footer_height(
-                    appearance.monospace_font_size(),
-                    has_secondary_element,
-                ))
-                .finish(),
-        )
-        .with_padding_right(CONTENT_HORIZONTAL_PADDING);
-
-        if FeatureFlag::AgentView.is_enabled() {
-            container = container.with_padding_left(*terminal::view::PADDING_LEFT);
-        } else {
-            container = container
-                .with_padding_left(CONTENT_HORIZONTAL_PADDING + (STATUS_ICON_SIZE_DELTA / 2.));
-        }
-
-        container.finish()
+        container =
+            container.with_padding_left(CONTENT_HORIZONTAL_PADDING + (STATUS_ICON_SIZE_DELTA / 2.));
     }
+
+    container.finish()
 }
 
 /// Render output text as shown in the "stopped" and "loading" status banners

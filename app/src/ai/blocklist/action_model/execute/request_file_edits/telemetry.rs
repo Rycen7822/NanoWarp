@@ -17,7 +17,6 @@ use crate::ai::blocklist::RequestedEditResolution;
 pub enum RequestFileEditsTelemetryEvent {
     EditResolved(EditResolvedEvent),
     EditAcceptClicked(EditAcceptClickedEvent),
-    EditAcceptAndContinueClicked(EditAcceptAndContinueClickedEvent),
     DiffMatchFailed(DiffMatchFailedEvent),
     DiffInvalidFile(DiffInvalidFileEvent),
     EditReceived(EditReceivedEvent),
@@ -48,22 +47,11 @@ pub struct EditResolvedEvent {
     pub response: RequestedEditResolution,
     /// Information about the resolved edit, only set if it is accepted.
     pub stats: EditStats,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 /// Emitted when a user selects Accept for a code diff suggestion.
 #[derive(Serialize, Debug)]
 pub struct EditAcceptClickedEvent {
-    #[serde(flatten)]
-    pub identifiers: AIIdentifiers,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
-}
-
-/// Emitted when a user selects Accept and start conversation for a code diff suggestion.
-#[derive(Serialize, Debug)]
-pub struct EditAcceptAndContinueClickedEvent {
     #[serde(flatten)]
     pub identifiers: AIIdentifiers,
 }
@@ -84,8 +72,6 @@ pub struct DiffMatchFailedEvent {
     pub identifiers: AIIdentifiers,
     #[serde(flatten)]
     pub failures: DiffMatchFailures,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 /// Could not find the file(s) given in a code diff.
@@ -94,8 +80,6 @@ pub struct DiffInvalidFileEvent {
     #[serde(flatten)]
     pub identifiers: AIIdentifiers,
     pub count: usize,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 /// Emitted when code edits are displayed to the user.
@@ -109,9 +93,6 @@ pub struct EditReceivedEvent {
 
     /// Total number of diffs in the event.
     pub diffs: usize,
-
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 /// Emitted when search blocks are missing line numbers (non-fatal warning).
@@ -121,8 +102,6 @@ pub struct MissingLineNumbersEvent {
     pub identifiers: AIIdentifiers,
     /// Number of search blocks missing line numbers.
     pub count: u8,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 #[derive(Serialize, Debug, Clone, Copy)]
@@ -160,8 +139,6 @@ pub struct MalformedFinalLineProxyEvent {
     pub unedited_correction_count: usize,
     /// Coarse source format for the requested edit payload.
     pub format_kind: RequestFileEditsFormatKind,
-    /// Whether this is a passive diff.
-    pub passive_diff: bool,
 }
 
 impl TelemetryEvent for RequestFileEditsTelemetryEvent {
@@ -177,9 +154,6 @@ impl TelemetryEvent for RequestFileEditsTelemetryEvent {
             RequestFileEditsTelemetryEvent::EditAcceptClicked(edit_accept_clicked_event) => {
                 Some(json!(edit_accept_clicked_event))
             }
-            RequestFileEditsTelemetryEvent::EditAcceptAndContinueClicked(
-                edit_accept_and_continue_clicked_event,
-            ) => Some(json!(edit_accept_and_continue_clicked_event)),
             RequestFileEditsTelemetryEvent::DiffMatchFailed(diff_application_error_event) => {
                 Some(json!(diff_application_error_event))
             }
@@ -227,9 +201,6 @@ impl TelemetryEventDesc for RequestFileEditsTelemetryEventDiscriminants {
         match self {
             Self::EditResolved => "AgentMode.Code.SuggestedEditResolved",
             Self::EditAcceptClicked => "AgentMode.Code.SuggestedEditAcceptClicked",
-            Self::EditAcceptAndContinueClicked => {
-                "AgentMode.Code.SuggestedEditAcceptAndContinueClicked"
-            }
             Self::DiffMatchFailed => "AgentMode.Code.DiffMatchFailed",
             Self::DiffInvalidFile => "AgentMode.Code.InvalidFile",
             Self::EditReceived => "AgentMode.Code.SuggestedEditReceived",
@@ -244,9 +215,6 @@ impl TelemetryEventDesc for RequestFileEditsTelemetryEventDiscriminants {
             Self::EditResolved => "Agent Mode pending code edit suggestion resolved",
             Self::EditAcceptClicked => {
                 "User selected Accept for a code diff suggestion in Agent Mode"
-            }
-            Self::EditAcceptAndContinueClicked => {
-                "User selected Accept and start conversation for a code diff suggestion in Agent Mode"
             }
             Self::DiffMatchFailed => "Failed to match code diff",
             Self::DiffInvalidFile => "File(s) in code diff could not be found",

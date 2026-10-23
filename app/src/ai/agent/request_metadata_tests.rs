@@ -644,7 +644,6 @@ fn live_request_input(
         computer_use_model_id: LLMId::from("test-computer-use-model"),
         shared_session_response_initiator: None,
         request_start_ts: Local::now(),
-        supported_tools_override: None,
     }
 }
 

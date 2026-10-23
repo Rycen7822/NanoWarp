@@ -11,7 +11,7 @@ use crate::agent::action::{
     AIAgentActionType, AIAgentPtyWriteMode, CommentSide, CreateDocumentsRequest, DocumentDiff,
     DocumentToCreate, EditDocumentsRequest, FileEdit, InsertReviewComment, InsertedCommentLine,
     InsertedCommentLocation, ReadDocumentsRequest, ReadFilesRequest, SearchCodebaseRequest,
-    ShellCommandDelay, SuggestPromptRequest, UploadArtifactRequest, UseComputerRequest,
+    ShellCommandDelay, UploadArtifactRequest, UseComputerRequest,
 };
 use crate::agent::action_result::{AnyFileContent, FileContext};
 use crate::agent::convert::ToolToAIAgentActionError;
@@ -266,35 +266,6 @@ impl TryFrom<api::message::tool_call::CallMcpTool> for AIAgentActionType {
             name: value.name,
             input,
         })
-    }
-}
-
-impl TryFrom<api::message::tool_call::SuggestPrompt> for AIAgentActionType {
-    type Error = ToolToAIAgentActionError;
-
-    fn try_from(value: api::message::tool_call::SuggestPrompt) -> Result<Self, Self::Error> {
-        let request = match value.display_mode {
-            Some(api::message::tool_call::suggest_prompt::DisplayMode::InlineQueryBanner(
-                inline_query_banner,
-            )) => SuggestPromptRequest::UnitTestsSuggestion {
-                title: inline_query_banner.title,
-                description: inline_query_banner.description,
-                query: inline_query_banner.query,
-            },
-            Some(api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(chip)) => {
-                let label = chip.label.none_if_default();
-                SuggestPromptRequest::PromptSuggestion {
-                    prompt: chip.prompt,
-                    label,
-                }
-            }
-            _ => {
-                return Err(ToolToAIAgentActionError::SuggestPromptError(String::from(
-                    "unsupported display mode",
-                )));
-            }
-        };
-        Ok(AIAgentActionType::SuggestPrompt(request))
     }
 }
 

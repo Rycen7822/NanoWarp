@@ -1268,7 +1268,6 @@ pub fn init(app: &mut AppContext) {
             *NEW_AGENT_PANE_LABEL,
             WorkspaceAction::NewPaneInAgentMode {
                 entrypoint: AgentModeEntrypoint::NewPaneBinding,
-                zero_state_prompt_suggestion_type: None,
             },
         )
         .with_enabled(|| FeatureFlag::AgentMode.is_enabled())

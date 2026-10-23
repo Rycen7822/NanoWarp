@@ -34,14 +34,9 @@ pub enum ServerExperiment {
     WindowsLaunchExperiment,
     CodebaseContextExperiment,
     CodebaseContextControl,
-    SuggestedCodeDiffsControl,
-    SuggestedCodeDiffsExperiment,
     BuildPlanAutoReloadControl,
     BuildPlanAutoReloadBannerToggle,
     BuildPlanAutoReloadPostPurchaseModal,
-    PromptSuggestionsViaMaaControl,
-    PromptSuggestionsViaMaaExperiment,
-    PromptSuggestionsViaMaaOutOfBandExperiment,
     OzMultiHarnessControl,
     OzMultiHarnessExperiment,
     MacosRunnersControl,
@@ -100,8 +95,6 @@ impl ServerExperiment {
                 FeatureFlag::CodebaseIndexSpeedbump.set_enabled(false);
                 FeatureFlag::CrossRepoContext.set_enabled(false);
             }
-            Self::SuggestedCodeDiffsExperiment => {}
-            Self::SuggestedCodeDiffsControl => {}
             Self::BuildPlanAutoReloadControl => {
                 // Control group - disable both experiment flags
                 FeatureFlag::BuildPlanAutoReloadBannerToggle.set_enabled(false);
@@ -117,14 +110,6 @@ impl ServerExperiment {
                 FeatureFlag::BuildPlanAutoReloadBannerToggle.set_enabled(false);
                 FeatureFlag::BuildPlanAutoReloadPostPurchaseModal.set_enabled(true);
             }
-            Self::PromptSuggestionsViaMaaControl => {
-                FeatureFlag::PromptSuggestionsViaMAA.set_enabled(false);
-            }
-            Self::PromptSuggestionsViaMaaOutOfBandExperiment => {
-                FeatureFlag::PromptSuggestionsViaMAA.set_enabled(true);
-            }
-            // The normal experiment arm is no longer used.
-            Self::PromptSuggestionsViaMaaExperiment => {}
             Self::OzMultiHarnessControl => {
                 FeatureFlag::AgentHarness.set_enabled(false);
             }

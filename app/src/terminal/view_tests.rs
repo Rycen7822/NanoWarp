@@ -1978,47 +1978,6 @@ fn set_active_block_agent_driving(view: &mut TerminalView, conversation_id: AICo
         .set_agent_interaction_mode_for_requested_command(action_id, None, conversation_id);
 }
 
-fn auto_code_diff_query_input(query: &str) -> AIAgentInput {
-    AIAgentInput::AutoCodeDiffQuery {
-        query: query.to_owned(),
-        context: Default::default(),
-    }
-}
-
-#[test]
-fn is_passive_conversation_reflects_request_type_at_construction() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        terminal.update(&mut app, |view, ctx| {
-            append_exchange_and_handle_event(view, auto_code_diff_query_input("diff"), ctx);
-        });
-
-        terminal.read(&app, |view, ctx| {
-            let ai_block = view.last_ai_block().expect("AI block should exist");
-            assert!(ai_block.as_ref(ctx).is_passive_conversation());
-        });
-    })
-}
-
-#[test]
-fn is_passive_conversation_is_false_for_a_directly_issued_user_query() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        terminal.update(&mut app, |view, ctx| {
-            append_exchange_and_handle_event(view, agent_view_user_query_input("hi"), ctx);
-        });
-
-        terminal.read(&app, |view, ctx| {
-            let ai_block = view.last_ai_block().expect("AI block should exist");
-            assert!(!ai_block.as_ref(ctx).is_passive_conversation());
-        });
-    })
-}
-
 #[test]
 fn turn_panel_does_not_insert_a_block_after_its_footer() {
     App::test((), |mut app| async move {
@@ -2067,25 +2026,18 @@ fn turn_panel_does_not_insert_a_block_after_its_footer() {
 }
 
 #[test]
-fn is_passive_conversation_is_recomputed_on_conversation_reassignment() {
+fn reassigned_conversation_updates_exchange_routing_and_history() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let terminal = add_window_with_terminal(&mut app, None);
 
         let (old_conversation_id, _task_id, exchange_id, _stream_id) =
             terminal.update(&mut app, |view, ctx| {
-                append_exchange_and_handle_event(view, auto_code_diff_query_input("diff"), ctx)
+                append_exchange_and_handle_event(view, agent_view_user_query_input("hi"), ctx)
             });
 
-        terminal.read(&app, |view, ctx| {
-            let ai_block = view.last_ai_block().expect("AI block should exist");
-            assert!(ai_block.as_ref(ctx).is_passive_conversation());
-        });
-
-        // Move the exchange to a new conversation, as happens on a conversation split. This is
-        // a separate app update from the manual reset below so the `ReassignedExchange` event
-        // emitted by `append_reassigned_exchange` (which would rebuild a real, still-passive
-        // `AIBlockModelImpl` and reassert the cache) is fully processed first.
+        // Move the exchange to a new conversation, as happens on a conversation split.
+        // Process the ReassignedExchange event before resetting the block's model below.
         let new_conversation_id = terminal.update(&mut app, |view, ctx| {
             let history_model = BlocklistAIHistoryModel::handle(ctx);
             history_model.update(ctx, |history_model, ctx| {
@@ -2106,10 +2058,7 @@ fn is_passive_conversation_is_recomputed_on_conversation_reassignment() {
             })
         });
 
-        // Now reset the block directly onto a model that classifies as `Active` — the opposite
-        // of what's currently cached. A `reset_conversation_id` that forgot to refresh
-        // `is_passive` would keep reporting the stale, now-incorrect cached value instead of the
-        // new model's.
+        // Reset the block onto the reassigned conversation and verify subsequent event routing.
         terminal.update(&mut app, |view, ctx| {
             let ai_block = view.last_ai_block().expect("AI block should exist");
             let active_model = Rc::new(FakeAIBlockModel::new(
@@ -2123,7 +2072,6 @@ fn is_passive_conversation_is_recomputed_on_conversation_reassignment() {
 
         terminal.read(&app, |view, ctx| {
             let ai_block = view.last_ai_block().expect("AI block should exist");
-            assert!(!ai_block.as_ref(ctx).is_passive_conversation());
             let event = BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                 exchange_id,
                 terminal_surface_id: view.view_id,
@@ -2141,38 +2089,6 @@ fn is_passive_conversation_is_recomputed_on_conversation_reassignment() {
                     .map(|e| e.id),
                 Some(exchange_id)
             );
-        });
-    })
-}
-
-#[test]
-fn is_passive_conversation_does_not_re_derive_from_history_after_construction() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        let (conversation_id, _task_id, exchange_id, _stream_id) =
-            terminal.update(&mut app, |view, ctx| {
-                append_exchange_and_handle_event(view, auto_code_diff_query_input("diff"), ctx)
-            });
-
-        // Strip the backing exchange out of history after construction. A live re-derivation
-        // (`AIBlockModelImpl::request_type` failing to find the exchange) falls back to
-        // `AIRequestType::Active`, so this only keeps returning `true` if the value was cached
-        // at construction time rather than looked up on every call.
-        terminal.update(&mut app, |_view, ctx| {
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _ctx| {
-                history_model
-                    .conversation_mut(&conversation_id)
-                    .expect("conversation should exist")
-                    .remove_exchange(exchange_id)
-                    .expect("exchange should exist");
-            });
-        });
-
-        terminal.read(&app, |view, ctx| {
-            let ai_block = view.last_ai_block().expect("AI block should exist");
-            assert!(ai_block.as_ref(ctx).is_passive_conversation());
         });
     })
 }
@@ -7925,63 +7841,6 @@ fn terminal_action_ctrl_c_exit_agent_view_requires_confirmation() {
         terminal.update(&mut app, |view, ctx| {
             view.handle_action(&TerminalAction::CtrlC, ctx);
             assert!(!view.agent_view_controller().as_ref(ctx).is_active());
-        });
-    })
-}
-
-// Regression test for https://github.com/warpdotdev/warp/issues/9059.
-// Codex's listener doesn't emit Blocked-state events (it only forwards opaque
-// OSC 9 notifications as Stop), so auto-toggling rich input would trap arrow
-// keys when Codex shows interactive option menus. Auto-toggle must not fire
-// for agents whose handlers report `supports_rich_status() == false`.
-#[test]
-fn ctrl_c_does_not_accept_prompt_suggestion_banner() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        let block_id = terminal.update(&mut app, |view, _ctx| {
-            let mut model = view.model.lock();
-            model.simulate_block("ls", "output");
-            let last_completed_block_index = BlockIndex(model.block_list().blocks().len() - 2);
-            model
-                .block_list()
-                .block_at(last_completed_block_index)
-                .unwrap()
-                .id()
-                .clone()
-        });
-
-        terminal.update(&mut app, |view, ctx| {
-            view.on_legacy_prompt_suggestion_generated(
-                AgentModePromptSuggestion::Success(PromptSuggestion {
-                    id: "suggestion".to_owned(),
-                    label: Some("Do something".to_owned()),
-                    prompt: "Do something".to_owned(),
-                    coding_query_context: None,
-                    static_prompt_suggestion_name: None,
-                    should_start_new_conversation: false,
-                }),
-                block_id.clone(),
-                "ls".to_owned(),
-                0,
-                ctx,
-            );
-
-            assert!(
-                view.inline_banners_state
-                    .prompt_suggestions_banner
-                    .is_some()
-            );
-
-            // Ctrl-C should not accept the prompt suggestion.
-            view.handle_action(&TerminalAction::CtrlC, ctx);
-
-            assert!(
-                view.inline_banners_state
-                    .prompt_suggestions_banner
-                    .is_some()
-            );
         });
     })
 }

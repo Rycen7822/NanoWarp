@@ -1303,7 +1303,7 @@ impl<'a> TabComponent<'a> {
     }
 
     /// Returns the agent indicator for the focused session's active conversation,
-    /// or `None` if there is no non-empty, non-passive conversation to display.
+    /// or `None` if there is no non-empty conversation to display.
     /// When a shell command is long-running the status is overridden to
     /// `InProgress`, matching vertical-tab behavior.
     fn agent_indicator(tab: &TabData, app: &AppContext) -> Option<Indicator> {
@@ -1321,7 +1321,7 @@ impl<'a> TabComponent<'a> {
             });
         }
 
-        if conversation.is_empty() || conversation.is_entirely_passive() {
+        if conversation.is_empty() {
             return None;
         }
 
@@ -1392,11 +1392,6 @@ impl<'a> TabComponent<'a> {
             .map(|view| view.id())?;
         let ai_history_model = BlocklistAIHistoryModel::as_ref(ctx);
         let conversation = ai_history_model.active_conversation(terminal_view_id)?;
-
-        // Don't show tooltip for passive conversations
-        if conversation.is_entirely_passive() {
-            return None;
-        }
 
         let conversation_title = conversation.title()?;
         let trimmed_title = conversation_title.trim().to_owned();

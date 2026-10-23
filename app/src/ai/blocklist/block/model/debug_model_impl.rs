@@ -2,8 +2,8 @@ use warpui::{AppContext, ViewContext};
 
 use crate::ai::{
     agent::{
-        conversation::AIConversationId, AIAgentInput, AIAgentOutput, RenderableAIError,
-        ServerOutputId, Shared,
+        AIAgentInput, AIAgentOutput, RenderableAIError, ServerOutputId, Shared,
+        conversation::AIConversationId,
     },
     llms::LLMId,
 };
@@ -62,19 +62,5 @@ impl AIBlockModel for DebugAIBlockModel {
         _callback: OutputStatusUpdateCallback,
         _ctx: &mut ViewContext<AIBlock>,
     ) {
-    }
-
-    fn request_type(&self, app: &AppContext) -> AIRequestType {
-        let inputs = self.inputs_to_render(app);
-        if inputs.iter().any(|input| input.is_suggest_prompt_query()) {
-            AIRequestType::Passive(PassiveRequestType::SuggestPrompt)
-        } else if inputs
-            .iter()
-            .any(|input| input.auto_code_diff_query().is_some())
-        {
-            AIRequestType::Passive(PassiveRequestType::CodeDiff)
-        } else {
-            AIRequestType::Active
-        }
     }
 }

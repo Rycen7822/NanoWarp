@@ -769,7 +769,7 @@ impl BlocklistAIContextModel {
 
     /// Returns the status of the selected conversation for purposes of rendering the input hint
     /// text, or `None` if there is no selected conversation to display (either because no
-    /// conversation is selected, or because the selected conversation is empty/passive/untitled
+    /// conversation is selected, or because the selected conversation is empty/untitled
     /// and should be treated as a "new" conversation). Mirrors the `agent_indicator` pattern in
     /// `app/src/tab.rs`.
     pub fn selected_conversation_status_for_hint(
@@ -777,10 +777,7 @@ impl BlocklistAIContextModel {
         app: &AppContext,
     ) -> Option<ConversationStatus> {
         let conversation = self.selected_conversation(app)?;
-        if conversation.is_empty()
-            || conversation.is_entirely_passive()
-            || conversation.title().is_none()
-        {
+        if conversation.is_empty() || conversation.title().is_none() {
             return None;
         }
         Some(conversation.status().clone())

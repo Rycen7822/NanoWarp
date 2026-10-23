@@ -91,15 +91,7 @@ impl Display for TaskId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum EntrypointType {
-    PromptSuggestion {
-        is_static: bool,
-        is_coding: bool,
-    },
-    ZeroStateAgentModePromptSuggestion,
     InitProjectRules,
-    TriggerPassiveSuggestion {
-        trigger: Option<PassiveSuggestionTriggerType>,
-    },
     UserInitiated,
     AgentInitiated,
     SharedSession,
@@ -110,50 +102,12 @@ pub enum EntrypointType {
 impl EntrypointType {
     pub fn entrypoint(&self) -> String {
         match self {
-            Self::PromptSuggestion {
-                is_static,
-                is_coding,
-            } => match (is_static, is_coding) {
-                (true, true) => "PROMPT_SUGGESTION.CODING_STATIC".to_string(),
-                (true, false) => "PROMPT_SUGGESTION.STATIC".to_string(),
-                (false, true) => "PROMPT_SUGGESTION.CODING".to_string(),
-                (false, false) => "PROMPT_SUGGESTION.SIMPLE".to_string(),
-            },
-            Self::ZeroStateAgentModePromptSuggestion => {
-                "ZERO_STATE_AGENT_MODE_PROMPT_SUGGESTION".to_string()
-            }
             Self::InitProjectRules => "INIT_PROJECT_RULES".to_string(),
             Self::UserInitiated => "USER_INITIATED".to_string(),
             Self::AgentInitiated => "AGENT_INITIATED".to_string(),
-            Self::TriggerPassiveSuggestion { trigger } => {
-                let trigger_name = match trigger {
-                    Some(PassiveSuggestionTriggerType::FilesChanged) => "FILES_CHANGED",
-                    Some(PassiveSuggestionTriggerType::CommandRun) => "COMMAND_RUN",
-                    Some(PassiveSuggestionTriggerType::ShellCommandCompleted) => {
-                        "SHELL_COMMAND_COMPLETED"
-                    }
-                    Some(PassiveSuggestionTriggerType::AgentResponseCompleted) => {
-                        "AGENT_RESPONSE_COMPLETED"
-                    }
-                    None => "NONE",
-                };
-                format!("TRIGGER_SUGGEST_PROMPT.{trigger_name}")
-            }
             Self::CloneRepository => "CLONE_REPOSITORY".to_string(),
             Self::SharedSession => "SHARED_SESSION".to_string(),
             Self::ResumeConversation => "RESUME_CONVERSATION".to_string(),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(clippy::enum_variant_names)]
-pub enum PassiveSuggestionTriggerType {
-    /// Used for unit test generation.
-    FilesChanged,
-    /// Used for unit test generation.
-    CommandRun,
-
-    ShellCommandCompleted,
-    AgentResponseCompleted,
 }

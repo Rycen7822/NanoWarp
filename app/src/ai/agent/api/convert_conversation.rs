@@ -35,13 +35,12 @@ use crate::ai::agent::{
     BaseUserQuery, CallMCPToolResult, CancellationReason, CloneRepositoryURL,
     CreateDocumentsResult, DocumentContext, EditDocumentsResult, FileContext, FileGlobResult,
     FileGlobV2Match, FileGlobV2Result, FinishedAIAgentOutput, GrepFileMatch, GrepLineMatch,
-    GrepResult, ImageContext, InsertReviewCommentsResult, OutputModelInfo, PassiveCodeDiffEntry,
-    PassiveSuggestionResultType, PassiveSuggestionTrigger, ReadDocumentsResult,
+    GrepResult, ImageContext, InsertReviewCommentsResult, OutputModelInfo, ReadDocumentsResult,
     ReadFilesFailedFile, ReadFilesResult, ReadMCPResourceResult, ReadShellCommandOutputResult,
     RequestCommandOutputResult, RequestFileEditsResult, SearchCodebaseFailureReason,
-    SearchCodebaseResult, ServerOutputId, Shared, ShellCommandCompletedTrigger, ShellCommandError,
-    SuggestNewConversationResult, SuggestPromptResult, TransferShellCommandControlToUserResult,
-    UpdatedFileContext, UploadArtifactResult, UserQueryMode, WriteToLongRunningShellCommandResult,
+    SearchCodebaseResult, ServerOutputId, Shared, ShellCommandError, SuggestNewConversationResult,
+    TransferShellCommandControlToUserResult, UpdatedFileContext, UploadArtifactResult,
+    UserQueryMode, WriteToLongRunningShellCommandResult,
 };
 use crate::ai::block_context::BlockContext;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -425,18 +424,11 @@ impl ConvertToExchanges for &api::Task {
                             });
                             true
                         }
-                        api::message::system_query::Type::AutoCodeDiff(auto_code_diff) => {
-                            current_inputs.push(AIAgentInput::AutoCodeDiffQuery {
-                                query: auto_code_diff.query.clone(),
-                                context: convert_input_context(query.context.as_ref()),
-                            });
-                            true
-                        }
-                        // TriggerSuggestPrompt is not rendered as user input, so we don't want to include it as an input in the exchange.
                         // ResumeConversation is actually added to the task's messages as a plain UserQuery, so we don't expect to encounter it in the task's messages.
                         // FetchReviewComments backed the removed /pr-comments slash command; the
                         // proto variant is retained for back-compat but is no longer rendered.
-                        api::message::system_query::Type::ResumeConversation(_)
+                        api::message::system_query::Type::AutoCodeDiff(_)
+                        | api::message::system_query::Type::ResumeConversation(_)
                         | api::message::system_query::Type::FetchReviewComments(_)
                         | api::message::system_query::Type::GeneratePassiveSuggestions(_)
                         // TODO: Implement this for real. ZB adding this to bump proto version for unrelated API changes.
@@ -502,15 +494,8 @@ impl ConvertToExchanges for &api::Task {
                     });
                     true
                 }
-                api::message::Message::PassiveSuggestionResult(passive_result) => {
-                    if let Some(input) =
-                        convert_passive_suggestion_result_to_input(passive_result)
-                    {
-                        current_inputs.push(input);
-                    }
-                    true
-                }
-                api::message::Message::AgentOutput(_)
+                api::message::Message::PassiveSuggestionResult(_)
+                | api::message::Message::AgentOutput(_)
                 | api::message::Message::AgentReasoning(_)
                 | api::message::Message::Summarization(_)
                 | api::message::Message::ToolCall(_)
@@ -1089,39 +1074,6 @@ pub(crate) fn convert_tool_call_result_to_input(
                 context,
             })
         }
-        Some(ToolCallResultType::SuggestPrompt(result)) => {
-            let prompt_result = match &result.result {
-                Some(api::suggest_prompt_result::Result::Accepted(_)) => {
-                    // Find the accepted query from the original SuggestPrompt tool call
-                    let query = tool_call_map.get(&tool_call_id)
-                        .and_then(|tool_call| {
-                            if let Some(api::message::tool_call::Tool::SuggestPrompt(suggest_prompt)) = &tool_call.tool {
-                                match &suggest_prompt.display_mode {
-                                    Some(api::message::tool_call::suggest_prompt::DisplayMode::InlineQueryBanner(
-                                        inline_query_banner,
-                                    )) => Some(inline_query_banner.query.clone()),
-                                    _ => None,
-                                }
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_default();
-
-                    SuggestPromptResult::Accepted { query }
-                }
-                _ => SuggestPromptResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::SuggestPrompt(prompt_result),
-                },
-                context,
-            })
-        }
         Some(ToolCallResultType::OpenCodeReview(_)) => Some(AIAgentInput::ActionResult {
             result: AIAgentActionResult {
                 id: tool_call_id.into(),
@@ -1527,8 +1479,8 @@ pub(crate) fn convert_tool_call_result_to_input(
                 context,
             })
         }
-        Some(ToolCallResultType::Server(_)) => {
-            // Server results should not create exchanges - return None
+        Some(ToolCallResultType::Server(_)) | Some(ToolCallResultType::SuggestPrompt(_)) => {
+            // Results without a client representation do not create exchanges.
             None
         }
         Some(ToolCallResultType::Cancel(_)) => {
@@ -1846,9 +1798,6 @@ fn create_cancelled_result_for_tool_call(
         ToolType::SuggestNewConversation(_) => {
             AIAgentActionResultType::SuggestNewConversation(SuggestNewConversationResult::Cancelled)
         }
-        ToolType::SuggestPrompt(_) => {
-            AIAgentActionResultType::SuggestPrompt(SuggestPromptResult::Cancelled)
-        }
         ToolType::OpenCodeReview(_) => AIAgentActionResultType::OpenCodeReview,
         ToolType::InsertReviewComments(_) => {
             AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
@@ -1880,7 +1829,7 @@ fn create_cancelled_result_for_tool_call(
         ToolType::FetchConversation(_) => {
             AIAgentActionResultType::FetchConversation(FetchConversationResult::Cancelled)
         }
-        ToolType::Server(_) => {
+        ToolType::Server(_) | ToolType::SuggestPrompt(_) => {
             return None;
         }
         ToolType::Subagent(_) => return None,
@@ -2013,7 +1962,6 @@ fn create_exchange_from_messages(
     };
 
     // There is a special case where an exchange consists of only ActionResults with no outputs
-    // (i.e. if a passive code diff is accepted and the agent doesn't follow up, which it shouldn't).
     // In this case, we should not mark the exchange as cancelled.
     let last_input_is_action_result = inputs
         .last()
@@ -2133,91 +2081,6 @@ where
     )
 }
 
-impl From<api::ExecutedShellCommand> for BlockContext {
-    fn from(cmd: api::ExecutedShellCommand) -> Self {
-        BlockContext {
-            id: cmd.command_id.into(),
-            index: BlockIndex::from(0),
-            command: cmd.command,
-            output: cmd.output,
-            exit_code: ExitCode::from(cmd.exit_code),
-            is_auto_attached: cmd.is_auto_attached,
-            started_ts: cmd
-                .started_ts
-                .as_ref()
-                .map(|ts| proto_timestamp_to_local_datetime(ts.seconds, ts.nanos)),
-            finished_ts: cmd
-                .finished_ts
-                .as_ref()
-                .map(|ts| proto_timestamp_to_local_datetime(ts.seconds, ts.nanos)),
-            pwd: None,
-            shell: None,
-            username: None,
-            hostname: None,
-            git_branch: None,
-            os: None,
-            session_id: None,
-        }
-    }
-}
-
-/// Converts a persisted `PassiveSuggestionResult` message back to an
-/// [`AIAgentInput::PassiveSuggestionResult`] so the trigger block information
-/// is available after conversation restoration.
-fn convert_passive_suggestion_result_to_input(
-    passive_result: &api::message::PassiveSuggestionResult,
-) -> Option<AIAgentInput> {
-    let api_result = passive_result.result.as_ref()?;
-
-    let trigger = match &api_result.trigger {
-        Some(api::passive_suggestion_result_type::Trigger::ExecutedShellCommand(cmd)) => {
-            PassiveSuggestionTrigger::ShellCommandCompleted(ShellCommandCompletedTrigger {
-                executed_shell_command: Box::new(cmd.clone().into()),
-                // Relevant files are not persisted in the proto message.
-                relevant_files: vec![],
-            })
-        }
-        Some(api::passive_suggestion_result_type::Trigger::AgentResponseCompleted(_)) => {
-            // The exchange_id is not stored in the proto; use a placeholder.
-            PassiveSuggestionTrigger::AgentResponseCompleted {
-                exchange_id: AIAgentExchangeId::default(),
-            }
-        }
-        None => return None,
-    };
-
-    let suggestion = match &api_result.suggestion {
-        Some(api::passive_suggestion_result_type::Suggestion::Prompt(p)) => {
-            PassiveSuggestionResultType::Prompt {
-                prompt: p.prompt.clone(),
-            }
-        }
-        Some(api::passive_suggestion_result_type::Suggestion::CodeDiff(cd)) => {
-            PassiveSuggestionResultType::CodeDiff {
-                diffs: cd
-                    .diffs
-                    .iter()
-                    .map(|d| PassiveCodeDiffEntry {
-                        file_path: d.file_path.clone(),
-                        search: d.search.clone(),
-                        replace: d.replace.clone(),
-                    })
-                    .collect(),
-                summary: cd.summary.clone(),
-                accepted: cd.accepted,
-            }
-        }
-        None => return None,
-    };
-
-    let context = convert_input_context(passive_result.context.as_ref());
-
-    Some(AIAgentInput::PassiveSuggestionResult {
-        trigger: Some(trigger),
-        suggestion,
-        context,
-    })
-}
 pub(crate) fn proto_timestamp_to_local_datetime(seconds: i64, nanos: i32) -> DateTime<Local> {
     let nanos = if nanos < 0 { 0 } else { nanos as u32 };
 

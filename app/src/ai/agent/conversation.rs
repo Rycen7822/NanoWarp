@@ -1587,38 +1587,6 @@ impl AIConversation {
             .unwrap_or_default()
     }
 
-    pub fn is_entirely_passive_code_diff(&self) -> bool {
-        let mut has_passive_code_diff_exchange = false;
-        for exchange in self.root_task_exchanges() {
-            has_passive_code_diff_exchange |= exchange.has_passive_code_diff();
-            if exchange.has_user_query() {
-                return false;
-            }
-        }
-        has_passive_code_diff_exchange
-    }
-
-    pub fn is_entirely_passive(&self) -> bool {
-        let mut has_passive_exchange = false;
-        for exchange in self.root_task_exchanges() {
-            has_passive_exchange |= exchange.has_passive_request();
-            if exchange.has_user_query() {
-                return false;
-            }
-        }
-        has_passive_exchange
-    }
-
-    /// True if the conversation consists of just one exchange
-    /// and that exchange is a passive suggestion.
-    pub fn is_single_passive_exchange(&self) -> bool {
-        self.task_store.task_count() == 1
-            && self.is_entirely_passive()
-            && self
-                .get_root_task()
-                .is_some_and(|task| task.exchanges_len() == 1)
-    }
-
     /// True if the conversation started with a CLI subagent and was never continued.
     /// These conversations only have CLI subagent exchanges with no user queries,
     /// meaning they never hit the primary agent.
@@ -1642,12 +1610,8 @@ impl AIConversation {
     /// Returns true if this conversation should be unconditionally excluded
     /// from conversation navigation and history.
     pub fn should_exclude_from_navigation(&self) -> bool {
-        // Passive-only suggestions without any follow-up requests shouldn't be presented as
-        // conversations.
-        self.is_entirely_passive()
-            // Orphaned CLI subagent conversations (invoked from within a terminal block) are
-            // internal and shouldn't appear in navigation.
-            || self.is_orphaned_cli_subagent_conversation()
+        // Orphaned CLI subagent conversations are internal and should not appear in navigation.
+        self.is_orphaned_cli_subagent_conversation()
             // Shared session viewer conversations are excluded because the shared session itself
             // is visible/represented elsewhere.
             || self.is_viewing_shared_session()
@@ -1758,17 +1722,11 @@ impl AIConversation {
             .nth(1)
     }
 
-    /// Returns the last exchange that didn't contain a passive request.
-    pub fn last_non_passive_exchange(&self) -> Option<&AIAgentExchange> {
-        self.exchanges_reversed().find(|e| !e.has_passive_request())
-    }
-
     /// Returns the latest root task exchange that has a visible AI block.
-    /// Passive exchanges do not render conversation-level controls, and hidden exchanges have
-    /// been removed from the blocklist.
+    /// Hidden exchanges have been removed from the blocklist.
     pub fn latest_visible_exchange(&self) -> Option<&AIAgentExchange> {
         self.exchanges_reversed()
-            .find(|e| !e.has_passive_request() && !self.is_exchange_hidden(e.id))
+            .find(|e| !self.is_exchange_hidden(e.id))
     }
 
     pub fn first_exchange(&self) -> Option<&AIAgentExchange> {
@@ -1901,11 +1859,7 @@ impl AIConversation {
     pub fn initial_query(&self) -> Option<String> {
         self.root_task_exchanges()
             .flat_map(|exchange| exchange.input.iter())
-            .find_map(|input| {
-                AIAgentInput::display_query(input)
-                    .or_else(|| AIAgentInput::auto_code_diff_query(input).map(|s| s.to_string()))
-                    .or_else(|| AIAgentInput::prompt_suggestion_result(input).cloned())
-            })
+            .find_map(AIAgentInput::display_query)
     }
 
     pub fn initial_user_query(&self) -> Option<String> {
@@ -1928,12 +1882,6 @@ impl AIConversation {
             }
         }
         result.join("\n\n")
-    }
-
-    pub fn has_auto_code_diff_query(&self) -> bool {
-        self.root_task_exchanges()
-            .flat_map(|exchange| exchange.input.iter())
-            .any(|input| input.is_auto_code_diff_query())
     }
 
     pub fn latest_user_query(&self) -> Option<String> {
@@ -2184,10 +2132,6 @@ impl AIConversation {
             inputs_by_task.entry(task_id).or_default().extend(inputs);
         }
         for (task_id, inputs) in inputs_by_task {
-            let should_hide = inputs
-                .iter()
-                .any(|input| input.is_passive_suggestion_trigger());
-
             let new_exchange = AIAgentExchange {
                 id: AIAgentExchangeId::new(),
                 input: inputs,
@@ -2221,16 +2165,12 @@ impl AIConversation {
                     .insert(stream_id.clone(), Vec1::new(added_exchange));
             }
 
-            if should_hide {
-                self.hidden_exchanges.insert(new_exchange_id);
-            }
-
             ctx.emit(BlocklistAIHistoryEvent::AppendedExchange {
                 exchange_id: new_exchange_id,
                 task_id,
                 terminal_surface_id,
                 conversation_id: self.id,
-                is_hidden: should_hide,
+                is_hidden: self.is_exchange_hidden(new_exchange_id),
                 response_stream_id: Some(stream_id.clone()),
             });
         }

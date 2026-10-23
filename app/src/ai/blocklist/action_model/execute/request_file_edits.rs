@@ -8,14 +8,13 @@ use std::path::PathBuf;
 use ai::diff_validation::AIRequestedCodeDiff;
 use apply_diff_model::ApplyDiffModel;
 use diff_application::DiffApplicationError;
-pub(crate) use diff_application::{FileReadResult, apply_edits};
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use itertools::Itertools;
-pub(crate) use telemetry::MalformedFinalLineProxyEvent;
 #[allow(unused_imports)]
-pub use telemetry::{EditAcceptAndContinueClickedEvent, EditAcceptClickedEvent};
+pub use telemetry::EditAcceptClickedEvent;
+pub(crate) use telemetry::MalformedFinalLineProxyEvent;
 pub use telemetry::{
     EditReceivedEvent, EditResolvedEvent, EditStats, RequestFileEditsFormatKind,
     RequestFileEditsTelemetryEvent,
@@ -87,17 +86,6 @@ impl RequestFileEditsExecutor {
             .iter()
             .filter_map(|edit| edit.file().map(PathBuf::from))
             .collect();
-
-        // Don't allow autoexecution if the diff was generated passively.
-        let Some(latest_exchange) = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .and_then(|c| c.latest_exchange())
-        else {
-            return false;
-        };
-        if latest_exchange.has_passive_request() {
-            return false;
-        }
 
         // Allow "autoexecution" if the diff application failed so that we can continue execution.
         // This is a terrible hack--but allows us to continue execution and let the LLM potentially recover
@@ -182,8 +170,6 @@ impl RequestFileEditsExecutor {
                 client_conversation_id: Some(input.conversation_id),
                 ..Default::default()
             });
-        let passive_diff = BlocklistAIHistoryModel::as_ref(ctx)
-            .is_entirely_passive_conversation(&input.conversation_id);
 
         ActionExecution::new_async(result_future, move |result, ctx| {
             if let RequestFileEditsResult::Success {
@@ -202,7 +188,6 @@ impl RequestFileEditsExecutor {
                             lines_added: *lines_added,
                             lines_removed: *lines_removed,
                         },
-                        passive_diff,
                     }),
                     ctx
                 );
@@ -232,15 +217,11 @@ impl RequestFileEditsExecutor {
                 ..Default::default()
             });
 
-        let passive_diff = BlocklistAIHistoryModel::as_ref(ctx)
-            .is_entirely_passive_conversation(&input.conversation_id);
-
         send_telemetry_from_ctx!(
             RequestFileEditsTelemetryEvent::EditReceived(EditReceivedEvent {
                 identifiers: ai_identifiers.clone(),
                 unique_files: file_edits.iter().map(|file| file.file()).unique().count(),
                 diffs: file_edits.len(),
-                passive_diff,
             }),
             ctx
         );
@@ -250,7 +231,7 @@ impl RequestFileEditsExecutor {
         let id = id.clone();
 
         let apply_future = self.apply_diff_model.update(ctx, |model, ctx| {
-            model.apply_diffs(files, &ai_identifiers, passive_diff, ctx)
+            model.apply_diffs(files, &ai_identifiers, ctx)
         });
 
         ctx.spawn(

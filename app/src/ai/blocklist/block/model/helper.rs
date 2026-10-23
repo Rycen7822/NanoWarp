@@ -4,8 +4,7 @@ use super::AIBlockModel;
 use crate::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversation;
 use crate::ai::agent::{
-    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentInput, AIAgentOutputMessageType,
-    SummarizationType,
+    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentOutputMessageType, SummarizationType,
 };
 use crate::ai::blocklist::BlocklistAIActionModel;
 
@@ -16,8 +15,6 @@ use crate::ai::blocklist::BlocklistAIActionModel;
 pub trait AIBlockModelHelper {
     fn is_first_action_in_output(&self, action_id: &AIAgentActionId, app: &AppContext) -> bool;
     fn conversation<'a>(&self, app: &'a AppContext) -> Option<&'a AIConversation>;
-
-    fn contains_static_prompt_suggestion_input(&self, app: &AppContext) -> bool;
 
     fn contains_create_document_action(&self, app: &AppContext) -> bool;
 
@@ -54,12 +51,6 @@ impl<T: ?Sized + AIBlockModel> AIBlockModelHelper for T {
     fn conversation<'a>(&self, app: &'a AppContext) -> Option<&'a AIConversation> {
         self.conversation_id(app)
             .and_then(|id| BlocklistAIHistoryModel::as_ref(app).conversation(&id))
-    }
-
-    fn contains_static_prompt_suggestion_input(&self, app: &AppContext) -> bool {
-        self.inputs_to_render(app)
-                .iter()
-                .any(|input| matches!(input, AIAgentInput::UserQuery { static_query_type, .. } if static_query_type .is_some()))
     }
 
     fn contains_create_document_action(&self, app: &AppContext) -> bool {

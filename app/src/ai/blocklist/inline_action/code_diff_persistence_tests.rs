@@ -17,12 +17,12 @@ fn add_review(app: &mut App, path: &Path, diff: DiffType) -> ViewHandle<CodeDiff
     app.add_singleton_model(NotebookKeybindings::new);
     app.add_singleton_model(|_| ToastStack);
     let (_, view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-        let mut view = CodeDiffView::new_passive(
+        let mut view = CodeDiffView::build(
             &"file-edit".to_owned().into(),
+            CodeDiffState::WaitingForUser,
             None,
             AIIdentifiers::default(),
             RequestFileEditsFormatKind::V4A,
-            false,
             None,
             ctx,
         );

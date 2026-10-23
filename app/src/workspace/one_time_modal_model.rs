@@ -10,9 +10,7 @@ use warpui::{AppContext, Entity, ModelContext, SingletonEntity, WindowId};
 use super::hoa_onboarding;
 use super::view::chatgpt_plan_modal::ChatGPTPlanModalTelemetryEvent;
 use super::view::feature_intro_modal::{FEATURE_INTROS, FeatureIntroId};
-use super::view::free_ai_removal_modal::{
-    FreeAiRemovalModalTelemetryEvent, FreeAiRemovalModalVariant,
-};
+use super::view::free_ai_removal_modal::FreeAiRemovalModalTelemetryEvent;
 use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::auth::auth_manager::AuthManagerEvent;
@@ -786,12 +784,7 @@ impl OneTimeModalModel {
 
         let should_show = !matches!(ChannelState::channel(), Channel::Integration);
         if should_show {
-            send_telemetry_from_ctx!(
-                FreeAiRemovalModalTelemetryEvent::Shown {
-                    variant: FreeAiRemovalModalVariant::Notice,
-                },
-                ctx
-            );
+            send_telemetry_from_ctx!(FreeAiRemovalModalTelemetryEvent::Shown, ctx);
         }
         self.set_free_ai_removal_modal_open(should_show, ctx);
         should_show

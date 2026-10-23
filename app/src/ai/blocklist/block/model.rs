@@ -5,67 +5,14 @@ use chrono::{DateTime, Local, TimeDelta};
 pub use helper::AIBlockModelHelper;
 pub use model_impl::*;
 use session_sharing_protocol::common::ParticipantId;
-use warp_core::features::FeatureFlag;
 use warpui::{AppContext, ViewContext};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
-    AIAgentExchangeId, AIAgentInput, AIAgentOutput, CancellationReason, PassiveSuggestionTrigger,
-    PassiveSuggestionTriggerType, RenderableAIError, ServerOutputId, Shared,
+    AIAgentExchangeId, AIAgentInput, AIAgentOutput, CancellationReason, RenderableAIError,
+    ServerOutputId, Shared,
 };
 use crate::ai::llms::LLMId;
-
-#[derive(Debug, Clone, Copy)]
-pub enum PassiveRequestType {
-    UnitTestSuggestion,
-    CodeDiff,
-    PassiveSuggestion(PassiveSuggestionTriggerType),
-}
-
-/// The type of request that triggered the AI block.
-#[derive(Default, Debug, Clone, Copy)]
-pub enum AIRequestType {
-    #[default]
-    Active,
-    Passive(PassiveRequestType),
-}
-
-impl AIRequestType {
-    pub fn from_passive_trigger(trigger: &PassiveSuggestionTrigger) -> Self {
-        match trigger {
-            PassiveSuggestionTrigger::CommandRun | PassiveSuggestionTrigger::FilesChanged => {
-                AIRequestType::Passive(PassiveRequestType::UnitTestSuggestion)
-            }
-            _ => AIRequestType::Passive(PassiveRequestType::PassiveSuggestion(trigger.into())),
-        }
-    }
-
-    pub fn is_active(&self) -> bool {
-        matches!(self, AIRequestType::Active)
-    }
-
-    pub fn is_passive(&self) -> bool {
-        matches!(self, AIRequestType::Passive(_))
-    }
-
-    pub fn is_passive_code_diff(&self) -> bool {
-        matches!(self, AIRequestType::Passive(PassiveRequestType::CodeDiff))
-            || (FeatureFlag::PromptSuggestionsViaMAA.is_enabled()
-                && matches!(
-                    self,
-                    AIRequestType::Passive(PassiveRequestType::PassiveSuggestion(
-                        PassiveSuggestionTriggerType::ShellCommandCompleted
-                    ))
-                ))
-    }
-
-    pub fn is_passive_unit_test_suggestion(&self) -> bool {
-        matches!(
-            self,
-            AIRequestType::Passive(PassiveRequestType::UnitTestSuggestion)
-        )
-    }
-}
 
 /// UI-layer representation of agent output to be rendered in an [`AIBlock`].
 #[derive(Debug, Clone)]
@@ -214,9 +161,6 @@ pub trait AIBlockModel {
         callback: OutputStatusUpdateCallback<Self::View>,
         ctx: &mut ViewContext<Self::View>,
     );
-
-    /// Returns the type of request that triggered the AI block.
-    fn request_type(&self, app: &AppContext) -> AIRequestType;
 }
 
 #[cfg(any(test, feature = "integration_tests"))]
@@ -229,9 +173,6 @@ pub mod testing {
         AIAgentInput, AIAgentOutput, CancellationReason, ServerOutputId, Shared,
     };
     use crate::ai::blocklist::AIBlock;
-    use crate::ai::blocklist::model::{
-        AIRequestType, PassiveRequestType, PassiveSuggestionTriggerType,
-    };
     use crate::ai::llms::LLMId;
 
     /// The output shape a [`FakeAIBlockModel`] reports, mirroring the streaming,
@@ -319,25 +260,6 @@ pub mod testing {
             _callback: OutputStatusUpdateCallback<AIBlock>,
             _ctx: &mut ViewContext<AIBlock>,
         ) {
-        }
-
-        fn request_type(&self, app: &AppContext) -> AIRequestType {
-            let inputs = self.inputs_to_render(app);
-            if inputs
-                .iter()
-                .any(|input| input.is_passive_suggestion_trigger())
-            {
-                AIRequestType::Passive(PassiveRequestType::PassiveSuggestion(
-                    PassiveSuggestionTriggerType::ShellCommandCompleted,
-                ))
-            } else if inputs
-                .iter()
-                .any(|input| input.auto_code_diff_query().is_some())
-            {
-                AIRequestType::Passive(PassiveRequestType::CodeDiff)
-            } else {
-                AIRequestType::Active
-            }
         }
     }
 }

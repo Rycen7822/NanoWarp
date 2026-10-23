@@ -16,9 +16,8 @@ use super::history_model::{
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentActionType, AIAgentAttachment, AIAgentContext, AIAgentExchangeId, AIAgentInput,
-    AIAgentPtyWriteMode, AskUserQuestionItem, FileLocations, PassiveSuggestionResultType,
-    ReadFilesRequest, RequestComputerUseRequest, SearchCodebaseRequest, UseComputerRequest,
-    UserQueryMode,
+    AIAgentPtyWriteMode, AskUserQuestionItem, FileLocations, ReadFilesRequest,
+    RequestComputerUseRequest, SearchCodebaseRequest, UseComputerRequest, UserQueryMode,
 };
 use crate::ai::llms::LLMId;
 use crate::persistence::ModelEvent;
@@ -69,31 +68,10 @@ impl TryFrom<&AIAgentInput> for PersistedAIInputType {
                 context: context.clone(),
                 referenced_attachments: referenced_attachments.clone(),
             }),
-            AIAgentInput::AutoCodeDiffQuery { query, context } => Ok(Self::Query {
-                text: query.clone(),
-                context: context.clone(),
-                referenced_attachments: Default::default(),
-            }),
-            AIAgentInput::PassiveSuggestionResult {
-                suggestion: PassiveSuggestionResultType::Prompt { prompt },
-                context,
-                ..
-            } => Ok(Self::Query {
-                text: prompt.clone(),
-                context: context.clone(),
-                referenced_attachments: Default::default(),
-            }),
-            AIAgentInput::PassiveSuggestionResult {
-                suggestion: PassiveSuggestionResultType::CodeDiff { .. },
-                ..
-            } => Err(anyhow!(
-                "PassiveSuggestionResult::CodeDiff is not persisted as a query."
-            )),
             AIAgentInput::ActionResult { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }
             | AIAgentInput::CreateEnvironment { .. }
-            | AIAgentInput::TriggerPassiveSuggestion { .. }
             | AIAgentInput::CreateNewProject { .. }
             | AIAgentInput::CloneRepository { .. }
             | AIAgentInput::CodeReview { .. }
@@ -180,7 +158,7 @@ pub fn maybe_build_ai_query_upsert_event(
         return None;
     };
 
-    if is_hidden || conversation.is_entirely_passive() || is_shared_ambient_agent_session {
+    if is_hidden || is_shared_ambient_agent_session {
         return None;
     }
 
@@ -280,7 +258,6 @@ pub(crate) enum PersistedAIAgentActionType {
     SuggestNewConversation {
         message_id: String,
     },
-    SuggestPrompt,
     OpenCodeReview,
     InitProject,
     UseComputer {
@@ -416,7 +393,6 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
                     message_id: message_id.clone(),
                 }
             }
-            AIAgentActionType::SuggestPrompt { .. } => Self::SuggestPrompt,
             AIAgentActionType::OpenCodeReview => Self::OpenCodeReview,
             AIAgentActionType::InsertCodeReviewComments { .. } => Self::NotPersisted,
             AIAgentActionType::InitProject => Self::InitProject,
@@ -546,9 +522,6 @@ impl TryFrom<PersistedAIAgentActionType> for AIAgentActionType {
                 Ok(Self::SuggestNewConversation {
                     message_id: message_id.clone(),
                 })
-            }
-            PersistedAIAgentActionType::SuggestPrompt => {
-                Err(anyhow!("Restoration for suggested prompts is unsupported."))
             }
             PersistedAIAgentActionType::OpenCodeReview => Ok(Self::OpenCodeReview),
             PersistedAIAgentActionType::InitProject => Ok(Self::InitProject),

@@ -93,20 +93,12 @@ impl Input {
         let vim_state = self.editor.as_ref(app).vim_state(app);
         let app_editor_settings = AppEditorSettings::as_ref(app);
         let show_vim_status = vim_state.is_some() && *app_editor_settings.vim_status_bar.value();
-        let input_mode = *InputModeSettings::as_ref(app).input_mode.value();
 
         let is_compact_mode = matches!(
             TerminalSettings::as_ref(app).spacing_mode.value(),
             SpacingMode::Compact
         );
         let mut column = Flex::column();
-
-        if matches!(input_mode, InputMode::PinnedToBottom | InputMode::Waterfall)
-            && let Some(banner) =
-                self.render_input_banner(appearance, app, input_mode, is_compact_mode)
-        {
-            column.add_child(banner);
-        }
 
         column.add_children([prompt_top_padding_row.finish(), prompt_row.finish()]);
 
@@ -131,13 +123,6 @@ impl Input {
                 .with_margin_bottom(4.)
                 .finish(),
         );
-
-        if matches!(input_mode, InputMode::PinnedToTop)
-            && let Some(banner) =
-                self.render_input_banner(appearance, app, input_mode, is_compact_mode)
-        {
-            column.add_child(banner);
-        }
 
         let subshell_flag = self.get_subshell_flag_render_state(&model, is_compact_mode, app);
 

@@ -65,8 +65,6 @@ query GetWorkspacesMetadataForUser($requestContext: RequestContext!) {
               description
               warpAiPolicy {
                 limit
-                isCodeSuggestionsToggleable
-                isPromptSuggestionsToggleable
                 isGitOperationsAiEnabled
                 isVoiceEnabled
               }

@@ -180,7 +180,6 @@ pub struct RequestParams {
     pub ask_user_question_enabled: bool,
     pub research_agent_enabled: bool,
     pub orchestration_enabled: bool,
-    pub supported_tools_override: Option<Vec<warp_multi_agent_api::ToolType>>,
     /// The conversation ID of the parent agent that spawned this child agent, if any.
     pub parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
@@ -244,7 +243,6 @@ impl RequestParams {
             ask_user_question_enabled: false,
             research_agent_enabled: false,
             orchestration_enabled: false,
-            supported_tools_override: None,
             parent_agent_id: None,
             agent_name: None,
         }
@@ -449,7 +447,6 @@ impl RequestParams {
             ask_user_question_enabled,
             research_agent_enabled,
             orchestration_enabled,
-            supported_tools_override: request_input.supported_tools_override.clone(),
             parent_agent_id: None,
             agent_name: None,
         }

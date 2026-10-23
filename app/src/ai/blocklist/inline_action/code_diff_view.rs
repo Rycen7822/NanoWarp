@@ -13,13 +13,10 @@ use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::{BoxFuture, join_all};
 use lazy_static::lazy_static;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_geometry::vector::vec2f;
 use rand::distributions::Alphanumeric;
 use rand::{Rng as _, thread_rng};
-use warp_core::features::FeatureFlag;
 use warp_core::platform::SessionPlatform;
-use warp_core::settings::ToggleableSetting;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::color::CLAUDE_ORANGE;
 use warp_core::ui::theme::Fill;
@@ -34,19 +31,18 @@ use warp_util::standardized_path::StandardizedPath;
 use warpui::elements::new_scrollable::{ScrollableAppearance, SingleAxisConfig};
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox,
-    Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
-    FormattedTextElement, HighlightedHyperlink, Hoverable, MainAxisAlignment, MainAxisSize,
-    MouseStateHandle, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
+    Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
     SavePosition, ScrollTarget, ScrollToPositionMode, ScrollbarWidth, Shrinkable,
     SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
 };
 use warpui::keymap::{EditableBinding, FixedBinding, Keystroke};
-use warpui::platform::{Cursor, OperatingSystem};
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::platform::Cursor;
+use warpui::ui_components::components::UiComponent;
 use warpui::{
-    AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle, WeakViewHandle,
+    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle, WeakViewHandle,
 };
 
 use super::malformed_line_heuristics::has_malformed_terminal_correction_signal;
@@ -56,9 +52,9 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::RequestedEditResolution;
 use crate::ai::blocklist::action_model::{
-    AIActionStatus, BlocklistAIActionEvent, BlocklistAIActionModel,
-    EditAcceptAndContinueClickedEvent, EditAcceptClickedEvent, EditResolvedEvent, EditStats,
-    MalformedFinalLineProxyEvent, RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent,
+    AIActionStatus, BlocklistAIActionEvent, BlocklistAIActionModel, EditAcceptClickedEvent,
+    EditResolvedEvent, EditStats, MalformedFinalLineProxyEvent, RequestFileEditsFormatKind,
+    RequestFileEditsTelemetryEvent,
 };
 use crate::ai::blocklist::diff_storage::{
     DiffStorage, DiffStorageHelper, FileSnapshot, RegisteredDiffStorage, SaveFuture,
@@ -74,7 +70,6 @@ use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::view_util::render_provider_icon_button;
 use crate::ai::mcp::{MCPProvider, mcp_provider_from_file_path};
 use crate::ai::paths::host_native_absolute_path;
-use crate::ai::predict::prompt_suggestions::ACCEPT_PROMPT_SUGGESTION_KEYBINDING;
 use crate::ai::skills::{
     SkillManager, SkillOpenOrigin, SkillReference, SkillTelemetryEvent,
     icon_override_for_skill_name, render_skill_button, skill_path_from_location,
@@ -88,12 +83,8 @@ use crate::menu::{Event as MenuEvent, Menu, MenuItemFields, MenuVariant};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::{PaneId, view};
 use crate::pane_group::{BackingView, PaneEvent};
-use crate::server::telemetry::{
-    AgentModeCodeFileNavigationSource, ToggleCodeSuggestionsSettingSource,
-};
-use crate::settings::AISettings;
+use crate::server::telemetry::AgentModeCodeFileNavigationSource;
 use crate::terminal::ShellLaunchData;
-use crate::terminal::input::SET_INPUT_MODE_AGENT_ACTION_NAME;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::util::bindings::keybinding_name_to_keystroke;
@@ -115,13 +106,7 @@ const REQUESTED_EDIT_ACCEPT_LABEL: &str = "Accept";
 const REQUESTED_EDIT_ACCEPT_AND_AUTOEXECUTE_LABEL: &str = "Auto-approve";
 const REQUESTED_EDIT_EDIT_LABEL: &str = "Edit";
 const REQUESTED_EDIT_MINIMIZE_LABEL: &str = "Done";
-const SUGGESTED_EDIT_ACCEPT_LABEL: &str = "Accept";
-const SUGGESTED_EDIT_ACCEPT_AND_CONTINUE_LABEL: &str = "Accept and continue with agent";
-const SUGGESTED_EDIT_ITERATE_WITH_AGENT_LABEL: &str = "Iterate with agent";
-const SUGGESTED_EDIT_DISMISS_LABEL: &str = "Dismiss";
 const MAX_EDITOR_HEIGHT: f32 = 500.;
-const INLINE_EDITOR_HEIGHT: f32 = 94.;
-const INLINE_EDITOR_HEIGHT_EXPANDED: f32 = 400.;
 const FILE_TAB_FONT_SIZE: f32 = 12.;
 const FILE_TAB_HEIGHT: f32 = 32.;
 const FILE_TAB_WIDTH: f32 = 120.;
@@ -129,7 +114,6 @@ const FILE_TAB_HORIZONTAL_PADDING: f32 = 8.;
 const HEADER_MARGIN: f32 = 8.;
 
 const DISPATCHED_REQUESTED_EDIT_EXPANDED: &str = "DispatchedRequestedEditExpanded";
-const SUGGESTED_EDIT_INLINE_BANNER: &str = "SuggestedEditInlineBanner";
 /// Slightly smaller than other action header vertical padding to account for the 1px border on the code diff line count.
 const HEADER_VERTICAL_PADDING: f32 = 9.;
 
@@ -208,9 +192,6 @@ pub fn init(app: &mut AppContext) {
 #[derive(Default, Clone)]
 struct CodeDiffViewMouseStates {
     show_hide_button: MouseStateHandle,
-    scroll_icon_button: MouseStateHandle,
-    passive_code_suggestion_checkbox: MouseStateHandle,
-    ai_settings_link_highlight_index: HighlightedHyperlink,
     skill_button_handle: MouseStateHandle,
     stats_badge_button: MouseStateHandle,
     mcp_config_button_handle: MouseStateHandle,
@@ -229,20 +210,11 @@ pub enum CodeDiffViewEvent {
     TextSelected,
     CopiedEmptyText,
     EditorFocused,
-    Blur,
     DisplayModeChanged,
-    OpenSettings,
-    CancelPassive,
     ViewDetails,
-    ContinuePassiveCodeDiffWithAgent {
-        accepted: bool,
-    },
     ToggleCodeReviewPane {
         entrypoint: CodeReviewPaneEntrypoint,
     },
-    /// Emitted when candidate diffs are loaded and ready to display.
-    /// Used to trigger AIBlock height recalculation for passive code diffs.
-    LoadedDiffs,
     /// Emitted when the user opens a skill file from a code diff
     OpenSkill {
         reference: SkillReference,
@@ -299,8 +271,6 @@ pub enum Direction {
 pub enum CodeDiffViewAction {
     TryAccept,
     AcceptAndAutoExecute,
-    AcceptPassiveDiffAndContinueWithAgent,
-    IterateOnPassiveDiffWithAgent,
     Reject,
     ToggleRequestedEditVisibility,
     TabSelected(usize),
@@ -308,9 +278,6 @@ pub enum CodeDiffViewAction {
     Minimize,
     NavigateToDiffHunk(Direction),
     SelectFile(Direction),
-    ScrollToExpand,
-    ToggleCodeSuggestions,
-    OpenSettings,
     ToggleAcceptMenu,
     OpenCodeReviewPane,
     RevertChanges,
@@ -330,7 +297,6 @@ pub enum CodeDiffViewAction {
 enum AcceptSelection {
     Only,
     AndAutoExecute,
-    AndContinueWithAgent,
 }
 
 #[derive(Clone)]
@@ -383,7 +349,6 @@ pub struct CodeDiffView {
     cancel_button: CompactibleActionButton,
     edit_button: CompactibleActionButton,
     minimize_button: CompactibleActionButton,
-    iterate_with_agent_button: CompactibleActionButton,
     accept_and_autoexecute_split_button: CompactibleSplitActionButton,
     is_accept_split_button_menu_open: bool,
     accept_split_button_menu: ViewHandle<Menu<CodeDiffViewAction>>,
@@ -407,9 +372,6 @@ pub struct CodeDiffView {
     original_pane_id: Option<PaneId>,
     /// A randomly-generated string prefix to ensure the [`SavePosition`]s in this view are unique.
     position_id_prefix: String,
-    /// Whether this code diff is a passive code suggestion.
-    is_passive: bool,
-    should_show_speedbump: bool,
     session_platform: Option<SessionPlatform>,
     /// Whether diffs target local disk or a remote host.
     diff_session_type: DiffSessionType,
@@ -426,49 +388,32 @@ impl CodeDiffView {
             return;
         }
         self.is_accept_split_button_menu_open = true;
-        let is_passive = self.is_passive();
-        if is_passive {
-            self.accept_split_button_menu.update(ctx, |menu, ctx| {
-                menu.set_items(
-                    vec![
-                        MenuItemFields::new_multiline(SUGGESTED_EDIT_ACCEPT_AND_CONTINUE_LABEL, 2)
-                            .with_on_select_action(
-                                CodeDiffViewAction::AcceptPassiveDiffAndContinueWithAgent,
-                            )
-                            .into_item(),
-                    ],
-                    ctx,
-                );
-            });
-        } else {
-            let accept_keystroke = accept_keystroke_source(is_passive)
-                .displayed(ctx)
+        let accept_keystroke = KeystrokeSource::Fixed(Keystroke {
+            key: ACCEPT_KEY.to_owned(),
+            ..Default::default()
+        })
+        .displayed(ctx)
+        .unwrap_or_default();
+        let auto_keystroke =
+            keybinding_name_to_keystroke(crate::terminal::TOGGLE_AUTOEXECUTE_MODE_KEYBINDING, ctx)
+                .map(|k| k.displayed())
                 .unwrap_or_default();
-            let auto_keystroke = keybinding_name_to_keystroke(
-                crate::terminal::TOGGLE_AUTOEXECUTE_MODE_KEYBINDING,
-                ctx,
-            )
-            .map(|k| k.displayed())
-            .unwrap_or_default();
 
-            let accept_item = MenuItemFields::new_with_label(
-                REQUESTED_EDIT_ACCEPT_LABEL,
-                accept_keystroke.as_str(),
-            )
-            .with_on_select_action(CodeDiffViewAction::TryAccept)
-            .into_item();
+        let accept_item =
+            MenuItemFields::new_with_label(REQUESTED_EDIT_ACCEPT_LABEL, accept_keystroke.as_str())
+                .with_on_select_action(CodeDiffViewAction::TryAccept)
+                .into_item();
 
-            let auto_item = MenuItemFields::new_with_label(
-                REQUESTED_EDIT_ACCEPT_AND_AUTOEXECUTE_LABEL,
-                auto_keystroke.as_str(),
-            )
-            .with_on_select_action(CodeDiffViewAction::AcceptAndAutoExecute)
-            .into_item();
+        let auto_item = MenuItemFields::new_with_label(
+            REQUESTED_EDIT_ACCEPT_AND_AUTOEXECUTE_LABEL,
+            auto_keystroke.as_str(),
+        )
+        .with_on_select_action(CodeDiffViewAction::AcceptAndAutoExecute)
+        .into_item();
 
-            self.accept_split_button_menu.update(ctx, |menu, ctx| {
-                menu.set_items(vec![accept_item, auto_item], ctx);
-            });
-        }
+        self.accept_split_button_menu.update(ctx, |menu, ctx| {
+            menu.set_items(vec![accept_item, auto_item], ctx);
+        });
         self.accept_split_button_menu
             .update(ctx, |menu, ctx| menu.set_selected_by_index(0, ctx));
         ctx.focus(&self.accept_split_button_menu);
@@ -590,12 +535,10 @@ impl CodeDiffView {
         title: Option<String>,
         identifiers: AIIdentifiers,
         edit_format_kind: RequestFileEditsFormatKind,
-        should_show_speedbump: bool,
         action_model: ModelHandle<BlocklistAIActionModel>,
         session_platform: Option<SessionPlatform>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
-        let is_passive = model.request_type(ctx).is_passive_code_diff();
         let initial_state = if action_model.as_ref(ctx).is_view_only() {
             CodeDiffState::ViewOnly { is_complete: false }
         } else if model.is_first_action_in_output(action_id, ctx) {
@@ -606,12 +549,10 @@ impl CodeDiffView {
 
         let view = Self::build(
             action_id,
-            is_passive,
             initial_state,
             title,
             identifiers,
             edit_format_kind,
-            should_show_speedbump,
             session_platform,
             ctx,
         );
@@ -652,51 +593,16 @@ impl CodeDiffView {
         view
     }
 
-    /// Creates a passive `CodeDiffView` for out-of-band code diff suggestions.
-    ///
-    /// Unlike [`Self::new`], this does not require an `AIBlockModel` or
-    /// `BlocklistAIActionModel` — the view is standalone and not tied to the
-    /// action executor pipeline.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_passive(
-        action_id: &AIAgentActionId,
-        title: Option<String>,
-        identifiers: AIIdentifiers,
-        edit_format_kind: RequestFileEditsFormatKind,
-        should_show_speedbump: bool,
-        session_platform: Option<SessionPlatform>,
-        ctx: &mut ViewContext<Self>,
-    ) -> Self {
-        Self::build(
-            action_id,
-            true,
-            CodeDiffState::WaitingForUser,
-            title,
-            identifiers,
-            edit_format_kind,
-            should_show_speedbump,
-            session_platform,
-            ctx,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn build(
         action_id: &AIAgentActionId,
-        is_passive: bool,
         initial_state: CodeDiffState,
         title: Option<String>,
         identifiers: AIIdentifiers,
         edit_format_kind: RequestFileEditsFormatKind,
-        should_show_speedbump: bool,
         session_platform: Option<SessionPlatform>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
-        let display_mode = if is_passive {
-            DisplayMode::with_inline_banner(INLINE_EDITOR_HEIGHT)
-        } else {
-            DisplayMode::with_embedded(MAX_EDITOR_HEIGHT)
-        };
+        let display_mode = DisplayMode::with_embedded(MAX_EDITOR_HEIGHT);
 
         let position_id_prefix: String = thread_rng()
             .sample_iter(&Alphanumeric)
@@ -704,11 +610,7 @@ impl CodeDiffView {
             .map(char::from)
             .collect();
 
-        let cancel_button_label = if is_passive {
-            SUGGESTED_EDIT_DISMISS_LABEL
-        } else {
-            REQUESTED_EDIT_REFINE_LABEL
-        };
+        let cancel_button_label = REQUESTED_EDIT_REFINE_LABEL;
         let cancel_button = CompactibleActionButton::new(
             cancel_button_label.to_string(),
             Some(KeystrokeSource::Fixed(
@@ -743,23 +645,12 @@ impl CodeDiffView {
             ctx,
         );
 
-        let iterate_with_agent_button = CompactibleActionButton::new(
-            SUGGESTED_EDIT_ITERATE_WITH_AGENT_LABEL.to_string(),
-            Some(KeystrokeSource::Binding(SET_INPUT_MODE_AGENT_ACTION_NAME)),
-            ButtonSize::Small,
-            CodeDiffViewAction::IterateOnPassiveDiffWithAgent,
-            Icon::ChatDashed,
-            Arc::new(NakedTheme),
-            ctx,
-        );
-
         let accept_and_autoexecute_split_button = CompactibleSplitActionButton::new(
-            if is_passive {
-                SUGGESTED_EDIT_ACCEPT_LABEL.to_string()
-            } else {
-                REQUESTED_EDIT_ACCEPT_LABEL.to_string()
-            },
-            Some(accept_keystroke_source(is_passive)),
+            REQUESTED_EDIT_ACCEPT_LABEL.to_string(),
+            Some(KeystrokeSource::Fixed(Keystroke {
+                key: ACCEPT_KEY.to_owned(),
+                ..Default::default()
+            })),
             ButtonSize::Small,
             CodeDiffViewAction::TryAccept,
             CodeDiffViewAction::ToggleAcceptMenu,
@@ -828,7 +719,6 @@ impl CodeDiffView {
             cancel_button,
             edit_button,
             minimize_button,
-            iterate_with_agent_button,
             accept_and_autoexecute_split_button,
             is_accept_split_button_menu_open: false,
             accept_split_button_menu: accept_menu,
@@ -847,8 +737,6 @@ impl CodeDiffView {
             original_pane_id: None,
             scrollable_state: Default::default(),
             position_id_prefix,
-            is_passive,
-            should_show_speedbump,
             session_platform,
             diff_session_type: DiffSessionType::Local,
             pending_saves: 0,
@@ -879,10 +767,6 @@ impl CodeDiffView {
             total_removed += lines_removed;
         }
         (total_added, total_removed)
-    }
-
-    pub fn is_passive(&self) -> bool {
-        self.is_passive
     }
 
     /// Sets the set of candidate diffs to be displayed to the user to accept.
@@ -936,7 +820,6 @@ impl CodeDiffView {
             .collect();
 
         self.pending_diffs = pending_diffs;
-        ctx.emit(CodeDiffViewEvent::LoadedDiffs);
         ctx.notify();
     }
 
@@ -963,33 +846,18 @@ impl CodeDiffView {
                 send_telemetry_from_ctx!(
                     RequestFileEditsTelemetryEvent::EditAcceptClicked(EditAcceptClickedEvent {
                         identifiers: self.identifiers.clone(),
-                        passive_diff: self.is_passive,
                     }),
-                    ctx
-                );
-            }
-            AcceptSelection::AndContinueWithAgent => {
-                send_telemetry_from_ctx!(
-                    RequestFileEditsTelemetryEvent::EditAcceptAndContinueClicked(
-                        EditAcceptAndContinueClickedEvent {
-                            identifiers: self.identifiers.clone(),
-                        }
-                    ),
                     ctx
                 );
             }
             AcceptSelection::AndAutoExecute => {}
         }
 
-        if self.display_mode().is_inline_banner() {
-            self.set_embedded_display_mode(true, ctx);
-        }
-
         ctx.emit(CodeDiffViewEvent::TryAccept);
 
         // Persistence and result assembly run through the shared
-        // [`DiffStorageHelper`] flow once the executor (or the passive
-        // handler) calls `accept_and_save`. Optimistically mark the diff
+        // [`DiffStorageHelper`] flow once the executor calls `accept_and_save`.
+        // Optimistically mark the diff
         // accepted and minimize the review UI.
         self.mark_accepted_for_save(ctx);
         Ok(())
@@ -1021,11 +889,7 @@ impl CodeDiffView {
         self.state = CodeDiffState::Rejected;
         self.should_expand_when_complete = true;
 
-        if self.is_passive {
-            ctx.emit(CodeDiffViewEvent::CancelPassive);
-        } else {
-            ctx.emit(CodeDiffViewEvent::Rejected);
-        }
+        ctx.emit(CodeDiffViewEvent::Rejected);
         ctx.notify();
 
         self.minimize(ctx);
@@ -1135,8 +999,6 @@ impl CodeDiffView {
             } else {
                 self.close(ctx);
             }
-        } else if self.display_mode().is_inline_banner() {
-            self.set_embedded_display_mode(true, ctx);
         }
     }
 
@@ -1145,10 +1007,6 @@ impl CodeDiffView {
         if matches!(self.state, CodeDiffState::ViewOnly { .. }) {
             report_error!("Attempted to edit/expand diff in view-only mode");
             return;
-        }
-
-        if self.display_mode().is_inline_banner() {
-            self.set_embedded_display_mode(true, ctx);
         }
 
         ctx.emit(CodeDiffViewEvent::ViewDetails);
@@ -1174,64 +1032,6 @@ impl CodeDiffView {
             || self.display_mode().is_full_pane()
     }
 
-    fn is_inline_banner_expanded(&self) -> bool {
-        matches!(
-            self.display_mode(),
-            DisplayMode::InlineBanner {
-                is_expanded: true,
-                ..
-            }
-        )
-    }
-
-    pub fn is_inline_banner_dismissed(&self) -> bool {
-        matches!(
-            self.display_mode(),
-            DisplayMode::InlineBanner {
-                is_dismissed: true,
-                ..
-            }
-        )
-    }
-
-    fn render_scroll_icon_for_inline_banner(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let background = appearance.theme().foreground();
-        let icon = warpui::elements::Icon::new(
-            Icon::ArrowDown.into(),
-            appearance.theme().main_text_color(background).into_solid(),
-        )
-        .finish();
-
-        Hoverable::new(
-            self.button_mouse_states.scroll_icon_button.clone(),
-            move |mouse_state| {
-                let background = if mouse_state.is_clicked() {
-                    blended_colors::fg_overlay_3(appearance.theme())
-                } else if mouse_state.is_mouse_over_element() {
-                    blended_colors::fg_overlay_2(appearance.theme())
-                } else {
-                    background
-                };
-
-                Container::new(
-                    ConstrainedBox::new(icon)
-                        .with_width(16.)
-                        .with_height(16.)
-                        .finish(),
-                )
-                .with_background(background)
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-                .with_uniform_padding(2.)
-                .finish()
-            },
-        )
-        .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(CodeDiffViewAction::ScrollToExpand);
-        })
-        .with_cursor(Cursor::PointingHand)
-        .finish()
-    }
-
     /// Returns the regular row, the compact row,
     /// and the size switch threshold that tells us when to switch between the two.
     fn render_compactible_edits_buttons(
@@ -1246,24 +1046,7 @@ impl CodeDiffView {
             DisplayMode::Embedded { .. } => {
                 self.render_compactible_requested_edits_buttons_in_blocklist(appearance, app)
             }
-            DisplayMode::InlineBanner { .. } => {
-                self.render_compactible_buttons_in_inline_banner(appearance, app)
-            }
         }
-    }
-
-    fn render_compactible_buttons_in_inline_banner(
-        &self,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> (Box<dyn Element>, Box<dyn Element>, f32) {
-        let mut buttons: Vec<&dyn RenderCompactibleActionButton> =
-            vec![&self.cancel_button, &self.edit_button];
-        buttons.extend(self.compactible_accept_buttons());
-
-        let button_rows = render_compact_and_regular_button_rows(buttons, None, appearance, app);
-
-        (button_rows.0, button_rows.1, MEDIUM_SIZE_SWITCH_THRESHOLD)
     }
 
     fn render_compactible_requested_edits_buttons_in_blocklist(
@@ -1271,9 +1054,11 @@ impl CodeDiffView {
         appearance: &Appearance,
         app: &AppContext,
     ) -> (Box<dyn Element>, Box<dyn Element>, f32) {
-        let mut buttons: Vec<&dyn RenderCompactibleActionButton> =
-            vec![&self.cancel_button, &self.edit_button];
-        buttons.extend(self.compactible_accept_buttons());
+        let buttons: Vec<&dyn RenderCompactibleActionButton> = vec![
+            &self.cancel_button,
+            &self.edit_button,
+            &self.accept_and_autoexecute_split_button,
+        ];
 
         let button_rows = render_compact_and_regular_button_rows(
             buttons,
@@ -1289,23 +1074,16 @@ impl CodeDiffView {
         (button_rows.0, button_rows.1, XLARGE_SIZE_SWITCH_THRESHOLD)
     }
 
-    fn compactible_accept_buttons(&self) -> Vec<&dyn RenderCompactibleActionButton> {
-        let mut buttons: Vec<&dyn RenderCompactibleActionButton> = Vec::new();
-        if self.is_passive() {
-            buttons.push(&self.iterate_with_agent_button);
-        }
-        buttons.push(&self.accept_and_autoexecute_split_button);
-        buttons
-    }
-
     fn render_compactible_requested_edits_buttons_in_full_pane(
         &self,
         appearance: &Appearance,
         app: &AppContext,
     ) -> (Box<dyn Element>, Box<dyn Element>, f32) {
-        let mut buttons: Vec<&dyn RenderCompactibleActionButton> =
-            vec![&self.cancel_button, &self.minimize_button];
-        buttons.extend(self.compactible_accept_buttons());
+        let buttons: Vec<&dyn RenderCompactibleActionButton> = vec![
+            &self.cancel_button,
+            &self.minimize_button,
+            &self.accept_and_autoexecute_split_button,
+        ];
         let button_rows = render_compact_and_regular_button_rows(buttons, None, appearance, app);
 
         (button_rows.0, button_rows.1, MEDIUM_SIZE_SWITCH_THRESHOLD)
@@ -1379,17 +1157,8 @@ impl CodeDiffView {
             .finish()
     }
 
-    fn render_icon(
-        &self,
-        header_background: Fill,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        let icon_size = if self.display_mode().is_inline_banner() {
-            appearance.monospace_font_size()
-        } else {
-            icon_size(app)
-        };
+    fn render_icon(&self, appearance: &Appearance, app: &AppContext) -> Option<Box<dyn Element>> {
+        let icon_size = icon_size(app);
 
         let icon = match self.state {
             CodeDiffState::Accepted | CodeDiffState::ViewOnly { is_complete: true } => {
@@ -1400,20 +1169,7 @@ impl CodeDiffView {
             CodeDiffState::Queued | CodeDiffState::ViewOnly { is_complete: false } => {
                 icons::gray_stop_icon(appearance).finish()
             }
-            CodeDiffState::WaitingForUser => {
-                if self.display_mode().is_inline_banner() {
-                    warpui::elements::Icon::new(
-                        Icon::Code2.into(),
-                        appearance
-                            .theme()
-                            .main_text_color(header_background)
-                            .into_solid(),
-                    )
-                    .finish()
-                } else {
-                    yellow_stop_icon(appearance).finish()
-                }
-            }
+            CodeDiffState::WaitingForUser => yellow_stop_icon(appearance).finish(),
         };
 
         Some(
@@ -1454,10 +1210,6 @@ impl CodeDiffView {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        if self.display_mode().is_inline_banner() {
-            return self.render_header_in_inline_banner(action_buttons, appearance, app);
-        }
-
         let header_background = appearance.theme().surface_2();
         let mut header_row = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
@@ -1492,7 +1244,7 @@ impl CodeDiffView {
             )
             .with_selectable(false)
             .finish();
-            if let Some(icon) = self.render_icon(header_background, appearance, app) {
+            if let Some(icon) = self.render_icon(appearance, app) {
                 left_content_row.add_child(Container::new(icon).with_margin_right(12.).finish());
             }
             left_content_row.add_child(
@@ -1681,87 +1433,6 @@ impl CodeDiffView {
         container
     }
 
-    fn render_header_in_inline_banner(
-        &self,
-        action_buttons: Box<dyn Element>,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let header_background = appearance.theme().background();
-        let mut header_row = Flex::row()
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_cross_axis_alignment(CrossAxisAlignment::Start);
-
-        let mut left_content_container = Flex::row()
-            .with_main_axis_alignment(MainAxisAlignment::Start)
-            .with_cross_axis_alignment(CrossAxisAlignment::Start);
-
-        if let Some(icon) = self.render_icon(header_background, appearance, app) {
-            left_content_container.add_child(
-                Container::new(icon)
-                    .with_margin_right(HEADER_MARGIN)
-                    .finish(),
-            );
-        }
-
-        let mut col = Flex::column();
-        if let Some(title) = &self.title {
-            let title = Text::new_inline(
-                title.to_string(),
-                appearance.ui_font_family(),
-                appearance.monospace_font_size() + 2.,
-            )
-            .with_color(
-                appearance
-                    .theme()
-                    .main_text_color(header_background)
-                    .into_solid(),
-            )
-            .with_selectable(false)
-            .finish();
-            col.add_child(title);
-        }
-        if let Some(subtitle) = self.display_mode().title() {
-            let subtitle = Text::new_inline(
-                subtitle.to_string(),
-                appearance.ui_font_family(),
-                appearance.monospace_font_size(),
-            )
-            .with_color(
-                appearance
-                    .theme()
-                    .sub_text_color(header_background)
-                    .into_solid(),
-            )
-            .with_selectable(false)
-            .finish();
-            col.add_child(subtitle);
-        }
-
-        left_content_container.add_child(
-            Shrinkable::new(
-                1.,
-                Container::new(col.finish())
-                    .with_margin_right(HEADER_MARGIN)
-                    .finish(),
-            )
-            .finish(),
-        );
-
-        header_row.add_child(Shrinkable::new(1., left_content_container.finish()).finish());
-
-        if !self.is_complete() {
-            // If this step is completed, we don't need to render the action buttons.
-            header_row.add_child(action_buttons)
-        };
-
-        Container::new(header_row.finish())
-            .with_padding_top(16.)
-            .with_padding_bottom(HEADER_VERTICAL_PADDING)
-            .finish()
-    }
-
     /// Returns the rename target path if this diff is a rename, None otherwise.
     fn get_rename_target(diff_type: Option<&DiffType>) -> Option<&Path> {
         match diff_type {
@@ -1792,11 +1463,7 @@ impl CodeDiffView {
             file_tab_width,
             file_tab_vertical_padding,
             file_tab_horizontal_padding,
-        ) = if self.display_mode().is_inline_banner() {
-            (FILE_TAB_HEIGHT - 10., FILE_TAB_WIDTH - 10., 2., 12.)
-        } else {
-            (FILE_TAB_HEIGHT, FILE_TAB_WIDTH, 8., 8.)
-        };
+        ) = (FILE_TAB_HEIGHT, FILE_TAB_WIDTH, 8., 8.);
 
         let mut row = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::Start)
@@ -1845,7 +1512,7 @@ impl CodeDiffView {
                 };
 
                 let mut stack = Stack::new();
-                let mut container = Container::new(
+                let container = Container::new(
                     ConstrainedBox::new(
                         Align::new(
                             Container::new(
@@ -1871,10 +1538,6 @@ impl CodeDiffView {
                 .with_background(background)
                 .with_horizontal_padding(FILE_TAB_HORIZONTAL_PADDING);
 
-                if idx == 0 && self.display_mode().is_inline_banner() {
-                    container =
-                        container.with_corner_radius(CornerRadius::with_top(Radius::Pixels(8.)));
-                }
                 stack.add_child(container.finish());
 
                 if tab_handle.is_hovered() {
@@ -1921,18 +1584,7 @@ impl CodeDiffView {
         )
         .with_background(theme.surface_1());
 
-        if self.display_mode().is_inline_banner() {
-            container
-                .with_corner_radius(CornerRadius::with_top(Radius::Pixels(8.)))
-                .with_border(
-                    Border::new(1.)
-                        .with_sides(true, true, false, true)
-                        .with_border_fill(blended_colors::neutral_4(theme)),
-                )
-                .finish()
-        } else {
-            container.finish()
-        }
+        container.finish()
     }
 
     fn render_editor(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
@@ -1959,13 +1611,6 @@ impl CodeDiffView {
                 DisplayMode::Embedded { .. } => placeholder
                     .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
                     .finish(),
-                DisplayMode::InlineBanner { .. } => placeholder
-                    .with_border(
-                        Border::new(1.)
-                            .with_sides(false, true, true, true)
-                            .with_border_fill(blended_colors::neutral_4(theme)),
-                    )
-                    .finish(),
                 DisplayMode::FullPane => {
                     Shrinkable::new(1.0, placeholder.with_padding_bottom(12.).finish()).finish()
                 }
@@ -1986,25 +1631,6 @@ impl CodeDiffView {
                 .finish(),
             )
             .finish(),
-            DisplayMode::InlineBanner { max_height, .. } => {
-                let container = Container::new(
-                    ConstrainedBox::new(inner_editor.finish())
-                        .with_max_height(*max_height)
-                        .finish(),
-                )
-                .with_border(
-                    Border::new(1.)
-                        .with_sides(false, true, true, true)
-                        .with_border_fill(blended_colors::neutral_4(theme)),
-                )
-                .finish();
-
-                if self.should_show_speedbump {
-                    let checkbox = self.render_code_suggestions_toggle(appearance, app);
-                    return Flex::column().with_children([container, checkbox]).finish();
-                }
-                container
-            }
             DisplayMode::FullPane => Shrinkable::new(
                 1.0,
                 Container::new(inner_editor.finish())
@@ -2025,14 +1651,6 @@ impl CodeDiffView {
 
     fn position_id_for_file(&self, i: usize) -> String {
         format!("CodeDiffView-{}-tab-{i}", &self.position_id_prefix)
-    }
-
-    fn position_id_for_inline_editor(&self) -> String {
-        format!("CodeDiffView-inline-editor-{}", &self.position_id_prefix)
-    }
-
-    fn position_id_for_inline_speedbump(&self) -> String {
-        format!("CodeDiffView-inline-speedbump-{}", &self.position_id_prefix)
     }
 
     fn position_id_for_accept_split_button(&self) -> String {
@@ -2103,32 +1721,28 @@ impl CodeDiffView {
 
     fn set_display_mode(&mut self, display_mode: DisplayMode, ctx: &mut ViewContext<Self>) {
         self.display_mode = display_mode;
-        let is_passive = self.is_passive();
 
         self.accept_and_autoexecute_split_button.set_keybinding(
             match self.display_mode {
-                DisplayMode::Embedded { .. } | DisplayMode::InlineBanner { .. } => {
-                    Some(accept_keystroke_source(is_passive))
-                }
+                DisplayMode::Embedded { .. } => Some(KeystrokeSource::Fixed(Keystroke {
+                    key: ACCEPT_KEY.to_owned(),
+                    ..Default::default()
+                })),
                 DisplayMode::FullPane => None,
             },
             ctx,
         );
 
         self.edit_button.set_keybinding(
-            Some(KeystrokeSource::Fixed(keystroke_for_mode(
-                EDIT_OR_EXPAND_KEY,
-                is_passive,
-            ))),
+            Some(KeystrokeSource::Fixed(Keystroke {
+                key: EDIT_OR_EXPAND_KEY.to_owned(),
+                ..Default::default()
+            })),
             ctx,
         );
 
         if self.display_mode.is_embedded() {
-            let label = if self.is_passive {
-                SUGGESTED_EDIT_DISMISS_LABEL
-            } else {
-                REQUESTED_EDIT_CANCEL_LABEL
-            };
+            let label = REQUESTED_EDIT_CANCEL_LABEL;
             self.cancel_button.set_label(label.to_string(), ctx);
         }
 
@@ -2150,17 +1764,6 @@ impl CodeDiffView {
             },
             ctx,
         );
-    }
-
-    pub fn expand_inline_banner(&mut self, ctx: &mut ViewContext<Self>) {
-        if let DisplayMode::InlineBanner { is_dismissed, .. } = self.display_mode {
-            let display_mode = DisplayMode::InlineBanner {
-                max_height: INLINE_EDITOR_HEIGHT_EXPANDED,
-                is_expanded: true,
-                is_dismissed,
-            };
-            self.set_display_mode(display_mode, ctx);
-        }
     }
 
     pub fn display_mode(&self) -> &DisplayMode {
@@ -2217,7 +1820,6 @@ impl CodeDiffView {
                     lines_added,
                     lines_removed,
                 },
-                passive_diff: self.is_passive,
             }),
             ctx
         );
@@ -2287,7 +1889,6 @@ impl CodeDiffView {
                         edited_correction_count,
                         unedited_correction_count,
                         format_kind: self.edit_format_kind,
-                        passive_diff: self.is_passive,
                     }
                 ),
                 ctx
@@ -2307,129 +1908,6 @@ impl CodeDiffView {
 
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
-    }
-
-    pub fn dismiss(&mut self, ctx: &mut ViewContext<Self>) {
-        // Only inline banners can be dismissed.
-        let DisplayMode::InlineBanner {
-            max_height,
-            is_expanded,
-            ..
-        } = self.display_mode
-        else {
-            return;
-        };
-        self.set_display_mode(
-            DisplayMode::InlineBanner {
-                max_height,
-                is_expanded,
-                is_dismissed: true,
-            },
-            ctx,
-        );
-
-        // Keybindings should not be available when the banner is dismissed.
-        self.accept_and_autoexecute_split_button
-            .set_keybinding(None, ctx);
-        self.edit_button.set_keybinding(None, ctx);
-        self.cancel_button.set_keybinding(None, ctx);
-
-        ctx.notify();
-    }
-
-    /// Render the code suggestions toggle checkbox for passive code diffs.
-    fn render_code_suggestions_toggle(
-        &self,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let font_color = theme.sub_text_color(theme.background()).into_solid();
-        let font_family = appearance.ui_font_family();
-        let font_size = 12.;
-
-        let checked = AISettings::as_ref(app).is_code_suggestions_enabled(app);
-        let checkbox = appearance
-            .ui_builder()
-            .checkbox(
-                self.button_mouse_states
-                    .passive_code_suggestion_checkbox
-                    .clone(),
-                Some(font_size),
-            )
-            .check(!checked)
-            .with_style(UiComponentStyles {
-                font_color: Some(font_color),
-                font_size: Some(font_size),
-                ..Default::default()
-            })
-            .build()
-            .on_click(move |ctx, _, _| {
-                ctx.dispatch_typed_action(CodeDiffViewAction::ToggleCodeSuggestions);
-            })
-            .with_cursor(Cursor::PointingHand)
-            .finish();
-
-        let checkbox_text = appearance
-            .ui_builder()
-            .span("Don't show me suggested code banners again")
-            .with_style(UiComponentStyles {
-                font_color: Some(font_color),
-                font_size: Some(font_size),
-                padding: Some(Coords::default().left(4.)),
-                ..Default::default()
-            })
-            .build()
-            .finish();
-
-        let formatted_text = FormattedTextElement::new(
-            FormattedText::new([FormattedTextLine::Line(vec![
-                FormattedTextFragment::hyperlink(
-                    "Manage suggested code banner settings",
-                    "Settings > AI",
-                ),
-            ])]),
-            font_size,
-            font_family,
-            font_family,
-            font_color,
-            self.button_mouse_states
-                .ai_settings_link_highlight_index
-                .clone(),
-        )
-        .with_hyperlink_font_color(blended_colors::accent_fg_strong(theme).into())
-        .register_default_click_handlers(|_, ctx, _| {
-            ctx.dispatch_typed_action(CodeDiffViewAction::OpenSettings);
-        })
-        .finish();
-
-        let mut container = Container::new(
-            Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    Flex::row()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_children([checkbox, checkbox_text])
-                        .finish(),
-                )
-                .with_child(formatted_text)
-                .finish(),
-        )
-        .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
-        .with_background(theme.surface_1())
-        .with_border(
-            Border::new(1.)
-                .with_sides(false, true, true, true)
-                .with_border_fill(blended_colors::neutral_4(theme)),
-        );
-
-        if self.is_inline_banner_expanded() {
-            container = container.with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
-        }
-
-        SavePosition::new(container.finish(), &self.position_id_for_inline_speedbump()).finish()
     }
 
     pub fn primary_file_path(&self, app: &AppContext) -> Option<String> {
@@ -2487,65 +1965,6 @@ impl View for CodeDiffView {
             let file_selection = self.render_file_selection(appearance, app);
             let editor = self.render_editor(appearance, app);
             flex.add_children([file_selection, editor]);
-
-            if self.display_mode().is_inline_banner()
-                && !self.is_inline_banner_expanded()
-                && !self.is_inline_banner_dismissed()
-            {
-                // Scroll icon is anchored to either the editor or the speedbump, depending on which is visible.
-                let (saved_position_id, saved_position_anchor) = if self.should_show_speedbump {
-                    (
-                        self.position_id_for_inline_speedbump(),
-                        PositionedElementAnchor::TopMiddle,
-                    )
-                } else {
-                    (
-                        self.position_id_for_inline_editor(),
-                        PositionedElementAnchor::BottomMiddle,
-                    )
-                };
-
-                let mut stack = Stack::new();
-                stack.add_child(
-                    SavePosition::new(flex.finish(), &self.position_id_for_inline_editor())
-                        .finish(),
-                );
-                // Add the inline banner scroll icon overlay
-                stack.add_positioned_child(
-                    self.render_scroll_icon_for_inline_banner(appearance),
-                    OffsetPositioning::offset_from_save_position_element(
-                        saved_position_id,
-                        vec2f(0., -8.),
-                        PositionedElementOffsetBounds::ParentByPosition,
-                        saved_position_anchor,
-                        ChildAnchor::BottomMiddle,
-                    ),
-                );
-
-                if self.is_accept_split_button_menu_open {
-                    stack.add_positioned_child(
-                        ChildView::new(&self.accept_split_button_menu).finish(),
-                        OffsetPositioning::offset_from_save_position_element(
-                            self.position_id_for_accept_split_button(),
-                            vec2f(0., 8.),
-                            PositionedElementOffsetBounds::WindowByPosition,
-                            PositionedElementAnchor::BottomRight,
-                            ChildAnchor::TopRight,
-                        ),
-                    );
-                }
-
-                return EventHandler::new(stack.finish())
-                    .on_scroll_wheel(move |ctx, _, delta, _| {
-                        if delta.y() < 0. {
-                            ctx.dispatch_typed_action(CodeDiffViewAction::ScrollToExpand);
-                            DispatchEventResult::StopPropagation
-                        } else {
-                            DispatchEventResult::PropagateToParent
-                        }
-                    })
-                    .finish();
-            }
         }
 
         let mut root_stack = Stack::new();
@@ -2572,20 +1991,9 @@ impl View for CodeDiffView {
 
         if self.display_mode().is_full_pane() {
             context.set.insert(DISPATCHED_REQUESTED_EDIT_EXPANDED);
-        } else if self.is_inline_banner_dismissed() {
-            context.set.remove(SUGGESTED_EDIT_INLINE_BANNER);
-        } else if self.display_mode().is_inline_banner() {
-            context.set.insert(SUGGESTED_EDIT_INLINE_BANNER);
         }
 
         context
-    }
-
-    fn on_focus(&mut self, _focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
-        // If this is a passive code diff, focus the terminal/input editor on render instead.
-        if self.is_passive() && self.display_mode().is_inline_banner() {
-            ctx.emit(CodeDiffViewEvent::Blur);
-        }
     }
 }
 
@@ -2612,23 +2020,6 @@ impl TypedActionView for CodeDiffView {
                     // Then, request enabling auto-execute mode
                     ctx.emit(CodeDiffViewEvent::EnableAutoexecuteMode);
                 }
-            }
-            CodeDiffViewAction::AcceptPassiveDiffAndContinueWithAgent => {
-                if self
-                    .try_accept_action_with_selection(AcceptSelection::AndContinueWithAgent, ctx)
-                    .is_ok()
-                {
-                    ctx.emit(CodeDiffViewEvent::ContinuePassiveCodeDiffWithAgent {
-                        accepted: true,
-                    });
-                }
-            }
-            CodeDiffViewAction::IterateOnPassiveDiffWithAgent => {
-                // Rejects the diff but enters an agent context so that
-                // the user can iterate on the diff with the agent.
-                self.is_passive = false;
-                self.reject(ctx);
-                ctx.emit(CodeDiffViewEvent::ContinuePassiveCodeDiffWithAgent { accepted: false });
             }
             CodeDiffViewAction::ToggleRequestedEditVisibility => {
                 self.should_expand_when_complete = !self.should_expand_when_complete;
@@ -2664,36 +2055,6 @@ impl TypedActionView for CodeDiffView {
             }
             CodeDiffViewAction::SelectFile(direction) => {
                 self.select_file(*direction, ctx);
-            }
-            CodeDiffViewAction::ScrollToExpand => {
-                self.expand_inline_banner(ctx);
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::ExpandedCodeSuggestions {
-                        identifiers: self.identifiers.clone(),
-                    },
-                    ctx
-                );
-            }
-            CodeDiffViewAction::ToggleCodeSuggestions => {
-                let checked = AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .code_suggestions_enabled_internal
-                        .toggle_and_save_value(ctx)
-                });
-                ctx.notify();
-
-                if let Ok(checked) = checked {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::ToggleCodeSuggestionsSetting {
-                            source: ToggleCodeSuggestionsSettingSource::Speedbump,
-                            is_code_suggestions_enabled: checked,
-                        },
-                        ctx
-                    );
-                }
-            }
-            CodeDiffViewAction::OpenSettings => {
-                ctx.emit(CodeDiffViewEvent::OpenSettings);
             }
             CodeDiffViewAction::OpenCodeReviewPane => {
                 self.code_review_button.update(ctx, |_, ctx| {
@@ -3075,29 +2436,6 @@ impl BackingView for CodeDiffView {
 
     fn set_focus_handle(&mut self, focus_handle: PaneFocusHandle, _ctx: &mut ViewContext<Self>) {
         self.focus_handle = Some(focus_handle);
-    }
-}
-
-fn accept_keystroke_source(is_passive: bool) -> KeystrokeSource {
-    if FeatureFlag::AgentView.is_enabled() && is_passive {
-        KeystrokeSource::Binding(ACCEPT_PROMPT_SUGGESTION_KEYBINDING)
-    } else {
-        KeystrokeSource::Fixed(keystroke_for_mode(ACCEPT_KEY, is_passive))
-    }
-}
-
-/// Returns a keystroke based on key, OS, and passive state.
-///
-/// This assumes that when the diff is passive, the keybindings are cmd or ctrl-shift modified,
-/// depending on the host OS.
-fn keystroke_for_mode(key: &str, is_passive: bool) -> Keystroke {
-    let is_mac = OperatingSystem::get().is_mac();
-    Keystroke {
-        cmd: is_mac && is_passive,
-        ctrl: !is_mac && is_passive,
-        shift: !is_mac && is_passive,
-        key: key.to_owned(),
-        ..Default::default()
     }
 }
 

@@ -37,8 +37,6 @@ mutation CreateTeam($input: CreateTeamInput!, $request_context: RequestContext!)
             description
             warpAiPolicy {
               limit
-              isCodeSuggestionsToggleable
-              isPromptSuggestionsToggleable
               isGitOperationsAiEnabled
               isVoiceEnabled
             }

@@ -7,7 +7,6 @@ use ai::api_keys::{
     GeapCredentialsState,
 };
 use chrono::Local;
-use uuid::Uuid;
 use warp_core::features::FeatureFlag;
 use warp_graphql::ai::{AgentTaskState, PlatformErrorCode};
 use warp_multi_agent_api::{AgentType, response_event};
@@ -18,9 +17,8 @@ use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentAttachment, AIAgentContext, AIAgentInput, BaseUserQuery, CancellationReason,
-    ImageContext, PassiveSuggestionTrigger, UserQueryMode,
+    ImageContext, UserQueryMode,
 };
-use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::local_agent_task_sync_model::map_conversation_status_for_test;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, PendingAttachment, PendingFile, RequestInput,
@@ -45,10 +43,6 @@ use crate::workspaces::workspace::{
 /// [`current_geap_policy_for_any_team`]'s non-empty-audience check.
 const GEAP_TEST_AUDIENCE: &str = "//iam.googleapis.com/projects/123456/locations/global/workloadIdentityPools/warp-pool/providers/warp-provider";
 const GEAP_TEST_SA_EMAIL: &str = "warp-geap@test-project.iam.gserviceaccount.com";
-
-fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
-    Uuid::new_v4().to_string().parse().unwrap()
-}
 
 fn image_attachment(file_name: &str) -> PendingAttachment {
     PendingAttachment::Image(ImageContext {
@@ -94,7 +88,6 @@ fn register_mock_response_stream(
                         computer_use_model_id: LLMId::from("test-computer-use-model"),
                         shared_session_response_initiator: None,
                         request_start_ts: Local::now(),
-                        supported_tools_override: None,
                     },
                     stream_id.clone(),
                     terminal_surface_id,
@@ -190,54 +183,6 @@ fn transport_failure_classification_is_independent_of_stream_start() {
             AgentTaskState::Error,
             PlatformErrorCode::AgentStreamNetworkError,
         );
-    });
-}
-
-#[test]
-fn passive_suggestions_request_params_omit_ambient_agent_task_id() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        terminal.update(&mut app, |terminal, ctx| {
-            let task_id = new_ambient_agent_task_id();
-            let conversation_id =
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.start_new_conversation(terminal.id(), false, false, false, ctx)
-                });
-
-            terminal.ai_controller().update(ctx, |controller, ctx| {
-                controller.set_ambient_agent_task_id(Some(task_id), ctx);
-
-                assert_eq!(controller.get_ambient_agent_task_id(), Some(task_id));
-                assert_eq!(
-                    controller
-                        .build_passive_suggestions_request_params(
-                            Some(conversation_id),
-                            PassiveSuggestionTrigger::FilesChanged,
-                            vec![],
-                            ctx,
-                        )
-                        .expect("existing conversation should build passive suggestion params")
-                        .1
-                        .ambient_agent_task_id,
-                    None
-                );
-                assert_eq!(
-                    controller
-                        .build_passive_suggestions_request_params(
-                            None,
-                            PassiveSuggestionTrigger::FilesChanged,
-                            vec![],
-                            ctx,
-                        )
-                        .expect("new conversation should build passive suggestion params")
-                        .1
-                        .ambient_agent_task_id,
-                    None
-                );
-            });
-        });
     });
 }
 
@@ -603,7 +548,6 @@ fn fail_conversation_due_to_shell_exit_reports_error_and_survives_manual_cancel(
                                 computer_use_model_id: LLMId::from("test-computer-use-model"),
                                 shared_session_response_initiator: None,
                                 request_start_ts: Local::now(),
-                                supported_tools_override: None,
                             },
                             stream_id.clone(),
                             terminal_surface_id,
@@ -692,7 +636,6 @@ fn optimistic_cli_subagent_completion_with_in_flight_stream_reports_success() {
                                 computer_use_model_id: LLMId::from("test-computer-use-model"),
                                 shared_session_response_initiator: None,
                                 request_start_ts: Local::now(),
-                                supported_tools_override: None,
                             },
                             stream_id.clone(),
                             terminal_surface_id,
@@ -873,7 +816,7 @@ fn two_teams_of_opposing_byo_policy() -> (Team, Team) {
 /// endpoints are included or stripped by the requesting window's own team, while org-level
 /// (AWS Bedrock, GEAP) credentials survive either team's policy.
 #[test]
-fn passive_suggestions_request_params_scope_member_byo_credentials_by_the_windows_team() {
+fn request_params_scope_member_byo_credentials_by_the_windows_team() {
     App::test((), |mut app| async move {
         let _geap_flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
         initialize_app_for_terminal_view(&mut app);
@@ -965,15 +908,60 @@ fn passive_suggestions_request_params_scope_member_byo_credentials_by_the_window
         let build_params = |terminal: &ViewHandle<TerminalView>, app: &mut App| {
             terminal.update(app, |terminal, ctx| {
                 terminal.ai_controller().update(ctx, |controller, ctx| {
-                    controller
-                        .build_passive_suggestions_request_params(
-                            None,
-                            PassiveSuggestionTrigger::FilesChanged,
-                            vec![],
+                    let conversation = controller.start_new_conversation_for_request(ctx);
+                    let conversation_id = conversation.id();
+                    let task_id = conversation.get_root_task_id().clone();
+                    let conversation_data = crate::ai::agent::api::ConversationData {
+                        id: conversation_id,
+                        tasks: conversation.compute_active_tasks(),
+                        server_conversation_token: conversation
+                            .server_conversation_token()
+                            .cloned(),
+                        forked_from_conversation_token: conversation
+                            .forked_from_server_conversation_token()
+                            .cloned(),
+                        ambient_agent_task_id: controller.ambient_agent_task_id,
+                        existing_suggestions: conversation.existing_suggestions().cloned(),
+                        use_warp_credits_instead_of_chatgpt: conversation
+                            .use_warp_credits_instead_of_chatgpt(),
+                    };
+                    let input = super::input_for_query(
+                        "check credentials".to_owned(),
+                        &task_id,
+                        conversation_id,
+                        None,
+                        UserQueryMode::Normal,
+                        None,
+                        None,
+                        HashMap::new(),
+                        vec![],
+                        controller.context_model.as_ref(ctx),
+                        controller.active_session.as_ref(ctx),
+                        ctx,
+                    );
+                    let scope = controller.team_context(ctx);
+                    let request_input = RequestInput::for_task(
+                        vec![input],
+                        task_id,
+                        &controller.active_session,
+                        controller.get_current_response_initiator(),
+                        conversation_id,
+                        controller.terminal_surface_id,
+                        &scope,
+                        ctx,
+                    );
+                    crate::ai::agent::api::RequestParams::new(
+                        Some(controller.terminal_surface_id),
+                        super::SessionContext::from_session(
+                            controller.active_session.as_ref(ctx),
                             ctx,
-                        )
-                        .expect("should build passive suggestion params")
-                        .1
+                        ),
+                        &request_input,
+                        conversation_data,
+                        None,
+                        &scope,
+                        ctx,
+                    )
                 })
             })
         };

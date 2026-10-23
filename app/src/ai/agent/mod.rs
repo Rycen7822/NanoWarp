@@ -27,7 +27,7 @@ pub use ai::agent::action_result::*;
 use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationConfigStatus};
 pub use ai::agent::{AIAgentCitation, FileLocations};
 use ai::skills::ParsedSkill;
-pub use ai_types::{AIAgentActionId, EntrypointType, PassiveSuggestionTriggerType};
+pub use ai_types::{AIAgentActionId, EntrypointType};
 use chrono::{DateTime, Local, TimeDelta};
 use comment::ReviewComment;
 use derivative::Derivative;
@@ -39,7 +39,6 @@ use task::TaskId;
 pub use telemetry::AIIdentifiers;
 use uuid::Uuid;
 use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
 use warp_editor::render::model::LineCount;
 use warp_multi_agent_api::{AgentEvent, AgentType, diff_hunk as diff_hunk_api};
 
@@ -1545,7 +1544,6 @@ impl AIAgentActionResult {
                 | AIAgentActionResultType::SuggestNewConversation(
                     SuggestNewConversationResult::Cancelled,
                 )
-                | AIAgentActionResultType::SuggestPrompt(SuggestPromptResult::Cancelled),
         )
     }
 }
@@ -2879,58 +2877,6 @@ pub enum StaticQueryType {
     EvaluationSuite,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ShellCommandCompletedTrigger {
-    // We heap-allocate this because it's large and bloats the size of the
-    // `ShellCommandCompleted` enum variant relative to other variants.
-    pub executed_shell_command: Box<BlockContext>,
-    pub relevant_files: Vec<FileContext>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[allow(clippy::enum_variant_names)]
-pub enum PassiveSuggestionTrigger {
-    FilesChanged,
-    CommandRun,
-    ShellCommandCompleted(ShellCommandCompletedTrigger),
-    AgentResponseCompleted { exchange_id: AIAgentExchangeId },
-}
-
-impl From<&PassiveSuggestionTrigger> for PassiveSuggestionTriggerType {
-    fn from(value: &PassiveSuggestionTrigger) -> Self {
-        match value {
-            PassiveSuggestionTrigger::FilesChanged => PassiveSuggestionTriggerType::FilesChanged,
-            PassiveSuggestionTrigger::CommandRun => PassiveSuggestionTriggerType::CommandRun,
-            PassiveSuggestionTrigger::ShellCommandCompleted(_) => {
-                PassiveSuggestionTriggerType::ShellCommandCompleted
-            }
-            PassiveSuggestionTrigger::AgentResponseCompleted { .. } => {
-                PassiveSuggestionTriggerType::AgentResponseCompleted
-            }
-        }
-    }
-}
-
-impl PassiveSuggestionTrigger {
-    /// Returns the block ID that triggered this passive suggestion
-    /// iff the trigger type was [Self::ShellCommandCompleted].
-    pub fn block_id(&self) -> Option<BlockId> {
-        match self {
-            Self::ShellCommandCompleted(c) => Some(c.executed_shell_command.id.clone()),
-            _ => None,
-        }
-    }
-
-    /// Returns the exchange ID that triggered this passive suggestion
-    /// iff the trigger type was [Self::AgentResponseCompleted].
-    pub fn exchange_id(&self) -> Option<AIAgentExchangeId> {
-        match self {
-            Self::AgentResponseCompleted { exchange_id } => Some(*exchange_id),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum UserQueryMode {
     #[default]
@@ -2949,27 +2895,6 @@ pub struct RunningCommand {
     pub cursor: String,
     pub requested_command_id: Option<AIAgentActionId>,
     pub is_alt_screen_active: bool,
-}
-
-/// A single search/replace diff entry for a passive code suggestion.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PassiveCodeDiffEntry {
-    pub file_path: String,
-    pub search: String,
-    pub replace: String,
-}
-
-/// The outcome of a passive suggestion that the user interacted with.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PassiveSuggestionResultType {
-    Prompt {
-        prompt: String,
-    },
-    CodeDiff {
-        diffs: Vec<PassiveCodeDiffEntry>,
-        summary: String,
-        accepted: bool,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2991,11 +2916,6 @@ pub enum AIAgentInput {
         base: Option<BaseUserQuery>,
     },
 
-    AutoCodeDiffQuery {
-        query: String,
-        context: Arc<[AIAgentContext]>,
-    },
-
     ResumeConversation {
         context: Arc<[AIAgentContext]>,
     },
@@ -3009,12 +2929,6 @@ pub enum AIAgentInput {
         context: Arc<[AIAgentContext]>,
         display_query: Option<String>,
         repo_paths: Vec<String>,
-    },
-
-    TriggerPassiveSuggestion {
-        context: Arc<[AIAgentContext]>,
-        attachments: Vec<AIAgentAttachment>,
-        trigger: PassiveSuggestionTrigger,
     },
 
     CreateNewProject {
@@ -3073,14 +2987,6 @@ pub enum AIAgentInput {
     /// Events received from other agent conversations.
     EventsFromAgents {
         events: Vec<AgentEvent>,
-    },
-
-    /// The result of a passive suggestion that should be
-    /// handled in the active conversation.
-    PassiveSuggestionResult {
-        trigger: Option<PassiveSuggestionTrigger>,
-        suggestion: PassiveSuggestionResultType,
-        context: Arc<[AIAgentContext]>,
     },
 
     /// Piggybacked orchestration config update from the plan card.
@@ -3154,14 +3060,10 @@ impl Display for AIAgentInput {
             Self::UserQuery { .. } => {
                 write!(f, "UserQuery: {}", self.display_query().unwrap_or_default())
             }
-            Self::AutoCodeDiffQuery { query, .. } => {
-                write!(f, "AutoCodeDiffQuery: {query}")
-            }
             Self::ActionResult { result, .. } => write!(f, "ActionResult: {result}"),
             Self::ResumeConversation { .. } => write!(f, "ResumeConversation"),
             Self::InitProjectRules { .. } => write!(f, "InitProjectRules"),
             Self::CreateEnvironment { .. } => write!(f, "CreateEnvironment"),
-            Self::TriggerPassiveSuggestion { .. } => write!(f, "TriggerSuggestPrompt"),
             Self::CreateNewProject { .. } => write!(f, "CreateNewProject"),
             Self::CloneRepository { .. } => write!(f, "CloneRepository"),
             Self::CodeReview { .. } => write!(f, "CodeReview"),
@@ -3186,7 +3088,6 @@ impl Display for AIAgentInput {
             Self::EventsFromAgents { events } => {
                 write!(f, "EventsFromAgents({} events)", events.len())
             }
-            Self::PassiveSuggestionResult { .. } => write!(f, "PassiveSuggestionResult"),
             Self::OrchestrationConfigUpdate { .. } => write!(f, "OrchestrationConfigUpdate"),
             Self::AgentWake => write!(f, "AgentWake"),
         }
@@ -3222,30 +3123,12 @@ impl AIAgentInput {
                     Some(format!("/{}", skill.name))
                 }
             }
-            Self::ActionResult {
-                result:
-                    AIAgentActionResult {
-                        result:
-                            AIAgentActionResultType::SuggestPrompt(SuggestPromptResult::Accepted {
-                                query,
-                            }),
-                        ..
-                    },
-                ..
-            } => Some(query.clone()),
-            Self::PassiveSuggestionResult {
-                suggestion: PassiveSuggestionResultType::Prompt { prompt },
-                ..
-            } => Some(prompt.clone()),
-            Self::AutoCodeDiffQuery { .. }
-            | Self::ActionResult { .. }
-            | Self::TriggerPassiveSuggestion { .. }
+            Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
             | Self::SummarizeConversation { .. }
             | Self::StartFromAmbientRunPrompt { .. }
             | Self::MessagesReceivedFromAgents { .. }
             | Self::EventsFromAgents { .. }
-            | Self::PassiveSuggestionResult { .. }
             | Self::OrchestrationConfigUpdate { .. }
             | Self::AgentWake => None,
         }
@@ -3266,63 +3149,23 @@ impl AIAgentInput {
         }
     }
 
-    pub fn auto_code_diff_query(&self) -> Option<&str> {
-        let Self::AutoCodeDiffQuery { query, .. } = self else {
-            return None;
-        };
-        Some(query.as_str())
-    }
-
-    pub fn passive_suggestion_trigger(&self) -> Option<&PassiveSuggestionTrigger> {
-        match self {
-            AIAgentInput::TriggerPassiveSuggestion { trigger, .. } => Some(trigger),
-            _ => None,
-        }
-    }
-
-    pub fn is_passive_suggestion_trigger(&self) -> bool {
-        matches!(self, AIAgentInput::TriggerPassiveSuggestion { .. })
-    }
-
     pub fn is_user_query(&self) -> bool {
         matches!(self, AIAgentInput::UserQuery { .. })
-    }
-
-    pub fn prompt_suggestion_result(&self) -> Option<&String> {
-        if let Some(AIAgentActionResult {
-            result: AIAgentActionResultType::SuggestPrompt(SuggestPromptResult::Accepted { query }),
-            ..
-        }) = self.action_result()
-        {
-            Some(query)
-        } else {
-            None
-        }
-    }
-
-    pub fn is_passive_request(&self) -> bool {
-        matches!(
-            self,
-            AIAgentInput::AutoCodeDiffQuery { .. } | AIAgentInput::TriggerPassiveSuggestion { .. }
-        )
     }
 
     pub fn context(&self) -> Option<&[AIAgentContext]> {
         match self {
             Self::UserQuery { context, .. }
             | Self::ActionResult { context, .. }
-            | Self::AutoCodeDiffQuery { context, .. }
             | Self::ResumeConversation { context, .. }
             | Self::InitProjectRules { context, .. }
             | Self::CreateEnvironment { context, .. }
-            | Self::TriggerPassiveSuggestion { context, .. }
             | Self::CreateNewProject { context, .. }
             | Self::CloneRepository { context, .. }
             | Self::CodeReview { context, .. }
             | Self::InvokeSkill { context, .. }
             | Self::StartFromAmbientRunPrompt { context, .. }
-            | Self::PassiveSuggestionResult { context, .. } => Some(context),
-            Self::SummarizeConversation { context, .. } => Some(context),
+            | Self::SummarizeConversation { context, .. } => Some(context),
             Self::MessagesReceivedFromAgents { .. }
             | Self::EventsFromAgents { .. }
             | Self::OrchestrationConfigUpdate { .. }
@@ -3342,9 +3185,7 @@ impl AIAgentInput {
                     referenced_attachments.values().cloned().collect();
                 Some(res)
             }
-            Self::TriggerPassiveSuggestion { attachments, .. } => Some(attachments.clone()),
             Self::ActionResult { .. }
-            | Self::AutoCodeDiffQuery { .. }
             | Self::ResumeConversation { .. }
             | Self::InitProjectRules { .. }
             | Self::CreateEnvironment { .. }
@@ -3356,14 +3197,9 @@ impl AIAgentInput {
             | Self::StartFromAmbientRunPrompt { .. }
             | Self::MessagesReceivedFromAgents { .. }
             | Self::EventsFromAgents { .. }
-            | Self::PassiveSuggestionResult { .. }
             | Self::OrchestrationConfigUpdate { .. }
             | Self::AgentWake => None,
         }
-    }
-
-    pub fn is_auto_code_diff_query(&self) -> bool {
-        matches!(self, AIAgentInput::AutoCodeDiffQuery { .. })
     }
 }
 
@@ -3520,29 +3356,6 @@ impl AIAgentExchange {
                 })
             )
         })
-    }
-
-    pub fn has_passive_request(&self) -> bool {
-        self.input.iter().any(|input| input.is_passive_request())
-    }
-
-    pub fn has_passive_code_diff(&self) -> bool {
-        self.input
-            .iter()
-            .any(|input| input.auto_code_diff_query().is_some())
-            || (FeatureFlag::PromptSuggestionsViaMAA.is_enabled()
-                && self.has_passive_request()
-                && self.output_status.output().is_some_and(|output| {
-                    output.get().actions().any(|action| {
-                        matches!(action.action, AIAgentActionType::RequestFileEdits { .. })
-                    })
-                }))
-    }
-
-    pub fn passive_suggestion_trigger(&self) -> Option<&PassiveSuggestionTrigger> {
-        self.input
-            .iter()
-            .find_map(|input| input.passive_suggestion_trigger())
     }
 
     pub fn duration(&self) -> Option<TimeDelta> {

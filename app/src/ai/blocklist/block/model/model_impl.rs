@@ -14,7 +14,6 @@ use crate::ai::agent::{
     ServerOutputId, Shared,
 };
 use crate::ai::blocklist::history_model;
-use crate::ai::blocklist::model::{AIRequestType, PassiveRequestType};
 use crate::ai::llms::LLMId;
 use crate::util::time_format::is_trustworthy_message_timestamp;
 
@@ -237,23 +236,5 @@ where
                 _ => {}
             }
         });
-    }
-
-    fn request_type(&self, app: &AppContext) -> AIRequestType {
-        if self
-            .exchange(app)
-            .map(|exchange| exchange.has_passive_code_diff())
-            .unwrap_or(false)
-        {
-            AIRequestType::Passive(PassiveRequestType::CodeDiff)
-        } else if let Some(trigger) = self
-            .exchange(app)
-            .ok()
-            .and_then(|exchange| exchange.passive_suggestion_trigger())
-        {
-            AIRequestType::from_passive_trigger(trigger)
-        } else {
-            AIRequestType::Active
-        }
     }
 }

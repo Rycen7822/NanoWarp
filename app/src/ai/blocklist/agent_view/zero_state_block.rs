@@ -256,8 +256,7 @@ impl AgentViewZeroStateBlock {
                 Self::recent_conversations_for_working_directory(current_working_directory, ctx)
             })
             .unwrap_or_default();
-        let should_hide = matches!(origin, AgentViewEntryOrigin::AcceptedPassiveCodeDiff)
-            || is_local_to_cloud_handoff;
+        let should_hide = is_local_to_cloud_handoff;
         let is_oz_updates_expanded = !origin.is_cloud_agent()
             && *AISettings::handle(ctx).as_ref(ctx).should_expand_oz_updates;
 

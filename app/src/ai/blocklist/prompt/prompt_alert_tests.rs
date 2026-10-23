@@ -205,26 +205,6 @@ fn test_spend_limit_presentation_identifies_scope() {
 }
 
 #[test]
-fn test_spend_limit_tooltips_identify_scope() {
-    assert_eq!(
-        PromptAlertState::EnterpriseTeamSpendLimitReached.tooltip_text(),
-        Some("You've reached your team's spend limit")
-    );
-    assert_eq!(
-        PromptAlertState::EnterpriseIndividualSpendLimitReached.tooltip_text(),
-        Some("You've reached the spend limit set for you")
-    );
-    assert_eq!(
-        PromptAlertState::EnterpriseUnassignedUserSpendLimitReached.tooltip_text(),
-        Some("Spend limit reached for members without a team")
-    );
-    assert_eq!(
-        PromptAlertState::EnterpriseWorkspaceSpendLimitReached.tooltip_text(),
-        Some("You've reached this workspace's spend limit")
-    );
-}
-
-#[test]
 fn test_team_spend_limit_cta_uses_selected_team_authority() {
     let workspace_member = workspace_with_role(MembershipRole::User);
     let workspace_admin = workspace_with_role(MembershipRole::Admin);

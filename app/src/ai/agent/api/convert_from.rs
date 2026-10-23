@@ -687,12 +687,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::SuggestNewConversation(suggest_new_conversation) => {
                 create_standard_action(suggest_new_conversation.into())
             }
-            api::message::tool_call::Tool::SuggestPrompt(suggest_prompt) => {
-                match suggest_prompt.try_into() {
-                    Ok(suggest_prompt_action) => create_standard_action(suggest_prompt_action),
-                    Err(_) => Ok(MaybeAIAgentAction::NoClientRepresentation),
-                }
-            }
             api::message::tool_call::Tool::OpenCodeReview(_) => {
                 create_standard_action(AIAgentActionType::OpenCodeReview)
             }
@@ -799,7 +793,8 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             }
             // Clients do not need to know how to parse server tool-calls but receiving
             // them is not an error.
-            api::message::tool_call::Tool::Server(_) => {
+            api::message::tool_call::Tool::Server(_)
+            | api::message::tool_call::Tool::SuggestPrompt(_) => {
                 Ok(MaybeAIAgentAction::NoClientRepresentation)
             }
             api::message::tool_call::Tool::WaitForEvents(payload) => {
@@ -892,12 +887,6 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
                         api::message::system_query::Type::CloneRepository(p) => {
                             inputs.push(AIAgentInput::CloneRepository {
                                 clone_repo_url: CloneRepositoryURL::new(p.url.clone()),
-                                context: ctx,
-                            });
-                        }
-                        api::message::system_query::Type::AutoCodeDiff(p) => {
-                            inputs.push(AIAgentInput::AutoCodeDiffQuery {
-                                query: p.query.clone(),
                                 context: ctx,
                             });
                         }

@@ -38,16 +38,6 @@ impl Input {
 
         let mut column = Flex::column();
 
-        if matches!(input_mode, InputMode::PinnedToBottom | InputMode::Waterfall)
-            && let Some(banner) = self.render_input_banner(appearance, app, input_mode, false)
-        {
-            column.add_child(
-                Container::new(banner)
-                    .with_margin_top(spacing::UDI_CHIP_MARGIN)
-                    .finish(),
-            );
-        }
-
         let prompt_elements = self
             .prompt_render_helper
             .render_universal_developer_input_prompt(&model, appearance, app);
@@ -70,16 +60,6 @@ impl Input {
                 .with_margin_bottom(8.)
                 .finish(),
         );
-
-        if matches!(input_mode, InputMode::PinnedToTop)
-            && let Some(banner) = self.render_input_banner(appearance, app, input_mode, false)
-        {
-            column.add_child(
-                Container::new(banner)
-                    .with_margin_bottom(spacing::UDI_CHIP_MARGIN)
-                    .finish(),
-            );
-        }
 
         stack.add_child(wrap_input_with_terminal_padding_and_focus_handler(
             self.focus_handle

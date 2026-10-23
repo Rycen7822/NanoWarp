@@ -1081,7 +1081,6 @@ impl View for AIBlock {
                 requested_commands: &self.requested_commands,
                 requested_mcp_tools: &self.requested_mcp_tools,
                 requested_edits: &self.requested_edits,
-                unit_test_suggestions: &self.unit_tests_suggestions,
                 todo_list_states: &self.todo_list_states,
                 collapsible_block_states: &self.collapsible_block_states,
                 is_selecting_text: self.state_handles.selection_handle.is_selecting(),
@@ -1200,7 +1199,7 @@ impl View for AIBlock {
         //    a collapsible regular command block. Regardless of whether this command block is shown
         //    or hidden, this block will need to use top padding to create space.
         // 3) If the rendered element directly above this block is NOT an AI block,
-        //    and this block is not a passive conversation, then it needs top padding to create visual separation.
+        //    it needs top padding to create visual separation.
         let terminal_model = self.terminal_model.lock();
         let is_previous_blocklist_item_ai_block = terminal_model
             .block_list()
@@ -1218,7 +1217,7 @@ impl View for AIBlock {
             });
         let should_add_top_padding = contains_user_query_and_is_not_pin_to_top
             || renders_below_requested_command_view
-            || (!is_previous_blocklist_item_ai_block && !self.is_passive_conversation());
+            || !is_previous_blocklist_item_ai_block;
 
         if should_add_top_padding {
             content = content.with_padding_top(CONTENT_VERTICAL_PADDING);
@@ -1365,11 +1364,9 @@ impl AIAgentInput {
                 app,
             )),
             AIAgentInput::UserQuery { .. }
-            | AIAgentInput::AutoCodeDiffQuery { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }
             | AIAgentInput::CreateEnvironment { .. }
-            | AIAgentInput::TriggerPassiveSuggestion { .. }
             | AIAgentInput::CreateNewProject { .. }
             | AIAgentInput::CloneRepository { .. }
             | AIAgentInput::SummarizeConversation { .. }
@@ -1378,7 +1375,6 @@ impl AIAgentInput {
             | AIAgentInput::ActionResult { .. }
             | AIAgentInput::MessagesReceivedFromAgents { .. }
             | AIAgentInput::EventsFromAgents { .. }
-            | AIAgentInput::PassiveSuggestionResult { .. }
             | AIAgentInput::OrchestrationConfigUpdate { .. }
             | AIAgentInput::AgentWake => None,
         }

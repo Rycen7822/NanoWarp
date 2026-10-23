@@ -23,11 +23,6 @@ fn pre_action_failures_retry() {
         recovery_action(false, true, RecoveryBudget::fresh(), true),
         RecoveryAction::Retry
     );
-    // Resume eligibility is irrelevant pre-actions.
-    assert_eq!(
-        recovery_action(false, true, RecoveryBudget::fresh().without_resume(), true),
-        RecoveryAction::Retry
-    );
 }
 
 #[test]
@@ -72,51 +67,19 @@ fn post_action_recoverable_failures_resume() {
     );
 }
 
-#[test]
-fn post_action_failures_without_resume_eligibility_are_terminal() {
-    // Passive background requests may not resume, and a post-action failure has no other
-    // recovery available.
-    assert_eq!(
-        recovery_action(true, true, RecoveryBudget::fresh().without_resume(), true),
-        RecoveryAction::Fail(FailReason::ResumeNotAllowed)
-    );
-}
-
-#[test]
-fn ineligibility_is_reported_ahead_of_an_exhausted_budget() {
-    // A passive request that spent its budget on pre-action retries and then fails after
-    // actions is blocked by both constraints. The reason logged should be the one that would
-    // still block it if the budget were full, since that is what a reader needs to know.
-    let exhausted_passive = exhausted().without_resume();
-    assert_eq!(
-        recovery_action(true, true, exhausted_passive, true),
-        RecoveryAction::Fail(FailReason::ResumeNotAllowed)
-    );
-    // Pre-action, the budget is the only thing standing in the way, so it is the reason.
-    assert_eq!(
-        recovery_action(false, true, exhausted_passive, true),
-        RecoveryAction::Fail(FailReason::BudgetExhausted)
-    );
-}
-
 #[cfg(not(target_family = "wasm"))]
 #[test]
 fn a_scheduled_resume_inherits_a_charged_budget() {
-    // The boundary the controller consumes: whatever budget a failed request was running
-    // with, the resume it schedules must run with that budget charged one attempt, and with
-    // resume eligibility carried over unchanged. Getting this wrong in either direction is
-    // the bug REMOTE-2269 was about — a fresh budget would restart recovery from scratch,
-    // and a lost `resume_allowed` would silently re-enable resumes for a passive request.
     let stream = ResponseStream::new_for_test(ResponseStreamId::new_for_test());
-    let before = RecoveryBudget::fresh().without_resume();
+    let before = RecoveryBudget::fresh();
     let after = stream.recovery.next_attempt();
 
     assert_eq!(stream.recovery, before, "test fixture drifted");
     assert_eq!(after.attempts_used(), before.attempts_used() + 1);
-    // Eligibility is preserved, so the resumed request is still bound by the same rule.
+    // A charged budget still permits a resume while attempts remain.
     assert_eq!(
         recovery_action(true, true, after, true),
-        RecoveryAction::Fail(FailReason::ResumeNotAllowed)
+        RecoveryAction::Resume
     );
 }
 
@@ -201,15 +164,7 @@ fn retries_and_resumes_share_one_budget() {
 }
 
 #[test]
-fn spending_an_attempt_preserves_resume_eligibility() {
-    // Charging an attempt must not quietly re-enable resumes for a passive request, nor
-    // disable them for a normal one.
-    let passive = RecoveryBudget::fresh().without_resume().next_attempt();
-    assert_eq!(
-        recovery_action(true, true, passive, true),
-        RecoveryAction::Fail(FailReason::ResumeNotAllowed)
-    );
-
+fn spending_an_attempt_preserves_remaining_resume_budget() {
     let normal = RecoveryBudget::fresh().next_attempt();
     assert_eq!(
         recovery_action(true, true, normal, true),

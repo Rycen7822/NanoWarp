@@ -57,9 +57,6 @@ pub enum AIAgentActionResultType {
     /// The output of suggesting a new conversation.
     SuggestNewConversation(SuggestNewConversationResult),
 
-    /// The result of suggesting a prompt.
-    SuggestPrompt(SuggestPromptResult),
-
     OpenCodeReview,
 
     InitProject,
@@ -172,7 +169,6 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::CallMCPTool(result) => result.fmt(f),
             AIAgentActionResultType::ReadSkill(result) => result.fmt(f),
             AIAgentActionResultType::SuggestNewConversation(result) => result.fmt(f),
-            AIAgentActionResultType::SuggestPrompt(result) => result.fmt(f),
             AIAgentActionResultType::ReadDocuments(result) => result.fmt(f),
             AIAgentActionResultType::EditDocuments(result) => result.fmt(f),
             AIAgentActionResultType::CreateDocuments(result) => result.fmt(f),
@@ -836,23 +832,6 @@ impl Display for RequestFileEditsResult {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum SuggestPromptResult {
-    Accepted { query: String },
-    Cancelled,
-}
-
-impl Display for SuggestPromptResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SuggestPromptResult::Accepted { query } => {
-                write!(f, "Suggest prompt accepted: {query}")
-            }
-            SuggestPromptResult::Cancelled => write!(f, "Suggest prompt cancelled"),
-        }
-    }
-}
-
 impl AIAgentActionResultType {
     /// A user visible description of what the result contains.
     /// Used to display error messages when the content is too large for
@@ -880,7 +859,6 @@ impl AIAgentActionResultType {
             AIAgentActionResultType::SuggestNewConversation(_) => {
                 "Your decision on whether to start a new conversation"
             }
-            AIAgentActionResultType::SuggestPrompt(_) => "The suggested prompt",
             AIAgentActionResultType::OpenCodeReview => "Open code review",
             AIAgentActionResultType::InsertReviewComments(_) => "Insert code review comments",
             AIAgentActionResultType::InitProject => "Initialize project",
@@ -922,7 +900,6 @@ impl AIAgentActionResultType {
             | Self::ReadMCPResource(ReadMCPResourceResult::Success { .. })
             | Self::CallMCPTool(CallMCPToolResult::Success { .. })
             | Self::SuggestNewConversation(SuggestNewConversationResult::Accepted { .. })
-            | Self::SuggestPrompt(SuggestPromptResult::Accepted { .. })
             | Self::ReadDocuments(ReadDocumentsResult::Success { .. })
             | Self::EditDocuments(EditDocumentsResult::Success { .. })
             | Self::CreateDocuments(CreateDocumentsResult::Success { .. })
@@ -1011,7 +988,6 @@ impl AIAgentActionResultType {
             | Self::ReadMCPResource(ReadMCPResourceResult::Cancelled)
             | Self::CallMCPTool(CallMCPToolResult::Cancelled)
             | Self::SuggestNewConversation(SuggestNewConversationResult::Cancelled)
-            | Self::SuggestPrompt(SuggestPromptResult::Cancelled)
             | Self::ReadDocuments(ReadDocumentsResult::Cancelled)
             | Self::EditDocuments(EditDocumentsResult::Cancelled)
             | Self::CreateDocuments(CreateDocumentsResult::Cancelled)

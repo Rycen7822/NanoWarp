@@ -16,7 +16,6 @@ pub(crate) mod orchestration_child_tracker;
 pub(crate) mod orchestration_event_streamer;
 pub(crate) mod orchestration_events;
 pub(crate) mod orchestration_topology;
-mod passive_suggestions;
 pub(crate) mod queued_query;
 pub(super) use controller::RequestInput;
 pub mod history_model;
@@ -43,10 +42,7 @@ pub use action_model::{
     ShellCommandExecutorEvent, ShellRecoveryResult,
 };
 #[cfg_attr(target_family = "wasm", allow(unused_imports))]
-pub(crate) use action_model::{
-    FileReadResult, ReadFileContextResult, RequestFileEditsFormatKind, apply_edits,
-    read_local_file_context,
-};
+pub(crate) use action_model::{ReadFileContextResult, read_local_file_context};
 #[cfg_attr(target_family = "wasm", allow(unused_imports))]
 pub use action_model::{
     StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
@@ -88,10 +84,6 @@ pub(crate) use history_model::{
 pub(crate) use input_model::BlocklistAIInputEvent;
 pub use input_model::{
     BlocklistAIInputModel, InputConfig, InputType, InputTypeAutoDetectionSource,
-};
-pub(crate) use passive_suggestions::{
-    LegacyPassiveSuggestionsEvent, LegacyPassiveSuggestionsModel, MaaPassiveSuggestionsEvent,
-    MaaPassiveSuggestionsModel, PassiveSuggestionsModels,
 };
 #[cfg(test)]
 pub(crate) use permissions::is_agent_mode_autonomy_allowed;

@@ -6783,7 +6783,6 @@ pub fn test_agent_mode_pane_minimum_size() -> Builder {
                         &[workspace_view_id],
                         &WorkspaceAction::NewPaneInAgentMode {
                             entrypoint: AgentModeEntrypoint::TabBar,
-                            zero_state_prompt_suggestion_type: None,
                         },
                     );
                 })

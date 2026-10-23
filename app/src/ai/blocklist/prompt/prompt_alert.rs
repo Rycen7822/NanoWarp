@@ -186,22 +186,6 @@ impl PromptAlertState {
             Self::NoAlert => "",
         }
     }
-
-    pub(crate) fn tooltip_text(&self) -> Option<&'static str> {
-        match self {
-            Self::DelinquentDueToPaymentIssue
-            | Self::AnonymousUserRequestLimitHardGate
-            | Self::AnonymousUserRequestLimitSoftGate
-            | Self::OveragesToggleableButNotEnabled
-            | Self::MonthlyOveragesSpendLimitReached
-            | Self::EnterpriseTeamSpendLimitReached
-            | Self::EnterpriseIndividualSpendLimitReached
-            | Self::EnterpriseUnassignedUserSpendLimitReached
-            | Self::EnterpriseWorkspaceSpendLimitReached
-            | Self::RequestLimitReached => Some(self.primary_text()),
-            Self::NoConnection | Self::NoAlert => None,
-        }
-    }
 }
 
 pub struct PromptAlertView {
@@ -371,10 +355,6 @@ impl PromptAlertView {
 
     pub fn is_no_alert(&self) -> bool {
         matches!(self.state, PromptAlertState::NoAlert)
-    }
-
-    pub fn state(&self) -> &PromptAlertState {
-        &self.state
     }
 
     pub fn does_alert_block_ai_requests<S: TeamScope + ?Sized>(

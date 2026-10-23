@@ -8,8 +8,6 @@ mod agent;
 mod ambient_agent;
 mod execution_context;
 
-pub use agent::{
-    AIAgentActionId, AIConversationId, EntrypointType, PassiveSuggestionTriggerType, TaskId,
-};
+pub use agent::{AIAgentActionId, AIConversationId, EntrypointType, TaskId};
 pub use ambient_agent::{AmbientAgentTaskId, ParseAmbientAgentTaskIdError};
 pub use execution_context::{WarpAiExecutionContext, WarpAiOsContext};

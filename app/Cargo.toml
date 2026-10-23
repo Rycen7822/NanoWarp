@@ -791,7 +791,6 @@ read_image_files = []
 # generated profile will be written to profile.pb in the current directory.
 # NOTE: This may slow down program execution.
 pprof_cpu_profiling = ["dep:pprof"]
-predict_am_queries = []
 record_app_active_events = []
 recording_mode = []
 remote_codebase_indexing = ["full_source_code_embedding"]
@@ -811,7 +810,6 @@ session_sharing_acls = []
 skip_login = ["warp_server_client/skip_login"]
 # This feature should only be enabled when building a self-contained binary with the bundle script.
 standalone = ["warp_assets/standalone", "warp_core/standalone"]
-prompt_suggestions_via_maa = []
 voice_input = ["dep:voice_input"]
 tab_close_button_on_left = []
 test-util = [

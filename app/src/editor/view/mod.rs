@@ -373,7 +373,6 @@ pub fn init(ctx: &mut AppContext) {
             EditorAction::CtrlEnter,
             id!("EditorView")
                 & !id!("IMEOpen")
-                & !id!(flags::CTRL_ENTER_ACCEPTS_PROMPT_SUGGESTION)
                 & !(id!(flags::AGENT_VIEW_ENABLED) & id!(flags::CTRL_ENTER_ENTERS_AGENT_VIEW)),
         ),
         FixedBinding::new(
@@ -4267,39 +4266,17 @@ impl EditorView {
                 conversation.status().is_in_progress() && conversation.exchange_count() > 0
             });
 
-        // If there is a pending passive ai block, we don't want ctrl+c to clear the buffer.
-        let is_pending_passive_ai_block = terminal_view.is_some_and(|terminal_view| {
-            let terminal_model = terminal_view.as_ref(ctx).model.lock();
-            terminal_model
-                .block_list()
-                .last_non_hidden_ai_block_handle(ctx)
-                .is_some_and(|ai_block| {
-                    let block = ai_block.as_ref(ctx);
-                    // Ctrl+c should dismiss the passive ai block only if the keybindings for the block are not hidden.
-                    block.is_passive_conversation()
-                        && (block.find_undismissed_code_diff(ctx).is_some()
-                            || block.pending_unit_test_suggestion(ctx).is_some_and(
-                                |suggested_prompt| {
-                                    !suggested_prompt.as_ref(ctx).is_keybindings_hidden()
-                                },
-                            ))
-                })
-        });
-
         let mut cleared_buffer_len = 0;
         if (!self.vim_mode_enabled(ctx)
             || self
                 .vim_mode(ctx)
                 .is_some_and(|vim_mode| matches![vim_mode, VimMode::Normal | VimMode::Insert]))
             && !is_agent_responding
-            && !is_pending_passive_ai_block
         {
             cleared_buffer_len = self.buffer_size(ctx).as_usize();
             self.clear_buffer(ctx);
         }
-        if !is_agent_responding || !is_pending_passive_ai_block {
-            self.vim_interrupt(ctx);
-        }
+        self.vim_interrupt(ctx);
 
         ctx.emit(Event::CtrlC { cleared_buffer_len });
     }
@@ -5414,7 +5391,6 @@ impl EditorView {
                 }
                 _ => (),
             }
-            ctx.emit(Event::CtrlEnter)
         }
     }
 
@@ -8177,7 +8153,6 @@ pub enum Event {
     Enter,
     ShiftEnter,
     AltEnter,
-    CtrlEnter,
     /// Attempt to remove text when there is a single cursor placed at the beginning of the editor
     /// buffer.
     BackspaceAtBeginningOfBuffer,

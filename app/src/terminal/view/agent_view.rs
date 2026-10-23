@@ -314,12 +314,6 @@ impl TerminalView {
         position: RichContentInsertionPosition,
         ctx: &mut ViewContext<Self>,
     ) {
-        if BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&params.conversation_id)
-            .is_some_and(|conversation| conversation.is_entirely_passive())
-        {
-            return;
-        }
         let conversation_id = params.conversation_id;
         let origin = params.origin.clone();
         let agent_view_block =

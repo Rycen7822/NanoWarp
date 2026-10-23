@@ -1,5 +1,4 @@
 use warp_cli::agent::Harness;
-use warp_core::settings::Setting;
 use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
     Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -27,7 +26,6 @@ use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::appearance::Appearance;
 use crate::context_chips::spacing::{self};
 use crate::features::FeatureFlag;
-use crate::settings::InputModeSettings;
 use crate::terminal::settings::TerminalSettings;
 use crate::terminal::view::TerminalAction;
 use crate::terminal::view::ambient_agent::HostSelector;
@@ -89,19 +87,7 @@ impl Input {
         // by reworking the positioning of the children to not depend on this.
         let mut stack = Stack::new().with_constrain_absolute_children();
 
-        let input_mode = *InputModeSettings::as_ref(app).input_mode.value();
-
         let mut column = Flex::column();
-
-        if let Some(banner) =
-            self.render_input_banner(appearance, app, input_mode, /*is_compact_mode=*/ false)
-        {
-            column.add_child(
-                Container::new(banner)
-                    .with_margin_top(spacing::UDI_CHIP_MARGIN)
-                    .finish(),
-            );
-        }
 
         let ai_input_model = self.ai_input_model.as_ref(app);
 

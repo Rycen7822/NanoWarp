@@ -62,25 +62,12 @@ const GEAP_REFRESH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::f
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecoveryBudget {
     attempts_used: usize,
-    resume_allowed: bool,
 }
 
 impl RecoveryBudget {
     /// A full budget, for a request that is not itself recovering another.
     pub(crate) fn fresh() -> Self {
-        Self {
-            attempts_used: 0,
-            resume_allowed: true,
-        }
-    }
-
-    /// The same budget with resumes disallowed, for requests whose failures must stay
-    /// silent and terminal (passive background requests).
-    pub(crate) fn without_resume(self) -> Self {
-        Self {
-            resume_allowed: false,
-            ..self
-        }
+        Self { attempts_used: 0 }
     }
 
     /// Recovery attempts — retries and resumes — already spent recovering this request.
@@ -92,7 +79,6 @@ impl RecoveryBudget {
     pub(crate) fn next_attempt(self) -> Self {
         Self {
             attempts_used: self.attempts_used + 1,
-            ..self
         }
     }
 
@@ -162,8 +148,6 @@ enum FailReason {
     NotRecoverable,
     /// The shared retry/resume budget is spent.
     BudgetExhausted,
-    /// Only a resume could recover this failure, and this request may not resume.
-    ResumeNotAllowed,
 }
 
 impl FailReason {
@@ -171,7 +155,6 @@ impl FailReason {
         match self {
             Self::NotRecoverable => "not_recoverable",
             Self::BudgetExhausted => "budget_exhausted",
-            Self::ResumeNotAllowed => "resume_not_allowed",
         }
     }
 }
@@ -191,13 +174,6 @@ fn recovery_action(
 ) -> RecoveryAction {
     if !is_recoverable {
         return RecoveryAction::Fail(FailReason::NotRecoverable);
-    }
-    // Checked ahead of the budget so a request that could never have resumed reports that,
-    // rather than whichever constraint happens to bind first: a passive request that spent
-    // its budget on pre-action retries and then fails post-action is blocked by both, and
-    // the ineligibility is the one worth knowing.
-    if has_received_client_actions && !recovery.resume_allowed {
-        return RecoveryAction::Fail(FailReason::ResumeNotAllowed);
     }
     if !recovery.has_remaining() {
         return RecoveryAction::Fail(FailReason::BudgetExhausted);
@@ -353,7 +329,7 @@ impl ResponseStream {
         Self {
             id,
             params: api::RequestParams::new_for_test(),
-            recovery: RecoveryBudget::fresh().without_resume(),
+            recovery: RecoveryBudget::fresh(),
             retries_sent: 0,
             start_time: Local::now(),
             time_to_latest_event: TimeDelta::seconds(0),

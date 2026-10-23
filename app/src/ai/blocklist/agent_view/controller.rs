@@ -103,7 +103,6 @@ pub enum AgentViewEntryOrigin {
     Input {
         was_prompt_autodetected: bool,
     },
-    PromptChip,
     /// Entered agent view by selecting a conversation (e.g. selector).
     ConversationSelector,
     /// Entered agent view clicking a conversation item in the Agent Mode homepage (tab zero state).
@@ -120,12 +119,6 @@ pub enum AgentViewEntryOrigin {
     SharedSessionSelection,
     /// Entered agent view due to a server-driven conversation split (StartNewConversation client action).
     AgentRequestedNewConversation,
-    /// Entered agent view via accepting a prompt suggestion.
-    AcceptedPromptSuggestion,
-    /// Entered agent view via accepting a unit test suggestion.
-    AcceptedUnitTestSuggestion,
-    /// Entered agent view via accepting a passive code diff.
-    AcceptedPassiveCodeDiff,
     /// Entered agent view by starting conversation with an inline code review submission.
     InlineCodeReview,
     /// Entered agent view through a cloud agent prompt.
@@ -186,7 +179,6 @@ pub enum AgentViewEntryOrigin {
     // launched, those callsites for updating the selected conversation will be removed along with
     // these variants.
     ContinueConversationButton,
-    ViewPassiveCodeDiffDetails,
     ResumeConversationButton,
 }
 
@@ -214,7 +206,6 @@ impl AgentViewEntryOrigin {
             } if *was_prompt_autodetected => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::SlashCommand => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::Cli => AutoTriggerBehavior::Always,
-            AgentViewEntryOrigin::AcceptedPromptSuggestion => AutoTriggerBehavior::Always,
             AgentViewEntryOrigin::LinearDeepLink => AutoTriggerBehavior::Never,
             _ => AutoTriggerBehavior::InAgentView,
         }

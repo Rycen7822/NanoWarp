@@ -928,45 +928,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
     },
-    // This field should not be referenced directly to lookup Prompt Suggestions
-    // enablement -- use the `is_prompt_suggestions_enabled()` getter.
-    // Note that AgentModeQuerySuggestionsEnabled is a legacy name (the feature was initially named Agent
-    // Mode Query Suggestions), however, we do not want to change the name of the setting key to avoid
-    // breaking existing user settings.
-    prompt_suggestions_enabled_internal: AgentModeQuerySuggestionsEnabled {
-        type: bool,
-        default: true, // TODO(advait): revisit this when launched to stable
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.agent_mode_query_suggestions_enabled",
-        description: "Controls whether prompt suggestions are shown in agent mode.",
-    }
-
-    // This field should not be referenced directly to lookup Code Suggestions
-    // enablement -- use the `is_code_suggestions_enabled()` getter.
-    code_suggestions_enabled_internal: CodeSuggestionsEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.code_suggestions_enabled",
-        description: "Controls whether AI code suggestions are enabled.",
-    }
-    // This field should not be referenced directly to lookup natural language autosuggestions
-    // enablement -- use the `is_natural_language_autosuggestions_enabled()` getter.
-    // This feature refers to ghosted text for AI input queries.
-    natural_language_autosuggestions_enabled_internal: NaturalLanguageAutosuggestionsEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.natural_language_autosuggestions_enabled",
-        description: "Controls whether ghosted text autosuggestions are shown for AI input queries.",
-        feature_flag: FeatureFlag::PredictAMQueries,
-    }
     // This field should not be referenced directly to lookup shared block title generations
     // enablement -- use the `is_shared_block_title_generation_enabled()` getter.
     // This feature refers to the auto title generation when the user opens the shared block dialog.
@@ -1342,18 +1303,6 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     },
-
-    // Whether or not we should show the speedbump for showing code suggestion banners.
-    // This includes both passive code diffs and suggested prompts (passive unit tests).
-    //
-    // Not a user-visible settings - we model it as a setting so we can track if the speedbump has already been shown or not.
-    show_code_suggestion_speedbump: ShouldShowCodeSuggestionSpeedbump {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: true,
-    }
 
     mcp_execution_path: MCPExecutionPath {
         type: Option<String>,
@@ -1738,20 +1687,8 @@ impl AISettings {
             && AppExecutionMode::as_ref(app).allows_active_ai()
     }
 
-    pub fn is_prompt_suggestions_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.prompt_suggestions_enabled_internal
-    }
-
     pub fn is_rule_suggestions_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.rule_suggestions_enabled_internal
-    }
-
-    pub fn is_code_suggestions_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.code_suggestions_enabled_internal
-    }
-
-    pub fn is_natural_language_autosuggestions_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.natural_language_autosuggestions_enabled_internal
     }
 
     pub fn is_shared_block_title_generation_enabled(&self, app: &warpui::AppContext) -> bool {
@@ -2038,10 +1975,6 @@ impl AISettings {
 
     pub fn is_run_agents_permissions_editable(&self, app: &AppContext) -> bool {
         self.is_orchestration_enabled(app)
-    }
-
-    pub fn show_code_suggestion_speedbump(&self, app: &AppContext) -> bool {
-        self.is_any_ai_enabled(app) && *self.show_code_suggestion_speedbump
     }
 
     /// Handles first-time voice input setup when user clicks the voice button.

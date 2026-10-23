@@ -16,12 +16,13 @@ use warp_util::file::FileSaveError;
 use warp_util::standardized_path::StandardizedPath;
 #[cfg(not(target_family = "wasm"))]
 use warpui::SingletonEntity;
-use warpui::elements::ChildView;
+use warpui::elements::new_scrollable::ScrollableAppearance;
+use warpui::elements::{ChildView, ScrollbarWidth};
 use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 use super::diff_viewer::{DiffViewer, DisplayMode};
 use super::editor::NavBarBehavior;
-use super::editor::scroll::{ScrollPosition, ScrollTrigger};
+use super::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
 use super::editor::view::{CodeEditorEvent, CodeEditorView};
 use crate::ai::blocklist::diff_storage::SaveFuture;
 #[cfg(not(target_family = "wasm"))]
@@ -464,12 +465,18 @@ impl DiffViewer for InlineDiffView {
             InteractionState::Selectable
         };
         self.editor().update(ctx, |editor, ctx| {
-            editor.set_scroll_wheel_behavior(mode.scroll_wheel_behavior());
+            editor.set_scroll_wheel_behavior(ScrollWheelBehavior::AlwaysHandle);
             editor.set_vertical_expansion_behavior(mode.vertical_expansion_behavior(), ctx);
-            editor.set_vertical_scrollbar_appearance(mode.scrollbar_appearance());
-            editor.set_horizontal_scrollbar_appearance(mode.scrollbar_appearance());
+            editor.set_vertical_scrollbar_appearance(ScrollableAppearance::new(
+                ScrollbarWidth::Auto,
+                false,
+            ));
+            editor.set_horizontal_scrollbar_appearance(ScrollableAppearance::new(
+                ScrollbarWidth::Auto,
+                false,
+            ));
             editor.set_interaction_state(interaction_state, ctx);
-            editor.set_show_nav_bar(mode.show_nav_bar());
+            editor.set_show_nav_bar(true);
             editor.set_nav_bar_behavior(NavBarBehavior::NotClosable, ctx);
         });
     }

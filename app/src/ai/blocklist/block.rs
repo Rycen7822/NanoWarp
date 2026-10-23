@@ -84,29 +84,27 @@ use super::inline_action::requested_command_attribution::is_command_copied_from_
 use super::permissions::is_agent_mode_autonomy_allowed;
 use super::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use super::suggested_rule_modal::SuggestedRuleAndId;
-use super::telemetry_banner::should_collect_ai_ugc_telemetry;
 use super::usage::request_metadata_turn_view::RequestMetadataTurnView;
 use super::{
     BlocklistAIActionModel, BlocklistAIController, BlocklistAIHistoryModel, BlocklistAIPermissions,
     ResponseStreamId,
 };
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::redaction::redact_secrets;
 use crate::ai::agent::telemetry::ForTelemetry as _;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, AIAgentAttachment,
     AIAgentCitation, AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutput,
     AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentTextSection, AIIdentifiers,
     CancellationReason, CreateDocumentsRequest, CreateDocumentsResult, DocumentToCreate,
-    EditDocumentsResult, MessageId, PassiveSuggestionTrigger, ProgrammingLanguage,
-    RenderableAIError, RequestCommandOutputResult, RequestFileEditsResult, ScreenshotSource,
-    SearchCodebaseResult, ServerOutputId, SubagentCall, SubagentType, SuggestPromptRequest,
-    SuggestPromptResult, SuggestedLoggingId, SummarizationType, TodoOperation,
+    EditDocumentsResult, MessageId, ProgrammingLanguage, RenderableAIError,
+    RequestCommandOutputResult, RequestFileEditsResult, ScreenshotSource, SearchCodebaseResult,
+    ServerOutputId, SubagentCall, SubagentType, SuggestedLoggingId, SummarizationType,
+    TodoOperation,
 };
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::action_model::NewConversationDecision;
-use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
+use crate::ai::blocklist::agent_view::AgentViewController;
 use crate::ai::blocklist::block::keyboard_navigable_buttons::{
     KeyboardNavigableButtonBuilder, KeyboardNavigableButtons,
 };
@@ -133,9 +131,6 @@ use crate::ai::blocklist::inline_action::run_agents_card_view::{
 };
 use crate::ai::blocklist::inline_action::search_codebase::{
     SearchCodebaseView, SearchCodebaseViewEvent,
-};
-use crate::ai::blocklist::inline_action::suggested_unit_tests::{
-    SuggestedUnitTestsEvent, SuggestedUnitTestsView,
 };
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
@@ -176,7 +171,7 @@ use crate::notebooks::editor::view::{EditorViewEvent, RichTextEditorView};
 use crate::server::ids::SyncId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::{
-    AgentModeRewindEntrypoint, AutonomySettingToggleSource, InteractionSource, TelemetryEvent,
+    AgentModeRewindEntrypoint, AutonomySettingToggleSource, TelemetryEvent,
 };
 use crate::settings::{
     AISettings, AISettingsChangedEvent, AgentModeCodingPermissionsType, FontSettings,
@@ -185,7 +180,6 @@ use crate::settings::{
 };
 use crate::settings_view::SettingsSection;
 use crate::terminal::find::TerminalFindModel;
-use crate::terminal::model::BlockId;
 use crate::terminal::model::secrets::RichContentSecretTooltipInfo;
 use crate::terminal::model::session::active_session::{ActiveSession, ActiveSessionEvent};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
@@ -193,9 +187,7 @@ use crate::terminal::safe_mode_settings::{
     SafeModeSettings, SafeModeSettingsChangedEvent, get_secret_obfuscation_mode,
 };
 use crate::terminal::view::ambient_agent::{AmbientAgentViewModel, AmbientAgentViewModelEvent};
-use crate::terminal::view::{
-    CodeDiffAction, RichContentLink, RichContentLinkTooltipInfo, TerminalAction,
-};
+use crate::terminal::view::{RichContentLink, RichContentLinkTooltipInfo, TerminalAction};
 use crate::terminal::{ShellLaunchData, TerminalModel, TerminalView};
 use crate::ui_components::icons::Icon;
 use crate::util::link_detection::*;
@@ -211,10 +203,8 @@ use crate::view_components::compactible_action_button::CompactibleActionButton;
 use crate::view_components::find::FindEvent;
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{
-    AIAgentTodoList, Appearance, FileEdit, LLMPreferences, PrivacySettings, ToastStack,
-    send_telemetry_from_ctx,
+    AIAgentTodoList, Appearance, FileEdit, LLMPreferences, ToastStack, send_telemetry_from_ctx,
 };
 
 /// The default display name used for the user if they have no associated display name.
@@ -923,10 +913,6 @@ fn default_orchestration_collapsible_state(expanded: bool) -> CollapsibleElement
 pub struct AIBlock {
     model: Rc<dyn AIBlockModel<View = AIBlock>>,
 
-    /// Cached result of `model.request_type(app).is_passive()`. Safe to cache because whether a
-    /// conversation is passive or active is fixed at exchange creation and never changes for the
-    /// lifetime of the block (see `is_passive_conversation`).
-    is_passive: bool,
     terminal_model: Arc<FairMutex<TerminalModel>>,
     client_ids: ClientIdentifiers,
     profile_image_path: Option<String>,
@@ -984,9 +970,6 @@ pub struct AIBlock {
 
     /// Map from collapsible block message IDs (reasoning or summarization) to their states.
     collapsible_block_states: HashMap<MessageId, CollapsibleElementState>,
-
-    /// Map from suggested prompt action ID to its view handle and status.
-    unit_tests_suggestions: HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
 
     /// Task to auto expand an executed requested command or requested action after it has
     /// been running for a while. This applies to both the [`RequestedCommandView`] and
@@ -1491,12 +1474,10 @@ impl AIBlock {
             comment_states.insert(id, state);
         }
 
-        let is_passive = model.request_type(ctx).is_passive();
         let receives_live_output_updates = model.status(ctx).is_streaming();
 
         let mut me = Self {
             model,
-            is_passive,
             terminal_model,
             client_ids,
             profile_image_path: user_avatar_info.profile_image_path,
@@ -1528,7 +1509,6 @@ impl AIBlock {
             todo_list_states: Default::default(),
             comment_states,
             collapsible_block_states: Default::default(),
-            unit_tests_suggestions: Default::default(),
             secret_redaction_state,
             find_state: FindState::default(),
             find_model,
@@ -1850,7 +1830,6 @@ impl AIBlock {
 
         self.client_ids.conversation_id = new_conversation_id;
         self.model = new_model;
-        self.is_passive = self.model.request_type(ctx).is_passive();
         let user_avatar_info = user_avatar_info_for_ai_block(self.model.as_ref(), ctx);
         self.profile_image_path = user_avatar_info.profile_image_path;
         self.user_display_name = user_avatar_info.display_name;
@@ -2673,27 +2652,6 @@ impl AIBlock {
                 AIAgentAction {
                     id,
                     action:
-                        AIAgentActionType::SuggestPrompt(SuggestPromptRequest::UnitTestsSuggestion {
-                            query,
-                            title,
-                            description,
-                        }),
-                    ..
-                } => {
-                    if !self.model.is_restored() {
-                        self.handle_unit_test_suggestion_complete(
-                            id,
-                            output.server_output_id.as_ref(),
-                            query.clone(),
-                            title.clone(),
-                            description.clone(),
-                            ctx,
-                        );
-                    }
-                }
-                AIAgentAction {
-                    id,
-                    action:
                         AIAgentActionType::InsertCodeReviewComments {
                             repo_path,
                             comments,
@@ -2989,10 +2947,7 @@ impl AIBlock {
             self.client_ids.conversation_id,
             self.client_ids.client_exchange_id,
         );
-        // If the AI Block's exchange is hidden, return true.
-        //
-        // This is typically the case for the initial exchange in a conversation started for a
-        // 'passive' AI feature like suggested prompts.
+        // If the AI block's exchange is hidden, return true.
         if is_for_hidden_exchange {
             return true;
         }
@@ -3000,29 +2955,11 @@ impl AIBlock {
             return false;
         }
 
-        if let Some(active_conversation_id) = self
-            .agent_view_controller
+        self.agent_view_controller
             .as_ref(app)
             .agent_view_state()
             .active_conversation_id()
-        {
-            // If the agent view is active, only AI blocks for the active agent view conversation
-            // should be visible.
-            active_conversation_id != self.client_ids.conversation_id
-        } else {
-            // If there is no active agent view, only passive, non-hidden (we checked for if the
-            // exchange is hidden already above) exchanges are rendered.
-            //
-            // These correspond to AI blocks with a successfully received suggested code diff or
-            // unit test suggestion.
-            !self.is_passive
-        }
-    }
-
-    /// Returns `true` if this block's conversation was started from a passive entrypoint (e.g. a
-    /// suggested code diff or unit test suggestion), as opposed to a directly-issued user query.
-    pub fn is_passive_conversation(&self) -> bool {
-        self.is_passive
+            .is_none_or(|id| id != self.client_ids.conversation_id)
     }
 
     fn handle_code_section_stream_update(
@@ -3212,24 +3149,6 @@ impl AIBlock {
             (false, false) => RequestFileEditsFormatKind::Unknown,
         };
 
-        // Only show the speedbump once, update the setting afterwards.
-        let should_show_code_suggestion_speedbump =
-            self.model.request_type(ctx).is_passive_code_diff()
-                && UserWorkspaces::as_ref(ctx).is_code_suggestions_toggleable()
-                && AISettings::as_ref(ctx).show_code_suggestion_speedbump(ctx);
-        if should_show_code_suggestion_speedbump {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                if let Err(e) = settings
-                    .show_code_suggestion_speedbump
-                    .set_value(false, ctx)
-                {
-                    report_error!(
-                        e.context("Failed to persist 'Show code suggestion speedbump' setting")
-                    );
-                }
-            });
-        }
-
         let view = ctx.add_typed_action_view(|ctx| {
             CodeDiffView::new(
                 action_id,
@@ -3237,7 +3156,6 @@ impl AIBlock {
                 title.clone(),
                 identifiers,
                 edit_format_kind,
-                should_show_code_suggestion_speedbump,
                 self.action_model.clone(),
                 self.shell_launch_data.clone().map(|data| data.into()),
                 ctx,
@@ -3319,53 +3237,10 @@ impl AIBlock {
                 CodeDiffViewEvent::CopiedEmptyText => {
                     ctx.emit(AIBlockEvent::CopiedEmptyText);
                 }
-                CodeDiffViewEvent::Blur => {
-                    ctx.emit(AIBlockEvent::FocusTerminal);
-                }
                 CodeDiffViewEvent::DisplayModeChanged => {
                     ctx.notify();
                 }
-                CodeDiffViewEvent::OpenSettings => {
-                    ctx.emit(AIBlockEvent::OpenSettings);
-                }
-                CodeDiffViewEvent::CancelPassive => {
-                    ctx.emit(AIBlockEvent::DismissedPassiveBlock);
-                }
                 CodeDiffViewEvent::ViewDetails => {
-                    // We only need to set the selected conversation when agent view is disabled;
-                    // when agent view is enabled, you have to enter the agent view for the code diff
-                    // conversation to follow-up in the first place, and hitting 'view details'
-                    // shouldn't auto-enter the agent view.
-                    if !FeatureFlag::AgentView.is_enabled() {
-                        me.context_model.update(ctx, |context_model, ctx| {
-                            context_model.set_pending_query_state_for_existing_conversation(
-                                me.client_ids.conversation_id,
-                                AgentViewEntryOrigin::ViewPassiveCodeDiffDetails,
-                                ctx,
-                            );
-                        });
-                    }
-                    ctx.emit(AIBlockEvent::FocusTerminal);
-                    ctx.notify();
-                }
-                CodeDiffViewEvent::ContinuePassiveCodeDiffWithAgent {
-                    accepted: auto_resume,
-                    ..
-                } => {
-                    let trigger_block_id = me.model.inputs_to_render(ctx).iter().find_map(|i| {
-                        if let Some(PassiveSuggestionTrigger::ShellCommandCompleted(trigger)) =
-                            i.passive_suggestion_trigger()
-                        {
-                            Some(trigger.executed_shell_command.id.clone())
-                        } else {
-                            None
-                        }
-                    });
-                    ctx.emit(AIBlockEvent::ContinuePassiveCodeDiffWithAgent {
-                        conversation_id: me.client_ids.conversation_id,
-                        trigger_block_id,
-                        auto_resume: *auto_resume,
-                    });
                     ctx.emit(AIBlockEvent::FocusTerminal);
                     ctx.notify();
                 }
@@ -3373,11 +3248,6 @@ impl AIBlock {
                     ctx.emit(AIBlockEvent::ToggleCodeReviewPane {
                         entrypoint: *entrypoint,
                     });
-                }
-                CodeDiffViewEvent::LoadedDiffs => {
-                    if me.model.request_type(ctx).is_passive_code_diff() {
-                        ctx.emit(AIBlockEvent::PassiveCodeDiffLoaded);
-                    }
                 }
                 #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
                 CodeDiffViewEvent::OpenSkill { reference, path } => {
@@ -3422,21 +3292,6 @@ impl AIBlock {
         self.requested_edits
             .insert(action_id.clone(), RequestedEdit::new(view));
 
-        if self.model.request_type(ctx).is_passive() {
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                history.set_exchange_hidden_status(
-                    self.terminal_view_id,
-                    self.client_ids.conversation_id,
-                    self.client_ids.client_exchange_id,
-                    false,
-                    ctx,
-                );
-            });
-            self.terminal_model
-                .lock()
-                .block_list_mut()
-                .mark_rich_content_dirty(ctx.view_id());
-        }
         ctx.notify();
     }
 
@@ -3463,12 +3318,6 @@ impl AIBlock {
 
             code_diff_view.update(ctx, |diff_view, ctx| {
                 diff_view.set_candidate_diffs(file_diffs, ctx);
-
-                // For restored conversations that include a passive code diff, we assume the diff
-                // is no longer live, so we display it as embedded instead of inline.
-                if self.model.request_type(ctx).is_passive_code_diff() {
-                    diff_view.set_embedded_display_mode(true, ctx);
-                }
 
                 // Set the state based on the action status from the action model
                 let action_status = self.action_model.as_ref(ctx).get_action_status(action_id);
@@ -4235,223 +4084,6 @@ impl AIBlock {
         }
     }
 
-    pub fn accept_pending_unit_test_suggestion(
-        &mut self,
-        interaction_source: InteractionSource,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(suggested_prompt) = self.pending_unit_test_suggestion(ctx) else {
-            return false;
-        };
-        self.accept_unit_test_suggestion(suggested_prompt.clone(), interaction_source, ctx)
-    }
-
-    pub fn dismiss_pending_suggested_prompt(
-        &mut self,
-        interaction_source: InteractionSource,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(suggested_prompt) = self.pending_unit_test_suggestion(ctx) else {
-            return false;
-        };
-        let identifiers = suggested_prompt.as_ref(ctx).identifiers().clone();
-
-        // Complete the suggest prompt executor with Cancelled so the async action
-        // finishes cleanly (the action auto-executes and is no longer in pending_actions).
-        self.action_model.update(ctx, |action_model, ctx| {
-            let executor = action_model.suggest_prompt_executor(ctx).clone();
-            executor.update(ctx, |executor, _ctx| {
-                executor.complete_suggest_prompt_action(SuggestPromptResult::Cancelled);
-            });
-        });
-
-        // Hide the view so pending_unit_test_suggestion() won't find it again,
-        // preventing a double-dismiss race from emitting DismissedPassiveBlock twice.
-        suggested_prompt.clone().update(ctx, |view, _ctx| {
-            view.set_is_hidden(true);
-        });
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::UnitTestSuggestionCancelled {
-                identifiers,
-                interaction_source,
-            },
-            ctx
-        );
-        ctx.emit(AIBlockEvent::DismissedPassiveBlock);
-        true
-    }
-
-    fn accept_unit_test_suggestion(
-        &mut self,
-        view: ViewHandle<SuggestedUnitTestsView>,
-        interaction_source: InteractionSource,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(query) = view.as_ref(ctx).query() else {
-            return false;
-        };
-
-        if FeatureFlag::AgentView.is_enabled()
-            && self
-                .agent_view_controller
-                .update(ctx, |controller, ctx| {
-                    controller.try_enter_agent_view(
-                        Some(self.client_ids.conversation_id),
-                        AgentViewEntryOrigin::AcceptedUnitTestSuggestion,
-                        ctx,
-                    )
-                })
-                .is_err()
-        {
-            return false;
-        }
-
-        let action_id = view.as_ref(ctx).action_id().clone();
-
-        self.action_model.update(ctx, |action_model, ctx| {
-            action_model.execute_action(&action_id, self.client_ids.conversation_id, ctx);
-            let executor = action_model.suggest_prompt_executor(ctx).clone();
-            executor.update(ctx, |executor, _ctx| {
-                executor.complete_suggest_prompt_action(SuggestPromptResult::Accepted { query });
-            });
-        });
-        // When accepted, we only want to hide the banner portion of the exchange.
-        view.update(ctx, |view, _ctx| {
-            view.set_is_hidden(true);
-        });
-
-        let identifiers = view.as_ref(ctx).identifiers().clone();
-        let query = view.as_ref(ctx).query().unwrap_or_default();
-
-        let should_collect_ugc =
-            should_collect_ai_ugc_telemetry(ctx, PrivacySettings::as_ref(ctx).is_telemetry_enabled);
-        let redacted_query = if should_collect_ugc {
-            let mut redacted_query = query.clone();
-            redact_secrets(&mut redacted_query);
-            Some(redacted_query)
-        } else {
-            None
-        };
-        send_telemetry_from_ctx!(
-            TelemetryEvent::UnitTestSuggestionAccepted {
-                identifiers,
-                query: redacted_query,
-                interaction_source,
-            },
-            ctx
-        );
-        ctx.notify();
-        true
-    }
-
-    fn handle_unit_test_suggestion_complete(
-        &mut self,
-        action_id: &AIAgentActionId,
-        server_output_id: Option<&ServerOutputId>,
-        query: String,
-        title: String,
-        description: String,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Short-circuit if we've already handled the suggested prompt correspoding to this action
-        // id.
-        if self.unit_tests_suggestions.contains_key(action_id) {
-            return;
-        }
-
-        let identifiers = AIIdentifiers {
-            client_conversation_id: Some(self.client_ids.conversation_id),
-            client_exchange_id: Some(self.client_ids.client_exchange_id),
-            server_output_id: server_output_id.cloned(),
-            server_conversation_id: None,
-            model_id: self.model.model_id(ctx),
-        };
-
-        // Only show the speedbump once, update the setting afterwards.
-        let should_show_speedbump = self
-            .model
-            .request_type(ctx)
-            .is_passive_unit_test_suggestion()
-            && UserWorkspaces::as_ref(ctx).is_code_suggestions_toggleable()
-            && AISettings::as_ref(ctx).show_code_suggestion_speedbump(ctx);
-        if should_show_speedbump {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                if let Err(e) = settings
-                    .show_code_suggestion_speedbump
-                    .set_value(false, ctx)
-                {
-                    report_error!(
-                        e.context("Failed to persist 'Show code suggestion speedbump' setting")
-                    );
-                }
-            });
-        }
-
-        let view = ctx.add_typed_action_view(|ctx| {
-            SuggestedUnitTestsView::new(
-                identifiers.clone(),
-                action_id.clone(),
-                query,
-                title,
-                description,
-                should_show_speedbump,
-                ctx,
-            )
-        });
-
-        let action_id_clone = action_id.clone();
-        ctx.subscribe_to_view(&view, move |me, view, event, ctx| {
-            me.handle_suggested_prompt_view_event(&action_id_clone, event, view, ctx);
-        });
-
-        self.unit_tests_suggestions.insert(action_id.clone(), view);
-        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-            history.set_exchange_hidden_status(
-                self.terminal_view_id,
-                self.client_ids.conversation_id,
-                self.client_ids.client_exchange_id,
-                false,
-                ctx,
-            );
-        });
-        self.terminal_model
-            .lock()
-            .block_list_mut()
-            .mark_rich_content_dirty(ctx.view_id());
-        ctx.notify();
-
-        send_telemetry_from_ctx!(TelemetryEvent::UnitTestSuggestionShown { identifiers }, ctx);
-    }
-
-    fn handle_suggested_prompt_view_event(
-        &mut self,
-        action_id: &AIAgentActionId,
-        event: &SuggestedUnitTestsEvent,
-        view: ViewHandle<SuggestedUnitTestsView>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Short-circuit if this is no longer a suggested prompt we're tracking.
-        if !self.unit_tests_suggestions.contains_key(action_id) {
-            return;
-        }
-
-        match event {
-            SuggestedUnitTestsEvent::Accept => {
-                self.accept_unit_test_suggestion(view, InteractionSource::Button, ctx);
-            }
-            SuggestedUnitTestsEvent::Cancel => {
-                self.dismiss_pending_suggested_prompt(InteractionSource::Button, ctx);
-            }
-            SuggestedUnitTestsEvent::Blur => {
-                ctx.emit(AIBlockEvent::FocusTerminal);
-            }
-            SuggestedUnitTestsEvent::OpenSettings => {
-                ctx.emit(AIBlockEvent::OpenSettings);
-            }
-        }
-    }
-
     #[cfg(feature = "integration_tests")]
     pub fn selection_type(&self) -> SelectionType {
         self.state_handles.selection_handle.selection_type()
@@ -5021,26 +4653,6 @@ impl AIBlock {
             return;
         }
 
-        // If there's a blocking passive code diff, focus that.
-        // We special case this since get_pending_action only focuses on active conversations,
-        // and passive code diffs are not part of an active conversation, when they initially appear.
-        if self.model.request_type(ctx).is_passive_code_diff()
-            && let Some(diff) = self.find_undismissed_code_diff(ctx)
-        {
-            ctx.focus(&diff.view);
-            return;
-        }
-
-        if self
-            .model
-            .request_type(ctx)
-            .is_passive_unit_test_suggestion()
-            && self.pending_unit_test_suggestion(ctx).is_some()
-        {
-            ctx.emit(AIBlockEvent::FocusTerminal);
-            return;
-        }
-
         if self.focus_subview_if_necessary(ctx) {
             return;
         }
@@ -5533,38 +5145,6 @@ impl AIBlock {
         requested_command_view.copied_from_citation().cloned()
     }
 
-    pub fn handle_passive_code_diff_action(
-        &mut self,
-        action: CodeDiffAction,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(edit) = self.find_undismissed_code_diff(ctx) else {
-            return false;
-        };
-        edit.view.update(ctx, |view, ctx| match action {
-            CodeDiffAction::Accept => view.try_accept_action(ctx),
-            CodeDiffAction::Reject => view.reject(ctx),
-            CodeDiffAction::Edit => view.expand_and_edit(ctx),
-            CodeDiffAction::ScrollToExpand => view.expand_inline_banner(ctx),
-        });
-        ctx.notify();
-        true
-    }
-
-    /// Marks all pending passive actions (code diffs and suggested prompts) as dismissed/ignored.
-    /// This hides their keybindings in the UI and makes them less interactive.
-    pub fn ignore_passive_actions(&mut self, ctx: &mut ViewContext<Self>) {
-        self.action_model.update(ctx, |action_model, ctx| {
-            for action in action_model.get_pending_actions() {
-                if let Some(edit) = self.requested_edits.get(&action.id) {
-                    edit.view.update(ctx, |view, ctx| view.dismiss(ctx));
-                } else if let Some(suggested_prompt) = self.unit_tests_suggestions.get(&action.id) {
-                    suggested_prompt.update(ctx, |view, ctx| view.hide_keybindings(ctx));
-                }
-            }
-        });
-    }
-
     fn pending_requested_edit(&self, app: &AppContext) -> Option<&RequestedEdit> {
         self.action_model
             .as_ref(app)
@@ -5631,40 +5211,6 @@ impl AIBlock {
             });
             ctx.notify();
         }
-    }
-
-    /// Finds the undismissed passive code diff across all pending actions.
-    /// This is needed because passive code diffs are NOT added to the active conversation by default, when they first appear.
-    pub(crate) fn find_undismissed_code_diff(&self, app: &AppContext) -> Option<&RequestedEdit> {
-        let all_pending_actions = self.action_model.as_ref(app).get_pending_actions();
-
-        // Find any RequestFileEdits action that has a corresponding passive code diff view.
-        // Note that we only expect a maximum of 1 passive code diff to be undismissed at any given time.
-        all_pending_actions
-            .iter()
-            .find_map(|action| match &action.action {
-                AIAgentActionType::RequestFileEdits {
-                    file_edits: _,
-                    title: _,
-                } => self.requested_edits.get(&action.id).and_then(|edit| {
-                    let view = edit.view.as_ref(app);
-                    if view.is_passive() && !view.is_inline_banner_dismissed() {
-                        Some(edit)
-                    } else {
-                        None
-                    }
-                }),
-                _ => None,
-            })
-    }
-
-    pub fn pending_unit_test_suggestion(
-        &self,
-        app: &AppContext,
-    ) -> Option<&ViewHandle<SuggestedUnitTestsView>> {
-        self.unit_tests_suggestions
-            .values()
-            .find(|view| !view.as_ref(app).is_hidden())
     }
 
     /// Inspects the state of the AI output stream and determines if we are currently at a point where
@@ -6242,14 +5788,6 @@ pub enum AIBlockEvent {
     ContinueConversation {
         conversation_id: AIConversationId,
     },
-    /// Emitted when a passive code diff should be injected into an agent context.
-    ContinuePassiveCodeDiffWithAgent {
-        conversation_id: AIConversationId,
-        /// If the auto code diff was generated as a result of a block trigger,
-        /// this is the ID of that block.
-        trigger_block_id: Option<BlockId>,
-        auto_resume: bool,
-    },
     OpenSuggestedAgentModeWorkflowModal {
         workflow_and_id: SuggestedAgentModeWorkflowAndId,
     },
@@ -6292,7 +5830,6 @@ pub enum AIBlockEvent {
     ToggleCodeReviewPane {
         entrypoint: CodeReviewPaneEntrypoint,
     },
-    DismissedPassiveBlock,
     OpenAIDocumentPane {
         document_id: AIDocumentId,
         document_version: AIDocumentVersion,
@@ -6301,10 +5838,6 @@ pub enum AIBlockEvent {
     OpenActiveAgentProfileEditor,
     /// Run the configured AWS auth refresh command to fix expired Bedrock credentials
     RunAwsLoginCommand,
-    /// Emitted when a passive code diff has loaded its diffs and is ready to display.
-    /// This is used to trigger height recalculation since the diffs are loaded asynchronously
-    /// after the initial output completes.
-    PassiveCodeDiffLoaded,
     OpenImportedCommentInCodeReview {
         repo_path: LocalOrRemotePath,
         comment: Box<AttachedReviewComment>,

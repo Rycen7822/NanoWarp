@@ -42,7 +42,6 @@ impl ApplyDiffModel {
         &self,
         edits: Vec<FileEdit>,
         ai_identifiers: &AIIdentifiers,
-        passive_diff: bool,
         ctx: &mut ModelContext<Self>,
     ) -> BoxFuture<'static, Result<Vec<AIRequestedCodeDiff>, Vec1<DiffApplicationError>>> {
         let session_context = SessionContext::from_session(self.active_session.as_ref(ctx), ctx);
@@ -65,7 +64,6 @@ impl ApplyDiffModel {
                             &ai_identifiers,
                             background_executor,
                             auth_state,
-                            passive_diff,
                             |path| {
                                 let handle = &handle;
                                 async move { read_remote_file(handle, &path).await }
@@ -84,7 +82,6 @@ impl ApplyDiffModel {
                     &ai_identifiers,
                     background_executor,
                     auth_state,
-                    passive_diff,
                     |path| async move { FileReadResult::from(std::fs::read_to_string(path)) },
                 )
                 .await

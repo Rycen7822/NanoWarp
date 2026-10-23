@@ -20,7 +20,6 @@ pub(super) mod start_agent;
 pub(super) mod start_recording;
 pub(super) mod stop_recording;
 pub(super) mod suggest_new_conversation;
-pub(super) mod suggest_prompt;
 pub(super) mod upload_artifact;
 pub(super) mod use_computer;
 pub(super) mod wait_for_events;
@@ -51,11 +50,11 @@ pub(super) use read_files::ReadFilesExecutor;
 use read_mcp_resource::ReadMCPResourceExecutor;
 use read_skill::ReadSkillExecutor;
 use request_computer_use::RequestComputerUseExecutor;
+pub(crate) use request_file_edits::MalformedFinalLineProxyEvent;
 pub use request_file_edits::{
-    EditAcceptAndContinueClickedEvent, EditAcceptClickedEvent, EditResolvedEvent, EditStats,
-    RequestFileEditsExecutor, RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent,
+    EditAcceptClickedEvent, EditResolvedEvent, EditStats, RequestFileEditsExecutor,
+    RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent,
 };
-pub(crate) use request_file_edits::{FileReadResult, MalformedFinalLineProxyEvent, apply_edits};
 pub use run_agents::{RunAgentsExecutor, RunAgentsExecutorEvent, RunAgentsSpawningSnapshot};
 #[cfg(test)]
 pub use run_agents::{compose_run_agents_child_prompt, run_agents_to_start_agent_mode};
@@ -70,7 +69,6 @@ use start_recording::StartRecordingExecutor;
 use stop_recording::StopRecordingExecutor;
 pub use suggest_new_conversation::NewConversationDecision;
 use suggest_new_conversation::SuggestNewConversationExecutor;
-pub use suggest_prompt::PromptSuggestionExecutor;
 use upload_artifact::UploadArtifactExecutor;
 use use_computer::UseComputerExecutor;
 use wait_for_events::WaitForEventsExecutor;
@@ -263,7 +261,6 @@ pub struct BlocklistAIActionExecutor {
     read_mcp_resource_executor: ModelHandle<ReadMCPResourceExecutor>,
     call_mcp_tool_executor: ModelHandle<CallMCPToolExecutor>,
     suggest_new_conversation_executor: ModelHandle<SuggestNewConversationExecutor>,
-    suggest_prompt_executor: ModelHandle<PromptSuggestionExecutor>,
     read_documents_executor: ModelHandle<ReadDocumentsExecutor>,
     edit_documents_executor: ModelHandle<EditDocumentsExecutor>,
     create_documents_executor: ModelHandle<CreateDocumentsExecutor>,
@@ -332,7 +329,6 @@ impl BlocklistAIActionExecutor {
             ctx.add_model(|_| CallMCPToolExecutor::new(active_session.clone(), terminal_view_id));
         let suggest_new_conversation_executor =
             ctx.add_model(|_| SuggestNewConversationExecutor::new());
-        let suggest_prompt_executor = ctx.add_model(|_| PromptSuggestionExecutor::new());
         let read_documents_executor = ctx.add_model(|_| ReadDocumentsExecutor::new());
         let edit_documents_executor = ctx.add_model(|_| EditDocumentsExecutor::new());
         let create_documents_executor = ctx
@@ -369,7 +365,6 @@ impl BlocklistAIActionExecutor {
             read_mcp_resource_executor,
             call_mcp_tool_executor,
             suggest_new_conversation_executor,
-            suggest_prompt_executor,
             read_documents_executor,
             edit_documents_executor,
             create_documents_executor,
@@ -435,10 +430,6 @@ impl BlocklistAIActionExecutor {
         &self,
     ) -> &ModelHandle<SuggestNewConversationExecutor> {
         &self.suggest_new_conversation_executor
-    }
-
-    pub fn suggest_prompt_executor(&self) -> &ModelHandle<PromptSuggestionExecutor> {
-        &self.suggest_prompt_executor
     }
 
     pub fn start_agent_executor(&self) -> &ModelHandle<StartAgentExecutor> {
@@ -547,9 +538,6 @@ impl BlocklistAIActionExecutor {
             }
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::SuggestPrompt { .. } => self
-                .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             AIAgentActionType::ReadDocuments(_) => self
                 .read_documents_executor
@@ -731,10 +719,6 @@ impl BlocklistAIActionExecutor {
                 .into(),
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::SuggestPrompt { .. } => self
-                .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.execute(input, ctx))
                 .into(),
             AIAgentActionType::ReadDocuments(_) => self
@@ -1023,9 +1007,6 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::InsertCodeReviewComments { .. } => true,
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::SuggestPrompt { .. } => self
-                .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
             AIAgentActionType::ReadDocuments(_) => self
                 .read_documents_executor

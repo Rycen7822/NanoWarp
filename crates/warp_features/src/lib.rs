@@ -85,7 +85,6 @@ pub enum FeatureFlag {
     /// Whether the user is part of the Warp Alpha Program (AI Trusted Testers).
     /// This is enabled automatically for local and dev builds.
     /// Collect conversation and input autodetection data for agent mode.
-    /// Also collects block data for Next Command, if enabled.
     AgentModeAnalytics,
 
     /// A setting to enable a traditional completions experience.
@@ -198,9 +197,6 @@ pub enum FeatureFlag {
     /// Enables validation of autosuggestions.
     ValidateAutosuggestions,
 
-    /// Enables prompt suggestions sourced via MAA.
-    PromptSuggestionsViaMAA,
-
     /// Enables using `esc` to clear autosuggestions.
     ClearAutosuggestionOnEscape,
 
@@ -244,9 +240,6 @@ pub enum FeatureFlag {
 
     /// Forces users to login.
     ForceLogin,
-
-    /// Enables prediction of Agent Mode queries.
-    PredictAMQueries,
 
     /// Enables full source code embedding of repos when using codebase context.
     FullSourceCodeEmbedding,

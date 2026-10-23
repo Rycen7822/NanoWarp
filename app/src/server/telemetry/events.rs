@@ -19,8 +19,8 @@ use warpui::rendering::ThinStrokes;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
-    AIAgentActionId, AIAgentExchangeId, AIAgentInput as FullAIAgentInput, AIIdentifiers,
-    EntrypointType, PassiveSuggestionTrigger, ServerOutputId, SuggestedLoggingId,
+    AIAgentActionId, AIAgentInput as FullAIAgentInput, AIIdentifiers, EntrypointType,
+    ServerOutputId, SuggestedLoggingId,
 };
 use crate::ai::agent_management::notifications::NotificationSourceAgent;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -60,9 +60,6 @@ use crate::terminal::model::terminal_model::BlockSelectionCardinality;
 use crate::terminal::settings::AltScreenPaddingMode;
 use crate::terminal::shared_session::SharedSessionActionSource;
 use crate::terminal::shell::ShellType;
-use crate::terminal::view::inline_banner::{
-    ZeroStatePromptSuggestionTriggeredFrom, ZeroStatePromptSuggestionType,
-};
 use crate::terminal::view::{
     BlockEntity, BlockSelectionDetails, NotificationsDiscoveryBannerAction,
     NotificationsErrorBannerAction, NotificationsTrigger, PromptPart,
@@ -661,24 +658,6 @@ pub enum AutonomySettingToggleSource {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ToggleCodeSuggestionsSettingSource {
-    Speedbump,
-    Settings,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum InteractionSource {
-    Button,
-    Keybinding,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum PromptSuggestionViewType {
-    TerminalView,
-    AgentView,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AgentModeAttachContextMethod {
     #[serde(rename = "keyboard")]
     Keyboard,
@@ -696,35 +675,6 @@ pub enum AgentModeRewindEntrypoint {
     ContextMenu,
     /// The /rewind slash command.
     SlashCommand,
-}
-
-/// Reasons why we fell back to a prompt suggestion from a suggested code diff.
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub enum PromptSuggestionFallbackReason {
-    /// Code file had too many lines, hence we stopped triggering the suggested code diff.
-    #[serde(rename = "file_too_many_lines")]
-    FileTooManyLines,
-    /// Code file had too many bytes, hence we stopped triggering the suggested code diff.
-    #[serde(rename = "file_too_many_bytes")]
-    FileTooManyBytes,
-    /// Missing file, when looking up filepaths in local file system.
-    #[serde(rename = "missing_file")]
-    MissingFile,
-    /// Failed to retrieve file from local file system.
-    #[serde(rename = "failed_to_retrieve_file")]
-    FailedToRetrieveFile,
-    /// In an SSH/remote session.
-    #[serde(rename = "ssh_remote_session")]
-    SSHRemoteSession,
-    /// No read files permission.
-    #[serde(rename = "no_read_files_permission")]
-    NoReadFilesPermission,
-    /// AI query timeout.
-    #[serde(rename = "ai_query_timeout")]
-    AIQueryTimeout,
-    /// Failed to send AI request.
-    #[serde(rename = "failed_to_send_ai_request")]
-    FailedToSendAIRequest,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -876,11 +826,9 @@ pub enum InputUXChangeOrigin {
 #[derive(Clone, Debug, Serialize)]
 pub enum AIAgentInput {
     UserQuery { query: String },
-    AutoCodeDiffQuery { query: String },
     ResumeConversation,
     InitProjectRules { display_query: Option<String> },
     CreateEnvironment { display_query: Option<String> },
-    TriggerSuggestPrompt { trigger: PassiveSuggestionTrigger },
     ActionResult { action_id: AIAgentActionId },
     CreateNewProject { query: String },
     CloneRepository { url: String },
@@ -890,7 +838,6 @@ pub enum AIAgentInput {
     StartFromAmbientRunPrompt,
     MessagesReceivedFromAgents { message_count: usize },
     EventsFromAgents { event_count: usize },
-    PassiveSuggestionResult,
     OrchestrationConfigUpdate,
     AgentWake,
 }
@@ -899,16 +846,12 @@ impl From<FullAIAgentInput> for AIAgentInput {
     fn from(input: FullAIAgentInput) -> Self {
         match input {
             FullAIAgentInput::UserQuery { query, .. } => Self::UserQuery { query },
-            FullAIAgentInput::AutoCodeDiffQuery { query, .. } => Self::AutoCodeDiffQuery { query },
             FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
             FullAIAgentInput::InitProjectRules { display_query, .. } => {
                 Self::InitProjectRules { display_query }
             }
             FullAIAgentInput::CreateEnvironment { display_query, .. } => {
                 Self::CreateEnvironment { display_query }
-            }
-            FullAIAgentInput::TriggerPassiveSuggestion { trigger, .. } => {
-                Self::TriggerSuggestPrompt { trigger }
             }
             FullAIAgentInput::ActionResult { result, .. } => Self::ActionResult {
                 action_id: result.id,
@@ -931,7 +874,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
             FullAIAgentInput::EventsFromAgents { events } => Self::EventsFromAgents {
                 event_count: events.len(),
             },
-            FullAIAgentInput::PassiveSuggestionResult { .. } => Self::PassiveSuggestionResult,
             FullAIAgentInput::OrchestrationConfigUpdate { .. } => Self::OrchestrationConfigUpdate,
             FullAIAgentInput::AgentWake => Self::AgentWake,
         }
@@ -951,9 +893,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     RestoreExistingConversation,
     SharedSessionSelection,
     AgentRequestedNewConversation,
-    AcceptedPromptSuggestion,
-    AcceptedUnitTestSuggestion,
-    AcceptedPassiveCodeDiff,
     InlineCodeReview,
     AmbientAgent,
     Cli,
@@ -962,11 +901,9 @@ pub enum TelemetryAgentViewEntryOrigin {
     SlashCommand,
     CodeReviewContext,
     ContinueConversationButton,
-    ViewPassiveCodeDiffDetails,
     ResumeConversationButton,
     CodexModal,
     LongRunningCommand,
-    PromptChip,
     OnboardingCallout,
     ConversationListView,
     Onboarding,
@@ -1000,9 +937,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::AgentRequestedNewConversation => {
                 Self::AgentRequestedNewConversation
             }
-            AgentViewEntryOrigin::AcceptedPromptSuggestion => Self::AcceptedPromptSuggestion,
-            AgentViewEntryOrigin::AcceptedUnitTestSuggestion => Self::AcceptedUnitTestSuggestion,
-            AgentViewEntryOrigin::AcceptedPassiveCodeDiff => Self::AcceptedPassiveCodeDiff,
             AgentViewEntryOrigin::InlineCodeReview => Self::InlineCodeReview,
             AgentViewEntryOrigin::CloudAgent => Self::AmbientAgent,
             AgentViewEntryOrigin::ThirdPartyCloudAgent => Self::ThirdPartyCloudAgent,
@@ -1013,10 +947,8 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::CodeReviewContext => Self::CodeReviewContext,
             AgentViewEntryOrigin::LongRunningCommand => Self::LongRunningCommand,
             AgentViewEntryOrigin::ContinueConversationButton => Self::ContinueConversationButton,
-            AgentViewEntryOrigin::ViewPassiveCodeDiffDetails => Self::ViewPassiveCodeDiffDetails,
             AgentViewEntryOrigin::ResumeConversationButton => Self::ResumeConversationButton,
             AgentViewEntryOrigin::CodexModal => Self::CodexModal,
-            AgentViewEntryOrigin::PromptChip => Self::PromptChip,
             AgentViewEntryOrigin::OnboardingCallout => Self::OnboardingCallout,
             AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
@@ -1813,87 +1745,6 @@ pub enum TelemetryEvent {
     /// language auto-detection false-positive.
     AgentModePotentialAutoDetectionFalsePositive(AgentModeAutoDetectionFalsePositivePayload),
 
-    /// Keeps track of number of times the user is presented with a Prompt Suggestions banner.
-    PromptSuggestionShown {
-        id: String,
-        request_duration_ms: u64,
-        block_id: Option<String>,
-        view: PromptSuggestionViewType,
-        /// Server-assigned request token from the `/passive-suggestion`
-        /// request that generated this suggestion. Used to join client-side
-        /// telemetry with server-side logs. `None` on the legacy code path.
-        server_request_token: Option<String>,
-    },
-
-    /// Keeps track of number of times the user is presented with a Suggested Code Diff banner.
-    SuggestedCodeDiffBannerShown {
-        prompt_suggestion_id: String,
-        /// Exchange ID of the conversation that produced this diff.
-        /// `None` on the MAA passive-suggestion code path, which does not
-        /// create an exchange.
-        code_exchange_id: Option<AIAgentExchangeId>,
-        block_id: Option<String>,
-        request_duration_ms: u64,
-        /// Server-assigned request token from the `/passive-suggestion`
-        /// request. Used to join client-side telemetry with server-side logs.
-        /// `None` on the legacy code path.
-        server_request_token: Option<String>,
-    },
-
-    /// Keeps track of number of times the user falls back to a prompt suggestion from a suggested code diff banner.
-    SuggestedCodeDiffFailed {
-        prompt_suggestion_id: String,
-        reason: PromptSuggestionFallbackReason,
-    },
-
-    /// Keeps track of number of times the user accepts & runs a query from the Prompt Suggestions banner.
-    PromptSuggestionAccepted {
-        id: String,
-        view: PromptSuggestionViewType,
-        interaction_source: InteractionSource,
-    },
-
-    /// Keeps track of number of times the user is presented with a Static Prompt Suggestions banner.
-    StaticPromptSuggestionsBannerShown {
-        id: String,
-        block_id: String,
-        static_prompt_suggestion_name: String,
-        // The below fields are only collected if telemetry is enabled.
-        query: Option<String>,
-        block_command: Option<String>,
-        request_duration_ms: u64,
-        view: PromptSuggestionViewType,
-    },
-
-    /// Keeps track of number of times the user accepts a Static Prompt Suggestion.
-    StaticPromptSuggestionAccepted {
-        id: String,
-        view: PromptSuggestionViewType,
-        interaction_source: InteractionSource,
-    },
-
-    /// Keeps track of number of times the user uses a zero state prompt suggestion & the type of suggestion used.
-    ZeroStatePromptSuggestionUsed {
-        suggestion_type: ZeroStatePromptSuggestionType,
-        triggered_from: ZeroStatePromptSuggestionTriggeredFrom,
-    },
-
-    UnitTestSuggestionShown {
-        identifiers: AIIdentifiers,
-    },
-
-    UnitTestSuggestionAccepted {
-        identifiers: AIIdentifiers,
-        query: Option<String>,
-        interaction_source: InteractionSource,
-    },
-
-    /// Keeps track of when the user cancels a suggested prompt.
-    UnitTestSuggestionCancelled {
-        identifiers: AIIdentifiers,
-        interaction_source: InteractionSource,
-    },
-
     /// Emitted when a user makes their first edit to any file in a code diff suggestion from Agent
     /// Mode.
     AgentModeCodeSuggestionEditedByUser {
@@ -1953,22 +1804,6 @@ pub enum TelemetryEvent {
     /// Emitted when the user toggles active AI.
     ToggleActiveAI {
         is_active_ai_enabled: bool,
-    },
-
-    /// Emitted when the user toggles the "Prompt Suggestions" setting in the AI settings page.
-    TogglePromptSuggestionsSetting {
-        is_prompt_suggestions_enabled: bool,
-    },
-
-    /// Emitted when the user toggles the "Code Suggestions" setting.
-    ToggleCodeSuggestionsSetting {
-        source: ToggleCodeSuggestionsSettingSource,
-        is_code_suggestions_enabled: bool,
-    },
-
-    /// Emitted when the user toggles the "Natural Language Autosuggestions" setting in the AI settings page.
-    ToggleNaturalLanguageAutosuggestionsSetting {
-        is_natural_language_autosuggestions_enabled: bool,
     },
 
     /// Emitted when the user toggles the "Shared Block Title Auto Generation" setting in the AI settings page.
@@ -2265,9 +2100,6 @@ pub enum TelemetryEvent {
     },
     TabCloseButtonPositionUpdated {
         position: TabCloseButtonPosition,
-    },
-    ExpandedCodeSuggestions {
-        identifiers: AIIdentifiers,
     },
     AIExecutionProfileCreated,
     AIExecutionProfileDeleted,
@@ -3180,23 +3012,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"is_autodetection_enabled": is_autodetection_enabled, "origin": origin }),
             ),
-            // Using legacy name to avoid breaking telemetry.
-            TelemetryEvent::TogglePromptSuggestionsSetting {
-                is_prompt_suggestions_enabled,
-            } => Some(
-                json!({"is_agent_mode_query_suggestions_enabled": is_prompt_suggestions_enabled}),
-            ),
-            TelemetryEvent::ToggleCodeSuggestionsSetting {
-                source,
-                is_code_suggestions_enabled,
-            } => Some(
-                json!({"source": source, "is_code_suggestions_enabled": is_code_suggestions_enabled}),
-            ),
-            TelemetryEvent::ToggleNaturalLanguageAutosuggestionsSetting {
-                is_natural_language_autosuggestions_enabled,
-            } => Some(
-                json!({"is_natural_language_autosuggestions_enabled": is_natural_language_autosuggestions_enabled}),
-            ),
             TelemetryEvent::ToggleSharedBlockTitleGenerationSetting {
                 is_shared_block_title_generation_enabled,
             } => Some(
@@ -3223,103 +3038,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"input": input, "buffer_length": buffer_length, "is_manually_changed": is_manually_changed, "new_input_type": new_input_type, "active_block_id": active_block_id, "is_udi_enabled": is_udi_enabled}),
             ),
-            TelemetryEvent::PromptSuggestionShown {
-                id,
-                request_duration_ms,
-                block_id,
-                view,
-                server_request_token,
-            } => Some(json!({
-                "id": id,
-                "request_duration_ms": request_duration_ms,
-                "block_id": block_id,
-                "view": view,
-                "server_request_token": server_request_token,
-            })),
-            TelemetryEvent::SuggestedCodeDiffBannerShown {
-                prompt_suggestion_id,
-                code_exchange_id,
-                block_id,
-                request_duration_ms,
-                server_request_token,
-            } => Some(json!({
-                "prompt_suggestion_id": prompt_suggestion_id,
-                "code_exchange_id": code_exchange_id,
-                "block_id": block_id,
-                "request_duration_ms": request_duration_ms,
-                "server_request_token": server_request_token,
-            })),
-            TelemetryEvent::SuggestedCodeDiffFailed {
-                prompt_suggestion_id,
-                reason,
-            } => Some(json!({
-                "prompt_suggestion_id": prompt_suggestion_id,
-                "reason": reason,
-            })),
-            TelemetryEvent::PromptSuggestionAccepted {
-                id,
-                view,
-                interaction_source,
-            } => Some(json!({
-                "id": id,
-                "view": view,
-                "interaction_source": interaction_source,
-            })),
-            TelemetryEvent::StaticPromptSuggestionsBannerShown {
-                id,
-                query,
-                block_id,
-                block_command,
-                static_prompt_suggestion_name,
-                request_duration_ms,
-                view,
-            } => Some(json!({
-                "id": id,
-                "query": query,
-                "block_id": block_id,
-                "block_command": block_command,
-                "static_prompt_suggestion_name": static_prompt_suggestion_name,
-                "request_duration_ms": request_duration_ms,
-                "view": view,
-            })),
-            TelemetryEvent::StaticPromptSuggestionAccepted {
-                id,
-                view,
-                interaction_source,
-            } => Some(json!({
-                "id": id,
-                "view": view,
-                "interaction_source": interaction_source,
-            })),
-            TelemetryEvent::ZeroStatePromptSuggestionUsed {
-                suggestion_type,
-                triggered_from,
-            } => Some(json!({"type": suggestion_type, "triggered_from": triggered_from})),
-            TelemetryEvent::UnitTestSuggestionShown { identifiers } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-            })),
-            TelemetryEvent::UnitTestSuggestionAccepted {
-                identifiers,
-                query,
-                interaction_source,
-            } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-                "query": query,
-                "interaction_source": interaction_source,
-            })),
-            TelemetryEvent::UnitTestSuggestionCancelled {
-                identifiers,
-                interaction_source,
-            } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-                "interaction_source": interaction_source,
-            })),
             TelemetryEvent::AgentModeCodeSuggestionEditedByUser { output_id } => {
                 Some(json!({"output_id": output_id}))
             }
@@ -3641,11 +3359,6 @@ impl TelemetryEvent {
             })),
             TelemetryEvent::TabCloseButtonPositionUpdated { position } => Some(json!({
                 "position": position,
-            })),
-            TelemetryEvent::ExpandedCodeSuggestions { identifiers } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
             })),
             TelemetryEvent::BackgroundBlockStarted
             | TelemetryEvent::SessionCreation
@@ -4270,7 +3983,6 @@ impl TelemetryEvent {
             TelemetryEvent::CreateProjectPromptSubmittedContent { .. } => true,
             TelemetryEvent::InputBufferSubmitted { .. } => false,
             TelemetryEvent::AgentModeChangedInputType { input, .. } => input.is_some(),
-            TelemetryEvent::UnitTestSuggestionAccepted { query, .. } => query.is_some(),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(payload) => {
                 // For internal dogfood users, the payload contains UGC.
                 matches!(
@@ -4505,13 +4217,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeClickedEntrypoint { .. }
             | TelemetryEvent::AgentModeAttachedBlockContext { .. }
             | TelemetryEvent::AgentModeToggleAutoDetectionSetting { .. }
-            | TelemetryEvent::PromptSuggestionShown { .. }
-            | TelemetryEvent::SuggestedCodeDiffBannerShown { .. }
-            | TelemetryEvent::SuggestedCodeDiffFailed { .. }
-            | TelemetryEvent::PromptSuggestionAccepted { .. }
-            | TelemetryEvent::ZeroStatePromptSuggestionUsed { .. }
-            | TelemetryEvent::UnitTestSuggestionShown { .. }
-            | TelemetryEvent::UnitTestSuggestionCancelled { .. }
             | TelemetryEvent::AgentModeCodeSuggestionEditedByUser { .. }
             | TelemetryEvent::AgentModeCodeFilesNavigated { .. }
             | TelemetryEvent::AgentModeCodeDiffHunksNavigated { .. }
@@ -4521,8 +4226,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleCodebaseContext { .. }
             | TelemetryEvent::ToggleAutoIndexing { .. }
             | TelemetryEvent::ToggleActiveAI { .. }
-            | TelemetryEvent::TogglePromptSuggestionsSetting { .. }
-            | TelemetryEvent::ToggleCodeSuggestionsSetting { .. }
             | TelemetryEvent::ToggleVoiceInputSetting { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
@@ -4568,8 +4271,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SettingsImportInitiated
             | TelemetryEvent::AgentModeCreatedAIBlock { .. }
             | TelemetryEvent::AgentModeRatedResponse { .. }
-            | TelemetryEvent::StaticPromptSuggestionsBannerShown { .. }
-            | TelemetryEvent::StaticPromptSuggestionAccepted { .. }
             | TelemetryEvent::AISuggestedRuleAdded { .. }
             | TelemetryEvent::AISuggestedRuleEdited { .. }
             | TelemetryEvent::AISuggestedRuleContentChanged { .. }
@@ -4577,7 +4278,6 @@ impl TelemetryEvent {
             | TelemetryEvent::FileExceededContextLimit { .. }
             | TelemetryEvent::AgentModeError { .. }
             | TelemetryEvent::AgentModeRequestRetrySucceeded { .. }
-            | TelemetryEvent::ToggleNaturalLanguageAutosuggestionsSetting { .. }
             | TelemetryEvent::ToggleSharedBlockTitleGenerationSetting { .. }
             | TelemetryEvent::ToggleGitOperationsAutogenSetting { .. }
             | TelemetryEvent::GrepToolSucceeded
@@ -4592,7 +4292,6 @@ impl TelemetryEvent {
             | TelemetryEvent::VoiceInputUsed { .. }
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::TabCloseButtonPositionUpdated { .. }
-            | TelemetryEvent::ExpandedCodeSuggestions { .. }
             | TelemetryEvent::AIExecutionProfileCreated
             | TelemetryEvent::AIExecutionProfileDeleted
             | TelemetryEvent::AIExecutionProfileSettingUpdated { .. }
@@ -5025,27 +4724,12 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::SettingsImportConfigFocused
             | Self::SettingsImportResetButtonClicked
             | Self::ITermMultipleHotkeys => EnablementState::Always,
-            Self::PromptSuggestionShown
-            | Self::SuggestedCodeDiffBannerShown
-            | Self::SuggestedCodeDiffFailed
-            | Self::PromptSuggestionAccepted
-            | Self::StaticPromptSuggestionsBannerShown
-            | Self::StaticPromptSuggestionAccepted
-            | Self::TogglePromptSuggestionsSetting
-            | Self::ToggleCodeSuggestionsSetting
-            | Self::UnitTestSuggestionShown { .. }
-            | Self::UnitTestSuggestionAccepted { .. }
-            | Self::UnitTestSuggestionCancelled { .. } => EnablementState::Always,
-            Self::ToggleNaturalLanguageAutosuggestionsSetting => {
-                EnablementState::Flag(FeatureFlag::PredictAMQueries)
-            }
             Self::ToggleSharedBlockTitleGenerationSetting => {
                 EnablementState::Flag(FeatureFlag::SharedBlockTitleGeneration)
             }
             Self::ToggleGitOperationsAutogenSetting => {
                 EnablementState::Flag(FeatureFlag::GitOperationsInCodeReview)
             }
-            Self::ZeroStatePromptSuggestionUsed => EnablementState::Always,
             Self::ToggleVoiceInputSetting => EnablementState::Always,
             Self::AgentModeCodeSuggestionEditedByUser
             | Self::AgentModeCodeFilesNavigated
@@ -5099,7 +4783,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::VoiceInputUsed { .. } => EnablementState::Always,
             Self::UserMenuUpgradeClicked => EnablementState::Always,
             Self::TabCloseButtonPositionUpdated { .. } => EnablementState::Always,
-            Self::ExpandedCodeSuggestions { .. } => EnablementState::Always,
             Self::AIExecutionProfileCreated
             | Self::AIExecutionProfileDeleted
             | Self::AIExecutionProfileSettingUpdated { .. }
@@ -5480,23 +5163,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AgentMode.PotentialAutoDetectionFalsePositive"
             }
             Self::AgentModeChangedInputType => "AgentMode.ChangedInputType",
-            // Agent Mode Query Suggestions is the legacy name for Prompt Suggestions - we avoid renaming
-            // the event to avoid breaking historical telemetry data.
-            Self::PromptSuggestionShown => "Agent Mode Query Suggestions Banner Shown",
-            Self::SuggestedCodeDiffBannerShown => "Suggested Code Diff Banner Shown",
-            Self::SuggestedCodeDiffFailed => "Suggested Code Diff Failed",
-            Self::PromptSuggestionAccepted => "Agent Mode Query Suggestion Accepted",
-            Self::StaticPromptSuggestionsBannerShown => "Static Prompt Suggestions Banner Shown",
-            Self::StaticPromptSuggestionAccepted => "Static Prompt Suggestion Accepted",
-            Self::ZeroStatePromptSuggestionUsed => "Zero State Prompt Suggestion Used",
-            Self::TogglePromptSuggestionsSetting => "Toggle Agent Mode Query Suggestions Setting",
-            Self::UnitTestSuggestionShown { .. } => "Suggested Prompt Shown",
-            Self::UnitTestSuggestionAccepted { .. } => "Suggested Prompt Accepted",
-            Self::UnitTestSuggestionCancelled { .. } => "Suggested Prompt Cancelled",
-            Self::ToggleCodeSuggestionsSetting => "Toggle Code Suggestions Setting",
-            Self::ToggleNaturalLanguageAutosuggestionsSetting => {
-                "Toggle Natural Language Autosuggestions Setting"
-            }
             Self::ToggleSharedBlockTitleGenerationSetting => "Toggle SharedBlock Title Generation",
             Self::ToggleGitOperationsAutogenSetting => "Toggle Git Operations Autogen Setting",
             Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
@@ -5609,7 +5275,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::VoiceInputUsed { .. } => "Input.VoiceInputUsed",
             Self::UserMenuUpgradeClicked => "User Menu Upgrade Clicked",
             Self::TabCloseButtonPositionUpdated { .. } => "Update Tab Close Button Position",
-            Self::ExpandedCodeSuggestions { .. } => "Expanded Code Suggestion",
             Self::AIExecutionProfileCreated => "AI Execution Profile Created",
             Self::AIExecutionProfileDeleted => "AI Execution Profile Deleted",
             Self::AIExecutionProfileSettingUpdated { .. } => {
@@ -6161,11 +5826,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentModeChangedInputType => {
                 "The input type was changed from shell -> AI or AI -> shell"
             }
-            Self::TogglePromptSuggestionsSetting => "Toggled on/off the prompt suggestions setting",
-            Self::ToggleCodeSuggestionsSetting => "Toggled on/off the code suggestions setting",
-            Self::ToggleNaturalLanguageAutosuggestionsSetting => {
-                "Toggled on/off the natural language autosuggestions setting"
-            }
             Self::ToggleSharedBlockTitleGenerationSetting => {
                 "Toggled on/off the shared block title generation setting"
             }
@@ -6173,16 +5833,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Toggled on/off the git operations autogen setting"
             }
             Self::ToggleVoiceInputSetting => "Toggled on/off the voice input setting",
-            Self::UnitTestSuggestionShown { .. } => "Suggested prompt shown",
-            Self::UnitTestSuggestionAccepted { .. } => "Suggested prompt accepted",
-            Self::UnitTestSuggestionCancelled { .. } => "Suggested prompt cancelled",
-            Self::PromptSuggestionShown => "Prompt Suggestions banner shown",
-            Self::SuggestedCodeDiffBannerShown => "Suggested Code Diff banner shown",
-            Self::SuggestedCodeDiffFailed => "Suggested Code Diff Failed",
-            Self::PromptSuggestionAccepted => "Prompt Suggestion accepted",
-            Self::StaticPromptSuggestionsBannerShown => "Static Prompt Suggestions banner shown",
-            Self::StaticPromptSuggestionAccepted => "Static Prompt Suggestion accepted",
-            Self::ZeroStatePromptSuggestionUsed => "Used a zero state prompt suggestion",
             Self::AgentModeCodeSuggestionEditedByUser => {
                 "Agent Mode Code suggestion edited by user"
             }
@@ -6341,7 +5991,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::VoiceInputUsed { .. } => "Used voice input",
             Self::UserMenuUpgradeClicked => "Clicked the 'Upgrade' menu item in the user menu",
             Self::TabCloseButtonPositionUpdated { .. } => "Updated the tab close button position",
-            Self::ExpandedCodeSuggestions { .. } => "Expanded the passive code diff suggestion",
             Self::AIExecutionProfileCreated => "A new AI execution profile was created",
             Self::AIExecutionProfileDeleted => "An AI execution profile was deleted",
             Self::AIExecutionProfileSettingUpdated { .. } => {

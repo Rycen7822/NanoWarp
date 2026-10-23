@@ -25,9 +25,8 @@ use crate::agent::action_result::{
     ReadShellCommandOutputResult, ReadSkillResult, RequestCommandOutputResult,
     RequestComputerUseResult, RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult,
     SendMessageToAgentResult, StartRecordingResult, StopRecordingResult,
-    SuggestNewConversationResult, SuggestPromptResult, TransferShellCommandControlToUserResult,
-    UploadArtifactResult, UseComputerResult, WaitForEventsResult,
-    WriteToLongRunningShellCommandResult,
+    SuggestNewConversationResult, TransferShellCommandControlToUserResult, UploadArtifactResult,
+    UseComputerResult, WaitForEventsResult, WriteToLongRunningShellCommandResult,
 };
 use crate::agent::{AIAgentCitation, FileLocations};
 use crate::diff_validation::ParsedDiff;
@@ -118,8 +117,6 @@ pub enum AIAgentActionType {
     SuggestNewConversation {
         message_id: String,
     },
-
-    SuggestPrompt(SuggestPromptRequest),
 
     InitProject,
     OpenCodeReview,
@@ -367,9 +364,6 @@ impl AIAgentActionType {
             Self::SuggestNewConversation { .. } => AIAgentActionResultType::SuggestNewConversation(
                 SuggestNewConversationResult::Cancelled,
             ),
-            Self::SuggestPrompt { .. } => {
-                AIAgentActionResultType::SuggestPrompt(SuggestPromptResult::Cancelled)
-            }
             Self::OpenCodeReview => AIAgentActionResultType::OpenCodeReview,
             Self::InitProject => AIAgentActionResultType::InitProject,
             Self::ReadDocuments(_) => {
@@ -441,7 +435,6 @@ impl AIAgentActionType {
             Self::ReadMCPResource { .. } => "Read mcp resource".to_string(),
             Self::CallMCPTool { .. } => "Call mcp tool".to_string(),
             Self::SuggestNewConversation { .. } => "Suggest new conversation".to_string(),
-            Self::SuggestPrompt { .. } => "Suggest prompt".to_string(),
             Self::InitProject => "Init project".to_string(),
             Self::OpenCodeReview => "Open code review".to_string(),
             Self::ReadDocuments(_) => "Read documents".to_string(),
@@ -551,9 +544,6 @@ impl Display for AIAgentActionType {
             }
             AIAgentActionType::SuggestNewConversation { message_id } => {
                 write!(f, "SuggestNewConversation: {message_id}")
-            }
-            AIAgentActionType::SuggestPrompt(request) => {
-                write!(f, "SuggestPrompt: {request:?}")
             }
             AIAgentActionType::InitProject => {
                 write!(f, "InitProject")
@@ -919,19 +909,6 @@ pub struct InsertedCommentLine {
     pub diff_hunk_text: String,
     /// The side of the diff the comment is attached to.
     pub side: Option<CommentSide>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SuggestPromptRequest {
-    UnitTestsSuggestion {
-        query: String,
-        title: String,
-        description: String,
-    },
-    PromptSuggestion {
-        prompt: String,
-        label: Option<String>,
-    },
 }
 
 /// A file-editing request from the agent.

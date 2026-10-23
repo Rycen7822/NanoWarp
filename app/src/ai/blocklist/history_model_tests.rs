@@ -1148,7 +1148,6 @@ fn prompt_history_candidates_seeds_from_snapshot_then_appends_session_prompts() 
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             history_model
                 .update_conversation_for_new_request_input(
@@ -1608,7 +1607,6 @@ fn test_transcript_viewer_terminal_view_is_not_marked_historical() {
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
 
             history_model
@@ -2160,7 +2158,6 @@ fn test_all_cleared_conversations_includes_terminal_view_id() {
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
 
             history_model
@@ -2713,7 +2710,6 @@ fn test_truncate_from_exchange_to_empty_persist_event_has_empty_updated_tasks() 
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             history_model
                 .update_conversation_for_new_request_input(
@@ -2956,7 +2952,6 @@ fn test_initialize_output_for_response_stream_persists_updated_conversation_stat
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             assert!(matches!(
                 request_input.all_inputs().collect::<Vec<_>>().as_slice(),
@@ -3256,7 +3251,6 @@ fn test_find_by_token_after_initialize_output_for_response_stream() {
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             history_model
                 .update_conversation_for_new_request_input(
@@ -3424,7 +3418,6 @@ fn test_find_by_token_after_mark_conversations_historical_for_terminal_surface()
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             history_model
                 .update_conversation_for_new_request_input(
@@ -4387,7 +4380,6 @@ fn statuses_after_stream_error(
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             model
                 .update_conversation_for_new_request_input(
@@ -5091,7 +5083,6 @@ fn straddle_rewind_followup_requests_are_clean_and_durable() {
                 computer_use_model_id: exchange.computer_use_model_id,
                 shared_session_response_initiator: exchange.response_initiator,
                 request_start_ts: exchange.start_time,
-                supported_tools_override: None,
             };
             model
                 .update_conversation_for_new_request_input(

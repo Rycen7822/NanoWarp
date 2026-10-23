@@ -476,29 +476,6 @@ impl TryFrom<SuggestNewConversationResult> for api::request::input::tool_call_re
     }
 }
 
-impl TryFrom<SuggestPromptResult> for api::request::input::tool_call_result::Result {
-    type Error = ConvertToAPITypeError;
-
-    fn try_from(result: SuggestPromptResult) -> Result<Self, Self::Error> {
-        match result {
-            SuggestPromptResult::Accepted { .. } => Ok(
-                api::request::input::tool_call_result::Result::SuggestPrompt(
-                    api::SuggestPromptResult {
-                        result: Some(api::suggest_prompt_result::Result::Accepted(())),
-                    },
-                ),
-            ),
-            SuggestPromptResult::Cancelled => Ok(
-                api::request::input::tool_call_result::Result::SuggestPrompt(
-                    api::SuggestPromptResult {
-                        result: Some(api::suggest_prompt_result::Result::Rejected(())),
-                    },
-                ),
-            ),
-        }
-    }
-}
-
 impl TryFrom<GrepResult> for api::request::input::tool_call_result::Result {
     type Error = ConvertToAPITypeError;
 

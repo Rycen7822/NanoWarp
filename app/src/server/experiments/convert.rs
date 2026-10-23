@@ -18,17 +18,10 @@ impl Display for ServerExperiment {
             Self::WindowsLaunchExperiment => "WINDOWS_LAUNCH_EXPERIMENT",
             Self::CodebaseContextControl => "CODEBASE_CONTEXT_CONTROL",
             Self::CodebaseContextExperiment => "CODEBASE_CONTEXT_EXPERIMENT",
-            Self::SuggestedCodeDiffsControl => "SUGGESTED_CODE_DIFFS_CONTROL",
-            Self::SuggestedCodeDiffsExperiment => "SUGGESTED_CODE_DIFFS_EXPERIMENT",
             Self::BuildPlanAutoReloadControl => "BUILD_PLAN_AUTO_RELOAD_CONTROL",
             Self::BuildPlanAutoReloadBannerToggle => "BUILD_PLAN_AUTO_RELOAD_BANNER_TOGGLE",
             Self::BuildPlanAutoReloadPostPurchaseModal => {
                 "BUILD_PLAN_AUTO_RELOAD_POST_PURCHASE_MODAL"
-            }
-            Self::PromptSuggestionsViaMaaControl => "PROMPT_SUGGESTIONS_VIA_MAA_CONTROL",
-            Self::PromptSuggestionsViaMaaExperiment => "PROMPT_SUGGESTIONS_VIA_MAA_EXPERIMENT",
-            Self::PromptSuggestionsViaMaaOutOfBandExperiment => {
-                "PROMPT_SUGGESTIONS_VIA_MAA_OOB_EXPERIMENT"
             }
             Self::OzMultiHarnessControl => "OZ_MULTI_HARNESS_CONTROL",
             Self::OzMultiHarnessExperiment => "OZ_MULTI_HARNESS_EXPERIMENT",
@@ -52,15 +45,11 @@ impl ServerExperiment {
             "WINDOWS_LAUNCH_EXPERIMENT" => Ok(Self::WindowsLaunchExperiment),
             "CODEBASE_CONTEXT_EXPERIMENT" => Ok(Self::CodebaseContextExperiment),
             "CODEBASE_CONTEXT_CONTROL" => Ok(Self::CodebaseContextControl),
-            "SUGGESTED_CODE_DIFFS_CONTROL" => Ok(Self::SuggestedCodeDiffsControl),
-            "SUGGESTED_CODE_DIFFS_EXPERIMENT" => Ok(Self::SuggestedCodeDiffsExperiment),
             "BUILD_PLAN_AUTO_RELOAD_CONTROL" => Ok(Self::BuildPlanAutoReloadControl),
             "BUILD_PLAN_AUTO_RELOAD_BANNER_TOGGLE" => Ok(Self::BuildPlanAutoReloadBannerToggle),
             "BUILD_PLAN_AUTO_RELOAD_POST_PURCHASE_MODAL" => {
                 Ok(Self::BuildPlanAutoReloadPostPurchaseModal)
             }
-            "PROMPT_SUGGESTIONS_VIA_MAA_CONTROL" => Ok(Self::PromptSuggestionsViaMaaControl),
-            "PROMPT_SUGGESTIONS_VIA_MAA_EXPERIMENT" => Ok(Self::PromptSuggestionsViaMaaExperiment),
             "OZ_MULTI_HARNESS_CONTROL" => Ok(Self::OzMultiHarnessControl),
             "OZ_MULTI_HARNESS_EXPERIMENT" => Ok(Self::OzMultiHarnessExperiment),
             "MACOS_RUNNERS_CONTROL" => Ok(Self::MacosRunnersControl),
@@ -92,12 +81,6 @@ impl TryFrom<Experiment> for ServerExperiment {
             Experiment::WindowsLaunchExperiment => Ok(Self::WindowsLaunchExperiment),
             Experiment::CodebaseContextControl => Ok(Self::CodebaseContextControl),
             Experiment::CodebaseContextExperiment => Ok(Self::CodebaseContextExperiment),
-            Experiment::SuggestedCodeDiffsControl => Ok(Self::SuggestedCodeDiffsControl),
-            Experiment::SuggestedCodeDiffsExperiment => Ok(Self::SuggestedCodeDiffsExperiment),
-            Experiment::PromptSuggestionsViaMaaControl => Ok(Self::PromptSuggestionsViaMaaControl),
-            Experiment::PromptSuggestionsViaMaaOob => {
-                Ok(Self::PromptSuggestionsViaMaaOutOfBandExperiment)
-            }
             Experiment::OzMultiHarnessControl => Ok(Self::OzMultiHarnessControl),
             Experiment::OzMultiHarnessExperiment => Ok(Self::OzMultiHarnessExperiment),
             Experiment::MacosRunnersControl => Ok(Self::MacosRunnersControl),

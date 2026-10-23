@@ -9,9 +9,7 @@ use std::path::{Component, Path};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ai::agent::action::{
-    RequestComputerUseRequest, SuggestPromptRequest, UploadArtifactRequest, UseComputerRequest,
-};
+use ai::agent::action::{RequestComputerUseRequest, UploadArtifactRequest, UseComputerRequest};
 use ai::agent::document_action_presentation::DocumentActionPresentation;
 use ai::agent::file_locations::group_file_contexts_for_display;
 use ai::skills::{ParsedSkill, SkillReference};
@@ -87,8 +85,7 @@ use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedro
 use crate::ai::blocklist::inline_action::create_or_edit_document::CreateOrEditDocumentAction;
 use crate::ai::blocklist::inline_action::gemini_enterprise_credentials_error::GeminiEnterpriseCredentialsErrorView;
 use crate::ai::blocklist::inline_action::inline_action_header::{
-    HeaderConfig, INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
-    InteractionMode,
+    HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
 };
 use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::{
@@ -98,7 +95,6 @@ use crate::ai::blocklist::inline_action::requested_action::{
 use crate::ai::blocklist::inline_action::requested_command::RequestedCommand;
 use crate::ai::blocklist::inline_action::run_agents_card_view::RunAgentsCardView;
 use crate::ai::blocklist::inline_action::search_codebase::SearchCodebaseView;
-use crate::ai::blocklist::inline_action::suggested_unit_tests::SuggestedUnitTestsView;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::keyboard_navigable_buttons::KeyboardNavigableButtons;
@@ -162,8 +158,6 @@ pub(crate) struct Props<'a> {
     pub(super) requested_commands: &'a HashMap<AIAgentActionId, RequestedCommand>,
     pub(super) requested_mcp_tools: &'a HashMap<AIAgentActionId, RequestedCommand>,
     pub(super) requested_edits: &'a IndexMap<AIAgentActionId, RequestedEdit>,
-    pub(super) unit_test_suggestions:
-        &'a HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
     pub(super) todo_list_states: &'a HashMap<MessageId, TodoListElementState>,
     pub(super) collapsible_block_states: &'a HashMap<MessageId, CollapsibleElementState>,
     pub(crate) is_selecting_text: bool,
@@ -232,7 +226,6 @@ fn should_decorate_recorded_use_computer(request: &UseComputerRequest) -> bool {
 pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
     let mut output_items = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
     let appearance = Appearance::as_ref(app);
-    let request_type = props.model.request_type(app);
 
     let conversation_status = props.model.conversation(app).map(|c| c.status());
     let is_conversation_in_progress = conversation_status.is_some_and(|s| s.is_in_progress());
@@ -277,30 +270,19 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                     None
                 };
                 let is_complete = matches!(status, AIBlockOutputStatus::Complete { .. });
-                let is_output_for_static_prompt_suggestions =
-                    props.model.contains_static_prompt_suggestion_input(app);
 
                 // We only want to render the references section, thumbs up/down ratings, and suggestions
                 // when the entire response is complete to avoid intermediate states.
-                let mut should_render_references_section = is_complete && request_type.is_active();
+                let mut should_render_references_section = is_complete;
                 let mut should_render_suggestions = is_complete
                     && props.model.is_latest_visible_exchange_in_root_task(app)
                     && !has_expanded_last_requested_command
-                    && !is_conversation_in_progress
-                    && !is_output_for_static_prompt_suggestions
-                    && request_type.is_active();
-
-                // Passive code diffs footer, after acceptance, is different from the usual footer.
-                let requires_special_footer =
-                    request_type.is_passive_code_diff() && props.has_accepted_edits;
+                    && !is_conversation_in_progress;
 
                 let mut should_render_footer =
-                    (props.model.is_latest_visible_exchange_in_root_task(app)
-                        || requires_special_footer)
+                    props.model.is_latest_visible_exchange_in_root_task(app)
                         && !has_expanded_last_requested_command
-                        && !is_output_for_static_prompt_suggestions
                         && !is_conversation_in_progress
-                        && request_type.is_active()
                         && !props.is_cloud_agent_pre_first_exchange
                         && !status.error().is_some_and(|e| {
                             e.is_invalid_api_key() || e.is_chatgpt_subscription_error()
@@ -324,13 +306,6 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
 
                 for output_message in output.messages.iter() {
                     match &output_message.message {
-                        // Skip rendering text and reasoning sections if this is a passive conversation.
-                        AIAgentOutputMessageType::Text(_)
-                        | AIAgentOutputMessageType::Reasoning { .. }
-                            if request_type.is_passive() =>
-                        {
-                            continue;
-                        }
                         AIAgentOutputMessageType::Text(AIAgentText { sections })
                             if !are_all_text_sections_empty(sections) =>
                         {
@@ -579,17 +554,9 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                                 && !status.is_streaming()
                                 && let Some(requested_edit) = props.requested_edits.get(id)
                             {
-                                // Don't render the requested edit if the diffs are empty for passive code diffs.
-                                if request_type.is_passive_code_diff()
-                                    && requested_edit.view.as_ref(app).is_pending_diffs_empty()
-                                {
-                                    continue;
-                                }
-
                                 output_items.add_child(render_requested_edits_output_message(
                                     requested_edit,
                                     action_status,
-                                    request_type.is_passive_code_diff(),
                                     app,
                                 ));
                             }
@@ -739,24 +706,6 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             }
                             _ => (),
                         },
-                        AIAgentOutputMessageType::Action(AIAgentAction {
-                            action:
-                                AIAgentActionType::SuggestPrompt(
-                                    SuggestPromptRequest::UnitTestsSuggestion { .. },
-                                ),
-                            id,
-                            ..
-                        }) => {
-                            if let Some(unit_test_suggestion_view) =
-                                props.unit_test_suggestions.get(id)
-                                && !unit_test_suggestion_view.as_ref(app).is_hidden()
-                            {
-                                output_items.add_child(render_unit_test_suggestion(
-                                    unit_test_suggestion_view,
-                                    app,
-                                ));
-                            }
-                        }
                         AIAgentOutputMessageType::Action(AIAgentAction {
                             action:
                                 action @ (AIAgentActionType::CreateDocuments(_)
@@ -1208,9 +1157,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
         }
     }
 
-    if request_type.is_active()
-        && let AIBlockOutputStatus::Failed { error, .. } = &status
-    {
+    if let AIBlockOutputStatus::Failed { error, .. } = &status {
         // While an automatic resume is still in flight, keep the failed exchange
         // quiet: skip the error banner, the "won't count towards usage" notice, and
         // the debug footer. The full failure UI is surfaced only once recovery has
@@ -1315,11 +1262,6 @@ fn dispatch_chatgpt_subscription_action(
 
 fn should_render_stopped_output(props: Props, app: &AppContext) -> bool {
     if FeatureFlag::AgentView.is_enabled() {
-        return false;
-    }
-
-    let request_type = props.model.request_type(app);
-    if request_type.is_passive_code_diff() {
         return false;
     }
 
@@ -2332,7 +2274,6 @@ fn render_stopped_output(props: Props, app: &AppContext) -> Box<dyn Element> {
 fn render_requested_edits_output_message(
     requested_edit: &RequestedEdit,
     action_status: Option<AIActionStatus>,
-    is_passive_code_gen_block: bool,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
@@ -2347,11 +2288,9 @@ fn render_requested_edits_output_message(
     };
 
     // If the diff failed, render a generic diff failed block instead of rendering the code diff.
-    // If this is a passive code gen block, don't render anything.
     if action_status
         .as_ref()
         .is_some_and(|status| status.is_failed())
-        && !is_passive_code_gen_block
     {
         let title = requested_edit
             .view
@@ -2381,19 +2320,14 @@ fn render_requested_edits_output_message(
             .with_border(Border::all(1.).with_border_fill(border_color))
             .finish(),
             DisplayMode::Embedded { .. } => {
-                let mut container = Container::new(ChildView::new(&requested_edit.view).finish())
+                let container = Container::new(ChildView::new(&requested_edit.view).finish())
                     .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
                     .with_background_color(theme.background().into_solid())
                     .with_border(Border::all(1.).with_border_fill(border_color));
 
-                if is_passive_code_gen_block {
-                    container = container.with_margin_top(CONTENT_ITEM_VERTICAL_MARGIN);
-                }
-
                 if action_status
                     .as_ref()
                     .is_some_and(|status| status.is_blocked())
-                    || is_passive_code_gen_block
                 {
                     container.finish().with_content_item_spacing().finish()
                 } else {
@@ -2403,34 +2337,8 @@ fn render_requested_edits_output_message(
                         .finish()
                 }
             }
-            DisplayMode::InlineBanner { is_expanded, .. } => {
-                let mut container = Container::new(ChildView::new(&requested_edit.view).finish())
-                    .with_border(Border::all(1.).with_border_fill(theme.surface_2()))
-                    .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
-                    .with_background_color(blended_colors::fg_overlay_2(theme).into());
-                if *is_expanded {
-                    container =
-                        container.with_padding_bottom(INLINE_ACTION_HEADER_VERTICAL_PADDING);
-                }
-                container.finish()
-            }
         }
     }
-}
-
-fn render_unit_test_suggestion(
-    suggested_prompt: &ViewHandle<SuggestedUnitTestsView>,
-    app: &AppContext,
-) -> Box<dyn Element> {
-    let appearance = Appearance::as_ref(app);
-    let theme = appearance.theme();
-
-    Container::new(ChildView::new(suggested_prompt).finish())
-        .with_border(Border::all(1.).with_border_fill(theme.surface_2()))
-        .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
-        .with_background_color(blended_colors::fg_overlay_2(theme).into())
-        .with_vertical_padding(CONTENT_ITEM_VERTICAL_MARGIN)
-        .finish()
 }
 
 fn render_ask_user_question(
@@ -3524,7 +3432,6 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
 
     let appearance = Appearance::as_ref(app);
     let mut flex = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
-    let is_passive_code_diff = props.model.request_type(app).is_passive_code_diff();
 
     // Show footer for any terminal state (complete, cancelled, or failed)
     let (style_override, style_override_with_background) = footer_icon_button_styles(app);
@@ -3533,7 +3440,7 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
 
     // Thumbs up/down buttons.
     // (we hide these when you're in view-only mode).
-    if !is_passive_code_diff && !props.is_conversation_transcript_viewer {
+    if !props.is_conversation_transcript_viewer {
         let thumbs_up_button = icon_button(
             appearance,
             Icon::ThumbsUp,

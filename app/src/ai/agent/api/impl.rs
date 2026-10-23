@@ -19,10 +19,7 @@ pub async fn generate_multi_agent_output(
     team_scope: RequestTeamScope,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
-    let supported_tools = params
-        .supported_tools_override
-        .take()
-        .unwrap_or_else(|| get_supported_tools(&params));
+    let supported_tools = get_supported_tools(&params);
     let supported_cli_agent_tools = get_supported_cli_agent_tools(&params);
     let mut logging_metadata = HashMap::new();
     if let Some(metadata) = params.metadata {
@@ -239,7 +236,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::ReadDocuments,
         api::ToolType::CreateDocuments,
         api::ToolType::EditDocuments,
-        api::ToolType::SuggestPrompt,
     ];
 
     if FeatureFlag::ConversationsAsContext.is_enabled() {
