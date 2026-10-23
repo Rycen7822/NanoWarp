@@ -52,7 +52,6 @@ use workspace::WorkspaceClient;
 use super::experiments::{ServerExperiment, ServerExperiments};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::get_relevant_files::api::{GetRelevantFiles, GetRelevantFilesResponse};
-use crate::ai::voice::transcribe::{TranscribeRequest, TranscribeResponse};
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
 use crate::server::team_scope::RequestTeamScope;
@@ -355,65 +354,6 @@ impl ErrorExt for AIApiError {
     }
 }
 register_error!(AIApiError);
-
-#[derive(thiserror::Error, Debug)]
-pub enum TranscribeError {
-    #[error("Request failed due to lack of Voice quota.")]
-    QuotaLimit,
-
-    #[error("Warp is currently overloaded. Please try again later.")]
-    ServerOverloaded,
-
-    #[error("Internal error occurred at transport layer.")]
-    Transport(#[source] reqwest::Error),
-
-    #[error("Failed with status code {0}")]
-    ErrorStatus(http::StatusCode),
-
-    #[error("Failed to deserialize JSON.")]
-    Deserialization(#[source] DeserializationError),
-
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-}
-
-impl TranscribeError {
-    fn from_json_error(err: reqwest::Error) -> Self {
-        if err.is_decode() {
-            #[cfg(not(target_family = "wasm"))]
-            {
-                use std::error::Error as _;
-                let mut source = err.source();
-                while let Some(underlying) = source {
-                    if underlying.is::<hyper::Error>() {
-                        return TranscribeError::Transport(err);
-                    }
-                    source = underlying.source();
-                }
-            }
-            return TranscribeError::Deserialization(DeserializationError::Transport(err));
-        }
-        TranscribeError::Transport(err)
-    }
-}
-
-impl ErrorExt for TranscribeError {
-    fn is_actionable(&self) -> bool {
-        match self {
-            TranscribeError::Transport(error) => error.is_actionable(),
-            TranscribeError::ErrorStatus(status) => {
-                !status.is_server_error() && *status != http::StatusCode::TOO_MANY_REQUESTS
-            }
-            TranscribeError::Other(error) => error.is_actionable(),
-            TranscribeError::Deserialization(error) => match error {
-                DeserializationError::Json(_) => true,
-                DeserializationError::Transport(error) => error.is_actionable(),
-            },
-            TranscribeError::QuotaLimit | TranscribeError::ServerOverloaded => false,
-        }
-    }
-}
-register_error!(TranscribeError);
 
 /// An API wrapper struct with methods to requests to warp-server.
 ///
@@ -1064,64 +1004,6 @@ impl ServerApi {
             .await?;
 
         Ok(response)
-    }
-
-    /// Hits the /ai/transcribe endpoint to get the transcription for the given audio.
-    pub async fn transcribe(
-        &self,
-        request: &TranscribeRequest,
-        team_scope: RequestTeamScope,
-    ) -> Result<TranscribeResponse, TranscribeError> {
-        let auth_token = self.get_or_refresh_access_token().await?;
-
-        let mut request_builder = self
-            .base_client
-            .http_client()
-            .post(format!("{}/ai/transcribe", ChannelState::server_root_url()));
-        if let Some(team_uid) = team_scope.team_uid() {
-            request_builder = request_builder.header(TEAM_UID_HEADER, team_uid.uid());
-        }
-        let response = if let Some(token) = auth_token.as_bearer_token() {
-            request_builder.bearer_auth(token)
-        } else {
-            request_builder
-        }
-        .json(request)
-        .send()
-        .await;
-
-        match response {
-            Ok(res) => {
-                if res.status().is_success() {
-                    match res.json::<TranscribeResponse>().await {
-                        Ok(output_response) => Ok(output_response),
-                        Err(e) => {
-                            log::warn!("Failed to deserialize response: {e:?}");
-                            Err(TranscribeError::from_json_error(e))
-                        }
-                    }
-                } else if res.status() == http::StatusCode::TOO_MANY_REQUESTS {
-                    if res
-                        .headers()
-                        .get(WARP_ERROR_CODE_HEADER)
-                        .and_then(|v| v.to_str().ok())
-                        == Some(WARP_ERROR_CODE_OUT_OF_CREDITS)
-                    {
-                        Err(TranscribeError::QuotaLimit)
-                    } else {
-                        Err(TranscribeError::ServerOverloaded)
-                    }
-                } else {
-                    let status = res.status();
-                    log::warn!("Non-success status code received: {status}");
-                    Err(TranscribeError::ErrorStatus(status))
-                }
-            }
-            Err(e) => {
-                log::warn!("Error while sending request: {e:?}");
-                Err(TranscribeError::Transport(e))
-            }
-        }
     }
 
     fn set_server_time(&self, server_time: ServerTime) {

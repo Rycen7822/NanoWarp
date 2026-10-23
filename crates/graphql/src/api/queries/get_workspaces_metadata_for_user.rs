@@ -66,7 +66,6 @@ query GetWorkspacesMetadataForUser($requestContext: RequestContext!) {
               warpAiPolicy {
                 limit
                 isGitOperationsAiEnabled
-                isVoiceEnabled
               }
               teamSizePolicy {
                 isUnlimited

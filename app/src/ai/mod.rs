@@ -54,7 +54,6 @@ pub(crate) mod restored_conversations;
 pub(crate) mod runner_display;
 pub(crate) mod skills;
 pub(crate) mod stored_screenshots;
-pub(crate) mod voice;
 pub use credit_availability::*;
 pub use request_usage_model::*;
 use warpui::AppContext;

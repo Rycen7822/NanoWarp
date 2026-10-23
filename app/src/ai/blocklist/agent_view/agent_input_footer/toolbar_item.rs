@@ -39,7 +39,6 @@ pub enum AgentToolbarItemKind {
     UsageSummary,
 
     FileExplorer,
-    VoiceInput,
     // Renamed from ImageAttach; alias preserves existing user toolbar configs.
     #[serde(alias = "ImageAttach")]
     FileAttach,
@@ -70,8 +69,7 @@ impl AgentToolbarItemKind {
             Self::ContextChip(_)
             | Self::NLDToggle
             | Self::ContextWindowUsage
-            | Self::UsageSummary
-            | Self::VoiceInput => true,
+            | Self::UsageSummary => true,
         }
     }
 
@@ -79,7 +77,6 @@ impl AgentToolbarItemKind {
         match self {
             Self::ContextChip(_) => "Context Chip",
             Self::NLDToggle => "Autodetection",
-            Self::VoiceInput => "Voice Input",
             Self::FileAttach => "Attach File",
             Self::ContextWindowUsage => "Context Usage",
             Self::UsageSummary => "Conversation Usage",
@@ -94,7 +91,6 @@ impl AgentToolbarItemKind {
         match self {
             Self::ContextChip(kind) => kind.udi_icon(),
             Self::NLDToggle => Some(Icon::NLD),
-            Self::VoiceInput => Some(Icon::Microphone),
             Self::FileAttach => Some(Icon::Plus),
             Self::ContextWindowUsage => Some(Icon::ContextRemaining100),
             Self::UsageSummary => Some(Icon::PieChart),
@@ -114,7 +110,7 @@ impl AgentToolbarItemKind {
             Self::ContextChip(
                 ContextChipKind::ShellGitBranch | ContextChipKind::GitBranchStatus,
             ) => true,
-            Self::VoiceInput | Self::FileAttach => true,
+            Self::FileAttach => true,
             Self::ContextChip(_)
             | Self::NLDToggle
             | Self::ContextWindowUsage
@@ -195,7 +191,6 @@ impl AgentToolbarItemKind {
         {
             items.push(Self::HandoffToCloud);
         }
-        items.push(Self::VoiceInput);
         items.push(Self::FileAttach);
         items
     }
@@ -208,7 +203,6 @@ impl AgentToolbarItemKind {
             .collect();
         items.extend([
             Self::NLDToggle,
-            Self::VoiceInput,
             Self::FileAttach,
             Self::ContextWindowUsage,
             Self::UsageSummary,

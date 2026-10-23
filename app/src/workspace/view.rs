@@ -25357,11 +25357,6 @@ impl View for Workspace {
         if AISettings::as_ref(app).is_active_ai_enabled(app) {
             context.set.insert(flags::IS_ACTIVE_AI_ENABLED);
         }
-        if AISettings::as_ref(app).is_voice_input_enabled(app)
-            && UserWorkspaces::as_ref(app).is_voice_enabled()
-        {
-            context.set.insert(flags::IS_VOICE_INPUT_ENABLED);
-        }
 
         if self
             .active_tab_pane_group()

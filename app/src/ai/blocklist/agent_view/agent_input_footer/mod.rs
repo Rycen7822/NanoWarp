@@ -10,8 +10,6 @@ use chrono::{DateTime, Local};
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
-#[cfg(feature = "voice_input")]
-use settings::Setting;
 use settings::ToggleableSetting;
 use toolbar_item::AgentToolbarItemKind;
 use warp_core::context_flag::ContextFlag;
@@ -106,8 +104,6 @@ fn is_conversation_transcript_context(
 /// Footer control bar at the bottom of the agent input.
 pub struct AgentInputFooter {
     terminal_view_id: EntityId,
-    #[cfg_attr(not(feature = "voice_input"), allow(unused))]
-    mic_button: ViewHandle<ActionButton>,
     nld_button: ViewHandle<ActionButton>,
     file_button: ViewHandle<ActionButton>,
     start_remote_control_button: ViewHandle<ActionButton>,
@@ -255,42 +251,6 @@ impl AgentInputFooter {
                 );
             });
         });
-
-        let mic_button = ctx.add_typed_action_view(|_ctx| {
-            let button = ActionButton::new("", ActiveMicButtonTheme)
-                .with_icon(Icon::Microphone)
-                .with_tooltip("Voice input")
-                .with_size(button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left);
-            #[cfg(feature = "voice_input")]
-            let button = button.on_click(|ctx| {
-                ctx.dispatch_typed_action(AgentInputFooterAction::ToggleVoiceInput);
-            });
-            button
-        });
-
-        #[cfg(feature = "voice_input")]
-        {
-            let tooltip = AISettings::as_ref(ctx)
-                .voice_input_toggle_key
-                .value()
-                .tooltip_message();
-            mic_button.update(ctx, |button, ctx| {
-                button.set_tooltip(Some(tooltip), ctx);
-            });
-
-            ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
-                if let AISettingsChangedEvent::VoiceInputToggleKey { .. } = event {
-                    let tooltip = AISettings::as_ref(ctx)
-                        .voice_input_toggle_key
-                        .value()
-                        .tooltip_message();
-                    me.mic_button.update(ctx, |button, ctx| {
-                        button.set_tooltip(Some(tooltip), ctx);
-                    });
-                }
-            });
-        }
 
         let file_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("", AgentInputButtonTheme)
@@ -596,7 +556,6 @@ impl AgentInputFooter {
             terminal_view_id,
             ambient_agent_view_model: None,
             nld_button,
-            mic_button,
             file_button,
             file_explorer_button,
             start_remote_control_button,
@@ -674,12 +633,7 @@ impl AgentInputFooter {
                 })
     }
 
-    fn render_cloud_mode_v2_footer(&self, app: &AppContext) -> Box<dyn Element> {
-        // `app` is only consumed under the `voice_input` cfg below; reference it here so the
-        // parameter doesn't trip the unused-variable lint when the feature is disabled.
-        #[cfg(not(feature = "voice_input"))]
-        let _ = app;
-
+    fn render_cloud_mode_v2_footer(&self) -> Box<dyn Element> {
         let mut left = Flex::row()
             .with_main_axis_size(MainAxisSize::Min)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
@@ -692,13 +646,6 @@ impl AgentInputFooter {
             .with_main_axis_size(MainAxisSize::Min)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(CLOUD_MODE_V2_FOOTER_GAP);
-
-        // Only show the mic button when voice input is compiled in *and* the
-        // user has voice input enabled in settings, matching V1's behavior.
-        #[cfg(feature = "voice_input")]
-        if AISettings::as_ref(app).is_voice_input_enabled(app) {
-            right = right.with_child(ChildView::new(&self.mic_button).finish());
-        }
 
         right = right.with_child(ChildView::new(&self.file_button).finish());
 
@@ -773,12 +720,6 @@ impl AgentInputFooter {
             self.handoff_environment_selector.as_ref(app).is_menu_open();
 
         has_open_display_chip || has_open_env_selector || has_open_handoff_env_selector
-    }
-
-    pub fn set_voice_is_active(&mut self, is_active: bool, ctx: &mut ViewContext<Self>) {
-        self.mic_button.update(ctx, |button, ctx| {
-            button.set_active(is_active, ctx);
-        });
     }
 
     fn sync_fast_forward_button(&self, ctx: &mut ViewContext<Self>) {
@@ -981,16 +922,6 @@ impl AgentInputFooter {
                     .map(|chip| ChildView::new(chip).finish())
             }
             AgentToolbarItemKind::NLDToggle => Some(ChildView::new(&self.nld_button).finish()),
-            AgentToolbarItemKind::VoiceInput => {
-                #[cfg(feature = "voice_input")]
-                {
-                    let enabled =
-                        crate::settings::AISettings::as_ref(app).is_voice_input_enabled(app);
-                    enabled.then(|| ChildView::new(&self.mic_button).finish())
-                }
-                #[cfg(not(feature = "voice_input"))]
-                None
-            }
             AgentToolbarItemKind::FileAttach => Some(ChildView::new(&self.file_button).finish()),
             AgentToolbarItemKind::ContextWindowUsage => {
                 let has_conversation = FeatureFlag::ContextWindowUsageV2.is_enabled()
@@ -1160,7 +1091,7 @@ impl View for AgentInputFooter {
 
     fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
         if self.should_render_cloud_mode_v2(app) {
-            return self.render_cloud_mode_v2_footer(app);
+            return self.render_cloud_mode_v2_footer();
         }
         let session_settings = SessionSettings::as_ref(app);
         let left_items = session_settings.agent_footer_chip_selection.left_items();
@@ -1277,8 +1208,6 @@ impl View for AgentInputFooter {
 
 #[derive(Debug, Clone)]
 pub enum AgentInputFooterAction {
-    #[cfg(feature = "voice_input")]
-    ToggleVoiceInput,
     SelectFile,
     ToggleFileExplorer,
     ToggleAutodetectionSetting,
@@ -1299,12 +1228,6 @@ impl TypedActionView for AgentInputFooter {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut warpui::ViewContext<Self>) {
         match action {
-            #[cfg(feature = "voice_input")]
-            AgentInputFooterAction::ToggleVoiceInput => {
-                ctx.emit(AgentInputFooterEvent::ToggleVoiceInput(
-                    voice_input::VoiceInputToggledFrom::Button,
-                ));
-            }
             AgentInputFooterAction::SelectFile => {
                 self.select_file(ctx);
             }
@@ -1366,8 +1289,6 @@ impl TypedActionView for AgentInputFooter {
 }
 
 pub enum AgentInputFooterEvent {
-    #[cfg(feature = "voice_input")]
-    ToggleVoiceInput(voice_input::VoiceInputToggledFrom),
     SelectFile,
     ToggleFileExplorer,
     StartRemoteControl,
@@ -1472,44 +1393,6 @@ impl ActionButtonTheme for RemoteControlButtonTheme {
 
     fn should_opt_out_of_contrast_adjustment(&self) -> bool {
         AgentInputButtonTheme.should_opt_out_of_contrast_adjustment()
-    }
-}
-
-/// Theme for the mic button.
-/// Uses a blue icon when active (hovered, listening, or transcribing).
-pub(crate) struct ActiveMicButtonTheme;
-
-impl ActionButtonTheme for ActiveMicButtonTheme {
-    fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        AgentInputButtonTheme.background(hovered, appearance)
-    }
-
-    fn text_color(
-        &self,
-        hovered: bool,
-        _background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        if hovered {
-            appearance.theme().ansi_fg_blue()
-        } else {
-            appearance
-                .theme()
-                .sub_text_color(appearance.theme().surface_1())
-                .into_solid()
-        }
-    }
-
-    fn border(&self, appearance: &Appearance) -> Option<ColorU> {
-        AgentInputButtonTheme.border(appearance)
-    }
-
-    fn should_opt_out_of_contrast_adjustment(&self) -> bool {
-        true
-    }
-
-    fn font_properties(&self) -> Option<warpui::fonts::Properties> {
-        AgentInputButtonTheme.font_properties()
     }
 }
 

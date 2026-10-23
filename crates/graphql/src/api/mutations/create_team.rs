@@ -38,7 +38,6 @@ mutation CreateTeam($input: CreateTeamInput!, $request_context: RequestContext!)
             warpAiPolicy {
               limit
               isGitOperationsAiEnabled
-              isVoiceEnabled
             }
             teamSizePolicy {
               isUnlimited

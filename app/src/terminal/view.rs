@@ -13301,7 +13301,7 @@ impl TerminalView {
         object_id: CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        self.reset_onboarding_blocks(ctx);
+        self.reset_onboarding_blocks();
 
         WarpDriveSettings::handle(ctx).update(ctx, |settings, ctx| {
             report_if_error!(settings.sharing_onboarding_block_shown.set_value(true, ctx));
@@ -13407,11 +13407,6 @@ impl TerminalView {
             },
             ctx,
         );
-
-        #[cfg(feature = "voice_input")]
-        voice_input::VoiceInput::handle(ctx).update(ctx, |voice_input, _| {
-            voice_input.should_suppress_new_feature_popup = true;
-        });
     }
 
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
@@ -13430,15 +13425,6 @@ impl TerminalView {
             },
             ctx,
         );
-
-        if self.block_onboarding_active {
-            #[cfg(feature = "voice_input")]
-            {
-                voice_input::VoiceInput::handle(ctx).update(ctx, |voice_input, _| {
-                    voice_input.should_suppress_new_feature_popup = true;
-                });
-            }
-        }
     }
 
     pub fn interrupt_onboarding_blocks(&mut self, ctx: &mut ViewContext<Self>) {
@@ -13456,7 +13442,7 @@ impl TerminalView {
             })
         }
 
-        self.reset_onboarding_blocks(ctx);
+        self.reset_onboarding_blocks();
     }
 
     /// Opens a folder that the user may or may not have opened in the past
@@ -14106,16 +14092,10 @@ impl TerminalView {
         });
     }
 
-    fn reset_onboarding_blocks(&mut self, ctx: &mut ViewContext<Self>) {
+    fn reset_onboarding_blocks(&mut self) {
         self.block_onboarding_active = false;
         self.onboarding_prompt_block = None;
         self.settings_import_onboarding_block = None;
-
-        #[cfg(feature = "voice_input")]
-        voice_input::VoiceInput::handle(ctx).update(ctx, |voice_input, _| {
-            voice_input.should_suppress_new_feature_popup = false;
-        });
-        let _ = ctx;
     }
 
     /// Returns the save position ID for the agent view zero state, if one exists.
@@ -18080,7 +18060,7 @@ impl TerminalView {
         ctx.notify();
 
         if self.block_onboarding_active {
-            self.reset_onboarding_blocks(ctx);
+            self.reset_onboarding_blocks();
         }
     }
 

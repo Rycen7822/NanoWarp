@@ -78,8 +78,6 @@ pub enum InputTypeAutoDetectionSource {
     RestoreSavedConfig,
     /// `set_input_config_for_classic_mode` reset (CtrlC, delete-all-left, etc.).
     ClassicModeReset,
-    /// Toggling voice input forced AI mode.
-    VoiceInputToggle,
 }
 
 impl From<InputClassifierDecisionSource> for InputTypeAutoDetectionSource {
@@ -87,8 +85,6 @@ impl From<InputClassifierDecisionSource> for InputTypeAutoDetectionSource {
         Self::InputClassifierDecisionSource(value)
     }
 }
-
-use warp_errors::report_if_error;
 
 use super::ConversationSelectionHandle;
 use super::context_model::BlocklistAIContextModel;
@@ -434,17 +430,6 @@ impl BlocklistAIInputModel {
             self.last_ai_autodetection_ts = Some(Instant::now());
         } else {
             self.last_ai_autodetection_ts = None;
-        }
-
-        if new_config.input_type.is_ai() {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                let new_num_times = *settings.entered_agent_mode_num_times + 1;
-                report_if_error!(
-                    settings
-                        .entered_agent_mode_num_times
-                        .set_value(new_num_times, ctx)
-                );
-            });
         }
 
         self.input_config = new_config;

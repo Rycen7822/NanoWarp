@@ -95,8 +95,6 @@ fn initialize_app(app: &mut App) -> TestState {
     app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
     app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
-    #[cfg(feature = "voice_input")]
-    app.add_singleton_model(voice_input::VoiceInput::new);
 
     let (sender, receiver) = mpsc::sync_channel(10);
     let objects_client = ServerApiProvider::new_for_test().get_cloud_objects_client();

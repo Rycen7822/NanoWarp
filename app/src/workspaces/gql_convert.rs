@@ -309,7 +309,6 @@ impl From<GqlWarpAiPolicy> for WarpAiPolicy {
         Self {
             limit: i64::from(gql_warp_ai_policy.limit),
             is_git_operations_ai_enabled: gql_warp_ai_policy.is_git_operations_ai_enabled,
-            is_voice_enabled: gql_warp_ai_policy.is_voice_enabled,
         }
     }
 }

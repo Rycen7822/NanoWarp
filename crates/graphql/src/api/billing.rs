@@ -173,7 +173,6 @@ pub struct TeamSizePolicy {
 pub struct WarpAiPolicy {
     pub limit: i32,
     pub is_git_operations_ai_enabled: bool,
-    pub is_voice_enabled: bool,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]

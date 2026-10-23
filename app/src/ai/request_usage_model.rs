@@ -97,11 +97,6 @@ pub struct RequestLimitInfo {
     pub next_refresh_time: ServerTimestamp,
     pub is_unlimited: bool,
     pub request_limit_refresh_duration: RequestLimitRefreshDuration,
-    pub is_unlimited_voice: bool,
-    #[serde(default)]
-    pub voice_request_limit: usize,
-    #[serde(default)]
-    pub voice_requests_used_since_last_refresh: usize,
     #[serde(default)]
     pub is_unlimited_codebase_indices: bool,
     #[serde(default)]
@@ -110,10 +105,6 @@ pub struct RequestLimitInfo {
     pub max_files_per_repo: usize,
     #[serde(default)]
     pub embedding_generation_batch_size: usize,
-}
-
-fn default_voice_requests_limit() -> usize {
-    10000
 }
 
 impl Default for RequestLimitInfo {
@@ -127,9 +118,6 @@ impl Default for RequestLimitInfo {
             next_refresh_time: ServerTimestamp::new(Utc::now() + chrono::Duration::days(30)),
             is_unlimited: false,
             request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-            is_unlimited_voice: false,
-            voice_request_limit: default_voice_requests_limit(),
-            voice_requests_used_since_last_refresh: 0,
             is_unlimited_codebase_indices: false,
             max_codebase_indices: 3,
             max_files_per_repo: 5000,
@@ -172,9 +160,6 @@ impl RequestLimitInfo {
             next_refresh_time: ServerTimestamp::new(Utc::now() + chrono::Duration::days(30)),
             is_unlimited: true,
             request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-            is_unlimited_voice: true,
-            voice_request_limit: 999999,
-            voice_requests_used_since_last_refresh: 0,
             is_unlimited_codebase_indices: false,
             max_codebase_indices: 40,
             max_files_per_repo: 10000,
@@ -887,46 +872,6 @@ impl AIRequestUsageModel {
     pub fn enable_buy_credits_banner(&mut self, ctx: &mut ModelContext<Self>) {
         self.buy_addon_credits_banner_dismissed = false;
         ctx.notify();
-    }
-}
-
-/// Voice request usage, only available if built with voice input support.
-#[cfg(feature = "voice_input")]
-impl AIRequestUsageModel {
-    fn voice_requests(&self) -> usize {
-        self.request_limit_info
-            .voice_requests_used_since_last_refresh
-    }
-
-    fn voice_requests_limit(&self) -> usize {
-        self.request_limit_info.voice_request_limit
-    }
-
-    fn is_unlimited_voice_requests(&self) -> bool {
-        self.request_limit_info.is_unlimited_voice
-    }
-
-    /// Returns the number of remaining requests the user has based on their latest rate limit info.
-    /// If the current time is past the next refresh time, then the number of remaining reqs is the limit.
-    fn voice_requests_remaining(&self) -> usize {
-        if self.next_refresh_time() <= Utc::now() || self.is_unlimited_voice_requests() {
-            self.voice_requests_limit()
-        } else {
-            self.voice_requests_limit()
-                .saturating_sub(self.voice_requests())
-        }
-    }
-
-    /// Returns `true` if the user has at least one voice request before hitting the
-    /// limit. Returns `false` otherwise.
-    fn has_voice_requests_remaining(&self) -> bool {
-        self.voice_requests_remaining() > 0
-    }
-
-    /// Checks request limits to see if the user can make a voice request.
-    /// Returns true if the user can make a voice request, false otherwise.
-    pub fn can_request_voice(&self) -> bool {
-        self.has_voice_requests_remaining()
     }
 }
 

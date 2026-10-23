@@ -2960,7 +2960,6 @@ type RequestLimitInfo {
   isUnlimitedAutosuggestions: Boolean!
   isUnlimitedCodebaseIndices: Boolean!
   isUnlimitedSuggestedCodeDiffs: Boolean!
-  isUnlimitedVoice: Boolean!
   maxCodebaseIndices: Int!
   maxFilesPerRepo: Int!
   nextRefreshTime: Time!
@@ -2976,10 +2975,6 @@ type RequestLimitInfo {
   in credits rather than dollars, and when usage is unlimited.
   """
   usageCentsUsedSinceLastRefresh: Float
-  voiceRequestLimit: Int!
-  voiceRequestsUsedSinceLastRefresh: Int!
-  voiceTokenLimit: Int!
-  voiceTokensUsedSinceLastRefresh: Int! @deprecated(reason: "No longer tracked. Always returns 0.")
 }
 
 enum RequestLimitRefreshDuration {
@@ -4838,16 +4833,12 @@ type WarpAiPolicy {
   isUnlimited: Boolean!
   isUnlimitedAutosuggestions: Boolean!
   isUnlimitedSuggestedCodeDiffs: Boolean!
-  isUnlimitedVoice: Boolean!
-  isVoiceEnabled: Boolean!
   isWarpDriveObjectIndexingEnabled: Boolean!
   limit: Int!
   passiveSuggestionsSpendLimitCents: Float!
   requestPoolingType: PoolingType!
   suggestedCodeDiffsLimit: Int!
   tokenLimit: Int!
-  voiceRequestLimit: Int!
-  voiceTokenLimit: Int!
 }
 
 type WarpBasicPolicy {

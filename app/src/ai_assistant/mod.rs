@@ -68,10 +68,6 @@ impl From<RequestLimitInfoGraphql> for RequestLimitInfo {
             usage_cents_used_since_last_refresh: value.usage_cents_used_since_last_refresh,
             next_refresh_time: value.next_refresh_time,
             request_limit_refresh_duration: value.request_limit_refresh_duration.into(),
-            is_unlimited_voice: value.is_unlimited_voice,
-            voice_request_limit: value.voice_request_limit as usize,
-            voice_requests_used_since_last_refresh: value.voice_requests_used_since_last_refresh
-                as usize,
             is_unlimited_codebase_indices: value.is_unlimited_codebase_indices,
             max_codebase_indices: value.max_codebase_indices as usize,
             max_files_per_repo: value.max_files_per_repo as usize,

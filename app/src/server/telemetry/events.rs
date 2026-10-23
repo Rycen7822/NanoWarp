@@ -1772,11 +1772,6 @@ pub enum TelemetryEvent {
         is_git_operations_autogen_enabled: bool,
     },
 
-    /// Emitted when the user toggles the "Voice Input" setting in the AI settings page.
-    ToggleVoiceInputSetting {
-        is_voice_input_enabled: bool,
-    },
-
     TierLimitHit(TierLimitHitEvent),
     SharedObjectLimitHitBannerViewPlansButtonClicked,
     ResourceUsageStats {
@@ -2030,16 +2025,6 @@ pub enum TelemetryEvent {
     InputUXModeChanged {
         is_udi_enabled: bool,
         origin: InputUXChangeOrigin,
-    },
-    /// User used voice input functionality
-    VoiceInputUsed {
-        action: String, // "start", "stop", "cancel"
-        /// Duration of voice session in milliseconds (for stop action)
-        session_duration_ms: Option<u64>,
-        /// Whether or not Universal Developer Input mode is enabled
-        is_udi_enabled: bool,
-        /// Current input mode when voice was used
-        current_input_mode: InputType,
     },
     TabCloseButtonPositionUpdated {
         position: TabCloseButtonPosition,
@@ -2938,9 +2923,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"is_git_operations_autogen_enabled": is_git_operations_autogen_enabled}),
             ),
-            TelemetryEvent::ToggleVoiceInputSetting {
-                is_voice_input_enabled,
-            } => Some(json!({"is_voice_input_enabled": is_voice_input_enabled})),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
                 AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { input_text },
             ) => Some(json!({"input_text": input_text})),
@@ -3261,17 +3243,6 @@ impl TelemetryEvent {
             } => Some(json!({
                 "is_udi_enabled": is_udi_enabled,
                 "origin": origin,
-            })),
-            TelemetryEvent::VoiceInputUsed {
-                action,
-                session_duration_ms,
-                is_udi_enabled,
-                current_input_mode,
-            } => Some(json!({
-                "action": action,
-                "session_duration_ms": session_duration_ms,
-                "is_udi_enabled": is_udi_enabled,
-                "current_input_mode": current_input_mode,
             })),
             TelemetryEvent::TabCloseButtonPositionUpdated { position } => Some(json!({
                 "position": position,
@@ -4130,7 +4101,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleCodebaseContext { .. }
             | TelemetryEvent::ToggleAutoIndexing { .. }
             | TelemetryEvent::ToggleActiveAI { .. }
-            | TelemetryEvent::ToggleVoiceInputSetting { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::ResourceUsageStats { .. }
@@ -4190,7 +4160,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SearchCodebaseRequested { .. }
             | TelemetryEvent::SearchCodebaseRepoUnavailable { .. }
             | TelemetryEvent::InputUXModeChanged { .. }
-            | TelemetryEvent::VoiceInputUsed { .. }
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::TabCloseButtonPositionUpdated { .. }
             | TelemetryEvent::AIExecutionProfileCreated
@@ -4612,7 +4581,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleGitOperationsAutogenSetting => {
                 EnablementState::Flag(FeatureFlag::GitOperationsInCodeReview)
             }
-            Self::ToggleVoiceInputSetting => EnablementState::Always,
             Self::AgentModeCodeSuggestionEditedByUser
             | Self::AgentModeCodeFilesNavigated
             | Self::AgentModeCodeDiffHunksNavigated => EnablementState::Always,
@@ -4662,7 +4630,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::FileGlobToolFailed { .. } => EnablementState::Always,
             Self::ShellTerminatedPrematurely { .. } => EnablementState::Always,
             Self::InputUXModeChanged { .. } => EnablementState::Always,
-            Self::VoiceInputUsed { .. } => EnablementState::Always,
             Self::UserMenuUpgradeClicked => EnablementState::Always,
             Self::TabCloseButtonPositionUpdated { .. } => EnablementState::Always,
             Self::AIExecutionProfileCreated
@@ -5040,7 +5007,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
             Self::AgentModeCodeFilesNavigated => "AgentMode.Code.FilesNavigated",
             Self::AgentModeCodeDiffHunksNavigated => "AgentMode.Code.DiffHunksNavigated",
-            Self::ToggleVoiceInputSetting => "Toggle Voice Input Setting",
             Self::EnvVarCollectionInvoked => "Invoked Environment Variables",
             Self::EnvVarWorkflowParameterization => {
                 "Parameterized Workflow With Environment Variables"
@@ -5137,7 +5103,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AgentMode.SearchCodebase.RepoUnavailable"
             }
             Self::InputUXModeChanged { .. } => "Input.InputUXModeChanged",
-            Self::VoiceInputUsed { .. } => "Input.VoiceInputUsed",
             Self::UserMenuUpgradeClicked => "User Menu Upgrade Clicked",
             Self::TabCloseButtonPositionUpdated { .. } => "Update Tab Close Button Position",
             Self::AIExecutionProfileCreated => "AI Execution Profile Created",
@@ -5665,7 +5630,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleGitOperationsAutogenSetting => {
                 "Toggled on/off the git operations autogen setting"
             }
-            Self::ToggleVoiceInputSetting => "Toggled on/off the voice input setting",
             Self::AgentModeCodeSuggestionEditedByUser => {
                 "Agent Mode Code suggestion edited by user"
             }
@@ -5818,7 +5782,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Tried to use the Search Codebase tool on a repo that is unavailable"
             }
             Self::InputUXModeChanged { .. } => "Changed the input UX mode",
-            Self::VoiceInputUsed { .. } => "Used voice input",
             Self::UserMenuUpgradeClicked => "Clicked the 'Upgrade' menu item in the user menu",
             Self::TabCloseButtonPositionUpdated { .. } => "Updated the tab close button position",
             Self::AIExecutionProfileCreated => "A new AI execution profile was created",
