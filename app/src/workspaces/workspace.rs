@@ -46,7 +46,6 @@ pub struct Workspace {
     pub open_teams: Vec<DiscoverableTeam>,
     pub billing_metadata: BillingMetadata,
     pub bonus_grants_purchased_this_month: BonusGrantsPurchased,
-    pub has_billing_history: bool,
     pub settings: WorkspaceSettings,
     /// The resolved-teamless model catalog -- fallback to this when teams[x].feature_model_choice isn't available
     pub feature_model_choice: ModelsByFeature,
@@ -81,7 +80,6 @@ impl Workspace {
             open_teams: Default::default(),
             billing_metadata,
             bonus_grants_purchased_this_month: Default::default(),
-            has_billing_history: false,
             settings: Default::default(), // TODO: persistence wrapper instead of default
             feature_model_choice: feature_model_choice.unwrap_or_default(),
             invite_link_domain_restrictions: Default::default(),

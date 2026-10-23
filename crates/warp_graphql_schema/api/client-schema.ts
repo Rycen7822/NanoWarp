@@ -53,7 +53,6 @@ const clientMutations = [
   'setTeamDiscoverability',
   'setTeamMemberRole',
   'setUserIsOnboarded',
-  'stripeBillingPortal',
   'transferGenericStringObjectOwner',
   'transferNotebookOwner',
   'transferTeamOwnership',

@@ -7,10 +7,6 @@ use warp_graphql::mutations::remove_user_from_workspace::{
     RemoveUserFromWorkspace, RemoveUserFromWorkspaceInput, RemoveUserFromWorkspaceResult,
     RemoveUserFromWorkspaceVariables,
 };
-use warp_graphql::mutations::stripe_billing_portal::{
-    StripeBillingPortal, StripeBillingPortalInput, StripeBillingPortalResult,
-    StripeBillingPortalVariables,
-};
 use warp_graphql::queries::get_ai_overages_for_workspace::{
     GetAiOveragesForWorkspace, GetAiOveragesForWorkspaceVariables, UserResult,
 };
@@ -20,7 +16,6 @@ use super::team::TeamClient;
 use crate::auth::UserUid;
 use crate::cloud_object::CloudObjectEventEntrypoint;
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
-use crate::server::ids::ServerId;
 use crate::workspaces::user_workspaces::WorkspacesMetadataWithPricing;
 use crate::workspaces::workspace::{AiOverages, WorkspaceUid};
 
@@ -28,7 +23,6 @@ use crate::workspaces::workspace::{AiOverages, WorkspaceUid};
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait WorkspaceClient: 'static + Send + Sync {
-    async fn generate_stripe_billing_portal_link(&self, team_uid: ServerId) -> Result<String>;
     async fn remove_user_from_workspace(
         &self,
         user_uid: UserUid,
@@ -42,25 +36,6 @@ pub trait WorkspaceClient: 'static + Send + Sync {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl WorkspaceClient for ServerApi {
-    async fn generate_stripe_billing_portal_link(&self, team_uid: ServerId) -> Result<String> {
-        let variables = StripeBillingPortalVariables {
-            input: StripeBillingPortalInput {
-                team_uid: team_uid.into(),
-            },
-            request_context: get_request_context(),
-        };
-        let operation = StripeBillingPortal::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.stripe_billing_portal {
-            StripeBillingPortalResult::StripeBillingPortalOutput(output) => Ok(output.url),
-            StripeBillingPortalResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            StripeBillingPortalResult::Unknown => Err(anyhow!("Unknown error")),
-        }
-    }
-
     async fn remove_user_from_workspace(
         &self,
         user_uid: UserUid,

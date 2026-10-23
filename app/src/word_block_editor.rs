@@ -13,8 +13,7 @@ use warpui::{
 
 use crate::appearance::Appearance;
 use crate::editor::{
-    EditorView, Event, InteractionState, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
-    TextOptions,
+    EditorView, Event, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
 use crate::themes::theme::Fill;
 
@@ -206,14 +205,6 @@ impl WordBlockEditorView {
             editor.set_buffer_text(word, ctx);
         });
         ctx.notify();
-    }
-
-    /// Forwards the interaction state to the inner editor view.
-    pub fn set_interaction_state(&mut self, state: InteractionState, ctx: &mut ViewContext<Self>) {
-        self.editor_view.update(ctx, |editor, ctx| {
-            editor.set_interaction_state(state, ctx);
-            ctx.notify();
-        });
     }
 
     fn delete_word(&mut self, index: usize, ctx: &mut ViewContext<Self>) {

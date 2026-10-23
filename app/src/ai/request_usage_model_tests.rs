@@ -48,7 +48,6 @@ fn create_test_team(uid: i64) -> Team {
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: TeamVisibility::Open,
     }
 }

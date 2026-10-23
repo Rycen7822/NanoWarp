@@ -1318,7 +1318,6 @@ impl Team {
             settings: team_settings_from_gql(gql_team.settings),
             feature_model_choice: feature_model_choice_from_gql(gql_team.feature_model_choice),
             is_eligible_for_discovery: gql_workspace.is_eligible_for_discovery,
-            has_billing_history: gql_workspace.has_billing_history,
             visibility: gql_team.visibility.into(),
         }
     }
@@ -1354,7 +1353,6 @@ impl From<GqlWorkspace> for Workspace {
                     cents_spent: info.current_month_spend_cents,
                 })
                 .unwrap_or_default(),
-            has_billing_history: gql_workspace.has_billing_history,
             settings: gql_workspace.settings.clone().into(),
             feature_model_choice: feature_model_choice_from_gql(
                 gql_workspace.feature_model_choice.clone(),

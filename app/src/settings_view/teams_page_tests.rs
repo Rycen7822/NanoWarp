@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 #[cfg(not(target_family = "wasm"))]
-use warpui::App;
+use warpui::{App, platform::WindowStyle};
 
 use super::*;
 #[cfg(not(target_family = "wasm"))]
@@ -21,7 +21,7 @@ use crate::workspaces::team::TeamMember;
 #[cfg(not(target_family = "wasm"))]
 use crate::workspaces::user_workspaces::CreateTeamResponse;
 use crate::workspaces::workspace::{
-    EmailInvite, MultiAdminPolicy, NativeWorkspacesPolicy, Tier, WorkspaceMember,
+    BillingMetadata, EmailInvite, MultiAdminPolicy, NativeWorkspacesPolicy, Tier, WorkspaceMember,
     WorkspaceMemberUsageInfo,
 };
 
@@ -124,7 +124,6 @@ fn team_with_members(members: Vec<TeamMember>, multi_admin_enabled: bool) -> Tea
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: Default::default(),
     }
 }
@@ -235,10 +234,7 @@ fn workspace_discovery_page_routes_each_option_through_the_expected_client_bound
             .return_once(|_| Err(anyhow::anyhow!("legacy team join rejected")));
 
         initialize_app_with_team_client(&mut app, Arc::new(team_client));
-        let workspace = mock_workspace(&mut app);
-        let teams_page = workspace.update(&mut app, |_, ctx| {
-            ctx.add_typed_action_view(TeamsPageView::new)
-        });
+        let (_, teams_page) = app.add_window(WindowStyle::NotStealFocus, TeamsPageView::new);
 
         let (fetch_sender, fetch_receiver) = async_channel::unbounded();
         let (join_sender, join_receiver) = async_channel::unbounded();
@@ -432,13 +428,10 @@ fn discovery_options_are_cleared_on_joining_and_refetched_on_losing_a_team() {
             });
 
         initialize_app_with_team_client(&mut app, Arc::new(team_client));
-        let workspace = mock_workspace(&mut app);
-        let window_id = workspace.update(&mut app, |_, ctx| ctx.window_id());
+        let (window_id, teams_page) =
+            app.add_window(WindowStyle::NotStealFocus, TeamsPageView::new);
         UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
             user_workspaces.register_window(window_id, None, ctx);
-        });
-        let teams_page = workspace.update(&mut app, |_, ctx| {
-            ctx.add_typed_action_view(TeamsPageView::new)
         });
         let (fetch_sender, fetch_receiver) = async_channel::unbounded();
         app.update(|ctx| {

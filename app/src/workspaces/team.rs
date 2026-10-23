@@ -125,7 +125,6 @@ pub struct Team {
     pub feature_model_choice: ModelsByFeature,
     /// If the team is eligible for discovery, then show toggle for setting discoverability to the team's admin
     pub is_eligible_for_discovery: bool,
-    pub has_billing_history: bool,
     pub visibility: TeamVisibility,
 }
 
@@ -151,7 +150,6 @@ impl Team {
             settings: settings.unwrap_or_default(),
             feature_model_choice: feature_model_choice.unwrap_or_default(),
             is_eligible_for_discovery: false,
-            has_billing_history: false,
             visibility: TeamVisibility::default(),
         }
     }

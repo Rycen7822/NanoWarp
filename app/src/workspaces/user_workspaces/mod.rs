@@ -72,8 +72,6 @@ pub enum UserWorkspacesEvent {
     DeleteTeamInviteRejected(anyhow::Error),
     GenerateUpgradeLink(String),
     GenerateUpgradeLinkRejected(anyhow::Error),
-    GenerateStripeBillingPortalLink(String),
-    GenerateStripeBillingPortalLinkRejected(anyhow::Error),
     ToggleTeamDiscoverabilitySuccess,
     ToggleTeamDiscoverabilityRejected(anyhow::Error),
     JoinTeamWithTeamDiscoverySuccess,
@@ -1333,38 +1331,6 @@ impl UserWorkspaces {
         );
     }
 
-    pub fn on_generate_stripe_billing_portal_link(
-        &mut self,
-        result: Result<String>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match result {
-            Err(err) => ctx.emit(UserWorkspacesEvent::GenerateStripeBillingPortalLinkRejected(err)),
-            Ok(billing_session_link) => {
-                ctx.emit(UserWorkspacesEvent::GenerateStripeBillingPortalLink(
-                    billing_session_link,
-                ));
-            }
-        };
-        ctx.notify();
-    }
-
-    pub fn generate_stripe_billing_portal_link(
-        &mut self,
-        team_uid: ServerId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let workspace_client = self.workspace_client.clone();
-        let _ = ctx.spawn(
-            async move {
-                workspace_client
-                    .generate_stripe_billing_portal_link(team_uid)
-                    .await
-            },
-            Self::on_generate_stripe_billing_portal_link,
-        );
-    }
-
     pub fn refresh_ai_overages(&mut self, ctx: &mut ModelContext<Self>) {
         let workspace_client = self.workspace_client.clone();
         let _ = ctx.spawn(
@@ -1567,7 +1533,6 @@ impl UserWorkspaces {
                 stripe_customer_id: None,
                 feature_model_choice: Default::default(),
                 is_eligible_for_discovery: false,
-                has_billing_history: false,
                 visibility: TeamVisibility::Open,
             }],
             open_teams: vec![],
@@ -1587,7 +1552,6 @@ impl UserWorkspaces {
             }],
             billing_metadata: BillingMetadata::default(),
             bonus_grants_purchased_this_month: Default::default(),
-            has_billing_history: false,
             settings: workspace_settings,
             feature_model_choice: Default::default(),
             invite_link_domain_restrictions: vec![],

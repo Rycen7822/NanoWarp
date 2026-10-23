@@ -50,7 +50,6 @@ pub mod set_team_discoverability;
 pub mod set_team_member_role;
 pub mod set_user_is_onboarded;
 pub mod start_chatgpt_link;
-pub mod stripe_billing_portal;
 pub mod transfer_generic_string_object_owner;
 pub mod transfer_notebook_owner;
 pub mod transfer_team_ownership;

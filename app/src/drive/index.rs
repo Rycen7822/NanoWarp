@@ -365,9 +365,6 @@ pub enum DriveIndexAction {
     ViewPlans {
         team_uid: ServerId,
     },
-    ManageBilling {
-        team_uid: ServerId,
-    },
     SignupAnonymousUser,
     DismissPersonalObjectLimits,
     /// Dismiss (and remember dismissing) the shared object limit banner shown
@@ -413,10 +410,7 @@ impl DriveIndexAction {
 
     pub fn blocked_for_anonymous_user(&self) -> bool {
         use DriveIndexAction::*;
-        matches!(
-            self,
-            OpenTeamSettingsPage | ViewPlans { .. } | ManageBilling { .. }
-        )
+        matches!(self, OpenTeamSettingsPage | ViewPlans { .. })
     }
 }
 
@@ -426,7 +420,6 @@ impl From<&DriveIndexAction> for LoginGatedFeature {
         match val {
             OpenTeamSettingsPage => "Open Team Settings",
             ViewPlans { .. } => "View Plans",
-            ManageBilling { .. } => "Manage Billing",
             _ => "Unknown reason",
         }
     }
@@ -498,7 +491,6 @@ struct MouseStateHandles {
     create_team_button_mouse_state: MouseStateHandle,
     shared_object_limit_hit_banner_button_mouse_state: MouseStateHandle,
     shared_object_limit_hit_banner_close_mouse_state: MouseStateHandle,
-    payment_issue_banner_button_mouse_state: MouseStateHandle,
     anonymous_sign_up_button_mouse_state: MouseStateHandle,
     anonymous_object_limit_close_button_mouse_state: MouseStateHandle,
 }
@@ -4345,7 +4337,6 @@ impl DriveIndex {
     fn render_payment_issue_banner(
         &self,
         appearance: &Appearance,
-        team_uid: ServerId,
         has_admin_permissions: bool,
         is_on_stripe_paid_plan: bool,
     ) -> Box<dyn Element> {
@@ -4391,37 +4382,6 @@ impl DriveIndex {
             )
             .finish(),
         );
-
-        // Only show a manage billing button if they are an admin and on a paid stripe plan
-        if has_admin_permissions && is_on_stripe_paid_plan {
-            let button = appearance
-                .ui_builder()
-                .button(
-                    ButtonVariant::Accent,
-                    self.mouse_state_handles
-                        .payment_issue_banner_button_mouse_state
-                        .clone(),
-                )
-                .with_centered_text_label("Manage billing".into())
-                .with_style(UiComponentStyles {
-                    font_size: Some(14.),
-                    font_weight: Some(Weight::Light),
-                    padding: Some(Coords {
-                        top: 8.,
-                        bottom: 8.,
-                        left: 12.,
-                        right: 12.,
-                    }),
-                    ..Default::default()
-                })
-                .build()
-                .with_cursor(Cursor::PointingHand)
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(DriveIndexAction::ManageBilling { team_uid })
-                })
-                .finish();
-            body.add_child(Container::new(button).with_margin_top(16.).finish());
-        }
 
         Container::new(
             Container::new(body.finish())
@@ -5270,7 +5230,6 @@ impl View for DriveIndex {
                 let is_on_stripe_paid_plan = team.billing_metadata.is_on_stripe_paid_plan();
                 drive.add_child(self.render_payment_issue_banner(
                     appearance,
-                    team.uid,
                     has_admin_permissions,
                     is_on_stripe_paid_plan,
                 ));
@@ -5715,11 +5674,6 @@ impl TypedActionView for DriveIndex {
                     TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked,
                     ctx
                 );
-            }
-            DriveIndexAction::ManageBilling { team_uid } => {
-                UserWorkspaces::handle(ctx).update(ctx, move |user_workspaces, ctx| {
-                    user_workspaces.generate_stripe_billing_portal_link(*team_uid, ctx);
-                });
             }
             DriveIndexAction::ToggleShareDialog { warp_drive_item_id } => {
                 self.toggle_share_dialog(

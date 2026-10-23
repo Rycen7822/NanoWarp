@@ -90,7 +90,6 @@ mutation CreateTeam($input: CreateTeamInput!, $request_context: RequestContext!)
             directLinkSharingEnabled
           }
         }
-        hasBillingHistory
         pendingEmailInvites {
           email
           expired

@@ -25,7 +25,6 @@ const DEFAULT_PROSUMER_MODAL_SUBHEADER: &str = "Warp's Pro plan comes with a lim
 const DEFAULT_ADMIN_MODAL_SUBHEADER: &str = "Warp's free plan comes with a limited number of shared drive objects.\n\nFor access to unlimited shared drive objects, upgrade to a paid plan.";
 const DEFAULT_MODAL_SUBHEADER: &str = "Warp's free plan comes with a limited number of shared drive objects.\n\nFor access to unlimited shared drive objects, contact a team admin to upgrade to a paid plan.";
 const VIEW_PLANS_TEXT: &str = "Compare plans";
-const MANAGE_BILLING_BUTTON_TEXT: &str = "Manage billing";
 
 #[derive(Default)]
 struct MouseStateHandles {
@@ -43,12 +42,10 @@ pub struct SharedObjectsCreationDeniedBody {
 #[derive(Debug, Clone, Copy)]
 pub enum SharedObjectsCreationDeniedBodyAction {
     Upgrade,
-    ManageBilling,
 }
 
 pub enum SharedObjectsCreationDeniedBodyEvent {
     Upgrade,
-    ManageBilling,
 }
 
 impl SharedObjectsCreationDeniedBody {
@@ -166,39 +163,7 @@ impl View for SharedObjectsCreationDeniedBody {
                 .finish(),
             );
 
-        // Only render an action button if:
-        // 1. the team is delinquent + user is an admin + the team is on a stripe paid plan
-        // OR
-        // 2. if the team is not delinquent.
-        // In the case where the team is delinquent and user is NOT an admin, or if the
-        // team is delinquent but the team is not on a stripe paid plan, we don't render
-        // any action button.
-        if self.is_delinquent_due_to_payment_issue
-            && self.has_admin_permissions
-            && is_stripe_paid_plan
-        {
-            body.add_child(
-                Container::new(
-                    Flex::row()
-                        .with_child(
-                            Shrinkable::new(
-                                0.5,
-                                self.render_button(
-                                    appearance,
-                                    MANAGE_BILLING_BUTTON_TEXT.into(),
-                                    self.button_mouse_states.button_mouse_state.clone(),
-                                    SharedObjectsCreationDeniedBodyAction::ManageBilling,
-                                ),
-                            )
-                            .finish(),
-                        )
-                        .with_main_axis_size(MainAxisSize::Max)
-                        .finish(),
-                )
-                .with_margin_top(24.)
-                .finish(),
-            )
-        } else if !self.is_delinquent_due_to_payment_issue {
+        if !self.is_delinquent_due_to_payment_issue {
             body.add_child(
                 Container::new(
                     Flex::row()
@@ -259,9 +224,6 @@ impl TypedActionView for SharedObjectsCreationDeniedBody {
         match action {
             SharedObjectsCreationDeniedBodyAction::Upgrade => {
                 ctx.emit(SharedObjectsCreationDeniedBodyEvent::Upgrade)
-            }
-            SharedObjectsCreationDeniedBodyAction::ManageBilling => {
-                ctx.emit(SharedObjectsCreationDeniedBodyEvent::ManageBilling)
             }
         }
     }

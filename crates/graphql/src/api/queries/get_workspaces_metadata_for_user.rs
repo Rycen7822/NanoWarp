@@ -173,7 +173,6 @@ query GetWorkspacesMetadataForUser($requestContext: RequestContext!) {
               enabled
             }
           }
-          hasBillingHistory
           pendingEmailInvites {
             email
             expired

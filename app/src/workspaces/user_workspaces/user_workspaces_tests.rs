@@ -197,7 +197,6 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: TeamVisibility::Open,
     };
 
@@ -209,7 +208,6 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
@@ -333,7 +331,6 @@ fn team_for_test() -> Team {
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: TeamVisibility::Open,
     }
 }
@@ -927,7 +924,6 @@ fn workspace_for_test(team: &Team) -> Workspace {
         open_teams: vec![],
         billing_metadata: team.billing_metadata.clone(),
         bonus_grants_purchased_this_month: Default::default(),
-        has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
@@ -2986,7 +2982,6 @@ fn test_joining_team_moves_objects() {
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: TeamVisibility::Open,
     };
     let team_uid = team.uid;
@@ -2998,7 +2993,6 @@ fn test_joining_team_moves_objects() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
@@ -3357,7 +3351,6 @@ fn test_leaving_team_moves_objects() {
         settings: Default::default(),
         feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
-        has_billing_history: false,
         visibility: TeamVisibility::Open,
     };
     let team_uid = team.uid;
@@ -3369,7 +3362,6 @@ fn test_leaving_team_moves_objects() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
@@ -3918,7 +3910,6 @@ fn gql_workspace(
             sandboxed_agent_settings: None,
             ambient_agent_settings: None,
         },
-        has_billing_history: false,
         pending_email_invites: vec![],
         invite_link_domain_restrictions: vec![],
         is_eligible_for_discovery: false,
