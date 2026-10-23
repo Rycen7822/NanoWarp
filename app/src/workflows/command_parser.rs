@@ -1,7 +1,7 @@
 //! This module contains utilities for computing helper data structures used to render and
 //! implement the Workflows UI in the info box and the terminal input.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::ops::Range;
 
 use itertools::Itertools;
@@ -268,100 +268,6 @@ fn parse_workflow_arguments(
 
 #[derive(Debug)]
 pub struct ArgumentValue(String);
-
-/// Attempts to parse argument values from `command`, as specified in the given `workflow_command`.
-/// `workflow_arguments` are presumed to be the result of calling `parse_and_escape_workflow` on the
-/// given `workflow`.
-///
-/// If successful, returns a `Vec` containing the inferred argument values in the order they
-/// appeared in `command`.
-///
-/// If `command` doesn't appear to match the given `workflow`, returns `None`.
-fn parse_argument_values_from_command(
-    history_command: &str,
-    workflow_command: &str,
-    workflow_arguments: &Vec<WorkflowArgument>,
-) -> Option<Vec<ArgumentValue>> {
-    // Short-circuit if the workflow has no arguments, in which case we can just compare the commands directly.
-    // It's possible to unify the codepath below to handle the no-argument corner case, but I don't think it's
-    // actually worth the complexity.
-    if workflow_arguments.is_empty() {
-        return if history_command == workflow_command {
-            Some(vec![])
-        } else {
-            None
-        };
-    }
-
-    // Compute a list of the "static" segments of the workflow command (e.g. the segments of the
-    // workflow command that are not argument placeholders). For example, the segments for workflow
-    // "echo {{foo}}; cat {{bar}}" would be ["echo ", "; cat "].
-    //
-    // These are matched against the command, with the unmatched parts of the
-    // command inferred to be argument values.
-    let mut static_workflow_segments = VecDeque::new();
-
-    let mut start = 0;
-    for arg in workflow_arguments {
-        static_workflow_segments
-            .push_back(&workflow_command[start..arg.byte_range.start.as_usize()]);
-        start = arg.byte_range.end.as_usize();
-    }
-    if start != workflow_command.len() {
-        static_workflow_segments.push_back(&workflow_command[start..]);
-    }
-
-    // Iterate through history command, matching each static workflow segment in order against the
-    // command.
-    let mut argument_values = vec![];
-    let mut end_of_last_matched_segment = 0;
-
-    // This is the number of chars in `command`, which is distinct from command.len(), which returns
-    // the number of bytes in `command` and doesn't properly account for multi-byte chars.
-    // let command_char_count = command.chars().count();
-    let mut char_iter = history_command.char_indices().map(|(i, _)| i).peekable();
-    while let Some(&i) = char_iter.peek() {
-        // Attempt to match the next static workflow command segment against suffix of
-        // `command` starting from `i`.
-        let did_match_segment = match static_workflow_segments.front() {
-            Some(segment) => history_command[i..].starts_with(segment),
-            None => {
-                argument_values.push(history_command[i..].to_owned());
-                break;
-            }
-        };
-
-        if did_match_segment {
-            // If the segment matched, then we infer the unmatched prefix up until `i` to be a
-            // workflow argument value.
-            let matched_segment = static_workflow_segments.pop_front();
-            if i != end_of_last_matched_segment {
-                argument_values.push(history_command[end_of_last_matched_segment..i].to_owned());
-            }
-            for _ in 0..matched_segment.expect("should exist").chars().count() {
-                char_iter.next();
-            }
-            if let Some(i) = char_iter.peek().copied() {
-                end_of_last_matched_segment = i;
-            }
-        } else {
-            char_iter.next();
-        }
-    }
-
-    if argument_values.len() != workflow_arguments.len() || end_of_last_matched_segment == 0 {
-        None
-    } else {
-        Some(argument_values.into_iter().map(ArgumentValue).collect())
-    }
-}
-
-/// Returns `true` if the given `command` is an instance of the given `workflow`.
-pub fn command_matches_workflow(command: &str, workflow: &Workflow) -> bool {
-    let (workflow_command, workflow_arguments) = parse_and_escape_workflow(workflow);
-    parse_argument_values_from_command(command, workflow_command.as_str(), &workflow_arguments)
-        .is_some()
-}
 
 #[cfg(test)]
 #[path = "command_parser_tests.rs"]

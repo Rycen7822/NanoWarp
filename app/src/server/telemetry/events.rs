@@ -65,7 +65,7 @@ use crate::terminal::view::{
 use crate::util::file::external_editor::settings::EditorLayout;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-use crate::workflows::{WorkflowId, WorkflowSelectionSource, WorkflowSource};
+use crate::workflows::{WorkflowId, WorkflowSelectionSource};
 use crate::workspace::TabMovement;
 use crate::workspace::tab_settings::{TabCloseButtonPosition, WorkspaceDecorationVisibility};
 
@@ -165,8 +165,8 @@ impl From<Space> for TelemetrySpace {
 }
 
 /// Common metadata to include in all Warp Drive telemetry events that act on a specific object.
-/// Events that only apply to a single object type may use specific metadata like [`WorkflowTelemetryMetadata`],
-/// [`NotebookTelemetryMetadata`], or [`EnvVarTelemetryMetadata`] instead.
+/// Events that only apply to a single object type may use [`NotebookTelemetryMetadata`]
+/// or [`EnvVarTelemetryMetadata`] instead.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CloudObjectTelemetryMetadata {
     pub object_type: TelemetryCloudObjectType,
@@ -178,18 +178,6 @@ pub struct CloudObjectTelemetryMetadata {
     /// If the object is owned by a team, this is the owning team's UID. For shared objects, the
     /// user might not be on the team.
     pub team_uid: Option<ServerId>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct WorkflowTelemetryMetadata {
-    pub workflow_categories: Option<Vec<String>>,
-    pub workflow_source: WorkflowSource,
-    pub workflow_space: Option<TelemetrySpace>,
-    pub workflow_selection_source: WorkflowSelectionSource,
-    // This field is only populated for cloud workflows that have been synced to the server
-    pub workflow_id: Option<WorkflowId>,
-    // Any referenced workflow enums that have been synced to the cloud
-    pub enum_ids: Vec<GenericStringObjectId>,
 }
 
 /// Metadata to include in all notebook telemetry events.
@@ -1153,7 +1141,6 @@ pub enum TelemetryEvent {
         action: String,
         value: String,
     },
-    WorkflowExecuted(WorkflowTelemetryMetadata),
     OpenQuakeModeWindow,
     OpenWelcomeTips,
     DismissWelcomeTips,
@@ -2435,7 +2422,6 @@ impl TelemetryEvent {
             TelemetryEvent::FeaturesPageAction { action, value } => {
                 Some(json!({"action": action, "value": value}))
             }
-            TelemetryEvent::WorkflowExecuted(metadata) => Some(json!(metadata)),
             TelemetryEvent::NotificationsDiscoveryBannerAction(action) => {
                 Some(json!({ "action": action }))
             }
@@ -3668,7 +3654,6 @@ impl TelemetryEvent {
             | TelemetryEvent::KeybindingResetToDefault { .. }
             | TelemetryEvent::KeybindingRemoved { .. }
             | TelemetryEvent::FeaturesPageAction { .. }
-            | TelemetryEvent::WorkflowExecuted(_)
             | TelemetryEvent::OpenQuakeModeWindow
             | TelemetryEvent::OpenWelcomeTips
             | TelemetryEvent::DismissWelcomeTips
@@ -4104,7 +4089,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingResetToDefault => EnablementState::Always,
             Self::KeybindingRemoved => EnablementState::Always,
             Self::FeaturesPageAction => EnablementState::Always,
-            Self::WorkflowExecuted => EnablementState::Always,
             Self::OpenQuakeModeWindow => EnablementState::Always,
             Self::OpenWelcomeTips => EnablementState::Always,
             Self::DismissWelcomeTips => EnablementState::Always,
@@ -4490,7 +4474,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingChanged => "Keybinding Changed",
             Self::KeybindingResetToDefault => "Keybinding Reset to Default",
             Self::KeybindingRemoved => "Keybinding Removed",
-            Self::WorkflowExecuted => "Workflow Executed",
             Self::FeaturesPageAction => "Features Page Action",
             Self::OpenQuakeModeWindow => "Open Quake Mode Window",
             Self::OpenWelcomeTips => "Open Welcome Tips",
@@ -4924,7 +4907,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingResetToDefault => "Reset a custom keybinding to its default",
             Self::KeybindingRemoved => "Removed / cleared a keybinding",
             Self::FeaturesPageAction => "Changed settings in Features Page",
-            Self::WorkflowExecuted => "Executed workflow",
             Self::OpenQuakeModeWindow => {
                 "Toggled quake mode window when previously hidden or closed"
             }

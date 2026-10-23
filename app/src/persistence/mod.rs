@@ -296,8 +296,6 @@ pub struct StartedCommandMetadata {
     pub hostname: Option<String>,
     pub session_id: Option<SessionId>,
     pub git_branch: Option<String>,
-    pub cloud_workflow_id: Option<SyncId>,
-    pub workflow_command: Option<String>,
     pub is_agent_executed: bool,
 }
 

@@ -487,11 +487,10 @@ pub fn update_object_after_server_creation(
     client_id_string: String,
     server_creation_info: ServerCreationInfo,
 ) -> Result<(), Error> {
-    use schema::commands::dsl::*;
     use schema::object_metadata::dsl::*;
 
     conn.transaction::<(), Error, _>(|conn| {
-        diesel::update(object_metadata.filter(client_id.eq(Some(client_id_string.clone()))))
+        diesel::update(object_metadata.filter(client_id.eq(Some(client_id_string))))
             .set((
                 server_id.eq(Some(
                     server_creation_info
@@ -500,16 +499,6 @@ pub fn update_object_after_server_creation(
                 )),
                 creator_uid.eq(server_creation_info.creator_uid),
             ))
-            .execute(conn)?;
-
-        diesel::update(commands.filter(cloud_workflow_id.eq(Some(client_id_string))))
-            .set(
-                cloud_workflow_id.eq(Some(
-                    server_creation_info
-                        .server_id_and_type
-                        .sqlite_type_and_uid_hash(),
-                )),
-            )
             .execute(conn)?;
 
         Ok(())

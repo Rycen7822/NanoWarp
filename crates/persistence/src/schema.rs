@@ -152,8 +152,6 @@ diesel::table! {
         hostname -> Nullable<Text>,
         session_id -> Nullable<BigInt>,
         git_branch -> Nullable<Text>,
-        cloud_workflow_id -> Nullable<Text>,
-        workflow_command -> Nullable<Text>,
         is_agent_executed -> Nullable<Bool>,
     }
 }

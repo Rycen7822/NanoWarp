@@ -213,7 +213,7 @@ use crate::server::server_api::presigned_upload::upload_to_target;
 use crate::server::telemetry::{
     AgentModeAutoDetectionFalsePositivePayload, AgentModeAutoDetectionSettingOrigin,
     AnonymousUserSignupEntrypoint, CommandXRayTrigger, EnvVarTelemetryMetadata, PaletteSource,
-    QueuedPromptSendNowTrigger, TelemetryEvent, WorkflowTelemetryMetadata,
+    QueuedPromptSendNowTrigger, TelemetryEvent,
 };
 use crate::session_management::SessionNavigationPromptElements;
 use crate::settings::{
@@ -11181,63 +11181,9 @@ impl Input {
             .active_block_session_id()
             .expect("session_id should be set (via bootstrap) before executing command");
 
-        // If the SelectedWorkflowState is populated with a workflow, we count this as a workflow execution.
-        let (workflow_id, workflow_command) = {
-            match self.workflows_state.selected_workflow_state.as_ref() {
-                Some(selected_workflow_state) => {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::WorkflowExecuted(WorkflowTelemetryMetadata {
-                            workflow_source: selected_workflow_state.workflow_source,
-                            workflow_categories: selected_workflow_state
-                                .workflow_type
-                                .as_workflow()
-                                .tags()
-                                .cloned(),
-                            workflow_selection_source: selected_workflow_state
-                                .workflow_selection_source,
-                            // This is only `Some()` for WarpDrive workflows; we don't track
-                            // ID for execution of local workflows because they have no such
-                            // unique ID.
-                            workflow_id: selected_workflow_state.workflow_type.server_id(),
-                            workflow_space: match &selected_workflow_state.workflow_type {
-                                WorkflowType::Cloud(workflow) => Some(workflow.space(ctx).into()),
-                                _ => None,
-                            },
-                            enum_ids: selected_workflow_state
-                                .workflow_type
-                                .as_workflow()
-                                .get_server_enum_ids()
-                        }),
-                        ctx
-                    );
-
-                    let workflow_type = &selected_workflow_state.workflow_type;
-                    let workflow_id = match workflow_type {
-                        WorkflowType::Cloud(workflow) => Some(workflow.id),
-                        _ => None,
-                    };
-
-                    // If the SelectedWorkflowState is populated, then we're always able to return the workflow command.
-                    // The case where workflow_id = None but workflow_command = Some() is when it's a local workflow, which
-                    // don't have ids and are tracked just by persisting the workflow contents. This is a little janky and would
-                    // be fixed if we could identify all workflows under a unified id system, not just cloud ones.
-                    (
-                        workflow_id,
-                        workflow_type
-                            .as_workflow()
-                            .command()
-                            .map(|command| command.to_owned()),
-                    )
-                }
-                None => (None, None),
-            }
-        };
-
         ctx.emit(Event::ExecuteCommand(Box::new(ExecuteCommandEvent {
             command: command.to_string(),
-            workflow_id,
             session_id,
-            workflow_command,
             should_add_command_to_history,
             source,
         })));

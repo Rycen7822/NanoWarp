@@ -50,7 +50,6 @@ pub enum WorkflowSelectionSource {
     WarpAI,
     Notebook,
     SlashMenu,
-    AgentMode,
     Undefined,
 }
 
@@ -95,13 +94,6 @@ impl WorkflowType {
     pub fn sync_id(&self) -> Option<SyncId> {
         match self {
             WorkflowType::Cloud(workflow) => Some(workflow.id),
-            _ => None,
-        }
-    }
-
-    pub fn server_id(&self) -> Option<WorkflowId> {
-        match self.object_id() {
-            Some(CloudObjectTypeAndId::Workflow(id)) => id.into_server().map(Into::into),
             _ => None,
         }
     }

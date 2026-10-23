@@ -285,7 +285,6 @@ use crate::banner::{
     DismissalType,
 };
 use crate::cloud_object::model::actions::ObjectActionType;
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, GenericStringObjectFormat, JsonObjectType};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -330,7 +329,7 @@ use crate::server::telemetry::{
     AnonymousUserSignupEntrypoint, BootstrappingInfo, CloudAgentShellExitDetection,
     CloudAgentShellRecoveryFailureClass, CloudAgentShellRecoveryOutcome, NotificationAgentVariant,
     NotificationsTurnedOnSource, PaletteSource, SecretInteraction, SharingDialogSource,
-    SlowBootstrapInfo, TelemetryEvent, ToggleBlockFilterSource, WorkflowTelemetryMetadata,
+    SlowBootstrapInfo, TelemetryEvent, ToggleBlockFilterSource,
 };
 use crate::session_management::{CommandContext, SessionNavigationPromptElements};
 use crate::settings::ai::FocusedTerminalInfo;
@@ -497,7 +496,6 @@ use crate::util::truncation::truncate_from_end;
 use crate::view_components::action_button::{ActionButton, ButtonSize, KeystrokeSource};
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
-use crate::workflows::WorkflowSelectionSource;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::view::cloud_agent_capacity_modal::CloudAgentCapacityModalVariant;
 use crate::workspace::{
@@ -1512,11 +1510,6 @@ pub struct ExecuteAIRequestedCommandEvent {
 pub struct ExecuteCommandEvent {
     pub command: String,
     pub session_id: SessionId,
-
-    /// If the command was executed from a [`CloudWorkflow`], pass its ID here.
-    pub workflow_id: Option<SyncId>,
-    /// If the command was executed from a [`CloudWorkflow`], store its templated command here.
-    pub workflow_command: Option<String>,
 
     /// `true` if the executed command should be added to session history.
     pub should_add_command_to_history: bool,
@@ -7311,21 +7304,6 @@ impl TerminalView {
                     );
                     return;
                 };
-                let associated_workflow = self
-                    .active_ai_block(ctx)
-                    .and_then(|ai_block| {
-                        ai_block
-                            .as_ref(ctx)
-                            .requested_command_copied_from_doc(action_id, ctx)
-                    })
-                    .and_then(|citation| {
-                        if let AIAgentCitation::WarpDriveObject { uid } = citation {
-                            CloudModel::as_ref(ctx).get_workflow_by_uid(&uid)
-                        } else {
-                            None
-                        }
-                    });
-
                 let shell_family = self.sessions.read(ctx, |sessions, _| {
                     sessions
                         .get(session_id)
@@ -7348,18 +7326,6 @@ impl TerminalView {
                     }
                     _ => command.clone(),
                 };
-
-                let workflow_telem_metadata = associated_workflow.map(|workflow| {
-                    let workflow_data = &workflow.model().data;
-                    WorkflowTelemetryMetadata {
-                        workflow_source: workflow.space(ctx).into(),
-                        workflow_categories: workflow_data.tags().cloned(),
-                        workflow_selection_source: WorkflowSelectionSource::AgentMode,
-                        workflow_id: workflow.sync_id().into_server().map(Into::into),
-                        workflow_space: Some(workflow.space(ctx).into()),
-                        enum_ids: workflow_data.get_server_enum_ids(),
-                    }
-                });
 
                 let agent_metadata =
                     AgentInteractionMetadata::new_hidden(action_id.clone(), conversation.id());
@@ -7393,10 +7359,6 @@ impl TerminalView {
                     session_id,
                     source,
                     should_add_command_to_history: true,
-                    workflow_id: associated_workflow.map(|workflow| workflow.sync_id()),
-                    workflow_command: associated_workflow
-                        .and_then(|workflow| workflow.model().data.command())
-                        .map(str::to_string),
                 }));
 
                 if let Some(active_ai_block) = self.active_ai_block(ctx) {
@@ -7425,9 +7387,6 @@ impl TerminalView {
                     },
                 );
 
-                if let Some(metadata) = workflow_telem_metadata {
-                    send_telemetry_from_ctx!(TelemetryEvent::WorkflowExecuted(metadata), ctx);
-                }
                 ctx.notify();
             }
             ShellCommandExecutorEvent::WriteToPty { input, mode } => {
@@ -11933,7 +11892,6 @@ impl TerminalView {
                 command_finished_to_precmd_delay,
                 block_type,
                 num_secrets_obfuscated,
-                cloud_workflow_id,
                 cloud_env_var_collection_id,
             }) => {
                 // To automatically warpify a subshell, we run the relevant command to open the
@@ -12240,19 +12198,6 @@ impl TerminalView {
 
                     let exit_code_data =
                         &json!({"exit_code": serialized_block.exit_code}).to_string();
-
-                    // If the block was a cloud workflow, record the workflow execution as an object action.
-                    if let Some(cloud_workflow_id) = cloud_workflow_id {
-                        let id_and_type = CloudObjectTypeAndId::Workflow(*cloud_workflow_id);
-                        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                            update_manager.record_object_action(
-                                id_and_type,
-                                ObjectActionType::Execute,
-                                Some(exit_code_data.clone()),
-                                ctx,
-                            )
-                        });
-                    }
 
                     if let Some(cloud_env_var_collection_id) = cloud_env_var_collection_id {
                         let id_and_type = CloudObjectTypeAndId::GenericStringObject {
@@ -24079,8 +24024,6 @@ impl TerminalView {
                     ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
                         command,
                         session_id,
-                        workflow_id: None,
-                        workflow_command: None,
                         should_add_command_to_history: false,
                         source: CommandExecutionSource::EnvVarCollection {
                             metadata: BlocklistEnvVarMetadata {

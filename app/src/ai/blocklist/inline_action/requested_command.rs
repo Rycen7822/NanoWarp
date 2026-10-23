@@ -43,7 +43,7 @@ use crate::ai::blocklist::block::cli_controller::{
 use crate::ai::blocklist::block::view_impl::output::action_icon;
 use crate::ai::blocklist::block::view_impl::{
     CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
-    render_autonomy_checkbox_setting_speedbump_footer, render_citation, render_citation_chips,
+    render_autonomy_checkbox_setting_speedbump_footer, render_citation_chips,
 };
 use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
 use crate::ai::blocklist::inline_action::inline_action_header::{
@@ -335,10 +335,8 @@ pub struct RequestedCommandView {
     header_mouse_state: MouseStateHandle,
     is_editing: bool,
 
-    // A requested command can either be copied directly off of one citation (such as a Warp Drive
-    // object), derived from one or more citations, or be unrelated to any citations.
+    // A requested command can be derived from one or more citations, or be unrelated to them.
     // A given citation should only appear once per block.
-    copied_from_citation: Option<AIAgentCitation>,
     derived_from_citations: Vec<AIAgentCitation>,
     citation_state_handles: HashMap<AIAgentCitation, MouseStateHandle>,
 
@@ -608,7 +606,6 @@ impl RequestedCommandView {
             autonomy_setting_speedbump,
             is_header_expanded: false,
             header_mouse_state: Default::default(),
-            copied_from_citation: None,
             derived_from_citations: Default::default(),
             citation_state_handles: Default::default(),
             autoexecute_readonly_commands_speedbump_checkbox_handle: Default::default(),
@@ -811,25 +808,6 @@ impl RequestedCommandView {
         {
             // Don't render the footer if there aren't even any citations.
             None
-        } else if let Some(copied_citation) = &self.copied_from_citation {
-            // If there's exactly one citation that the requested command was copied from,
-            // we only show that citation.
-            let Some(mouse_state_handle) =
-                self.citation_state_handles.get(copied_citation).cloned()
-            else {
-                log::warn!(
-                    "Tried to retrieve mouse state handle for citation, but no mouse state handle exists."
-                );
-                return None;
-            };
-            render_citation(
-                copied_citation,
-                mouse_state_handle,
-                citations_font_size,
-                citations_padding,
-                app,
-            )
-            .map(|citation| ("Copied from", citation))
         } else {
             // Otherwise, we render all the citations (if any) and mention that the command was derived from them.
             render_citation_chips(
@@ -1017,17 +995,6 @@ impl RequestedCommandView {
 
     pub fn command_text(&self) -> &str {
         &self.command_text
-    }
-
-    pub fn copied_from_citation(&self) -> Option<&AIAgentCitation> {
-        self.copied_from_citation.as_ref()
-    }
-
-    pub fn update_copied_from_citation(&mut self, citation: &AIAgentCitation) {
-        self.citation_state_handles
-            .entry(citation.clone())
-            .or_default();
-        self.copied_from_citation = Some(citation.clone());
     }
 
     pub fn update_derived_from_citations(&mut self, citations: &[AIAgentCitation]) {

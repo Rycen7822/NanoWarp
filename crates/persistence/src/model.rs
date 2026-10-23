@@ -769,8 +769,6 @@ pub struct NewCommand {
     pub hostname: Option<String>,
     pub session_id: Option<i64>,
     pub git_branch: Option<String>,
-    pub cloud_workflow_id: Option<String>,
-    pub workflow_command: Option<String>,
     pub is_agent_executed: Option<bool>,
 }
 
@@ -788,8 +786,6 @@ pub struct Command {
     pub hostname: Option<String>,
     pub session_id: Option<i64>,
     pub git_branch: Option<String>,
-    pub cloud_workflow_id: Option<String>,
-    pub workflow_command: Option<String>,
     pub is_agent_executed: Option<bool>,
 }
 

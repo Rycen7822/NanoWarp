@@ -20,8 +20,6 @@ fn command_started_event(command: &str) -> Event {
     Event::ExecuteCommand(ExecuteCommandEvent {
         command: command.to_owned(),
         session_id: 123.into(),
-        workflow_id: None,
-        workflow_command: None,
         should_add_command_to_history: false,
         source: CommandExecutionSource::User,
     })

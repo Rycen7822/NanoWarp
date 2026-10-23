@@ -80,7 +80,6 @@ use super::inline_action::code_diff_view::{
     CodeDiffState, CodeDiffView, CodeDiffViewAction, CodeDiffViewEvent,
 };
 use super::inline_action::requested_action::{CTRL_C_KEYSTROKE, ENTER_KEYSTROKE};
-use super::inline_action::requested_command_attribution::is_command_copied_from_document;
 use super::permissions::is_agent_mode_autonomy_allowed;
 use super::usage::request_metadata_turn_view::RequestMetadataTurnView;
 use super::{
@@ -2682,18 +2681,6 @@ impl AIBlock {
                     _ => (),
                 }
             }
-
-            for citation in &output.citations {
-                if is_command_copied_from_document(command, citation, shell_type, ctx)
-                    && let Some(requested_command) =
-                        self.requested_commands.get(requested_command_action_id)
-                {
-                    requested_command.view.update(ctx, |view, ctx| {
-                        view.update_copied_from_citation(citation);
-                        ctx.notify();
-                    });
-                }
-            }
         }
 
         for action_id in output
@@ -4995,17 +4982,6 @@ impl AIBlock {
         {
             auto_expand_requested_command_timer_handle.abort();
         }
-    }
-
-    /// Returns the document that the requested command was copied from, if any.
-    pub fn requested_command_copied_from_doc(
-        &self,
-        action_id: &AIAgentActionId,
-        ctx: &ViewContext<TerminalView>,
-    ) -> Option<AIAgentCitation> {
-        let requested_command = self.requested_commands.get(action_id)?;
-        let requested_command_view = requested_command.view.as_ref(ctx);
-        requested_command_view.copied_from_citation().cloned()
     }
 
     fn pending_requested_edit(&self, app: &AppContext) -> Option<&RequestedEdit> {

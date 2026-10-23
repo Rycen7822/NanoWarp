@@ -15745,7 +15745,7 @@ impl Workspace {
                     .update(ctx, |working_directories, ctx| {
                         working_directories.upsert_flattened_code_review_comments(
                             repo_path,
-                            vec![comment.clone()],
+                            vec![comment.as_ref().clone()],
                             ctx,
                         );
                     });

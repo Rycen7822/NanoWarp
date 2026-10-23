@@ -10,10 +10,8 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 use super::model::block::{AgentInteractionMetadata, Block, SerializedAIMetadata, SerializedBlock};
 use super::shell::ShellType;
-use crate::server::ids::{ClientId, HashableId as _, SyncId};
 use crate::terminal::model::session::{Session, SessionId};
 use crate::util::dedupe_from_last;
-use crate::workflows::WorkflowId;
 
 mod up_arrow;
 
@@ -30,8 +28,6 @@ pub struct PersistedCommand {
     pub shell_host: Option<ShellHost>,
     pub session_id: Option<SessionId>,
     pub git_branch: Option<String>,
-    pub workflow_id: Option<SyncId>,
-    pub workflow_command: Option<String>,
     pub is_agent_executed: bool,
 }
 
@@ -66,15 +62,6 @@ impl From<crate::persistence::model::Command> for PersistedCommand {
                     .map(SessionId::from)
             }),
             git_branch: command.git_branch,
-            workflow_id: command.cloud_workflow_id.and_then(|workflow_id| {
-                if let Some(client_id) = ClientId::from_hash(workflow_id.as_str()) {
-                    Some(SyncId::ClientId(client_id))
-                } else {
-                    WorkflowId::from_hash(workflow_id.as_str())
-                        .map(|id| SyncId::ServerId(id.into()))
-                }
-            }),
-            workflow_command: command.workflow_command,
             is_agent_executed: command.is_agent_executed.unwrap_or(false),
         }
     }
@@ -192,13 +179,6 @@ pub struct HistoryEntry {
     pub git_head: Option<String>,
     pub shell_host: Option<ShellHost>,
 
-    /// The ID of the `CloudWorkflow` used to construct this command.
-    workflow_id: Option<SyncId>,
-
-    /// The templated command contained in the `Workflow` used to construct the executed
-    /// command.
-    workflow_command: Option<String>,
-
     pub is_for_restored_block: bool,
 
     /// Whether this command was executed by an AI agent.
@@ -257,8 +237,6 @@ impl HistoryEntry {
             pwd: None,
             start_ts: None,
             completed_ts: None,
-            workflow_id: None,
-            workflow_command: None,
             exit_code: None,
             git_head: None,
             shell_host: None,
@@ -284,8 +262,6 @@ impl HistoryEntry {
         command: String,
         active_block: &Block,
         session: &Session,
-        workflow_id: Option<SyncId>,
-        workflow_command: Option<String>,
         is_agent_executed: bool,
     ) -> Self {
         HistoryEntry {
@@ -293,8 +269,6 @@ impl HistoryEntry {
             command,
             pwd: active_block.pwd().map(|pwd| pwd.to_owned()),
             start_ts: active_block.start_ts().copied(),
-            workflow_id,
-            workflow_command,
             git_head: active_block
                 .git_branch()
                 .map(|git_branch| git_branch.to_owned()),
@@ -312,8 +286,6 @@ impl HistoryEntry {
             command,
             pwd: block.pwd().map(|pwd| pwd.to_owned()),
             start_ts: block.start_ts().copied(),
-            workflow_id: None,
-            workflow_command: None,
             git_head: block.git_branch().map(|git_branch| git_branch.to_owned()),
             shell_host: block.shell_host().clone(),
             completed_ts: block.completed_ts().copied(),
@@ -330,8 +302,6 @@ impl HistoryEntry {
             pwd: block.pwd.clone(),
             start_ts: block.start_ts,
             completed_ts: block.completed_ts,
-            workflow_id: None,
-            workflow_command: None,
             exit_code: Some(block.exit_code),
             git_head: block.git_head.clone(),
             shell_host: block.shell_host.clone(),
@@ -352,18 +322,11 @@ impl HistoryEntry {
             pwd,
             start_ts,
             completed_ts: _,
-            workflow_id,
             exit_code,
             git_head,
-            workflow_command,
             shell_host: _,
         } = self;
-        pwd.is_some()
-            || start_ts.is_some()
-            || workflow_id.is_some()
-            || exit_code.is_some()
-            || git_head.is_some()
-            || workflow_command.is_some()
+        pwd.is_some() || start_ts.is_some() || exit_code.is_some() || git_head.is_some()
     }
 }
 
@@ -377,8 +340,6 @@ impl From<PersistedCommand> for HistoryEntry {
             completed_ts: command.completed_ts,
             pwd: command.pwd,
             git_head: command.git_branch,
-            workflow_id: command.workflow_id,
-            workflow_command: command.workflow_command,
             shell_host: command.shell_host,
             is_for_restored_block: false,
             is_agent_executed: command.is_agent_executed,

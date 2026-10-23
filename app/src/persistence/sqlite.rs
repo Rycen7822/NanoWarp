@@ -2862,10 +2862,6 @@ impl From<StartedCommandMetadata> for model::NewCommand {
                 id.try_into().ok()
             }),
             git_branch: metadata.git_branch,
-            cloud_workflow_id: metadata
-                .cloud_workflow_id
-                .map(|id| id.sqlite_uid_hash(ObjectIdType::Workflow)),
-            workflow_command: metadata.workflow_command,
             is_agent_executed: Some(metadata.is_agent_executed),
         }
     }
