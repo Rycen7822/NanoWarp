@@ -754,8 +754,6 @@ pub enum AIAgentInput {
     UserQuery { query: String },
     ResumeConversation,
     ActionResult { action_id: AIAgentActionId },
-    CreateNewProject { query: String },
-    CloneRepository { url: String },
     CodeReview,
     SummarizeConversation,
     InvokeSkill { skill_name: String },
@@ -773,10 +771,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
             FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
             FullAIAgentInput::ActionResult { result, .. } => Self::ActionResult {
                 action_id: result.id,
-            },
-            FullAIAgentInput::CreateNewProject { query, .. } => Self::CreateNewProject { query },
-            FullAIAgentInput::CloneRepository { clone_repo_url, .. } => Self::CloneRepository {
-                url: clone_repo_url.into_url(),
             },
             FullAIAgentInput::CodeReview { .. } => Self::CodeReview,
             FullAIAgentInput::SummarizeConversation { .. } => Self::SummarizeConversation,
@@ -825,7 +819,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     ConversationListView,
     Onboarding,
     Keybinding,
-    ProjectEntry,
     ClearBuffer,
     ChildAgent,
     LinearDeepLink,
@@ -867,7 +860,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
             AgentViewEntryOrigin::Keybinding(_) => Self::Keybinding,
-            AgentViewEntryOrigin::ProjectEntry => Self::ProjectEntry,
             AgentViewEntryOrigin::ClearBuffer => Self::ClearBuffer,
             AgentViewEntryOrigin::ChildAgent => Self::ChildAgent,
             AgentViewEntryOrigin::LinearDeepLink => Self::LinearDeepLink,
@@ -1911,37 +1903,10 @@ pub enum TelemetryEvent {
         was_lock_set_with_empty_buffer: bool,
         block_id: BlockId,
     },
-    /// User submitted a prompt from the create project view - metadata (non-UGC)
-    CreateProjectPromptSubmitted {
-        /// Whether this was a custom prompt or a predefined suggestion
-        is_custom_prompt: bool,
-        /// For suggested prompts, this is always collected. For custom prompts, this is None.
-        suggested_prompt: Option<String>,
-        /// Whether this was from the FTUX
-        is_ftux: bool,
-    },
-    /// User submitted a custom prompt from the create project view - content (UGC)
-    CreateProjectPromptSubmittedContent {
-        /// The custom prompt content - only collected when UGC is enabled
-        custom_prompt: String,
-    },
-    /// User submitted a repository URL from the clone repo view
-    CloneRepoPromptSubmitted {
-        is_ftux: bool,
-    },
-    /// From the first-time user "get started" page, skip straight to terminal without
-    /// creating/opening a project/repository.
-    GetStartedSkipToTerminal,
-
     /// User selected an item from the "Recent" list on the new tab zero state
     RecentMenuItemSelected {
         // The kind of recent menu item selected
         kind: &'static str,
-    },
-
-    /// User selected a folder to open as a repo from the "Open repository" button
-    OpenRepoFolderSubmitted {
-        is_ftux: bool,
     },
 
     /// Emitted when the control state of the CLI subagent changes.
@@ -3070,8 +3035,7 @@ impl TelemetryEvent {
             | TelemetryEvent::ConversationListItemDeleted
             | TelemetryEvent::ConversationListViewOpened
             | TelemetryEvent::GlobalSearchOpened
-            | TelemetryEvent::GlobalSearchQueryStarted
-            | TelemetryEvent::GetStartedSkipToTerminal => None,
+            | TelemetryEvent::GlobalSearchQueryStarted => None,
             TelemetryEvent::GlobalSearchQueryCompleted {
                 duration_ms,
                 remote_host_count,
@@ -3331,26 +3295,8 @@ impl TelemetryEvent {
                 "was_lock_set_with_empty_buffer": was_lock_set_with_empty_buffer,
                 "block_id": block_id,
             })),
-            TelemetryEvent::CreateProjectPromptSubmitted {
-                is_custom_prompt,
-                suggested_prompt,
-                is_ftux,
-            } => Some(json!({
-                "is_custom_prompt": is_custom_prompt,
-                "suggested_prompt": suggested_prompt,
-                "is_ftux": is_ftux,
-            })),
-            TelemetryEvent::CreateProjectPromptSubmittedContent { custom_prompt } => Some(json!({
-                "custom_prompt": custom_prompt
-            })),
-            TelemetryEvent::CloneRepoPromptSubmitted { is_ftux } => Some(json!({
-                "is_ftux": is_ftux,
-            })),
             TelemetryEvent::RecentMenuItemSelected { kind } => Some(json!({
                 "kind": kind,
-            })),
-            TelemetryEvent::OpenRepoFolderSubmitted { is_ftux } => Some(json!({
-                "is_ftux": is_ftux,
             })),
             TelemetryEvent::WarpDriveOpened {
                 source,
@@ -3525,8 +3471,6 @@ impl TelemetryEvent {
             TelemetryEvent::BootstrappingSlowContents { .. } => true,
             TelemetryEvent::AIInputNotSent { .. } => true,
             TelemetryEvent::AgentExitedShellProcess { .. } => true,
-            TelemetryEvent::CreateProjectPromptSubmitted { .. } => false,
-            TelemetryEvent::CreateProjectPromptSubmittedContent { .. } => true,
             TelemetryEvent::InputBufferSubmitted { .. } => false,
             TelemetryEvent::AgentModeChangedInputType { input, .. } => input.is_some(),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(payload) => {
@@ -3808,8 +3752,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AIExecutionProfileRemovedFromDenylist { .. }
             | TelemetryEvent::AIExecutionProfileModelSelected { .. }
             | TelemetryEvent::AIExecutionProfileContextWindowSelected { .. }
-            | TelemetryEvent::CloneRepoPromptSubmitted { .. }
-            | TelemetryEvent::GetStartedSkipToTerminal
             | TelemetryEvent::FileTreeItemAttachedAsContext { .. }
             | TelemetryEvent::CodeSelectionAddedAsContext { .. }
             | TelemetryEvent::FileTreeItemCreated
@@ -3821,7 +3763,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentViewExited { .. }
             | TelemetryEvent::AgentShortcutsViewToggled { .. }
             | TelemetryEvent::RecentMenuItemSelected { .. }
-            | TelemetryEvent::OpenRepoFolderSubmitted { .. }
             | TelemetryEvent::QueuedPromptEdited { .. }
             | TelemetryEvent::QueuedPromptDeleted { .. }
             | TelemetryEvent::QueuedPromptReordered { .. }
@@ -3926,12 +3867,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentViewEntered | Self::AgentViewExited | Self::AgentShortcutsViewToggled => {
                 EnablementState::Flag(FeatureFlag::AgentView)
             }
-            Self::CreateProjectPromptSubmitted => EnablementState::Flag(FeatureFlag::GetStartedTab),
-            Self::CreateProjectPromptSubmittedContent => {
-                EnablementState::Flag(FeatureFlag::GetStartedTab)
-            }
-            Self::CloneRepoPromptSubmitted => EnablementState::Flag(FeatureFlag::GetStartedTab),
-            Self::GetStartedSkipToTerminal => EnablementState::Flag(FeatureFlag::GetStartedTab),
             Self::PtyThroughput => EnablementState::Flag(FeatureFlag::RecordPtyThroughput),
             Self::AgentModeCreatedAIBlock => EnablementState::Flag(FeatureFlag::AgentMode),
             Self::MCPServerCollectionPaneOpened { .. }
@@ -4238,7 +4173,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 EnablementState::Flag(FeatureFlag::RevertToCheckpoints)
             }
             Self::RecentMenuItemSelected => EnablementState::Always,
-            Self::OpenRepoFolderSubmitted => EnablementState::Always,
             Self::CLISubagentControlStateChanged { .. }
             | Self::CLISubagentResponsesToggled { .. }
             | Self::CLISubagentInputDismissed { .. }
@@ -4329,10 +4263,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentViewEntered => "AgentView.Entered",
             Self::AgentViewExited => "AgentView.Exited",
             Self::AgentShortcutsViewToggled => "AgentView.ShortcutsViewToggled",
-            Self::CreateProjectPromptSubmitted => "Create Project Prompt Submitted",
-            Self::CreateProjectPromptSubmittedContent => "Create Project Prompt Submitted Content",
-            Self::CloneRepoPromptSubmitted => "Clone Repo Prompt Submitted",
-            Self::GetStartedSkipToTerminal => "Get Started Skip to Terminal",
             Self::InitiateAnonymousUserSignup => "Anonymous User Initiated Signup",
             Self::AnonymousUserExpirationLockout => "Anonymous User Expiration Lockout",
             Self::AnonymousUserLinkedFromBrowser => "Anonymous User Linked from Browser",
@@ -4662,7 +4592,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AIInputNotSent { .. } => "AI Input Not Sent",
             Self::InputBufferSubmitted => "AgentMode.NaturalLanguageDetection.InputBufferSubmitted",
             Self::RecentMenuItemSelected { .. } => "Recent Menu Item Selected",
-            Self::OpenRepoFolderSubmitted { .. } => "Open Repo Folder Submitted",
             Self::CLISubagentControlStateChanged { .. } => "CLI Subagent Control State Changed",
             Self::CLISubagentResponsesToggled { .. } => "CLI Subagent Responses Toggled",
             Self::CLISubagentInputDismissed { .. } => "CLI Subagent Input Dismissed",
@@ -5144,16 +5073,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentViewEntered => "User entered the Agent View",
             Self::AgentViewExited => "User exited the Agent View",
             Self::AgentShortcutsViewToggled => "User toggled the shortcuts view in Agent View",
-            Self::CreateProjectPromptSubmitted => {
-                "User submitted a prompt from the create project view"
-            }
-            Self::CreateProjectPromptSubmittedContent => {
-                "User submitted custom prompt content from the create project view"
-            }
-            Self::CloneRepoPromptSubmitted => {
-                "User submitted a repository URL from the clone repo view"
-            }
-            Self::GetStartedSkipToTerminal => "User clicked skip to terminal from get started view",
             Self::CompletedSettingsImport => {
                 "Imported a terminal's settings via the settings import onboarding block"
             }
@@ -5257,9 +5176,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputBufferSubmitted => "Input buffer submitted",
             Self::RecentMenuItemSelected { .. } => {
                 "User selected an item from the recents list on the new tab zero state"
-            }
-            Self::OpenRepoFolderSubmitted { .. } => {
-                "User selected a folder to open as a repo from the \"Open repository\" button"
             }
             Self::CLISubagentControlStateChanged { .. } => {
                 "Control state changed in CLI subagent (agent in control, agent blocked, user in control, or agent tagged in)"

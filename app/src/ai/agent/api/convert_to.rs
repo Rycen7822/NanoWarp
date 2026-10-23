@@ -92,28 +92,6 @@ pub(super) fn convert_input(
                     )),
                 });
             }
-            AIAgentInput::CreateNewProject { query, context } => {
-                return Ok(api::request::Input {
-                    context: Some(convert_context(context.as_ref())),
-                    r#type: Some(api::request::input::Type::CreateNewProject(
-                        api::request::input::CreateNewProject { query },
-                    )),
-                });
-            }
-            AIAgentInput::CloneRepository {
-                clone_repo_url,
-                context,
-                ..
-            } => {
-                return Ok(api::request::Input {
-                    context: Some(convert_context(context.as_ref())),
-                    r#type: Some(api::request::input::Type::CloneRepository(
-                        api::request::input::CloneRepository {
-                            url: clone_repo_url.into_url(),
-                        },
-                    )),
-                });
-            }
             AIAgentInput::CodeReview {
                 context,
                 review_comments,

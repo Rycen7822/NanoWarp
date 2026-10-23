@@ -12,8 +12,8 @@ use super::{
 use crate::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
-    AIAgentContext, AIAgentInput, CancellationReason, CloneRepositoryURL, EntrypointType,
-    InvokeSkillUserQuery, RequestMetadata,
+    AIAgentContext, AIAgentInput, CancellationReason, EntrypointType, InvokeSkillUserQuery,
+    RequestMetadata,
 };
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::context_model::{
@@ -23,12 +23,6 @@ use crate::ai::blocklist::queued_query::{QueuedQueryId, QueuedQueryModel};
 use crate::workspaces::user_workspaces::ResolvedTeamScope;
 
 pub enum SlashCommandRequest {
-    CreateNewProject {
-        query: String,
-    },
-    CloneRepository {
-        url: String,
-    },
     Summarize {
         prompt: Option<String>,
     },
@@ -51,8 +45,12 @@ impl SlashCommandRequest {
         // A fired queued prompt carries the conversation it was queued on; use it directly
         // instead of re-deriving from the current UI selection (which may point at a different
         // conversation the user navigated to). Falls back to the selection for direct sends.
-        let conversation_id =
-            conversation_id_override.or_else(|| self.conversation_id(controller, ctx));
+        let conversation_id = conversation_id_override.or_else(|| {
+            controller
+                .context_model
+                .as_ref(ctx)
+                .selected_conversation_id(ctx)
+        });
         // For skill invocations, include user-attached context (images, blocks, and selected
         // text) so the skill's agent sees the same attachments a non-slash-command user query
         // would. Other slash commands continue to pass `false` to preserve existing behavior.
@@ -90,7 +88,6 @@ impl SlashCommandRequest {
             image_context,
             ctx,
         );
-        let entrypoint = self.entrypoint();
         let is_summarize = matches!(self, Self::Summarize { .. });
         let inputs = self.input(
             context,
@@ -158,7 +155,7 @@ impl SlashCommandRequest {
             request_input,
             Some(RequestMetadata {
                 is_autodetected_user_query: false,
-                entrypoint,
+                entrypoint: EntrypointType::UserInitiated,
                 is_auto_resume_after_error: false,
             }),
             RecoveryBudget::fresh(),
@@ -187,20 +184,6 @@ impl SlashCommandRequest {
         }
     }
 
-    pub(super) fn conversation_id(
-        &self,
-        controller: &BlocklistAIController,
-        app: &AppContext,
-    ) -> Option<AIConversationId> {
-        match self {
-            Self::Summarize { .. } | Self::InvokeSkill { .. } => controller
-                .context_model
-                .as_ref(app)
-                .selected_conversation_id(app),
-            _ => None,
-        }
-    }
-
     fn input(
         self,
         context: Arc<[AIAgentContext]>,
@@ -209,15 +192,6 @@ impl SlashCommandRequest {
         app: &AppContext,
     ) -> Vec<AIAgentInput> {
         match self {
-            SlashCommandRequest::CreateNewProject { query } => {
-                vec![AIAgentInput::CreateNewProject { query, context }]
-            }
-            SlashCommandRequest::CloneRepository { url } => {
-                vec![AIAgentInput::CloneRepository {
-                    clone_repo_url: CloneRepositoryURL::new(url),
-                    context,
-                }]
-            }
             SlashCommandRequest::Summarize { prompt, .. } => {
                 vec![AIAgentInput::SummarizeConversation { prompt, context }]
             }
@@ -245,15 +219,6 @@ impl SlashCommandRequest {
                     context,
                 }]
             }
-        }
-    }
-
-    fn entrypoint(&self) -> EntrypointType {
-        match self {
-            SlashCommandRequest::CloneRepository { .. } => EntrypointType::CloneRepository,
-            SlashCommandRequest::CreateNewProject { .. }
-            | SlashCommandRequest::Summarize { .. }
-            | SlashCommandRequest::InvokeSkill { .. } => EntrypointType::UserInitiated,
         }
     }
 }

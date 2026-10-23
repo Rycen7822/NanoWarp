@@ -4362,7 +4362,6 @@ impl PaneGroup {
             IPaneType::AIDocument => TypedPane::AIDocument,
             IPaneType::ExecutionProfileEditor => TypedPane::ExecutionProfileEditor,
             IPaneType::CustomRouterEditor
-            | IPaneType::GetStarted
             | IPaneType::NetworkLog
             | IPaneType::DeferredPlaceholder => TypedPane::Other,
             #[cfg(test)]

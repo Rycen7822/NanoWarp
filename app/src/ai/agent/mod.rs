@@ -2910,16 +2910,6 @@ pub enum AIAgentInput {
         context: Arc<[AIAgentContext]>,
     },
 
-    CreateNewProject {
-        query: String,
-        context: Arc<[AIAgentContext]>,
-    },
-
-    CloneRepository {
-        clone_repo_url: CloneRepositoryURL,
-        context: Arc<[AIAgentContext]>,
-    },
-
     /// A batch of inline code review comments for the agent to address.
     CodeReview {
         context: Arc<[AIAgentContext]>,
@@ -3007,32 +2997,6 @@ impl AgentReviewCommentBatch {
     }
 }
 
-/// A simple struct that holds a URL to be used for the CloneRepository input.
-///
-/// Needed because we want to display a query that's more than just the URL to the user
-/// and the code is setup such that the query string must be preallocated.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CloneRepositoryURL {
-    /// The query displayed to the user when a user clones a repository.
-    query: String,
-
-    /// The URL of the repository to clone.
-    url: String,
-}
-
-impl CloneRepositoryURL {
-    pub fn new(url: String) -> Self {
-        Self {
-            query: format!("Clone {url}"),
-            url,
-        }
-    }
-
-    pub fn into_url(self) -> String {
-        self.url
-    }
-}
-
 impl Display for AIAgentInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -3041,8 +3005,6 @@ impl Display for AIAgentInput {
             }
             Self::ActionResult { result, .. } => write!(f, "ActionResult: {result}"),
             Self::ResumeConversation { .. } => write!(f, "ResumeConversation"),
-            Self::CreateNewProject { .. } => write!(f, "CreateNewProject"),
-            Self::CloneRepository { .. } => write!(f, "CloneRepository"),
             Self::CodeReview { .. } => write!(f, "CodeReview"),
             Self::SummarizeConversation { .. } => write!(f, "SummarizeConversation"),
             Self::InvokeSkill {
@@ -3079,11 +3041,6 @@ impl AIAgentInput {
     pub fn display_query(&self) -> Option<String> {
         match self {
             Self::UserQuery { query, .. } => Some(query.clone()),
-            Self::CreateNewProject { query, .. } => Some(query.clone()),
-            Self::CloneRepository {
-                clone_repo_url: url,
-                ..
-            } => Some(url.query.clone()),
             Self::CodeReview { .. } => Some("Address these comments".to_string()),
             Self::InvokeSkill {
                 skill, user_query, ..
@@ -3133,8 +3090,6 @@ impl AIAgentInput {
             Self::UserQuery { context, .. }
             | Self::ActionResult { context, .. }
             | Self::ResumeConversation { context, .. }
-            | Self::CreateNewProject { context, .. }
-            | Self::CloneRepository { context, .. }
             | Self::CodeReview { context, .. }
             | Self::InvokeSkill { context, .. }
             | Self::StartFromAmbientRunPrompt { context, .. }
@@ -3160,8 +3115,6 @@ impl AIAgentInput {
             }
             Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
-            | Self::CreateNewProject { .. }
-            | Self::CloneRepository { .. }
             | Self::CodeReview { .. }
             | Self::SummarizeConversation { .. }
             | Self::InvokeSkill { .. }

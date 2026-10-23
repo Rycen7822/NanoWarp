@@ -326,9 +326,6 @@ pub enum FeatureFlag {
     /// Gates the bundled skill-based implementation of PR comment fetching.
     PRCommentsSkill,
 
-    /// A new first-time user experience which prioritizes choosing a coding repository.
-    GetStartedTab,
-
     /// Enables Projects and Project management
     Projects,
 
@@ -340,9 +337,6 @@ pub enum FeatureFlag {
 
     /// Enables the prompt chip that displays the GitHub PR for the current branch.
     GithubPrPromptChip,
-
-    /// A button on the homepage for easily creating new projects.
-    CreateProjectFlow,
 
     /// Enables vim keybindings in the code editor.
     VimCodeEditor,

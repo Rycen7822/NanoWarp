@@ -569,9 +569,6 @@ pub const CODE_REVIEW_PANE_KIND: &str = "code_review";
 /// The [`pane_leaves::kind`] value for execution profile editor panes.
 pub const EXECUTION_PROFILE_EDITOR_PANE_KIND: &str = "execution_profile_editor";
 
-/// The [`pane_leaves::kind`] value for the get-started pane.
-pub const GET_STARTED_PANE_KIND: &str = "get_started";
-
 /// The [`pane_leaves::kind`] value for AI document panes.
 pub const AI_DOCUMENT_PANE_KIND: &str = "ai_document";
 

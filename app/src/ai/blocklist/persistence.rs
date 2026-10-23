@@ -70,8 +70,6 @@ impl TryFrom<&AIAgentInput> for PersistedAIInputType {
             }),
             AIAgentInput::ActionResult { .. }
             | AIAgentInput::ResumeConversation { .. }
-            | AIAgentInput::CreateNewProject { .. }
-            | AIAgentInput::CloneRepository { .. }
             | AIAgentInput::CodeReview { .. }
             | AIAgentInput::SummarizeConversation { .. }
             | AIAgentInput::InvokeSkill { .. }

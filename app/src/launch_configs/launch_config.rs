@@ -251,7 +251,6 @@ impl TryFrom<PaneNodeSnapshot> for PaneTemplateType {
                 | LeafContents::CodeReview(_)
                 | LeafContents::CustomRouterEditor
                 | LeafContents::ExecutionProfileEditor
-                | LeafContents::GetStarted
                 | LeafContents::NetworkLog
                 | LeafContents::AIDocument(_)
                 | LeafContents::AmbientAgent(_) => {

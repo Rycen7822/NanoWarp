@@ -156,9 +156,6 @@ pub enum AgentViewEntryOrigin {
     /// or parent conversation in the same orchestration tree.
     OrchestrationPillBar,
 
-    /// Entered agent view after opening project from OS directory picker.
-    ProjectEntry,
-
     /// Entered agent view via a Linear "work on issue" deeplink.
     LinearDeepLink,
 

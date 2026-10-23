@@ -32,15 +32,15 @@ use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{
     AIAgentActionResult, AIAgentActionResultType, AIAgentContext, AIAgentExchange,
     AIAgentExchangeId, AIAgentInput, AIAgentOutput, AIAgentOutputMessage, AIAgentOutputStatus,
-    BaseUserQuery, CallMCPToolResult, CancellationReason, CloneRepositoryURL,
-    CreateDocumentsResult, DocumentContext, EditDocumentsResult, FileContext, FileGlobResult,
-    FileGlobV2Match, FileGlobV2Result, FinishedAIAgentOutput, GrepFileMatch, GrepLineMatch,
-    GrepResult, ImageContext, InsertReviewCommentsResult, OutputModelInfo, ReadDocumentsResult,
-    ReadFilesFailedFile, ReadFilesResult, ReadMCPResourceResult, ReadShellCommandOutputResult,
+    BaseUserQuery, CallMCPToolResult, CancellationReason, CreateDocumentsResult, DocumentContext,
+    EditDocumentsResult, FileContext, FileGlobResult, FileGlobV2Match, FileGlobV2Result,
+    FinishedAIAgentOutput, GrepFileMatch, GrepLineMatch, GrepResult, ImageContext,
+    InsertReviewCommentsResult, OutputModelInfo, ReadDocumentsResult, ReadFilesFailedFile,
+    ReadFilesResult, ReadMCPResourceResult, ReadShellCommandOutputResult,
     RequestCommandOutputResult, RequestFileEditsResult, SearchCodebaseFailureReason,
     SearchCodebaseResult, ServerOutputId, Shared, ShellCommandError, SuggestNewConversationResult,
     TransferShellCommandControlToUserResult, UpdatedFileContext, UploadArtifactResult,
-    UserQueryMode, WriteToLongRunningShellCommandResult,
+    WriteToLongRunningShellCommandResult,
 };
 use crate::ai::block_context::BlockContext;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -404,30 +404,12 @@ impl ConvertToExchanges for &api::Task {
                     };
 
                     match query_type {
-                        api::message::system_query::Type::CreateNewProject(auto_code_diff) => {
-                            current_inputs.push(AIAgentInput::UserQuery {
-                                query: auto_code_diff.query.clone(),
-                                context: convert_input_context(query.context.as_ref()),
-                                static_query_type: None,
-                                referenced_attachments: HashMap::new(),
-                                user_query_mode: UserQueryMode::default(), // SystemQuery doesn't have mode field
-                                running_command: None,
-                                intended_agent: None,
-                                base: None,
-                            });
-                            true
-                        }
-                        api::message::system_query::Type::CloneRepository(clone_repo) => {
-                            current_inputs.push(AIAgentInput::CloneRepository {
-                                clone_repo_url: CloneRepositoryURL::new(clone_repo.url.clone()),
-                                context: convert_input_context(query.context.as_ref()),
-                            });
-                            true
-                        }
                         // ResumeConversation is actually added to the task's messages as a plain UserQuery, so we don't expect to encounter it in the task's messages.
                         // FetchReviewComments backed the removed /pr-comments slash command; the
                         // proto variant is retained for back-compat but is no longer rendered.
-                        api::message::system_query::Type::AutoCodeDiff(_)
+                        api::message::system_query::Type::CreateNewProject(_)
+                        | api::message::system_query::Type::CloneRepository(_)
+                        | api::message::system_query::Type::AutoCodeDiff(_)
                         | api::message::system_query::Type::ResumeConversation(_)
                         | api::message::system_query::Type::FetchReviewComments(_)
                         | api::message::system_query::Type::GeneratePassiveSuggestions(_)

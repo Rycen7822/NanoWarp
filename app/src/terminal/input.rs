@@ -148,8 +148,8 @@ use crate::ai::blocklist::{
     BlocklistAIControllerEvent, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
     BlocklistAIInputModel, DIFF_HUNK_ATTACHMENT_REGEX, DRIVE_OBJECT_ATTACHMENT_REGEX, InputConfig,
     InputType, InputTypeAutoDetectionSource, PendingAttachment, PendingFile, QueuedQuery,
-    QueuedQueryEvent, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, SlashCommandRequest,
-    ai_brand_color, ai_indicator_height, render_ai_agent_mode_icon, render_ai_follow_up_icon,
+    QueuedQueryEvent, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, ai_brand_color,
+    ai_indicator_height, render_ai_agent_mode_icon, render_ai_follow_up_icon,
 };
 use crate::ai::cloud_agent_settings::{AuthSecretPreference, CloudAgentSettings};
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
@@ -9482,38 +9482,6 @@ impl Input {
             }
             false
         })
-    }
-
-    pub(crate) fn initiate_create_new_project(
-        &mut self,
-        ai_query: String,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if FeatureFlag::AgentView.is_enabled()
-            && !self.agent_view_controller.as_ref(ctx).is_active()
-        {
-            self.agent_view_controller.update(ctx, |controller, ctx| {
-                let _ =
-                    controller.try_enter_agent_view(None, AgentViewEntryOrigin::ProjectEntry, ctx);
-            });
-        }
-        self.ai_controller.update(ctx, move |controller, ctx| {
-            controller.send_create_new_project_request(ai_query, ctx)
-        });
-    }
-
-    pub(crate) fn initiate_clone_repository(&mut self, url: String, ctx: &mut ViewContext<Self>) {
-        if FeatureFlag::AgentView.is_enabled()
-            && !self.agent_view_controller.as_ref(ctx).is_active()
-        {
-            self.agent_view_controller.update(ctx, |controller, ctx| {
-                let _ =
-                    controller.try_enter_agent_view(None, AgentViewEntryOrigin::ProjectEntry, ctx);
-            });
-        }
-        self.ai_controller.update(ctx, move |controller, ctx| {
-            controller.send_slash_command_request(SlashCommandRequest::CloneRepository { url }, ctx)
-        });
     }
 
     /// Handles the user's 'Enter' keypress.

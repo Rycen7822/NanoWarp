@@ -94,8 +94,7 @@ use crate::persistence::block_list::{
     process_ai_queries_for_uparrow_prompt, read_recent_ai_queries,
 };
 use crate::persistence::model::{
-    CODE_REVIEW_PANE_KIND, GET_STARTED_PANE_KIND, NewPersistedObjectAction, NewTeamSettings,
-    ProjectRules, UserProfile,
+    CODE_REVIEW_PANE_KIND, NewPersistedObjectAction, NewTeamSettings, ProjectRules, UserProfile,
 };
 use crate::server::experiments::ServerExperiment;
 use crate::server::ids::{ClientId, HashableId, ServerId, SyncId};
@@ -1155,7 +1154,6 @@ fn save_pane_state(
         LeafContents::ExecutionProfileEditor | LeafContents::CustomRouterEditor => {
             EXECUTION_PROFILE_EDITOR_PANE_KIND
         }
-        LeafContents::GetStarted => GET_STARTED_PANE_KIND,
         LeafContents::AIDocument(_) => AI_DOCUMENT_PANE_KIND,
         LeafContents::NetworkLog => {
             // These pane types are filtered out before this function is
@@ -1330,9 +1328,6 @@ fn save_pane_state(
         }
         LeafContents::ExecutionProfileEditor | LeafContents::CustomRouterEditor => {
             // Editor panes: no pane-specific data to save.
-        }
-        LeafContents::GetStarted => {
-            // Stateless
         }
         LeafContents::AIDocument(ai_document_snapshot) => match ai_document_snapshot {
             crate::app_state::AIDocumentPaneSnapshot::Local {
@@ -2298,7 +2293,6 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                         }
                     }
                 }
-                GET_STARTED_PANE_KIND => LeafContents::GetStarted,
                 AI_DOCUMENT_PANE_KIND => {
                     let ai_document_pane = schema::ai_document_panes::dsl::ai_document_panes
                         .find(node.id)

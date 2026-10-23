@@ -17,8 +17,6 @@ pub(super) mod custom_router_editor_pane;
 pub(super) mod env_var_collection_pane;
 pub(super) mod execution_profile_editor_pane;
 pub(super) mod file_pane;
-pub(super) mod get_started_pane;
-pub(super) mod get_started_view;
 #[cfg(not(target_family = "wasm"))]
 pub(super) mod local_harness_launch;
 pub(super) mod network_log_pane;
@@ -55,7 +53,6 @@ use crate::menu::MenuItem;
 use crate::notebooks::file::FileNotebookView;
 use crate::notebooks::notebook::NotebookView;
 use crate::pane_group::focus_state::PaneFocusHandle;
-use crate::pane_group::pane::get_started_view::GetStartedView;
 use crate::server::network_log_view::NetworkLogView;
 use crate::server::telemetry::SharingDialogSource;
 use crate::settings::PaneSettings;
@@ -66,7 +63,6 @@ use crate::view_components::action_button::ActionButton;
 
 pub(super) fn init(app: &mut AppContext) {
     self::view::init(app);
-    get_started_view::init(app);
 }
 
 /// The opaque identifier for an arbitrary pane. Consumers
@@ -138,7 +134,6 @@ pub(crate) enum IPaneType {
     AIDocument,
     CustomRouterEditor,
     ExecutionProfileEditor,
-    GetStarted,
     NetworkLog,
     DeferredPlaceholder,
     /// A pane type only for tests.
@@ -160,7 +155,6 @@ impl Display for IPaneType {
             IPaneType::AIDocument => write!(f, "AI Document"),
             IPaneType::CustomRouterEditor => write!(f, "Custom Router Editor"),
             IPaneType::ExecutionProfileEditor => write!(f, "Execution Profile Editor"),
-            IPaneType::GetStarted => write!(f, "GetStarted"),
             IPaneType::NetworkLog => write!(f, "Network Log"),
             IPaneType::DeferredPlaceholder => write!(f, "Placeholder"),
             #[cfg(test)]
@@ -245,10 +239,6 @@ impl PaneId {
         Self::new_from_ctx(IPaneType::ExecutionProfileEditor, ctx)
     }
 
-    pub fn from_get_started_pane_ctx(ctx: &ViewContext<PaneView<GetStartedView>>) -> Self {
-        Self::new_from_ctx(IPaneType::GetStarted, ctx)
-    }
-
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<NetworkLogView>>`].
     pub fn from_network_log_pane_ctx(ctx: &ViewContext<PaneView<NetworkLogView>>) -> Self {
         Self::new_from_ctx(IPaneType::NetworkLog, ctx)
@@ -326,12 +316,6 @@ impl PaneId {
             IPaneType::ExecutionProfileEditor,
             execution_profile_editor_pane_view,
         )
-    }
-
-    pub fn from_get_started_pane_view(
-        get_started_pane_view: &ViewHandle<PaneView<GetStartedView>>,
-    ) -> Self {
-        Self::new(IPaneType::GetStarted, get_started_pane_view)
     }
 
     /// Creates a [`PaneId`] from a [`PaneView<NetworkLogView>`] entity ID.
@@ -440,9 +424,6 @@ impl PaneId {
             IPaneType::ExecutionProfileEditor => {
                 ChildView::<PaneView<ExecutionProfileEditorView>>::with_id(self.0.pane_view_id)
                     .finish()
-            }
-            IPaneType::GetStarted => {
-                ChildView::<PaneView<GetStartedView>>::with_id(self.0.pane_view_id).finish()
             }
             IPaneType::NetworkLog => {
                 ChildView::<PaneView<NetworkLogView>>::with_id(self.0.pane_view_id).finish()

@@ -14,7 +14,6 @@ mod chip_configurator;
 mod cloud_object;
 mod code;
 mod code_review;
-mod coding_entrypoints;
 mod coding_panel_enablement_state;
 mod command_palette;
 mod completer;
@@ -1537,7 +1536,6 @@ pub(crate) fn initialize_app(
     context_chips::node_version_popup::init(ctx);
     env_vars::view::env_var_collection::init(ctx);
     ai::agent::todos::popup::init(ctx);
-    coding_entrypoints::project_buttons::init(ctx);
     if FeatureFlag::CodeReviewSaveChanges.is_enabled() {
         code_review::init(ctx);
     }

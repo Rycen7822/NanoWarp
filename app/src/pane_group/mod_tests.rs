@@ -782,7 +782,7 @@ impl pane::PaneContent for PreAttachReturnsFalsePane {
     }
 
     fn snapshot(&self, _app: &AppContext) -> LeafContents {
-        LeafContents::GetStarted
+        LeafContents::NetworkLog
     }
 
     fn has_application_focus(&self, _ctx: &mut ViewContext<PaneGroup>) -> bool {

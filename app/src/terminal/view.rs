@@ -12984,18 +12984,6 @@ impl TerminalView {
         self.toggle_left_panel_file_tree(true, ctx);
     }
 
-    pub fn create_new_project(&mut self, prompt: String, ctx: &mut ViewContext<Self>) {
-        self.input.update(ctx, |input, ctx| {
-            input.initiate_create_new_project(prompt, ctx);
-        });
-    }
-
-    pub fn agent_clone_repository(&mut self, url: String, ctx: &mut ViewContext<Self>) {
-        self.input.update(ctx, |input, ctx| {
-            input.initiate_clone_repository(url, ctx);
-        });
-    }
-
     fn summarize_conversation(&mut self, ctx: &mut ViewContext<Self>) {
         self.ai_controller.update(ctx, |controller, ctx| {
             controller

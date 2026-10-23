@@ -251,7 +251,6 @@ pub enum WorkspaceAction {
         shell: AvailableShell,
         source: AddTabWithShellSource,
     },
-    AddGetStartedTab,
     AddAmbientAgentTab,
     /// Add a new tab that immediately enters agent view with a new conversation.
     AddAgentTab,
@@ -631,11 +630,7 @@ pub enum WorkspaceAction {
     FileDeleted {
         path: PathBuf,
     },
-    /// Open a repository directory via file picker. The `path` is an `Option` because some
-    /// dispatchers don't know the path to open yet (so the Workspace must open the file picker)
-    /// and some do, e.g. the GetStartedView. The GetStartedView needs to handle the file picker
-    /// because it needs to determine whether or not to close itself based on whether the user
-    /// actually selects a file in the file picker or cancels it.
+    /// Open a repository directory, selecting a folder when the path is absent.
     OpenRepository {
         path: Option<String>,
     },
@@ -873,7 +868,6 @@ impl WorkspaceAction {
             | AddDefaultTab
             | AddTerminalTab { .. }
             | AddTabWithShell { .. }
-            | AddGetStartedTab
             | AddAgentTab
             | AddAmbientAgentTab
             | AddDockerSandboxTab

@@ -24,9 +24,9 @@ use crate::ai::agent::util::parse_markdown_into_text_and_code_sections;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentAttachment, AIAgentCitation, AIAgentInput,
     AIAgentOutputMessage, AIAgentText, AIAgentTodo, ArtifactCreatedData, BaseUserQuery,
-    CloneRepositoryURL, InvokeSkillUserQuery, MessageId, RunAgentsAgentRunConfig,
-    RunAgentsExecutionMode, RunAgentsRequest, SubagentCall, SubagentType, SummarizationType,
-    TodoOperation, UserQueryMode, WebFetchStatus, WebSearchStatus,
+    InvokeSkillUserQuery, MessageId, RunAgentsAgentRunConfig, RunAgentsExecutionMode,
+    RunAgentsRequest, SubagentCall, SubagentType, SummarizationType, TodoOperation, UserQueryMode,
+    WebFetchStatus, WebSearchStatus,
 };
 use crate::ai::artifact_download::sanitized_basename;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -843,27 +843,6 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
                     intended_agent: Some(uq.intended_agent()),
                     base: BaseUserQuery::from_message(uq),
                 });
-            }
-            api::message::Message::SystemQuery(sq) => {
-                let ctx = convert_input_context(sq.context.as_ref());
-                if let Some(t) = &sq.r#type {
-                    // These system queries appear as user inputs in ai blocks.
-                    match t {
-                        api::message::system_query::Type::CreateNewProject(p) => {
-                            inputs.push(AIAgentInput::CreateNewProject {
-                                query: p.query.clone(),
-                                context: ctx,
-                            });
-                        }
-                        api::message::system_query::Type::CloneRepository(p) => {
-                            inputs.push(AIAgentInput::CloneRepository {
-                                clone_repo_url: CloneRepositoryURL::new(p.url.clone()),
-                                context: ctx,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
             }
             api::message::Message::InvokeSkill(invoke_skill) => {
                 if let Some(skill) = invoke_skill.skill.clone()
