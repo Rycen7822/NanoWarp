@@ -1,47 +1,17 @@
+use super::{Error, decode_response_event, endpoint_url};
 use base64::Engine as _;
 use base64::prelude::BASE64_URL_SAFE;
 use prost::Message as _;
-use warp_server_client::base_client::AmbientHeaderPolicy;
-
-use super::{
-    Error, ambient_policy, decode_response_event, endpoint_url, is_passive_suggestion_request,
-};
 
 #[test]
-fn detects_passive_suggestion_requests() {
-    let regular = warp_multi_agent_api::Request::default();
-    let passive = warp_multi_agent_api::Request {
-        input: Some(warp_multi_agent_api::request::Input {
-            r#type: Some(
-                warp_multi_agent_api::request::input::Type::GeneratePassiveSuggestions(
-                    Default::default(),
-                ),
-            ),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    assert!(!is_passive_suggestion_request(&regular));
-    assert!(is_passive_suggestion_request(&passive));
-}
-
-#[test]
-fn routes_regular_and_passive_requests_to_distinct_endpoints() {
+fn routes_regular_requests_to_multi_agent_endpoint() {
     let prefix = if cfg!(feature = "agent_mode_evals") {
         "agent-mode-evals"
     } else {
         "ai"
     };
 
-    assert!(endpoint_url(false).ends_with(&format!("/{prefix}/multi-agent")));
-    assert!(endpoint_url(true).ends_with(&format!("/{prefix}/passive-suggestions")));
-}
-
-#[test]
-fn selects_endpoint_specific_ambient_header_policies() {
-    assert_eq!(ambient_policy(false), AmbientHeaderPolicy::workload_only());
-    assert_eq!(ambient_policy(true), AmbientHeaderPolicy::omit_all());
+    assert!(endpoint_url().ends_with(&format!("/{prefix}/multi-agent")));
 }
 
 #[test]

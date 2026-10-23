@@ -54,8 +54,7 @@ pub async fn generate_multi_agent_output(
         .get_or_refresh_access_token()
         .await
         .map_err(Error::Authentication)?;
-    let is_passive = is_passive_suggestion_request(request);
-    let url = endpoint_url(is_passive);
+    let url = endpoint_url();
 
     let mut request_builder = client
         .http_client()
@@ -67,7 +66,7 @@ pub async fn generate_multi_agent_output(
     }
 
     for (name, value) in client
-        .ambient_headers(ambient_policy(is_passive))
+        .ambient_headers(AmbientHeaderPolicy::workload_only())
         .await
         .map_err(Error::AmbientHeaders)?
     {
@@ -123,39 +122,16 @@ pub async fn generate_multi_agent_output(
     }
 }
 
-fn is_passive_suggestion_request(request: &warp_multi_agent_api::Request) -> bool {
-    request.input.as_ref().is_some_and(|input| {
-        matches!(
-            input.r#type,
-            Some(warp_multi_agent_api::request::input::Type::GeneratePassiveSuggestions(_))
-        )
-    })
-}
-
-fn endpoint_url(is_passive: bool) -> String {
+fn endpoint_url() -> String {
     format!(
-        "{}/{}/{}",
+        "{}/{}/multi-agent",
         ChannelState::server_root_url(),
         if cfg!(feature = "agent_mode_evals") {
             "agent-mode-evals"
         } else {
             "ai"
-        },
-        if is_passive {
-            "passive-suggestions"
-        } else {
-            "multi-agent"
         }
     )
-}
-
-fn ambient_policy(is_passive: bool) -> AmbientHeaderPolicy {
-    if is_passive {
-        // Passive suggestions read from the main conversation, but cannot modify it.
-        AmbientHeaderPolicy::omit_all()
-    } else {
-        AmbientHeaderPolicy::workload_only()
-    }
 }
 
 fn decode_response_event(data: &str) -> Result<warp_multi_agent_api::ResponseEvent, Error> {

@@ -86,7 +86,6 @@ pub async fn generate_multi_agent_output(
             supports_todos_ui: true,
             supports_linked_code_blocks: FeatureFlag::LinkedCodeBlocks.is_enabled(),
             supports_started_child_task_message: true,
-            supports_suggest_prompt: true,
             supports_read_image_files: FeatureFlag::ReadImageFiles.is_enabled(),
             supports_reasoning_message: true,
             api_keys,
@@ -115,6 +114,7 @@ pub async fn generate_multi_agent_output(
             supports_chatgpt_subscription_copy_text: true,
             custom_model_providers: params.custom_model_providers,
             custom_model_routers: params.custom_model_routers,
+            ..Default::default()
         }),
         metadata: Some(api::request::Metadata {
             logging: logging_metadata,
