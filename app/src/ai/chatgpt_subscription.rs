@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ai::api_keys::{ApiKeyManager, ChatGPTConnectFailure, ChatGPTConnectionStatus};
-use settings::Setting as _;
 use url::Url;
 use uuid::Uuid;
 use warp_core::channel::ChannelState;
@@ -10,7 +9,6 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 use crate::auth::AuthStateProvider;
 use crate::server::server_api::ai::AIClient;
-use crate::settings::AISettings;
 
 /// Host of the `{scheme}://chatgpt_link` deep link the browser opens once a link flow finishes.
 pub const CHATGPT_LINK_URI_HOST: &str = "chatgpt_link";
@@ -121,23 +119,15 @@ impl ChatGPTSubscriptionModel {
     }
 
     /// Unlinks the ChatGPT account on the server, then re-fetches so the UI
-    /// reflects what the server actually did. A successful unlink also clears the
-    /// plan-modal seen marker so a later reconnect re-confirms plan sharing.
+    /// reflects what the server actually did.
     pub fn disconnect(&mut self, ctx: &mut ModelContext<Self>) {
         let ai_client = self.ai_client.clone();
         ctx.spawn(
             async move { ai_client.disconnect_chatgpt().await },
             |me, result, ctx| {
-                match result {
-                    Ok(()) => AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        if let Err(e) = settings.did_show_chatgpt_plan_modal.set_value(false, ctx) {
-                            log::warn!("Failed to reset ChatGPT plan modal seen marker: {e}");
-                        }
-                    }),
-                    Err(e) => {
-                        log::warn!("Failed to disconnect ChatGPT: {e:#}");
-                        ctx.emit(ChatGPTSubscriptionEvent::DisconnectFailed);
-                    }
+                if let Err(e) = result {
+                    log::warn!("Failed to disconnect ChatGPT: {e:#}");
+                    ctx.emit(ChatGPTSubscriptionEvent::DisconnectFailed);
                 }
                 me.refresh(ctx);
             },

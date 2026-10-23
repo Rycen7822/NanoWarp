@@ -3,7 +3,6 @@
 //! These settings are currently used to configure the underlying model/API used to power the AI
 //! UX, as well as small UX configurations.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use ::ai::api_keys::CustomEndpointDefinitions;
@@ -830,85 +829,6 @@ define_settings_group!(AISettings, settings: [
         private: true,
     },
 
-    // This is not a user-visible setting - its merely a one-time flag to track if the agents 3 launch modal
-    // has been shown to the user.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_check_to_trigger_agents_3_launch_modal: DidShowAgents3LaunchModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
-    // This is not a user-visible setting - it's merely a one-time flag to track if the Oz launch modal
-    // has been shown to the user.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_check_to_trigger_oz_launch_modal: DidShowOzLaunchModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
-    // This is not a user-visible setting - it's merely a one-time flag to track if the
-    // orchestration launch modal has been shown to the user.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_check_to_trigger_orchestration_launch_modal: DidShowOrchestrationLaunchModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
-    // This is not a user-visible setting - it's merely a one-time flag to track if the
-    // Warp Agent CLI launch modal has been shown to the user.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_check_to_trigger_agent_cli_launch_modal: DidShowAgentCliLaunchModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
-    // This is not a user-visible setting - it's merely a one-time flag to track if the
-    // free-AI-removal notice modal has been shown to (or silently marked as seen for) the user.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_check_to_trigger_free_ai_removal_modal: DidShowFreeAiRemovalModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
-    // This is not a user-visible setting - it's merely a one-time flag to track if the
-    // "You're using your ChatGPT plan" modal has been shown for the user's current ChatGPT
-    // connection. Reset when the user disconnects so a later reconnect shows it again.
-    //
-    // We model it as a setting so it's only shown once to a given user regardless of the number of
-    // devices they use.
-    did_show_chatgpt_plan_modal: DidShowChatGPTPlanModal {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
-
     // Used to determine whether the "Latest updates" section of the agent view
     // zero state is expanded or collapsed by default.
     should_expand_oz_updates: ShouldExpandOzUpdates {
@@ -1124,19 +1044,6 @@ define_settings_group!(AISettings, settings: [
         private: true,
     }
 
-    // Not a user-visible setting - it tracks which one-time feature-intro popups the
-    // user has already seen, keyed by the feature-intro id (see `FEATURE_INTROS`).
-    //
-    // We model it as a globally-synced setting (not respecting the user's sync setting)
-    // so each feature is announced at most once per user, regardless of how many devices
-    // they use. A feature is considered seen when its id is present and mapped to `true`.
-    seen_feature_intro_ids: SeenFeatureIntroIds {
-        type: HashMap<String, bool>,
-        default: HashMap::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: true,
-    }
 ]);
 
 impl AISettings {
@@ -1462,25 +1369,6 @@ impl AISettings {
 
     pub fn is_run_agents_permissions_editable(&self, app: &AppContext) -> bool {
         self.is_orchestration_enabled(app)
-    }
-
-    /// Whether the feature-intro popover with the given id key has been seen.
-    pub fn is_feature_intro_seen(&self, key: &str) -> bool {
-        self.seen_feature_intro_ids
-            .get(key)
-            .copied()
-            .unwrap_or(false)
-    }
-
-    /// Records that the feature-intro popover with the given id key has been seen,
-    /// so it is never shown again. No-op if already recorded.
-    pub fn mark_feature_intro_seen(&mut self, key: &str, ctx: &mut ModelContext<Self>) {
-        if self.is_feature_intro_seen(key) {
-            return;
-        }
-        let mut map = self.seen_feature_intro_ids.clone();
-        map.insert(key.to_owned(), true);
-        report_if_error!(self.seen_feature_intro_ids.set_value(map, ctx));
     }
 }
 

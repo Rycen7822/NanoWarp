@@ -683,58 +683,16 @@ pub enum WorkspaceAction {
     /// Reset the AWS Bedrock login banner dismissed state (for debugging).
     #[cfg(debug_assertions)]
     DebugResetAwsBedrockLoginBannerDismissed,
-    /// Open the Oz Launch Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenOzLaunchModal,
-    /// Reset the Oz launch modal dismissed state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetOzLaunchModalState,
-    /// Open the OpenWarp Launch Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenOpenWarpLaunchModal,
-    /// Reset the OpenWarp launch modal dismissed state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetOpenWarpLaunchModalState,
-    /// Open the Orchestration Launch Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenOrchestrationLaunchModal,
-    /// Reset the orchestration launch modal dismissed state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetOrchestrationLaunchModalState,
-    /// Open the Warp Agent CLI Launch Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenAgentCliLaunchModal,
-    /// Reset the Warp Agent CLI launch modal dismissed state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetAgentCliLaunchModalState,
-    /// Open the Feature Intro Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenFeatureIntroModal,
-    /// Reset the feature intro seen state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetFeatureIntroModalState,
     /// Open the auto-handoff sleep modal (for debugging)
     #[cfg(debug_assertions)]
     OpenAutoHandoffSleepModal,
     /// Reset the auto-handoff sleep modal shown state (for debugging)
     #[cfg(debug_assertions)]
     ResetAutoHandoffSleepModalState,
-    /// Open the "You're using your ChatGPT plan" modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenChatGPTPlanModal,
-    /// Reset the ChatGPT plan modal shown state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetChatGPTPlanModalState,
     /// Trigger the auto-handoff-to-cloud flow in-process, as if the machine
     /// were about to sleep (for debugging)
     #[cfg(debug_assertions)]
     TriggerAutoHandoffToCloud,
-    /// Open the Free AI Removal Modal (for debugging)
-    #[cfg(debug_assertions)]
-    OpenFreeAiRemovalModal,
-    /// Reset the free AI removal modal seen state (for debugging)
-    #[cfg(debug_assertions)]
-    ResetFreeAiRemovalModalState,
     /// Take a process sample of the app (equivalent to Activity Monitor > Sample Process).
     #[cfg(target_os = "macos")]
     SampleProcess,
@@ -790,8 +748,6 @@ pub enum WorkspaceAction {
     StartAgentOnboardingTutorial(OnboardingTutorial),
     ShowSessionConfigModal,
     DismissSessionConfigTabConfigChip,
-    /// Dismiss the non-blocking feature-intro popover without requiring it to hold focus.
-    DismissFeatureIntroModal,
     /// Start the HOA onboarding flow (for debugging)
     #[cfg(debug_assertions)]
     ShowHoaOnboardingFlow,
@@ -1147,7 +1103,6 @@ impl WorkspaceAction {
             | StartAgentOnboardingTutorial(_)
             | ShowSessionConfigModal
             | DismissSessionConfigTabConfigChip
-            | DismissFeatureIntroModal
             | SaveCurrentTabAsNewConfig(_)
             | SyncTrafficLights
             | OpenTabConfigErrorFile { .. }
@@ -1171,23 +1126,9 @@ impl WorkspaceAction {
             ToggleConversationTranscriptDetailsPanel => false,
             #[cfg(debug_assertions)]
             DebugResetAwsBedrockLoginBannerDismissed
-            | OpenOzLaunchModal
-            | ResetOzLaunchModalState
-            | OpenOpenWarpLaunchModal
-            | ResetOpenWarpLaunchModalState
-            | OpenOrchestrationLaunchModal
-            | ResetOrchestrationLaunchModalState
-            | OpenAgentCliLaunchModal
-            | ResetAgentCliLaunchModalState
-            | OpenFeatureIntroModal
-            | ResetFeatureIntroModalState
             | OpenAutoHandoffSleepModal
             | ResetAutoHandoffSleepModalState
-            | OpenChatGPTPlanModal
-            | ResetChatGPTPlanModalState
-            | TriggerAutoHandoffToCloud
-            | OpenFreeAiRemovalModal
-            | ResetFreeAiRemovalModalState => false,
+            | TriggerAutoHandoffToCloud => false,
             #[cfg(not(target_family = "wasm"))]
             ViewLogs => false,
             #[cfg(target_os = "macos")]

@@ -1,19 +1,12 @@
-pub(crate) mod agent_cli_launch_modal;
 pub(crate) mod auto_handoff_sleep_modal;
-pub(crate) mod chatgpt_plan_modal;
 pub(crate) mod cloud_agent_capacity_modal;
 pub(crate) mod codex_modal;
 pub mod conversation_list;
 #[cfg(enable_crash_recovery)]
 mod crash_recovery;
-pub(crate) mod feature_intro_modal;
-pub(crate) mod free_ai_removal_modal;
 pub mod global_search;
-pub(crate) mod launch_modal;
 pub(crate) mod left_panel;
 pub(crate) mod onboarding;
-pub(crate) mod openwarp_launch_modal;
-pub(crate) mod orchestration_launch_modal;
 pub(crate) mod right_panel;
 mod startup_directory;
 mod tab_grouping;
@@ -476,32 +469,16 @@ use crate::workspace::tab_settings::TabCloseButtonPosition;
 use crate::workspace::toast_stack::{
     ToastStack, ToastStack as WorkspaceToastStack, ToastStackEvent as WorkspaceToastStackEvent,
 };
-use crate::workspace::view::agent_cli_launch_modal::{
-    AgentCliLaunchModal, AgentCliLaunchModalEvent,
-};
 use crate::workspace::view::auto_handoff_sleep_modal::{
     AutoHandoffSleepModal, AutoHandoffSleepModalEvent,
 };
-use crate::workspace::view::chatgpt_plan_modal::{ChatGPTPlanModal, ChatGPTPlanModalEvent};
 use crate::workspace::view::cloud_agent_capacity_modal::{
     CloudAgentCapacityModal, CloudAgentCapacityModalEvent, CloudAgentCapacityModalVariant,
 };
 use crate::workspace::view::codex_modal::{CodexModal, CodexModalEvent};
-use crate::workspace::view::feature_intro_modal::{
-    FeatureIntroCtaTarget, FeatureIntroId, FeatureIntroModal, FeatureIntroModalEvent,
-    feature_intro_by_id,
-};
-use crate::workspace::view::free_ai_removal_modal::{FreeAiRemovalModal, FreeAiRemovalModalEvent};
 use crate::workspace::view::global_search::view::GlobalSearchEntryFocus;
-use crate::workspace::view::launch_modal::{LaunchModal, LaunchModalEvent, OzLaunchSlide};
 use crate::workspace::view::left_panel::{
     LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
-};
-use crate::workspace::view::openwarp_launch_modal::{
-    OpenWarpLaunchModal, OpenWarpLaunchModalEvent,
-};
-use crate::workspace::view::orchestration_launch_modal::{
-    OrchestrationLaunchModal, OrchestrationLaunchModalEvent,
 };
 use crate::workspace::view::right_panel::{RightPanelEvent, RightPanelView};
 use crate::workspace::{ForkFromExchange, ForkedConversationDestination};
@@ -680,10 +657,6 @@ const MOBILE_OVERLAY_SCRIM_ALPHA: u8 = 128;
 
 pub const NEW_TAB_BUTTON_POSITION_ID: &str = "new_tab_button";
 pub const NEW_SESSION_MENU_BUTTON_POSITION_ID: &str = "new_session_menu_button";
-
-/// Save position for the feature-intro popover, so the changelog chip can float
-/// just above it (see `feature_intro_chip_positioning`).
-const FEATURE_INTRO_MODAL_POSITION_ID: &str = "workspace:feature_intro_modal";
 
 // The max length of the title of a fork toast (after which we truncate it).
 const MAX_FORK_TOAST_TITLE_LENGTH: usize = 100;
@@ -923,15 +896,6 @@ struct RightPanelUpdateParams<'a> {
     review_pane_context: Option<&'a CodeReviewPaneContext>,
 }
 
-/// Groups a modal view handle with the ID of the tab that was created to host
-/// it, so the custom tab title can be cleared on close regardless of which tab
-/// is active at that point.
-struct ModalWithTab<V> {
-    view: ViewHandle<V>,
-    /// Set when the modal opens a new tab; consumed (taken) when the modal
-    /// closes so we can clear the custom tab title.
-    tab_pane_group_id: Option<EntityId>,
-}
 /// Context saved when the session config modal triggers `open_tab_config` and
 /// the tab config has params (worktree). The params modal opens asynchronously,
 /// so we store what we need to finish the tab replacement when it completes.
@@ -1084,20 +1048,9 @@ pub struct Workspace {
     show_team_switcher_menu: bool,
     theme_creator_modal: ViewHandle<ThemeCreatorModal>,
     theme_deletion_modal: ViewHandle<ThemeDeletionModal>,
-    oz_launch_modal: ModalWithTab<LaunchModal<OzLaunchSlide>>,
-    openwarp_launch_modal: ViewHandle<OpenWarpLaunchModal>,
-    orchestration_launch_modal: ViewHandle<OrchestrationLaunchModal>,
-    agent_cli_launch_modal: ViewHandle<AgentCliLaunchModal>,
-    feature_intro_modal: ViewHandle<FeatureIntroModal>,
-    /// Tab that first received the feature-intro popover. The popover stays
-    /// pinned to this tab for the rest of its lifetime so switching tabs does
-    /// not re-show it elsewhere.
-    feature_intro_tab_pane_group_id: Option<EntityId>,
     auto_handoff_sleep_modal: ViewHandle<AutoHandoffSleepModal>,
-    chatgpt_plan_modal: ViewHandle<ChatGPTPlanModal>,
     codex_modal: ViewHandle<CodexModal>,
     cloud_agent_capacity_modal: ViewHandle<CloudAgentCapacityModal>,
-    free_ai_removal_modal: ViewHandle<FreeAiRemovalModal>,
     toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
     agent_toast_stack: ViewHandle<AgentToastStack>,
     update_toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
@@ -2815,11 +2768,6 @@ impl Workspace {
             me.handle_cloud_agent_capacity_modal_event(event, ctx);
         });
 
-        let free_ai_removal_modal = ctx.add_typed_action_view(|_| FreeAiRemovalModal::default());
-        ctx.subscribe_to_view(&free_ai_removal_modal, |me, _, event, ctx| {
-            me.handle_free_ai_removal_modal_event(event, ctx);
-        });
-
         let require_login_modal = Self::build_require_login_modal(ctx);
 
         let auth_override_warning_modal = Self::build_auth_override_warning_modal(ctx);
@@ -2830,39 +2778,9 @@ impl Workspace {
 
         let theme_deletion_modal = Self::build_theme_deletion_modal(ctx);
 
-        let oz_launch_view = ctx.add_typed_action_view(LaunchModal::<OzLaunchSlide>::new);
-        ctx.subscribe_to_view(&oz_launch_view, |me, _, event, ctx| {
-            me.handle_oz_launch_modal_event(event, ctx);
-        });
-
-        let openwarp_launch_view = ctx.add_typed_action_view(OpenWarpLaunchModal::new);
-        ctx.subscribe_to_view(&openwarp_launch_view, |me, _, event, ctx| {
-            me.handle_openwarp_launch_modal_event(event, ctx);
-        });
-
-        let orchestration_launch_view = ctx.add_typed_action_view(OrchestrationLaunchModal::new);
-        ctx.subscribe_to_view(&orchestration_launch_view, |me, _, event, ctx| {
-            me.handle_orchestration_launch_modal_event(event, ctx);
-        });
-
-        let agent_cli_launch_view = ctx.add_typed_action_view(AgentCliLaunchModal::new);
-        ctx.subscribe_to_view(&agent_cli_launch_view, |me, _, event, ctx| {
-            me.handle_agent_cli_launch_modal_event(event, ctx);
-        });
-
-        let feature_intro_view = ctx.add_typed_action_view(FeatureIntroModal::new);
-        ctx.subscribe_to_view(&feature_intro_view, |me, _, event, ctx| {
-            me.handle_feature_intro_modal_event(event, ctx);
-        });
-
         let auto_handoff_sleep_view = ctx.add_typed_action_view(AutoHandoffSleepModal::new);
         ctx.subscribe_to_view(&auto_handoff_sleep_view, |me, _, event, ctx| {
             me.handle_auto_handoff_sleep_modal_event(event, ctx);
-        });
-
-        let chatgpt_plan_view = ctx.add_typed_action_view(ChatGPTPlanModal::new);
-        ctx.subscribe_to_view(&chatgpt_plan_view, |me, _, event, ctx| {
-            me.handle_chatgpt_plan_modal_event(event, ctx);
         });
 
         let launch_config_save_modal = Self::build_launch_config_save_modal(ctx);
@@ -3144,28 +3062,12 @@ impl Workspace {
         ctx.subscribe_to_model(&OneTimeModalModel::handle(ctx), |me, model, event, ctx| {
             let OneTimeModalEvent::VisibilityChanged { is_open } = event;
             if *is_open {
-                // Only trigger modal actions if this is the target window.
-                // The model has already determined which window should show the modal.
                 let model_ref = model.as_ref(ctx);
                 if model_ref.target_window_id() == Some(ctx.window_id()) {
-                    if model_ref.is_oz_launch_modal_open() {
-                        me.open_tab_and_focus_oz_launch_modal(ctx);
-                    } else if model_ref.is_openwarp_launch_modal_open() {
-                        me.focus_openwarp_launch_modal(ctx);
-                    } else if model_ref.is_orchestration_launch_modal_open() {
-                        me.focus_orchestration_launch_modal(ctx);
-                    } else if model_ref.is_agent_cli_launch_modal_open() {
-                        me.focus_agent_cli_launch_modal(ctx);
-                    } else if model_ref.is_auto_handoff_sleep_modal_open() {
+                    if model_ref.is_auto_handoff_sleep_modal_open() {
                         me.focus_auto_handoff_sleep_modal(ctx);
-                    } else if model_ref.is_chatgpt_plan_modal_open() {
-                        me.focus_chatgpt_plan_modal(ctx);
-                    } else if model_ref.is_free_ai_removal_modal_open() {
-                        me.focus_free_ai_removal_modal(ctx);
                     } else if model_ref.is_hoa_onboarding_open() {
                         me.show_hoa_onboarding_flow(ctx);
-                    } else if let Some(id) = model_ref.active_feature_intro() {
-                        me.show_feature_intro_modal(id, ctx);
                     }
                 }
             } else {
@@ -3293,23 +3195,12 @@ impl Workspace {
             #[cfg(target_family = "wasm")]
             transcript_details_panel,
             tab_fixed_width: None,
-            oz_launch_modal: ModalWithTab {
-                view: oz_launch_view,
-                tab_pane_group_id: None,
-            },
-            openwarp_launch_modal: openwarp_launch_view,
-            orchestration_launch_modal: orchestration_launch_view,
-            agent_cli_launch_modal: agent_cli_launch_view,
-            feature_intro_modal: feature_intro_view,
-            feature_intro_tab_pane_group_id: None,
             auto_handoff_sleep_modal: auto_handoff_sleep_view,
-            chatgpt_plan_modal: chatgpt_plan_view,
             agent_management_view,
             notification_mailbox_view,
             notification_toast_stack,
             codex_modal,
             cloud_agent_capacity_modal,
-            free_ai_removal_modal,
             lightbox_view: None,
             hoa_onboarding_flow: None,
             hoa_vtabs_callout_pinned_position: None,
@@ -11817,8 +11708,6 @@ impl Workspace {
             return;
         }
 
-        let closed_tab_id = self.tabs.get(index).map(|tab| tab.pane_group.id());
-
         let tabs_closed = self.close_tabs(
             vec![index].into_iter(),
             OpenDialogSource::CloseTab { tab_index: index },
@@ -11829,14 +11718,6 @@ impl Workspace {
 
         // Telemetry whenever tabs actually closed, not when confirmation dialog comes up.
         if tabs_closed {
-            if closed_tab_id.is_some() && closed_tab_id == self.feature_intro_tab_pane_group_id {
-                // The pinned tab is gone; drop the intro so it does not reappear
-                // on a different tab.
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_feature_intro_dismissed(ctx);
-                });
-                self.feature_intro_tab_pane_group_id = None;
-            }
             ctx.dispatch_global_action("workspace:save_app", ());
             send_telemetry_from_ctx!(
                 TelemetryEvent::TabOperations {
@@ -14154,7 +14035,7 @@ impl Workspace {
             && (!accepted_action
                 || !self
                     .current_workspace_state
-                    .is_any_non_terminal_view_open(ctx))
+                    .is_any_non_terminal_view_open())
         {
             self.focus_active_tab(ctx);
         }
@@ -14295,10 +14176,7 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         // If the invite modal is open, don't show the palette since it won't be visible anyway
-        if !self
-            .current_workspace_state
-            .is_any_non_palette_modal_open(ctx)
-        {
+        if !self.current_workspace_state.is_any_non_palette_modal_open() {
             let is_palette_mode_already_open =
                 self.palette.as_ref(ctx).is_mode_enabled(palette_mode, ctx)
                     && ((matches!(source, PaletteSource::CtrlTab { .. })
@@ -15503,12 +15381,6 @@ impl Workspace {
                 if self.current_workspace_state.is_resource_center_open {
                     self.current_workspace_state.is_resource_center_open = false;
                     ctx.notify();
-                } else if self.is_feature_intro_visible_on_active_tab(ctx) {
-                    OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                        model.mark_feature_intro_dismissed(ctx);
-                    });
-                    self.feature_intro_tab_pane_group_id = None;
-                    ctx.notify();
                 }
             }
             pane_group::Event::Exited { add_to_undo_stack } => {
@@ -15598,9 +15470,6 @@ impl Workspace {
                 self.pending_session_config_tab_config_chip = false;
                 self.show_session_config_tab_config_chip = false;
                 self.pending_session_config_tab_config_chip_tutorial = None;
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.set_onboarding_tutorial_active(false, ctx);
-                });
                 ctx.notify();
             }
             pane_group::Event::InvalidatedActiveConversation => {
@@ -18278,83 +18147,6 @@ impl Workspace {
         };
     }
 
-    fn handle_openwarp_launch_modal_event(
-        &mut self,
-        event: &OpenWarpLaunchModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            OpenWarpLaunchModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_openwarp_launch_modal_dismissed(ctx);
-                });
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_orchestration_launch_modal_event(
-        &mut self,
-        event: &OrchestrationLaunchModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            OrchestrationLaunchModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_orchestration_launch_modal_dismissed(ctx);
-                });
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_agent_cli_launch_modal_event(
-        &mut self,
-        event: &AgentCliLaunchModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AgentCliLaunchModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_agent_cli_launch_modal_dismissed(ctx);
-                });
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_feature_intro_modal_event(
-        &mut self,
-        event: &FeatureIntroModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let cta_target = if let FeatureIntroModalEvent::GetStarted(id) = event {
-            feature_intro_by_id(*id).and_then(|intro| intro.cta_target)
-        } else {
-            None
-        };
-        OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-            model.mark_feature_intro_dismissed(ctx);
-        });
-        self.feature_intro_tab_pane_group_id = None;
-        self.focus_active_tab(ctx);
-
-        if let Some(cta_target) = cta_target {
-            match cta_target {
-                FeatureIntroCtaTarget::SettingsWidget { page, widget_id } => {
-                    self.open_settings_pane(Some(page), None, ctx);
-                    self.settings_pane.update(ctx, |settings, ctx| {
-                        settings.scroll_to_settings_widget(page, widget_id(), ctx);
-                    });
-                }
-            }
-        }
-        ctx.notify();
-    }
-
     fn handle_auto_handoff_sleep_modal_event(
         &mut self,
         event: &AutoHandoffSleepModalEvent,
@@ -18376,72 +18168,6 @@ impl Workspace {
         });
         self.focus_active_tab(ctx);
         ctx.notify();
-    }
-
-    fn handle_chatgpt_plan_modal_event(
-        &mut self,
-        event: &ChatGPTPlanModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            ChatGPTPlanModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_chatgpt_plan_modal_dismissed(ctx);
-                });
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_oz_launch_modal_event(
-        &mut self,
-        event: &LaunchModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            LaunchModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_oz_launch_modal_dismissed(ctx);
-                });
-
-                // Clear the "Introducing Oz" custom tab name so normal tab naming rules apply.
-                if let Some(pane_group_id) = self.oz_launch_modal.tab_pane_group_id.take()
-                    && let Some(tab) = self
-                        .tabs
-                        .iter()
-                        .find(|tab| tab.pane_group.id() == pane_group_id)
-                {
-                    tab.pane_group.update(ctx, |view, ctx| {
-                        view.clear_title(ctx);
-                    });
-                }
-
-                self.focus_active_tab(ctx);
-            }
-            LaunchModalEvent::ToggleCheckbox => {
-                PrivacySettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let current_value = settings.is_cloud_conversation_storage_enabled;
-                    settings.set_is_cloud_conversation_storage_enabled(!current_value, ctx);
-                });
-            }
-        }
-    }
-
-    fn handle_free_ai_removal_modal_event(
-        &mut self,
-        event: &FreeAiRemovalModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            FreeAiRemovalModalEvent::Close => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_free_ai_removal_modal_dismissed(ctx);
-                });
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-        }
     }
 
     fn handle_codex_modal_event(&mut self, event: &CodexModalEvent, ctx: &mut ViewContext<Self>) {
@@ -21814,19 +21540,6 @@ impl Workspace {
         }
     }
 
-    /// Offset positioning for the changelog chip while the feature-intro popover is
-    /// open: floats the chip just above the popover's top-right edge instead of
-    /// anchoring it to the input box.
-    fn feature_intro_chip_positioning(&self) -> OffsetPositioning {
-        OffsetPositioning::offset_from_save_position_element(
-            FEATURE_INTRO_MODAL_POSITION_ID,
-            vec2f(0., -8.),
-            PositionedElementOffsetBounds::WindowByPosition,
-            PositionedElementAnchor::TopRight,
-            ChildAnchor::BottomRight,
-        )
-    }
-
     fn add_toggle_setting_context_flags(&self, app: &AppContext, context: &mut Context) {
         let privacy_settings = PrivacySettings::as_ref(app);
         let editor_settings = AppEditorSettings::as_ref(app);
@@ -22120,9 +21833,6 @@ impl Workspace {
             context
                 .set
                 .insert(flags::SESSION_CONFIG_TAB_CONFIG_CHIP_OPEN);
-        }
-        if self.is_feature_intro_visible_on_active_tab(app) {
-            context.set.insert(flags::FEATURE_INTRO_MODAL_OPEN);
         }
 
         if tab_settings
@@ -22458,81 +22168,8 @@ impl Workspace {
         self.on_window_closed(ctx);
     }
 
-    fn focus_openwarp_launch_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.focus(&self.openwarp_launch_modal);
-    }
-
-    fn focus_orchestration_launch_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.focus(&self.orchestration_launch_modal);
-    }
-
-    fn focus_agent_cli_launch_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.focus(&self.agent_cli_launch_modal);
-    }
-
-    fn show_feature_intro_modal(&mut self, id: FeatureIntroId, ctx: &mut ViewContext<Self>) {
-        // Non-blocking popover: set the descriptor but intentionally do NOT focus it,
-        // so the terminal and input stay usable while it is visible. Pin to the
-        // currently active tab so the popover only appears there for the rest of
-        // its lifetime (switching tabs hides it; returning shows it again).
-        if self.feature_intro_tab_pane_group_id.is_none() {
-            self.feature_intro_tab_pane_group_id = self
-                .tabs
-                .get(self.active_tab_index)
-                .map(|tab| tab.pane_group.id());
-        }
-        let intro = feature_intro_by_id(id);
-        self.feature_intro_modal.update(ctx, |modal, ctx| {
-            modal.set_feature(intro, ctx);
-        });
-    }
-
-    fn is_feature_intro_visible_on_active_tab(&self, app: &AppContext) -> bool {
-        let one_time = OneTimeModalModel::as_ref(app);
-        if one_time.target_window_id() != Some(self.window_id)
-            || one_time.active_feature_intro().is_none()
-        {
-            return false;
-        }
-        let Some(pinned_tab) = self.feature_intro_tab_pane_group_id else {
-            // Fallback before the pin is assigned: only the currently active tab.
-            return true;
-        };
-        self.tabs
-            .get(self.active_tab_index)
-            .is_some_and(|tab| tab.pane_group.id() == pinned_tab)
-    }
-
     fn focus_auto_handoff_sleep_modal(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.focus(&self.auto_handoff_sleep_modal);
-    }
-
-    fn focus_chatgpt_plan_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.focus(&self.chatgpt_plan_modal);
-    }
-
-    fn open_tab_and_focus_oz_launch_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        // Create a new tab with one terminal session titled "Introducing Oz"
-        self.add_tab_with_pane_layout(
-            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
-                shell: None,
-                initial_directory: None,
-                hide_homepage: false,
-                ..Default::default()
-            })),
-            Arc::new(HashMap::new()),
-            Some("Introducing Oz".to_string()),
-            ctx,
-        );
-        self.oz_launch_modal.tab_pane_group_id = self
-            .tabs
-            .get(self.active_tab_index)
-            .map(|tab| tab.pane_group.id());
-        ctx.focus(&self.oz_launch_modal.view);
-    }
-
-    fn focus_free_ai_removal_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.focus(&self.free_ai_removal_modal);
     }
 
     fn open_left_panel_view(&mut self, action: &LeftPanelAction, ctx: &mut ViewContext<Self>) {
@@ -22897,13 +22534,6 @@ impl TypedActionView for Workspace {
             ShowSessionConfigModal => self.show_session_config_modal(ctx),
             DismissSessionConfigTabConfigChip => {
                 self.dismiss_session_config_tab_config_chip(ctx);
-            }
-            DismissFeatureIntroModal => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.mark_feature_intro_dismissed(ctx);
-                });
-                self.feature_intro_tab_pane_group_id = None;
-                ctx.notify();
             }
             #[cfg(debug_assertions)]
             ShowHoaOnboardingFlow => self.show_hoa_onboarding_flow(ctx),
@@ -24454,97 +24084,11 @@ impl TypedActionView for Workspace {
                 log::info!("AWS Bedrock login banner dismissed state has been reset");
             }
             #[cfg(debug_assertions)]
-            OpenOzLaunchModal => {
-                // Force open the Oz launch modal for debugging
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_oz_launch_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            ResetOzLaunchModalState => {
-                // Reset the Oz launch modal dismissed state for debugging
-                let old_value = *AISettings::as_ref(ctx).did_check_to_trigger_oz_launch_modal;
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .did_check_to_trigger_oz_launch_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!("Failed to reset Oz launch modal dismissed setting: {e}");
-                    }
-                });
-                let new_value = *AISettings::as_ref(ctx).did_check_to_trigger_oz_launch_modal;
-                log::info!(
-                    "Oz launch modal state: old={}, new={}, feature_flag_enabled={}",
-                    old_value,
-                    new_value,
-                    FeatureFlag::OzLaunchModal.is_enabled()
-                );
-            }
-            #[cfg(debug_assertions)]
-            OpenOpenWarpLaunchModal => {
-                // Force open the OpenWarp launch modal for debugging
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_openwarp_launch_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            ResetOpenWarpLaunchModalState => {
-                // Reset the OpenWarp launch modal dismissed state for debugging
-                let old_value = *GeneralSettings::as_ref(ctx)
-                    .did_check_to_trigger_openwarp_launch_modal
-                    .value();
-                GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    if let Err(e) = settings
-                        .did_check_to_trigger_openwarp_launch_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!("Failed to reset OpenWarp launch modal dismissed setting: {e}");
-                    }
-                });
-                let new_value = *GeneralSettings::as_ref(ctx)
-                    .did_check_to_trigger_openwarp_launch_modal
-                    .value();
-                log::info!(
-                    "OpenWarp launch modal state: old={}, new={}, feature_flag_enabled={}",
-                    old_value,
-                    new_value,
-                    FeatureFlag::OpenWarpLaunchModal.is_enabled()
-                );
-            }
-            #[cfg(debug_assertions)]
-            OpenOrchestrationLaunchModal => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_orchestration_launch_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
             OpenAutoHandoffSleepModal => {
                 OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
                     model.set_auto_handoff_sleep_modal_open(true, ctx);
                 });
                 ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            OpenChatGPTPlanModal => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_chatgpt_plan_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            ResetChatGPTPlanModalState => {
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .did_show_chatgpt_plan_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!("Failed to reset ChatGPT plan modal shown setting: {e}");
-                    }
-                });
-                log::info!("ChatGPT plan modal shown state has been reset");
             }
             #[cfg(debug_assertions)]
             ResetAutoHandoffSleepModalState => {
@@ -24574,98 +24118,6 @@ impl TypedActionView for Workspace {
                         ctx,
                     );
                 });
-            }
-            #[cfg(debug_assertions)]
-            ResetOrchestrationLaunchModalState => {
-                let old_value =
-                    *AISettings::as_ref(ctx).did_check_to_trigger_orchestration_launch_modal;
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .did_check_to_trigger_orchestration_launch_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!(
-                            "Failed to reset orchestration launch modal dismissed setting: {e}"
-                        );
-                    }
-                });
-                let new_value =
-                    *AISettings::as_ref(ctx).did_check_to_trigger_orchestration_launch_modal;
-                log::info!(
-                    "Orchestration launch modal state: old={old_value}, new={new_value}, feature_flag_enabled={}",
-                    FeatureFlag::OrchestrationLaunchModal.is_enabled()
-                );
-            }
-            #[cfg(debug_assertions)]
-            OpenAgentCliLaunchModal => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_agent_cli_launch_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            ResetAgentCliLaunchModalState => {
-                let old_value =
-                    *AISettings::as_ref(ctx).did_check_to_trigger_agent_cli_launch_modal;
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .did_check_to_trigger_agent_cli_launch_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!(
-                            "Failed to reset Warp Agent CLI launch modal dismissed setting: {e}"
-                        );
-                    }
-                });
-                let new_value =
-                    *AISettings::as_ref(ctx).did_check_to_trigger_agent_cli_launch_modal;
-                log::info!(
-                    "Warp Agent CLI launch modal state: old={old_value}, new={new_value}, feature_flag_enabled={}",
-                    FeatureFlag::AgentCliLaunchModal.is_enabled()
-                );
-            }
-            #[cfg(debug_assertions)]
-            OpenFreeAiRemovalModal => {
-                OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                    model.force_open_free_ai_removal_modal(ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(debug_assertions)]
-            ResetFreeAiRemovalModalState => {
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .did_check_to_trigger_free_ai_removal_modal
-                        .set_value(false, ctx)
-                    {
-                        log::warn!("Failed to reset free AI removal modal seen setting: {e}");
-                    }
-                });
-                log::info!("Free AI removal modal seen state has been reset");
-            }
-            #[cfg(debug_assertions)]
-            OpenFeatureIntroModal => {
-                if let Some(id) = crate::workspace::view::feature_intro_modal::FEATURE_INTROS
-                    .first()
-                    .map(|intro| intro.id)
-                {
-                    OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-                        model.force_open_feature_intro(id, ctx);
-                    });
-                    ctx.notify();
-                }
-            }
-            #[cfg(debug_assertions)]
-            ResetFeatureIntroModalState => {
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .seen_feature_intro_ids
-                        .set_value(Default::default(), ctx)
-                    {
-                        log::warn!("Failed to reset feature intro seen state: {e}");
-                    }
-                });
-                log::info!("Feature intro seen state has been reset");
             }
             #[cfg(target_os = "macos")]
             SampleProcess => {
@@ -26015,32 +25467,8 @@ impl View for Workspace {
         let one_time_modal_model = OneTimeModalModel::as_ref(app);
         let should_show_modal = one_time_modal_model.target_window_id() == Some(self.window_id);
 
-        if should_show_modal && one_time_modal_model.is_oz_launch_modal_open() {
-            stack.add_child(ChildView::new(&self.oz_launch_modal.view).finish());
-        }
-
-        if should_show_modal && one_time_modal_model.is_openwarp_launch_modal_open() {
-            stack.add_child(ChildView::new(&self.openwarp_launch_modal).finish());
-        }
-
-        if should_show_modal && one_time_modal_model.is_orchestration_launch_modal_open() {
-            stack.add_child(ChildView::new(&self.orchestration_launch_modal).finish());
-        }
-
-        if should_show_modal && one_time_modal_model.is_agent_cli_launch_modal_open() {
-            stack.add_child(ChildView::new(&self.agent_cli_launch_modal).finish());
-        }
-
         if should_show_modal && one_time_modal_model.is_auto_handoff_sleep_modal_open() {
             stack.add_child(ChildView::new(&self.auto_handoff_sleep_modal).finish());
-        }
-
-        if should_show_modal && one_time_modal_model.is_chatgpt_plan_modal_open() {
-            stack.add_child(ChildView::new(&self.chatgpt_plan_modal).finish());
-        }
-
-        if should_show_modal && one_time_modal_model.is_free_ai_removal_modal_open() {
-            stack.add_child(ChildView::new(&self.free_ai_removal_modal).finish());
         }
 
         if let Some(hoa_flow) = &self.hoa_onboarding_flow {
@@ -26407,40 +25835,12 @@ impl View for Workspace {
         // the input box (or the window corner when there is no input). Pinned to
         // the tab that first received it so it does not follow tab switches.
         // Added before the changelog chip below so the chip renders above it.
-        let show_feature_intro = self.is_feature_intro_visible_on_active_tab(app);
-        if show_feature_intro {
-            let positioning = match &input_position_id {
-                Some(input_position_id) => {
-                    self.update_toast_positioning(input_position_id.clone(), app)
-                }
-                None => OffsetPositioning::offset_from_parent(
-                    vec2f(-16., -16.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::BottomRight,
-                    ChildAnchor::BottomRight,
-                ),
-            };
-            stack.add_positioned_overlay_child(
-                SavePosition::new(
-                    ChildView::new(&self.feature_intro_modal).finish(),
-                    FEATURE_INTRO_MODAL_POSITION_ID,
-                )
-                .finish(),
-                positioning,
-            );
-        }
 
         if let Some(input_position_id) = input_position_id
             && FeatureFlag::AvatarInTabBar.is_enabled()
             && self.is_input_box_visible(app)
         {
-            // When the feature-intro popover is visible, float the changelog chip
-            // just above it instead of anchoring it to the input box.
-            let positioning = if show_feature_intro {
-                self.feature_intro_chip_positioning()
-            } else {
-                self.update_toast_positioning(input_position_id, app)
-            };
+            let positioning = self.update_toast_positioning(input_position_id, app);
             stack.add_positioned_overlay_child(
                 ChildView::new(&self.update_toast_stack).finish(),
                 positioning,

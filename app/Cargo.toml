@@ -608,10 +608,6 @@ default = [
     "agent_view_block_context",
     "agent_view_conversation_list_view",
     "inline_model_selector",
-    "oz_launch_modal",
-    "open_warp_launch_modal",
-    "orchestration_launch_modal",
-    "agent_cli_launch_modal",
     "new_tab_styling",
     "richtext_multiselect",
     "web_fetch_ui",
@@ -931,10 +927,6 @@ lsp_as_a_tool = []
 inline_model_selector = ["agent_view"]
 oz_platform_skills = []
 oz_identity_federation = []
-oz_launch_modal = []
-open_warp_launch_modal = []
-orchestration_launch_modal = []
-agent_cli_launch_modal = []
 new_tab_styling = []
 file_based_mcp = []
 skill_arguments = []

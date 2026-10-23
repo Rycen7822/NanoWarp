@@ -54,7 +54,7 @@ use crate::settings::{
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
 use crate::workflows::manager::WorkflowManager;
-use crate::workspace::{OneTimeModalModel, Workspace, WorkspaceAction};
+use crate::workspace::{Workspace, WorkspaceAction};
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::{
     GlobalResourceHandlesProvider, focus_running_window_and_show_native_modal, persistence,
@@ -264,7 +264,6 @@ pub fn log_out(app: &mut AppContext) {
     if FeatureFlag::ChatGPTSubscription.is_enabled() {
         ChatGPTSubscriptionModel::handle(app).update(app, |model, ctx| model.reset(ctx));
     }
-    OneTimeModalModel::handle(app).update(app, |model, _| model.on_log_out());
     BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
         history_model.reset();
     });

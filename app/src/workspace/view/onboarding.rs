@@ -134,9 +134,6 @@ impl Workspace {
             AgentOnboardingVersion::UniversalInput { has_project }
         });
         self.dispatch_onboarding(TerminalAction::OnboardingFlow(version), ctx);
-        OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-            model.set_onboarding_tutorial_active(true, ctx);
-        });
     }
 
     /// Starts a tutorial that was held back by a one-time modal, now that the modal closed.

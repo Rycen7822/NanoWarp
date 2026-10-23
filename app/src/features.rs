@@ -379,14 +379,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::OzChangelogUpdates,
         #[cfg(feature = "bundled_skills")]
         FeatureFlag::BundledSkills,
-        #[cfg(feature = "oz_launch_modal")]
-        FeatureFlag::OzLaunchModal,
-        #[cfg(feature = "open_warp_launch_modal")]
-        FeatureFlag::OpenWarpLaunchModal,
-        #[cfg(feature = "orchestration_launch_modal")]
-        FeatureFlag::OrchestrationLaunchModal,
-        #[cfg(feature = "agent_cli_launch_modal")]
-        FeatureFlag::AgentCliLaunchModal,
         #[cfg(feature = "new_tab_styling")]
         FeatureFlag::NewTabStyling,
         #[cfg(feature = "skill_arguments")]

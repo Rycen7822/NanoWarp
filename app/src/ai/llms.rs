@@ -90,9 +90,6 @@ pub enum ByoKeySource {
     ChatGPTSubscription,
 }
 
-/// Where a user with a connected ChatGPT subscription can review that subscription's usage.
-pub const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
-
 /// Returns the first-party key source that will be used for this provider.
 /// Member-provided keys win when team policy allows them; otherwise a
 /// configured team-managed key is used when available.
