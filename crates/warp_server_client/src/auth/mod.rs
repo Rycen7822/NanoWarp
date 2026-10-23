@@ -65,7 +65,6 @@ struct AgentIdentitiesResponse {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SyncedUserSettings {
     pub is_cloud_conversation_storage_enabled: bool,
-    pub is_crash_reporting_enabled: bool,
     pub is_telemetry_enabled: bool,
 }
 
@@ -128,8 +127,6 @@ pub trait AuthClient: Send + Sync {
     async fn get_user_settings(&self) -> Result<Option<SyncedUserSettings>>;
 
     async fn set_is_telemetry_enabled(&self, value: bool) -> Result<()>;
-
-    async fn set_is_crash_reporting_enabled(&self, value: bool) -> Result<()>;
 
     async fn set_is_cloud_conversation_storage_enabled(&self, value: bool) -> Result<()>;
 
@@ -321,7 +318,6 @@ impl AuthClient for AuthClientImpl {
                     .map(|settings| SyncedUserSettings {
                         is_cloud_conversation_storage_enabled: settings
                             .is_cloud_conversation_storage_enabled,
-                        is_crash_reporting_enabled: settings.is_crash_reporting_enabled,
                         is_telemetry_enabled: settings.is_telemetry_enabled,
                     }))
             }
@@ -338,17 +334,6 @@ impl AuthClient for AuthClientImpl {
                 ..Default::default()
             },
             "failed to set telemetry enabled",
-        )
-        .await
-    }
-
-    async fn set_is_crash_reporting_enabled(&self, value: bool) -> Result<()> {
-        self.update_settings(
-            UpdateUserSettingsInput {
-                crash_reporting_enabled: Some(value),
-                ..Default::default()
-            },
-            "failed to set crash reporting enabled",
         )
         .await
     }

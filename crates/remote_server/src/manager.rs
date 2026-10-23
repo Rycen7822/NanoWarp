@@ -2260,7 +2260,6 @@ impl RemoteServerManager {
                 InitializeParams {
                     user_id: auth_context.user_id().to_owned(),
                     user_email: auth_context.user_email().to_owned(),
-                    crash_reporting_enabled: auth_context.crash_reporting_enabled(),
                     codebase_index_limits,
                 },
             )

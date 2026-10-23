@@ -20,8 +20,7 @@ impl AntivirusInfo {
     }
 
     /// Returns the currently running antivirus software if any.
-    /// If called before the antivirus is computed (i.e. before
-    /// [`AntivirusInfoEvent::ScannedComplete`] is emitted), this function returns [`None`].
+    /// Returns [`None`] until the scan finishes.
     ///
     /// ## Platform-specific
     /// This function always returns `None` on non-Windows platforms.
@@ -30,13 +29,8 @@ impl AntivirusInfo {
     }
 }
 
-pub enum AntivirusInfoEvent {
-    #[allow(dead_code)]
-    ScannedComplete,
-}
-
 impl Entity for AntivirusInfo {
-    type Event = AntivirusInfoEvent;
+    type Event = ();
 }
 
 impl SingletonEntity for AntivirusInfo {}

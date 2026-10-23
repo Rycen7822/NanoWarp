@@ -62,7 +62,6 @@ brew update
 
 brew install jq
 brew install shellcheck
-brew install getsentry/tools/sentry-cli
 brew install clang-format
 brew install create-dmg
 brew install multitime

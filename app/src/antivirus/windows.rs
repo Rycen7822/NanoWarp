@@ -5,8 +5,8 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::System::SecurityCenter::*;
 
+use crate::antivirus::AntivirusInfo;
 use crate::antivirus::telemetry::AntivirusInfoTelemetryEvent;
-use crate::antivirus::{AntivirusInfo, AntivirusInfoEvent};
 
 impl AntivirusInfo {
     #[cfg(windows)]
@@ -63,8 +63,6 @@ impl AntivirusInfo {
         }
 
         self.0 = software;
-
-        ctx.emit(AntivirusInfoEvent::ScannedComplete);
     }
 }
 

@@ -17,7 +17,6 @@ use crate::remote_server::auth_context::server_api_auth_context;
 use crate::remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
 use crate::remote_server::ssh_transport::SshTransport;
 use crate::server::server_api::ServerApiProvider;
-use crate::settings::PrivacySettings;
 use crate::terminal::model::session::{IsSSHWrapperSession, SessionInfo};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::warpify::settings::{SshExtensionInstallMode, WarpifySettings};
@@ -540,21 +539,11 @@ impl<T: EventLoopSender> RemoteServerController<T> {
         }
     }
 
-    /// Builds a fresh [`RemoteServerAuthContext`] that captures the current
-    /// crash-reporting preference from [`PrivacySettings`], so each
-    /// connection attempt uses the latest value without requiring a
-    /// long-lived cache or subscription.
+    /// Builds a fresh [`RemoteServerAuthContext`] for the current app identity.
     fn build_auth_context(&self, ctx: &ModelContext<Self>) -> Arc<RemoteServerAuthContext> {
         let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
         let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
-        let crash_reporting_enabled = PrivacySettings::handle(ctx)
-            .as_ref(ctx)
-            .is_crash_reporting_enabled;
-        Arc::new(server_api_auth_context(
-            auth_state,
-            auth_client,
-            crash_reporting_enabled,
-        ))
+        Arc::new(server_api_auth_context(auth_state, auth_client))
     }
 
     fn connect_session_for_current_identity(

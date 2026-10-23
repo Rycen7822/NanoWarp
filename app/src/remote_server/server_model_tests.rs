@@ -160,7 +160,6 @@ fn initialize_with_auth_token_stores_token() {
             auth_token: "initial-token".to_string(),
             user_id: "test-user-id".to_string(),
             user_email: "test@example.com".to_string(),
-            crash_reporting_enabled: true,
             codebase_index_limits: None,
         });
 
@@ -184,7 +183,6 @@ fn empty_initialize_clears_auth_context() {
             auth_token: "initial-token".to_string(),
             user_id: "test-user-id".to_string(),
             user_email: "test@example.com".to_string(),
-            crash_reporting_enabled: true,
             codebase_index_limits: None,
         });
 
@@ -192,7 +190,6 @@ fn empty_initialize_clears_auth_context() {
             auth_token: String::new(),
             user_id: String::new(),
             user_email: String::new(),
-            crash_reporting_enabled: true,
             codebase_index_limits: None,
         });
 
@@ -210,7 +207,6 @@ fn authenticate_with_auth_token_replaces_auth_token() {
             auth_token: "initial-token".to_string(),
             user_id: String::new(),
             user_email: String::new(),
-            crash_reporting_enabled: true,
             codebase_index_limits: None,
         });
 
@@ -230,7 +226,6 @@ fn empty_authenticate_clears_auth_token() {
             auth_token: "initial-token".to_string(),
             user_id: String::new(),
             user_email: String::new(),
-            crash_reporting_enabled: true,
             codebase_index_limits: None,
         });
 

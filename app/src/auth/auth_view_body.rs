@@ -134,7 +134,6 @@ pub enum AuthViewBodyAction {
     ShowOverlay(AuthViewOverlay),
     HideOverlay,
     ToggleTelemetry,
-    ToggleCrashReporting,
     ToggleCloudConversationStorage,
     Close,
 }
@@ -245,7 +244,6 @@ impl AuthViewBody {
     fn privacy_settings_actions(&self) -> PrivacySettingsActions<AuthViewBodyAction> {
         PrivacySettingsActions {
             toggle_telemetry: AuthViewBodyAction::ToggleTelemetry,
-            toggle_crash_reporting: AuthViewBodyAction::ToggleCrashReporting,
             toggle_cloud_conversation_storage: AuthViewBodyAction::ToggleCloudConversationStorage,
             hide_overlay: AuthViewBodyAction::HideOverlay,
         }
@@ -955,16 +953,6 @@ impl TypedActionView for AuthViewBody {
                 ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
                     privacy_settings
                         .set_is_telemetry_enabled(!privacy_settings.is_telemetry_enabled, ctx);
-                });
-                ctx.notify();
-            }
-            AuthViewBodyAction::ToggleCrashReporting => {
-                let privacy_settings_handle = PrivacySettings::handle(ctx);
-                ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
-                    privacy_settings.set_is_crash_reporting_enabled(
-                        !privacy_settings.is_crash_reporting_enabled,
-                        ctx,
-                    );
                 });
                 ctx.notify();
             }

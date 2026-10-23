@@ -19,7 +19,7 @@ trap cleanup EXIT
 
 # By default we build dev bundles.
 RELEASE_CHANNEL="dev"
-FEATURES="release_bundle,crash_reporting"
+FEATURES="release_bundle"
 EXTRA_FEATURES=""
 PACKAGES=( appimage )
 BUILD="true"
@@ -182,9 +182,6 @@ elif [[ $RELEASE_CHANNEL = "oss" ]]; then
   WARP_BIN="warp-oss"
   BINARY_NAME="warp-oss"
   APP_NAME="WarpOss"
-  # The OSS channel does not ship Sentry, so drop the crash_reporting feature
-  # (which would otherwise pull in the Sentry SDK as a dependency).
-  FEATURES="release_bundle"
 fi
 
 # All channels ship the v3 classifier and v2 heuristic.

@@ -70,7 +70,7 @@ pub fn run_daemon(_identity_key: String) -> anyhow::Result<()> {
     anyhow::bail!("remote-server-daemon is not supported on this platform")
 }
 
-/// Forwards app auth-token rotation and privacy preference change events
+/// Forwards app auth-token rotation and codebase index limit change events
 /// to the remote-server manager.
 #[cfg(not(target_family = "wasm"))]
 pub fn wire_auth_token_rotation(ctx: &mut warpui::AppContext) {
@@ -88,33 +88,15 @@ pub fn wire_auth_token_rotation(ctx: &mut warpui::AppContext) {
         }
     });
 
-    // Forward crash reporting preference changes to all connected daemons.
-    use crate::settings::{PrivacySettings, PrivacySettingsChangedEvent};
-    let privacy_settings = PrivacySettings::handle(ctx);
-    let manager = RemoteServerManager::handle(ctx);
-    ctx.subscribe_to_model(&privacy_settings, move |_, event, ctx| {
-        if let &PrivacySettingsChangedEvent::UpdateIsCrashReportingEnabled { new_value, .. } = event
-        {
-            let codebase_index_limits = current_codebase_index_limits(ctx);
-            manager.update(ctx, |manager, _| {
-                manager.update_codebase_index_limits(Some(codebase_index_limits));
-            });
-            for client in manager.as_ref(ctx).all_connected_clients() {
-                client.update_preferences(new_value, Some(codebase_index_limits));
-            }
-        }
-    });
-
     let request_usage = AIRequestUsageModel::handle(ctx);
     let manager = RemoteServerManager::handle(ctx);
     ctx.subscribe_to_model(&request_usage, move |_, event, ctx| {
         if matches!(event, AIRequestUsageModelEvent::RequestUsageUpdated) {
             let codebase_index_limits = current_codebase_index_limits(ctx);
-            let crash_reporting_enabled = PrivacySettings::as_ref(ctx).is_crash_reporting_enabled;
             manager.update(ctx, |manager, _| {
                 manager.update_codebase_index_limits(Some(codebase_index_limits));
                 for client in manager.all_connected_clients() {
-                    client.update_preferences(crash_reporting_enabled, Some(codebase_index_limits));
+                    client.update_preferences(Some(codebase_index_limits));
                 }
             });
         }

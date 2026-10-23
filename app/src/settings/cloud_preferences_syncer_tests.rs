@@ -187,7 +187,7 @@ fn expect_sync_preferences_setting(server_api: &mut MockObjectClient) -> Vec<Cli
 }
 
 fn expect_sync_server_stored_privacy_settings(server_api: &mut MockObjectClient) -> Vec<ClientId> {
-    expect_bulk_create_generic_string_objects(server_api, 4)
+    expect_bulk_create_generic_string_objects(server_api, 2)
 }
 
 async fn spawned_sync_queue_future_at_index(app: &mut App, index: usize) {
@@ -209,8 +209,8 @@ async fn wait_for_num_spawned_futures(app: &mut App, expected_num: usize, messag
 
 async fn await_spawned_futures(app: &mut App, num_futures: usize, message: &str) {
     wait_for_num_spawned_futures(app, num_futures, message).await;
-    for _ in 0..num_futures {
-        spawned_sync_queue_future_at_index(app, 0).await;
+    for index in 0..num_futures {
+        spawned_sync_queue_future_at_index(app, index).await;
     }
 }
 
@@ -231,6 +231,10 @@ fn random_server_id() -> ServerId {
 /// Creates a MockObjectClient with base expectations needed for tests that call mock_initial_load.
 fn mock_object_client_with_base_expectations() -> MockObjectClient {
     let mut server_api = MockObjectClient::new();
+    // Ignore the unrelated background poller without replacing manually loaded objects.
+    server_api
+        .expect_fetch_changed_objects()
+        .returning(|_, _| Err(anyhow::anyhow!("Ignoring background refresh in tests")));
     // Mock environment timestamps fetch - called during mock_initial_load
     server_api
         .expect_fetch_environment_last_task_run_timestamps()
@@ -317,7 +321,7 @@ fn test_sync_local_pref_to_cloud_after_initial_sync_creates_prefs_setting() {
         // Wait for the syncer to create the preferences and privacy settings.
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the preferences and privacy settings",
         )
         .await;
@@ -444,7 +448,7 @@ fn test_sync_local_pref_to_cloud_after_initial_sync() {
             })
         });
 
-        let expected_num_create_requests = if is_mac || is_linux { 5 } else { 4 };
+        let expected_num_create_requests = if is_mac || is_linux { 4 } else { 3 };
         await_spawned_futures(
             &mut app,
             expected_num_create_requests,
@@ -468,8 +472,8 @@ fn run_initial_sync_test(is_onboarded: bool) {
         let mut all_client_ids = expect_sync_preferences_setting(&mut server_api);
 
         if !is_onboarded {
-            // Only sync other settings if the user isn't onboarded (e.g. is a first time user)
-            let expected_num_other_settings_client_ids = if is_mac || is_linux { 6 } else { 5 };
+            // First-time users also upload the explicitly persisted global and platform settings.
+            let expected_num_other_settings_client_ids = if is_mac || is_linux { 3 } else { 2 };
             all_client_ids.append(&mut expect_bulk_create_generic_string_objects(
                 &mut server_api,
                 expected_num_other_settings_client_ids,
@@ -492,13 +496,6 @@ fn run_initial_sync_test(is_onboarded: bool) {
                         },
                     })
                 });
-        }
-
-        if !is_onboarded {
-            server_api
-                .expect_fetch_changed_objects()
-                .times(1)
-                .return_once(move |_, _| Ok(InitialLoadResponse::default()));
         }
 
         let UpdateManagerStruct { update_manager, .. } =
@@ -543,7 +540,7 @@ fn run_initial_sync_test(is_onboarded: bool) {
         // Spend time waiting for the initial load to finish etc.
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
 
-        let expected_num_spawned_futures = if !is_onboarded { 4 } else { 3 };
+        let expected_num_spawned_futures = if !is_onboarded { 3 } else { 2 };
         await_spawned_futures(
             &mut app,
             expected_num_spawned_futures,
@@ -606,12 +603,6 @@ fn test_sync_local_pref_to_cloud_updates_existing_pref() {
             &mut server_api,
         ));
 
-        // Add missing fetch_changed_objects expectation
-        server_api
-            .expect_fetch_changed_objects()
-            .times(1)
-            .return_once(move |_, _| Ok(InitialLoadResponse::default()));
-
         // Expect updating a single cloud setting
         server_api
             .expect_update_generic_string_object()
@@ -655,10 +646,10 @@ fn test_sync_local_pref_to_cloud_updates_existing_pref() {
         // Give the initial load time to complete
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
 
-        // complete the create request for the cloud settings and the telemetry/crash reporting settings
+        // complete the create request for the cloud settings and remaining privacy settings
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;
@@ -677,8 +668,8 @@ fn test_sync_local_pref_to_cloud_updates_existing_pref() {
         // Give the update time to spawn futures
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
 
-        assert_num_spawned_futures(&mut app, 4, "expect the syncer to send an update request");
-        spawned_sync_queue_future_at_index(&mut app, 3).await;
+        assert_num_spawned_futures(&mut app, 3, "expect the syncer to send an update request");
+        spawned_sync_queue_future_at_index(&mut app, 2).await;
     })
 }
 
@@ -747,10 +738,10 @@ fn test_sync_cloud_pref_to_local_on_initial_load_or_collab_update() {
         // Spend time waiting for the initial load to finish etc.
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
 
-        // complete the create request for the cloud settings and the telemetry/crash reporting settings
+        // complete the create request for the cloud settings and remaining privacy settings
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;
@@ -912,10 +903,10 @@ fn test_cloud_preferences_setting_initial_load_skipped_when_setting_is_off() {
         // Spend time waiting for the initial load to finish etc.
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
 
-        // complete the create request for the cloud settings and the telemetry/crash reporting settings
+        // complete the create request for the cloud settings and remaining privacy settings
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;
@@ -980,7 +971,7 @@ fn test_sync_local_pref_to_cloud_doesnt_update_equal_pref() {
         // Complete the create request for cloud prefs syncing
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;
@@ -1004,7 +995,7 @@ fn test_sync_local_pref_to_cloud_doesnt_update_equal_pref() {
             });
         });
 
-        assert_num_spawned_futures(&mut app, 3, "should not be any additional requests");
+        assert_num_spawned_futures(&mut app, 2, "should not be any additional requests");
 
         app.update(|ctx| {
             TestSettings::handle(ctx).update(ctx, |test_settings, ctx| {
@@ -1020,9 +1011,9 @@ fn test_sync_local_pref_to_cloud_doesnt_update_equal_pref() {
             });
         });
 
-        // Complete the second update request (fourth total request)
-        assert_num_spawned_futures(&mut app, 4, "should be an update request");
-        spawned_sync_queue_future_at_index(&mut app, 3).await;
+        // Complete the update request after the two initial create batches.
+        assert_num_spawned_futures(&mut app, 3, "should be an update request");
+        spawned_sync_queue_future_at_index(&mut app, 2).await;
     })
 }
 
@@ -1067,7 +1058,7 @@ fn test_cloud_preferences_setting_enabling_setting_syncs_prefs() {
 
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;
@@ -1082,8 +1073,8 @@ fn test_cloud_preferences_setting_enabling_setting_syncs_prefs() {
         });
 
         // complete the create request for the new synced setting
-        assert_num_spawned_futures(&mut app, 4, "should be an additional create request");
-        spawned_sync_queue_future_at_index(&mut app, 3).await;
+        assert_num_spawned_futures(&mut app, 3, "should be an additional create request");
+        spawned_sync_queue_future_at_index(&mut app, 2).await;
     })
 }
 
@@ -1102,7 +1093,9 @@ fn test_cloud_pref_not_synced_when_current_value_not_syncable() {
         let settings_object_id: GenericStringObjectId = 123.into();
         let initial_load = initial_load_response_with_cloud_settings(vec![SettingToLoad {
             id: settings_object_id,
-            serialized_preference: "{\"storage_key\":\"non_value_syncable_setting\",\"value\":true,\"platform\":\"Global\"}".to_owned(),
+            serialized_preference:
+                "{\"storage_key\":\"NonValueSyncable\",\"value\":true,\"platform\":\"Global\"}"
+                    .to_owned(),
         }]);
 
         let UpdateManagerStruct { update_manager, .. } =
@@ -1136,7 +1129,7 @@ fn test_cloud_pref_not_synced_when_current_value_not_syncable() {
 
         // Run any spawned futures
         warpui::r#async::Timer::after(Duration::from_secs(1)).await;
-        await_spawned_futures(&mut app, 3, "initial load").await;
+        await_spawned_futures(&mut app, 2, "initial load").await;
 
         // Verify that the local value remains false and wasn't synced from cloud's true
         app.read(|ctx| {
@@ -1219,7 +1212,7 @@ fn test_ensure_no_duplicate_cloud_prefs() {
         // Wait for the initial creation of cloud settings and telemetry settings
         await_spawned_futures(
             &mut app,
-            3,
+            2,
             "expect the syncer to create the initial settings",
         )
         .await;

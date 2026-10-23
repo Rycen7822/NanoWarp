@@ -142,7 +142,6 @@ log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 lsp.workspace = true
 warp_logging.workspace = true
 warp_harness_usage.workspace = true
-sentry = { workspace = true, optional = true }
 lz4_flex = "0.11"
 markdown_parser.workspace = true
 mcp.workspace = true
@@ -173,7 +172,6 @@ regex-automata.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 rust-embed.workspace = true
-sentry-log = { workspace = true, optional = true }
 inventory = "0.3"
 schemars = "1"
 secret_redaction.workspace = true
@@ -375,10 +373,6 @@ nix = { workspace = true, features = [
     "mman",
 ] }
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
-crash-handler = { version = "0.6.3", optional = true }
-minidumper = { version = "0.8.3", optional = true }
-
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 freedesktop-desktop-entry = "0.5.0"
 x11rb.workspace = true
@@ -472,18 +466,7 @@ ask_user_question = []
 async_find = []
 clear_autosuggestion_on_escape = []
 codebase_index_speedbump = []
-cocoa_sentry = ["crash_reporting"]
 context_line_review_comments = []
-crash_reporting = [
-    "dep:sentry",
-    "dep:sentry-log",
-    "dep:minidumper",
-    "dep:crash-handler",
-    "warp_logging/crash_reporting",
-    "warp_errors/crash_reporting",
-    "warp_terminal/crash_reporting",
-    "ai/crash_reporting",
-]
 creating_shared_sessions = []
 cross_repo_context = []
 codebase_index_persistence = ["full_source_code_embedding"]
@@ -730,7 +713,7 @@ allow_ignoring_input_suggestions = []
 # profile report when app memory usage exceeds a 10GB threshold.
 #
 # Enabled on WarpDev by default.
-heap_usage_tracking = ["jemalloc_pprof", "crash_reporting"]
+heap_usage_tracking = ["jemalloc_pprof"]
 image_as_context = []
 in_band_generators_ssh = []
 jemalloc = ["dep:tikv-jemallocator", "ai/jemalloc"]
@@ -760,7 +743,6 @@ local_fs = [
     "warp_core/local_fs",
     "warp_terminal/local_fs",
 ]
-log_expensive_frames_in_sentry = []
 jupyter_notebook_rendering = []
 markdown_tables = []
 markdown_mermaid = []

@@ -3,8 +3,6 @@ use std::collections::HashMap;
 
 use ::settings::Setting as _;
 use cfg_if::cfg_if;
-use lazy_static::lazy_static;
-use parking_lot::RwLock;
 use warp_cli::RecoveryMechanism;
 use warp_core::channel::{Channel, ChannelState};
 use warp_errors::{report_error, report_if_error};
@@ -16,21 +14,10 @@ use crate::settings;
 /// Keep in sync with [`warp_cli::AppArgs`].
 pub const RECOVERY_MECHANISM_ARG: &str = "crash-recovery-mechanism";
 
-lazy_static! {
-    static ref IS_CRASH_RECOVERY_PROCESS_RUNNING: RwLock<bool> = RwLock::new(false);
-}
-
-#[cfg_attr(not(feature = "crash_reporting"), allow(dead_code))]
-pub fn is_crash_recovery_process_running() -> bool {
-    *IS_CRASH_RECOVERY_PROCESS_RUNNING.read()
-}
-
 pub enum Event {
     /// User has acknowledged the fact that the application crashed and
     /// recovered from the crash.
     UserAcknowledgedCrash,
-    /// The crash recovery process was successfully torn down.
-    CrashRecoveryProcessTornDown,
 }
 
 /// Returns true if this process is the crash recovery process.
@@ -53,7 +40,7 @@ struct CrashRecoveryProcess {
     /// The number of successful frames drawn per window.
     successful_frames_per_window: HashMap<WindowId, usize>,
     /// The current sequence of successful and unsuccessful frames seen per window. We log this to
-    /// Sentry before hard exiting if we have received too many consecutive frame drawn errors.
+    /// the local log before hard exiting after too many consecutive frame draw errors.
     sequence_of_renders_per_window: HashMap<WindowId, Vec<DrawFrameResult>>,
     is_alive: bool,
 }
@@ -78,7 +65,6 @@ impl CrashRecoveryProcess {
         let _ = self.process.kill();
         let _ = self.process.wait();
 
-        *IS_CRASH_RECOVERY_PROCESS_RUNNING.write() = false;
         self.is_alive = false;
         warp_logging::on_crash_recovery_process_killed();
     }
@@ -108,10 +94,6 @@ impl CrashRecoveryProcess {
             report_error!(
                 "Failed to render a frame {NUM_DRAW_ERRORS_BEFORE_EXITING} times in a row; exiting..."
             );
-
-            // Uninitialize sentry (ensuring any remaining events get flushed) before hard exiting.
-            #[cfg(feature = "crash_reporting")]
-            crate::crash_reporting::uninit_sentry();
 
             std::process::exit(1);
         }
@@ -207,7 +189,6 @@ impl CrashRecovery {
                 }
             };
 
-            *IS_CRASH_RECOVERY_PROCESS_RUNNING.write() = true;
             return Self {
                 child_process: RefCell::new(Some(CrashRecoveryProcess::new(child_process))),
                 should_notify_user_about_crash,
@@ -251,19 +232,12 @@ impl CrashRecovery {
         }
     }
 
-    pub fn on_frame_drawn(&self, window_id: WindowId, ctx: &mut ModelContext<Self>) {
+    pub fn on_frame_drawn(&self, window_id: WindowId) {
         let mut child_process_borrow = self.child_process.borrow_mut();
         let mut child_process = child_process_borrow.take();
 
         if let Some(child_process) = child_process.as_mut() {
             child_process.handle_frame_drawn(window_id);
-
-            // If the process is no longer alive, fire a `CrashRecoveryProcessTornDown` event. We
-            // do this here as opposed to below to ensure we only omit the event once as opposed to
-            // on every render.
-            if !child_process.is_alive {
-                ctx.emit(Event::CrashRecoveryProcessTornDown);
-            }
         }
 
         let is_child_process_alive = child_process

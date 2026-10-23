@@ -7,7 +7,6 @@ use crate::agent::Harness;
 
 #[test]
 fn identifies_worker_subcommands() {
-    assert!(is_worker_invocation("minidump-server"));
     #[cfg(unix)]
     assert!(is_worker_invocation(&terminal_server_subcommand()));
     assert!(!is_worker_invocation("--prompt"));

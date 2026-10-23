@@ -155,7 +155,6 @@ pub enum ClientEvent {
 pub struct InitializeParams {
     pub user_id: String,
     pub user_email: String,
-    pub crash_reporting_enabled: bool,
     pub codebase_index_limits: Option<CodebaseIndexLimits>,
 }
 
@@ -367,7 +366,6 @@ impl RemoteServerClient {
                 auth_token: auth_token.unwrap_or_default().to_owned(),
                 user_id: params.user_id,
                 user_email: params.user_email,
-                crash_reporting_enabled: params.crash_reporting_enabled,
                 codebase_index_limits: params.codebase_index_limits,
             }),
         );
@@ -395,16 +393,10 @@ impl RemoteServerClient {
         self.send_notification(msg);
     }
 
-    /// Sends an `UpdatePreferences` notification when the user's privacy
-    /// settings change (e.g. toggling crash reporting).
-    pub fn update_preferences(
-        &self,
-        crash_reporting_enabled: bool,
-        codebase_index_limits: Option<CodebaseIndexLimits>,
-    ) {
+    /// Sends an `UpdatePreferences` notification when codebase index limits change.
+    pub fn update_preferences(&self, codebase_index_limits: Option<CodebaseIndexLimits>) {
         let msg = ClientMessage::notification(notification::Message::UpdatePreferences(
             crate::proto::UpdatePreferences {
-                crash_reporting_enabled,
                 codebase_index_limits,
             },
         ));

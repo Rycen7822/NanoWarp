@@ -10,19 +10,17 @@ type RemoteServerIdentityKeyFn = dyn Fn() -> String + Send + Sync;
 /// are non-secret stable partition keys used to select the remote daemon's
 /// socket/PID directory.
 ///
-/// User identity and privacy preferences are forwarded to the daemon via the
-/// `Initialize` handshake so it can configure Sentry crash reporting.
+/// User identity is forwarded to the daemon via the `Initialize` handshake.
 ///
 /// This keeps the `remote_server` crate decoupled from app-side auth/server API
 /// types while still allowing initial connect and reconnect handshakes to fetch
-/// the current app credential and preferences.
+/// the current app credential and identity.
 #[derive(Clone)]
 pub struct RemoteServerAuthContext {
     get_auth_token: Arc<GetAuthTokenFn>,
     remote_server_identity_key: Arc<RemoteServerIdentityKeyFn>,
     user_id: String,
     user_email: String,
-    crash_reporting_enabled: bool,
 }
 
 impl RemoteServerAuthContext {
@@ -31,14 +29,12 @@ impl RemoteServerAuthContext {
         remote_server_identity_key: impl Fn() -> String + Send + Sync + 'static,
         user_id: String,
         user_email: String,
-        crash_reporting_enabled: bool,
     ) -> Self {
         Self {
             get_auth_token: Arc::new(get_auth_token),
             remote_server_identity_key: Arc::new(remote_server_identity_key),
             user_id,
             user_email,
-            crash_reporting_enabled,
         }
     }
 
@@ -56,9 +52,5 @@ impl RemoteServerAuthContext {
 
     pub fn user_email(&self) -> &str {
         &self.user_email
-    }
-
-    pub fn crash_reporting_enabled(&self) -> bool {
-        self.crash_reporting_enabled
     }
 }
