@@ -193,10 +193,6 @@ impl ChangelogModel {
             }
         }
     }
-
-    pub fn is_check_pending(&self) -> bool {
-        matches!(self.changelog, ChangelogState::Pending)
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

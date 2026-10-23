@@ -14,7 +14,6 @@ pub struct CreateAnonymousUserVariables {
 pub struct CreateAnonymousUserInput {
     pub anonymous_user_type: AnonymousUserType,
     pub expiration_type: AnonymousUserExpirationType,
-    pub referral_code: Option<String>,
 }
 
 #[derive(cynic::QueryFragment, Debug)]
@@ -36,7 +35,6 @@ pub struct CreateAnonymousUserOutput {
     pub anonymous_user_type: AnonymousUserType,
     pub firebase_uid: String,
     pub id_token: String,
-    pub is_invite_valid: bool,
     pub response_context: ResponseContext,
 }
 

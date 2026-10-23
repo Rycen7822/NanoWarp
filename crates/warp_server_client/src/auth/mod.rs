@@ -86,7 +86,6 @@ pub trait AuthClient: Send + Sync {
     /// to interact with particular features.
     async fn create_anonymous_user(
         &self,
-        referral_code: Option<String>,
         anonymous_user_type: AnonymousUserType,
     ) -> Result<CreateAnonymousUserResult>;
 
@@ -205,14 +204,12 @@ impl AuthClientImpl {
 impl AuthClient for AuthClientImpl {
     async fn create_anonymous_user(
         &self,
-        referral_code: Option<String>,
         anonymous_user_type: AnonymousUserType,
     ) -> Result<CreateAnonymousUserResult> {
         let operation = CreateAnonymousUser::build(CreateAnonymousUserVariables {
             input: warp_graphql::mutations::create_anonymous_user::CreateAnonymousUserInput {
                 anonymous_user_type,
                 expiration_type: warp_graphql::mutations::create_anonymous_user::AnonymousUserExpirationType::NoExpiration,
-                referral_code,
             },
             request_context: warp_graphql::client::get_request_context(),
         });
