@@ -1435,7 +1435,6 @@ pub enum TelemetryEvent {
         max_bytes_per_second: usize,
     },
     DuplicateObject(TelemetryCloudObjectType),
-    ExportObject(TelemetryCloudObjectType),
     DriveSharingOnboardingBlockShown,
     CommandFileRun,
     PageUpDownInEditorPressed {
@@ -2658,9 +2657,6 @@ impl TelemetryEvent {
             TelemetryEvent::DuplicateObject(object_type) => {
                 Some(json!({ "object_type": object_type }))
             }
-            TelemetryEvent::ExportObject(object_type) => {
-                Some(json!({ "object_type": object_type }))
-            }
             TelemetryEvent::PageUpDownInEditorPressed {
                 is_empty_editor,
                 is_down,
@@ -3797,7 +3793,6 @@ impl TelemetryEvent {
             | TelemetryEvent::UndoClose { .. }
             | TelemetryEvent::PtyThroughput { .. }
             | TelemetryEvent::DuplicateObject(_)
-            | TelemetryEvent::ExportObject(_)
             | TelemetryEvent::DriveSharingOnboardingBlockShown
             | TelemetryEvent::CommandFileRun
             | TelemetryEvent::PageUpDownInEditorPressed { .. }
@@ -4223,7 +4218,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::UpdateSortingChoice => EnablementState::Always,
             Self::UndoClose => EnablementState::Always,
             Self::DuplicateObject => EnablementState::Always,
-            Self::ExportObject => EnablementState::Always,
             Self::CommandFileRun => EnablementState::Always,
             Self::PageUpDownInEditorPressed => EnablementState::Always,
             Self::UnsupportedShell => EnablementState::Always,
@@ -4613,7 +4607,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PromptEdited => "Prompt Edited",
             Self::PtyThroughput => "PTY Throughput",
             Self::DuplicateObject => "Duplicate Object",
-            Self::ExportObject => "Export Object",
             Self::CommandFileRun => "Command File Run",
             Self::PageUpDownInEditorPressed => "Page Up/Down In Editor Pressed",
             Self::StartedSharingCurrentSession => "Started Sharing Current Session",
@@ -5153,7 +5146,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::UndoClose => "Re-opened a closed tab or window (undo closing a tab or window)",
             Self::PtyThroughput => "A sample of the max PTY throughput in bytes/sec",
             Self::DuplicateObject => "Cloned a Warp Drive object",
-            Self::ExportObject => "Exported a Warp Drive object",
             Self::CommandFileRun => {
                 "Opened a .cmd or unix executable file and ran it directly in Warp"
             }

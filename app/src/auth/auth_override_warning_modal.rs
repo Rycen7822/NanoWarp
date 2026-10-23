@@ -40,9 +40,6 @@ impl AuthOverrideWarningModal {
                 }
                 ctx.emit(AuthOverrideWarningModalEvent::Close);
             }
-            AuthOverrideWarningBodyEvent::BulkExport => {
-                ctx.emit(AuthOverrideWarningModalEvent::BulkExport);
-            }
         });
 
         let auth_override_warning_modal = ctx.add_typed_action_view(|ctx| {
@@ -100,7 +97,6 @@ impl AuthOverrideWarningModal {
 #[derive(PartialEq, Eq)]
 pub enum AuthOverrideWarningModalEvent {
     Close,
-    BulkExport,
 }
 
 impl Entity for AuthOverrideWarningModal {

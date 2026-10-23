@@ -8,7 +8,6 @@ use workflow::Workflow;
 
 pub mod command_parser;
 mod env_var_selector;
-pub mod export_workflow;
 pub mod info_box;
 pub mod workflow;
 pub mod workflow_enum;
@@ -233,9 +232,5 @@ impl CloudModelType for CloudWorkflowModel {
             self.cloud_object_type_and_id(id),
             workflow.clone(),
         )))
-    }
-
-    fn can_export(&self) -> bool {
-        true
     }
 }

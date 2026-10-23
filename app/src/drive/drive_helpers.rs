@@ -48,17 +48,6 @@ pub(crate) fn is_feature_gated_anonymous_user_past_notebook_limit(
     )
 }
 
-pub(crate) fn is_feature_gated_anonymous_user_past_workflow_limit(
-    auth_state: &AuthState,
-    num_objects: usize,
-) -> bool {
-    is_feature_gated_anonymous_user_past_limit(
-        auth_state,
-        num_objects,
-        AnonymousUserObjectLimit::Workflow,
-    )
-}
-
 pub(crate) fn is_feature_gated_anonymous_user_past_env_var_limit(
     auth_state: &AuthState,
     num_objects: usize,

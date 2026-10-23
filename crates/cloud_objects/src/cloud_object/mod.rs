@@ -805,7 +805,6 @@ pub enum CloudObjectEventEntrypoint {
     UniversalSearch,
     ManagementUI,
     Blocklist,
-    ImportModal,
     Onboarding,
     #[default]
     Unknown,
@@ -890,7 +889,6 @@ impl From<CloudObjectEventEntrypoint> for warp_graphql::object::CloudObjectEvent
             CloudObjectEventEntrypoint::UniversalSearch => GraphQLEntrypoint::UniversalSearch,
             CloudObjectEventEntrypoint::ManagementUI => GraphQLEntrypoint::DriveIndex,
             CloudObjectEventEntrypoint::Blocklist => GraphQLEntrypoint::Blocklist,
-            CloudObjectEventEntrypoint::ImportModal => GraphQLEntrypoint::ImportModal,
             CloudObjectEventEntrypoint::Onboarding => GraphQLEntrypoint::Onboarding,
             CloudObjectEventEntrypoint::Unknown => GraphQLEntrypoint::Unknown,
         }

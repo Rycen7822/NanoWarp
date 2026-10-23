@@ -1,14 +1,9 @@
 use warpui::integration::TestStep;
 use warpui::{SingletonEntity, async_assert, async_assert_eq};
 
-use crate::cloud_object::model::persistence::CloudModel;
-use crate::cloud_object::{CloudObjectEventEntrypoint, CloudObjectLocation, Space};
 use crate::network::{NetworkStatus, NetworkStatusKind};
 use crate::server::cloud_objects::listener::Listener;
-use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::ids::ClientId;
 use crate::util::bindings::keybinding_name_to_display_string;
-use crate::workflows::workflow::Workflow;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::Workspace;
@@ -90,39 +85,6 @@ pub fn join_a_workspace() -> TestStep {
         .add_assertion(move |app, _| {
             UserWorkspaces::handle(app).read(app, |user_workspaces, _| {
                 async_assert!(user_workspaces.has_workspaces(), "user is on a workspace")
-            })
-        })
-}
-
-pub fn create_a_personal_workflow() -> TestStep {
-    TestStep::new("Create a personal workflow")
-        .with_action(move |app, _, _| {
-            UpdateManager::handle(app).update(app, |update_manager, ctx| {
-                update_manager.create_workflow(
-                    Workflow::new("My first workflow", "ls"),
-                    UserWorkspaces::as_ref(ctx)
-                        .personal_drive(ctx)
-                        .expect("User UID must be set in tests"),
-                    None,
-                    ClientId::default(),
-                    CloudObjectEventEntrypoint::ManagementUI,
-                    true,
-                    ctx,
-                )
-            })
-        })
-        .add_assertion(move |app, _| {
-            CloudModel::handle(app).read(app, |cloud_model, ctx| {
-                async_assert!(
-                    cloud_model
-                        .active_cloud_objects_in_location_without_descendents(
-                            CloudObjectLocation::Space(Space::Personal),
-                            ctx,
-                        )
-                        .count()
-                        > 0,
-                    "cloud objects exist"
-                )
             })
         })
 }

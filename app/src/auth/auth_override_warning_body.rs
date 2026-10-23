@@ -33,8 +33,6 @@ const AUTH_OVERRIDE_CONFIRMATION_WARNING: &str = "This cannot be undone.";
 const AUTH_OVERRIDE_INITIAL_STEP_HEADER: &str = "New login detected";
 const AUTH_OVERRIDE_CONFIRM_CONFIRMATION_STEP_HEADER: &str =
     "Delete personal Warp Drive objects and preferences?";
-const AUTH_OVERRIDE_BULK_EXPORT_BUTTON_LABEL: &str = "Export your data";
-const AUTH_OVERRIDE_BULK_EXPORT_DESCRIPTION: &str = " to import later.";
 const AUTH_OVERRIDE_CANCEL_BUTTON_LABEL: &str = "Cancel";
 const AUTH_OVERRIDE_CONTINUE_BUTTON_LABEL: &str = "Continue";
 
@@ -43,7 +41,6 @@ pub enum AuthOverrideWarningBodyAction {
     Close,
     InitiateAllowLogin,
     ConfirmAllowLogin,
-    BulkExport,
 }
 
 enum AuthOverrideConfirmationStep {
@@ -55,7 +52,6 @@ enum AuthOverrideConfirmationStep {
 struct MouseStateHandles {
     cancel_button_mouse_state_handle: MouseStateHandle,
     continue_button_mouse_state_handle: MouseStateHandle,
-    export_button_mouse_state_handle: MouseStateHandle,
 }
 
 pub struct AuthOverrideWarningBody {
@@ -162,40 +158,7 @@ impl AuthOverrideWarningBody {
                 .with_margin_top(AUTH_MODAL_GAP)
                 .finish();
 
-                let export = Container::new(
-                    Flex::row()
-                        .with_child(
-                            ui_builder
-                                .link(
-                                    AUTH_OVERRIDE_BULK_EXPORT_BUTTON_LABEL.into(),
-                                    None,
-                                    Some(Box::new(|ctx| {
-                                        ctx.dispatch_typed_action(
-                                            AuthOverrideWarningBodyAction::BulkExport,
-                                        );
-                                    })),
-                                    self.mouse_state_handles
-                                        .export_button_mouse_state_handle
-                                        .clone(),
-                                )
-                                .soft_wrap(false)
-                                .build()
-                                .finish(),
-                        )
-                        .with_child(
-                            ui_builder
-                                .span(AUTH_OVERRIDE_BULK_EXPORT_DESCRIPTION)
-                                .with_style(muted_styles)
-                                .build()
-                                .finish(),
-                        )
-                        .finish(),
-                )
-                .with_margin_top(AUTH_MODAL_GAP)
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish();
-
-                vec![description, export]
+                vec![description]
             }
             AuthOverrideConfirmationStep::ConfirmChangeUser => {
                 let confirmation = Container::new(
@@ -336,7 +299,6 @@ impl AuthOverrideWarningBody {
 pub enum AuthOverrideWarningBodyEvent {
     Close,
     AllowLogin,
-    BulkExport,
 }
 
 impl Entity for AuthOverrideWarningBody {
@@ -361,9 +323,6 @@ impl TypedActionView for AuthOverrideWarningBody {
             }
             AuthOverrideWarningBodyAction::ConfirmAllowLogin => {
                 ctx.emit(AuthOverrideWarningBodyEvent::AllowLogin);
-            }
-            AuthOverrideWarningBodyAction::BulkExport => {
-                ctx.emit(AuthOverrideWarningBodyEvent::BulkExport);
             }
         }
     }

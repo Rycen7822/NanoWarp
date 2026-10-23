@@ -1,5 +1,3 @@
-#[cfg(feature = "local_fs")]
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use ai::document::DEFAULT_PLANNING_DOCUMENT_TITLE;
@@ -80,8 +78,6 @@ pub fn init(app: &mut AppContext) {
     )]);
 }
 
-#[cfg(feature = "local_fs")]
-use anyhow::Context as _;
 use warp_errors::report_error;
 #[cfg(feature = "local_fs")]
 use warp_util::path::LineAndColumnArg;
@@ -100,7 +96,6 @@ use crate::util::openable_file_type::FileTarget;
 pub enum AIDocumentAction {
     Close,
     SelectVersion(AIDocumentVersion),
-    Export,
     CopyAsMarkdown,
     OpenVersionMenu,
     CreateWarpDriveNotebook,
@@ -1013,58 +1008,6 @@ impl AIDocumentView {
             report_error!("Failed to create Warp Drive notebook");
         }
     }
-
-    /// Export the current content as a markdown file.
-    #[cfg(feature = "local_fs")]
-    fn export(&self, ctx: &mut ViewContext<Self>) {
-        use warpui::platform::SaveFilePickerConfiguration;
-
-        use crate::drive::export::safe_filename;
-        let markdown = self.editor.as_ref(ctx).markdown_unescaped(ctx);
-
-        // Get the document title from the model
-        let title = AIDocumentModel::as_ref(ctx)
-            .get_current_document(&self.document_id)
-            .map(|doc| doc.title.clone())
-            .unwrap_or_else(|| "Untitled".to_string());
-
-        // Sanitize the title for use as a filename
-        let sanitized_title = safe_filename(&title);
-        let filename = if sanitized_title.is_empty() {
-            "Untitled.md".to_string()
-        } else {
-            format!("{sanitized_title}.md")
-        };
-
-        // Get the default directory from the associated terminal view's pwd
-        let default_directory = self
-            .original_terminal_view
-            .as_ref()
-            .and_then(|terminal_view| terminal_view.as_ref(ctx).pwd().map(PathBuf::from));
-
-        let mut config = SaveFilePickerConfiguration::new().with_default_filename(filename);
-        if let Some(directory) = default_directory {
-            config = config.with_default_directory(directory);
-        }
-
-        ctx.open_save_file_picker(
-            move |path_opt: Option<String>, _me: &mut Self, _ctx: &mut ViewContext<Self>| {
-                if let Some(path) = path_opt
-                    && let Err(e) =
-                        std::fs::write(&path, &markdown).context("Failed to export AI document")
-                {
-                    report_error!(e);
-                }
-            },
-            config,
-        );
-    }
-
-    /// Export the current content as a markdown file (WASM stub).
-    #[cfg(not(feature = "local_fs"))]
-    fn export(&self, _ctx: &mut ViewContext<Self>) {
-        // No-op for WASM target
-    }
 }
 
 impl Entity for AIDocumentView {
@@ -1139,7 +1082,6 @@ impl TypedActionView for AIDocumentView {
                 self.document_version = *version;
                 self.refresh(ctx);
             }
-            AIDocumentAction::Export => self.export(ctx),
             AIDocumentAction::CopyAsMarkdown => {
                 let markdown = self.editor.as_ref(ctx).markdown_unescaped(ctx);
                 ctx.clipboard()
@@ -1347,16 +1289,6 @@ impl BackingView for AIDocumentView {
                 .with_icon(Icon::Copy)
                 .into_item(),
         );
-
-        #[cfg(feature = "local_fs")]
-        {
-            menu_items.push(
-                crate::menu::MenuItemFields::new("Save as markdown file")
-                    .with_on_select_action(AIDocumentAction::Export)
-                    .with_icon(Icon::Download)
-                    .into_item(),
-            );
-        }
 
         // Add "Attach to active session" menu item
         menu_items.push(

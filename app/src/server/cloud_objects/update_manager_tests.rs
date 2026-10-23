@@ -193,13 +193,14 @@ fn create_workflow_internal(
     initial_folder_id: Option<SyncId>,
 ) {
     update_manager.update(app, |update_manager, ctx| {
-        update_manager.create_workflow(
-            Workflow::new(workflow_name, workflow_command),
+        update_manager.create_object(
+            CloudWorkflowModel::new(Workflow::new(workflow_name, workflow_command)),
             owner,
-            initial_folder_id,
             client_id,
             CloudObjectEventEntrypoint::Unknown,
             true,
+            initial_folder_id,
+            InitiatedBy::User,
             ctx,
         );
     });
@@ -238,16 +239,18 @@ fn create_workflow_enum_internal(
     owner: Owner,
 ) {
     update_manager.update(app, |update_manager, ctx| {
-        update_manager.create_workflow_enum(
-            WorkflowEnum {
+        update_manager.create_object(
+            CloudWorkflowEnumModel::new(WorkflowEnum {
                 name: enum_name,
                 variants: EnumVariants::Static(enum_variants),
                 is_shared: false,
-            },
+            }),
             owner,
             client_id,
             CloudObjectEventEntrypoint::Unknown,
             true,
+            None,
+            InitiatedBy::User,
             ctx,
         );
     });
@@ -962,13 +965,14 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
-                update_manager.create_workflow(
-                    Workflow::new("workflow_name", "echo hello world"),
+                update_manager.create_object(
+                    CloudWorkflowModel::new(Workflow::new("workflow_name", "echo hello world")),
                     Owner::Team { team_uid },
-                    None,
                     client_id,
                     CloudObjectEventEntrypoint::Unknown,
                     false,
+                    None,
+                    InitiatedBy::User,
                     ctx,
                 );
             });
@@ -1869,13 +1873,14 @@ fn test_sync_state_after_object_with_dependencies_created() {
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
-                update_manager.create_workflow(
-                    workflow,
+                update_manager.create_object(
+                    CloudWorkflowModel::new(workflow),
                     Owner::mock_current_user(),
-                    None,
                     workflow_client_id,
                     CloudObjectEventEntrypoint::Unknown,
                     true,
+                    None,
+                    InitiatedBy::User,
                     ctx,
                 );
             });

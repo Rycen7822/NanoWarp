@@ -13904,7 +13904,6 @@ version = "0.1.0"
 dependencies = [
  "addr",
  "aha-reqwest-eventsource",
- "aho-corasick",
  "ai",
  "ai_types",
  "alphanumeric-sort",

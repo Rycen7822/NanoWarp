@@ -365,9 +365,6 @@ pub trait CloudObject: Debug {
             .content_sync_status = pending_content_changes_status;
     }
 
-    /// Whether or not this object can be exported.
-    fn can_export(&self) -> bool;
-
     /// Returns this object as a ref to the Any type.  Needed for typecasts.
     fn as_any(&self) -> &dyn Any;
 
@@ -530,11 +527,6 @@ pub trait CloudModelType: Debug + Clone + Send + Sync {
     /// For other types we typically just want to replace the local object with the server
     /// revision, which doesn't go through this code path.
     fn should_update_after_server_conflict(&self) -> bool;
-
-    /// Whether this model type can be exported.
-    fn can_export(&self) -> bool {
-        false
-    }
 }
 /// Provides app-local typed lookup helpers for generic cloud object aliases.
 pub trait CloudObjectLookup: Sized + Clone {
@@ -780,10 +772,6 @@ where
 
     fn to_warp_drive_item(&self, appearance: &Appearance) -> Option<Box<dyn WarpDriveItem>> {
         self.model().to_warp_drive_item(self.id, appearance, self)
-    }
-
-    fn can_export(&self) -> bool {
-        self.model().can_export()
     }
 
     fn as_any(&self) -> &dyn Any {

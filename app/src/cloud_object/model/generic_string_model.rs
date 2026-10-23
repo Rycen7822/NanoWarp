@@ -76,11 +76,6 @@ pub trait StringModel: Clone + Debug + PartialEq + Send + Sync + 'static {
         false
     }
 
-    /// Returns whether this model can be exported to a file
-    fn can_export(&self) -> bool {
-        false
-    }
-
     /// Returns whether this model can be shared via a link
     fn supports_linking(&self) -> bool {
         false
@@ -202,10 +197,6 @@ where
 
     fn warn_if_unsaved_at_quit(&self) -> bool {
         M::warn_if_unsaved_at_quit()
-    }
-
-    fn can_export(&self) -> bool {
-        self.string_model.can_export()
     }
 
     fn bulk_upsert_event(objects: Vec<CloudObjectUpsertParams<Self>>) -> ModelEvent {

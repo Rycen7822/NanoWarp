@@ -324,7 +324,6 @@ pub enum EnvVarCollectionAction {
     CopyLink(String),
     Duplicate,
     Trash,
-    Export,
     // Secret button related actions
     SelectSecretManager(SecretManager),
     DisplayCommandDialog,
@@ -1499,7 +1498,6 @@ impl TypedActionView for EnvVarCollectionView {
             }
             EnvVarCollectionAction::Duplicate => self.duplicate_env_var_collection(ctx),
             EnvVarCollectionAction::Trash => self.trash_env_var_collection(ctx),
-            EnvVarCollectionAction::Export => self.export_env_var_collection(ctx),
             EnvVarCollectionAction::SelectSecretManager(secret_manager) => {
                 self.fetch_secret(secret_manager.clone(), ctx)
             }

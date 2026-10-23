@@ -310,7 +310,6 @@ pub enum WorkspaceAction {
     ToggleBlockSnackbar,
     ToggleErrorUnderlining,
     ToggleSyntaxHighlighting,
-    ExportAllWarpDriveObjects,
     SetA11yVerbosityLevel(AccessibilityVerbosity),
     ToggleNotifications,
     ToggleTabColor {
@@ -331,8 +330,6 @@ pub enum WorkspaceAction {
     TriggerExternalCtrlTFileSearch,
     TriggerExternalAltCDirectorySearch,
     CreatePersonalNotebook,
-    ImportToPersonalDrive,
-    ImportToTeamDrive,
     CreateTeamNotebook,
     CreatePersonalFolder,
     CreateTeamFolder,
@@ -791,7 +788,6 @@ impl From<&WorkspaceAction> for LoginGatedFeature {
     fn from(val: &WorkspaceAction) -> LoginGatedFeature {
         use WorkspaceAction::*;
         match val {
-            ImportToTeamDrive => "Importing to a team drive",
             CreateTeamNotebook => "Creating a team notebook",
             CreateTeamFolder => "Creating a team folder",
             CreateTeamEnvVarCollection => "Creating a team environment variable collection",
@@ -806,8 +802,7 @@ impl WorkspaceAction {
         use WorkspaceAction::*;
         matches!(
             self,
-            ImportToTeamDrive
-                | CreateTeamNotebook
+            CreateTeamNotebook
                 | CreateTeamFolder
                 | CreateTeamEnvVarCollection
                 | OpenShareSessionModal(_)
@@ -910,7 +905,6 @@ impl WorkspaceAction {
             // restarted, the user can continue working
             CopyVersion(_)
             | ConfigureKeybindingSettings { .. }
-            | ExportAllWarpDriveObjects
             | ShowSettings
             | ShowSettingsPage(_)
             | ShowSettingsPageWithSearch { .. }
@@ -954,8 +948,6 @@ impl WorkspaceAction {
             | ToggleMouseReporting
             | ToggleScrollReporting
             | ToggleFocusReporting
-            | ImportToPersonalDrive
-            | ImportToTeamDrive
             | CreatePersonalNotebook
             | CreateTeamNotebook
             | CreatePersonalFolder

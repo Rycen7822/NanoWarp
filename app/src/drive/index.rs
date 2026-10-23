@@ -160,7 +160,6 @@ const INDEX_FOLDER_LABEL: &str = "New folder";
 const INDEX_NOTEBOOK_LABEL: &str = "New notebook";
 const INDEX_ENV_VAR_COLLECTION_LABEL: &str = "New environment variables";
 
-const IMPORT_LABEL: &str = "Import";
 const REMOVE_LABEL: &str = "Remove";
 const OFFLINE_BANNER_TEXT: &str = "You are offline. Some files will be read only.";
 
@@ -229,10 +228,6 @@ pub enum SharedObjectLimitBannerKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveIndexAction {
     OpenObject(CloudObjectTypeAndId),
-    OpenImportModal {
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-    },
     OpenAIFactCollection,
     OpenMCPServerCollection,
     CreateObject {
@@ -245,7 +240,6 @@ pub enum DriveIndexAction {
     DuplicateObject(CloudObjectTypeAndId),
     CopyObjectLinkToClipboard(String),
     OpenObjectLinkOnDesktop(Url),
-    ExportObject(CloudObjectTypeAndId),
     ToggleNewAssetsMenu(Space),
     ToggleSortingMenu,
     ToggleItemOverflowMenu {
@@ -414,11 +408,6 @@ pub enum DriveIndexEvent {
     OpenMCPServerCollection,
     OpenObject(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
-    ExportObject(CloudObjectTypeAndId),
-    OpenImportModal {
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-    },
     RunObject(CloudObjectTypeAndId),
     InvokeEnvVarCollectionInSubshell(CloudObjectTypeAndId),
     FocusWarpDrive,
@@ -3293,16 +3282,6 @@ impl DriveIndex {
                     .into_item(),
             );
 
-            menu_items.push(
-                MenuItemFields::new(IMPORT_LABEL)
-                    .with_on_select_action(DriveIndexAction::OpenImportModal {
-                        space: *space,
-                        initial_folder_id: None,
-                    })
-                    .with_icon(Icon::Import)
-                    .into_item(),
-            );
-
             ctx.update_view(&self.menu, |menu, ctx| {
                 menu.set_items(menu_items, ctx);
             });
@@ -4032,17 +4011,6 @@ impl DriveIndex {
                     }
                 }
 
-                if !FeatureFlag::SharedWithMe.is_enabled() || editability.can_edit() {
-                    menu_items.push(
-                        MenuItemFields::new(IMPORT_LABEL)
-                            .with_on_select_action(DriveIndexAction::OpenImportModal {
-                                space: *space,
-                                initial_folder_id: Some(*folder_id),
-                            })
-                            .with_icon(Icon::Import)
-                            .into_item(),
-                    );
-                }
                 menu_items.push(
                     MenuItemFields::new("Collapse all")
                         .with_on_select_action(DriveIndexAction::CollapseAllInLocation(
@@ -4269,18 +4237,6 @@ impl DriveIndex {
                         }
                     }
                     ObjectType::Folder | ObjectType::GenericStringObject(_) => (),
-                }
-
-                #[cfg(feature = "local_fs")]
-                if object.can_export() {
-                    menu_items.push(
-                        MenuItemFields::new("Export")
-                            .with_on_select_action(DriveIndexAction::ExportObject(
-                                *cloud_object_type_and_id,
-                            ))
-                            .with_icon(Icon::Download)
-                            .into_item(),
-                    )
                 }
 
                 if FeatureFlag::SharedWithMe.is_enabled() && object.can_leave(app) {
@@ -4770,13 +4726,6 @@ impl TypedActionView for DriveIndex {
             } => {
                 self.create_object(*object_type, *space, *initial_folder_id, ctx);
             }
-            DriveIndexAction::OpenImportModal {
-                space,
-                initial_folder_id,
-            } => ctx.emit(DriveIndexEvent::OpenImportModal {
-                space: *space,
-                initial_folder_id: *initial_folder_id,
-            }),
             DriveIndexAction::RenameFolder { folder_id } => {
                 self.rename_folder(*folder_id, ctx);
             }
@@ -4848,10 +4797,6 @@ impl TypedActionView for DriveIndex {
                     ctx
                 );
                 ctx.emit(DriveIndexEvent::DuplicateObject(*cloud_object_type_and_id));
-            }
-            DriveIndexAction::ExportObject(type_and_id) => {
-                send_telemetry_from_ctx!(TelemetryEvent::ExportObject(type_and_id.into()), ctx);
-                ctx.emit(DriveIndexEvent::ExportObject(*type_and_id));
             }
             DriveIndexAction::ToggleNewAssetsMenu(space) => {
                 self.toggle_new_assets_menu(space, ctx);

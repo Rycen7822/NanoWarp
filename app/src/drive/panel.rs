@@ -69,10 +69,6 @@ pub enum DrivePanelEvent {
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
     OpenAIFactCollection,
     OpenMCPServerCollection,
-    OpenImportModal {
-        owner: Owner,
-        initial_folder_id: Option<SyncId>,
-    },
     OpenNotebook(NotebookSource),
     OpenEnvVarCollection(EnvVarCollectionSource),
     FocusWarpDrive,
@@ -142,21 +138,6 @@ impl DrivePanel {
                 None => {
                     report_error!(
                         "Cannot identify a notebook owner",
-                        extra: { "space" => ?space }
-                    );
-                }
-            },
-            DriveIndexEvent::OpenImportModal {
-                space,
-                initial_folder_id,
-            } => match Self::new_object_owner(*space, initial_folder_id.as_ref(), ctx) {
-                Some(owner) => ctx.emit(DrivePanelEvent::OpenImportModal {
-                    owner,
-                    initial_folder_id: *initial_folder_id,
-                }),
-                None => {
-                    report_error!(
-                        "Cannot identify an import target",
                         extra: { "space" => ?space }
                     );
                 }
@@ -234,17 +215,6 @@ impl DrivePanel {
             }
             DriveIndexEvent::DuplicateObject(cloud_object_type_and_id) => {
                 self.duplicate_object(cloud_object_type_and_id, ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            DriveIndexEvent::ExportObject(cloud_object_type_and_id) => {
-                let window_id = ctx.window_id();
-                super::export::ExportManager::handle(ctx).update(ctx, |export_manager, ctx| {
-                    export_manager.export(window_id, &[*cloud_object_type_and_id], ctx);
-                });
-            }
-            #[cfg(not(feature = "local_fs"))]
-            DriveIndexEvent::ExportObject(_cloud_object_type_and_id) => {
-                // No-op when no local filesystem.
             }
             DriveIndexEvent::RunObject(id) => {
                 let cloud_model = CloudModel::as_ref(ctx);

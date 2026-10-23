@@ -1152,14 +1152,6 @@ impl CloudModel {
             .and_then(|object| object.into())
     }
 
-    pub fn get_all_exportable_object_ids(&self) -> Vec<CloudObjectTypeAndId> {
-        self.objects_by_id
-            .values()
-            .filter(|object| object.can_export())
-            .map(|object| object.cloud_object_type_and_id())
-            .collect()
-    }
-
     #[allow(unused)]
     /// Returns only active (not trashed) folders in cloud model.
     pub fn get_all_active_folders(&self) -> impl Iterator<Item = &CloudFolder> {

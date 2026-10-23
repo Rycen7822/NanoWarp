@@ -51,7 +51,6 @@ use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent, Updat
 use crate::cloud_object::model::view::{Editor, EditorState};
 use crate::cloud_object::{CloudObject, CloudObjectEventEntrypoint, ObjectType, Owner, Space};
 use crate::drive::drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit;
-use crate::drive::export::ExportManager;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::sharing::ShareableObject;
 use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectSettings};
@@ -290,7 +289,6 @@ pub enum NotebookAction {
     CopyToClipboard,
     CopyLink(String),
     OpenLinkOnDesktop(Url),
-    Export,
     AttachPlanAsContext(AIDocumentId),
 }
 
@@ -1247,23 +1245,6 @@ impl NotebookView {
         }
     }
 
-    /// Start exporting this notebook.
-    fn export(&self, ctx: &mut ViewContext<Self>) {
-        if let Some(notebook_id) = self.notebook_id(ctx) {
-            let window_id = ctx.window_id();
-            ExportManager::handle(ctx).update(ctx, |export_manager, ctx| {
-                export_manager.export(
-                    window_id,
-                    &[CloudObjectTypeAndId::from_id_and_type(
-                        notebook_id,
-                        ObjectType::Notebook,
-                    )],
-                    ctx,
-                )
-            });
-        }
-    }
-
     /// Copy the current content into a new notebook in the user's personal space. This action is
     /// shown when the user is editing a notebook in a team space that gets trashed.
     ///
@@ -1444,16 +1425,6 @@ impl NotebookView {
                 MenuItemFields::new("Duplicate")
                     .with_on_select_action(NotebookAction::Duplicate)
                     .with_icon(icons::Icon::Duplicate)
-                    .into_item(),
-            );
-        }
-
-        #[cfg(feature = "local_fs")]
-        {
-            menu_items.push(
-                MenuItemFields::new("Export")
-                    .with_on_select_action(NotebookAction::Export)
-                    .with_icon(icons::Icon::Download)
                     .into_item(),
             );
         }
@@ -2335,7 +2306,6 @@ impl TypedActionView for NotebookView {
             NotebookAction::OpenLinkOnDesktop(_) => {
                 // No-op when not on wasm
             }
-            NotebookAction::Export => self.export(ctx),
             NotebookAction::AttachPlanAsContext(id) => {
                 ctx.emit(NotebookEvent::AttachPlanAsContext(*id))
             }
