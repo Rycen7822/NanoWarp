@@ -209,7 +209,6 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        billing_cycle_usage: None,
         has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
@@ -928,7 +927,6 @@ fn workspace_for_test(team: &Team) -> Workspace {
         open_teams: vec![],
         billing_metadata: team.billing_metadata.clone(),
         bonus_grants_purchased_this_month: Default::default(),
-        billing_cycle_usage: None,
         has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
@@ -3000,7 +2998,6 @@ fn test_joining_team_moves_objects() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        billing_cycle_usage: None,
         has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
@@ -3372,7 +3369,6 @@ fn test_leaving_team_moves_objects() {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        billing_cycle_usage: None,
         has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),
@@ -3520,72 +3516,6 @@ fn test_team_billing_metadata_disabled_policy_stays_disabled_without_team() {
                 "a fully disabled policy should keep purchases disabled without a team"
             );
         });
-    })
-}
-
-#[test]
-fn test_purchase_addon_credits_forwards_teamless_team_uid() {
-    App::test((), |mut app| async move {
-        let mut workspace_client = MockWorkspaceClient::new();
-        workspace_client
-            .expect_purchase_addon_credits()
-            .withf(|team_uid, credits| team_uid.is_none() && *credits == 1_000)
-            .times(1)
-            .returning(|_, _| {
-                Ok(PurchaseAddonCreditsOutcome::CheckoutRequired {
-                    checkout_url: "https://example.com/checkout".to_string(),
-                })
-            });
-
-        app.add_singleton_model(|ctx| {
-            UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
-                Arc::new(workspace_client),
-                vec![],
-                ctx,
-            )
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.purchase_addon_credits(None, 1_000, ctx);
-        });
-
-        // Give the spawned client call time to run so the mock expectation is
-        // exercised before the test ends.
-        warpui::r#async::Timer::after(Duration::from_millis(100)).await;
-    })
-}
-
-#[test]
-fn test_purchase_addon_credits_forwards_team_uid_when_present() {
-    App::test((), |mut app| async move {
-        let mut workspace_client = MockWorkspaceClient::new();
-        workspace_client
-            .expect_purchase_addon_credits()
-            .withf(|team_uid, credits| *team_uid == Some(123.into()) && *credits == 2_000)
-            .times(1)
-            .returning(|_, _| {
-                Ok(PurchaseAddonCreditsOutcome::CheckoutRequired {
-                    checkout_url: "https://example.com/checkout".to_string(),
-                })
-            });
-
-        app.add_singleton_model(|ctx| {
-            UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
-                Arc::new(workspace_client),
-                vec![],
-                ctx,
-            )
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.purchase_addon_credits(Some(123.into()), 2_000, ctx);
-        });
-
-        // Give the spawned client call time to run so the mock expectation is
-        // exercised before the test ends.
-        warpui::r#async::Timer::after(Duration::from_millis(100)).await;
     })
 }
 
@@ -3901,7 +3831,6 @@ fn gql_tier(purchase_policy: Option<GqlPurchaseAddOnCreditsPolicy>) -> GqlTier {
         multi_admin_policy: None,
         native_workspaces_policy: None,
         ambient_agents_policy: None,
-        usage_visibility_policy: None,
     }
 }
 
@@ -3932,7 +3861,6 @@ fn gql_workspace(
             grants: vec![],
             spending_info: None,
         },
-        billing_cycle_usage_history: None,
         settings: GqlWorkspaceSettings {
             is_discoverable: false,
             is_invite_link_enabled: false,

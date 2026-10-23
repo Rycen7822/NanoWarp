@@ -1427,15 +1427,6 @@ impl TeamsPageView {
             UserWorkspacesEvent::AiOveragesUpdated => {
                 // AI overages update doesn't affect teams page display
             }
-            UserWorkspacesEvent::PurchaseAddonCreditsSuccess => {
-                // Addon credits purchase success is handled in billing_and_usage_page
-            }
-            UserWorkspacesEvent::PurchaseAddonCreditsCheckoutRequired { .. } => {
-                // Checkout handoff is handled by the surface that initiated the purchase
-            }
-            UserWorkspacesEvent::PurchaseAddonCreditsRejected(_) => {
-                // Addon credits purchase rejection is handled in billing_and_usage_page
-            }
             UserWorkspacesEvent::CodebaseContextEnablementChanged => {}
             UserWorkspacesEvent::SunsettedToBuildDataUpdated => {
                 // Build plan migration modal is handled by OneTimeModalModel

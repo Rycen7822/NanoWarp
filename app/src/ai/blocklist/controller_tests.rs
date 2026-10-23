@@ -695,7 +695,6 @@ fn workspace_for_test(teams: Vec<Team>) -> Workspace {
         open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
-        billing_cycle_usage: None,
         has_billing_history: false,
         settings: Default::default(),
         feature_model_choice: Default::default(),

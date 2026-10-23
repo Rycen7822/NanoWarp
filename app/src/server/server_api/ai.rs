@@ -81,9 +81,6 @@ use warp_graphql::queries::get_available_harnesses::{
 use warp_graphql::queries::get_chatgpt_connection::{
     GetChatGPTConnection, GetChatGPTConnectionVariables,
 };
-use warp_graphql::queries::get_conversation_usage::{
-    ConversationUsage, GetConversationUsage, GetConversationUsageVariables, UserResult,
-};
 use warp_graphql::queries::get_feature_model_choices::{
     GetFeatureModelChoices, GetFeatureModelChoicesVariables,
 };
@@ -716,16 +713,6 @@ pub trait AIClient: 'static + Send + Sync {
     /// `chatgpt_error=<code>` appended.
     async fn start_chatgpt_link(&self, continue_url: String) -> Result<String, anyhow::Error>;
 
-    /// Returns conversation usage history for the current user over the requested number of days.
-    ///
-    /// If `last_updated_end_timestamp` is provided, only conversations updated before that timestamp are returned.
-    async fn get_conversation_usage_history(
-        &self,
-        days: Option<i32>,
-        limit: Option<i32>,
-        last_updated_end_timestamp: Option<warp_graphql::scalars::Time>,
-    ) -> Result<Vec<ConversationUsage>, anyhow::Error>;
-
     async fn get_feature_model_choices(&self) -> Result<ModelsByFeature, anyhow::Error>;
 
     async fn get_available_harnesses(&self) -> Result<Vec<HarnessAvailability>, anyhow::Error>;
@@ -1174,25 +1161,6 @@ impl AIClient for ServerApi {
                 Err(anyhow!(get_user_facing_error_message(e)))
             }
             StartChatGPTLinkResult::Unknown => Err(anyhow!("failed to start ChatGPT link")),
-        }
-    }
-
-    async fn get_conversation_usage_history(
-        &self,
-        days: Option<i32>,
-        limit: Option<i32>,
-        last_updated_end_timestamp: Option<warp_graphql::scalars::Time>,
-    ) -> Result<Vec<ConversationUsage>, anyhow::Error> {
-        let operation = GetConversationUsage::build(GetConversationUsageVariables {
-            request_context: get_request_context(),
-            days,
-            limit,
-            last_updated_end_timestamp,
-        });
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.user {
-            UserResult::UserOutput(output) => Ok(output.user.conversation_usage),
-            UserResult::Unknown => Err(anyhow!("Unable to fetch conversation usage")),
         }
     }
 

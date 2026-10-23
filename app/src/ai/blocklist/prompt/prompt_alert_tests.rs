@@ -6,6 +6,7 @@ use warpui::App;
 use super::*;
 use crate::ai::credit_availability::AICreditSource;
 use crate::auth::UserUid;
+use crate::server::ids::ServerId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;

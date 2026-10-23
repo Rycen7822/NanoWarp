@@ -357,346 +357,6 @@ fn test_has_any_ai_remaining_true_with_remaining_requests() {
 }
 
 #[test]
-fn test_buy_credits_banner_shows_with_only_ambient_bonus_credits() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants = vec![BonusGrant {
-                created_at: Utc::now(),
-                cost_cents: 0,
-                expiration: Some(Utc::now() + chrono::Duration::days(7)),
-                grant_type: BonusGrantType::AmbientOnly,
-                reason: "ambient trial credits".to_string(),
-                user_facing_message: None,
-                request_credits_granted: 1000,
-                request_credits_remaining: 1000,
-                usage_cents_granted: None,
-                usage_cents_remaining: None,
-                scope: BonusGrantScope::User,
-            }];
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::OutOfCredits,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_shows_for_premium_enabled_plan_out_of_credits() {
-    App::test((), |mut app| async move {
-        // The test workspace has no teams: this covers the teamless fresh
-        // free user, whose purchase policy lives on the workspace billing
-        // metadata until their first purchase creates a team server-side.
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(premium_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            assert!(
-                !UserWorkspaces::as_ref(ctx).has_teams(),
-                "this test covers the teamless case"
-            );
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::OutOfCredits,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_hidden_when_policy_fully_disabled() {
-    App::test((), |mut app| async move {
-        // Also a teamless workspace: without premiumEnabled the purchase
-        // surfaces must stay hidden for fresh free users.
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(PurchaseAddOnCreditsPolicy {
-            enabled: false,
-            premium_enabled: false,
-            price_premium_bps: 0,
-        });
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::Hidden,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_hidden_with_non_ambient_bonus_credits() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants = vec![BonusGrant {
-                created_at: Utc::now(),
-                cost_cents: 0,
-                expiration: Some(Utc::now() + chrono::Duration::days(7)),
-                grant_type: BonusGrantType::Any,
-                reason: "standard bonus credits".to_string(),
-                user_facing_message: None,
-                request_credits_granted: 100,
-                request_credits_remaining: 100,
-                usage_cents_granted: None,
-                usage_cents_remaining: None,
-                scope: BonusGrantScope::User,
-            }];
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::Hidden,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_shows_when_non_ambient_bonus_credits_are_depleted() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants = vec![BonusGrant {
-                created_at: Utc::now(),
-                cost_cents: 0,
-                expiration: Some(Utc::now() + chrono::Duration::days(7)),
-                grant_type: BonusGrantType::Any,
-                reason: "depleted standard bonus credits".to_string(),
-                user_facing_message: None,
-                request_credits_granted: 100,
-                request_credits_remaining: 0,
-                usage_cents_granted: None,
-                usage_cents_remaining: None,
-                scope: BonusGrantScope::User,
-            }];
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::OutOfCredits,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_hidden_when_server_reports_available() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            // Local base quota is exhausted; without server availability the
-            // banner would show. A non-ambient server source must hide it.
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-            model.apply_server_availability(
-                Ok(AICreditAvailability::available_with_source(Some(
-                    AICreditSource::BonusGrant,
-                ))),
-                ctx,
-            );
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::Hidden,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_shows_when_server_reports_out_of_credits() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            // Stale local base quota must not suppress the banner once the
-            // server has denied interactive AI.
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 5);
-            model.bonus_grants.clear();
-            model.apply_server_availability(
-                Ok(AICreditAvailability::unavailable(
-                    AICreditDenialReason::OutOfCredits,
-                )),
-                ctx,
-            );
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::OutOfCredits,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_shows_when_server_source_is_ambient_only() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-            model.apply_server_availability(
-                Ok(AICreditAvailability::available_with_source(Some(
-                    AICreditSource::AmbientBonusGrant,
-                ))),
-                ctx,
-            );
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::OutOfCredits,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_hidden_when_out_of_credits_refined_by_local_byo() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-        workspace.billing_metadata.tier.byo_api_key_policy =
-            Some(ByoApiKeyPolicy { enabled: true });
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        ApiKeyManager::handle(&app).update(&mut app, |manager, ctx| {
-            manager.set_provider_key(LLMProvider::OpenAI, Some("test-key".to_string()), ctx);
-        });
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-            model.apply_server_availability(
-                Ok(AICreditAvailability::unavailable(
-                    AICreditDenialReason::OutOfCredits,
-                )),
-                ctx,
-            );
-
-            assert!(
-                model.has_any_ai_remaining(&TeamlessScopeForTest, ctx),
-                "local BYO should refine OutOfCredits into available AI"
-            );
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::Hidden,
-            );
-        });
-    });
-}
-
-#[test]
-fn test_buy_credits_banner_respects_monthly_limit_under_server_out_of_credits() {
-    App::test((), |mut app| async move {
-        let (_uid, mut workspace) = create_test_workspace();
-        workspace
-            .billing_metadata
-            .tier
-            .purchase_add_on_credits_policy = Some(standard_purchase_policy());
-        enable_auto_reload(&mut workspace);
-        // Zero monthly spend limit means any auto-reload is blocked.
-        workspace
-            .settings
-            .addon_credits_settings
-            .max_monthly_spend_cents = Some(0);
-
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-        set_addon_credits_pricing_info(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
-            model.bonus_grants.clear();
-            model.apply_server_availability(
-                Ok(AICreditAvailability::unavailable(
-                    AICreditDenialReason::OutOfCredits,
-                )),
-                ctx,
-            );
-
-            assert_eq!(
-                model.compute_buy_addon_credits_banner_display_state(&TeamlessScopeForTest, ctx),
-                BuyCreditsBannerDisplayState::MonthlyLimitReached,
-            );
-        });
-    });
-}
-
-#[test]
 fn test_ambient_credits_banner_dismissal_is_persisted() {
     App::test((), |mut app| async move {
         let request_usage_model = add_request_usage_model(&mut app);
@@ -886,7 +546,7 @@ fn test_total_workspace_and_team_bonus_credits_counts_both_scopes() {
 }
 
 #[test]
-fn test_bonus_usage_cents_remaining_sums_grants_with_dollar_values() {
+fn test_ambient_usage_cents_remaining_requires_all_grants_to_have_dollar_values() {
     App::test((), |mut app| async move {
         let (uid, workspace) = create_test_workspace();
         add_user_workspaces_with_workspace(&mut app, workspace);
@@ -906,8 +566,7 @@ fn test_bonus_usage_cents_remaining_sums_grants_with_dollar_values() {
                 usage_cents_remaining,
                 scope,
             };
-            // The sums report the server-supplied cents regardless of the billing unit; the
-            // tier decides whether a surface shows them.
+            // Ambient usage reports server-supplied cents regardless of the billing unit.
             model.request_limit_info = RequestLimitInfo::new_for_test(10, 0);
             model.bonus_grants = vec![
                 make(BonusGrantScope::User, BonusGrantType::Any, 5, Some(9.0)),
@@ -931,14 +590,6 @@ fn test_bonus_usage_cents_remaining_sums_grants_with_dollar_values() {
                 ),
             ];
 
-            assert_eq!(
-                model.total_workspace_and_team_bonus_usage_cents_remaining(uid),
-                Some(32.25)
-            );
-            assert_eq!(
-                model.total_user_interactive_bonus_usage_cents_remaining(),
-                Some(9.0)
-            );
             assert_eq!(model.ambient_only_usage_cents_remaining(), Some(180.0));
 
             // A grant without a dollar value makes its total fall back to credits.
@@ -955,10 +606,6 @@ fn test_bonus_usage_cents_remaining_sums_grants_with_dollar_values() {
                 None,
             ));
             assert_eq!(
-                model.total_workspace_and_team_bonus_usage_cents_remaining(uid),
-                None
-            );
-            assert_eq!(
                 model.total_workspace_and_team_bonus_credits_remaining(uid),
                 21
             );
@@ -969,25 +616,16 @@ fn test_bonus_usage_cents_remaining_sums_grants_with_dollar_values() {
 }
 
 #[test]
-fn test_bonus_usage_cents_remaining_without_grants() {
+fn test_ambient_usage_cents_remaining_without_grants() {
     App::test((), |mut app| async move {
-        let (uid, workspace) = create_test_workspace();
+        let (_uid, workspace) = create_test_workspace();
         add_user_workspaces_with_workspace(&mut app, workspace);
         let request_usage_model = add_request_usage_model(&mut app);
 
         request_usage_model.update(&mut app, |model, _ctx| {
             model.bonus_grants.clear();
 
-            // An empty pool is a known zero-dollar balance, while "no ambient grants" stays
-            // unknown like its credit counterpart.
-            assert_eq!(
-                model.total_workspace_and_team_bonus_usage_cents_remaining(uid),
-                Some(0.0)
-            );
-            assert_eq!(
-                model.total_user_interactive_bonus_usage_cents_remaining(),
-                Some(0.0)
-            );
+            // No ambient grants leaves usage unknown, like its credit counterpart.
             assert_eq!(model.ambient_only_usage_cents_remaining(), None);
             assert_eq!(model.ambient_only_credits_remaining(), None);
         });

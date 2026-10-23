@@ -136,7 +136,6 @@ pub struct Tier {
     pub multi_admin_policy: Option<MultiAdminPolicy>,
     pub native_workspaces_policy: Option<NativeWorkspacesPolicy>,
     pub ambient_agents_policy: Option<AmbientAgentsPolicy>,
-    pub usage_visibility_policy: Option<UsageVisibilityPolicy>,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
@@ -362,94 +361,6 @@ pub enum StripeSubscriptionPlan {
     Build,
     BuildBusiness,
     BuildMax,
-    #[cynic(fallback)]
-    Other(String),
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct UsageVisibilityPolicy {
-    pub admin_granularity: UsageVisibilityGranularity,
-    pub max_prior_cycles: i32,
-}
-
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-pub enum UsageVisibilityGranularity {
-    OwnOnly,
-    TeamAggregate,
-    PerUserTotals,
-    FullBreakdown,
-    #[cynic(fallback)]
-    Other(String),
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct BillingCycleUsageHistory {
-    pub current_period_start: Time,
-    pub current_period_end: Time,
-    pub summaries: Vec<BillingCycleUsageSummary>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct BillingCycleUsageSummary {
-    pub period_start: Time,
-    pub period_end: Time,
-    pub entries: Vec<UsageEntry>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct UsageEntry {
-    pub subject_type: AiCreditsUsageAndCostSubjectType,
-    pub subject_uid: Option<String>,
-    pub subject_display_name: Option<String>,
-    pub cost_type: AiCreditsUsageAndCostType,
-    pub usage_bucket: AiCreditsUsageBucket,
-    pub usage_source: AiCreditsUsageSource,
-    pub credits_used_exact: f64,
-    pub cost_cents_exact: f64,
-    pub attributed_team_uid: Option<String>,
-}
-
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-#[cynic(graphql_type = "AICreditsUsageAndCostSubjectType")]
-pub enum AiCreditsUsageAndCostSubjectType {
-    Team,
-    User,
-    ServiceAccount,
-    #[cynic(fallback)]
-    Other(String),
-}
-
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-#[cynic(graphql_type = "AICreditsUsageAndCostType")]
-pub enum AiCreditsUsageAndCostType {
-    BaseLimit,
-    BonusGrant,
-    Payg,
-    AmbientBonusGrant,
-    Aggregate,
-    #[cynic(fallback)]
-    Other(String),
-}
-
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-#[cynic(graphql_type = "AICreditsUsageBucket")]
-pub enum AiCreditsUsageBucket {
-    Ai,
-    Compute,
-    Platform,
-    SuggestedCodeDiffs,
-    Voice,
-    Aggregate,
-    #[cynic(fallback)]
-    Other(String),
-}
-
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-#[cynic(graphql_type = "AICreditsUsageSource")]
-pub enum AiCreditsUsageSource {
-    Local,
-    Cloud,
-    Aggregate,
     #[cynic(fallback)]
     Other(String),
 }

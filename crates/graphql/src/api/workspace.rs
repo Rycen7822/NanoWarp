@@ -1,4 +1,4 @@
-use super::billing::{BillingCycleUsageHistory, BillingMetadata, BonusGrantsInfo};
+use super::billing::{BillingMetadata, BonusGrantsInfo};
 use crate::schema;
 use crate::user::DiscoverableTeamData;
 
@@ -12,7 +12,6 @@ pub struct Workspace {
     pub open_teams: Vec<DiscoverableTeamData>,
     pub billing_metadata: BillingMetadata,
     pub bonus_grants_info: BonusGrantsInfo,
-    pub billing_cycle_usage_history: Option<BillingCycleUsageHistory>,
     pub settings: WorkspaceSettings,
     pub has_billing_history: bool,
     pub pending_email_invites: Vec<EmailInvite>,

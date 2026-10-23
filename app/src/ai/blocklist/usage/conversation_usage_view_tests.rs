@@ -64,13 +64,20 @@ fn initialize_test_app(app: &mut App) {
     app.add_singleton_model(UserWorkspaces::default_mock);
 }
 
-fn build_view(_ctx: &mut warpui::ViewContext<ConversationUsageView>) -> ConversationUsageView {
-    ConversationUsageView::new(
-        placeholder_usage_info(),
-        DisplayMode::Footer,
-        None,
-        MouseStateHandle::default(),
-    )
+fn build_view() -> ConversationUsageView {
+    ConversationUsageView {
+        usage_info: placeholder_usage_info(),
+        timing_info: None,
+        full_terminal_use_tooltip_mouse_state: MouseStateHandle::default(),
+        parent_conversation_id: None,
+        details_expanded: false,
+        show_all_clicked: false,
+        details_toggle_mouse_state: MouseStateHandle::default(),
+        show_more_mouse_state: MouseStateHandle::default(),
+        context_window_expanded: false,
+        context_window_toggle_mouse_state: MouseStateHandle::default(),
+        context_window_other_tooltip_mouse_state: MouseStateHandle::default(),
+    }
 }
 
 #[test]
@@ -80,7 +87,7 @@ fn toggle_details_expanded_flips_state_and_resets_show_all_on_collapse() {
         // `add_window` registers the root view via `add_typed_action_view`
         // internally, so simply standing up the window proves
         // `ConversationUsageView: TypedActionView` is wired correctly.
-        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, build_view);
+        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, |_| build_view());
 
         view.read(&app, |view, _| {
             assert!(
@@ -137,8 +144,8 @@ fn toggle_details_expanded_flips_state_and_resets_show_all_on_collapse() {
 
 #[test]
 fn custom_endpoint_models_use_the_external_key_icon_bucket() {
-    let view = ConversationUsageView::new(
-        ConversationUsageInfo {
+    let view = ConversationUsageView {
+        usage_info: ConversationUsageInfo {
             models: vec![ModelTokenUsage {
                 model_id: "Friendly alias".to_string(),
                 custom_endpoint_tokens: 6,
@@ -150,10 +157,8 @@ fn custom_endpoint_models_use_the_external_key_icon_bucket() {
             }],
             ..placeholder_usage_info()
         },
-        DisplayMode::Footer,
-        None,
-        MouseStateHandle::default(),
-    );
+        ..build_view()
+    };
 
     assert_eq!(
         view.collect_models_by_category()
@@ -171,18 +176,16 @@ fn usage_summary_follows_the_display_unit_per_figure() {
         set_charge_unit(&mut app, ChargeUnit::Cents);
         set_usage_display_unit(&mut app, UsageDisplayUnit::Dollars);
 
-        let view = ConversationUsageView::new(
-            ConversationUsageInfo {
+        let view = ConversationUsageView {
+            usage_info: ConversationUsageInfo {
                 credits_spent: 20.0,
                 credits_spent_for_last_block: Some(5.0),
                 total_cost_in_cents: Some(36.0),
                 cost_in_cents_for_last_block: None,
                 ..placeholder_usage_info()
             },
-            DisplayMode::Footer,
-            None,
-            MouseStateHandle::default(),
-        );
+            ..build_view()
+        };
 
         app.read(|ctx| {
             let text = view
@@ -204,7 +207,7 @@ fn usage_summary_follows_the_display_unit_per_figure() {
 fn show_all_agent_rows_is_independent_of_details_expanded() {
     App::test((), |mut app| async move {
         initialize_test_app(&mut app);
-        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, build_view);
+        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, |_| build_view());
 
         // `ShowAllAgentRows` on its own should flip `show_all_clicked`
         // even when the user hasn't expanded the breakdown yet (the

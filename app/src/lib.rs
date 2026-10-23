@@ -1310,9 +1310,7 @@ pub(crate) fn initialize_app(
     ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |_, event, ctx| {
         if matches!(
             event,
-            UserWorkspacesEvent::CurrentWorkspaceChanged
-                | UserWorkspacesEvent::AiOveragesUpdated
-                | UserWorkspacesEvent::PurchaseAddonCreditsSuccess
+            UserWorkspacesEvent::CurrentWorkspaceChanged | UserWorkspacesEvent::AiOveragesUpdated
         ) {
             AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
                 usage_model.request_availability_refresh(ctx);

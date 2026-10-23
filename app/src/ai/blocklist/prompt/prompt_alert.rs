@@ -15,7 +15,6 @@ use crate::ai::blocklist::error_color;
 use crate::ai::credit_availability::{AICreditAvailability, AICreditDenialReason};
 use crate::auth::AuthStateProvider;
 use crate::network::NetworkStatus;
-use crate::server::ids::ServerId;
 use crate::settings_view::{AdminActions, SettingsSection};
 use crate::ui_components::icons::Icon;
 use crate::workspace::WorkspaceAction;
@@ -38,9 +37,6 @@ const UNASSIGNED_USER_SPEND_LIMIT_PRIMARY_TEXT: &str =
 const WORKSPACE_SPEND_LIMIT_PRIMARY_TEXT: &str = "You've reached this workspace's spend limit";
 
 const ANONYMOUS_USER_REQUEST_LIMIT_ACTION_TEXT: &str = "Sign up for more AI credits";
-const DELINQUENT_DUE_TO_PAYMENT_ISSUE_ACTION_TEXT: &str = "Manage billing";
-const OVERAGES_TOGGLEABLE_BUT_NOT_ENABLED_ACTION_TEXT: &str = "Enable premium overages";
-const MONTHLY_OVERAGES_SPEND_LIMIT_REACHED_ACTION_TEXT: &str = "Increase monthly spend limit";
 const MANAGE_LIMIT_TEXT: &str = "Manage limit";
 const JOIN_A_TEAM_TEXT: &str = "join a team";
 const UPGRADE_TEXT: &str = "Upgrade";
@@ -50,9 +46,6 @@ const NON_ADMIN_CONTACT_ADMIN_TEXT: &str = ", contact a team admin";
 const NON_ADMIN_CONTACT_WORKSPACE_ADMIN_TEXT: &str = ", contact a workspace admin";
 const NON_ADMIN_ASK_WORKSPACE_ADMIN_TO_INCREASE_LIMIT_TEXT: &str =
     "  Ask a workspace admin to increase it";
-const NON_ADMIN_ASK_ADMIN_TO_ENABLE_OVERAGES_TEXT: &str = ", ask a team admin to enable overages";
-const NON_ADMIN_ASK_ADMIN_TO_INCREASE_OVERAGES_TEXT: &str =
-    ", ask a team admin to increase overages";
 
 fn enterprise_limit_cta(
     state: &PromptAlertState,
@@ -125,15 +118,11 @@ fn enterprise_limit_cta(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptAlertAction {
     SignUpClickedForAnonymousUser,
-    OpenSettingsClicked,
-    ManageBillingClicked { team_uid: ServerId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptAlertEvent {
     SignupAnonymousUser,
-    OpenBillingAndUsagePage,
-    OpenBillingPortal { team_uid: ServerId },
 }
 
 /// The alert state of the chip that appears to the right of certain parts of the prompt.
@@ -392,7 +381,10 @@ impl PromptAlertView {
         let current_workspace = UserWorkspaces::as_ref(app).current_workspace();
 
         match state {
-            PromptAlertState::NoConnection => {}
+            PromptAlertState::NoConnection
+            | PromptAlertState::DelinquentDueToPaymentIssue
+            | PromptAlertState::OveragesToggleableButNotEnabled
+            | PromptAlertState::MonthlyOveragesSpendLimitReached => {}
             PromptAlertState::AnonymousUserRequestLimitSoftGate
             | PromptAlertState::AnonymousUserRequestLimitHardGate => {
                 text_fragments.push(FormattedTextFragment::plain_text("  "));
@@ -400,51 +392,6 @@ impl PromptAlertView {
                     ANONYMOUS_USER_REQUEST_LIMIT_ACTION_TEXT,
                     PromptAlertAction::SignUpClickedForAnonymousUser,
                 ));
-            }
-            PromptAlertState::DelinquentDueToPaymentIssue => {
-                // Check if user is team admin with billing history
-                let has_billing_history = current_team
-                    .map(|team| team.has_billing_history)
-                    .unwrap_or_default();
-                if has_admin_permissions && has_billing_history {
-                    text_fragments.push(FormattedTextFragment::plain_text("  "));
-                    text_fragments.push(FormattedTextFragment::hyperlink_action(
-                        DELINQUENT_DUE_TO_PAYMENT_ISSUE_ACTION_TEXT,
-                        PromptAlertAction::ManageBillingClicked {
-                            team_uid: current_team.map(|team| team.uid).unwrap_or_default(),
-                        },
-                    ));
-                } else {
-                    text_fragments.push(FormattedTextFragment::plain_text(
-                        NON_ADMIN_CONTACT_ADMIN_TEXT,
-                    ));
-                }
-            }
-            PromptAlertState::OveragesToggleableButNotEnabled => {
-                if has_admin_permissions {
-                    text_fragments.push(FormattedTextFragment::plain_text("  "));
-                    text_fragments.push(FormattedTextFragment::hyperlink_action(
-                        OVERAGES_TOGGLEABLE_BUT_NOT_ENABLED_ACTION_TEXT,
-                        PromptAlertAction::OpenSettingsClicked,
-                    ));
-                } else {
-                    text_fragments.push(FormattedTextFragment::plain_text(
-                        NON_ADMIN_ASK_ADMIN_TO_ENABLE_OVERAGES_TEXT,
-                    ));
-                }
-            }
-            PromptAlertState::MonthlyOveragesSpendLimitReached => {
-                if has_admin_permissions {
-                    text_fragments.push(FormattedTextFragment::plain_text("  "));
-                    text_fragments.push(FormattedTextFragment::hyperlink_action(
-                        MONTHLY_OVERAGES_SPEND_LIMIT_REACHED_ACTION_TEXT,
-                        PromptAlertAction::OpenSettingsClicked,
-                    ));
-                } else {
-                    text_fragments.push(FormattedTextFragment::plain_text(
-                        NON_ADMIN_ASK_ADMIN_TO_INCREASE_OVERAGES_TEXT,
-                    ));
-                }
             }
             PromptAlertState::EnterpriseTeamSpendLimitReached
             | PromptAlertState::EnterpriseIndividualSpendLimitReached
@@ -546,37 +493,7 @@ impl View for PromptAlertView {
 
         self.primary_text(&state, &mut text_fragments);
 
-        let auth_state = AuthStateProvider::as_ref(app).get();
-        let current_team = workspaces.team_for_view_handle(&self.view_handle, app);
-        // A teamless user can be considered the admin of their non-existent team.
-        let has_admin_permissions = current_team.is_none_or(|team| {
-            auth_state
-                .user_email()
-                .is_some_and(|email| team.has_admin_permissions(&email))
-        });
-
-        let can_purchase_addon_credits = workspaces
-            .purchase_policy()
-            .is_some_and(|policy| policy.allows_purchases());
-
-        let suggest_buy_credits = can_purchase_addon_credits
-            && has_admin_permissions
-            && matches!(
-                state,
-                PromptAlertState::RequestLimitReached
-                    | PromptAlertState::OveragesToggleableButNotEnabled
-                    | PromptAlertState::MonthlyOveragesSpendLimitReached
-            );
-
-        if suggest_buy_credits {
-            text_fragments.push(FormattedTextFragment::plain_text("  "));
-            text_fragments.push(FormattedTextFragment::hyperlink_action(
-                "Add credits",
-                WorkspaceAction::ShowSettingsPage(SettingsSection::BillingAndUsage),
-            ));
-        } else {
-            self.action_hyperlink(&state, &mut text_fragments, app);
-        }
+        self.action_hyperlink(&state, &mut text_fragments, app);
 
         let formatted_text_element = FormattedTextElement::new(
             FormattedText::new([FormattedTextLine::Line(text_fragments)]),
@@ -641,14 +558,6 @@ impl TypedActionView for PromptAlertView {
         match action {
             PromptAlertAction::SignUpClickedForAnonymousUser => {
                 ctx.emit(PromptAlertEvent::SignupAnonymousUser);
-            }
-            PromptAlertAction::OpenSettingsClicked => {
-                ctx.emit(PromptAlertEvent::OpenBillingAndUsagePage);
-            }
-            PromptAlertAction::ManageBillingClicked { team_uid } => {
-                ctx.emit(PromptAlertEvent::OpenBillingPortal {
-                    team_uid: *team_uid,
-                });
             }
         }
     }

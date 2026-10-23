@@ -34,9 +34,6 @@ pub enum ServerExperiment {
     WindowsLaunchExperiment,
     CodebaseContextExperiment,
     CodebaseContextControl,
-    BuildPlanAutoReloadControl,
-    BuildPlanAutoReloadBannerToggle,
-    BuildPlanAutoReloadPostPurchaseModal,
     OzMultiHarnessControl,
     OzMultiHarnessExperiment,
     MacosRunnersControl,
@@ -93,21 +90,6 @@ impl ServerExperiment {
                 FeatureFlag::CodebaseIndexPersistence.set_enabled(false);
                 FeatureFlag::CodebaseIndexSpeedbump.set_enabled(false);
                 FeatureFlag::CrossRepoContext.set_enabled(false);
-            }
-            Self::BuildPlanAutoReloadControl => {
-                // Control group - disable both experiment flags
-                FeatureFlag::BuildPlanAutoReloadBannerToggle.set_enabled(false);
-                FeatureFlag::BuildPlanAutoReloadPostPurchaseModal.set_enabled(false);
-            }
-            Self::BuildPlanAutoReloadBannerToggle => {
-                // Experiment variant 1 - enable banner toggle modal
-                FeatureFlag::BuildPlanAutoReloadBannerToggle.set_enabled(true);
-                FeatureFlag::BuildPlanAutoReloadPostPurchaseModal.set_enabled(false);
-            }
-            Self::BuildPlanAutoReloadPostPurchaseModal => {
-                // Experiment variant 2 - enable post-purchase modal
-                FeatureFlag::BuildPlanAutoReloadBannerToggle.set_enabled(false);
-                FeatureFlag::BuildPlanAutoReloadPostPurchaseModal.set_enabled(true);
             }
             Self::OzMultiHarnessControl => {
                 FeatureFlag::AgentHarness.set_enabled(false);

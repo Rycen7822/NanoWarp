@@ -18,11 +18,6 @@ impl Display for ServerExperiment {
             Self::WindowsLaunchExperiment => "WINDOWS_LAUNCH_EXPERIMENT",
             Self::CodebaseContextControl => "CODEBASE_CONTEXT_CONTROL",
             Self::CodebaseContextExperiment => "CODEBASE_CONTEXT_EXPERIMENT",
-            Self::BuildPlanAutoReloadControl => "BUILD_PLAN_AUTO_RELOAD_CONTROL",
-            Self::BuildPlanAutoReloadBannerToggle => "BUILD_PLAN_AUTO_RELOAD_BANNER_TOGGLE",
-            Self::BuildPlanAutoReloadPostPurchaseModal => {
-                "BUILD_PLAN_AUTO_RELOAD_POST_PURCHASE_MODAL"
-            }
             Self::OzMultiHarnessControl => "OZ_MULTI_HARNESS_CONTROL",
             Self::OzMultiHarnessExperiment => "OZ_MULTI_HARNESS_EXPERIMENT",
             Self::MacosRunnersControl => "MACOS_RUNNERS_CONTROL",
@@ -45,11 +40,6 @@ impl ServerExperiment {
             "WINDOWS_LAUNCH_EXPERIMENT" => Ok(Self::WindowsLaunchExperiment),
             "CODEBASE_CONTEXT_EXPERIMENT" => Ok(Self::CodebaseContextExperiment),
             "CODEBASE_CONTEXT_CONTROL" => Ok(Self::CodebaseContextControl),
-            "BUILD_PLAN_AUTO_RELOAD_CONTROL" => Ok(Self::BuildPlanAutoReloadControl),
-            "BUILD_PLAN_AUTO_RELOAD_BANNER_TOGGLE" => Ok(Self::BuildPlanAutoReloadBannerToggle),
-            "BUILD_PLAN_AUTO_RELOAD_POST_PURCHASE_MODAL" => {
-                Ok(Self::BuildPlanAutoReloadPostPurchaseModal)
-            }
             "OZ_MULTI_HARNESS_CONTROL" => Ok(Self::OzMultiHarnessControl),
             "OZ_MULTI_HARNESS_EXPERIMENT" => Ok(Self::OzMultiHarnessExperiment),
             "MACOS_RUNNERS_CONTROL" => Ok(Self::MacosRunnersControl),
@@ -68,13 +58,6 @@ impl TryFrom<Experiment> for ServerExperiment {
         match value {
             Experiment::SessionSharingExperiment => Ok(Self::SessionSharingExperiment),
             Experiment::SessionSharingControl => Ok(Self::SessionSharingControl),
-            Experiment::BuildPlanAutoReloadControl => Ok(Self::BuildPlanAutoReloadControl),
-            Experiment::BuildPlanAutoReloadBannerToggle => {
-                Ok(Self::BuildPlanAutoReloadBannerToggle)
-            }
-            Experiment::BuildPlanAutoReloadPostPurchaseModal => {
-                Ok(Self::BuildPlanAutoReloadPostPurchaseModal)
-            }
             Experiment::DisableAgentModeExperiment => Ok(Self::DisableAgentModeExperiment),
             Experiment::EnvVarsEarlyAccessExperiment => Ok(Self::EnvVarsEarlyAccessExperiment),
             Experiment::AgentModeAnalyticsExperiment => Ok(Self::AgentModeAnalyticsExperiment),

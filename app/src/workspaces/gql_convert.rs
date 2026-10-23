@@ -6,11 +6,11 @@ use regex::Regex;
 use warp_errors::report_error;
 use warp_graphql::billing::{
     AiAutonomyPolicy as GqlAiAutonomyPolicy, AmbientAgentsPolicy as GqlAmbientAgentsPolicy,
-    BillingCycleUsageHistory as GqlBillingCycleUsageHistory, BillingMetadata as GqlBillingMetadata,
-    BonusGrant as GqlBonusGrant, BonusGrantScope as GqlBonusGrantScope,
-    ByoApiKeyPolicy as GqlByoApiKeyPolicy, ByoEndpointPolicy as GqlByoEndpointPolicy,
-    ChargeUnit as GqlChargeUnit, CodebaseContextPolicy as GqlCodebaseContextPolicy,
-    CustomerType as GqlCustomerType, DelinquencyStatus as GqlDelinquencyStatus,
+    BillingMetadata as GqlBillingMetadata, BonusGrant as GqlBonusGrant,
+    BonusGrantScope as GqlBonusGrantScope, ByoApiKeyPolicy as GqlByoApiKeyPolicy,
+    ByoEndpointPolicy as GqlByoEndpointPolicy, ChargeUnit as GqlChargeUnit,
+    CodebaseContextPolicy as GqlCodebaseContextPolicy, CustomerType as GqlCustomerType,
+    DelinquencyStatus as GqlDelinquencyStatus,
     EnterpriseCreditsAutoReloadPolicy as GqlEnterpriseCreditsAutoReloadPolicy,
     EnterprisePayAsYouGoPolicy as GqlEnterprisePayAsYouGoPolicy, InstanceShape as GqlInstanceShape,
     ManagedByokByoePolicy as GqlManagedByokByoePolicy, MultiAdminPolicy as GqlMultiAdminPolicy,
@@ -22,11 +22,8 @@ use warp_graphql::billing::{
     TeamSizePolicy as GqlTeamSizePolicy,
     TelemetryDataCollectionPolicy as GqlTelemetryDataCollectionPolicy, Tier as GqlTier,
     UgcDataCollectionPolicy as GqlUgcDataCollectionPolicy,
-    UsageBasedPricingPolicy as GqlUsageBasedPricingPolicy,
-    UsageVisibilityGranularity as GqlUsageVisibilityGranularity,
-    UsageVisibilityPolicy as GqlUsageVisibilityPolicy, WarpAiPolicy as GqlWarpAiPolicy,
+    UsageBasedPricingPolicy as GqlUsageBasedPricingPolicy, WarpAiPolicy as GqlWarpAiPolicy,
 };
-use warp_graphql::queries::get_conversation_usage as gql_usage;
 use warp_graphql::queries::get_workspaces_metadata_for_user::User as GqlUser;
 use warp_graphql::subscriptions::get_warp_drive_updates::WarpDriveUpdate;
 use warp_graphql::user::{
@@ -58,21 +55,18 @@ use super::team::{
 use super::user_workspaces::WorkspacesMetadataResponse;
 use super::workspace::{
     AIAutonomyPolicy, AddonCreditsSettings, AdminEnablementSetting, AiAutonomySettings,
-    AiPermissionsSettings, AmbientAgentsPolicy, BillingCycleUsageData, BillingCycleUsageEntry,
-    BillingCycleUsageSummary, BillingMetadata, ByoEndpointMetadata, ByoEndpointModelMetadata,
-    ByoFirstPartyKey, CloudConversationStorageSettings, CodebaseContextSettings, CustomerType,
-    DelinquencyStatus, EmailInvite, EnforceableSetting, EnterpriseSecretRegex,
-    HostEnablementSetting, InstanceShape, InviteLinkDomainRestriction, LinkSharingSettings,
-    LlmSettings, MaxPriorCycles, SandboxedAgentSettings, SecretRedactionSettings,
+    AiPermissionsSettings, AmbientAgentsPolicy, BillingMetadata, ByoEndpointMetadata,
+    ByoEndpointModelMetadata, ByoFirstPartyKey, CloudConversationStorageSettings,
+    CodebaseContextSettings, CustomerType, DelinquencyStatus, EmailInvite, EnforceableSetting,
+    EnterpriseSecretRegex, HostEnablementSetting, InstanceShape, InviteLinkDomainRestriction,
+    LinkSharingSettings, LlmSettings, SandboxedAgentSettings, SecretRedactionSettings,
     SessionSharingPolicy, SharedNotebooksPolicy, SharedWorkflowsPolicy, SplitListSetting,
     TeamAiAutonomySettings, TeamAiPermissionsSettings, TeamByoSettings, TeamLinkSharingSettings,
     TeamSandboxedAgentSettings, TeamSecretRedactionSettings, TeamSettings,
     TelemetryDataCollectionPolicy, TelemetrySettings, Tier, UgcCollectionEnablementSetting,
-    UgcCollectionSettings, UgcDataCollectionPolicy, UsageBasedPricingPolicy,
-    UsageVisibilityGranularity, UsageVisibilityPolicy, WarpAiPolicy, Workspace, WorkspaceMember,
-    WorkspaceMemberUsageInfo, WorkspaceSettings, WorkspaceSizePolicy,
+    UgcCollectionSettings, UgcDataCollectionPolicy, UsageBasedPricingPolicy, WarpAiPolicy,
+    Workspace, WorkspaceMember, WorkspaceMemberUsageInfo, WorkspaceSettings, WorkspaceSizePolicy,
 };
-use crate::ai::blocklist::usage::conversation_usage_view::ConversationUsageInfo;
 use crate::ai::execution_profiles::{
     ActionPermission, ComputerUsePermission, WriteToPtyPermission,
 };
@@ -380,39 +374,6 @@ impl From<GqlUgcCollectionEnablementSetting> for UgcCollectionEnablementSetting 
     }
 }
 
-impl From<&gql_usage::ConversationUsage> for ConversationUsageInfo {
-    fn from(gql: &gql_usage::ConversationUsage) -> Self {
-        let usage_metadata =
-            persistence::model::ConversationUsageMetadata::from(&gql.usage_metadata);
-        let total_cost_in_cents = usage_metadata.billed_cost_in_cents();
-        let persistence::model::ConversationUsageMetadata {
-            credits_spent,
-            platform_credits_spent,
-            token_usage: models,
-            tool_usage_metadata: tool,
-            context_window_usage,
-            context_window_segments,
-            ..
-        } = usage_metadata;
-        ConversationUsageInfo {
-            credits_spent,
-            platform_credits_spent,
-            credits_spent_for_last_block: None,
-            tool_calls: tool.total_tool_calls(),
-            models,
-            context_window_usage,
-            context_window_segments,
-            files_changed: tool.apply_file_diff_stats.files_changed,
-            lines_added: tool.apply_file_diff_stats.lines_added,
-            lines_removed: tool.apply_file_diff_stats.lines_removed,
-            commands_executed: tool.run_command_stats.commands_executed,
-            total_cost_in_cents,
-            // The settings usage-history query carries no per-block breakdown.
-            cost_in_cents_for_last_block: None,
-        }
-    }
-}
-
 impl From<GqlAdminEnablementSetting> for AdminEnablementSetting {
     fn from(gql_admin_enablement_setting: GqlAdminEnablementSetting) -> AdminEnablementSetting {
         match gql_admin_enablement_setting {
@@ -622,86 +583,6 @@ impl From<GqlAmbientAgentsPolicy> for AmbientAgentsPolicy {
     }
 }
 
-impl From<GqlUsageVisibilityGranularity> for UsageVisibilityGranularity {
-    fn from(gql_granularity: GqlUsageVisibilityGranularity) -> UsageVisibilityGranularity {
-        match gql_granularity {
-            GqlUsageVisibilityGranularity::OwnOnly => UsageVisibilityGranularity::OwnOnly,
-            GqlUsageVisibilityGranularity::TeamAggregate => {
-                UsageVisibilityGranularity::TeamAggregate
-            }
-            GqlUsageVisibilityGranularity::PerUserTotals => {
-                UsageVisibilityGranularity::PerUserTotals
-            }
-            GqlUsageVisibilityGranularity::FullBreakdown => {
-                UsageVisibilityGranularity::FullBreakdown
-            }
-            GqlUsageVisibilityGranularity::Other(value) => {
-                report_error!(
-                    "Invalid UsageVisibilityGranularity. Make sure to update client GraphQL types!",
-                    extra: { "value" => %value },
-                    warp_errors::ReportErrorLogMode::OncePerRun
-                );
-                // Fail closed to the most restrictive granularity.
-                UsageVisibilityGranularity::OwnOnly
-            }
-        }
-    }
-}
-
-fn from_gql_max_prior_cycles(value: i32) -> MaxPriorCycles {
-    match value {
-        0 => MaxPriorCycles::None,
-        n if n > 0 => MaxPriorCycles::Limited(n as u32),
-        -1 => MaxPriorCycles::Unlimited,
-        other => {
-            report_error!(
-                "Unexpected maxPriorCycles value from server; treating as unlimited",
-                extra: { "value" => %other }
-            );
-            MaxPriorCycles::None
-        }
-    }
-}
-
-impl From<GqlUsageVisibilityPolicy> for UsageVisibilityPolicy {
-    fn from(gql_policy: GqlUsageVisibilityPolicy) -> UsageVisibilityPolicy {
-        Self {
-            admin_granularity: gql_policy.admin_granularity.into(),
-            max_prior_cycles: from_gql_max_prior_cycles(gql_policy.max_prior_cycles),
-        }
-    }
-}
-
-fn convert_billing_cycle_usage(history: GqlBillingCycleUsageHistory) -> BillingCycleUsageData {
-    BillingCycleUsageData {
-        current_period_start: history.current_period_start.utc(),
-        current_period_end: history.current_period_end.utc(),
-        summaries: history
-            .summaries
-            .into_iter()
-            .map(|summary| BillingCycleUsageSummary {
-                period_start: summary.period_start.utc(),
-                period_end: summary.period_end.utc(),
-                entries: summary
-                    .entries
-                    .into_iter()
-                    .map(|entry| BillingCycleUsageEntry {
-                        subject_type: entry.subject_type,
-                        subject_uid: entry.subject_uid,
-                        subject_display_name: entry.subject_display_name,
-                        cost_type: entry.cost_type,
-                        usage_bucket: entry.usage_bucket,
-                        usage_source: entry.usage_source,
-                        credits_used: entry.credits_used_exact,
-                        cost_cents: entry.cost_cents_exact,
-                        attributed_team_uid: entry.attributed_team_uid,
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
-}
-
 impl From<GqlChargeUnit> for ChargeUnit {
     fn from(gql_charge_unit: GqlChargeUnit) -> ChargeUnit {
         match gql_charge_unit {
@@ -751,7 +632,6 @@ impl From<GqlTier> for Tier {
             multi_admin_policy: gql_tier.multi_admin_policy.map(From::from),
             native_workspaces_policy: gql_tier.native_workspaces_policy.map(From::from),
             ambient_agents_policy: gql_tier.ambient_agents_policy.map(From::from),
-            usage_visibility_policy: gql_tier.usage_visibility_policy.map(From::from),
         }
     }
 }
@@ -1474,9 +1354,6 @@ impl From<GqlWorkspace> for Workspace {
                     cents_spent: info.current_month_spend_cents,
                 })
                 .unwrap_or_default(),
-            billing_cycle_usage: gql_workspace
-                .billing_cycle_usage_history
-                .map(convert_billing_cycle_usage),
             has_billing_history: gql_workspace.has_billing_history,
             settings: gql_workspace.settings.clone().into(),
             feature_model_choice: feature_model_choice_from_gql(

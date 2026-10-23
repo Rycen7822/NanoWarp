@@ -40,7 +40,6 @@ const clientMutations = [
   'populateMerkleTreeCache',
   'prewarmedSandboxConfig',
   'provideNegativeFeedbackResponseForAiConversation',
-  'purchaseAddonCredits',
   'recordObjectAction',
   'removeObjectGuest',
   'removeObjectLinkPermissions',

@@ -84,14 +84,7 @@ pub struct UpdateWorkspaceSettingsVariables {
 #[derive(cynic::InputObject, Debug)]
 pub struct UpdateWorkspaceSettingsInput {
     pub workspace_uid: String,
-    pub set_usage_based_pricing_settings: Option<UsageBasedPricingSettingsInput>,
     pub set_addon_credits_settings: Option<AddonCreditsSettingsInput>,
-}
-
-#[derive(cynic::InputObject, Debug)]
-pub struct UsageBasedPricingSettingsInput {
-    pub enabled: Option<bool>,
-    pub max_monthly_spend_cents: Option<i32>,
 }
 
 #[derive(cynic::InputObject, Debug)]

@@ -196,7 +196,6 @@ fn tier_conversion_maps_the_charge_unit() {
         multi_admin_policy: None,
         native_workspaces_policy: None,
         ambient_agents_policy: None,
-        usage_visibility_policy: None,
     };
 
     assert_eq!(
