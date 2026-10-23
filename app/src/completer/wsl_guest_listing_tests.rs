@@ -17,8 +17,8 @@ use crate::terminal::shell::ShellType;
 #[cfg(unix)]
 use crate::test_util::{Stub, VirtualFS};
 
-fn test_session_context(session: Session, cwd: TypedPathBuf, app: &App) -> SessionContext {
-    app.read(|ctx| SessionContext::new(session, CommandRegistry::default().into(), cwd, ctx))
+fn test_session_context(session: Session, cwd: TypedPathBuf) -> SessionContext {
+    SessionContext::new(session, CommandRegistry::default().into(), cwd)
 }
 
 fn test_wsl_like_session() -> Session {
@@ -31,7 +31,7 @@ fn test_wsl_like_session() -> Session {
 #[cfg(unix)]
 #[test]
 fn test_list_entries_follows_symlinks_and_succeeds() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_list_entries_follows_symlinks_and_succeeds",
             |dirs, mut sandbox| {
@@ -41,7 +41,7 @@ fn test_list_entries_follows_symlinks_and_succeeds() {
                 sandbox.ln("real_file.txt", "link_to_file");
 
                 let cwd = TypedPathBuf::from(dirs.tests().to_string_lossy().as_bytes());
-                let ctx = test_session_context(test_wsl_like_session(), cwd.clone(), &app);
+                let ctx = test_session_context(test_wsl_like_session(), cwd.clone());
 
                 let entries = warpui::r#async::block_on(super::list_entries(&ctx, &cwd.to_path()))
                     .expect("guest listing should succeed against a real local shell");
@@ -68,9 +68,9 @@ fn test_list_entries_follows_symlinks_and_succeeds() {
 
 #[test]
 fn test_list_entries_returns_none_on_guest_failure() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let directory = TypedPath::unix("/definitely/does/not/exist/on/this/machine");
-        let ctx = test_session_context(test_wsl_like_session(), directory.to_path_buf(), &app);
+        let ctx = test_session_context(test_wsl_like_session(), directory.to_path_buf());
 
         let result = warpui::r#async::block_on(super::list_entries(&ctx, &directory));
         assert_eq!(result, None);
@@ -79,12 +79,8 @@ fn test_list_entries_returns_none_on_guest_failure() {
 
 #[test]
 fn test_run_guest_listing_returns_none_on_timeout() {
-    App::test((), |app| async move {
-        let ctx = test_session_context(
-            test_wsl_like_session(),
-            TypedPath::unix("/").to_path_buf(),
-            &app,
-        );
+    App::test((), |_| async move {
+        let ctx = test_session_context(test_wsl_like_session(), TypedPath::unix("/").to_path_buf());
 
         let result = warpui::r#async::block_on(super::run_guest_listing(
             &ctx,

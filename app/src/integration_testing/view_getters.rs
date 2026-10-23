@@ -20,7 +20,6 @@ use crate::terminal::TerminalView;
 use crate::terminal::input::Input;
 use crate::themes::theme_chooser::ThemeChooser;
 use crate::view_components::find::{Find, FindEvent, FindModel};
-use crate::workflows::CategoriesView;
 use crate::workflows::workflow_view::WorkflowView;
 use crate::workspace::Workspace;
 
@@ -219,11 +218,6 @@ pub fn keybindings_view(app: &App, window_id: WindowId) -> ViewHandle<Keybinding
 
 /// Panics if there isn't a single settings view in the view hierarchy.
 pub fn settings_view(app: &App, window_id: WindowId) -> ViewHandle<SettingsView> {
-    singleton_view_of_type(app, window_id)
-}
-
-/// Panics if there isn't a single workflows view in the view hierarchy.
-pub fn workflow_categories_view(app: &App, window_id: WindowId) -> ViewHandle<CategoriesView> {
     singleton_view_of_type(app, window_id)
 }
 

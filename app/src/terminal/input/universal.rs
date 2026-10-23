@@ -8,8 +8,7 @@ use warpui::{AppContext, SingletonEntity};
 use super::Input;
 use super::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_vim_status_to_stack,
-    add_voltron_overlay, add_workflow_info_overlay,
-    wrap_input_with_terminal_padding_and_focus_handler,
+    add_workflow_info_overlay, wrap_input_with_terminal_padding_and_focus_handler,
 };
 use crate::ai::blocklist::InputType;
 use crate::appearance::Appearance;
@@ -99,10 +98,6 @@ impl Input {
                 self.size_info(app).pane_height_px().as_f32(),
                 menu_positioning,
             );
-        }
-
-        if self.is_voltron_open && self.is_pane_focused(app) {
-            add_voltron_overlay(&mut stack, &self.voltron_view, menu_positioning);
         }
 
         if self.is_pane_focused(app) {

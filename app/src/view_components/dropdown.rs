@@ -532,11 +532,6 @@ where
         ctx.notify();
     }
 
-    pub fn set_selected_to_none(&mut self, ctx: &mut ViewContext<Self>) {
-        self.selected_item = None;
-        ctx.notify();
-    }
-
     /// Returns a clone of the concrete item action for the currently selected
     /// item, if any.
     ///

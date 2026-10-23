@@ -37,7 +37,6 @@ use serde::Serialize;
 use session_sharing_protocol::common::{AgentAttachment, ParticipantId, ServerConversationToken};
 use settings::{Setting as _, ToggleableSetting};
 use string_offset::{ByteOffset, CharOffset};
-use vec1::Vec1;
 use vim::vim::VimMode;
 use warp_cli::agent::Harness;
 use warp_completer::completer::{
@@ -66,11 +65,10 @@ use warpui::clipboard::{ClipboardContent, ImageData};
 use warpui::clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES;
 use warpui::color::ColorU;
 use warpui::elements::{
-    Align, AnchorPair, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, DispatchEventResult, DropTargetData, Element, EventHandler, Flex,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetType, ParentAnchor, ParentElement,
-    Radius, ResizableStateHandle, SavePosition, SelectionHandle, Text, Wrap, YAxisAnchor,
-    resizable_state_handle,
+    Align, AnchorPair, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    DispatchEventResult, DropTargetData, Element, EventHandler, Flex, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, OffsetType, ParentElement, Radius, ResizableStateHandle,
+    SavePosition, SelectionHandle, Text, Wrap, YAxisAnchor, resizable_state_handle,
 };
 pub use warpui::elements::{ParentElement as _, Stack};
 pub use warpui::geometry::vector::{Vector2F, vec2f};
@@ -167,11 +165,10 @@ use crate::ai::harness_availability::{
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::appearance::{Appearance, AppearanceEvent};
-use crate::channel::{Channel, ChannelState};
+use crate::channel::ChannelState;
 use crate::cloud_object::model::actions::ObjectActionType;
 use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::cloud_object::model::persistence::CloudModel;
-use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{CloudObject, CloudObjectLookup as _, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -203,7 +200,7 @@ use crate::persistence::{database_file_path_for_current_scope, establish_ro_conn
 use crate::prefix::longest_common_prefix;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::resource_center::{
-    Tip, TipAction, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
+    Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
 use crate::search::QueryFilter;
 use crate::server::cloud_objects::update_manager::UpdateManager;
@@ -247,29 +244,21 @@ use crate::terminal::view::{
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::user_config::WarpConfig;
 use crate::util::bindings::{self, CustomAction};
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor;
 use crate::util::image::MAX_IMAGE_COUNT_FOR_QUERY;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::{DismissibleToast, ToastFlavor};
-use crate::voltron::{
-    Voltron, VoltronEvent, VoltronFeatureView, VoltronFeatureViewHandle, VoltronFeatureViewMeta,
-    VoltronItem, VoltronMetadata,
-};
-use crate::workflows::aliases::WorkflowAliases;
 use crate::workflows::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
-    compute_workflow_display_data_for_history_command,
     compute_workflow_display_data_with_overrides,
 };
 use crate::workflows::info_box::{
     WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowsInfoBoxViewEvent, WorkflowsMoreInfoView,
 };
-use crate::workflows::local_workflows::LocalWorkflows;
 use crate::workflows::workflow_enum::EnumVariants;
-use crate::workflows::{self, WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, InitContent, ToastStack, WorkspaceAction};
 use crate::workspaces::user_workspaces::{
@@ -908,15 +897,10 @@ pub enum InputAction {
     PageUp,
     PageDown,
     ClearScreen,
-    SelectAndRefreshVoltron(VoltronItem),
     /// Open the completions menu if the cursor is in a valid position to generate completion
     /// suggestions.
     MaybeOpenCompletionSuggestions,
     HideWorkflowInfoCard,
-
-    /// If the command originates from a workflow but doesn't match the workflow template,
-    /// this action resets the command to its original workflow state.
-    ResetWorkflowState,
 
     ToggleClassicCompletionsMode,
 
@@ -994,27 +978,6 @@ impl MenuPositioning {
         self.y_anchor()
     }
 
-    fn voltron_parent_anchor(&self) -> ParentAnchor {
-        match *self {
-            MenuPositioning::AboveInputBox => ParentAnchor::BottomLeft,
-            MenuPositioning::BelowInputBox => ParentAnchor::TopLeft,
-        }
-    }
-
-    fn voltron_child_anchor(&self) -> ChildAnchor {
-        match *self {
-            MenuPositioning::AboveInputBox => ChildAnchor::BottomLeft,
-            MenuPositioning::BelowInputBox => ChildAnchor::TopLeft,
-        }
-    }
-
-    fn voltron_offset(&self) -> Vector2F {
-        match *self {
-            MenuPositioning::AboveInputBox => vec2f(11., -11.),
-            MenuPositioning::BelowInputBox => vec2f(11., -66.),
-        }
-    }
-
     fn y_anchor(&self) -> AnchorPair<YAxisAnchor> {
         match *self {
             MenuPositioning::AboveInputBox => {
@@ -1065,17 +1028,8 @@ struct SelectedWorkflowState {
     workflow_selection_source: WorkflowSelectionSource,
 
     /// `true` if the WorkflowsMoreInfoView should be shown for the selected workflow. This is true
-    /// in all cases except when a workflow-linked history command is selected from up-arrow
-    /// history.
+    /// when the viewer may display workflow details.
     should_show_more_info_view: bool,
-}
-
-/// Helper struct for differentiating the cases when the command is able to be
-/// parsed into the workflow it originates from versus when it's been edited to
-/// the point of us not being able to determine where the arguments are.
-pub enum CommandMatchesWorkflowTemplate {
-    Yes(WorkflowDisplayData),
-    No,
 }
 
 /// Helper struct for performing alias expansion.
@@ -1147,7 +1101,6 @@ impl CompleterData {
                 current_session,
                 self.command_registry.clone(),
                 current_working_directory,
-                app,
             )
         })
     }
@@ -1177,7 +1130,7 @@ pub trait Autosuggester {
     fn set_autosuggestion_future(&mut self, abort_handle: AbortHandle);
 }
 
-/// Implement this trait to provide whether menus like autocomplete, voltron, etc
+/// Implement this trait to provide whether input menus like autocomplete
 /// should be positionined above or below the input.
 pub trait MenuPositioningProvider {
     fn menu_position(&self, app: &AppContext) -> MenuPositioning;
@@ -1408,8 +1361,6 @@ pub struct Input {
     input_render_state_model_handle: ModelHandle<InputRenderStateModel>,
     workflows_state: WorkflowsState,
     env_var_collection_state: EnvVarCollectionState,
-    voltron_view: ViewHandle<Voltron>,
-    is_voltron_open: bool,
     command_x_ray_description: Option<Arc<Description>>,
     last_parsed_tokens: Option<decorations::ParsedTokensSnapshot>,
     debounce_input_background_tx: Sender<InputBackgroundJobOptions>,
@@ -1736,7 +1687,7 @@ pub fn init(app: &mut AppContext) {
             FixedBinding::new(
                 "ctrl-r",
                 WorkspaceAction::ShowCommandSearch(Default::default()),
-                id!("Input") & !id!("VoltronActive"),
+                id!("Input"),
             ),
         ]);
     }
@@ -1752,7 +1703,6 @@ pub fn init(app: &mut AppContext) {
             // Same goes with the LLM menu.
             id!("Input")
                 & !id!("IMEOpen")
-                & !id!("VoltronActive")
                 & !id!("WorkflowInfoBox")
                 & !id!("AgentSelectorOpen")
                 & !id!("PromptChipMenuOpen")
@@ -1835,7 +1785,7 @@ pub fn init(app: &mut AppContext) {
         // Therefore, this binding is guarded with !id!("VimNormalMode"). Note that although there
         // is usually a conflict between these, that isn't always the case if the user has
         // re-mapped CommandSearch to something else. However, we don't account for that here.
-        .with_context_predicate(id!("Input") & !id!("VoltronActive") & !id!("VimNormalMode"))
+        .with_context_predicate(id!("Input") & !id!("VimNormalMode"))
         .with_custom_action(CustomAction::CommandSearch),
         EditableBinding::new(
             "input:search_command_history",
@@ -1845,7 +1795,7 @@ pub fn init(app: &mut AppContext) {
                 init_content: Default::default(),
             }),
         )
-        .with_context_predicate(id!("Input") & !id!("VoltronActive"))
+        .with_context_predicate(id!("Input"))
         .with_custom_action(CustomAction::HistorySearch),
         EditableBinding::new(
             OPEN_COMPLETIONS_KEYBINDING_NAME,
@@ -1860,7 +1810,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::TriggerExternalCtrlTFileSearch,
         )
         .with_enabled(|| FeatureFlag::ShellWidgetHandoff.is_enabled())
-        .with_context_predicate(id!("Input") & !id!("VoltronActive") & !id!("LongRunningCommand"))
+        .with_context_predicate(id!("Input") & !id!("LongRunningCommand"))
         .with_key_binding("ctrl-t"),
         EditableBinding::new(
             "workspace:trigger_external_alt_c_directory_search",
@@ -1871,29 +1821,6 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!(EXTERNAL_ALT_C_BINDING_CONTEXT))
         .with_key_binding("alt-c"),
     ]);
-
-    if let Some(custom_action) = workflows::CategoriesView::custom_action() {
-        app.register_editable_bindings([EditableBinding::new(
-            "input:toggle_workflows",
-            "Workflows",
-            InputAction::SelectAndRefreshVoltron(VoltronItem::Workflows),
-        )
-        .with_context_predicate(id!("Input"))
-        .with_custom_action(custom_action)]);
-    }
-
-    if ChannelState::channel() == Channel::Integration {
-        app.register_fixed_bindings([
-            // Hack: Add explicit bindings for the tests, since the tests' injected
-            // keypresses won't trigger Mac menu items. Unfortunately we can't use
-            // cfg[test] because we are a separate process!
-            FixedBinding::new(
-                "ctrl-shift-R",
-                InputAction::SelectAndRefreshVoltron(VoltronItem::Workflows),
-                id!("Input"),
-            ),
-        ]);
-    }
 
     app.register_editable_bindings([
         EditableBinding::new(
@@ -2753,19 +2680,6 @@ impl Input {
             me.handle_suggestions_event(event, ctx);
         });
 
-        let app_workflows = LocalWorkflows::as_ref(ctx)
-            .app_workflows()
-            .cloned()
-            .collect_vec();
-        let local_user_workflows = WarpConfig::as_ref(ctx).local_user_workflows().clone();
-
-        let workflows_search_view = ctx.add_typed_action_view(|ctx| {
-            workflows::CategoriesView::new(local_user_workflows, app_workflows, ctx)
-        });
-        ctx.subscribe_to_view(&workflows_search_view, move |me, _, event, ctx| {
-            me.handle_workflows_event(event, ctx);
-        });
-
         let safe_mode_settings = SafeModeSettings::handle(ctx);
         ctx.subscribe_to_model(&safe_mode_settings, |me, _, event, ctx| {
             me.handle_safe_mode_settings_changed_event(event, ctx)
@@ -2785,15 +2699,6 @@ impl Input {
             |me, mode, ctx| me.run_input_background_jobs(mode, ctx),
             |_me, _ctx| {},
         );
-
-        let voltron_features = Vec1::new(VoltronFeatureView::new(
-            VoltronItem::Workflows,
-            VoltronFeatureViewHandle::Workflows(workflows_search_view.clone()),
-        ));
-        let voltron_view = { ctx.add_typed_action_view(|ctx| Voltron::new(voltron_features, ctx)) };
-        ctx.subscribe_to_view(&voltron_view, move |me, _, event, ctx| {
-            me.handle_voltron_event(event, ctx);
-        });
 
         ctx.subscribe_to_model(&SessionSettings::handle(ctx), move |me, _, evt, ctx| {
             me.handle_session_settings_event(evt, ctx);
@@ -3112,8 +3017,6 @@ impl Input {
             input_render_state_model_handle,
             workflows_state,
             env_var_collection_state,
-            voltron_view,
-            is_voltron_open: false,
             command_x_ray_description: None,
             last_parsed_tokens: None,
             debounce_input_background_tx,
@@ -5532,60 +5435,6 @@ impl Input {
         })
     }
 
-    fn handle_workflows_event(
-        &mut self,
-        event: &workflows::CategoriesViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            workflows::CategoriesViewEvent::Close => {
-                self.focus_input_box(ctx);
-                self.close_voltron(ctx);
-            }
-            workflows::CategoriesViewEvent::WorkflowSelected {
-                workflow,
-                workflow_source,
-            } => {
-                let workflow_id = workflow.server_id();
-                let workflow_source = *workflow_source;
-                let space = workflow_id.and_then(|id| {
-                    CloudViewModel::as_ref(ctx)
-                        .object_space(&id.to_string(), ctx)
-                        .map(Into::into)
-                });
-
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::WorkflowSelected(WorkflowTelemetryMetadata {
-                        workflow_source,
-                        workflow_categories: workflow.as_workflow().tags().cloned(),
-                        workflow_selection_source: WorkflowSelectionSource::Voltron,
-                        workflow_id,
-                        workflow_space: space,
-                        enum_ids: workflow.as_workflow().get_server_enum_ids()
-                    }),
-                    ctx
-                );
-
-                self.show_workflows_info_box_on_workflow_selection(
-                    *workflow.clone(),
-                    workflow_source,
-                    WorkflowSelectionSource::Voltron,
-                    None,
-                    ctx,
-                );
-                self.close_voltron(ctx);
-            }
-        }
-    }
-
-    fn handle_voltron_event(&mut self, event: &VoltronEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            VoltronEvent::Close => {
-                self.close_voltron(ctx);
-            }
-        }
-    }
-
     // Whether a workflow info box is open or not
     pub fn is_workflows_info_box_open(&self) -> bool {
         self.workflows_state.selected_workflow_state.is_some()
@@ -5618,31 +5467,10 @@ impl Input {
             workflow_source,
             workflow_selection_source,
             argument_override,
-            None,
             env_vars,
             should_show_more_info_view,
             ctx,
         );
-    }
-
-    /// Helper function to see if the selected history command matches the template of the workflow.
-    fn command_matches_workflow_template(
-        &self,
-        history_command: &str,
-        workflow_type: WorkflowType,
-    ) -> CommandMatchesWorkflowTemplate {
-        // if let Some(history_command) = history_command {
-        if let Some(display_data) = compute_workflow_display_data_for_history_command(
-            history_command,
-            workflow_type.as_workflow(),
-        ) {
-            CommandMatchesWorkflowTemplate::Yes(display_data)
-        } else {
-            // In this case, the workflow comes from a history command but the command has been edited so
-            // it no longer matches the original workflow template (e.g., a flag was added). We want
-            // to treat this command as a workflow but without the argument parsing and shift-tab UX.
-            CommandMatchesWorkflowTemplate::No
-        }
     }
 
     /// Inserts the given workflow into the input editor and initiates the shift-tab workflow
@@ -5650,10 +5478,6 @@ impl Input {
     ///
     /// If `should_show_more_info_view`, the `WorkflowsMoreInfoView` for the selected workflow is
     /// displayed above the input.
-    ///
-    /// If `history_command` is `Some()` _and_ matches the contained workflow in `workflow_type`,
-    /// `history_command` is inserted into the input instead, with its parameters highlighted and
-    /// made editable via the shift-tab UX.
     #[allow(clippy::too_many_arguments)]
     fn insert_workflow_into_input(
         &mut self,
@@ -5661,7 +5485,6 @@ impl Input {
         workflow_source: WorkflowSource,
         workflow_selection_source: WorkflowSelectionSource,
         argument_overrides: Option<HashMap<String, String>>,
-        history_command: Option<&str>,
         selected_env_vars: Option<SyncId>,
         should_show_more_info_view: bool,
         ctx: &mut ViewContext<Input>,
@@ -5700,117 +5523,63 @@ impl Input {
             });
         }
 
-        // The workflow may or may not come from a history command. If it does, the history command may or may not match
-        // the template of the original workflow. If it does match, we have extra display data to show (such as the indices in
-        // the command to highlight as arguments). If it doesn't match, there's no additional display data to show. Then, in the
-        // default case where there is no history command, there is additional display data.
-        let (command_to_insert, display_data) = match history_command {
-            Some(history_command) => {
-                match self.command_matches_workflow_template(history_command, workflow_type.clone())
-                {
-                    CommandMatchesWorkflowTemplate::Yes(workflow_display_data) => (
-                        workflow_display_data
-                            .command_with_replaced_arguments
-                            .clone(),
-                        Some(workflow_display_data),
-                    ),
-                    CommandMatchesWorkflowTemplate::No => (history_command.to_string(), None),
-                }
-            }
-            None => {
-                let data = if let Some(arguments_to_override) = argument_overrides {
-                    compute_workflow_display_data_with_overrides(
-                        workflow_type.as_workflow(),
-                        arguments_to_override,
-                    )
-                } else {
-                    compute_workflow_display_data(workflow_type.as_workflow())
-                };
-                (data.command_with_replaced_arguments.clone(), Some(data))
-            }
+        let WorkflowDisplayData {
+            command_with_replaced_arguments,
+            replaced_ranges,
+            argument_index_to_highlight_index_map,
+            argument_index_to_object_id_map,
+            ..
+        } = if let Some(arguments_to_override) = argument_overrides {
+            compute_workflow_display_data_with_overrides(
+                workflow_type.as_workflow(),
+                arguments_to_override,
+            )
+        } else {
+            compute_workflow_display_data(workflow_type.as_workflow())
         };
 
-        match display_data {
-            Some(WorkflowDisplayData {
-                command_with_replaced_arguments,
-                replaced_ranges,
-                argument_index_to_highlight_index_map,
-                argument_index_to_object_id_map,
-                ..
-            }) => {
-                let text_style_ranges = replaced_ranges
-                    .into_iter()
-                    .map(|range| {
-                        (
-                            range,
-                            TextStyle::new().with_background_color(ColorU::from_u32(
-                                WORKFLOW_PARAMETER_HIGHLIGHT_COLOR,
-                            )),
-                        )
-                    })
-                    .collect_vec();
+        let text_style_ranges = replaced_ranges
+            .into_iter()
+            .map(|range| {
+                (
+                    range,
+                    TextStyle::new().with_background_color(ColorU::from_u32(
+                        WORKFLOW_PARAMETER_HIGHLIGHT_COLOR,
+                    )),
+                )
+            })
+            .collect_vec();
 
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.insert_with_styles(
-                        &command_with_replaced_arguments,
-                        &text_style_ranges,
-                        PlainTextEditorViewAction::SystemInsert,
-                        ctx,
-                    );
-                });
+        self.editor.update(ctx, |editor, ctx| {
+            editor.insert_with_styles(
+                &command_with_replaced_arguments,
+                &text_style_ranges,
+                PlainTextEditorViewAction::SystemInsert,
+                ctx,
+            );
+        });
 
-                // Get enum variants
-                let cloud_model = CloudModel::as_ref(ctx);
-                let enum_variants_map = argument_index_to_object_id_map
-                    .iter()
-                    .filter_map(|(index, object_id)| {
-                        cloud_model
-                            .get_workflow_enum(object_id)
-                            .map(|workflow_enum| {
-                                workflow_enum.model().string_model.variants.clone()
-                            })
-                            .map(|variants| (*index, variants))
-                    })
-                    .collect();
+        // Get enum variants
+        let cloud_model = CloudModel::as_ref(ctx);
+        let enum_variants_map = argument_index_to_object_id_map
+            .iter()
+            .filter_map(|(index, object_id)| {
+                cloud_model
+                    .get_workflow_enum(object_id)
+                    .map(|workflow_enum| workflow_enum.model().string_model.variants.clone())
+                    .map(|variants| (*index, variants))
+            })
+            .collect();
 
-                self.workflows_state.selected_workflow_state = Some(SelectedWorkflowState {
-                    more_info_view: self.create_workflows_info_view(
-                        workflow_type.clone(),
-                        true,
-                        ctx,
-                    ),
-                    argument_index_to_highlight_index: argument_index_to_highlight_index_map,
-                    argument_index_to_enum_variants: enum_variants_map,
-                    workflow_source,
-                    workflow_type,
-                    workflow_selection_source,
-                    should_show_more_info_view,
-                });
-            }
-            None => {
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.user_initiated_insert(
-                        &command_to_insert,
-                        PlainTextEditorViewAction::SystemInsert,
-                        ctx,
-                    )
-                });
-
-                self.workflows_state.selected_workflow_state = Some(SelectedWorkflowState {
-                    more_info_view: self.create_workflows_info_view(
-                        workflow_type.clone(),
-                        false,
-                        ctx,
-                    ),
-                    argument_index_to_highlight_index: HashMap::new(),
-                    argument_index_to_enum_variants: HashMap::new(),
-                    workflow_source,
-                    workflow_type,
-                    workflow_selection_source,
-                    should_show_more_info_view,
-                });
-            }
-        };
+        self.workflows_state.selected_workflow_state = Some(SelectedWorkflowState {
+            more_info_view: self.create_workflows_info_view(workflow_type.clone(), ctx),
+            argument_index_to_highlight_index: argument_index_to_highlight_index_map,
+            argument_index_to_enum_variants: enum_variants_map,
+            workflow_source,
+            workflow_type,
+            workflow_selection_source,
+            should_show_more_info_view,
+        });
 
         self.env_var_collection_state.selected_env_vars = selected_env_vars;
 
@@ -5829,7 +5598,8 @@ impl Input {
         // Emit the a11y content as the last step so that it overwrites any of the a11y content
         // emitted by the editor (if multiple `AccessibilityContent`s are emitted within the same
         // event loop, the last one wins).
-        let mut accessibility_text = format!("Workflow command {} inserted.", &command_to_insert);
+        let mut accessibility_text =
+            format!("Workflow command {command_with_replaced_arguments} inserted.");
         if let Some(a11y_content) = self.selected_workflow_a11y_text(ctx) {
             let _ = write!(accessibility_text, " {a11y_content}");
         }
@@ -5877,14 +5647,12 @@ impl Input {
     fn create_workflows_info_view(
         &mut self,
         workflow: WorkflowType,
-        show_shift_tab_treatment: bool,
         ctx: &mut ViewContext<Input>,
     ) -> ViewHandle<WorkflowsMoreInfoView> {
         let workflow_more_info_view = ctx.add_typed_action_view(|ctx| {
             WorkflowsMoreInfoView::new(
                 *InputSettings::as_ref(ctx).workflows_box_expanded.value(),
                 workflow,
-                show_shift_tab_treatment,
                 ctx,
             )
         });
@@ -6298,7 +6066,6 @@ impl Input {
                 state.workflow_source,
                 state.workflow_selection_source,
                 None,
-                None,
                 env_vars,
                 true,
                 ctx,
@@ -6496,7 +6263,6 @@ impl Input {
         should_restore_buffer_before_history_up: bool,
         ctx: &mut ViewContext<Input>,
     ) {
-        self.close_voltron(ctx);
         self.close_input_suggestions_and_restore_buffer(
             false,
             should_restore_buffer_before_history_up,
@@ -6507,17 +6273,11 @@ impl Input {
 
     /// Closes any active suggestion mode UI when starting a new conversation.
     ///
-    /// This is intentionally narrower than `close_overlays`: it does not close Voltron, workflow
-    /// info overlays, etc.
+    /// This leaves workflow info overlays open.
     fn close_suggestion_modes_for_new_conversation(&mut self, ctx: &mut ViewContext<Self>) {
         self.suggestions_mode_model.update(ctx, |model, ctx| {
             model.set_mode(InputSuggestionsMode::Closed, ctx);
         });
-    }
-
-    fn close_voltron(&mut self, ctx: &mut ViewContext<Input>) {
-        self.is_voltron_open = false;
-        ctx.notify();
     }
 
     fn editor_up(&mut self, ctx: &mut ViewContext<Self>) {
@@ -8388,9 +8148,6 @@ impl Input {
 
         let original_cursor_point = editor.single_cursor_to_point(ctx);
 
-        // Although we don't use suggestions_mode_model when using Voltron,
-        // we still close the input suggestion menu before opening the Voltron modal,
-        // which involves resetting the cursor point.
         let original_buffer = editor.buffer_text(ctx);
         let original_input_type = self.ai_input_model.as_ref(ctx).input_type();
         let original_input_was_locked = self.ai_input_model.as_ref(ctx).is_input_type_locked();
@@ -8406,8 +8163,6 @@ impl Input {
                 ctx,
             );
         });
-
-        self.select_and_refresh_voltron(VoltronItem::History, ctx);
 
         ctx.notify();
     }
@@ -9434,7 +9189,6 @@ impl Input {
                         current_session,
                         CommandRegistry::global_instance(),
                         current_working_directory,
-                        ctx,
                     )
                 })
             })
@@ -9943,40 +9697,6 @@ impl Input {
 
             self.submit_ai_query_with_routing(ctx);
         } else {
-            if FeatureFlag::WorkflowAliases.is_enabled() {
-                let mut command_string = self.editor.as_ref(ctx).buffer_text(ctx);
-                // If the alias was inserted from the completions menu, it will have trailing
-                // whitespace - trim it in-place.
-                command_string.truncate(command_string.trim_end().len());
-
-                if let Some(alias) = WorkflowAliases::as_ref(ctx).match_alias(&command_string) {
-                    if let Some(workflow) = CloudModel::as_ref(ctx).get_workflow(&alias.workflow_id)
-                    {
-                        let owner = workflow.clone().permissions.owner.into();
-
-                        let workflow_type = WorkflowType::Cloud(Box::new(workflow.clone()));
-                        let env_vars = alias.env_vars.or(workflow.model().data.default_env_vars());
-
-                        self.insert_workflow_into_input(
-                            workflow_type,
-                            owner,
-                            WorkflowSelectionSource::Alias,
-                            alias.arguments,
-                            None,
-                            env_vars,
-                            true,
-                            ctx,
-                        );
-                        return;
-                    } else {
-                        log::warn!(
-                            "Tried to execute workflow for id {:?} but it does not exist",
-                            alias.workflow_id
-                        );
-                    };
-                }
-            }
-
             let command = self.get_command(ctx);
             if !self.try_execute_command(&command, ctx) {
                 return;
@@ -11879,52 +11599,6 @@ impl Input {
         .finish()
     }
 
-    // TODO remove voltron from the code given we are not using it anymore, and we have universal search instead.
-    fn select_and_refresh_voltron(
-        &mut self,
-        feature_item: VoltronItem,
-        ctx: &mut ViewContext<Input>,
-    ) {
-        // View-only sessions should not show workflows menu
-        if self.model.lock().shared_session_status().is_reader() {
-            return;
-        }
-
-        let welcome_tip_feature = match feature_item {
-            VoltronItem::History => Some(Tip::Action(TipAction::HistorySearch)),
-            VoltronItem::Workflows => None,
-        };
-
-        if let Some(welcome_tip_feature) = welcome_tip_feature {
-            self.tips_completed.update(ctx, |tips_completed, ctx| {
-                mark_feature_used_and_write_to_user_defaults(
-                    welcome_tip_feature,
-                    tips_completed,
-                    ctx,
-                );
-                ctx.notify();
-            });
-        }
-        // If input suggestions are opened we should close them when opening voltron
-        if self.suggestions_mode_model.as_ref(ctx).is_visible() {
-            self.close_input_suggestions_and_restore_buffer(true, true, ctx);
-        }
-        let active_session_path_if_local = self.active_session_path_if_local(ctx);
-        let menu_positioning = self.menu_positioning(ctx);
-        let metadata = VoltronMetadata {
-            active_session_path_if_local: active_session_path_if_local.map(|path| path.into()),
-            starting_editor_text: Some(self.editor.as_ref(ctx).buffer_text(ctx)),
-            keymap_context: Self::keymap_context(self, ctx),
-            menu_positioning,
-        };
-
-        self.voltron_view.update(ctx, |voltron, ctx| {
-            voltron.select_and_refresh_by_name(feature_item, metadata, ctx);
-            self.is_voltron_open = true;
-        });
-        ctx.notify();
-    }
-
     /// Returns whether the buffer contains any attachment patterns (blocks, drive objects, or diffs).
     /// These patterns indicate the user is referencing context that requires AI mode.
     fn buffer_contains_attachment_patterns(buffer_text: &str) -> bool {
@@ -11965,10 +11639,6 @@ impl Input {
 
     pub fn should_show_universal_developer_input(&self, app: &AppContext) -> bool {
         InputSettings::as_ref(app).is_universal_developer_input_enabled(app)
-    }
-
-    pub(crate) fn is_voltron_open(&self) -> bool {
-        self.is_voltron_open
     }
 
     /// Returns whether the input box is currently pinned to the top of the screen.
@@ -12015,14 +11685,10 @@ impl TypedActionView for Input {
             InputAction::CtrlD => self.ctrl_d(ctx),
             InputAction::CtrlR => self.ctrl_r(ctx),
             InputAction::ClearScreen => self.clear_screen(ctx),
-            InputAction::SelectAndRefreshVoltron(feature_name) => {
-                self.select_and_refresh_voltron(*feature_name, ctx);
-            }
             InputAction::MaybeOpenCompletionSuggestions => {
                 self.maybe_open_completion_suggestions(ctx);
             }
             InputAction::HideWorkflowInfoCard => self.hide_workflows_info_box(ctx),
-            InputAction::ResetWorkflowState => self.reset_workflow_state(None, ctx),
             InputAction::ToggleClassicCompletionsMode => {
                 InputSettings::handle(ctx).update(ctx, |settings, ctx| {
                     if let Err(e) = settings.classic_completions_mode.toggle_and_save_value(ctx) {
@@ -12167,16 +11833,13 @@ impl View for Input {
 
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
         if focus_ctx.is_self_focused() {
-            if self.is_voltron_open {
-                ctx.focus(&self.voltron_view);
-            } else if self.prompt_render_helper.has_open_chip_menu(ctx) {
+            if self.prompt_render_helper.has_open_chip_menu(ctx) {
                 // Focus the PromptDisplay, which will in turn focus any open chip menu
                 ctx.focus(self.prompt_render_helper.prompt_view());
             } else if self.agent_input_footer.as_ref(ctx).has_open_chip_menu(ctx) {
                 // Focus the AgentInputFooter, which will in turn focus any open chip menu
                 ctx.focus(&self.agent_input_footer);
             } else {
-                self.close_voltron(ctx);
                 ctx.focus(&self.editor);
                 ctx.notify();
             }
@@ -12187,10 +11850,6 @@ impl View for Input {
     fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
         let mut ctx = Self::default_keymap_context();
         let ai_settings = AISettings::as_ref(app);
-
-        if self.is_voltron_open {
-            ctx.set.insert("VoltronActive");
-        }
 
         if self.ai_input_model.as_ref(app).is_ai_input_enabled() {
             ctx.set.insert("AIInput");

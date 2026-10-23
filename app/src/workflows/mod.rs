@@ -6,22 +6,18 @@ use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warpui::{AppContext, SingletonEntity};
 
-pub mod categories;
 use anyhow::Result;
 use workflow::Workflow;
 
-pub mod aliases;
 pub mod command_parser;
 pub mod export_workflow;
 pub mod info_box;
-pub mod local_workflows;
 pub mod manager;
 pub mod workflow;
 pub mod workflow_enum;
 pub mod workflow_view;
 
 use async_trait::async_trait;
-pub use categories::{CategoriesView, CategoriesViewEvent, WorkflowsViewAction};
 
 use crate::appearance::Appearance;
 use crate::cloud_object::model::view::CloudViewModel;
@@ -40,15 +36,11 @@ use crate::server::server_api::object::ObjectClient;
 use crate::server::sync_queue::{QueueItem, SerializedModel};
 
 pub fn init(app: &mut AppContext) {
-    categories::init(app);
     self::workflow_view::init(app);
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
 pub enum WorkflowSource {
-    Global,
-    Local,
-    Project,
     Team {
         team_uid: ServerId,
     },
@@ -59,24 +51,18 @@ pub enum WorkflowSource {
         team_uid: Option<ServerId>,
         location: NotebookLocation,
     },
-
-    /// A hardcoded workflow type that allows Warp to surface features as Workflows (e.g.
-    /// a command to see our network log)
-    App,
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash, PartialOrd)]
 pub enum WorkflowSelectionSource {
     WarpDrive,
     CommandPalette,
-    Voltron,
     WarpAI,
     Notebook,
     SlashMenu,
     WorkflowView,
     AgentMode,
     Undefined,
-    Alias,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

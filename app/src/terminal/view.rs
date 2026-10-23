@@ -9078,7 +9078,6 @@ impl TerminalView {
     pub(crate) fn external_alt_c_binding_eligible(&self, app: &AppContext) -> bool {
         if !FeatureFlag::ShellWidgetHandoff.is_enabled()
             || self.is_long_running()
-            || self.input.as_ref(app).is_voltron_open()
             || self.model.lock().is_alt_screen_active()
         {
             return false;
@@ -26965,9 +26964,6 @@ impl View for TerminalView {
         let input = self.input.as_ref(app);
         if input.editor().as_ref(app).is_focused() {
             context.set.insert("EditorFocused");
-        }
-        if input.is_voltron_open() {
-            context.set.insert("VoltronActive");
         }
 
         if model_lock.block_list().selection().is_some() {

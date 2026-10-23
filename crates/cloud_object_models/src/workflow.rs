@@ -254,25 +254,6 @@ impl Workflow {
     }
 }
 
-/// Create a warp-internal Workflow model from a public-facing workflow
-/// https://github.com/warpdotdev/workflows/blob/main/workflow-types/src/lib.rs
-impl From<warp_workflows::Workflow> for Workflow {
-    fn from(workflow: warp_workflows::Workflow) -> Self {
-        Workflow::Command {
-            name: workflow.name,
-            command: workflow.command,
-            description: workflow.description,
-            arguments: workflow.arguments.into_iter().map(Argument::from).collect(),
-            tags: workflow.tags,
-            source_url: workflow.source_url,
-            author: workflow.author,
-            author_url: workflow.author_url,
-            shells: workflow.shells,
-            environment_variables: None,
-        }
-    }
-}
-
 /// Argument model to be used in `warp-internal`
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Default)]
 pub struct Argument {
@@ -282,17 +263,6 @@ pub struct Argument {
     pub arg_type: ArgumentType,
     pub description: Option<String>,
     pub default_value: Option<String>,
-}
-
-impl From<warp_workflows::Argument> for Argument {
-    fn from(arg: warp_workflows::Argument) -> Self {
-        Argument {
-            name: arg.name,
-            arg_type: ArgumentType::Text,
-            description: arg.description,
-            default_value: arg.default_value,
-        }
-    }
 }
 
 impl Argument {

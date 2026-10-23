@@ -122,9 +122,6 @@ pub struct WorkflowsMoreInfoView {
     pub info_box_expanded: bool,
     pub selected_workflow_state: SelectedWorkflowState,
 
-    /// When false, we want to remove the subpanel that explains the shift-tab UX for moving between arguments.
-    pub show_shift_tab_treatment: bool,
-
     /// View for selecting environment variables to apply to the workflow.
     ///
     /// This is `None` for AI workflows.
@@ -140,7 +137,6 @@ struct ButtonMouseStates {
     view_context: MouseStateHandle,
     save_as_workflow: MouseStateHandle,
     edit_cloud_workflow: MouseStateHandle,
-    reset_command: MouseStateHandle,
     add_env_var_collection: MouseStateHandle,
 }
 
@@ -148,7 +144,6 @@ impl WorkflowsMoreInfoView {
     pub fn new(
         info_box_expanded: bool,
         workflow: WorkflowType,
-        show_shift_tab_treatment: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let num_arguments = workflow.as_workflow().arguments().len();
@@ -184,7 +179,6 @@ impl WorkflowsMoreInfoView {
                 num_arguments: num_arguments.into(),
                 argument_cycling_enabled: true,
             },
-            show_shift_tab_treatment,
             environment_variables_dropdown,
             scroll_state: Default::default(),
         }
@@ -400,8 +394,7 @@ impl WorkflowsMoreInfoView {
         flex_column.add_children(workflow.arguments().iter().enumerate().map(|(index, arg)| {
             let is_selected = WorkflowArgumentIndex::from(index)
                 == self.selected_workflow_state.currently_selected_argument
-                && self.selected_workflow_state.argument_cycling_enabled
-                && self.show_shift_tab_treatment;
+                && self.selected_workflow_state.argument_cycling_enabled;
             Container::new(self.render_argument_and_description(
                 arg,
                 is_selected,
@@ -413,76 +406,6 @@ impl WorkflowsMoreInfoView {
         }));
 
         flex_column.finish()
-    }
-
-    fn render_command_edited_menu(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let contents = Flex::row()
-            .with_child(
-                Container::new(
-                    ConstrainedBox::new(
-                        icons::Icon::AlertCircle
-                            .to_warpui_icon(
-                                appearance
-                                    .theme()
-                                    .sub_text_color(appearance.theme().surface_2()),
-                            )
-                            .finish(),
-                    )
-                    .with_height(16.)
-                    .with_width(16.)
-                    .finish(),
-                )
-                .with_margin_right(8.)
-                .finish(),
-            )
-            .with_child(
-                Container::new(
-                    Text::new_inline(
-                        "Command edited.",
-                        appearance.ui_font_family(),
-                        appearance.monospace_font_size(),
-                    )
-                    .with_color(
-                        appearance
-                            .theme()
-                            .sub_text_color(appearance.theme().surface_2())
-                            .into(),
-                    )
-                    .finish(),
-                )
-                .with_margin_right(16.)
-                .finish(),
-            )
-            .with_child(
-                appearance
-                    .ui_builder()
-                    .button(
-                        ButtonVariant::Text,
-                        self.button_mouse_states.reset_command.clone(),
-                    )
-                    .with_centered_text_label(String::from("Reset"))
-                    .with_style(UiComponentStyles {
-                        font_family_id: Some(appearance.ui_font_family()),
-                        font_size: Some(appearance.monospace_font_size()),
-                        font_weight: Some(Weight::Bold),
-                        ..Default::default()
-                    })
-                    .build()
-                    .on_click(|ctx, _, _| {
-                        ctx.dispatch_typed_action(InputAction::ResetWorkflowState)
-                    })
-                    .finish(),
-            )
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_size(MainAxisSize::Max);
-
-        Container::new(Shrinkable::new(1., contents.finish()).finish())
-            .with_background(appearance.theme().dark_overlay())
-            .with_padding_left(INFO_BOX_PADDING)
-            .with_padding_right(INFO_BOX_PADDING)
-            .with_padding_top(ARGUMENT_PADDING)
-            .with_padding_bottom(ARGUMENT_PADDING)
-            .finish()
     }
 
     fn render_keyboard_shortcut_menu(&self, appearance: &Appearance) -> Box<dyn Element> {
@@ -779,9 +702,7 @@ impl WorkflowsMoreInfoView {
             children.push(Clipped::new(environment_variables_selection).finish());
         }
 
-        if !self.show_shift_tab_treatment {
-            children.push(self.render_command_edited_menu(appearance));
-        } else if !workflow.arguments().is_empty() {
+        if !workflow.arguments().is_empty() {
             children.push(self.render_keyboard_shortcut_menu(appearance));
         }
 
@@ -823,30 +744,27 @@ impl WorkflowsMoreInfoView {
                 ..Default::default()
             });
 
-        // Don't highlight arguments if the shift-tab UX is unavailable
-        if self.show_shift_tab_treatment {
-            self.argument_index_to_char_range_map
-                .iter()
-                .for_each(|(argument_index, ranges)| {
-                    ranges.iter().for_each(|range| {
-                        let highlight_color = ColorU::from_u32(WORKFLOW_PARAMETER_HIGHLIGHT_COLOR);
-                        let background_color = if selected_argument == *argument_index
-                            && self.selected_workflow_state.argument_cycling_enabled
-                        {
-                            highlight_color
-                        } else {
-                            coloru_with_opacity(highlight_color, 40)
-                        };
+        self.argument_index_to_char_range_map
+            .iter()
+            .for_each(|(argument_index, ranges)| {
+                ranges.iter().for_each(|range| {
+                    let highlight_color = ColorU::from_u32(WORKFLOW_PARAMETER_HIGHLIGHT_COLOR);
+                    let background_color = if selected_argument == *argument_index
+                        && self.selected_workflow_state.argument_cycling_enabled
+                    {
+                        highlight_color
+                    } else {
+                        coloru_with_opacity(highlight_color, 40)
+                    };
 
-                        content_text.add_highlight(
-                            (range.start.as_usize()..range.end.as_usize()).collect(),
-                            Highlight::new().with_text_style(
-                                TextStyle::new().with_background_color(background_color),
-                            ),
-                        );
-                    });
+                    content_text.add_highlight(
+                        (range.start.as_usize()..range.end.as_usize()).collect(),
+                        Highlight::new().with_text_style(
+                            TextStyle::new().with_background_color(background_color),
+                        ),
+                    );
                 });
-        }
+            });
 
         content_text.build().finish()
     }

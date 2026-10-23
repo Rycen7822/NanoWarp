@@ -1161,8 +1161,6 @@ pub enum TelemetryEvent {
         value: String,
     },
     WorkflowExecuted(WorkflowTelemetryMetadata),
-    WorkflowSelected(WorkflowTelemetryMetadata),
-    OpenWorkflowSearch,
     OpenQuakeModeWindow,
     OpenWelcomeTips,
     DismissWelcomeTips,
@@ -1791,25 +1789,6 @@ pub enum TelemetryEvent {
     ToggleLigatureRendering {
         enabled: bool,
     },
-    WorkflowAliasAdded {
-        workflow_id: Option<WorkflowId>,
-        workflow_space: Option<TelemetrySpace>,
-    },
-    WorkflowAliasRemoved {
-        workflow_id: Option<WorkflowId>,
-        workflow_space: Option<TelemetrySpace>,
-    },
-    WorkflowAliasEnvVarsAttached {
-        workflow_id: Option<WorkflowId>,
-        workflow_space: Option<TelemetrySpace>,
-        env_vars_id: Option<GenericStringObjectId>,
-        env_vars_space: Option<TelemetrySpace>,
-    },
-    WorkflowAliasArgumentEdited {
-        workflow_id: Option<WorkflowId>,
-        workflow_space: Option<TelemetrySpace>,
-    },
-
     ToggledAgentModeAutoexecuteReadonlyCommandsSetting {
         src: AutonomySettingToggleSource,
         enabled: bool,
@@ -2468,7 +2447,6 @@ impl TelemetryEvent {
                 Some(json!({"action": action, "value": value}))
             }
             TelemetryEvent::WorkflowExecuted(metadata) => Some(json!(metadata)),
-            TelemetryEvent::WorkflowSelected(metadata) => Some(json!(metadata)),
             TelemetryEvent::NotificationsDiscoveryBannerAction(action) => {
                 Some(json!({ "action": action }))
             }
@@ -2928,38 +2906,6 @@ impl TelemetryEvent {
             TelemetryEvent::ToggleLigatureRendering { enabled } => {
                 Some(json!({"enabled": enabled}))
             }
-            TelemetryEvent::WorkflowAliasAdded {
-                workflow_id,
-                workflow_space,
-            } => Some(json!({
-                "workflow_id": workflow_id,
-                "workflow_space": workflow_space,
-            })),
-            TelemetryEvent::WorkflowAliasRemoved {
-                workflow_id,
-                workflow_space,
-            } => Some(json!({
-                "workflow_id": workflow_id,
-                "workflow_space": workflow_space,
-            })),
-            TelemetryEvent::WorkflowAliasArgumentEdited {
-                workflow_id,
-                workflow_space,
-            } => Some(json!({
-                "workflow_id": workflow_id,
-                "workflow_space": workflow_space,
-            })),
-            TelemetryEvent::WorkflowAliasEnvVarsAttached {
-                workflow_id,
-                workflow_space,
-                env_vars_id,
-                env_vars_space,
-            } => Some(json!({
-                "workflow_id": workflow_id,
-                "workflow_space": workflow_space,
-                "env_vars_id": env_vars_id,
-                "env_vars_space": env_vars_space,
-            })),
             TelemetryEvent::ToggledAgentModeAutoexecuteReadonlyCommandsSetting { src, enabled } => {
                 Some(json!({
                     "source": src,
@@ -3130,7 +3076,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SplitPane
             | TelemetryEvent::SkipOnboardingSurvey
             | TelemetryEvent::LoggedOutStartup
-            | TelemetryEvent::OpenWorkflowSearch
             | TelemetryEvent::OpenQuakeModeWindow
             | TelemetryEvent::OpenWelcomeTips
             | TelemetryEvent::DismissWelcomeTips
@@ -3739,8 +3684,6 @@ impl TelemetryEvent {
             | TelemetryEvent::KeybindingRemoved { .. }
             | TelemetryEvent::FeaturesPageAction { .. }
             | TelemetryEvent::WorkflowExecuted(_)
-            | TelemetryEvent::WorkflowSelected(_)
-            | TelemetryEvent::OpenWorkflowSearch
             | TelemetryEvent::OpenQuakeModeWindow
             | TelemetryEvent::OpenWelcomeTips
             | TelemetryEvent::DismissWelcomeTips
@@ -3926,10 +3869,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeOpenedCitation { .. }
             | TelemetryEvent::OpenedSharingDialog(_)
             | TelemetryEvent::ToggleLigatureRendering { .. }
-            | TelemetryEvent::WorkflowAliasAdded { .. }
-            | TelemetryEvent::WorkflowAliasRemoved { .. }
-            | TelemetryEvent::WorkflowAliasEnvVarsAttached { .. }
-            | TelemetryEvent::WorkflowAliasArgumentEdited { .. }
             | TelemetryEvent::ToggledAgentModeAutoexecuteReadonlyCommandsSetting { .. }
             | TelemetryEvent::ChangedAgentModeCodingPermissions { .. }
             | TelemetryEvent::ChangedAgentModeAskUserQuestionPermission { .. }
@@ -4183,8 +4122,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingRemoved => EnablementState::Always,
             Self::FeaturesPageAction => EnablementState::Always,
             Self::WorkflowExecuted => EnablementState::Always,
-            Self::WorkflowSelected => EnablementState::Always,
-            Self::OpenWorkflowSearch => EnablementState::Always,
             Self::OpenQuakeModeWindow => EnablementState::Always,
             Self::OpenWelcomeTips => EnablementState::Always,
             Self::DismissWelcomeTips => EnablementState::Always,
@@ -4369,12 +4306,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::OpenedSharingDialog => EnablementState::Always,
             Self::ToggleLigatureRendering => EnablementState::Flag(FeatureFlag::Ligatures),
-            Self::WorkflowAliasAdded
-            | Self::WorkflowAliasRemoved
-            | Self::WorkflowAliasArgumentEdited
-            | Self::WorkflowAliasEnvVarsAttached => {
-                EnablementState::Flag(FeatureFlag::WorkflowAliases)
-            }
             Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting
             | Self::ChangedAgentModeCodingPermissions
             | Self::ChangedAgentModeAskUserQuestionPermission
@@ -4578,9 +4509,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingChanged => "Keybinding Changed",
             Self::KeybindingResetToDefault => "Keybinding Reset to Default",
             Self::KeybindingRemoved => "Keybinding Removed",
-            Self::OpenWorkflowSearch => "Open Workflows Search",
             Self::WorkflowExecuted => "Workflow Executed",
-            Self::WorkflowSelected => "Workflow Selected",
             Self::FeaturesPageAction => "Features Page Action",
             Self::OpenQuakeModeWindow => "Open Quake Mode Window",
             Self::OpenWelcomeTips => "Open Welcome Tips",
@@ -4777,10 +4706,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SuperGrokSubscriptionConnectInitiated => "SuperGrok.Connect.Initiated",
             Self::SuperGrokSubscriptionConnectFinished => "SuperGrok.Connect.Finished",
             Self::ToggleLigatureRendering => "Toggle Ligature Rendering",
-            Self::WorkflowAliasAdded => "Added Workflow Alias",
-            Self::WorkflowAliasRemoved => "Removed Workflow Alias",
-            Self::WorkflowAliasArgumentEdited => "Edited Workflow Alias Argument",
-            Self::WorkflowAliasEnvVarsAttached => "Attached Workflow Alias Environment Variables",
 
             Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting => {
                 "AIAutonomy.ToggledAutoexecuteReadonlyCommandsSetting"
@@ -5021,8 +4946,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::KeybindingRemoved => "Removed / cleared a keybinding",
             Self::FeaturesPageAction => "Changed settings in Features Page",
             Self::WorkflowExecuted => "Executed workflow",
-            Self::WorkflowSelected => "Selected workflow and populated into the Input Editor",
-            Self::OpenWorkflowSearch => "Opened workflows search in command search pane",
             Self::OpenQuakeModeWindow => {
                 "Toggled quake mode window when previously hidden or closed"
             }
@@ -5409,14 +5332,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "SuperGrok subscription OAuth connection flow finished (success or failure)."
             }
             Self::ToggleLigatureRendering => "Toggled ligature rendering",
-            Self::WorkflowAliasAdded => "Added an alias to a Warp Drive workflow",
-            Self::WorkflowAliasRemoved => "Removed an alias from a Warp Drive workflow",
-            Self::WorkflowAliasArgumentEdited => {
-                "Edited an argument in a Warp Drive workflow alias"
-            }
-            Self::WorkflowAliasEnvVarsAttached => {
-                "Added or removed environment variables for a Warp Drive workflow alias"
-            }
             Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting => {
                 "Toggled setting to autoexecute readonly Agent Mode requested commands"
             }

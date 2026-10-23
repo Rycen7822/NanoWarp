@@ -24,7 +24,6 @@ use warpui::platform::WindowStyle;
 use warpui::text::SelectionType;
 use warpui::{App, ReadModel, UpdateView, WindowId};
 use watcher::HomeDirectoryWatcher;
-use workflows::workflow::{Argument, ArgumentType, Workflow};
 
 use super::*;
 use crate::ai::AIRequestUsageModel;
@@ -52,7 +51,7 @@ use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::context_chips::prompt::Prompt;
-use crate::editor::{DisplayPoint, EditorAction, Point, TextStyleOperation};
+use crate::editor::{DisplayPoint, EditorAction, Point};
 use crate::input_suggestions::Item;
 use crate::network::NetworkStatus;
 use crate::pricing::PricingInfoModel;
@@ -100,7 +99,6 @@ use crate::terminal::view::inline_banner::ByoLlmAuthBannerSessionState;
 use crate::terminal::writeable_pty::command_history::update_command_history;
 use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
-use crate::themes::theme::AnsiColorIdentifier;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::workspace::{ActiveSession, OneTimeModalModel, ToastStack, WorkspaceRegistry};
 use crate::workspaces::team::Team;
@@ -288,7 +286,6 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_ctx| SyncedInputState::mock());
     app.add_singleton_model(|_| ResizableData::default());
     app.add_singleton_model(|_| History::default());
-    app.add_singleton_model(LocalWorkflows::new);
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(TerminalKeybindings::new);
     app.add_singleton_model(|_| ActiveSession::default());
@@ -5924,313 +5921,6 @@ fn test_powershell_should_insert_newline_on_enter() {
             });
             assert!(!input.should_insert_newline_on_enter(ctx));
         });
-    })
-}
-
-#[test]
-fn test_workflow_selected() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(
-            &mut app, None, /* history_file_commands */
-            None,
-        )
-        .await;
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-        input.update(&mut app, |input, ctx| {
-            input.user_insert("hello", ctx);
-        });
-
-        let workflow = Workflow::new(
-            "test",
-            "{{p1}} {{parameter_2}} {{p3}} foo {{p1}} {{parameter_2}}",
-        )
-        .with_arguments(vec![
-            Argument::new("p1", ArgumentType::Text),
-            Argument::new("parameter_2", ArgumentType::Text),
-            Argument::new("p3", ArgumentType::Text),
-        ]);
-
-        input.update(&mut app, |input, ctx| {
-            input.show_workflows_info_box_on_workflow_selection(
-                WorkflowType::Local(workflow),
-                WorkflowSource::Global,
-                WorkflowSelectionSource::Undefined,
-                None,
-                ctx,
-            );
-        });
-
-        input.read(&app, |input, ctx| {
-            assert_eq!(
-                input.buffer_text(ctx),
-                "p1 parameter_2 p3 foo p1 parameter_2"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_workflow_selected_with_default_value() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(
-            &mut app, None, /* history_file_commands */
-            None,
-        )
-        .await;
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-
-        let workflow = Workflow::new("test", "{{p1}}/{{parameter_2}}").with_arguments(vec![
-            Argument {
-                name: "p1".into(),
-                description: None,
-                default_value: Some("default_parameter_1".into()),
-                arg_type: Default::default(),
-            },
-            Argument {
-                name: "parameter_2".into(),
-                description: None,
-                default_value: Some("default_parameter_2".into()),
-                arg_type: Default::default(),
-            },
-        ]);
-
-        input.update(&mut app, |input, ctx| {
-            input.show_workflows_info_box_on_workflow_selection(
-                WorkflowType::Local(workflow),
-                WorkflowSource::Global,
-                WorkflowSelectionSource::Undefined,
-                None,
-                ctx,
-            );
-        });
-
-        input.read(&app, |input, ctx| {
-            assert_eq!(
-                input.buffer_text(ctx),
-                "default_parameter_1/default_parameter_2"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiple_workflows_selected() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(
-            &mut app, None, /* history_file_commands */
-            None,
-        )
-        .await;
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-
-        let workflow = Workflow::new("test", "p1 {{foo}} bar")
-            .with_arguments(vec![Argument::new("foo", ArgumentType::Text)]);
-
-        input.update(&mut app, |input, ctx| {
-            input.show_workflows_info_box_on_workflow_selection(
-                WorkflowType::Local(workflow.clone()),
-                WorkflowSource::Global,
-                WorkflowSelectionSource::Undefined,
-                None,
-                ctx,
-            );
-        });
-
-        input.read(&app, |input, ctx| {
-            assert_eq!(input.buffer_text(ctx), "p1 foo bar");
-        });
-
-        // "foo" should be the only range highlighted.
-        input.update(&mut app, |input, ctx| {
-            let text_style_runs = input.editor.read(ctx, |editor, ctx| {
-                editor
-                    .text_style_runs(ctx)
-                    .filter_map(|text_run| {
-                        text_run
-                            .text_style()
-                            .background_color
-                            .map(|_| text_run.text().to_owned())
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            assert_eq!(text_style_runs, ["foo"]);
-        });
-
-        // Input the workflow again.
-        input.update(&mut app, |input, ctx| {
-            input.show_workflows_info_box_on_workflow_selection(
-                WorkflowType::Local(workflow),
-                WorkflowSource::Global,
-                WorkflowSelectionSource::Undefined,
-                None,
-                ctx,
-            );
-        });
-
-        input.read(&app, |input, ctx| {
-            assert_eq!(input.buffer_text(ctx), "p1 foo bar");
-        });
-
-        // "foo" should be the only range highlighted.
-        input.update(&mut app, |input, ctx| {
-            let text_style_runs = input.editor.read(ctx, |editor, ctx| {
-                editor
-                    .text_style_runs(ctx)
-                    .filter_map(|text_run| {
-                        text_run
-                            .text_style()
-                            .background_color
-                            .map(|_| text_run.text().to_owned())
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            assert_eq!(text_style_runs, ["foo"]);
-        });
-    });
-}
-
-#[test]
-fn test_workflow_argument_tab_with_syntax_highlighting() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(&mut app, None, None).await;
-
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-
-        let workflow = Workflow::new("test", "yarn {{cwd}} {{flags}}").with_arguments(vec![
-            Argument {
-                name: "cwd".into(),
-                description: None,
-                default_value: Some("--cwd ./".into()),
-                arg_type: Default::default(),
-            },
-            Argument::new("flags", ArgumentType::Text),
-        ]);
-
-        input.update(&mut app, |input, ctx| {
-            input.show_workflows_info_box_on_workflow_selection(
-                WorkflowType::Local(workflow.clone()),
-                WorkflowSource::Global,
-                WorkflowSelectionSource::Undefined,
-                None,
-                ctx,
-            );
-
-            // Simulates syntax highlighting highlighting a portion of an argument
-            input.editor.update(ctx, |editor, ctx| {
-                let theme = Appearance::as_ref(ctx).theme();
-                let terminal_colors_normal = theme.terminal_colors().normal.to_owned();
-                editor.update_buffer_styles(
-                    vec![ByteOffset::from(5)..ByteOffset::from(10)],
-                    TextStyleOperation::default().set_syntax_color(
-                        AnsiColorIdentifier::Yellow
-                            .to_ansi_color(&terminal_colors_normal)
-                            .into(),
-                    ),
-                    ctx,
-                )
-            })
-        });
-
-        // Even though there are 2 args, there will be 3 runs
-        input.read(&app, |input, ctx| {
-            // Buffer text should equal our command w/ defaults inserted
-            assert_eq!(input.buffer_text(ctx), "yarn --cwd ./ flags");
-
-            let selected_text = input
-                .editor
-                .read(ctx, |editor, ctx| editor.selected_text(ctx));
-
-            // Currently selected text should be the text for the first arg
-            assert_eq!(selected_text, "--cwd ./");
-
-            let text_style_runs = input.editor.read(ctx, |editor, ctx| {
-                editor
-                    .text_style_runs(ctx)
-                    .filter_map(|text_run| {
-                        text_run
-                            .text_style()
-                            .background_color
-                            .map(|_| text_run.text().to_owned())
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            // Even though we have only 2 args, there will be 3 runs b/c of syntax highlighting
-            assert_eq!(text_style_runs, ["--cwd", " ./", "flags"]);
-        });
-
-        input.update(&mut app, |input, ctx| {
-            input.input_shift_tab(ctx);
-        });
-
-        input.read(&app, |input, ctx| {
-            let selected_text = input
-                .editor
-                .read(ctx, |editor, ctx| editor.selected_text(ctx));
-
-            // Tab moves over to next argument
-            assert_eq!(selected_text, "flags");
-        })
-    })
-}
-
-#[test]
-fn test_workflow_view_does_not_panic() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(&mut app, None, None).await;
-
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-
-        let workflows = vec![
-            Workflow::new("Test Workflow", "echo \"Hello World\""),
-            Workflow::new("Test Workflow with Description", "echo \"Hello World\"")
-                .with_description("This is a test workflow that prints Hello World!".into()),
-            Workflow::new("Test Workflow with Args", "echo \"Hello {{person}}\"").with_arguments(
-                vec![
-                    Argument::new("person", ArgumentType::Text)
-                        .with_description("The person you want to say hello to".to_string()),
-                ],
-            ),
-            Workflow::new("test", "echo \"Hello {{person}}\"")
-                .with_description("This is a test workflow that prints Hello {{person}}!".into())
-                .with_arguments(vec![
-                    Argument::new("person", ArgumentType::Text)
-                        .with_description("The person you want to say hello to".to_string()),
-                ]),
-        ];
-
-        for workflow in workflows {
-            let command = workflow.content().to_string();
-            input.update(&mut app, |input, ctx| {
-                input.show_workflows_info_box_on_workflow_selection(
-                    WorkflowType::Local(workflow),
-                    WorkflowSource::Global,
-                    WorkflowSelectionSource::Undefined,
-                    None,
-                    ctx,
-                );
-            });
-
-            input.read(&app, |input, ctx| {
-                // Buffer text should equal our command w/ defaults inserted
-                assert_eq!(
-                    input.buffer_text(ctx),
-                    command.replace("{{", "").replace("}}", "")
-                );
-            });
-        }
     })
 }
 

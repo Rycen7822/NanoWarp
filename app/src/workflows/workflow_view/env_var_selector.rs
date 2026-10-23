@@ -27,7 +27,7 @@ pub enum EnvVarSelectorEvent {
 }
 
 /// The default width for the env var selector dropdown.
-const DEFAULT_DROPDOWN_WIDTH: f32 = super::argument_editor::ALIAS_ARGUMENT_EDITOR_WIDTH;
+const DEFAULT_DROPDOWN_WIDTH: f32 = 300.;
 
 impl EnvVarSelector {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {

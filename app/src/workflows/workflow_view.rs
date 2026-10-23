@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alias_bar::{AliasBar, AliasBarEvent};
 use argument_editor::{ArgumentEditorRow, DEFAULT_ARGUMENT_PREFIX};
 use env_var_selector::{EnvVarSelector, EnvVarSelectorEvent};
 use itertools::Itertools;
@@ -18,9 +17,9 @@ use warp_errors::report_error;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable,
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Radius, Rect, ScrollbarWidth, Shrinkable, Stack,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, Rect, ScrollbarWidth, Shrinkable, Stack,
 };
 use warpui::fonts::{FamilyId, Weight};
 use warpui::keymap::EditableBinding;
@@ -33,7 +32,6 @@ use warpui::{
     ViewHandle, WindowId,
 };
 
-use super::aliases::WorkflowAliases;
 use super::command_parser::WorkflowCommandDisplayData;
 use super::{CloudWorkflowModel, WorkflowSource, WorkflowType, WorkflowViewMode};
 use crate::ai::blocklist::secret_redaction::find_secrets_in_text;
@@ -92,8 +90,6 @@ use crate::workflows::workflow::{Argument, Workflow};
 use crate::workspace::ToastStack;
 use crate::{FeatureFlag, send_telemetry_from_ctx};
 
-mod alias_argument_selector;
-mod alias_bar;
 mod argument_editor;
 pub mod env_var_selector;
 mod syntax_highlightable;
@@ -156,8 +152,6 @@ const BUTTON_PADDING: f32 = 12.;
 const BUTTON_FONT_SIZE: f32 = 14.;
 const BUTTON_BORDER_RADIUS: f32 = 4.;
 const BUTTON_HEIGHT: f32 = 32.;
-
-const ALIAS_HELP_TEXT: &str = "Aliases allow you to create short strings to execute workflows. Each alias can have different argument values and environment variables, and aliases are personal to you.";
 
 const RUN_ON_DESKTOP_BUTTON_TEXT: &str = "Run in Warp";
 const RUN_ON_DESKTOP_BUTTON_WIDTH: f32 = 108.;
@@ -253,7 +247,6 @@ struct UiStateHandles {
     edit_mode_button_mouse_state: MouseStateHandle,
     copy_content_button_mouse_state: MouseStateHandle,
     execute_command_mouse_state: MouseStateHandle,
-    alias_header_tool_tip: MouseStateHandle,
     add_environment_variables_mouse_state: MouseStateHandle,
     clipped_scroll_state: ClippedScrollStateHandle,
 }
@@ -271,7 +264,6 @@ pub struct WorkflowView {
     view_only_content_editor_highlight_model: ModelHandle<SyntaxHighlightable>,
     arguments_state: ArgumentsState,
     arguments_rows: Vec<ArgumentEditorRow>,
-    alias_bar: ViewHandle<AliasBar>,
     env_vars_selector: ViewHandle<EnvVarSelector>,
     env_vars_state: EnvironmentVariablesState,
     breadcrumbs: Vec<BreadcrumbState<ContainingObject>>,
@@ -379,10 +371,6 @@ impl WorkflowView {
             ctx.add_model(|ctx| SyntaxHighlightable::new(view_only_content_editor.clone(), ctx));
 
         let workflow_id = SyncId::ClientId(ClientId::default());
-        let alias_bar = ctx.add_typed_action_view(|ctx| AliasBar::new(workflow_id, ctx));
-        ctx.subscribe_to_view(&alias_bar, |me, _, event, ctx| {
-            me.handle_alias_bar_event(event, ctx);
-        });
 
         let env_vars_selector = ctx.add_typed_action_view(EnvVarSelector::new);
         ctx.subscribe_to_view(&env_vars_selector, |me, _, event, ctx| {
@@ -403,7 +391,6 @@ impl WorkflowView {
             view_only_content_editor_highlight_model,
             arguments_state: Default::default(),
             arguments_rows: Vec::new(),
-            alias_bar,
             env_vars_selector,
             env_vars_state: Default::default(),
             breadcrumbs: Vec::new(),
@@ -438,7 +425,7 @@ impl WorkflowView {
         ctx: &mut ViewContext<Self>,
     ) {
         self.initial_folder_id = initial_folder_id;
-        self.set_workflow_id(sync_id, ctx);
+        self.workflow_id = sync_id;
         self.workflow_view_mode = WorkflowViewMode::Create;
         self.command_display_data = WorkflowCommandDisplayData::new_empty();
         self.is_for_agent_mode = is_for_agent_mode;
@@ -518,15 +505,6 @@ impl WorkflowView {
             let server_id = result
                 .server_id
                 .expect("Expect server id on success creation");
-
-            // The aliases were created with the old client sync id.  Update them to the new server id.
-            WorkflowAliases::handle(ctx).update(ctx, |aliases, ctx| {
-                if let Result::Err(e) =
-                    aliases.update_workflow_id(self.workflow_id, server_id.into(), ctx)
-                {
-                    report_error!(e.context("Failed to update aliases after workflow creation"));
-                }
-            });
 
             if let Some(workflow) = CloudModel::as_ref(ctx).get_workflow_by_uid(&server_id.uid()) {
                 self.load(
@@ -660,7 +638,7 @@ impl WorkflowView {
         mode: WorkflowViewMode,
         ctx: &mut ViewContext<Self>,
     ) {
-        self.set_workflow_id(workflow.id, ctx);
+        self.workflow_id = workflow.id;
         self.is_for_agent_mode = workflow.model().data.is_agent_mode_workflow();
         if self.is_for_agent_mode {
             self.content_editor.update(ctx, |editor, ctx| {
@@ -818,13 +796,6 @@ impl WorkflowView {
         self.workflow_id
     }
 
-    fn set_workflow_id(&mut self, id: SyncId, ctx: &mut ViewContext<Self>) {
-        self.workflow_id = id;
-        self.alias_bar.update(ctx, |alias_bar, ctx| {
-            alias_bar.set_workflow_id(id, ctx);
-        });
-    }
-
     pub fn workflow_link(&self, ctx: &AppContext) -> Option<String> {
         let id = self.workflow_id();
 
@@ -881,10 +852,6 @@ impl WorkflowView {
     }
 
     fn is_dirty(&self, app: &AppContext) -> bool {
-        self.is_workflow_dirty(app) || self.are_aliases_dirty(app)
-    }
-
-    fn is_workflow_dirty(&self, app: &AppContext) -> bool {
         let name_is_dirty = self.name_editor.as_ref(app).is_dirty(app);
         let description_is_dirty = self.description_editor.as_ref(app).is_dirty(app);
         let content_is_dirty = self.content_editor.as_ref(app).is_dirty(app);
@@ -895,13 +862,6 @@ impl WorkflowView {
             || content_is_dirty
             || any_argument_editor_is_dirty
             || self.env_vars_state.is_dirty
-    }
-
-    fn are_aliases_dirty(&self, app: &AppContext) -> bool {
-        if !FeatureFlag::WorkflowAliases.is_enabled() {
-            return false;
-        }
-        self.alias_bar.as_ref(app).has_unsaved_changes()
     }
 
     fn is_save_workflow_button_disabled(&self) -> bool {
@@ -1112,48 +1072,6 @@ impl WorkflowView {
         }
     }
 
-    fn handle_alias_bar_event(&mut self, event: &AliasBarEvent, ctx: &mut ViewContext<Self>) {
-        if !FeatureFlag::WorkflowAliases.is_enabled() {
-            return;
-        }
-
-        match event {
-            AliasBarEvent::SelectedAliasChanged => {
-                // Clone the arguments so that we can update the argument editors.
-                let argument_values = self
-                    .alias_bar
-                    .as_ref(ctx)
-                    .current_argument_values()
-                    .cloned();
-                let arguments = self.arguments_with_metadata(ctx);
-
-                for (row, arg) in self.arguments_rows.iter_mut().zip(arguments.iter()) {
-                    row.alias_argument_selector.update(ctx, |selector, ctx| {
-                        let value = argument_values
-                            .as_ref()
-                            .and_then(|args| args.get(&row.name));
-                        selector.set_argument(&arg.arg_type, value, &self.all_workflow_enums, ctx);
-                    });
-                }
-
-                self.env_vars_selector.update(ctx, |selector, ctx| {
-                    let selected_env_vars = if self.alias_bar.as_ref(ctx).has_selected_alias() {
-                        self.alias_bar.as_ref(ctx).current_env_vars()
-                    } else {
-                        self.env_vars_state.default_env_vars
-                    };
-                    selector.set_selected_env_vars(selected_env_vars, ctx);
-                });
-
-                ctx.notify();
-            }
-            AliasBarEvent::AliasesUpdated => {
-                // Recompute dirty state.
-                ctx.notify();
-            }
-        }
-    }
-
     fn handle_env_vars_selector_event(
         &mut self,
         event: &EnvVarSelectorEvent,
@@ -1161,14 +1079,9 @@ impl WorkflowView {
     ) {
         match event {
             EnvVarSelectorEvent::SelectionChanged(id) => {
-                if self.alias_bar.as_ref(ctx).has_selected_alias() {
-                    self.alias_bar
-                        .update(ctx, |bar, ctx| bar.set_current_env_vars(*id, ctx));
-                } else {
-                    self.env_vars_state.default_env_vars = *id;
-                    self.env_vars_state.is_dirty = true;
-                    ctx.notify();
-                }
+                self.env_vars_state.default_env_vars = *id;
+                self.env_vars_state.is_dirty = true;
+                ctx.notify();
             }
             EnvVarSelectorEvent::Refreshed => {
                 // Re-render in case the selector visibility changed.
@@ -1424,7 +1337,7 @@ impl WorkflowView {
         // Otherwise use the workflow that exists in cloud model cache.
         // This is because we want to use the version of the edited command that a user has in the
         // buffer if they click to execute a command from the workflow in pane.
-        if self.is_workflow_dirty(ctx) {
+        if self.is_dirty(ctx) {
             let new_workflow = self.create_workflow_object_from_input(ctx);
             if let Some(cloud_workflow) = self.get_cloud_workflow(ctx) {
                 let mut cloned_cloud_workflow = cloud_workflow.clone();
@@ -1505,25 +1418,11 @@ impl WorkflowView {
         workflow
     }
 
-    /// Save the workflow and associated state. This makes a best-effort attempt to not
-    /// unnecessarily modify the backing Warp Drive object.
+    /// Save the workflow without unnecessarily modifying its backing Warp Drive object.
     fn save(&mut self, ctx: &mut ViewContext<Self>) {
-        if FeatureFlag::WorkflowAliases.is_enabled() && self.are_aliases_dirty(ctx) {
-            self.save_aliases(ctx);
+        if !self.is_dirty(ctx) {
+            return;
         }
-        if self.is_workflow_dirty(ctx) {
-            self.save_workflow(ctx);
-        }
-    }
-
-    fn save_aliases(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Err(e) = self.alias_bar.update(ctx, |bar, ctx| bar.save(ctx)) {
-            report_error!(e.context("Error saving aliases"));
-            self.display_error_toast("Error saving aliases".to_string(), ctx);
-        }
-    }
-
-    fn save_workflow(&mut self, ctx: &mut ViewContext<Self>) {
         let workflow = &self.create_workflow_object_from_input(ctx);
 
         // Block saving if secrets are detected in the workflow when secret redaction is enabled.
@@ -1640,11 +1539,6 @@ impl WorkflowView {
                 )
                 .is_empty()
                 {
-                    return true;
-                }
-            }
-            for value in self.alias_bar.as_ref(app).get_all_argument_values() {
-                if !find_secrets_in_text(&value).is_empty() {
                     return true;
                 }
             }
@@ -2120,66 +2014,6 @@ impl WorkflowView {
         .finish()
     }
 
-    fn render_alias_section(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder().clone();
-
-        let help_icon = Hoverable::new(
-            self.ui_state_handles.alias_header_tool_tip.clone(),
-            |state| {
-                let mut stack = Stack::new().with_child(
-                    ConstrainedBox::new(
-                        Icon::HelpCircle
-                            .to_warpui_icon(
-                                appearance
-                                    .theme()
-                                    .sub_text_color(appearance.theme().background()),
-                            )
-                            .finish(),
-                    )
-                    .with_width(12.)
-                    .with_height(12.)
-                    .finish(),
-                );
-
-                if state.is_hovered() {
-                    let tooltip = ConstrainedBox::new(
-                        ui_builder
-                            .tool_tip(ALIAS_HELP_TEXT.to_string())
-                            .build()
-                            .finish(),
-                    )
-                    .with_max_width(200.)
-                    .finish();
-                    stack.add_positioned_child(
-                        tooltip,
-                        OffsetPositioning::offset_from_parent(
-                            vec2f(2., -2.),
-                            ParentOffsetBounds::WindowByPosition,
-                            ParentAnchor::TopRight,
-                            ChildAnchor::BottomLeft,
-                        ),
-                    );
-                }
-
-                stack.finish()
-            },
-        )
-        .finish();
-
-        Flex::column()
-            .with_children([
-                Flex::row()
-                    .with_children([
-                        self.render_section_header("Aliases", appearance),
-                        Container::new(help_icon).with_margin_left(4.).finish(),
-                    ])
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .finish(),
-                ChildView::new(&self.alias_bar).finish(),
-            ])
-            .finish()
-    }
-
     fn render_unsaved_changes_dialog(
         &self,
         confirm_action: WorkflowAction,
@@ -2592,10 +2426,6 @@ impl View for WorkflowView {
 
         let mut main_section = Flex::column();
         main_section.add_child(self.render_workflow_details(appearance));
-
-        if FeatureFlag::WorkflowAliases.is_enabled() && !self.is_for_agent_mode {
-            main_section.add_child(self.render_alias_section(appearance));
-        }
 
         main_section.extend(self.render_arguments_section(appearance, app));
 

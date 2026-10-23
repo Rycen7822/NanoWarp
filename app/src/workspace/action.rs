@@ -494,7 +494,6 @@ pub enum WorkspaceAction {
         /// The entrypoint that triggered this action.
         entrypoint: AgentModeEntrypoint,
     },
-    OpenCloudAgentSetupGuide,
     AttemptLoginGatedAIUpgrade,
     /// Dismisses the Wayland crash recovery banner and opens a link to our docs page with more
     /// information.
@@ -957,7 +956,6 @@ impl WorkspaceAction {
             | DispatchToSettingsTab { .. }
             | ToggleResourceCenter
             | ToggleUserMenu
-            | OpenCloudAgentSetupGuide
             | ToggleKeybindingsPage
             | ShowCommandSearch(_)
             | TriggerExternalCtrlTFileSearch

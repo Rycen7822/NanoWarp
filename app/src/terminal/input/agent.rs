@@ -10,8 +10,8 @@ use warpui::presenter::ChildView;
 use warpui::{AppContext, SingletonEntity as _, ViewHandle};
 
 use super::common::{
-    add_command_xray_overlay, add_input_suggestions_overlays, add_voltron_overlay,
-    add_workflow_info_overlay, wrap_input_with_terminal_padding_and_focus_handler,
+    add_command_xray_overlay, add_input_suggestions_overlays, add_workflow_info_overlay,
+    wrap_input_with_terminal_padding_and_focus_handler,
 };
 use super::{Input, InputAction, InputDropTargetData};
 use crate::BlocklistAIHistoryModel;
@@ -156,10 +156,6 @@ impl Input {
                 self.size_info(app).pane_height_px().as_f32(),
                 menu_positioning,
             );
-        }
-
-        if self.is_voltron_open && self.is_pane_focused(app) {
-            add_voltron_overlay(&mut stack, &self.voltron_view, menu_positioning);
         }
 
         if self.is_pane_focused(app) {
@@ -326,9 +322,6 @@ impl Input {
                     ),
                 ),
             );
-        }
-        if self.is_voltron_open && self.is_pane_focused(app) {
-            add_voltron_overlay(&mut stack, &self.voltron_view, menu_positioning);
         }
         if self.is_pane_focused(app) {
             add_input_suggestions_overlays(self, &mut stack, appearance, menu_positioning, app);

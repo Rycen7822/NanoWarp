@@ -1040,3 +1040,20 @@ fn windows_path_extensions() -> impl Iterator<Item = String> {
 #[cfg(test)]
 #[path = "path_tests.rs"]
 mod tests;
+
+/// Runs `tail` or equivalent command on the given path.
+/// Note: On Windows this may cause a lossy conversion if the path is not valid UTF-8.
+pub fn tail_command_for_shell(shell_family: ShellFamily, path: &PathBuf) -> String {
+    match shell_family {
+        // Use debug formatting for `PathBuf` so that any non-Unicode components of the path get
+        // escaped.  This will also add quotes around the path, so there's no need to add them in
+        // the format string.
+        ShellFamily::Posix => format!("tail -f {path:?}"),
+        // We avoid the debug formatting here so that backslashes don't get escaped, which is not
+        // desirable for PowerShell.  Note that this may be lossy conversion if the path is not
+        // valid UTF-8.
+        ShellFamily::PowerShell => {
+            format!("Get-Content -Wait -Tail 10 -Path \"{}\"", path.display())
+        }
+    }
+}

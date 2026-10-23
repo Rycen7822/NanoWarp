@@ -19,8 +19,8 @@ use crate::terminal::model::session::command_executor::testing::TestCommandExecu
 use crate::terminal::model::session::{Session, SessionInfo};
 use crate::test_util::{Stub, VirtualFS};
 
-fn test_session_context(session: Session, cwd: TypedPathBuf, app: &App) -> SessionContext {
-    app.read(|ctx| SessionContext::new(session, CommandRegistry::default().into(), cwd, ctx))
+fn test_session_context(session: Session, cwd: TypedPathBuf) -> SessionContext {
+    SessionContext::new(session, CommandRegistry::default().into(), cwd)
 }
 
 fn working_directory() -> TypedPathBuf {
@@ -34,7 +34,7 @@ fn working_directory() -> TypedPathBuf {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_function_names() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let function_names = vec![
             "my_func".into(),
             "foo".into(),
@@ -46,7 +46,7 @@ pub fn test_session_context_top_level_commands_includes_function_names() {
                 .with_function_names(function_names.clone().into_iter().collect()),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         let top_level_commands = ctx.top_level_commands().collect_vec();
         for function_name in function_names.iter() {
@@ -57,7 +57,7 @@ pub fn test_session_context_top_level_commands_includes_function_names() {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_aliases() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let aliases = HashMap::from_iter([
             ("first".into(), "test one".into()),
             ("second".into(), "first".into()),
@@ -68,7 +68,7 @@ pub fn test_session_context_top_level_commands_includes_aliases() {
             SessionInfo::new_for_test().with_aliases(aliases.clone()),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         let top_level_commands = ctx.top_level_commands().collect_vec();
         for alias in aliases.keys() {
@@ -79,7 +79,7 @@ pub fn test_session_context_top_level_commands_includes_aliases() {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_abbreviations() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let abbreviations = HashMap::from_iter([
             ("gl".into(), "git log".into()),
             ("gs".into(), "git status".into()),
@@ -88,7 +88,7 @@ pub fn test_session_context_top_level_commands_includes_abbreviations() {
             SessionInfo::new_for_test().with_abbreviations(abbreviations.clone()),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         let top_level_commands = ctx.top_level_commands().collect_vec();
         for abbreviation in abbreviations.keys() {
@@ -99,13 +99,13 @@ pub fn test_session_context_top_level_commands_includes_abbreviations() {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_keywords() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let keywords = vec!["while".into(), "foreach".into(), "repeat".into()];
         let session = Session::new(
             SessionInfo::new_for_test().with_keywords(keywords.clone()),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         let top_level_commands = ctx.top_level_commands().collect_vec();
         for keyword in keywords.iter() {
@@ -116,14 +116,14 @@ pub fn test_session_context_top_level_commands_includes_keywords() {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_external_commands() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let session = Session::new(
             SessionInfo::new_for_test(),
             Arc::new(TestCommandExecutor::default()),
         );
         warpui::r#async::block_on(session.load_external_commands());
 
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         // We expect git to be installed and on the PATH on all machines on
         // which we're running our unit tests.
@@ -133,13 +133,13 @@ pub fn test_session_context_top_level_commands_includes_external_commands() {
 
 #[test]
 pub fn test_session_context_top_level_commands_includes_builtins() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let builtins = vec!["export".into(), "print".into(), "break".into()];
         let session = Session::new(
             SessionInfo::new_for_test().with_builtins(builtins.clone().into_iter().collect()),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, working_directory(), &app);
+        let ctx = test_session_context(session, working_directory());
 
         let top_level_commands = ctx.top_level_commands().collect_vec();
         for builtin in builtins.iter() {
@@ -150,7 +150,7 @@ pub fn test_session_context_top_level_commands_includes_builtins() {
 
 #[test]
 pub fn test_session_context_lists_directory_entries_locally() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_session_context_lists_directory_entries_locally",
             |dirs, mut sandbox| {
@@ -166,7 +166,7 @@ pub fn test_session_context_lists_directory_entries_locally() {
 
                 let tests_dir = TypedPathBuf::from(dirs.tests().to_string_lossy().as_bytes());
 
-                let ctx = test_session_context(Session::test(), tests_dir.clone(), &app);
+                let ctx = test_session_context(Session::test(), tests_dir.clone());
                 let ctx = ctx
                     .path_completion_context()
                     .expect("Path completion context should exist with active session");
@@ -225,7 +225,7 @@ fn windows_to_unix_shell_encoding(
 #[cfg_attr(windows, ignore = "TODO(CORE-3626)")]
 #[test]
 pub fn test_session_context_lists_directory_entries_remotely() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_session_context_lists_directory_entries_remotely",
             |dirs, mut sandbox| {
@@ -254,7 +254,7 @@ pub fn test_session_context_lists_directory_entries_remotely() {
                     }
                 };
 
-                let ctx = test_session_context(Session::test_remote(), cwd.clone(), &app);
+                let ctx = test_session_context(Session::test_remote(), cwd.clone());
 
                 let mut entries = HashSet::<EngineDirEntry>::from_iter(Arc::unwrap_or_clone(
                     warpui::r#async::block_on(ctx.list_directory_entries(cwd)),
@@ -284,7 +284,7 @@ pub fn test_session_context_lists_directory_entries_remotely() {
 #[cfg(unix)]
 #[test]
 pub fn test_session_context_follows_symlinked_directories_remotely() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_session_context_follows_symlinked_directories_remotely",
             |dirs, mut sandbox| {
@@ -294,7 +294,7 @@ pub fn test_session_context_follows_symlinked_directories_remotely() {
                 sandbox.ln("real_file.txt", "link_to_file");
 
                 let cwd = TypedPathBuf::from(dirs.tests().to_string_lossy().as_bytes());
-                let ctx = test_session_context(Session::test_remote(), cwd.clone(), &app);
+                let ctx = test_session_context(Session::test_remote(), cwd.clone());
 
                 let mut entries = HashSet::<EngineDirEntry>::from_iter(Arc::unwrap_or_clone(
                     warpui::r#async::block_on(ctx.list_directory_entries(cwd)),
@@ -323,7 +323,7 @@ fn perform_special_characters_in_path_test(session: Session, file_names: Vec<&st
         .iter()
         .map(|&filename| String::from(filename))
         .collect_vec();
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_session_context_lists_directory_entries_with_special_characters",
             |dirs, mut sandbox| {
@@ -360,7 +360,7 @@ fn perform_special_characters_in_path_test(session: Session, file_names: Vec<&st
                     }
                 };
 
-                let ctx = test_session_context(session, test_dir.clone(), &app);
+                let ctx = test_session_context(session, test_dir.clone());
 
                 let mut entries = HashSet::<EngineDirEntry>::from_iter(Arc::unwrap_or_clone(
                     warpui::r#async::block_on(ctx.list_directory_entries(test_dir)),
@@ -416,14 +416,14 @@ pub fn test_session_context_lists_directory_entries_remotely_with_special_charac
 
 #[test]
 pub fn test_session_context_refresh_directory_entries_bypasses_cache() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         VirtualFS::test(
             "test_session_context_refresh_directory_entries_bypasses_cache",
             |dirs, mut sandbox| {
                 sandbox.touch(vec![Stub::EmptyFile("first.txt")]);
 
                 let tests_dir = TypedPathBuf::from(dirs.tests().to_string_lossy().as_bytes());
-                let ctx = test_session_context(Session::test(), tests_dir.clone(), &app);
+                let ctx = test_session_context(Session::test(), tests_dir.clone());
 
                 // Prime the shared cache with the directory's initial contents.
                 let cached = warpui::r#async::block_on(
@@ -581,12 +581,12 @@ pub fn test_parse_ls_script_output_truncated_mid_file_entry_fails() {
 
 #[test]
 fn test_feature_flag_arg_is_valid_with_no_whitespace_before_arg() {
-    App::test((), |app| async move {
+    App::test((), |_| async move {
         let session = Session::new(
             SessionInfo::new_for_test(),
             Arc::new(TestCommandExecutor::default()),
         );
-        let ctx = test_session_context(session, TypedPathBuf::from("/test/home/"), &app);
+        let ctx = test_session_context(session, TypedPathBuf::from("/test/home/"));
 
         let full_command = "cargo run --features=with_local_server,fast_dev";
         let with_local_server_arg = ParsedExpression::new(

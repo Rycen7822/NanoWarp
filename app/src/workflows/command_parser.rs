@@ -237,32 +237,6 @@ pub fn compute_workflow_display_data_with_overrides(
     compute_workflow_display_data_internal(workflow, Some(values))
 }
 
-/// Computes workflow display data for displaying the workflow in the input editor and info box
-/// when a history command associated with a workflow is selected for execution.
-pub fn compute_workflow_display_data_for_history_command(
-    history_command: &str,
-    workflow: &Workflow,
-) -> Option<WorkflowDisplayData> {
-    let (workflow_command, workflow_arguments) = parse_and_escape_workflow(workflow);
-
-    let argument_values = parse_argument_values_from_command(
-        history_command,
-        workflow_command.as_str(),
-        &workflow_arguments,
-    )?;
-
-    let argument_values = argument_values
-        .into_iter()
-        .zip(workflow_arguments)
-        .map(|(value, argument)| (argument.argument_name.to_owned(), value))
-        .collect::<HashMap<_, _>>();
-
-    Some(compute_workflow_display_data_internal(
-        workflow,
-        Some(argument_values),
-    ))
-}
-
 fn compute_workflow_display_data_internal(
     workflow: &Workflow,
     override_argument_values: Option<HashMap<String, ArgumentValue>>,

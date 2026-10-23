@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 
 use itertools::Itertools;
 use pathfinder_color::ColorU;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_editor::editor::NavigationKey;
 use warpui::elements::{
@@ -14,7 +13,6 @@ use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, SingletonEntity as _, ViewContext, ViewHandle};
 
-use super::alias_argument_selector::{AliasArgumentSelector, AliasArgumentSelectorEvent};
 use super::{
     BUTTON_BORDER_RADIUS, EDITOR_FONT_SIZE, HORIZONTAL_TEXT_INPUT_PADDING, SECTION_SPACING,
     VERTICAL_TEXT_INPUT_PADDING, WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowAction, WorkflowView,
@@ -25,8 +23,7 @@ use crate::drive::workflows::workflow_arg_selector::{
 };
 use crate::drive::workflows::workflow_arg_type_helpers::{self, ArgumentTypeEditor};
 use crate::editor::{
-    EditOrigin, EditorView, Event as EditorEvent, InteractionState,
-    PlainTextEditorViewAction as EditorAction,
+    EditorView, Event as EditorEvent, InteractionState, PlainTextEditorViewAction as EditorAction,
 };
 use crate::pane_group::PaneEvent;
 use crate::ui_components::buttons::icon_button;
@@ -39,23 +36,8 @@ const ARGUMENT_LABEL_TEXT: &str = "Arguments";
 const ARGUMENT_LABEL_HEIGHT: f32 = 20.;
 const ARGUMENT_LABEL_MARGIN_BOTTOM: f32 = 5.;
 const ARGUMENT_DESCRIPTION_PLACEHOLDER_TEXT: &str = "Description";
-const ARGUMENT_ALIAS_DESCRIPTION_PLACEHOLDER_TEXT: &str = "Value (optional)";
 const ARGUMENT_DEFAULT_VALUE_PLACEHOLDER_TEXT: &str = "Default value (optional)";
 pub const DEFAULT_ARGUMENT_PREFIX: &str = "argument";
-
-/// Width of the argument editor in alias mode.
-pub const ALIAS_ARGUMENT_EDITOR_WIDTH: f32 = 300.;
-
-/// Which version of the argument-editing section to show.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArgumentEditorMode {
-    /// Edit argument definitions, as part of editing the workflow itself.
-    WorkflowDefinition,
-    /// Edit argument values for an alias.
-    Alias,
-    /// Edit argument values to fill out and copy.
-    Viewer,
-}
 
 pub struct ArgumentEditorRow {
     pub(super) name: String,
@@ -63,8 +45,6 @@ pub struct ArgumentEditorRow {
     pub(super) default_value_editor: ViewHandle<EditorView>,
     pub(super) argument_editor: ViewHandle<EditorView>,
     pub arg_type_editor: ViewHandle<WorkflowArgSelector>,
-    // The editor for alias arguments.  Can be a text editor or a dropdown.
-    pub alias_argument_selector: ViewHandle<AliasArgumentSelector>,
 }
 
 impl ArgumentTypeEditor for ArgumentEditorRow {
@@ -192,16 +172,6 @@ impl WorkflowView {
                                 me.handle_type_selector_event(emitter, event, ctx);
                             });
 
-                            let alias_argument_selector =
-                                ctx.add_typed_action_view(AliasArgumentSelector::new);
-
-                            ctx.subscribe_to_view(
-                                &alias_argument_selector,
-                                |me, emitter, event, ctx| {
-                                    me.handle_alias_argument_selector_event(emitter, event, ctx);
-                                },
-                            );
-
                             self.arguments_rows.insert(
                                 index,
                                 ArgumentEditorRow {
@@ -210,7 +180,6 @@ impl WorkflowView {
                                     default_value_editor,
                                     argument_editor,
                                     arg_type_editor,
-                                    alias_argument_selector,
                                 },
                             );
                         }
@@ -297,62 +266,6 @@ impl WorkflowView {
         })
     }
 
-    pub(super) fn handle_alias_argument_selector_event(
-        &mut self,
-        handle: ViewHandle<AliasArgumentSelector>,
-        event: &AliasArgumentSelectorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AliasArgumentSelectorEvent::ValueSet(value) => {
-                self.arguments_rows.iter().for_each(|row| {
-                    if row.alias_argument_selector == handle
-                        && self.alias_bar.as_ref(ctx).has_selected_alias()
-                    {
-                        self.alias_bar.update(ctx, |bar, ctx| {
-                            bar.set_current_argument_value(&row.name, value.clone(), ctx);
-                        })
-                    }
-                });
-            }
-            AliasArgumentSelectorEvent::Navigate(NavigationKey::Tab) => {
-                self.arguments_rows
-                    .iter()
-                    .enumerate()
-                    .for_each(|(index, row)| {
-                        if row.alias_argument_selector == handle {
-                            // If there's another row, tab to its alias argument selector.
-                            if let Some(next_row) = self
-                                .arguments_rows
-                                .get(index + 1)
-                                .or(self.arguments_rows.first())
-                            {
-                                ctx.focus(&next_row.alias_argument_selector)
-                            }
-                        }
-                    });
-            }
-            AliasArgumentSelectorEvent::Navigate(NavigationKey::ShiftTab) => {
-                self.arguments_rows
-                    .iter()
-                    .enumerate()
-                    .for_each(|(index, row)| {
-                        if row.alias_argument_selector == handle {
-                            // If there's a previous row, tab to its argument editor.
-                            let previous_row = match index {
-                                0 => self.arguments_rows.last(),
-                                _ => self.arguments_rows.get(index - 1),
-                            };
-                            if let Some(previous_row) = previous_row {
-                                ctx.focus(&previous_row.alias_argument_selector)
-                            }
-                        }
-                    });
-            }
-            _ => {}
-        }
-    }
-
     /// Handle an event from one of the argument definition editors.
     pub(super) fn handle_argument_editor_event(
         &mut self,
@@ -426,78 +339,67 @@ impl WorkflowView {
                         }
                     });
             }
-            EditorEvent::Edited(origin) => {
+            EditorEvent::Edited(_) => {
                 self.arguments_rows.iter().for_each(|row| {
                     if row.argument_editor == handle {
                         let mut updated_args = handle.as_ref(ctx).buffer_text(ctx);
 
-                        if self.alias_bar.as_ref(ctx).has_selected_alias() {
-                            // When switching between aliases, we repopulate all the argument
-                            // editors - don't count that as an edit to the alias.
-                            if *origin != EditOrigin::SystemEdit {
-                                self.alias_bar.update(ctx, |bar, ctx| {
-                                    bar.set_current_argument_value(&row.name, updated_args, ctx);
-                                })
-                            }
-                        } else {
-                            // if we don't have anything filled use the default arguments
-                            if updated_args.is_empty() {
-                                updated_args =
-                                    row.default_value_editor.as_ref(ctx).buffer_text(ctx);
-                            }
+                        // if we don't have anything filled use the default arguments
+                        if updated_args.is_empty() {
+                            updated_args = row.default_value_editor.as_ref(ctx).buffer_text(ctx);
+                        }
 
-                            // if there are no default arguments use the argument name
-                            if updated_args.is_empty() {
-                                updated_args.clone_from(&row.name);
-                            }
+                        // if there are no default arguments use the argument name
+                        if updated_args.is_empty() {
+                            updated_args.clone_from(&row.name);
+                        }
 
-                            self.command_display_data
-                                .set_argument_value(row.name.clone(), updated_args);
+                        self.command_display_data
+                            .set_argument_value(row.name.clone(), updated_args);
 
-                            let text_style_ranges = self
-                                .command_display_data
-                                .argument_ranges()
-                                .into_iter()
-                                .map(|range| {
-                                    (
-                                        range,
-                                        TextStyle::new().with_background_color(ColorU::from_u32(
-                                            WORKFLOW_PARAMETER_HIGHLIGHT_COLOR,
-                                        )),
-                                    )
-                                })
-                                .collect_vec();
+                        let text_style_ranges = self
+                            .command_display_data
+                            .argument_ranges()
+                            .into_iter()
+                            .map(|range| {
+                                (
+                                    range,
+                                    TextStyle::new().with_background_color(ColorU::from_u32(
+                                        WORKFLOW_PARAMETER_HIGHLIGHT_COLOR,
+                                    )),
+                                )
+                            })
+                            .collect_vec();
 
-                            self.view_only_content_editor.update(ctx, |editor, ctx| {
-                                // first make it editable so we can make changes
-                                editor.set_interaction_state(InteractionState::Editable, ctx);
-                                editor.clear_buffer(ctx);
+                        self.view_only_content_editor.update(ctx, |editor, ctx| {
+                            // first make it editable so we can make changes
+                            editor.set_interaction_state(InteractionState::Editable, ctx);
+                            editor.clear_buffer(ctx);
 
-                                editor.insert_with_styles(
-                                    self.command_display_data.to_command_string().as_str(),
-                                    //&updated_ranges,
-                                    &text_style_ranges,
-                                    EditorAction::SystemInsert,
-                                    ctx,
-                                );
+                            editor.insert_with_styles(
+                                self.command_display_data.to_command_string().as_str(),
+                                //&updated_ranges,
+                                &text_style_ranges,
+                                EditorAction::SystemInsert,
+                                ctx,
+                            );
 
-                                // once done revert to being selectable only
-                                editor.set_interaction_state(InteractionState::Selectable, ctx);
-                            });
+                            // once done revert to being selectable only
+                            editor.set_interaction_state(InteractionState::Selectable, ctx);
+                        });
 
-                            if !self.is_for_agent_mode {
-                                // debounce the syntax highlighting change to avoid flicker per
-                                // keystroke and only do the highlighting when the editing has ended.
-                                // The flicker would occur because we replace the buffer above with
-                                // insert_with_styles for capturing arguments changes and then perform
-                                // the syntax highlighting here.
-                                self.view_only_content_editor_highlight_model.update(
-                                    ctx,
-                                    |model, _ctx| {
-                                        model.debounce_highlight();
-                                    },
-                                );
-                            }
+                        if !self.is_for_agent_mode {
+                            // debounce the syntax highlighting change to avoid flicker per
+                            // keystroke and only do the highlighting when the editing has ended.
+                            // The flicker would occur because we replace the buffer above with
+                            // insert_with_styles for capturing arguments changes and then perform
+                            // the syntax highlighting here.
+                            self.view_only_content_editor_highlight_model.update(
+                                ctx,
+                                |model, _ctx| {
+                                    model.debounce_highlight();
+                                },
+                            );
                         }
                     }
                 });
@@ -516,38 +418,17 @@ impl WorkflowView {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Option<Box<dyn Element>> {
-        let mode = if self.alias_bar.as_ref(app).has_selected_alias() {
-            ArgumentEditorMode::Alias
-        } else if self.is_editable() {
-            ArgumentEditorMode::WorkflowDefinition
-        } else {
-            ArgumentEditorMode::Viewer
-        };
-
         // If there are no arguments to fill out in view mode, don't show the arguments section.
-        if mode == ArgumentEditorMode::Viewer && self.arguments_rows.is_empty() {
+        if !self.is_editable() && self.arguments_rows.is_empty() {
             return None;
         }
 
         let mut arguments_section = Flex::column();
         arguments_section.add_child(self.render_arguments_section_header(appearance));
 
-        match mode {
-            ArgumentEditorMode::WorkflowDefinition | ArgumentEditorMode::Viewer => {
-                arguments_section.add_child(self.render_arguments_editors(appearance))
-            }
-            ArgumentEditorMode::Alias => {
-                arguments_section.add_child(self.render_alias_arguments(appearance, app));
-            }
-        }
+        arguments_section.add_child(self.render_arguments_editors(appearance));
 
-        if FeatureFlag::WorkflowAliases.is_enabled()
-            && matches!(
-                mode,
-                ArgumentEditorMode::WorkflowDefinition | ArgumentEditorMode::Alias
-            )
-            && !self.is_for_agent_mode
-        {
+        if self.is_editable() && !self.is_for_agent_mode {
             arguments_section.add_child(self.render_env_vars_selector(appearance, app));
         }
 
@@ -734,74 +615,6 @@ impl WorkflowView {
             .with_main_axis_size(MainAxisSize::Min)
             .with_children(children)
             .finish()
-    }
-
-    /// Render editors for filling out arguments in an alias.
-    fn render_alias_arguments(
-        &self,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let mut arguments = Flex::column();
-        let theme = appearance.theme();
-
-        for (index, argument) in self.arguments_state.arguments.iter().enumerate() {
-            let name = appearance
-                .ui_builder()
-                .span(argument.name.clone())
-                .with_style(UiComponentStyles {
-                    font_family_id: Some(appearance.monospace_font_family()),
-                    font_size: Some(14.),
-                    ..Default::default()
-                })
-                .build()
-                .with_margin_bottom(8.)
-                .finish();
-            arguments.add_child(name);
-
-            let mut current_description = self.arguments_rows[index]
-                .description_editor
-                .as_ref(app)
-                .buffer_text(app);
-
-            let mut styles = UiComponentStyles {
-                font_size: Some(13.),
-                ..Default::default()
-            };
-
-            // If the description is empty, show a placeholder text.
-            if current_description.is_empty() {
-                current_description.push_str(ARGUMENT_ALIAS_DESCRIPTION_PLACEHOLDER_TEXT);
-                styles.font_color = Some(theme.sub_text_color(theme.background()).into_solid());
-            }
-
-            let description = appearance
-                .ui_builder()
-                .span(current_description)
-                .with_style(styles)
-                .build()
-                .with_horizontal_padding(12.)
-                .with_vertical_padding(5.)
-                .finish();
-
-            let value =
-                ChildView::new(&self.arguments_rows[index].alias_argument_selector).finish();
-
-            arguments.add_child(
-                Container::new(
-                    Flex::row()
-                        .with_children([description, Shrinkable::new(1., value).finish()])
-                        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                        .with_main_axis_size(MainAxisSize::Max)
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .finish(),
-                )
-                .with_margin_bottom(8.)
-                .finish(),
-            )
-        }
-
-        arguments.finish()
     }
 
     fn render_env_vars_selector(
