@@ -1899,21 +1899,6 @@ impl UpdateManager {
         );
     }
 
-    pub fn update_workflow_enum(
-        &mut self,
-        workflow_enum: WorkflowEnum,
-        workflow_enum_id: SyncId,
-        revision_ts: Option<Revision>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.update_object(
-            CloudWorkflowEnumModel::new(workflow_enum),
-            workflow_enum_id,
-            revision_ts,
-            ctx,
-        );
-    }
-
     pub fn update_env_var_collection(
         &mut self,
         env_var_collection: EnvVarCollection,

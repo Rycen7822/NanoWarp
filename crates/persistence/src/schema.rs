@@ -458,14 +458,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    workflow_panes (id) {
-        id -> Integer,
-        kind -> Text,
-        workflow_id -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     workflows (id) {
         id -> Integer,
         data -> Text,

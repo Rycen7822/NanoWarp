@@ -849,7 +849,6 @@ impl FileNotebookView {
             ),
             EditorViewEvent::Navigate(_)
             | EditorViewEvent::Edited
-            | EditorViewEvent::EditWorkflow(_)
             | EditorViewEvent::CmdEnter
             | EditorViewEvent::EscapePressed
             | EditorViewEvent::TextSelectionChanged => (),

@@ -222,9 +222,6 @@ fn handle_notebook_event(
         NotebookEvent::RunWorkflow { workflow, source } => {
             run_notebook_workflow(workflow.clone(), *source, ctx)
         }
-        NotebookEvent::EditWorkflow(id) => {
-            ctx.emit(crate::pane_group::Event::OpenCloudWorkflowForEdit(*id))
-        }
         NotebookEvent::ViewInWarpDrive(id) => view_in_warp_drive(*id, ctx),
         NotebookEvent::MoveToSpace {
             cloud_object_type_and_id,

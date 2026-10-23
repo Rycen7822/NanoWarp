@@ -334,14 +334,10 @@ pub enum WorkspaceAction {
     ImportToPersonalDrive,
     ImportToTeamDrive,
     CreateTeamNotebook,
-    CreatePersonalWorkflow,
-    CreateTeamWorkflow,
     CreatePersonalFolder,
     CreateTeamFolder,
     CreateTeamEnvVarCollection,
     CreatePersonalEnvVarCollection,
-    CreatePersonalAIPrompt,
-    CreateTeamAIPrompt,
     ToggleMouseReporting,
     ToggleScrollReporting,
     ToggleFocusReporting,
@@ -411,7 +407,6 @@ pub enum WorkspaceAction {
     ToggleSyncTerminalInputsInTab,
     /// An action to force terminal input syncing off
     DisableTerminalInputSync,
-    HandleConflictingWorkflow(SyncId),
     HandleConflictingEnvVarCollection(SyncId),
     OpenPromptEditor {
         open_source: PromptEditorOpenSource,
@@ -798,10 +793,8 @@ impl From<&WorkspaceAction> for LoginGatedFeature {
         match val {
             ImportToTeamDrive => "Importing to a team drive",
             CreateTeamNotebook => "Creating a team notebook",
-            CreateTeamWorkflow => "Creating a team workflow",
             CreateTeamFolder => "Creating a team folder",
             CreateTeamEnvVarCollection => "Creating a team environment variable collection",
-            CreateTeamAIPrompt => "Creating a team prompt",
             OpenShareSessionModal(_) => "Sharing a session",
             _ => "Unknown reason",
         }
@@ -815,10 +808,8 @@ impl WorkspaceAction {
             self,
             ImportToTeamDrive
                 | CreateTeamNotebook
-                | CreateTeamWorkflow
                 | CreateTeamFolder
                 | CreateTeamEnvVarCollection
-                | CreateTeamAIPrompt
                 | OpenShareSessionModal(_)
         )
     }
@@ -967,14 +958,10 @@ impl WorkspaceAction {
             | ImportToTeamDrive
             | CreatePersonalNotebook
             | CreateTeamNotebook
-            | CreatePersonalWorkflow
-            | CreateTeamWorkflow
             | CreatePersonalFolder
             | CreateTeamFolder
             | CreateTeamEnvVarCollection
             | CreatePersonalEnvVarCollection
-            | CreatePersonalAIPrompt
-            | CreateTeamAIPrompt
             | OpenInExplorer { .. }
             | DragTab { .. }
             | StartTabDrag
@@ -1011,7 +998,6 @@ impl WorkspaceAction {
             | ToggleSyncAllTerminalInputsInAllTabs
             | ToggleSyncTerminalInputsInTab
             | DisableTerminalInputSync
-            | HandleConflictingWorkflow(_)
             | HandleConflictingEnvVarCollection(_)
             | OpenPromptEditor { .. }
             | OpenAgentToolbarEditor

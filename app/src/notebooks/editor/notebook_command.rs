@@ -40,6 +40,7 @@ use warpui::{
     SingletonEntity, ViewHandle, WeakModelHandle, WindowId,
 };
 
+use super::arguments::ArgumentsState;
 use super::interaction_state_model::InteractionStateModel;
 use super::keys::{NotebookKeybindings, custom_action_to_display};
 use super::model::ChildModelHandle;
@@ -48,7 +49,6 @@ use super::{NotebookWorkflow, rich_text_styles};
 use crate::ASSETS;
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;
-use crate::drive::workflows::arguments::ArgumentsState;
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
 use crate::menu::MenuItemFields;

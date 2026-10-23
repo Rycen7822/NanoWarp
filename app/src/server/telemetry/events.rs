@@ -481,13 +481,6 @@ pub enum OpenedWarpAISource {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum SaveAsWorkflowModalSource {
-    Block,
-    Input,
-    WarpAIWorkflowCard,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum LaunchConfigUiLocation {
     CommandPalette,
     AppMenu,
@@ -1343,9 +1336,6 @@ pub enum TelemetryEvent {
     InputPaste,
     InputCommandSearch,
     InputAskWarpAI,
-    SaveAsWorkflowModal {
-        source: SaveAsWorkflowModalSource,
-    },
     ExperimentTriggered {
         experiment: &'static str,
         layer: &'static str,
@@ -2489,7 +2479,6 @@ impl TelemetryEvent {
                 Some(json!({ "enable_bookmark": enable_bookmark }))
             }
             TelemetryEvent::SaveLaunchConfig { state } => Some(json!({ "state": state })),
-            TelemetryEvent::SaveAsWorkflowModal { source } => Some(json!({ "source": source })),
             TelemetryEvent::SetLineHeight { new_value } => Some(json!({ "new_value": new_value })),
             TelemetryEvent::OpenNotebook(metadata) => Some(json!(metadata)),
             TelemetryEvent::EditNotebook {
@@ -3766,7 +3755,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputPaste
             | TelemetryEvent::InputCommandSearch
             | TelemetryEvent::InputAskWarpAI
-            | TelemetryEvent::SaveAsWorkflowModal { .. }
             | TelemetryEvent::ExperimentTriggered { .. }
             | TelemetryEvent::ToggleSyncAllPanesInAllTabs { .. }
             | TelemetryEvent::ToggleSyncAllPanesInTab { .. }
@@ -4196,7 +4184,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputPaste => EnablementState::Always,
             Self::InputCommandSearch => EnablementState::Always,
             Self::InputAskWarpAI => EnablementState::Always,
-            Self::SaveAsWorkflowModal => EnablementState::Always,
             Self::ExperimentTriggered => EnablementState::Always,
             Self::ToggleSyncAllPanesInAllTabs => EnablementState::Always,
             Self::ToggleSyncAllPanesInTab => EnablementState::Always,
@@ -4587,7 +4574,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputPaste => "InputBoxPaste",
             Self::InputCommandSearch => "InputBoxCommandSearch",
             Self::InputAskWarpAI => "InputBoxAskWarpAI",
-            Self::SaveAsWorkflowModal => "Opened Save As Workflow Modal",
             Self::ExperimentTriggered => "experiments.client.enroll_client",
             Self::ToggleSyncAllPanesInAllTabs => "Toggle Sync Inputs Across All Panes in All Tabs",
             Self::ToggleSyncAllPanesInTab => "Toggle Sync Inputs Across All Panes in Current Tab",
@@ -5075,9 +5061,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Opened Command Search via the Input Editor's context menu (right clicking the buffer)"
             }
             Self::InputAskWarpAI => "Clicked \"Ask Warp AI\" from the Input Editor's context menu",
-            Self::SaveAsWorkflowModal => {
-                "Opened the modal to create a new workflow using a Block's context--command, etc."
-            }
             Self::ExperimentTriggered => "Client assigned to A/B test",
             Self::ToggleSyncAllPanesInAllTabs => {
                 "Enable the synchronization of the Input Editor's buffer to all the panes in all the tabs"

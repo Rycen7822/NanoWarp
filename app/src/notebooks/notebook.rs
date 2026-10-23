@@ -247,7 +247,6 @@ pub enum NotebookEvent {
         workflow: Arc<WorkflowType>,
         source: WorkflowSource,
     },
-    EditWorkflow(SyncId),
     ViewInWarpDrive(WarpDriveItemId),
     Pane(PaneEvent),
     MoveToSpace {
@@ -966,9 +965,6 @@ impl NotebookView {
             }
             EditorViewEvent::Navigate(_) => (),
             EditorViewEvent::RunWorkflow(workflow) => self.run_notebook_workflow(workflow, ctx),
-            EditorViewEvent::EditWorkflow(workflow_id) => {
-                ctx.emit(NotebookEvent::EditWorkflow(*workflow_id))
-            }
             EditorViewEvent::OpenedBlockInsertionMenu(source) => self.send_telemetry_action(
                 NotebookTelemetryAction::OpenBlockInsertionMenu { source: *source },
                 ctx,

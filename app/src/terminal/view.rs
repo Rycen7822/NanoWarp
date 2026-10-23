@@ -329,9 +329,8 @@ use crate::server::telemetry::{
     self, AgentModeAttachContextMethod, AgentModeEntrypoint, AgentModeRewindEntrypoint,
     AnonymousUserSignupEntrypoint, BootstrappingInfo, CloudAgentShellExitDetection,
     CloudAgentShellRecoveryFailureClass, CloudAgentShellRecoveryOutcome, NotificationAgentVariant,
-    NotificationsTurnedOnSource, PaletteSource, SaveAsWorkflowModalSource, SecretInteraction,
-    SharingDialogSource, SlowBootstrapInfo, TelemetryEvent, ToggleBlockFilterSource,
-    WorkflowTelemetryMetadata,
+    NotificationsTurnedOnSource, PaletteSource, SecretInteraction, SharingDialogSource,
+    SlowBootstrapInfo, TelemetryEvent, ToggleBlockFilterSource, WorkflowTelemetryMetadata,
 };
 use crate::session_management::{CommandContext, SessionNavigationPromptElements};
 use crate::settings::ai::FocusedTerminalInfo;
@@ -499,7 +498,6 @@ use crate::view_components::action_button::{ActionButton, ButtonSize, KeystrokeS
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workflows::WorkflowSelectionSource;
-use crate::workflows::workflow::Workflow;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::view::cloud_agent_capacity_modal::CloudAgentCapacityModalVariant;
 use crate::workspace::{
@@ -1282,7 +1280,6 @@ pub enum ContextMenuAction {
     EditAgentToolbar,
     /// Attach the current context to blocklist AI.
     AskAI(AskAISource),
-    OpenWorkflowModal,
     CopyAIDebuggingLink {
         conversation_token: ServerConversationToken,
         request_id: Option<ServerOutputId>,
@@ -1353,10 +1350,6 @@ pub enum ContextMenuAction {
         exchange_id: AIAgentExchangeId,
         conversation_id: AIConversationId,
     },
-    /// Save the AI block prompt as an agent mode workflow (saved prompt)
-    SavePromptAsAgentModeWorkflow {
-        ai_block_view_id: EntityId,
-    },
 }
 
 #[derive(Clone)]
@@ -1366,7 +1359,6 @@ pub enum InputContextMenuAction {
     SelectAll,
     Paste,
     ShowCommandSearch,
-    SaveAsWorkflow,
     ToggleInputHintText,
 }
 
@@ -1403,7 +1395,6 @@ impl fmt::Debug for ContextMenuAction {
             EditPrompt => f.write_str("EditPrompt"),
             EditAgentToolbar => f.write_str("EditAgentToolbar"),
             AskAI(_) => f.write_str("AskAIAssistant"),
-            OpenWorkflowModal => f.write_str("OpenWorkflowModal"),
             OpenShareSessionModal => f.write_str("OpenShareSessionModal"),
             CopyBlockFilteredOutputs => f.write_str("CopyBlockFilteredOutput"),
             StopSharing => f.write_str("StopSharing"),
@@ -1426,7 +1417,6 @@ impl fmt::Debug for ContextMenuAction {
             ForkAIConversationFromExactExchange { .. } => {
                 f.write_str("ForkAIConversationFromExactExchange")
             }
-            SavePromptAsAgentModeWorkflow { .. } => f.write_str("SavePromptAsAgentModeWorkflow"),
         }
     }
 }
@@ -1442,7 +1432,6 @@ impl fmt::Debug for InputContextMenuAction {
             SelectAll => f.write_str("SelectAll"),
             Paste => f.write_str("Paste"),
             ShowCommandSearch => f.write_str("CommandSearch"),
-            SaveAsWorkflow => f.write_str("SaveAsWorkflow"),
             ToggleInputHintText => f.write_str("ToggleInputHintText"),
         }
     }
@@ -1526,8 +1515,7 @@ pub struct ExecuteCommandEvent {
 
     /// If the command was executed from a [`CloudWorkflow`], pass its ID here.
     pub workflow_id: Option<SyncId>,
-    /// If the command was executed from a [`CloudWorkflow`] or WorkflowType::Local, store the
-    /// templated command here.
+    /// If the command was executed from a [`CloudWorkflow`], store its templated command here.
     pub workflow_command: Option<String>,
 
     /// `true` if the executed command should be added to session history.
@@ -1573,12 +1561,6 @@ pub enum Event {
     /// inside this pane group.
     TerminalViewStateChanged,
     ShowCommandSearch(CommandSearchOptions),
-    // Tell the pane group to open the workflow modal.
-    OpenWorkflowModalWithCommand(String),
-    // Tell the pane group to open the workflow modal with an existing cloud workflow.
-    OpenWorkflowModalWithCloudWorkflow(SyncId),
-    // Tell the pane group to open the workflow modal with an unsaved workflow.
-    OpenWorkflowModalWithTemporary(Box<Workflow>),
     OpenWarpDriveObjectInPane(ObjectUid),
     ToggleAIDocumentPane {
         document_id: AIDocumentId,
@@ -1821,10 +1803,6 @@ pub enum Event {
     },
     OpenAddRulePane,
     OpenRulesPane,
-    OpenAddPromptPane {
-        /// The initial prompt body content.
-        initial_content: Option<String>,
-    },
     OpenEnvironmentManagementPane,
     OpenFilesPalette {
         source: PaletteSource,
@@ -15848,21 +15826,6 @@ impl TerminalView {
                     ));
                 }
 
-                if WarpDriveSettings::is_warp_drive_enabled(ctx) {
-                    items.push(MenuItem::Separator);
-                    items.push(
-                        MenuItemFields::new("Save as workflow")
-                            .with_on_select_action(TerminalAction::ContextMenu(
-                                ContextMenuAction::OpenWorkflowModal,
-                            ))
-                            .with_key_shortcut_label(keybinding_name_to_display_string(
-                                "terminal:toggle_teams_modal",
-                                ctx,
-                            ))
-                            .into_item(),
-                    );
-                }
-
                 // We can only attach selected blocks if the input box is visible.
                 if AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
                     && FeatureFlag::AgentMode.is_enabled()
@@ -16494,18 +16457,6 @@ impl TerminalView {
                 .into_item(),
         ]);
 
-        // Section 3: Teams related
-        if !all_current_input_text.is_empty() && WarpDriveSettings::is_warp_drive_enabled(ctx) {
-            items.extend([
-                MenuItem::Separator,
-                MenuItemFields::new("Save as workflow")
-                    .with_on_select_action(TerminalAction::InputContextMenuItem(
-                        InputContextMenuAction::SaveAsWorkflow,
-                    ))
-                    .into_item(),
-            ]);
-        }
-
         // Section 4: input hint text toggle
         if !is_editor_disabled {
             let input_settings = InputSettings::as_ref(ctx);
@@ -16548,17 +16499,6 @@ impl TerminalView {
         send_telemetry_from_ctx!(TelemetryEvent::OpenInputContextMenu, ctx);
     }
 
-    fn open_workflow_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        let selected_block_contents =
-            self.selected_block_contents_as_string(BlockEntity::Command, " &&\n", ctx);
-
-        self.open_workflow_modal_with_command(
-            selected_block_contents,
-            SaveAsWorkflowModalSource::Block,
-            ctx,
-        );
-    }
-
     fn open_block_filter_editor(
         &mut self,
         block_index: BlockIndex,
@@ -16597,54 +16537,6 @@ impl TerminalView {
         self.block_filter_editor.update(ctx, |block_filter, ctx| {
             block_filter.reset(ctx);
         });
-        ctx.notify();
-    }
-
-    fn open_workflow_modal_from_block(
-        &mut self,
-        block_index: BlockIndex,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Make the block for which we're showing the modal the only selected block.
-        self.reset_selection_to_single_block(block_index, ctx);
-        self.scroll_to_if_not_visible(block_index, ctx);
-
-        // Set the command in the modal to the command of the block.
-        if let Some(block) = self.model.lock().block_list().block_at(block_index) {
-            ctx.emit(Event::OpenWorkflowModalWithCommand(
-                block.command_to_string(),
-            ))
-        }
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::SaveAsWorkflowModal {
-                source: SaveAsWorkflowModalSource::Block
-            },
-            ctx
-        );
-    }
-
-    fn open_workflow_modal_from_ai_generated_workflow(
-        &mut self,
-        workflow: Workflow,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(Event::OpenWorkflowModalWithTemporary(Box::new(workflow)));
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::SaveAsWorkflowModal {
-                source: SaveAsWorkflowModalSource::WarpAIWorkflowCard,
-            },
-            ctx
-        );
-    }
-
-    pub fn open_workflow_modal_with_existing(
-        &mut self,
-        workflow_id: SyncId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(Event::OpenWorkflowModalWithCloudWorkflow(workflow_id));
         ctx.notify();
     }
 
@@ -18168,22 +18060,6 @@ impl TerminalView {
         ctx.emit(Event::ShowCommandSearch(Default::default()))
     }
 
-    fn save_as_workflow_from_input(&mut self, ctx: &mut ViewContext<Self>) {
-        let (all_current_input_text, selected_input_text) = self.input.read(ctx, |input, ctx| {
-            input.editor().read(ctx, |editor, ctx| {
-                (editor.buffer_text(ctx), editor.selected_text(ctx))
-            })
-        });
-
-        let command = if selected_input_text.is_empty() {
-            all_current_input_text
-        } else {
-            selected_input_text
-        };
-
-        self.open_workflow_modal_with_command(command, SaveAsWorkflowModalSource::Input, ctx);
-    }
-
     fn toggle_input_hint_text(&mut self, ctx: &mut ViewContext<Self>) {
         let new_val = InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
             report_if_error!(input_settings.show_hint_text.toggle_and_save_value(ctx));
@@ -18199,17 +18075,6 @@ impl TerminalView {
             },
             ctx
         );
-    }
-
-    fn open_workflow_modal_with_command(
-        &mut self,
-        command: String,
-        source: SaveAsWorkflowModalSource,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(Event::OpenWorkflowModalWithCommand(command));
-
-        send_telemetry_from_ctx!(TelemetryEvent::SaveAsWorkflowModal { source }, ctx);
     }
 
     fn copy_prompt(
@@ -23610,7 +23475,6 @@ impl TerminalView {
 
                 self.ask_ai(ask_source, ctx);
             }
-            OpenWorkflowModal => self.open_workflow_modal(ctx),
             OpenShareSessionModal => self.open_share_session_modal(source, ctx),
             StopSharing => self.stop_sharing_session(source, ctx),
             CopyBlockFilteredOutputs => self.context_menu_copy_filtered_block_outputs(ctx),
@@ -23783,22 +23647,6 @@ impl TerminalView {
                     ctx,
                 );
             }
-            SavePromptAsAgentModeWorkflow { ai_block_view_id } => {
-                for rich_content in self.rich_content_views.iter() {
-                    if let Some(ai_metadata) = rich_content.ai_block_metadata()
-                        && ai_metadata.ai_block_handle.id() == *ai_block_view_id
-                    {
-                        let prompt_text = ai_metadata
-                            .ai_block_handle
-                            .as_ref(ctx)
-                            .get_preceding_user_query(ctx);
-                        ctx.emit(Event::OpenAddPromptPane {
-                            initial_content: Some(prompt_text),
-                        });
-                        break;
-                    }
-                }
-            }
         }
     }
 
@@ -23934,7 +23782,6 @@ impl TerminalView {
             SelectAll => self.select_all_text_from_input(ctx),
             Paste => self.paste_in_input(ctx),
             ShowCommandSearch => self.command_search_from_input(ctx),
-            SaveAsWorkflow => self.save_as_workflow_from_input(ctx),
             ToggleInputHintText => self.toggle_input_hint_text(ctx),
         }
         self.close_context_menu(ctx, false);
@@ -25283,10 +25130,6 @@ impl TypedActionView for TerminalView {
             | InputContextMenuItem(_)
             | NotificationsDiscoveryBanner(_)
             | NotificationsErrorBanner(_)
-            | OpenWorkflowModal
-            | OpenWorkflowModalForAIWorkflow(_)
-            | OpenWorkflowModalForBlock(_)
-            | OpenWorkflowModalWithCloudWorkflow(_)
             | OpenShareSessionModal { .. }
             | OpenSharedSessionViewerRoleMenu
             | CopySharedSessionLink { .. }
@@ -25321,7 +25164,6 @@ impl TypedActionView for TerminalView {
             | OpenAddRulePane
             | OpenRulesPane
             | OpenEditSkillPane { .. }
-            | OpenAddPromptPane
             | AddProjectAtCurrentDirectory
             | CodebaseIndexSpeedbumpBanner(_)
             | AgentModeSetupSpeedbumpBanner(_)
@@ -25638,16 +25480,6 @@ impl TypedActionView for TerminalView {
                     *layout,
                     ctx,
                 );
-            }
-            OpenWorkflowModal => self.open_workflow_modal(ctx),
-            OpenWorkflowModalForAIWorkflow(workflow) => {
-                self.open_workflow_modal_from_ai_generated_workflow(workflow.clone(), ctx)
-            }
-            OpenWorkflowModalForBlock(block_index) => {
-                self.open_workflow_modal_from_block(*block_index, ctx)
-            }
-            OpenWorkflowModalWithCloudWorkflow(workflow_id) => {
-                self.open_workflow_modal_with_existing(*workflow_id, ctx)
             }
             OpenBlockListContextMenu => self.open_block_list_context_menu_via_keybinding(ctx),
             AskAIAssistant { block_index } => {
@@ -26206,9 +26038,6 @@ impl TypedActionView for TerminalView {
                     });
                 }
             }
-            OpenAddPromptPane => ctx.emit(Event::OpenAddPromptPane {
-                initial_content: None,
-            }),
             PickRepoToOpen => {
                 ctx.dispatch_typed_action(&WorkspaceAction::OpenRepository { path: None });
             }

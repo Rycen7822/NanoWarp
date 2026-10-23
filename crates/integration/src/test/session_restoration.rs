@@ -367,26 +367,6 @@ pub fn test_restore_snapshot_with_notebooks() -> Builder {
         )
 }
 
-/// Test restoring a snapshot that includes workflow panes - the second pane exists, but the first
-/// is for a deleted workflow.
-pub fn test_restore_snapshot_with_workflows() -> Builder {
-    new_builder()
-        .with_setup(|_utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                "restored_workflows.sqlite",
-                &integration_testing::persistence::database_file_path_for_scope(
-                    &integration_testing::persistence::PersistenceScope::App,
-                ),
-            )
-        })
-        .with_step(
-            TestStep::new("Verify that the workflow panes were restored")
-                .add_assertion(assert_pane_title(0, 1, "My Workflow"))
-                .add_assertion(assert_pane_title(0, 0, "Untitled")),
-        )
-}
-
 /// Tests restoring a snapshot that includes a test json object.
 ///
 /// The test json object has as its contents the string "egpmggresq"

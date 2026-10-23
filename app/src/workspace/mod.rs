@@ -547,29 +547,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::NewPersonalNotebook)
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
         EditableBinding::new(
-            "workspace:create_team_workflow",
-            BindingDescription::new("Create a new team workflow")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "New Team Workflow"),
-            WorkspaceAction::CreateTeamWorkflow,
-        )
-        .with_custom_action(CustomAction::NewTeamWorkflow)
-        .with_context_predicate(
-            id!("Workspace")
-                & id!(flags::ENABLE_WARP_DRIVE)
-                & id!("IsOnline")
-                & id!("WarpDrive_BelongsToTeam"),
-        )
-        .with_group(bindings::BindingGroup::Workflow.as_str()),
-        EditableBinding::new(
-            "workspace:create_personal_workflow",
-            BindingDescription::new("Create a new personal workflow")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "New Personal Workflow"),
-            WorkspaceAction::CreatePersonalWorkflow,
-        )
-        .with_group(bindings::BindingGroup::Workflow.as_str())
-        .with_custom_action(CustomAction::NewPersonalWorkflow)
-        .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
-        EditableBinding::new(
             "workspace:create_team_folder",
             BindingDescription::new("Create a new team folder")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "New Team Folder"),
@@ -1136,32 +1113,6 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::EnvVarCollection.as_str())
         .with_custom_action(CustomAction::NewPersonalEnvVars)
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
-        EditableBinding::new(
-            "workspace:create_personal_ai_prompt",
-            BindingDescription::new("Create a new personal prompt")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "New Personal Prompt"),
-            WorkspaceAction::CreatePersonalAIPrompt,
-        )
-        .with_group(bindings::BindingGroup::WarpAi.as_str())
-        .with_custom_action(CustomAction::NewPersonalAIPrompt)
-        .with_context_predicate(
-            id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE) & id!(flags::IS_ANY_AI_ENABLED),
-        ),
-        EditableBinding::new(
-            "workspace:create_team_ai_prompt",
-            BindingDescription::new("Create a new team prompt")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "New Team Prompt"),
-            WorkspaceAction::CreateTeamAIPrompt,
-        )
-        .with_group(bindings::BindingGroup::WarpAi.as_str())
-        .with_custom_action(CustomAction::NewTeamAIPrompt)
-        .with_context_predicate(
-            id!("Workspace")
-                & id!(flags::ENABLE_WARP_DRIVE)
-                & id!("WarpDrive_BelongsToTeam")
-                & id!("IsOnline")
-                & id!(flags::IS_ANY_AI_ENABLED),
-        ),
     ]);
 
     app.register_editable_bindings([

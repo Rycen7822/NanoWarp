@@ -39,7 +39,6 @@ mod sync_inputs;
 mod typeahead;
 mod video_recording;
 mod websockets;
-mod workflows;
 mod workspace;
 
 use std::borrow::Cow;
@@ -201,7 +200,6 @@ use warpui_core::{
     AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle, async_assert, async_assert_eq,
 };
 pub use websockets::*;
-pub use workflows::*;
 pub use workspace::*;
 
 use crate::builder::cargo_target_tmpdir;

@@ -139,7 +139,6 @@ pub enum LeafContents {
     Code(CodePaneSnapShot),
     EnvVarCollection(EnvVarCollectionPaneSnapshot),
     EnvironmentManagement(EnvironmentManagementPaneSnapshot),
-    Workflow(WorkflowPaneSnapshot),
     Settings(SettingsPaneSnapshot),
     AIFact(AIFactPaneSnapshot),
     CustomRouterEditor,
@@ -178,7 +177,6 @@ impl LeafContents {
             | LeafContents::AIDocument(_)
             | LeafContents::Code(_)
             | LeafContents::EnvVarCollection(_)
-            | LeafContents::Workflow(_)
             | LeafContents::Settings(_)
             | LeafContents::AIFact(_)
             | LeafContents::CustomRouterEditor
@@ -259,15 +257,6 @@ pub enum CodePaneSnapShot {
         active_tab_index: usize,
         /// The full `CodeSource` for this pane, serialized as JSON in the DB.
         source: Option<CodeSource>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum WorkflowPaneSnapshot {
-    CloudWorkflow {
-        workflow_id: Option<SyncId>,
-        // Settings for the workflow pane when it's opened (such as a folder to focus upon opening)
-        settings: OpenWarpDriveObjectSettings,
     },
 }
 

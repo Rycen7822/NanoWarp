@@ -2,25 +2,20 @@ use std::sync::Arc;
 
 pub use cloud_object_models::{CloudWorkflow, CloudWorkflowModel, WorkflowId};
 use serde::{Deserialize, Serialize};
-use warp_core::context_flag::ContextFlag;
-use warp_core::features::FeatureFlag;
-use warpui::{AppContext, SingletonEntity};
 
 use anyhow::Result;
 use workflow::Workflow;
 
 pub mod command_parser;
+mod env_var_selector;
 pub mod export_workflow;
 pub mod info_box;
-pub mod manager;
 pub mod workflow;
 pub mod workflow_enum;
-pub mod workflow_view;
 
 use async_trait::async_trait;
 
 use crate::appearance::Appearance;
-use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{
     CloudModelType, CloudObjectEventEntrypoint, CloudObjectUpsertParams, CreateCloudObjectResult,
     CreateObjectRequest, GenericServerObject, ObjectType, Revision, UpdateCloudObjectResult,
@@ -34,10 +29,6 @@ use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::server::ids::{ServerId, SyncId};
 use crate::server::server_api::object::ObjectClient;
 use crate::server::sync_queue::{QueueItem, SerializedModel};
-
-pub fn init(app: &mut AppContext) {
-    self::workflow_view::init(app);
-}
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
 pub enum WorkflowSource {
@@ -60,66 +51,8 @@ pub enum WorkflowSelectionSource {
     WarpAI,
     Notebook,
     SlashMenu,
-    WorkflowView,
     AgentMode,
     Undefined,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkflowViewMode {
-    View,
-    Edit,
-    Create,
-}
-
-impl WorkflowViewMode {
-    /// The editing mode supported for a workflow.
-    ///
-    /// Editing is disabled if the user does not have edit permissions.
-    pub fn supported_edit_mode(workflow_id: Option<SyncId>, app: &AppContext) -> Self {
-        let can_edit = workflow_id
-            .map(|id| {
-                CloudViewModel::as_ref(app)
-                    .object_editability(&id.uid(), app)
-                    .can_edit()
-            })
-            .unwrap_or(true);
-
-        if !FeatureFlag::SharedWithMe.is_enabled() || can_edit {
-            Self::Edit
-        } else {
-            Self::View
-        }
-    }
-
-    /// The viewing mode supported for this workflow.
-    ///
-    /// Viewing is disabled if the user is allowed to edit the workflow and in a context where
-    /// running workflows is supported.
-    pub fn supported_view_mode(workflow_id: Option<SyncId>, app: &AppContext) -> Self {
-        let can_edit = workflow_id
-            .map(|id| {
-                CloudViewModel::as_ref(app)
-                    .object_editability(&id.uid(), app)
-                    .can_edit()
-            })
-            .unwrap_or(true);
-
-        if FeatureFlag::SharedWithMe.is_enabled() && !can_edit {
-            Self::View
-        } else if ContextFlag::RunWorkflow.is_enabled() {
-            Self::Edit
-        } else {
-            Self::View
-        }
-    }
-
-    fn is_editable(&self) -> bool {
-        match self {
-            Self::View => false,
-            Self::Edit | Self::Create => true,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -128,11 +61,9 @@ pub enum AIWorkflowOrigin {
     AgentMode,
 }
 
-/// Wrapper type for a workflow that may be saved locally or using cloud sync.
+/// Workflows used by cloud, AI suggestions and notebooks.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WorkflowType {
-    /// Saved workflows sourced from local, global, project, app collections, saved locally.
-    Local(Workflow),
     /// Saved workflows from personal or team collections, saved using cloud-sync.
     Cloud(Box<CloudWorkflow>),
     /// Ephemeral/transient workflows created from Warp AI output
@@ -147,19 +78,8 @@ pub enum WorkflowType {
 impl WorkflowType {
     pub fn as_workflow(&self) -> &Workflow {
         match self {
-            WorkflowType::Local(workflow) => workflow,
             WorkflowType::AIGenerated { workflow, .. } => workflow,
             WorkflowType::Cloud(workflow) => &workflow.model().data,
-            WorkflowType::Notebook(workflow) => workflow,
-        }
-    }
-
-    /// Returns the contained [`Workflow`], consuming `self`.
-    pub fn take_workflow(self) -> Workflow {
-        match self {
-            WorkflowType::Local(workflow) => workflow,
-            WorkflowType::AIGenerated { workflow, .. } => workflow,
-            WorkflowType::Cloud(workflow) => workflow.model().data.clone(),
             WorkflowType::Notebook(workflow) => workflow,
         }
     }

@@ -63,7 +63,6 @@ integration_tests! {
     test_session_restoration_with_multiple_shells,
     test_restore_snapshot_with_background_output,
     test_restore_snapshot_with_notebooks,
-    test_restore_snapshot_with_workflows,
     test_restore_snapshot_with_test_json_object,
     test_restore_snapshot_with_common_shareable_metadata_ids,
     test_restore_snapshot_with_markdown_file,
@@ -247,10 +246,6 @@ integration_tests! {
     test_open_in_warp_banner,
     test_close_notebook_window,
     test_backspace_inside_raw_mermaid_block_edits_text_without_removing_block,
-
-    test_open_workflow_in_pane,
-    test_create_personal_workflow_pane_from_command_palette,
-    test_create_team_workflow_pane_from_command_palette,
 
     // TODO(alokedesai): Fix this on the latest version of Bash.
     #[ignore]

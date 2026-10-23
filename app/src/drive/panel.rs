@@ -13,7 +13,6 @@ use warpui::{
 use super::drive_helpers::{
     has_feature_gated_anonymous_user_reached_env_var_limit,
     has_feature_gated_anonymous_user_reached_notebook_limit,
-    has_feature_gated_anonymous_user_reached_workflow_limit,
 };
 use super::index::{DriveIndex, DriveIndexAction, DriveIndexEvent};
 use super::items::WarpDriveItemId;
@@ -32,8 +31,7 @@ use crate::notebooks::manager::NotebookSource;
 use crate::server::cloud_objects::update_manager::{InitiatedBy, UpdateManager};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::server::telemetry::SharingDialogSource;
-use crate::workflows::manager::WorkflowOpenSource;
-use crate::workflows::{CloudWorkflow, WorkflowViewMode};
+use crate::workflows::CloudWorkflow;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub const MIN_SIDEBAR_WIDTH: f32 = 250.;
@@ -75,14 +73,8 @@ pub enum DrivePanelEvent {
         owner: Owner,
         initial_folder_id: Option<SyncId>,
     },
-    OpenWorkflowModalWithNew {
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-    },
-    OpenWorkflowModalWithCloudWorkflow(SyncId),
     OpenNotebook(NotebookSource),
     OpenEnvVarCollection(EnvVarCollectionSource),
-    OpenWorkflowInPane(WorkflowOpenSource, WorkflowViewMode),
     FocusWarpDrive,
     AttachPlanAsContext(AIDocumentId),
 }
@@ -134,6 +126,7 @@ impl DrivePanel {
     /// Event handler for actions that occur within the index view
     fn handle_index_view_event(&mut self, event: &DriveIndexEvent, ctx: &mut ViewContext<Self>) {
         match event {
+            DriveIndexEvent::FocusWarpDrive => ctx.emit(DrivePanelEvent::FocusWarpDrive),
             DriveIndexEvent::CreateNotebook {
                 space,
                 title,
@@ -213,47 +206,11 @@ impl DrivePanel {
                     );
                 }
             },
-            DriveIndexEvent::CreateWorkflow {
-                space,
-                title,
-                initial_folder_id,
-                is_for_agent_mode,
-                content,
-            } => match Self::new_object_owner(*space, initial_folder_id.as_ref(), ctx) {
-                Some(owner) => ctx.emit(DrivePanelEvent::OpenWorkflowInPane(
-                    WorkflowOpenSource::New {
-                        title: title.clone(),
-                        content: content.clone(),
-                        owner,
-                        initial_folder_id: *initial_folder_id,
-                        is_for_agent_mode: *is_for_agent_mode,
-                    },
-                    WorkflowViewMode::Create,
-                )),
-                None => {
-                    report_error!(
-                        "Cannot identify a workflow owner",
-                        extra: { "space" => ?space }
-                    );
-                }
-            },
             DriveIndexEvent::OpenAIFactCollection => {
                 self.open_ai_fact_collection_pane(ctx);
             }
             DriveIndexEvent::OpenMCPServerCollection => {
                 self.open_mcp_server_collection_pane(ctx);
-            }
-            DriveIndexEvent::OpenWorkflowInPane {
-                cloud_object_type_and_id,
-                open_mode,
-            } => {
-                let cloud_model = CloudModel::as_ref(ctx);
-                let object = cloud_model.get_by_uid(&cloud_object_type_and_id.uid());
-
-                let workflow: Option<&CloudWorkflow> = object.and_then(|object| object.into());
-                if let Some(workflow) = workflow {
-                    self.open_existing_workflow_in_pane(workflow.id, *open_mode, ctx);
-                }
             }
             DriveIndexEvent::OpenObject(cloud_object_type_and_id) => {
                 let cloud_model = CloudModel::as_ref(ctx);
@@ -264,8 +221,6 @@ impl DrivePanel {
                     notebook.map(|notebook| notebook.id)
                 });
 
-                let workflow: Option<&CloudWorkflow> = object.and_then(|object| object.into());
-
                 let env_var_collection_id = object.and_then(|object| {
                     let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
                     env_var_collection.map(|env_var_collection| env_var_collection.id)
@@ -273,8 +228,6 @@ impl DrivePanel {
 
                 if let Some(notebook_id) = notebook_id {
                     self.open_existing_notebook(notebook_id, ctx);
-                } else if let Some(workflow) = workflow {
-                    self.open_workflow_modal_with_existing(workflow.id, ctx);
                 } else if let Some(env_var_collection_id) = env_var_collection_id {
                     self.open_existing_env_var_collection(env_var_collection_id, ctx);
                 }
@@ -306,14 +259,6 @@ impl DrivePanel {
                     }
                 }
             }
-            DriveIndexEvent::OpenWorkflowModalWithNew {
-                space,
-                initial_folder_id,
-            } => self.open_workflow_modal_with_new(ctx, *space, *initial_folder_id),
-            DriveIndexEvent::OpenWorkflowModalWithCloudWorkflow(workflow_id) => {
-                self.open_workflow_modal_with_existing(*workflow_id, ctx)
-            }
-            DriveIndexEvent::FocusWarpDrive => ctx.emit(DrivePanelEvent::FocusWarpDrive),
             DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(object_type, team_uid) => ctx
                 .emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
                     *object_type,
@@ -369,6 +314,11 @@ impl DrivePanel {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
+        if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Workflow(_)) {
+            report_error!("Duplicating this object type is not supported");
+            return;
+        }
+
         // Check if object being duplicated is in team space, if it is, then check
         // corresponding object limits for that team.
         if let Some(space) =
@@ -376,44 +326,23 @@ impl DrivePanel {
         {
             match space {
                 Space::Team { team_uid } => {
-                    match cloud_object_type_and_id {
-                        CloudObjectTypeAndId::Notebook(_) => {
-                            if !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
-                            {
-                                // If team has reached the limit for notebooks, show the modal
-                                // and return early.
-                                ctx.emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Notebook {
-                                        is_ai_document: false,
-                                    },
-                                    team_uid,
-                                ));
-                                return;
-                            }
-                        }
-                        CloudObjectTypeAndId::Workflow(_) => {
-                            if !UserWorkspaces::has_capacity_for_shared_workflows(team_uid, ctx, 1)
-                            {
-                                // If team has reached the limit for workflows, show the modal
-                                // and return early.
-                                ctx.emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Workflow,
-                                    team_uid,
-                                ));
-                                return;
-                            }
-                        }
-                        _ => (),
+                    if let CloudObjectTypeAndId::Notebook(_) = cloud_object_type_and_id
+                        && !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
+                    {
+                        // If team has reached the limit for notebooks, show the modal
+                        // and return early.
+                        ctx.emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
+                            DriveObjectType::Notebook {
+                                is_ai_document: false,
+                            },
+                            team_uid,
+                        ));
+                        return;
                     }
                 }
                 Space::Personal => match cloud_object_type_and_id {
                     CloudObjectTypeAndId::Notebook(_) => {
                         if has_feature_gated_anonymous_user_reached_notebook_limit(ctx) {
-                            return;
-                        }
-                    }
-                    CloudObjectTypeAndId::Workflow(_) => {
-                        if has_feature_gated_anonymous_user_reached_workflow_limit(ctx) {
                             return;
                         }
                     }
@@ -493,46 +422,10 @@ impl DrivePanel {
         ctx.notify();
     }
 
-    pub fn open_existing_workflow_in_pane(
-        &self,
-        workflow_id: SyncId,
-        open_mode: WorkflowViewMode,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(DrivePanelEvent::OpenWorkflowInPane(
-            WorkflowOpenSource::Existing(workflow_id),
-            open_mode,
-        ));
-        ctx.notify();
-    }
-
-    pub fn open_workflow_modal_with_new(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-    ) {
-        ctx.emit(DrivePanelEvent::OpenWorkflowModalWithNew {
-            space,
-            initial_folder_id,
-        });
-    }
-
     pub fn open_existing_notebook(&self, notebook_id: SyncId, ctx: &mut ViewContext<Self>) {
         ctx.emit(DrivePanelEvent::OpenNotebook(NotebookSource::Existing(
             notebook_id,
         )));
-        ctx.notify();
-    }
-
-    pub fn open_workflow_modal_with_existing(
-        &mut self,
-        workflow_id: SyncId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(DrivePanelEvent::OpenWorkflowModalWithCloudWorkflow(
-            workflow_id,
-        ));
         ctx.notify();
     }
 
@@ -558,29 +451,6 @@ impl DrivePanel {
         self.index_view.update(ctx, |index_view, ctx| {
             index_view.handle_action(
                 &DriveIndexAction::create_object(cloud_object_type, space, initial_folder_id),
-                ctx,
-            )
-        });
-        ctx.notify();
-    }
-
-    pub fn create_workflow_with_content(
-        &mut self,
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-        content: String,
-        is_for_agent_mode: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.save_and_clear_child_view(ctx);
-        self.index_view.update(ctx, |index_view, ctx| {
-            index_view.handle_action(
-                &DriveIndexAction::CreateWorkflowWithContent {
-                    space,
-                    initial_folder_id,
-                    content,
-                    is_for_agent_mode,
-                },
                 ctx,
             )
         });

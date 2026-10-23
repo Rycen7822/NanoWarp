@@ -16,7 +16,7 @@ use super::schema::{
     mcp_server_installations, mcp_server_panes, notebook_panes, notebooks, object_actions,
     object_metadata, object_permissions, pane_branches, pane_leaves, pane_nodes, panels,
     project_rules, projects, server_experiments, settings_panes, tab_groups, tabs, team_members,
-    team_settings, teams, terminal_panes, user_profiles, windows, workflow_panes, workflows,
+    team_settings, teams, terminal_panes, user_profiles, windows, workflows,
     workspace_language_server, workspace_metadata, workspace_teams, workspaces,
 };
 
@@ -453,15 +453,6 @@ pub struct EnvVarCollectionPane {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = workflow_panes)]
-#[diesel(primary_key(id))]
-pub struct WorkflowPane {
-    pub id: i32,
-    pub kind: String,
-    pub workflow_id: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = code_panes)]
 #[diesel(primary_key(id))]
 pub struct CodePane {
@@ -562,9 +553,6 @@ pub const ENV_VAR_COLLECTION_PANE_KIND: &str = "env_var_collection";
 /// The [`pane_leaves::kind`] value for code panes.
 pub const CODE_PANE_KIND: &str = "code";
 
-/// The [`pane_leaves::kind`] value for workflow panes.
-pub const WORKFLOW_PANE_KIND: &str = "workflow";
-
 /// The [`pane_leaves::kind`] value for settings panes.
 pub const SETTINGS_PANE_KIND: &str = "settings";
 
@@ -622,13 +610,6 @@ pub struct NewNotebookPane {
 pub struct NewEnvVarCollectionPane {
     pub id: i32,
     pub env_var_collection_id: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = workflow_panes)]
-pub struct NewWorkflowPane {
-    pub id: i32,
-    pub workflow_id: Option<String>,
 }
 
 #[derive(Insertable)]

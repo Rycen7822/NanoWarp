@@ -11,7 +11,7 @@ use crate::cloud_object::model::actions::{ObjectActionType, ObjectActions};
 use crate::drive::index::DriveIndexAction;
 use crate::drive::{CloudObjectTypeAndId, DriveObjectType};
 use crate::themes::theme::Fill;
-use crate::workflows::{CloudWorkflow, WorkflowViewMode};
+use crate::workflows::CloudWorkflow;
 
 #[derive(Clone)]
 pub struct WarpDriveWorkflow {
@@ -51,16 +51,9 @@ impl WarpDriveItem for WarpDriveWorkflow {
     }
 
     fn click_action(&self) -> Option<DriveIndexAction> {
-        if !ContextFlag::RunWorkflow.is_enabled() {
-            // If we are in a context where we can't run workflows, open it in view mode
-            // by default
-            Some(DriveIndexAction::OpenWorkflowInPane {
-                cloud_object_type_and_id: self.id,
-                open_mode: WorkflowViewMode::View,
-            })
-        } else {
-            Some(DriveIndexAction::RunObject(self.id))
-        }
+        ContextFlag::RunWorkflow
+            .is_enabled()
+            .then_some(DriveIndexAction::RunObject(self.id))
     }
 
     fn preview(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {

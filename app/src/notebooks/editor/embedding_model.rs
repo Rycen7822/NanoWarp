@@ -47,7 +47,6 @@ use crate::workflows::{CloudWorkflow, WorkflowId};
 struct MouseStateHandles {
     insert_button_state: MouseStateHandle,
     copy_button_state: MouseStateHandle,
-    edit_button_state: MouseStateHandle,
     remove_embedding_button_state: MouseStateHandle,
 }
 
@@ -221,24 +220,6 @@ impl NotebookEmbed {
 
         let workflow_content = workflow.model().data.content().to_owned();
         footer.add_child(Shrinkable::new(1.0, Empty::new().finish()).finish());
-        footer.add_child(
-            Align::new(
-                block_footer_action_button(
-                    appearance,
-                    Icon::Pencil,
-                    self.mouse_state_handles.edit_button_state.clone(),
-                    "Edit",
-                    None,
-                )
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorViewAction::EditWorkflow(workflow_id));
-                })
-                .finish(),
-            )
-            .right()
-            .finish(),
-        );
-
         footer.add_child(
             Align::new(
                 block_footer_action_button(

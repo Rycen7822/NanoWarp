@@ -212,7 +212,6 @@ use warpui::platform::app::{ApproveTerminateResult, TerminationRequestSource};
 use warpui::windowing::state::ApplicationStage;
 use warpui::{App, AppContext, Event, SingletonEntity, WindowId};
 use window_settings::WindowSettings;
-use workflows::manager::WorkflowManager;
 use workspace::sync_inputs::SyncedInputState;
 
 use self::features::FeatureFlag;
@@ -1533,7 +1532,6 @@ pub(crate) fn initialize_app(
     menu::init(ctx);
     tips::tip_view::init(ctx);
     launch_configs::init(ctx);
-    workflows::init(ctx);
     themes::theme_chooser::init(ctx);
     themes::theme_creator_modal::init(ctx);
     themes::theme_deletion_modal::init(ctx);
@@ -1823,7 +1821,6 @@ pub(crate) fn initialize_app(
     );
 
     ctx.add_singleton_model(EnvVarCollectionManager::new);
-    ctx.add_singleton_model(WorkflowManager::new);
 
     ctx.add_singleton_model(LLMPreferences::new);
     ctx.add_singleton_model(HarnessAvailabilityModel::new);
