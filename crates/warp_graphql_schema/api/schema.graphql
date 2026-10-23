@@ -53,9 +53,6 @@ type AIConversation {
   """Base64-encoded proto binary of the final task list."""
   finalTaskList: String!
 
-  """Describes the format of the conversation transcript data."""
-  format: AIConversationFormat!
-
   """The harness that produced this conversation."""
   harness: AgentHarness!
   metadata: ObjectMetadata!
@@ -68,16 +65,6 @@ type AIConversation {
 }
 
 union AIConversationArtifact = FileArtifact | PlanArtifact | PullRequestArtifact | ScreenshotArtifact
-
-type AIConversationFormat {
-  """
-  Format of the TUI serialized block, or null if no serialized block is available.
-  """
-  blockSnapshot: SerializedBlockFormat
-
-  """True if there's a Warp MAA task list available for this format."""
-  hasTaskList: Boolean!
-}
 
 type AICreditAvailability {
   available: Boolean!
@@ -1656,69 +1643,6 @@ type GenerateCodeEmbeddingsOutput implements Response {
 
 union GenerateCodeEmbeddingsResult = GenerateCodeEmbeddingsError | GenerateCodeEmbeddingsOutput | UserFacingError
 
-type GenerateCommandsFailure {
-  type: GenerateCommandsFailureType!
-}
-
-enum GenerateCommandsFailureType {
-  AI_PROVIDER_ERROR
-  BAD_PROMPT
-  OTHER
-  RATE_LIMITED
-}
-
-"""This API is used for command search requests."""
-input GenerateCommandsInput {
-  """
-  In v1, GenerateCommandsInput had the optional field contextJson.
-  That information will now be included in requestContext.
-  """
-  prompt: String!
-}
-
-type GenerateCommandsOutput implements Response {
-  responseContext: ResponseContext!
-  status: GenerateCommandsStatus!
-}
-
-union GenerateCommandsResult = GenerateCommandsOutput | UserFacingError
-
-union GenerateCommandsStatus = GenerateCommandsFailure | GenerateCommandsSuccess
-
-type GenerateCommandsSuccess {
-  commands: [GeneratedCommand!]!
-}
-
-type GenerateDialogueFailure {
-  requestLimitInfo: RequestLimitInfo!
-}
-
-input GenerateDialogueInput {
-  prompt: String!
-
-  """
-  In v1, GenerateDialogueInput had the optional field contextJson.
-  That information will now be included in requestContext.
-  """
-  transcript: [TranscriptPart!]!
-}
-
-type GenerateDialogueOutput implements Response {
-  responseContext: ResponseContext!
-  status: GenerateDialogueStatus!
-}
-
-union GenerateDialogueResult = GenerateDialogueOutput | UserFacingError
-
-union GenerateDialogueStatus = GenerateDialogueFailure | GenerateDialogueSuccess
-
-type GenerateDialogueSuccess {
-  answer: String!
-  requestLimitInfo: RequestLimitInfo!
-  transcriptSummarized: Boolean!
-  truncated: Boolean!
-}
-
 type GenerateUniqueUpgradePromoCodeOutput implements Response {
   promoCode: String
   responseContext: ResponseContext!
@@ -1726,17 +1650,6 @@ type GenerateUniqueUpgradePromoCodeOutput implements Response {
 }
 
 union GenerateUniqueUpgradePromoCodeResult = GenerateUniqueUpgradePromoCodeOutput | UserFacingError
-
-type GeneratedCommand {
-  command: String!
-  description: String!
-  parameters: [GeneratedCommandParameter!]!
-}
-
-type GeneratedCommandParameter {
-  description: String!
-  id: String!
-}
 
 type GenericStringObject {
   format: GenericStringObjectFormat!
@@ -3313,8 +3226,6 @@ type RootMutation {
 
   """Generates source code embeddings for the given set of code fragments."""
   generateCodeEmbeddings(input: GenerateCodeEmbeddingsInput!, requestContext: RequestContext!): GenerateCodeEmbeddingsResult!
-  generateCommands(input: GenerateCommandsInput!, requestContext: RequestContext!): GenerateCommandsResult!
-  generateDialogue(input: GenerateDialogueInput!, requestContext: RequestContext!): GenerateDialogueResult!
   generateUniqueUpgradePromoCode(requestContext: RequestContext!): GenerateUniqueUpgradePromoCodeResult!
   giveUpNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!
   grabNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!
@@ -3425,9 +3336,6 @@ type RootQuery {
   pricingInfo(requestContext: RequestContext!): PricingInfoResult!
   rerankFragments(input: RerankFragmentsInput!, requestContext: RequestContext!): RerankFragmentsResult!
 
-  """Retrieve execution history for a scheduled agent."""
-  scheduledAgentHistory(input: ScheduledAgentHistoryInput!, requestContext: RequestContext!): ScheduledAgentHistoryResult!
-
   """
   Authorizes a REMOTE-2661 debug agent prompt against a retained environment-setup-failure
   session. Requires a workload token scoped to the run, so only the sandbox itself (not an
@@ -3450,7 +3358,6 @@ type RootQuery {
   In the future, this may be merged with taskSecrets into a single task query.
   """
   task(input: TaskInput!, requestContext: RequestContext!): TaskResult!
-  taskGitCredentials(input: TaskGitCredentialsInput!, requestContext: RequestContext!): TaskGitCredentialsResult!
   taskSecrets(input: TaskSecretsInput!, requestContext: RequestContext!): TaskSecretsResult!
   tuiOnboardingMarkers(requestContext: RequestContext!): TuiOnboardingMarkersResult!
   updatedCloudObjects(input: UpdatedCloudObjectsInput!, requestContext: RequestContext!): UpdatedCloudObjectsResult!
@@ -3476,26 +3383,6 @@ type SandboxedAgentSettings {
 input SandboxedAgentSettingsInput {
   executeCommandsDenylist: [String!]
 }
-
-"""Scheduled agent execution history information."""
-type ScheduledAgentHistory {
-  """The last time the scheduled task ran. Null if it has never run."""
-  lastRan: Time
-
-  """The next time the scheduled task will run. Null if not scheduled."""
-  nextRun: Time
-}
-
-input ScheduledAgentHistoryInput {
-  scheduleId: ID!
-}
-
-type ScheduledAgentHistoryOutput implements Response {
-  history: ScheduledAgentHistory!
-  responseContext: ResponseContext!
-}
-
-union ScheduledAgentHistoryResult = ScheduledAgentHistoryOutput | UserFacingError
 
 type ScreenshotArtifact {
   artifactUid: ID!
@@ -3574,10 +3461,6 @@ type SendTeamInviteEmailOutput implements Response {
 }
 
 union SendTeamInviteEmailResult = SendTeamInviteEmailOutput | UserFacingError
-
-enum SerializedBlockFormat {
-  JSON_V1
-}
 
 type ServiceAgreement {
   addonCreditAutoReloadStatus: AddonCreditAutoReloadStatus
@@ -3917,47 +3800,6 @@ type TaskGitCredential {
   username: String
 }
 
-"""Input for the taskGitCredentials query."""
-input TaskGitCredentialsInput {
-  """
-  Whether the caller can handle a response in which one forge's credential is
-  fresh and another's failed. A caller that opts in must merge the fresh
-  credentials over its existing stores rather than rebuilding them from the
-  response, since a host absent from `credentials` may simply not have been
-  refreshed this cycle. Absent or false preserves the all-or-nothing
-  behavior, so a caller that rebuilds its stores wholesale never sees a
-  partial list.
-  """
-  acceptsPartialRefresh: Boolean
-  useFactoryRepositories: Boolean
-
-  """The ID of the task."""
-  taskId: ID!
-
-  """A short-lived token authorizing credential retrieval for the workload."""
-  workloadToken: String!
-}
-
-type TaskGitCredentialsOutput implements Response {
-  """The credentials that were freshly issued this cycle, one per host."""
-  credentials: [TaskGitCredential!]!
-
-  """
-  Hosts whose credential could not be issued this cycle because of a
-  transient failure. A host listed here is distinct from one that is simply
-  absent from `credentials`: absent means the run has no repository on that
-  forge and needs no credential there, while listed here means the caller
-  should keep whatever it already has for that host and retry.
-
-  Only populated when the request set `acceptsPartialRefresh`; otherwise a
-  failure on any forge fails the whole request.
-  """
-  failedHosts: [String!]!
-  responseContext: ResponseContext!
-}
-
-union TaskGitCredentialsResult = TaskGitCredentialsOutput | UserFacingError
-
 """Input for task-related queries."""
 input TaskInput {
   """The ID of the task."""
@@ -4287,12 +4129,6 @@ type ToolUsageMetadata {
   suggestPlanStats: ToolCallStats!
   useComputerStats: ToolCallStats!
   writeToLongRunningShellCommandStats: ToolCallStats!
-}
-
-"""This API is used for AI dialogue requests."""
-input TranscriptPart {
-  assistant: String!
-  user: String!
 }
 
 input TransferGenericStringObjectOwnerInput {

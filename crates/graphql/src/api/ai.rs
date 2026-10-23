@@ -196,17 +196,6 @@ pub enum AgentHarness {
     Other(String),
 }
 
-#[derive(cynic::Enum, Clone, Copy, Debug, PartialEq)]
-pub enum SerializedBlockFormat {
-    JsonV1,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct AIConversationFormat {
-    pub has_task_list: bool,
-    pub block_snapshot: Option<SerializedBlockFormat>,
-}
-
 #[derive(cynic::QueryFragment, Debug, Clone)]
 #[cynic(graphql_type = "AIConversation")]
 pub struct AIConversation {

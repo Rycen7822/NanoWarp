@@ -481,26 +481,8 @@ pub enum PtySpawnMode {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum OpenedWarpAISource {
-    GlobalEntryButton,
     HelpWithBlock,
     HelpWithTextSelection,
-    WarmWelcome,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum WarpAIRequestResult {
-    Succeeded { latency_ms: i64, truncated: bool },
-    OutOfRequests,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum WarpAIActionType {
-    CopyTranscript,
-    Restart,
-    CopyAnswer,
-    CopyCode,
-    InsertIntoInput,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -508,7 +490,6 @@ pub enum SaveAsWorkflowModalSource {
     Block,
     Input,
     WarpAIWorkflowCard,
-    WarpAIPanel,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -1392,25 +1373,13 @@ pub enum TelemetryEvent {
     InitialWorkingDirectoryConfigurationChanged {
         advanced_mode_enabled: bool,
     },
-    /// Opened legacy Warp AI.
+    /// Opened Warp AI for selected terminal context.
     OpenedWarpAI {
         source: OpenedWarpAISource,
-    },
-    /// Issued legacy Warp AI request.
-    WarpAIRequestIssued {
-        result: WarpAIRequestResult,
-    },
-    WarpAIAction {
-        action_type: WarpAIActionType,
-    },
-    /// This is purely for static prompts! Do not send user-written prompts with this event.
-    UsedWarpAIPreparedPrompt {
-        prompt: &'static str,
     },
     ToggleFocusPaneOnHover {
         enabled: bool,
     },
-    WarpAICharacterLimitExceeded,
     OpenInputContextMenu,
     InputCutSelectedText,
     InputCopySelectedText,
@@ -1499,9 +1468,6 @@ pub enum TelemetryEvent {
         is_code_mode_v2: bool,
     },
     // Toggled the legacy Warp AI side panel.
-    ToggleWarpAI {
-        opened: bool,
-    },
     ToggleSecretRedaction {
         enabled: bool,
     },
@@ -2706,10 +2672,6 @@ impl TelemetryEvent {
                 advanced_mode_enabled,
             } => Some(json!({ "advanced_mode_enabled": advanced_mode_enabled })),
             TelemetryEvent::OpenedWarpAI { source } => Some(json!({ "source": source })),
-            TelemetryEvent::WarpAIRequestIssued { result } => Some(json!({ "result": result })),
-            TelemetryEvent::WarpAIAction { action_type } => {
-                Some(json!({ "action_type": action_type }))
-            }
             TelemetryEvent::MCPServerCollectionPaneOpened { entrypoint } => {
                 Some(json!({ "entrypoint": entrypoint }))
             }
@@ -2784,9 +2746,6 @@ impl TelemetryEvent {
             TelemetryEvent::CodeSelectionAddedAsContext { destination } => Some(json!({
                 "destination": destination,
             })),
-            TelemetryEvent::UsedWarpAIPreparedPrompt { prompt } => {
-                Some(json!({ "prompt": prompt }))
-            }
             TelemetryEvent::ExperimentTriggered {
                 experiment,
                 layer,
@@ -2824,7 +2783,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({ "ui_location": ui_location, "open_in_active_window": open_in_active_window }),
             ),
-            TelemetryEvent::ToggleWarpAI { opened } => Some(json!({ "opened": opened })),
             TelemetryEvent::ToggleSecretRedaction { enabled } => {
                 Some(json!({ "enabled": enabled }))
             }
@@ -3369,7 +3327,6 @@ impl TelemetryEvent {
             | TelemetryEvent::QuitModalDisabled
             | TelemetryEvent::UserInitiatedLogOut
             | TelemetryEvent::LogOutModalShown
-            | TelemetryEvent::WarpAICharacterLimitExceeded
             | TelemetryEvent::OpenInputContextMenu
             | TelemetryEvent::InputCutSelectedText
             | TelemetryEvent::InputCopySelectedText
@@ -4079,11 +4036,7 @@ impl TelemetryEvent {
             | TelemetryEvent::PtySpawned { .. }
             | TelemetryEvent::InitialWorkingDirectoryConfigurationChanged { .. }
             | TelemetryEvent::OpenedWarpAI { .. }
-            | TelemetryEvent::WarpAIRequestIssued { .. }
-            | TelemetryEvent::WarpAIAction { .. }
-            | TelemetryEvent::UsedWarpAIPreparedPrompt { .. }
             | TelemetryEvent::ToggleFocusPaneOnHover { .. }
-            | TelemetryEvent::WarpAICharacterLimitExceeded
             | TelemetryEvent::OpenInputContextMenu
             | TelemetryEvent::InputCutSelectedText
             | TelemetryEvent::InputCopySelectedText
@@ -4126,7 +4079,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AnonymousUserHitCloudObjectLimit
             | TelemetryEvent::NeedsReauth
             | TelemetryEvent::WarpDriveOpened { .. }
-            | TelemetryEvent::ToggleWarpAI { .. }
             | TelemetryEvent::ToggleSecretRedaction { .. }
             | TelemetryEvent::CustomSecretRegexAdded
             | TelemetryEvent::ToggleObfuscateSecret { .. }
@@ -4550,10 +4502,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PtySpawned => EnablementState::Always,
             Self::InitialWorkingDirectoryConfigurationChanged => EnablementState::Always,
             Self::OpenedWarpAI => EnablementState::Always,
-            Self::WarpAIRequestIssued => EnablementState::Always,
-            Self::WarpAIAction => EnablementState::Always,
-            Self::UsedWarpAIPreparedPrompt => EnablementState::Always,
-            Self::WarpAICharacterLimitExceeded => EnablementState::Always,
             Self::OpenInputContextMenu => EnablementState::Always,
             Self::InputCutSelectedText => EnablementState::Always,
             Self::InputCopySelectedText => EnablementState::Always,
@@ -4594,7 +4542,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InitiateReauth => EnablementState::Always,
             Self::NeedsReauth => EnablementState::Always,
             Self::WarpDriveOpened => EnablementState::Always,
-            Self::ToggleWarpAI => EnablementState::Always,
             Self::ToggleSecretRedaction => EnablementState::Always,
             Self::CustomSecretRegexAdded => EnablementState::Always,
             Self::ToggleObfuscateSecret => EnablementState::Always,
@@ -4981,10 +4928,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::InputModeChanged => "Input Mode Changed",
             Self::OpenedWarpAI => "Opened Warp AI",
-            Self::WarpAIRequestIssued => "Warp AI Request Issued",
-            Self::WarpAIAction => "Warp AI Action",
-            Self::UsedWarpAIPreparedPrompt => "Used Warp AI Prepared Prompt",
-            Self::WarpAICharacterLimitExceeded => "Warp AI Character Limit Exceeded",
             Self::OpenInputContextMenu => "OpenInputBoxContextMenu",
             Self::InputCutSelectedText => "InputBoxCutSelectedText",
             Self::InputCopySelectedText => "InputBoxCutSelectedText",
@@ -5022,7 +4965,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InitiateReauth => "Initiate Reauth",
             Self::NeedsReauth => "Needs Reauth",
             Self::WarpDriveOpened => "Warp Drive Opened",
-            Self::ToggleWarpAI => "Toggle Warp AI",
             Self::ToggleSecretRedaction => "Toggle Secret Redaction",
             Self::CustomSecretRegexAdded => "Custom Secret Regex Added",
             Self::ToggleObfuscateSecret => "Toggle Obfuscate Secret",
@@ -5520,14 +5462,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Replaced the default working directory with a different path"
             }
             Self::OpenedWarpAI => "Activated Warp AI",
-            Self::WarpAIRequestIssued => "Issued a question to Warp AI",
-            Self::WarpAIAction => "Executed a Warp AI action: Restart, Copy, Insert into terminal",
-            Self::UsedWarpAIPreparedPrompt => {
-                "Used one of the Warp-provided prompts, like \"Show examples\""
-            }
-            Self::WarpAICharacterLimitExceeded => {
-                "Attempted to ask a question longer than 1k chars to Warp AI"
-            }
             Self::OpenInputContextMenu => "Opened the Input Editor's context menu",
             Self::InputCutSelectedText => {
                 "Cut the highlighted text via the Input Editor's context menu (right clicking the buffer)"
@@ -5628,9 +5562,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InitiateReauth => "Started the flow to re-authenticate the client",
             Self::NeedsReauth => "User needs to re-authenticate",
             Self::WarpDriveOpened => "Opened Warp Drive panel",
-            Self::ToggleWarpAI => {
-                "Toggled Warp AI--an AI assistant to help you debug errors, look up forgotten commands and more"
-            }
             Self::ToggleSecretRedaction => {
                 "Toggled on/off the setting for Secret Redaction - attempts to redact secrets and sensitive information"
             }

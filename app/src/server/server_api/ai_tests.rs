@@ -1,22 +1,20 @@
 use chrono::{TimeZone, Utc};
 use futures::executor::block_on;
 use itertools::Itertools;
-use mockito::{Matcher, Mock, Server};
-use serde_json::{Value, json};
+use mockito::{Matcher, Server};
 use warp_graphql::ai::PlatformErrorCode;
 use warp_graphql::platform_error::{PlatformErrorInfo, PlatformErrorMessageFormat};
 use warp_server_client::base_client::{CLOUD_AGENT_ID_HEADER, TEAM_UID_HEADER};
 
 use super::super::ServerApi;
 use super::{
-    AIClient, AgentMessageHeader, AgentRunEvent, AgentSource, AmbientAgentTaskState, Artifact,
-    ArtifactDownloadResponse, ArtifactType, CONNECTED_SELF_HOSTED_WORKERS_PATH,
-    ConnectedSelfHostedWorker, CreateAgentRequest, ExecutionLocation, ForkConversationResponse,
-    ListConnectedSelfHostedWorkersResponse, ListRunsResponse, PrepareAttachmentUploadsResponse,
-    ReadAgentMessageResponse, RunFollowupRequest, RunSortBy, RunSortOrder, SpawnAgentRequest,
-    TaskGitCredentialsError, TaskListFilter, TaskStatusUpdate, UploadFieldValue, UserQueryMode,
-    agent_task_status_message_input, build_fork_conversation_url, build_list_agent_runs_url,
-    build_run_followup_url, is_unknown_git_credential_schema_error,
+    AIClient, AgentRunEvent, AgentSource, AmbientAgentTaskState, Artifact,
+    ArtifactDownloadResponse, CONNECTED_SELF_HOSTED_WORKERS_PATH, ConnectedSelfHostedWorker,
+    ExecutionLocation, ForkConversationResponse, ListConnectedSelfHostedWorkersResponse,
+    ListRunsResponse, PrepareAttachmentUploadsResponse, ReadAgentMessageResponse,
+    RunFollowupRequest, SpawnAgentRequest, TaskListFilter, TaskStatusUpdate, UploadFieldValue,
+    UserQueryMode, agent_task_status_message_input, build_fork_conversation_url,
+    build_list_agent_runs_url, build_run_followup_url,
 };
 use crate::notebooks::NotebookId;
 use crate::server::ids::ServerId;
@@ -26,137 +24,6 @@ use crate::workspaces::user_workspaces::{TeamContextForOperation, TeamlessScopeF
 
 fn request_scope_for_team(team_uid: ServerId) -> RequestTeamScope {
     RequestTeamScope::from_scope(&TeamContextForOperation::new_for_test(team_uid))
-}
-
-fn execution_bootstrap_server_api() -> ServerApi {
-    let api = ServerApi::new_for_test();
-    api.base_client
-        .set_ambient_workload_token_for_test("test-workload-token".to_owned(), None);
-    api
-}
-
-fn mock_git_credentials(input: Value, response: Value, operation: &str) -> Mock {
-    let mut server = warp_core::channel::ChannelState::mock_server();
-    server
-        .mock("POST", "/graphql/v2")
-        .match_query(Matcher::UrlEncoded("op".into(), operation.into()))
-        .match_request(move |request| {
-            let body: Value = serde_json::from_slice(request.body().unwrap()).unwrap();
-            body["variables"]["input"] == input
-        })
-        .with_status(200)
-        .with_body(response.to_string())
-        .expect(1)
-        .create()
-}
-
-#[test]
-fn git_credentials_keep_repository_scope_for_bootstrap_and_partial_refresh() {
-    for use_factory_repositories in [false, true] {
-        for accepts_partial_refresh in [false, true] {
-            let mut input = json!({
-                "taskId": "task-one",
-                "workloadToken": "token-request",
-                "acceptsPartialRefresh": accepts_partial_refresh
-            });
-            if use_factory_repositories {
-                input["useFactoryRepositories"] = json!(true);
-            }
-            let request = mock_git_credentials(
-                input,
-                json!({"data": {"taskGitCredentials": {
-                    "__typename": "TaskGitCredentialsOutput",
-                    "credentials": [],
-                    "failedHosts": []
-                }}}),
-                "TaskGitCredentials",
-            );
-            let response = block_on(execution_bootstrap_server_api().get_task_git_credentials(
-                "task-one".into(),
-                "token-request".into(),
-                accepts_partial_refresh,
-                use_factory_repositories,
-            ))
-            .unwrap();
-            assert!(response.credentials.is_empty());
-            assert!(response.failed_hosts.is_empty());
-            request.assert();
-        }
-    }
-}
-
-#[test]
-fn factory_git_credentials_do_not_fall_back_after_schema_errors() {
-    let request = mock_git_credentials(
-        json!({
-            "taskId": "task-one",
-            "workloadToken": "token-request",
-            "acceptsPartialRefresh": false,
-            "useFactoryRepositories": true
-        }),
-        json!({"errors": [{
-            "message": "Cannot query field \"failedHosts\" on type \"TaskGitCredentialsOutput\""
-        }]}),
-        "TaskGitCredentials",
-    );
-    let mut server = warp_core::channel::ChannelState::mock_server();
-    let fallback = server
-        .mock("POST", "/graphql/v2")
-        .match_query(Matcher::UrlEncoded(
-            "op".into(),
-            "TaskGitCredentialsLegacy".into(),
-        ))
-        .expect(0)
-        .create();
-
-    let error = block_on(execution_bootstrap_server_api().get_task_git_credentials(
-        "task-one".into(),
-        "token-request".into(),
-        false,
-        true,
-    ))
-    .err()
-    .expect("Factory credential scope must not fall back after schema errors");
-    let TaskGitCredentialsError::Request(error) = error else {
-        panic!("expected the credential schema request error");
-    };
-    assert!(error.to_string().contains("failedHosts"));
-    request.assert();
-    fallback.assert();
-}
-
-#[test]
-fn legacy_git_credentials_keep_partial_refresh_schema_fallback() {
-    let request = mock_git_credentials(
-        json!({
-            "taskId": "task-one",
-            "workloadToken": "token-request",
-            "acceptsPartialRefresh": true
-        }),
-        json!({"errors": [{
-            "message": "Cannot query field \"failedHosts\" on type \"TaskGitCredentialsOutput\""
-        }]}),
-        "TaskGitCredentials",
-    );
-    let fallback = mock_git_credentials(
-        json!({"taskId": "task-one", "workloadToken": "token-request"}),
-        json!({"data": {"taskGitCredentials": {
-            "__typename": "TaskGitCredentialsOutput",
-            "credentials": []
-        }}}),
-        "TaskGitCredentialsLegacy",
-    );
-
-    let response = block_on(execution_bootstrap_server_api().get_task_git_credentials(
-        "task-one".into(),
-        "token-request".into(),
-        true,
-        false,
-    ))
-    .unwrap();
-    assert!(response.credentials.is_empty());
-    request.assert();
-    fallback.assert();
 }
 
 #[test]
@@ -210,114 +77,6 @@ fn task_status_message_input_preserves_full_platform_error() {
         Some("dependency_unavailable")
     );
     assert_eq!(error.trace_id.as_deref(), Some("0123456789abcdef"));
-}
-
-#[test]
-fn list_agents_sends_selected_team_header() {
-    let team_uid = ServerId::from(7);
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent/identities")
-            .match_header(TEAM_UID_HEADER, team_uid.to_string().as_str())
-            .with_status(200)
-            .with_body(r#"{"agents":[]}"#)
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-
-    let agents = block_on(server_api.list_agents(request_scope_for_team(team_uid))).unwrap();
-
-    assert!(agents.is_empty());
-}
-
-#[test]
-fn create_agent_sends_selected_team_header() {
-    let team_uid = ServerId::from(8);
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("POST", "/api/v1/agent/identities")
-            .match_header(TEAM_UID_HEADER, team_uid.to_string().as_str())
-            .with_status(200)
-            .with_body(
-                r#"{"uid":"agent-1","name":"catalog-agent","description":null,"available":true,"created_at":"2026-09-04T00:00:00Z","secrets":[],"skills":[],"base_model":null,"environment_id":null}"#,
-            )
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-    let request = CreateAgentRequest {
-        name: "catalog-agent".to_string(),
-        description: None,
-        prompt: None,
-        secrets: vec![],
-        skills: vec![],
-        base_model: None,
-        environment_id: None,
-    };
-
-    let agent =
-        block_on(server_api.create_agent(request, request_scope_for_team(team_uid))).unwrap();
-
-    assert_eq!(agent.uid, "agent-1");
-}
-
-#[test]
-fn list_skills_sends_selected_team_header() {
-    let team_uid = ServerId::from(9);
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent")
-            .match_header(TEAM_UID_HEADER, team_uid.to_string().as_str())
-            .with_status(200)
-            .with_body(r#"{"agents":[]}"#)
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-
-    let skills = block_on(server_api.list_skills(None, request_scope_for_team(team_uid))).unwrap();
-
-    assert!(skills.is_empty());
-}
-
-#[test]
-fn list_memory_stores_sends_selected_team_header() {
-    let team_uid = ServerId::from(10);
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/memory_stores")
-            .match_header(TEAM_UID_HEADER, team_uid.to_string().as_str())
-            .with_status(200)
-            .with_body(r#"{"memory_stores":[]}"#)
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-
-    let stores = block_on(server_api.list_memory_stores(request_scope_for_team(team_uid))).unwrap();
-
-    assert!(stores.is_empty());
-}
-
-#[test]
-fn list_agents_omits_team_header_for_personal_scope() {
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent/identities")
-            .match_header(TEAM_UID_HEADER, Matcher::Missing)
-            .with_status(200)
-            .with_body(r#"{"agents":[]}"#)
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-
-    let agents =
-        block_on(server_api.list_agents(RequestTeamScope::from_scope(&TeamlessScopeForTest)))
-            .unwrap();
-
-    assert!(agents.is_empty());
 }
 
 #[test]
@@ -1270,33 +1029,6 @@ fn test_artifact_plan_serialize_deserialize_roundtrip() {
 }
 
 #[test]
-fn test_deserialize_agent_message_headers() {
-    let json = r#"[
-        {
-            "message_id": "message-1",
-            "sender_run_id": "run-1",
-            "subject": "Build finished",
-            "sent_at": "2026-04-09T20:00:00Z",
-            "delivered_at": "2026-04-09T20:01:00Z",
-            "read_at": null
-        }
-    ]"#;
-
-    let headers: Vec<AgentMessageHeader> = serde_json::from_str(json).unwrap();
-
-    assert_eq!(headers.len(), 1);
-    assert_eq!(headers[0].message_id, "message-1");
-    assert_eq!(headers[0].sender_run_id, "run-1");
-    assert_eq!(headers[0].subject, "Build finished");
-    assert_eq!(headers[0].sent_at, "2026-04-09T20:00:00Z");
-    assert_eq!(
-        headers[0].delivered_at.as_deref(),
-        Some("2026-04-09T20:01:00Z")
-    );
-    assert_eq!(headers[0].read_at, None);
-}
-
-#[test]
 fn test_deserialize_read_agent_message_response_with_timestamps() {
     let json = r#"{
         "message_id": "message-1",
@@ -1458,10 +1190,7 @@ fn build_list_agent_runs_url_all_fields() {
         ancestor_run_id: Some("run-parent".to_string()),
         config_name: Some("nightly".to_string()),
         model_id: Some("claude-4-5".to_string()),
-        artifact_type: Some(ArtifactType::PullRequest),
         search_query: Some("oz run".to_string()),
-        sort_by: Some(RunSortBy::CreatedAt),
-        sort_order: Some(RunSortOrder::Asc),
         cursor: Some("abcd==".to_string()),
     };
 
@@ -1483,10 +1212,7 @@ fn build_list_agent_runs_url_all_fields() {
          &ancestor_run_id=run-parent\
          &name=nightly\
          &model_id=claude-4-5\
-         &artifact_type=PULL_REQUEST\
          &q=oz%20run\
-         &sort_by=created_at\
-         &sort_order=asc\
          &cursor=abcd%3D%3D"
     );
 }
@@ -1710,21 +1436,4 @@ fn upload_url_fallback_is_uploaded_as_a_put_with_its_content_type() {
     );
 
     storage.assert();
-}
-
-#[test]
-fn unknown_git_credential_schema_error_matches_undeployed_partial_refresh_fields() {
-    assert!(is_unknown_git_credential_schema_error(
-        &TaskGitCredentialsError::Request(anyhow::anyhow!(
-            "Cannot query field \"failedHosts\" on type \"TaskGitCredentialsOutput\""
-        ))
-    ));
-    assert!(is_unknown_git_credential_schema_error(
-        &TaskGitCredentialsError::Request(anyhow::anyhow!(
-            "Unknown argument \"acceptsPartialRefresh\" on field \"taskGitCredentials\""
-        ))
-    ));
-    assert!(!is_unknown_git_credential_schema_error(
-        &TaskGitCredentialsError::Request(anyhow::anyhow!("Failed to fetch task git credentials"))
-    ));
 }

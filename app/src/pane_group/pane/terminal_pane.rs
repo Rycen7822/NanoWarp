@@ -1077,9 +1077,6 @@ fn handle_terminal_view_event(
                     purchased_credits: *purchased_credits,
                 });
             }
-            Event::AskAIAssistant(ask_type) => {
-                ctx.emit(pane_group::Event::AskAIAssistant(ask_type.to_owned()))
-            }
             Event::SyncInput(sync_event) => {
                 if SyncedInputState::as_ref(ctx)
                     .should_sync_this_pane_group(ctx.view_id(), ctx.window_id())

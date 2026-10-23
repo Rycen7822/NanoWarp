@@ -273,7 +273,7 @@ use crate::ai::llms::{LLMId, LLMModelHost, LLMPreferences};
 use crate::ai::loading::shimmering_warp_loading_text;
 #[cfg(feature = "local_fs")]
 use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::ai_assistant::{ASK_AI_ASSISTANT_TEXT, AskAIType};
+use crate::ai_assistant::AskAIType;
 use crate::antivirus::AntivirusInfo;
 use crate::appearance::{Appearance, AppearanceEvent};
 use crate::auth::auth_manager::AuthManager;
@@ -1284,8 +1284,7 @@ pub enum ContextMenuAction {
     CopyRprompt,
     EditPrompt,
     EditAgentToolbar,
-    /// Ask AI about the current context. Handled by blocklist AI if its feature flag is enabled and
-    /// the AI assistant panel otherwise.
+    /// Attach the current context to blocklist AI.
     AskAI(AskAISource),
     OpenWorkflowModal,
     CopyAIDebuggingLink {
@@ -1371,22 +1370,14 @@ pub enum InputContextMenuAction {
     SelectAll,
     Paste,
     ShowCommandSearch,
-    AskWarpAI,
     SaveAsWorkflow,
     ToggleInputHintText,
 }
 
-/// Where a user's question for AI originated. Handled by blocklist AI if the feature flag is
-/// enabled and the AI Assistant panel otherwise.
+/// Where context attached to blocklist AI originated.
 #[derive(Clone)]
 pub enum AskAISource {
     Block(BlockIndex),
-    LastBlock,
-    /// The source is some selected text or selected block, but we're not yet sure which.
-    /// There should never be any cases where both are simultaneously selected.
-    SelectedBlockOrText,
-    /// Question for block list AI about text selected form the terminal or input.
-    SelectedInputText,
     SelectedTerminalText,
     /// Question for block list AI about block(s).
     SelectedBlocks,
@@ -1458,7 +1449,6 @@ impl fmt::Debug for InputContextMenuAction {
             SelectAll => f.write_str("SelectAll"),
             Paste => f.write_str("Paste"),
             ShowCommandSearch => f.write_str("CommandSearch"),
-            AskWarpAI => f.write_str("AskWarpAI"),
             SaveAsWorkflow => f.write_str("SaveAsWorkflow"),
             ToggleInputHintText => f.write_str("ToggleInputHintText"),
         }
@@ -1580,7 +1570,6 @@ pub enum Event {
     },
     Pane(PaneEvent),
     OpenSettings(SettingsSection),
-    AskAIAssistant(AskAIType),
     /// Event propagates terminal inputs up to the workspace,
     /// to be processed on the way back down through the view hierarchy.
     SyncInput(SyncEvent),
@@ -15771,23 +15760,17 @@ impl TerminalView {
                         ))
                         .into_item(),
                 ];
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
+                    && FeatureFlag::AgentMode.is_enabled()
+                {
                     fields.extend([
                         MenuItem::Separator,
-                        MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
-                            *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
-                        } else {
-                            ASK_AI_ASSISTANT_TEXT
-                        })
-                        .with_on_select_action(TerminalAction::ContextMenu(
-                            ContextMenuAction::AskAI(if FeatureFlag::AgentMode.is_enabled() {
-                                AskAISource::SelectedTerminalText
-                            } else {
-                                AskAISource::SelectedBlockOrText
-                            }),
-                        ))
-                        .with_key_shortcut_label(Some("⌃ ⇧ Space"))
-                        .into_item(),
+                        MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
+                            .with_on_select_action(TerminalAction::ContextMenu(
+                                ContextMenuAction::AskAI(AskAISource::SelectedTerminalText),
+                            ))
+                            .with_key_shortcut_label(Some("⌃ ⇧ Space"))
+                            .into_item(),
                     ]);
                 }
                 fields
@@ -15845,8 +15828,6 @@ impl TerminalView {
                 // currently, we don't support share for multi selections
                 let is_share_disabled =
                     !is_single_selection || (is_active_block_selected && is_active_block_running);
-
-                let is_ask_ai_disabled = !is_single_selection;
 
                 let is_copy_commands_disabled =
                     is_single_selection && tail_block.command_to_string().trim().is_empty();
@@ -15987,38 +15968,23 @@ impl TerminalView {
                     );
                 }
 
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                    if FeatureFlag::AgentMode.is_enabled() {
-                        // We can only attach selected blocks if the input box is visible.
-                        if self.is_input_box_visible(&model, ctx) {
-                            items.extend([
-                                MenuItem::Separator,
-                                MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
-                                    .with_on_select_action(TerminalAction::ContextMenu(
-                                        ContextMenuAction::AskAI(AskAISource::SelectedBlocks),
-                                    ))
-                                    .with_key_shortcut_label(keybinding_name_to_display_string(
-                                        "terminal:ask_ai_assistant",
-                                        ctx,
-                                    ))
-                                    .into_item(),
-                            ]);
-                        }
-                    } else {
-                        items.extend([
-                            MenuItem::Separator,
-                            MenuItemFields::new("Ask Warp AI")
-                                .with_on_select_action(TerminalAction::ContextMenu(
-                                    ContextMenuAction::AskAI(AskAISource::SelectedBlockOrText),
-                                ))
-                                .with_key_shortcut_label(keybinding_name_to_display_string(
-                                    "terminal:ask_ai_assistant",
-                                    ctx,
-                                ))
-                                .with_disabled(is_ask_ai_disabled)
-                                .into_item(),
-                        ]);
-                    }
+                // We can only attach selected blocks if the input box is visible.
+                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
+                    && FeatureFlag::AgentMode.is_enabled()
+                    && self.is_input_box_visible(&model, ctx)
+                {
+                    items.extend([
+                        MenuItem::Separator,
+                        MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
+                            .with_on_select_action(TerminalAction::ContextMenu(
+                                ContextMenuAction::AskAI(AskAISource::SelectedBlocks),
+                            ))
+                            .with_key_shortcut_label(keybinding_name_to_display_string(
+                                "terminal:ask_ai_assistant",
+                                ctx,
+                            ))
+                            .into_item(),
+                    ]);
                 }
 
                 items.append(&mut vec![
@@ -16618,7 +16584,7 @@ impl TerminalView {
             items.extend(self.session_sharing_context_menu_items(&model, false, has_session_link));
         }
 
-        // Section 2: Command Search, Ask Warp AI
+        // Section 2: Command Search
         items.extend([
             MenuItem::Separator,
             MenuItemFields::new("Command search")
@@ -16632,19 +16598,6 @@ impl TerminalView {
                 .with_disabled(is_editor_disabled)
                 .into_item(),
         ]);
-
-        if AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-            && !selected_input_text.is_empty()
-            && !FeatureFlag::AgentMode.is_enabled()
-        {
-            items.push(
-                MenuItemFields::new("Ask Warp AI")
-                    .with_on_select_action(TerminalAction::InputContextMenuItem(
-                        InputContextMenuAction::AskWarpAI,
-                    ))
-                    .into_item(),
-            );
-        }
 
         // Section 3: Teams related
         if !all_current_input_text.is_empty() && WarpDriveSettings::is_warp_drive_enabled(ctx) {
@@ -16821,19 +16774,16 @@ impl TerminalView {
                     .with_key_shortcut_label(Some("⌘-C"))
                     .into_item(),
             );
-            if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+            if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) && FeatureFlag::AgentMode.is_enabled()
+            {
                 menu_items.extend([
                     MenuItem::Separator,
-                    MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
-                        *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
-                    } else {
-                        ASK_AI_ASSISTANT_TEXT
-                    })
-                    .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::AskAI(
-                        AskAISource::SelectedTerminalText,
-                    )))
-                    .with_key_shortcut_label(Some("⌃-⇧-Space"))
-                    .into_item(),
+                    MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
+                        .with_on_select_action(TerminalAction::ContextMenu(
+                            ContextMenuAction::AskAI(AskAISource::SelectedTerminalText),
+                        ))
+                        .with_key_shortcut_label(Some("⌃-⇧-Space"))
+                        .into_item(),
                 ]);
             }
         }
@@ -18444,8 +18394,7 @@ impl TerminalView {
         ctx.emit(Event::OpenPromptEditor);
     }
 
-    /// Handle AI entrypoints, routing to AI in blocklist when possible and falling back to the AI
-    /// Assistant panel.
+    /// Attach the selected terminal context to blocklist AI.
     fn ask_ai(&mut self, ask_source: &AskAISource, ctx: &mut ViewContext<Self>) {
         let semantic_selection = SemanticSelection::as_ref(ctx);
         let selection_string = self.model.lock().selection_to_string(
@@ -18455,10 +18404,7 @@ impl TerminalView {
         );
 
         let ask_data = match (ask_source, selection_string) {
-            (
-                AskAISource::SelectedBlockOrText | AskAISource::SelectedTerminalText,
-                Some(selection_string),
-            ) => {
+            (AskAISource::SelectedTerminalText, Some(selection_string)) => {
                 // Explicitly snapshot and attach the selected text as pending context.
                 // This decouples context from the live selection so the text persists
                 // even if the user changes their selection afterward.
@@ -18478,26 +18424,10 @@ impl TerminalView {
                     populate_input_box: !self.is_input_box_visible(&self.model.lock(), ctx),
                 }
             }
-            (
-                AskAISource::Block { .. }
-                | AskAISource::LastBlock
-                | AskAISource::SelectedBlockOrText,
-                _,
-            ) => {
+            (AskAISource::Block(block_index), _) => {
                 let model = self.model.lock();
-                let block_index = match ask_source {
-                    AskAISource::Block(block_index) => Some(*block_index),
-                    // Since we already checked the match arm for SelectedBlockOrText where there is text selection,
-                    // we must be in the selected block case now.
-                    AskAISource::SelectedBlockOrText => self.selected_blocks.tail(),
-                    AskAISource::LastBlock => model.block_list().last_non_hidden_block_by_index(),
-                    AskAISource::SelectedInputText
-                    | AskAISource::SelectedTerminalText
-                    | AskAISource::SelectedBlocks => None,
-                };
 
-                let Some(block) = block_index.and_then(|idx| model.block_list().block_at(idx))
-                else {
+                let Some(block) = model.block_list().block_at(*block_index) else {
                     return;
                 };
 
@@ -18510,7 +18440,7 @@ impl TerminalView {
                     block_index: block.index(),
                 }
             }
-            (AskAISource::SelectedInputText, _) | (AskAISource::SelectedTerminalText, None) => {
+            (AskAISource::SelectedTerminalText, None) => {
                 let selected_input_text = self.input.read(ctx, |input, ctx| {
                     input
                         .editor()
@@ -18534,8 +18464,6 @@ impl TerminalView {
 
         if FeatureFlag::AgentMode.is_enabled() {
             self.ask_blocklist_ai(&ask_data, ctx);
-        } else {
-            ctx.emit(Event::AskAIAssistant(ask_data.clone()));
         }
 
         self.close_context_menu(ctx, false);
@@ -23821,9 +23749,7 @@ impl TerminalView {
                             entrypoint: AgentModeEntrypoint::ContextMenu {
                                 selection_type: if matches!(
                                     ask_source,
-                                    AskAISource::SelectedBlockOrText
-                                        | AskAISource::SelectedTerminalText
-                                        | AskAISource::SelectedInputText
+                                    AskAISource::SelectedTerminalText
                                 ) {
                                     telemetry::AgentModeEntrypointSelectionType::Text
                                 } else {
@@ -24163,7 +24089,6 @@ impl TerminalView {
             SelectAll => self.select_all_text_from_input(ctx),
             Paste => self.paste_in_input(ctx),
             ShowCommandSearch => self.command_search_from_input(ctx),
-            AskWarpAI => self.ask_ai(&AskAISource::SelectedInputText, ctx),
             SaveAsWorkflow => self.save_as_workflow_from_input(ctx),
             ToggleInputHintText => self.toggle_input_hint_text(ctx),
         }

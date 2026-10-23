@@ -61,7 +61,6 @@ use super::view::{
 use super::warpify::render::{draw_flag_pole, render_subshell_flag};
 use super::{HEIGHT_FUDGE_FACTOR_LINES, TerminalModel, heights_approx_eq};
 use crate::ai::blocklist::{ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, ai_brand_color};
-use crate::ai_assistant::{AI_ASSISTANT_SVG_PATH, ASK_AI_ASSISTANT_TEXT};
 use crate::appearance::Appearance;
 use crate::drive::settings::WarpDriveSettings;
 use crate::features::FeatureFlag;
@@ -1102,18 +1101,16 @@ impl BlockListElement {
             .finish(),
         );
 
-        if AISettings::as_ref(app).is_any_ai_enabled(app) {
+        if AISettings::as_ref(app).is_any_ai_enabled(app) && FeatureFlag::AgentMode.is_enabled() {
             let icon = Container::new(
                 ConstrainedBox::new(if FeatureFlag::AgentView.is_enabled() {
                     UIIcon::Icon::Paperclip
                         .to_warpui_icon(icon_color.into())
                         .finish()
-                } else if FeatureFlag::AgentMode.is_enabled() {
+                } else {
                     UIIcon::Icon::Stars
                         .to_warpui_icon(icon_color.into())
                         .finish()
-                } else {
-                    Icon::new(AI_ASSISTANT_SVG_PATH, icon_color).finish()
                 })
                 .with_height(16.)
                 .with_width(16.)
@@ -1123,27 +1120,21 @@ impl BlockListElement {
             .with_padding_left(6.)
             .with_padding_right(4.);
 
-            let (ai_button_action, ai_button_tooltip) = if FeatureFlag::AgentMode.is_enabled() {
-                let active_block = model.block_list().active_block();
-                let has_active_long_running_command = active_block.is_active_and_long_running();
+            let active_block = model.block_list().active_block();
+            let has_active_long_running_command = active_block.is_active_and_long_running();
 
+            let (ai_button_action, ai_button_tooltip) =
                 if has_active_long_running_command && active_block.index() == block_index {
                     (
-                        Some(TerminalAction::SetInputModeAgent),
+                        TerminalAction::SetInputModeAgent,
                         TAG_AGENT_FOR_ASSISTANCE_TEXT,
                     )
                 } else {
                     (
-                        Some(TerminalAction::AskAIAssistant { block_index }),
+                        TerminalAction::AskAIAssistant { block_index },
                         *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT,
                     )
-                }
-            } else {
-                (
-                    Some(TerminalAction::AskAIAssistant { block_index }),
-                    ASK_AI_ASSISTANT_TEXT,
-                )
-            };
+                };
 
             let tooltip = ToolbeltButtonTooltip {
                 label: ai_button_tooltip.to_owned(),
@@ -1159,9 +1150,7 @@ impl BlockListElement {
                 &self.warp_theme,
                 &self.ui_builder,
                 move |ctx: &mut EventContext, _, _| {
-                    if let Some(action) = ai_button_action.clone() {
-                        ctx.dispatch_typed_action(action);
-                    }
+                    ctx.dispatch_typed_action(ai_button_action.clone());
                 },
             );
             self.ask_ai_assistant_button = Some(element);

@@ -3269,13 +3269,17 @@ fn test_view_only_session() {
 
 #[test]
 // This tests the end-to-end behavior to correctly switch focus among panels.
-// (The only panels that can be focused currently are WD, workspace, & the agent panel.)
+// Covers Warp Drive, the terminal, and the resource center.
 fn test_switch_focus_panels() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let workspace = mock_workspace(&mut app);
 
         workspace.update(&mut app, |view, ctx| {
+            view.resource_center_view.update(ctx, |center, ctx| {
+                center
+                    .set_current_page(crate::resource_center::ResourceCenterPage::Keybindings, ctx);
+            });
             view.focus_active_tab(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
@@ -3297,19 +3301,19 @@ fn test_switch_focus_panels() {
             );
         });
 
-        // Shift focus from WD to left panel when AI panel is open
+        // Shift focus left from Warp Drive to the resource center.
         workspace.update(&mut app, |view, ctx| {
-            view.current_workspace_state.is_ai_assistant_panel_open = true;
+            view.current_workspace_state.is_resource_center_open = true;
             view.focus_left_panel(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
             assert!(
-                view.ai_assistant_panel.is_self_or_child_focused(ctx),
-                "Expected AI panel to be focused"
+                view.resource_center_view.is_self_or_child_focused(ctx),
+                "Expected resource center to be focused"
             );
         });
 
-        // Shift focus from AI panel to left panel (terminal)
+        // Shift focus left from the resource center to the terminal.
         workspace.update(&mut app, |view, ctx| {
             view.focus_left_panel(ctx);
         });
@@ -3320,19 +3324,19 @@ fn test_switch_focus_panels() {
             );
         });
 
-        // Shift focus from workspace to right panel when the agent panel is open
+        // Shift focus right from the terminal to the resource center.
         workspace.update(&mut app, |view, ctx| {
-            view.current_workspace_state.is_ai_assistant_panel_open = true;
+            view.current_workspace_state.is_resource_center_open = true;
             view.focus_right_panel(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
             assert!(
-                view.ai_assistant_panel.is_self_or_child_focused(ctx),
-                "Expected AI panel to be focused"
+                view.resource_center_view.is_self_or_child_focused(ctx),
+                "Expected resource center to be focused"
             );
         });
 
-        // Shift focus from WD to right panel (terminal)
+        // Shift focus right from the resource center toward the left panel.
         workspace.update(&mut app, |view, ctx| {
             view.focus_right_panel(ctx);
         });
@@ -4520,7 +4524,6 @@ fn test_vertical_tabs_context_menu_does_not_show_hover_only_tab_bar() {
                 );
                 report_if_error!(settings.use_vertical_tabs.set_value(true, ctx));
             });
-            workspace.should_show_ai_assistant_warm_welcome = false;
             workspace.vertical_tabs_panel_open = true;
 
             workspace.show_tab_right_click_menu =
@@ -4548,7 +4551,6 @@ fn test_standard_tab_context_menu_shows_hover_only_tab_bar() {
                         .set_value(WorkspaceDecorationVisibility::OnHover, ctx)
                 );
             });
-            workspace.should_show_ai_assistant_warm_welcome = false;
 
             workspace.show_tab_right_click_menu =
                 Some((0, TabContextMenuAnchor::Pointer(Vector2F::zero())));
