@@ -140,11 +140,6 @@ const FLOATING_POINT_ROUNDING_ADJUSTMENT: f32 = 0.0001;
 #[cfg(not(test))]
 const BACKGROUND_OUTPUT_RENDER_DELAY_MS: u64 = 100;
 
-/// Minimum terminal width for truncation calculations, we use this to determine
-/// how many rows to take for much narrower terminals, to ensure we have enough content
-/// for block summaries given to AI.
-const MIN_TERMINAL_WIDTH_FOR_TRUNCATION_CALCULATIONS: usize = 150;
-
 /// Blocklist Env Var metadata associated with this block.
 #[derive(Debug, Clone)]
 pub struct BlocklistEnvVarMetadata {
@@ -897,31 +892,6 @@ impl BlockMatches {
     }
 }
 
-/// Calculates the optimal number of rows to use for content truncation based on terminal width.
-/// If terminal width >= 150 columns, use the default row counts.
-/// If terminal width < 150 columns, calculate based on a target total cells.
-fn calculate_optimal_row_counts(
-    terminal_width: usize,
-    default_top_lines: usize,
-    default_bottom_lines: usize,
-) -> (usize, usize) {
-    if terminal_width >= MIN_TERMINAL_WIDTH_FOR_TRUNCATION_CALCULATIONS {
-        return (default_top_lines, default_bottom_lines);
-    }
-    if terminal_width >= MIN_TERMINAL_WIDTH_FOR_TRUNCATION_CALCULATIONS {
-        return (default_top_lines, default_bottom_lines);
-    }
-
-    // We calculate the # of rows proportional to the desired top/bottom lines.
-    let top_target_cells = default_top_lines * MIN_TERMINAL_WIDTH_FOR_TRUNCATION_CALCULATIONS;
-    let bottom_target_cells = default_bottom_lines * MIN_TERMINAL_WIDTH_FOR_TRUNCATION_CALCULATIONS;
-
-    let top_rows = top_target_cells / terminal_width.max(1);
-    let bottom_rows = bottom_target_cells / terminal_width.max(1);
-
-    (top_rows, bottom_rows)
-}
-
 impl Block {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1591,48 +1561,6 @@ impl Block {
 
     pub fn num_secrets_obfuscated(&self) -> usize {
         self.header_grid.num_secrets_obfuscated() + self.output_grid.num_secrets_obfuscated()
-    }
-
-    /// Gets optimized content summary for a single block using terminal-width-aware truncation,
-    /// taking the # of desired logical top/bottom rows into account (note that this limit is applied
-    /// on a per-grid basis).
-    pub fn get_block_content_summary(
-        &self,
-        terminal_width: usize,
-        number_of_top_lines_per_grid: usize,
-        number_of_bottom_lines_per_grid: usize,
-    ) -> (String, String) {
-        let (optimized_top_lines, optimized_bottom_lines) = calculate_optimal_row_counts(
-            terminal_width,
-            number_of_top_lines_per_grid,
-            number_of_bottom_lines_per_grid,
-        );
-
-        let mut processed_input = self.prompt_and_command_grid().content_summary(
-            optimized_top_lines,
-            optimized_bottom_lines,
-            true,
-        );
-
-        let mut processed_output =
-            self.output_grid()
-                .content_summary(optimized_top_lines, optimized_bottom_lines, true);
-
-        // If secret redaction is disabled, we manually scan for secrets and redact them.
-        if matches!(
-            self.prompt_and_command_grid().should_scan_for_secrets(),
-            ObfuscateSecrets::No
-        ) {
-            redact_secrets(&mut processed_input);
-        }
-        if matches!(
-            self.output_grid().should_scan_for_secrets(),
-            ObfuscateSecrets::No
-        ) {
-            redact_secrets(&mut processed_output);
-        }
-
-        (processed_input, processed_output)
     }
 
     // Necessary for restored blocks so we use the actual timestamp when it completed

@@ -797,11 +797,6 @@ impl BillingMetadata {
             || self.delinquency_status == DelinquencyStatus::Unpaid
     }
 
-    // Whether the enterprise customer is our Stable Warp Enterprise team (internal team of Warpers).
-    pub fn is_warp_plan(&self) -> bool {
-        self.tier.name == "Warp Plan"
-    }
-
     pub fn has_active_subscription(&self) -> bool {
         if let Some(newest_service_agreement) = self.service_agreements.first() {
             let not_expired = Utc::now() < newest_service_agreement.current_period_end.utc();

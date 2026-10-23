@@ -17,7 +17,6 @@ use settings::{
     RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud, define_settings_group,
 };
 use strum_macros::EnumIter;
-use warp_core::execution_mode::AppExecutionMode;
 use warp_core::features::FeatureFlag;
 use warp_errors::report_if_error;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, UpdateModel, WeakViewHandle};
@@ -503,17 +502,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.is_any_ai_enabled",
         description: "Controls whether all AI features are enabled.",
     },
-    // This field should not be referenced directly to lookup active AI enablement -- use the
-    // `is_active_ai_enabled()` getter.
-    is_active_ai_enabled_internal: IsActiveAIEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.enabled",
-        description: "Controls whether proactive AI features like suggestions are enabled.",
-    },
     // This field should not be referenced directly to lookup autodetection enablement -- use the
     // `is_ai_autodetection_enabled()` getter.
     ai_autodetection_enabled_internal: AIAutoDetectionEnabled {
@@ -548,18 +536,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
     },
-    // This field should not be referenced directly to lookup shared block title generations
-    // enablement -- use the `is_shared_block_title_generation_enabled()` getter.
-    // This feature refers to the auto title generation when the user opens the shared block dialog.
-    shared_block_title_generation_enabled_internal: SharedBlockTitleGenerationEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.shared_block_title_generation_enabled",
-        description: "Controls whether titles are auto-generated when sharing blocks.",
-    }
     // Predicates that Agent Mode can use to decide if it can execute
     // a command without explicit user consent.
     //
@@ -1221,16 +1197,6 @@ impl AISettings {
     /// tools panel.
     pub fn is_conversation_history_enabled(&self, app: &AppContext) -> bool {
         *self.show_conversation_history && self.is_conversation_history_available(app)
-    }
-
-    pub fn is_active_ai_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_any_ai_enabled(app)
-            && *self.is_active_ai_enabled_internal
-            && AppExecutionMode::as_ref(app).allows_active_ai()
-    }
-
-    pub fn is_shared_block_title_generation_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.shared_block_title_generation_enabled_internal
     }
 
     /// Returns `true` if input autodetection is enabled.

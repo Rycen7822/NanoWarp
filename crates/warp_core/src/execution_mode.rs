@@ -68,14 +68,6 @@ impl AppExecutionMode {
         matches!(self.mode, ExecutionMode::App)
     }
 
-    /// Whether Active AI features are allowed in this execution mode.
-    ///
-    /// Active AI should only run in interactive clients, where there's a user
-    /// to engage with it.
-    pub fn allows_active_ai(&self) -> bool {
-        self.is_app()
-    }
-
     /// Whether the app can sync user preferences to the cloud. This does not gate
     /// modifying preferences locally.
     pub fn can_sync_preferences(&self) -> bool {

@@ -8,10 +8,9 @@ use warpui::{AppContext, SingletonEntity};
 
 use super::UserWorkspaces;
 use crate::auth::AuthStateProvider;
-use crate::channel::ChannelState;
 use crate::workspaces::team::Team;
 use crate::workspaces::workspace::{
-    BillingMetadata, ChargeUnit, CustomerType, PurchaseAddOnCreditsPolicy, Workspace,
+    BillingMetadata, ChargeUnit, PurchaseAddOnCreditsPolicy, Workspace,
 };
 
 impl UserWorkspaces {
@@ -62,12 +61,6 @@ impl UserWorkspaces {
             .map_or(self.user_tier.charge_unit, |billing| {
                 billing.tier.charge_unit
             })
-    }
-
-    pub fn ai_allowed_for_team(team: Option<&Team>) -> bool {
-        !team.is_some_and(|team| team.billing_metadata.customer_type == CustomerType::Enterprise)
-            || team.is_some_and(|team| team.billing_metadata.is_warp_plan())
-            || ChannelState::channel().is_dogfood()
     }
 
     /// Whether BYO API key is enabled for the current user, based on the active policies.

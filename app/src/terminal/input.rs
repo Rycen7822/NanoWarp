@@ -4822,27 +4822,24 @@ impl Input {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            AISettingsChangedEvent::IsAnyAIEnabled { .. }
-            | AISettingsChangedEvent::IsActiveAIEnabled { .. } => {
+            AISettingsChangedEvent::IsAnyAIEnabled { .. } => {
                 let ai_settings = AISettings::handle(ctx);
                 self.set_zero_state_hint_text(ctx);
 
-                if let AISettingsChangedEvent::IsAnyAIEnabled { .. } = event {
-                    let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-                    // If there is no AI enabled, ensure input is locked in command mode.
-                    if !ai_settings.as_ref(ctx).is_any_ai_enabled(ctx) {
-                        self.ai_input_model.update(ctx, |input_model, ctx| {
-                            input_model.set_input_config(
-                                InputConfig {
-                                    input_type: InputType::Shell,
-                                    is_locked: true,
-                                },
-                                is_input_buffer_empty,
-                                None,
-                                ctx,
-                            );
-                        });
-                    }
+                let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
+                // If there is no AI enabled, ensure input is locked in command mode.
+                if !ai_settings.as_ref(ctx).is_any_ai_enabled(ctx) {
+                    self.ai_input_model.update(ctx, |input_model, ctx| {
+                        input_model.set_input_config(
+                            InputConfig {
+                                input_type: InputType::Shell,
+                                is_locked: true,
+                            },
+                            is_input_buffer_empty,
+                            None,
+                            ctx,
+                        );
+                    });
                 }
 
                 ctx.notify();

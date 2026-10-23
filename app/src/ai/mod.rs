@@ -65,7 +65,6 @@ pub mod cloud_environments;
 pub mod connected_self_hosted_workers;
 pub mod execution_profiles;
 pub mod facts;
-pub(crate) mod generate_block_title;
 pub(crate) mod loading;
 pub mod mcp;
 pub mod outline;

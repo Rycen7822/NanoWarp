@@ -6,10 +6,8 @@ use parking_lot::FairMutex;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 use serde::Serialize;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::Fill;
 use warp_errors::report_error;
-use warpui::r#async::SpawnedFutureHandle;
 use warpui::browser::escape_html_attribute;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
@@ -35,17 +33,14 @@ use warpui::{
 
 use super::grid_renderer::CellGlyphCache;
 use super::model::grid::RespectDisplayedOutput;
-use crate::ai::generate_block_title::api::GenerateBlockTitleRequest;
 use crate::appearance::Appearance;
-use crate::editor::{
-    EditOrigin, EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions,
-};
+use crate::editor::{EditorView, SingleLineEditorOptions, TextOptions};
 use crate::send_telemetry_from_ctx;
 use crate::server::block::{Block as ServerBlock, DisplaySetting};
 use crate::server::server_api::block::BlockClient;
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{
-    AISettings, EnforceMinimumContrast, FontSettings, FontSettingsChangedEvent, PrivacySettings,
+    EnforceMinimumContrast, FontSettings, FontSettingsChangedEvent, PrivacySettings,
 };
 use crate::settings_view::SettingsSection;
 use crate::terminal::TerminalModel;
@@ -59,7 +54,6 @@ use crate::ui_components::icons::Icon;
 use crate::util::bindings::CustomAction;
 use crate::view_components::ToastFlavor;
 use crate::workspace::WorkspaceAction;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const PADDING: f32 = 30.;
 const INNER_MARGIN: f32 = 20.;
@@ -139,9 +133,6 @@ pub struct ShareBlockModal {
     embed_display_options: Vec<(String, DisplaySetting)>,
     show_prompt: bool,
     obfuscate_secrets: ObfuscateSecrets,
-    /// We abort the block title generation requests early if the user updated the title text field
-    /// before the request completes, rendering the current pending banner request irrelevant.
-    title_generation_future_handle: Option<SpawnedFutureHandle>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -200,17 +191,6 @@ impl ShareBlockModal {
             editor.set_placeholder_text(BLOCK_TITLE_PLACEHOLDER, ctx);
             editor
         });
-        ctx.subscribe_to_view(&block_title_editor, move |me, _, event, ctx| {
-            if matches!(
-                event,
-                EditorEvent::Paste | EditorEvent::Edited(EditOrigin::UserTyped)
-            ) && let Some(handle) = me.title_generation_future_handle.take()
-            {
-                handle.abort();
-            }
-            ctx.notify();
-        });
-
         let embed_display_handles = EmbedDisplayHandles {
             embed_display_mouse_states: vec![
                 Default::default(),
@@ -249,7 +229,6 @@ impl ShareBlockModal {
             embed_display_options,
             show_prompt: false,
             obfuscate_secrets: get_secret_obfuscation_mode(ctx),
-            title_generation_future_handle: None,
         }
     }
 
@@ -429,45 +408,6 @@ impl ShareBlockModal {
         if self.obfuscate_secrets.is_visually_obfuscated() {
             self.scan_selected_block_for_secrets(ctx);
         }
-
-        if !should_send_title_gen_request(ctx) {
-            return;
-        }
-
-        // Scope to release the mutex.
-        let request = {
-            let model = self.model.as_ref().expect("Model should be set").lock();
-            let block = match self
-                .selected_block
-                .and_then(|block_index| model.block_list().block_at(block_index))
-            {
-                None => {
-                    report_error!("Opened block share modal without block");
-                    return;
-                }
-                Some(block) => block,
-            };
-
-            let terminal_width: usize = model.block_list().size().columns;
-            let (command, output) = block.get_block_content_summary(terminal_width, 100, 200);
-
-            GenerateBlockTitleRequest { command, output }
-        };
-
-        let block_client = self.block_client.clone();
-        self.title_generation_future_handle = Some(ctx.spawn(
-            async move { block_client.generate_shared_block_title(request).await },
-            |me, response, ctx| {
-                me.title_generation_future_handle = None;
-                if let Ok(resp) = response {
-                    me.block_title_editor.update(ctx, |editor, ctx| {
-                        if !editor.is_dirty(ctx) {
-                            editor.set_buffer_text(&resp.title, ctx);
-                        }
-                    })
-                }
-            },
-        ));
     }
 
     fn link(&self) -> Option<String> {
@@ -1154,13 +1094,6 @@ impl View for ShareBlockModal {
             .with_background_color(Fill::blur().into())
             .finish()
     }
-}
-
-fn should_send_title_gen_request(ctx: &ViewContext<ShareBlockModal>) -> bool {
-    let workspaces = UserWorkspaces::as_ref(ctx);
-    FeatureFlag::SharedBlockTitleGeneration.is_enabled()
-        && AISettings::as_ref(ctx).is_shared_block_title_generation_enabled(ctx)
-        && UserWorkspaces::ai_allowed_for_team(workspaces.team_for_view(ctx))
 }
 
 struct SingleBlock {

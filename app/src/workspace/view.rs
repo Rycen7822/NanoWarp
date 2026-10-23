@@ -3212,8 +3212,7 @@ impl Workspace {
                 me.update_left_panel_available_views(ctx);
                 ctx.notify();
             }
-            AISettingsChangedEvent::IsActiveAIEnabled { .. }
-            | AISettingsChangedEvent::ThinkingDisplayMode { .. }
+            AISettingsChangedEvent::ThinkingDisplayMode { .. }
             | AISettingsChangedEvent::PromptSubmissionMode { .. }
             | AISettingsChangedEvent::AutoApproveBypassesCommandDenylist { .. } => {
                 ctx.notify();
@@ -22459,12 +22458,6 @@ impl Workspace {
         if ai_settings.is_nld_in_terminal_enabled(app) {
             context.set.insert(flags::NLD_IN_TERMINAL_FLAG);
         }
-        if ai_settings.is_shared_block_title_generation_enabled(app) {
-            context
-                .set
-                .insert(flags::SHARED_BLOCK_TITLE_GENERATION_FLAG);
-        }
-
         if *ai_settings.should_show_oz_updates_in_zero_state.value() {
             context
                 .set
@@ -25349,10 +25342,6 @@ impl View for Workspace {
 
         if AISettings::as_ref(app).is_any_ai_enabled(app) {
             context.set.insert(flags::IS_ANY_AI_ENABLED);
-        }
-
-        if AISettings::as_ref(app).is_active_ai_enabled(app) {
-            context.set.insert(flags::IS_ACTIVE_AI_ENABLED);
         }
 
         if self

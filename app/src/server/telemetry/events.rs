@@ -1757,16 +1757,6 @@ pub enum TelemetryEvent {
         is_autoindexing_enabled: bool,
     },
 
-    /// Emitted when the user toggles active AI.
-    ToggleActiveAI {
-        is_active_ai_enabled: bool,
-    },
-
-    /// Emitted when the user toggles the "Shared Block Title Auto Generation" setting in the AI settings page.
-    ToggleSharedBlockTitleGenerationSetting {
-        is_shared_block_title_generation_enabled: bool,
-    },
-
     TierLimitHit(TierLimitHitEvent),
     SharedObjectLimitHitBannerViewPlansButtonClicked,
     ResourceUsageStats {
@@ -2908,11 +2898,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"is_autodetection_enabled": is_autodetection_enabled, "origin": origin }),
             ),
-            TelemetryEvent::ToggleSharedBlockTitleGenerationSetting {
-                is_shared_block_title_generation_enabled,
-            } => Some(
-                json!({"is_shared_block_title_generation_enabled": is_shared_block_title_generation_enabled}),
-            ),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
                 AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { input_text },
             ) => Some(json!({"input_text": input_text})),
@@ -3028,9 +3013,6 @@ impl TelemetryEvent {
             TelemetryEvent::SuperGrokSubscriptionConnectFinished { error } => {
                 Some(json!({ "error": error }))
             }
-            TelemetryEvent::ToggleActiveAI {
-                is_active_ai_enabled,
-            } => Some(json!({"is_active_ai_enabled": is_active_ai_enabled})),
             TelemetryEvent::ToggleCodebaseContext {
                 is_codebase_context_enabled,
             } => Some(json!( {
@@ -4090,7 +4072,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SuperGrokSubscriptionConnectFinished { .. }
             | TelemetryEvent::ToggleCodebaseContext { .. }
             | TelemetryEvent::ToggleAutoIndexing { .. }
-            | TelemetryEvent::ToggleActiveAI { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::ResourceUsageStats { .. }
@@ -4139,7 +4120,6 @@ impl TelemetryEvent {
             | TelemetryEvent::FileExceededContextLimit { .. }
             | TelemetryEvent::AgentModeError { .. }
             | TelemetryEvent::AgentModeRequestRetrySucceeded { .. }
-            | TelemetryEvent::ToggleSharedBlockTitleGenerationSetting { .. }
             | TelemetryEvent::GrepToolSucceeded
             | TelemetryEvent::FileGlobToolSucceeded
             | TelemetryEvent::FileGlobToolFailed { .. }
@@ -4542,7 +4522,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::SuperGrokSubscriptionConnectFinished => {
                 EnablementState::Flag(FeatureFlag::SuperGrok)
             }
-            Self::ToggleActiveAI => EnablementState::Always,
             Self::MemoryUsageStats => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
@@ -4564,9 +4543,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::SettingsImportConfigFocused
             | Self::SettingsImportResetButtonClicked
             | Self::ITermMultipleHotkeys => EnablementState::Always,
-            Self::ToggleSharedBlockTitleGenerationSetting => {
-                EnablementState::Flag(FeatureFlag::SharedBlockTitleGeneration)
-            }
             Self::AgentModeCodeSuggestionEditedByUser
             | Self::AgentModeCodeFilesNavigated
             | Self::AgentModeCodeDiffHunksNavigated => EnablementState::Always,
@@ -4988,7 +4964,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AgentMode.PotentialAutoDetectionFalsePositive"
             }
             Self::AgentModeChangedInputType => "AgentMode.ChangedInputType",
-            Self::ToggleSharedBlockTitleGenerationSetting => "Toggle SharedBlock Title Generation",
             Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
             Self::AgentModeCodeFilesNavigated => "AgentMode.Code.FilesNavigated",
             Self::AgentModeCodeDiffHunksNavigated => "AgentMode.Code.DiffHunksNavigated",
@@ -5011,7 +4986,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleGlobalAI => "Toggle Global AI Enablement",
             Self::SuperGrokSubscriptionConnectInitiated => "SuperGrok.Connect.Initiated",
             Self::SuperGrokSubscriptionConnectFinished => "SuperGrok.Connect.Finished",
-            Self::ToggleActiveAI => "Toggle Active AI Enablement",
             Self::ToggleLigatureRendering => "Toggle Ligature Rendering",
             Self::WorkflowAliasAdded => "Added Workflow Alias",
             Self::WorkflowAliasRemoved => "Removed Workflow Alias",
@@ -5609,9 +5583,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentModeChangedInputType => {
                 "The input type was changed from shell -> AI or AI -> shell"
             }
-            Self::ToggleSharedBlockTitleGenerationSetting => {
-                "Toggled on/off the shared block title generation setting"
-            }
             Self::AgentModeCodeSuggestionEditedByUser => {
                 "Agent Mode Code suggestion edited by user"
             }
@@ -5689,7 +5660,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SuperGrokSubscriptionConnectFinished => {
                 "SuperGrok subscription OAuth connection flow finished (success or failure)."
             }
-            Self::ToggleActiveAI => "Toggled active AI enablement.",
             Self::ToggleLigatureRendering => "Toggled ligature rendering",
             Self::WorkflowAliasAdded => "Added an alias to a Warp Drive workflow",
             Self::WorkflowAliasRemoved => "Removed an alias from a Warp Drive workflow",

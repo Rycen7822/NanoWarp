@@ -1,6 +1,6 @@
 //! The "Warp Agent" settings page, shown under the Agents umbrella.
 //!
-//! Covers Warp's own AI: the global toggle, Active AI suggestions, agent
+//! Covers Warp's own AI: the global toggle, agent
 //! input behavior, credentials (BYO keys, Bedrock, Gemini
 //! Enterprise, custom endpoints, custom routers) and the miscellaneous
 //! agent display settings.
@@ -26,7 +26,6 @@ use pathfinder_geometry::vector::vec2f;
 use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
-use warp_core::channel::ChannelState;
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
@@ -50,9 +49,8 @@ use warpui::{
 };
 
 use super::ai_shared::{
-    render_ai_feature_switch, render_ai_setting_description, render_ai_setting_label,
-    render_ai_setting_toggle, render_toolbar_layout_editor, styles,
-    update_editor_interaction_state,
+    render_ai_setting_description, render_ai_setting_label, render_ai_setting_toggle,
+    render_toolbar_layout_editor, styles, update_editor_interaction_state,
 };
 use super::custom_inference_modal::{
     CustomEndpointModal, CustomEndpointModalEvent, CustomEndpointModalViewState,
@@ -94,8 +92,8 @@ use crate::settings::{
     CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
     IncludeAgentCommandsInHistory, InputSettings, LongRunningCommandSubmissionMode,
     NLDInTerminalEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
-    ShouldShowOzUpdatesInZeroState, ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
+    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState,
+    ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -111,8 +109,6 @@ use crate::{TelemetryEvent, UserWorkspaces, send_telemetry_from_ctx};
 const AI_SETTINGS_DROPDOWN_WIDTH: f32 = 250.;
 const AI_SETTINGS_DROPDOWN_MAX_HEIGHT: f32 = 250.;
 
-const SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION: &str =
-    "Let AI generate a title for your shared block based on the command and output.";
 const CUSTOM_INFERENCE_LEARN_MORE_URL: &str =
     "https://docs.warp.dev/agents/inference/custom-inference-endpoint/";
 const CUSTOM_INFERENCE_INFO_TOOLTIP_MAX_WIDTH: f32 = 320.;
@@ -132,21 +128,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 )),
                 context,
                 flags::IS_ANY_AI_ENABLED,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
-        ],
-        app,
-    );
-
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "Active AI",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleActiveAI,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::IS_ACTIVE_AI_ENABLED,
             )
             .with_group(bindings::BindingGroup::WarpAi),
         ],
@@ -316,21 +297,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             .collect();
         app.register_fixed_bindings(lrc_mode_bindings);
     }
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "shared block title generation",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleSharedTitleGeneration,
-                )),
-                &(context.clone() & id!(flags::IS_ACTIVE_AI_ENABLED)),
-                flags::SHARED_BLOCK_TITLE_GENERATION_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| FeatureFlag::SharedBlockTitleGeneration.is_enabled()),
-        ],
-        app,
-    );
     ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
         vec![
             ToggleSettingActionPair::custom(
@@ -2019,25 +1985,7 @@ impl WarpAgentPageView {
     }
 
     fn build_page(ctx: &mut ViewContext<Self>) -> PageType<Self> {
-        let ai_settings = AISettings::as_ref(ctx);
-
         let mut categories: Vec<Category<Self>> = Vec::new();
-
-        if FeatureFlag::SharedBlockTitleGeneration.is_enabled()
-            && ai_settings
-                .shared_block_title_generation_enabled_internal
-                .is_supported_on_current_platform()
-        {
-            let active_ai_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
-                vec![Box::new(SharedBlockTitleGenerationWidget::new(ctx))];
-            let active_ai_toggle = SwitchStateHandle::default();
-            categories.push(Category::with_header(
-                CategoryHeader::new("Active AI").with_trailing_element(
-                    move |_view, _appearance, app| render_active_ai_toggle(&active_ai_toggle, app),
-                ),
-                active_ai_widgets,
-            ));
-        }
 
         categories.push(Category::new(
             "Input",
@@ -2241,8 +2189,6 @@ impl Entity for WarpAgentPageView {
 pub enum WarpAgentPageAction {
     OpenUrl(String),
     ToggleGlobalAI,
-    ToggleActiveAI,
-    ToggleSharedTitleGeneration,
     ToggleAIInputAutoDetection,
     ToggleNLDInTerminal,
     ToggleUseAgentToolbar,
@@ -2310,48 +2256,6 @@ impl TypedActionView for WarpAgentPageView {
                     }
                     Err(e) => {
                         log::warn!("Failed to set value for Global AI setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleActiveAI => {
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .is_active_ai_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleActiveAI {
-                                is_active_ai_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Active AI setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleSharedTitleGeneration => {
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .shared_block_title_generation_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(_new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleSharedBlockTitleGenerationSetting {
-                                is_shared_block_title_generation_enabled: true,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to set value for Shared Block Title Generation setting: {e:?}"
-                        );
                     }
                 }
                 ctx.notify();
@@ -2824,93 +2728,6 @@ fn render_global_ai_toggle(
     }
 
     row.finish()
-}
-
-// TODO: Check if the user's enterprise billing policy allows toggling this feature.
-fn is_shared_block_title_generation_toggleable(
-    view_handle: &WeakViewHandle<WarpAgentPageView>,
-    app: &AppContext,
-) -> bool {
-    FeatureFlag::SharedBlockTitleGeneration.is_enabled()
-        && AISettings::as_ref(app)
-            .shared_block_title_generation_enabled_internal
-            .is_supported_on_current_platform()
-        && (!UserWorkspaces::as_ref(app)
-            .team_for_view_handle(view_handle, app)
-            .is_some_and(|team| team.billing_metadata.customer_type == CustomerType::Enterprise)
-            // Override the enterprise check for dogfood builds, as our dogfood team
-            // is an enterprise team.
-            || ChannelState::channel().is_dogfood())
-}
-
-/// The "Active AI" category's header trailing widget: the master switch for all of
-/// the category's child settings.
-fn render_active_ai_toggle(toggle: &SwitchStateHandle, app: &AppContext) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-    Container::new(render_ai_feature_switch(
-        toggle.clone(),
-        *ai_settings.is_active_ai_enabled_internal,
-        is_any_ai_enabled,
-        WarpAgentPageAction::ToggleActiveAI,
-        app,
-    ))
-    .with_padding_right(TOGGLE_BUTTON_RIGHT_PADDING)
-    .finish()
-}
-
-struct SharedBlockTitleGenerationWidget {
-    toggle: SwitchStateHandle,
-    view_handle: WeakViewHandle<WarpAgentPageView>,
-}
-
-impl SharedBlockTitleGenerationWidget {
-    fn new(ctx: &ViewContext<WarpAgentPageView>) -> Self {
-        Self {
-            toggle: Default::default(),
-            view_handle: ctx.handle(),
-        }
-    }
-}
-
-impl SettingsWidget for SharedBlockTitleGenerationWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. shared block title generation"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_shared_block_title_generation_toggleable(&self.view_handle, app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-        Flex::column()
-            .with_child(
-                render_ai_setting_toggle::<SharedBlockTitleGenerationEnabled>(
-                    "Shared Block Title Generation",
-                    WarpAgentPageAction::ToggleSharedTitleGeneration,
-                    *ai_settings.shared_block_title_generation_enabled_internal,
-                    is_toggleable,
-                    self.toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
-                    app,
-                ),
-            )
-            .with_child(render_ai_setting_description(
-                SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
 }
 
 #[derive(Default)]
