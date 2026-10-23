@@ -687,7 +687,7 @@ impl ObjectClient for ServerApi {
 
         let subscription = GetWarpDriveUpdates::build(());
 
-        let result = start_graphql_streaming_operation(
+        start_graphql_streaming_operation(
             &ChannelState::ws_server_url(),
             init_payload,
             subscription,
@@ -699,14 +699,8 @@ impl ObjectClient for ServerApi {
             },
             message_sender,
             stream_ready_sender,
-            self.iap_proxy_auth_header().into_iter().collect(),
         )
-        .await;
-
-        if let Err(err) = &result {
-            self.report_ws_iap_challenge(err);
-        }
-        result
+        .await
     }
 
     async fn fetch_changed_objects(

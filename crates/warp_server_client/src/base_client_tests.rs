@@ -20,14 +20,6 @@ use super::{
 };
 use crate::auth::{AuthClient, AuthClientImpl};
 
-struct StaticIapTokenProvider;
-
-impl http_client::iap::IapTokenProvider for StaticIapTokenProvider {
-    fn cached_token(&self) -> Option<String> {
-        Some("iap-token".to_string())
-    }
-}
-
 #[test]
 fn graphql_identity_transitions_between_standby_and_run() {
     let client = client();
@@ -93,31 +85,7 @@ fn client() -> BaseClient {
         AuthenticatedGraphqlConfig {
             headers: authenticated_headers,
         },
-        None,
     )
-}
-
-#[test]
-fn iap_proxy_auth_header_uses_configured_provider() {
-    let (event_sender, _) = async_channel::unbounded();
-    let client = BaseClient::new(
-        Arc::new(http_client::Client::new()),
-        Arc::new(http_client::Client::new_external()),
-        Arc::new(AuthState::new_for_test()),
-        event_sender,
-        None,
-        GraphqlRoutingConfig::default(),
-        AuthenticatedGraphqlConfig::default(),
-        Some(Arc::new(StaticIapTokenProvider)),
-    );
-
-    assert_eq!(
-        client.iap_proxy_auth_header(),
-        Some((
-            http_client::iap::IAP_PROXY_AUTH_HEADER,
-            "Bearer iap-token".to_string()
-        ))
-    );
 }
 
 #[test]
@@ -339,7 +307,7 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
     headers.insert("content-type".to_string(), "text/plain".to_string());
     headers.insert("CONTENT-LENGTH".to_string(), "9999".to_string());
     headers.insert(
-        http_client::iap::IAP_PROXY_AUTH_HEADER.to_string(),
+        http::header::PROXY_AUTHORIZATION.as_str().to_string(),
         "malicious".to_string(),
     );
     headers.insert(
@@ -363,7 +331,6 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
         None,
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig { headers },
-        None,
     );
 
     let options = block_on(client.graphql_request_options(None)).unwrap();
@@ -374,7 +341,7 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
     assert!(
         !options
             .headers
-            .contains_key(http_client::iap::IAP_PROXY_AUTH_HEADER)
+            .contains_key(http::header::PROXY_AUTHORIZATION.as_str())
     );
     assert!(
         !options
@@ -420,7 +387,6 @@ fn api_key_client(path_prefix: &str) -> (AuthClientImpl, Arc<Mutex<Option<String
             path_prefix: Some(path_prefix.to_string()),
         },
         AuthenticatedGraphqlConfig::default(),
-        None,
     );
     *base_client.ambient_workload_token.lock() = Some(warp_isolation_platform::WorkloadToken {
         token: "test-workload-token".to_string(),

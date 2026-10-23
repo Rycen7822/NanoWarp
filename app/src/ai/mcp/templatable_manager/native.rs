@@ -362,8 +362,7 @@ impl TemplatableMCPServerManager {
                 AuthEvent::AccessTokenRefreshed { .. } => me.sync_builtin_servers(true, ctx),
                 AuthEvent::StagingAccessBlocked
                 | AuthEvent::NeedsReauth
-                | AuthEvent::UserAccountDisabled
-                | AuthEvent::IapChallengeReceived => {}
+                | AuthEvent::UserAccountDisabled => {}
             });
         }
 

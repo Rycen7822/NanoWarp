@@ -159,8 +159,6 @@ pub enum AuthEvent {
         #[cfg_attr(target_family = "wasm", allow(dead_code))]
         token: String,
     },
-    /// An Identity-Aware Proxy challenge was received.
-    IapChallengeReceived,
 }
 
 impl fmt::Debug for AuthEvent {
@@ -173,7 +171,6 @@ impl fmt::Debug for AuthEvent {
                 .debug_struct("AccessTokenRefreshed")
                 .field("token", &"<redacted>")
                 .finish(),
-            Self::IapChallengeReceived => f.write_str("IapChallengeReceived"),
         }
     }
 }

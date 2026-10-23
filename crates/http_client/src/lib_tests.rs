@@ -1,17 +1,8 @@
 use super::*;
 
-struct TestIapTokenProvider;
-
-impl IapTokenProvider for TestIapTokenProvider {
-    fn cached_token(&self) -> Option<String> {
-        Some("test-iap-token".into())
-    }
-}
-
 #[test]
 fn external_client_omits_automatic_headers_and_preserves_signing_headers() {
-    let mut client = Client::new();
-    client.set_iap_token_provider(Arc::new(TestIapTokenProvider));
+    let client = Client::new();
     let url = format!(
         "{}/object?X-Amz-Signature=test%2Bsignature&x-id=PutObject",
         ChannelState::server_root_url()
@@ -21,11 +12,6 @@ fn external_client_omits_automatic_headers_and_preserves_signing_headers() {
         api_request
             .headers()
             .contains_key(headers::WARP_OS_CATEGORY)
-    );
-    assert!(
-        api_request
-            .headers()
-            .contains_key(iap::IAP_PROXY_AUTH_HEADER)
     );
 
     let external_client = Client::new_external();

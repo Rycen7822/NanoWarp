@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use futures::StreamExt as _;
 use futures::lock::Mutex as AsyncMutex;
 use instant::Duration;
 use parking_lot::{Mutex, RwLock};
@@ -141,11 +140,9 @@ pub struct BaseClient {
     agent_source: Option<String>,
     graphql_routing: GraphqlRoutingConfig,
     authenticated_graphql: AuthenticatedGraphqlConfig,
-    iap_token_provider: Option<Arc<dyn http_client::iap::IapTokenProvider>>,
 }
 
 impl BaseClient {
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         client: Arc<http_client::Client>,
         external_client: Arc<http_client::Client>,
@@ -154,7 +151,6 @@ impl BaseClient {
         agent_source: Option<String>,
         graphql_routing: GraphqlRoutingConfig,
         mut authenticated_graphql: AuthenticatedGraphqlConfig,
-        iap_token_provider: Option<Arc<dyn http_client::iap::IapTokenProvider>>,
     ) -> Self {
         authenticated_graphql.headers.retain(|name, _| {
             if Self::is_reserved_authenticated_graphql_header(name) {
@@ -201,7 +197,6 @@ impl BaseClient {
             agent_source,
             graphql_routing,
             authenticated_graphql,
-            iap_token_provider,
         }
     }
 
@@ -211,7 +206,7 @@ impl BaseClient {
             http::header::AUTHORIZATION.as_str(),
             http::header::CONTENT_TYPE.as_str(),
             http::header::CONTENT_LENGTH.as_str(),
-            http_client::iap::IAP_PROXY_AUTH_HEADER,
+            http::header::PROXY_AUTHORIZATION.as_str(),
             AMBIENT_WORKLOAD_TOKEN_HEADER,
             CLOUD_AGENT_ID_HEADER,
             PREWARMED_SANDBOX_ID_HEADER,
@@ -492,80 +487,6 @@ impl BaseClient {
             }
         }
         Ok(options)
-    }
-
-    /// Notifies the application when an enabled IAP-backed request receives an IAP challenge.
-    pub fn observe_iap_challenge(&self, response: &http_client::Response) -> bool {
-        if self.iap_token_provider.is_none()
-            || !http_client::iap::is_iap_challenge(response.status(), response.headers())
-        {
-            return false;
-        }
-        log::warn!(
-            "Received IAP challenge (status {}); notifying IapManager",
-            response.status()
-        );
-        if let Err(error) = self.send_auth_event(AuthEvent::IapChallengeReceived) {
-            log::warn!("Failed to enqueue IapChallengeReceived event: {error}");
-        }
-        true
-    }
-
-    /// Wraps an eventsource stream so IAP challenges notify the application without changing the
-    /// original stream result or reconnecting it.
-    pub fn wrap_eventsource_with_iap_detection(
-        &self,
-        stream: http_client::EventSourceStream,
-    ) -> http_client::EventSourceStream {
-        if self.iap_token_provider.is_none() {
-            return stream;
-        }
-        let event_sender = self.event_sender();
-        let wrapped = stream.map(move |event| {
-            if let Err(reqwest_eventsource::Error::InvalidStatusCode(status, ref response)) = event
-                && http_client::iap::is_iap_challenge(status, response.headers())
-            {
-                log::warn!(
-                    "Received IAP challenge on eventsource (status {status}); notifying IapManager"
-                );
-                if let Err(error) = event_sender.try_send(AuthEvent::IapChallengeReceived) {
-                    log::warn!(
-                        "Failed to enqueue IapChallengeReceived event from eventsource: {error}"
-                    );
-                }
-            }
-            event
-        });
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                wrapped.boxed_local()
-            } else {
-                wrapped.boxed()
-            }
-        }
-    }
-
-    /// Inspects a WebSocket handshake error for an IAP challenge and notifies the application.
-    #[cfg(not(target_family = "wasm"))]
-    pub fn report_ws_iap_challenge(&self, error: &anyhow::Error) {
-        if self.iap_token_provider.is_none() || !crate::iap::ws_connect_is_iap_challenge(error) {
-            return;
-        }
-        log::warn!("Received IAP challenge on websocket handshake; notifying IapManager");
-        if let Err(error) = self.send_auth_event(AuthEvent::IapChallengeReceived) {
-            log::warn!("Failed to enqueue IapChallengeReceived: {error}");
-        }
-    }
-
-    #[cfg(target_family = "wasm")]
-    pub fn report_ws_iap_challenge(&self, _error: &anyhow::Error) {}
-
-    /// Returns the current IAP proxy authorization header for transports outside the HTTP client.
-    pub fn iap_proxy_auth_header(&self) -> Option<(&'static str, String)> {
-        self.iap_token_provider
-            .as_ref()?
-            .cached_token()
-            .map(|token| http_client::iap::proxy_auth_header(&token))
     }
 }
 

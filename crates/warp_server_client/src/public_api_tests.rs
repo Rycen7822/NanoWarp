@@ -13,7 +13,6 @@ use crate::base_client::{
     AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_HEADER, AuthenticatedGraphqlConfig, BaseClient,
     CLOUD_AGENT_ID_HEADER, GraphqlRoutingConfig,
 };
-struct EmptyIapTokenProvider;
 
 #[test]
 fn presigned_download_keeps_api_context_off_storage() {
@@ -33,7 +32,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         "x-warp-os-name",
         "x-warp-os-version",
         "x-warp-os-linux-kernel-version",
-        "x-warp-traceparent",
         "authorization",
         "proxy-authorization",
         "cookie",
@@ -61,7 +59,7 @@ fn presigned_download_keeps_api_context_off_storage() {
             .match_header(CLOUD_AGENT_ID_HEADER, "ambient-task")
             .match_header(AMBIENT_WORKLOAD_TOKEN_HEADER, "test-workload-token")
             .match_header("cookie", "session=test-default-cookie")
-            .match_header("proxy-authorization", "Bearer test-default-iap")
+            .match_header("proxy-authorization", "Bearer test-default-proxy")
             .match_header("x-test-client-default", "api-only")
             .with_status(200)
             .with_body(serde_json::json!({"url": url}).to_string())
@@ -72,7 +70,7 @@ fn presigned_download_keeps_api_context_off_storage() {
     let mut defaults = http::HeaderMap::new();
     for (name, value) in [
         ("authorization", "Bearer test-default-auth"),
-        ("proxy-authorization", "Bearer test-default-iap"),
+        ("proxy-authorization", "Bearer test-default-proxy"),
         ("cookie", "session=test-default-cookie"),
         ("x-warp-client-id", "test-default-client"),
         ("x-warp-client-version", "test-default-version"),
@@ -101,7 +99,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         Some("cloud-mode".into()),
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig::default(),
-        None,
     );
     client.set_ambient_workload_token_for_test("test-workload-token".into(), None);
     client.set_ambient_agent_task_id(Some("ambient-task".into()));
@@ -119,20 +116,13 @@ fn presigned_download_keeps_api_context_off_storage() {
     storage_request.assert();
 }
 
-impl http_client::iap::IapTokenProvider for EmptyIapTokenProvider {
-    fn cached_token(&self) -> Option<String> {
-        None
-    }
-}
-
-fn base_client(observe_iap_challenges: bool) -> (BaseClient, async_channel::Receiver<AuthEvent>) {
-    base_client_with_auth(AuthState::new_for_test(), None, observe_iap_challenges)
+fn base_client() -> (BaseClient, async_channel::Receiver<AuthEvent>) {
+    base_client_with_auth(AuthState::new_for_test(), None)
 }
 
 fn base_client_with_auth(
     auth_state: AuthState,
     agent_source: Option<String>,
-    observe_iap_challenges: bool,
 ) -> (BaseClient, async_channel::Receiver<AuthEvent>) {
     let (event_sender, event_receiver) = async_channel::unbounded();
     let client = BaseClient::new(
@@ -143,9 +133,6 @@ fn base_client_with_auth(
         agent_source,
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig::default(),
-        observe_iap_challenges.then(|| {
-            Arc::new(EmptyIapTokenProvider) as Arc<dyn http_client::iap::IapTokenProvider>
-        }),
     );
     client.set_ambient_workload_token_for_test("test-workload-token".to_string(), None);
     (client, event_receiver)
@@ -161,7 +148,7 @@ fn public_api_get_deserializes_successful_response() {
             .with_body(r#"{"value":"success"}"#)
             .create()
     };
-    let (base_client, _) = base_client(false);
+    let (base_client, _) = base_client();
 
     let response =
         block_on(base_client.get_public_api::<serde_json::Value>("test/success")).unwrap();
@@ -182,7 +169,7 @@ fn public_api_get_sends_bearer_auth() {
     };
     let auth_state = AuthState::new_logged_out_for_test();
     auth_state.set_remote_server_bearer_token("bearer-token".to_string());
-    let (base_client, _) = base_client_with_auth(auth_state, None, false);
+    let (base_client, _) = base_client_with_auth(auth_state, None);
 
     block_on(base_client.get_public_api::<serde_json::Value>("test/bearer-auth")).unwrap();
 }
@@ -199,11 +186,8 @@ fn public_api_get_inherits_ambient_headers() {
             .with_body(r#"{"value":"success"}"#)
             .create()
     };
-    let (base_client, _) = base_client_with_auth(
-        AuthState::new_for_test(),
-        Some("cloud-mode".to_string()),
-        false,
-    );
+    let (base_client, _) =
+        base_client_with_auth(AuthState::new_for_test(), Some("cloud-mode".to_string()));
     base_client.set_ambient_agent_task_id(Some("ambient-task".to_string()));
 
     block_on(base_client.get_public_api::<serde_json::Value>("test/ambient-headers")).unwrap();
@@ -219,7 +203,7 @@ fn ordinary_public_api_failure_preserves_shared_status_error() {
             .with_body(r#"{"error":"request failed"}"#)
             .create()
     };
-    let (base_client, event_receiver) = base_client(false);
+    let (base_client, event_receiver) = base_client();
 
     let error =
         block_on(base_client.get_public_api::<serde_json::Value>("test/failure")).unwrap_err();
@@ -258,7 +242,7 @@ fn platform_error_problem_response_preserves_structured_fields() {
             )
             .create()
     };
-    let (base_client, _) = base_client(false);
+    let (base_client, _) = base_client();
 
     let error = block_on(base_client.get_public_api::<serde_json::Value>("test/platform-error"))
         .unwrap_err();
@@ -293,52 +277,6 @@ fn platform_error_problem_response_preserves_structured_fields() {
     assert_eq!(platform_error.metrics_category, None);
     assert_eq!(platform_error.trace_id.as_deref(), Some("0123456789abcdef"));
 }
-#[test]
-fn iap_challenge_failure_emits_event_when_observation_is_enabled() {
-    let _request = {
-        let mut server = ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent/identities")
-            .with_status(401)
-            .with_header(http_client::iap::IAP_GENERATED_RESPONSE_HEADER, "true")
-            .with_body(r#"{"error":"IAP challenge"}"#)
-            .create()
-    };
-    let (base_client, event_receiver) = base_client(true);
-
-    let error =
-        block_on(base_client.get_public_api::<serde_json::Value>("agent/identities")).unwrap_err();
-
-    assert!(error.to_string().contains("IAP challenge"));
-    assert!(
-        error
-            .chain()
-            .any(|cause| cause.downcast_ref::<HttpStatusError>().is_some())
-    );
-    assert!(matches!(
-        event_receiver.try_recv().unwrap(),
-        AuthEvent::IapChallengeReceived
-    ));
-}
-
-#[test]
-fn iap_challenge_failure_emits_no_event_when_observation_is_disabled() {
-    let _request = {
-        let mut server = ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent/identities")
-            .with_status(401)
-            .with_header(http_client::iap::IAP_GENERATED_RESPONSE_HEADER, "true")
-            .with_body(r#"{"error":"IAP challenge"}"#)
-            .create()
-    };
-    let (base_client, event_receiver) = base_client(false);
-
-    block_on(base_client.get_public_api::<serde_json::Value>("agent/identities")).unwrap_err();
-
-    assert!(event_receiver.try_recv().is_err());
-}
-
 #[test]
 fn shared_status_error_actionability_ignores_retryable_client_failures() {
     let error = anyhow::Error::new(HttpStatusError::new(429, "retry later".to_string()))

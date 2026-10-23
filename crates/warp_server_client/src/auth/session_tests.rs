@@ -463,7 +463,7 @@ fn full_event_channel_eventually_delivers_needs_reauth() {
     auth_state.set_credentials(Some(expired_firebase_credentials("refresh-token")));
     let (event_sender, event_receiver) = async_channel::bounded(1);
     event_sender
-        .try_send(AuthEvent::IapChallengeReceived)
+        .try_send(AuthEvent::StagingAccessBlocked)
         .unwrap();
     let mut session = AuthSession::new(
         Arc::new(http_client::Client::new()),
@@ -481,7 +481,7 @@ fn full_event_channel_eventually_delivers_needs_reauth() {
     event_ready.wait();
     assert!(matches!(
         event_receiver.try_recv().unwrap(),
-        AuthEvent::IapChallengeReceived
+        AuthEvent::StagingAccessBlocked
     ));
     assert!(refresh.join().unwrap().is_err());
     assert!(matches!(
@@ -513,7 +513,7 @@ fn cancelled_reauth_delivery_is_retried_by_later_caller() {
     auth_state.set_credentials(Some(expired_firebase_credentials("refresh-token")));
     let (event_sender, event_receiver) = async_channel::bounded(1);
     event_sender
-        .try_send(AuthEvent::IapChallengeReceived)
+        .try_send(AuthEvent::StagingAccessBlocked)
         .unwrap();
     let mut session = AuthSession::new(
         Arc::new(http_client::Client::new()),
@@ -539,7 +539,7 @@ fn cancelled_reauth_delivery_is_retried_by_later_caller() {
     assert!(cancelled_refresh.join().unwrap().is_err());
     assert!(matches!(
         event_receiver.try_recv().unwrap(),
-        AuthEvent::IapChallengeReceived
+        AuthEvent::StagingAccessBlocked
     ));
 
     let later_refresh = {

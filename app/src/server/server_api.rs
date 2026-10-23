@@ -44,7 +44,6 @@ use warp_server_client::base_client::{
     AmbientHeaderPolicy, AuthenticatedGraphqlConfig, BaseClient, GraphqlRoutingConfig,
     HeaderOverride, TEAM_UID_HEADER,
 };
-use warp_server_client::iap::{IapManager, IapState};
 use warp_server_client::network_logging::NetworkLogModel;
 use warpui::r#async::BoxFuture;
 use warpui::{Entity, ModelContext, SingletonEntity};
@@ -442,15 +441,10 @@ impl ServerApi {
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
         agent_source: Option<ai::AgentSource>,
-        iap_state: Option<Arc<IapState>>,
         ctx: &mut ModelContext<ServerApiProvider>,
     ) -> Self {
         let mut client = http_client::Client::new();
         let mut external_client = http_client::Client::new_external();
-        let iap_token_provider = iap_state.map(|state| {
-            client.set_iap_token_provider(state.clone());
-            state as Arc<dyn http_client::iap::IapTokenProvider>
-        });
         let mut telemetry_api = TelemetryApi::new();
         if ContextFlag::NetworkLogConsole.is_enabled() {
             NetworkLogModel::handle(ctx).update(ctx, |model, model_ctx| {
@@ -466,7 +460,6 @@ impl ServerApi {
             auth_state,
             event_sender,
             agent_source,
-            iap_token_provider,
             telemetry_api,
         )
     }
@@ -477,7 +470,6 @@ impl ServerApi {
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
         agent_source: Option<ai::AgentSource>,
-        iap_token_provider: Option<Arc<dyn http_client::iap::IapTokenProvider>>,
         telemetry_api: TelemetryApi,
     ) -> Self {
         let graphql_routing = GraphqlRoutingConfig {
@@ -495,7 +487,6 @@ impl ServerApi {
             agent_source.map(|source| source.as_str().to_string()),
             graphql_routing,
             authenticated_graphql,
-            iap_token_provider,
         ));
 
         Self {
@@ -517,7 +508,6 @@ impl ServerApi {
             auth_state,
             tx,
             None,
-            None,
             TelemetryApi::new(),
         )
     }
@@ -536,7 +526,6 @@ impl ServerApi {
             Arc::new(http_client::Client::new_external()),
             auth_state,
             event_sender,
-            None,
             None,
             TelemetryApi::new(),
         )
@@ -677,7 +666,7 @@ impl ServerApi {
             request = request.header(name, value);
         }
 
-        Ok(self.wrap_eventsource_with_iap_detection(request.eventsource()))
+        Ok(request.eventsource())
     }
 
     /// Opens an SSE stream against the ancestor-scoped agent event endpoint.
@@ -716,7 +705,7 @@ impl ServerApi {
             request = request.header(name, value);
         }
 
-        Ok(self.wrap_eventsource_with_iap_detection(request.eventsource()))
+        Ok(request.eventsource())
     }
 
     pub async fn stream_agent_events_for_task(
@@ -750,7 +739,7 @@ impl ServerApi {
             request = request.header(name, value);
         }
 
-        Ok(self.wrap_eventsource_with_iap_detection(request.eventsource()))
+        Ok(request.eventsource())
     }
 
     /// Sends a POST request to a public API endpoint and returns the raw response on success.
@@ -802,7 +791,6 @@ impl ServerApi {
         if response.status().is_success() {
             Ok(response)
         } else {
-            self.observe_iap_challenge(&response);
             Err(Self::error_from_response(response).await)
         }
     }
@@ -836,7 +824,6 @@ impl ServerApi {
             .await
             .with_context(|| format!("Failed to send API request to {url}"))?;
         if !response.status().is_success() {
-            self.observe_iap_challenge(&response);
             return Err(Self::error_from_response(response).await);
         }
 
@@ -1132,7 +1119,6 @@ impl ServerApi {
         if response.status().is_success() {
             Ok(())
         } else {
-            self.observe_iap_challenge(&response);
             Err(Self::error_from_response(response).await)
         }
     }
@@ -1385,10 +1371,6 @@ impl ServerApi {
             .send()
             .await?;
 
-        if !res.status().is_success() {
-            self.observe_iap_challenge(&res);
-        }
-
         match res.status() {
             StatusCode::OK => {
                 let time_response: TimeResponse = res.json().await?;
@@ -1459,9 +1441,6 @@ impl ServerApi {
         }
 
         let response = request_builder.send().await?;
-        if !response.status().is_success() {
-            self.observe_iap_challenge(&response);
-        }
         let versions: ChannelVersions = response.json().await?;
         log::info!("Received channel versions from Warp server: {versions}");
         Ok(versions)
@@ -1481,18 +1460,11 @@ impl ServerApiProvider {
     pub fn new(
         auth_state: Arc<AuthState>,
         agent_source: Option<ai::AgentSource>,
-        iap_state: Option<Arc<IapState>>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         let (event_sender, event_receiver) = async_channel::bounded(10);
 
-        let server_api = ServerApi::new(
-            auth_state.clone(),
-            event_sender,
-            agent_source,
-            iap_state,
-            ctx,
-        );
+        let server_api = ServerApi::new(auth_state.clone(), event_sender, agent_source, ctx);
 
         ctx.spawn_stream_local(
             event_receiver,
@@ -1513,10 +1485,6 @@ impl ServerApiProvider {
                         AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
                             auth_manager.set_needs_reauth(true, ctx);
                         });
-                    }
-                    AuthEvent::IapChallengeReceived => {
-                        IapManager::handle(ctx)
-                            .update(ctx, |manager, ctx| manager.handle_challenge(ctx));
                     }
                     // Re-emit the event for subscribers.
                     // TODO: we probably want a different type for the event emitted to subscribers

@@ -34,7 +34,6 @@ pub fn main() -> Result<()> {
                 prewarmed_sandbox_control_url: None,
                 rtc_server_url: "ws://192.0.2.0:9/graphql/v2".into(),
                 session_sharing_server_url: None,
-                iap_config: None,
             },
             oz_config: OzConfig {
                 // Use an IP in the IANA testing range, with the TCP discard port, to

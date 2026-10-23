@@ -77,7 +77,7 @@ pub async fn generate_multi_agent_output(
         request_builder = request_builder.header(TEAM_UID_HEADER, team_uid);
     }
 
-    let raw_stream = client.wrap_eventsource_with_iap_detection(request_builder.eventsource());
+    let raw_stream = request_builder.eventsource();
     let output_stream = raw_stream.filter_map(|event| async {
         match event {
             Ok(reqwest_eventsource::Event::Message(message_event)) => {
