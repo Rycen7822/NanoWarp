@@ -44,14 +44,12 @@ use crate::notebooks::telemetry::NotebookTelemetryAction;
 use crate::notebooks::{NotebookId, NotebookLocation};
 use crate::pane_group::PaneDragDropLocation;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
-use crate::server::block::DisplaySetting;
 use crate::server::ids::{ObjectUid, ServerId};
 use crate::settings::AgentModeCodingPermissionsType;
 use crate::settings::import::config::ParsedTerminalSetting;
 use crate::settings::import::model::TerminalType;
 use crate::settings_view::TeamsInviteOption;
 use crate::tab::TabTelemetryAction;
-use crate::terminal::ShareBlockType;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::TelemetryInputSuggestionsMode;
 use crate::terminal::model::block::BlockId;
@@ -1104,7 +1102,6 @@ pub enum TelemetryEvent {
     },
     /// Copy command, output or both for some number of blocks.
     ContextMenuCopy(BlockEntity, BlockSelectionCardinality),
-    ContextMenuOpenShareModal(BlockSelectionCardinality),
     ContextMenuFindWithinBlocks(BlockSelectionCardinality),
     ContextMenuCopyPrompt {
         part: PromptPart,
@@ -1124,13 +1121,6 @@ pub enum TelemetryEvent {
     },
     ReinputCommands(BlockSelectionCardinality),
     JumpToPreviousCommand,
-    CopyBlockSharingLink(ShareBlockType),
-    GenerateBlockSharingLink {
-        share_type: ShareBlockType,
-        display_setting: DisplaySetting,
-        show_prompt: bool,
-        redact_secrets: bool,
-    },
     BlockSelection(BlockSelectionDetails),
     BootstrappingSlow(BootstrappingInfo),
     BootstrappingSlowContents(SlowBootstrapInfo),
@@ -2505,9 +2495,6 @@ impl TelemetryEvent {
             TelemetryEvent::ContextMenuFindWithinBlocks(cardinality) => {
                 Some(json!({ "cardinality": cardinality }))
             }
-            TelemetryEvent::ContextMenuOpenShareModal(cardinality) => {
-                Some(json!({ "cardinality": cardinality }))
-            }
             TelemetryEvent::ContextMenuCopyPrompt { part } => Some(json!({ "part": part })),
             TelemetryEvent::ReinputCommands(cardinality) => {
                 Some(json!({ "cardinality": cardinality }))
@@ -2780,17 +2767,6 @@ impl TelemetryEvent {
             }
             TelemetryEvent::ExportObject(object_type) => {
                 Some(json!({ "object_type": object_type }))
-            }
-            TelemetryEvent::GenerateBlockSharingLink {
-                share_type,
-                display_setting,
-                show_prompt,
-                redact_secrets,
-            } => Some(
-                json!({"share_type": share_type, "display_setting": display_setting, "show_prompt": show_prompt, "redact_secrets": redact_secrets}),
-            ),
-            TelemetryEvent::CopyBlockSharingLink(share_type) => {
-                Some(json!({ "share_type": share_type }))
             }
             TelemetryEvent::PageUpDownInEditorPressed {
                 is_empty_editor,
@@ -3857,7 +3833,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeRewindExecuted { .. }
             | TelemetryEvent::ConfirmSuggestion { .. }
             | TelemetryEvent::ContextMenuCopy(_, _)
-            | TelemetryEvent::ContextMenuOpenShareModal(_)
             | TelemetryEvent::ContextMenuFindWithinBlocks(_)
             | TelemetryEvent::ContextMenuCopyPrompt { .. }
             | TelemetryEvent::ContextMenuToggleGitPromptDirtyIndicator { .. }
@@ -3866,8 +3841,6 @@ impl TelemetryEvent {
             | TelemetryEvent::PromptEdited { .. }
             | TelemetryEvent::ReinputCommands(_)
             | TelemetryEvent::JumpToPreviousCommand
-            | TelemetryEvent::CopyBlockSharingLink(_)
-            | TelemetryEvent::GenerateBlockSharingLink { .. }
             | TelemetryEvent::BlockSelection(_)
             | TelemetryEvent::BootstrappingSlow(_)
             | TelemetryEvent::SessionAbandonedBeforeBootstrap { .. }
@@ -4323,7 +4296,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::Login => EnablementState::Always,
             Self::ConfirmSuggestion => EnablementState::Always,
             Self::ContextMenuCopy => EnablementState::Always,
-            Self::ContextMenuOpenShareModal => EnablementState::Always,
             Self::ContextMenuFindWithinBlocks => EnablementState::Always,
             Self::ContextMenuCopyPrompt => EnablementState::Always,
             Self::ContextMenuToggleGitPromptDirtyIndicator => EnablementState::Always,
@@ -4332,8 +4304,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PromptEdited => EnablementState::Always,
             Self::ReinputCommands => EnablementState::Always,
             Self::JumpToPreviousCommand => EnablementState::Always,
-            Self::CopyBlockSharingLink => EnablementState::Always,
-            Self::GenerateBlockSharingLink => EnablementState::Always,
             Self::BlockSelection => EnablementState::Always,
             Self::BootstrappingSlow => EnablementState::Always,
             Self::BootstrappingSlowContents => EnablementState::Always,
@@ -4704,10 +4674,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::LoginLaterConfirmationButtonClicked => "Login Later Confirmation Button Clicked",
             Self::JumpToPreviousCommand => "Jumped to Previous Command",
             Self::ContextMenuFindWithinBlocks => "Context Menu: Find Within Blocks",
-            Self::ContextMenuOpenShareModal => "Context Menu: Initiate Block Sharing",
             Self::ContextMenuCopy => "Context Menu Copy",
-            Self::CopyBlockSharingLink => "Copy Block Sharing Link",
-            Self::GenerateBlockSharingLink => "Generate Block Sharing Link",
             Self::BlockSelection => "Block Selection",
             Self::BootstrappingSlow => "Bootstrapping Slow",
             Self::BootstrappingSlowContents => "Bootstrap Slow Contents",
@@ -5197,7 +5164,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::ConfirmSuggestion => "Accepted tab completion suggestion",
             Self::ContextMenuCopy => "Clicked \"Copy\" in context menu",
-            Self::ContextMenuOpenShareModal => "Opened \"Share\" modal via context menu",
             Self::ContextMenuFindWithinBlocks => "Clicked \"find within blocks\" in context menu",
             Self::ContextMenuCopyPrompt => "Clicked  \"Copy Prompt\" in context menu",
             Self::ContextMenuToggleGitPromptDirtyIndicator => {
@@ -5208,8 +5174,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PromptEdited => "Edited the prompt using the built-in prompt editor",
             Self::ReinputCommands => "Clicked \"reinput commands\" in context menu",
             Self::JumpToPreviousCommand => "Jumped to a previous command",
-            Self::CopyBlockSharingLink => "Clicked \"Share block...\" in context menu",
-            Self::GenerateBlockSharingLink => "Generated Block sharing link",
             Self::BlockSelection => "Selected Block",
             Self::BootstrappingSlow => "Slow bootstrap on session startup",
             Self::BootstrappingSlowContents => {

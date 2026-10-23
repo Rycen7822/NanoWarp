@@ -62,7 +62,6 @@ pub mod safe_mode_settings;
 mod secret_regex_updater;
 pub mod session_settings;
 pub mod settings;
-mod share_block_modal;
 pub mod shared_session;
 mod shell_launch_state;
 pub mod shell_recovery;
@@ -85,7 +84,6 @@ pub use block_list_settings::*;
 pub use mock_terminal_manager::MockTerminalManager;
 use model_events::{ModelEvent, ModelEventDispatcher};
 pub use secret_regex_updater::CustomSecretRegexUpdater;
-pub use share_block_modal::{ShareBlockModal, ShareBlockModalEvent, ShareBlockType};
 pub use shell_launch_state::ShellLaunchState;
 pub use terminal_manager::TerminalManager;
 pub use view::{
@@ -105,7 +103,6 @@ use crate::settings::SelectionSettings;
 pub const PTY_READS_BROADCAST_CHANNEL_SIZE: usize = 1024;
 
 pub fn init(app: &mut AppContext) {
-    share_block_modal::init(app);
     view::init(app);
 }
 

@@ -992,19 +992,6 @@ fn handle_terminal_view_event(
                     terminal_pane.delete_blocks(ctx);
                 }
             }
-            Event::ShareModalOpened(block_id) => {
-                let Some(session) = group.terminal_view_from_pane_id(pane_id, ctx) else {
-                    return;
-                };
-                let model = session.read(ctx, |view, _| view.model.clone());
-
-                group.terminal_with_open_share_block_modal = Some(terminal_pane_id);
-                group.share_block_modal.update(ctx, |share_modal, ctx| {
-                    share_modal.open_with_model_update(model, *block_id, ctx);
-                    ctx.notify();
-                });
-                ctx.notify();
-            }
             Event::SendNotification(notification) => {
                 ctx.emit(pane_group::Event::SendNotification {
                     notification: notification.clone(),
