@@ -3219,7 +3219,6 @@ fn exchange_echoing_message(message_id: &str) -> AIAgentExchange {
         request_cost: None,
         coding_model_id: LLMId::from("test-model"),
         cli_agent_model_id: LLMId::from("test-model"),
-        computer_use_model_id: LLMId::from("test-model"),
         response_initiator: None,
     }
 }

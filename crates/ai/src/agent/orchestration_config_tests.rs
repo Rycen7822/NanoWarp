@@ -43,7 +43,6 @@ fn make_request(model: &str, harness: &str, remote: bool) -> RunAgentsRequest {
             RunAgentsExecutionMode::Remote {
                 environment_id: "env-1".to_string(),
                 worker_host: "warp".to_string(),
-                computer_use_enabled: false,
                 runner_id: String::new(),
             }
         } else {
@@ -185,21 +184,6 @@ fn proto_round_trip_config_remote_with_runner() {
     let proto = config.to_proto();
     let round_tripped = OrchestrationConfig::from_proto(&proto);
     assert_eq!(config, round_tripped);
-}
-
-#[test]
-fn computer_use_not_in_match_check() {
-    let config = make_config("auto", "oz", true);
-    let mut request = make_request("auto", "oz", true);
-    if let RunAgentsExecutionMode::Remote {
-        ref mut computer_use_enabled,
-        ..
-    } = request.execution_mode
-    {
-        *computer_use_enabled = true;
-    }
-    // computer_use_enabled differs but should still match
-    assert!(matches_active_config(&request, &config));
 }
 
 #[test]

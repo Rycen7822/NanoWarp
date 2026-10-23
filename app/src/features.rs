@@ -295,12 +295,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::V4AFileDiffs,
         #[cfg(feature = "interactive_conversation_management_view")]
         FeatureFlag::InteractiveConversationManagementView,
-        #[cfg(feature = "agent_mode_computer_use")]
-        FeatureFlag::AgentModeComputerUse,
-        #[cfg(feature = "local_computer_use")]
-        FeatureFlag::LocalComputerUse,
-        #[cfg(feature = "background_computer_use")]
-        FeatureFlag::BackgroundComputerUse,
         #[cfg(feature = "team_api_keys")]
         FeatureFlag::TeamApiKeys,
         #[cfg(feature = "named_agents")]
@@ -431,8 +425,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellWidgetHandoff,
         #[cfg(feature = "history_search_ranking_v2")]
         FeatureFlag::HistorySearchRankingV2,
-        #[cfg(feature = "stored_screenshots")]
-        FeatureFlag::StoredScreenshots,
         #[cfg(feature = "cloud_agent_shell_respawn")]
         FeatureFlag::CloudAgentShellRespawn,
         #[cfg(feature = "acp_harness")]

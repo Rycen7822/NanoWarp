@@ -207,8 +207,7 @@ fn models_by_feature_with_model(model_id: &str) -> ModelsByFeature {
     ModelsByFeature {
         agent_mode: available.clone(),
         coding: available.clone(),
-        cli_agent: Some(available.clone()),
-        computer_use: Some(available),
+        cli_agent: Some(available),
     }
 }
 

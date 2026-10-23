@@ -335,7 +335,6 @@ fn environment_snapshot_shows_personal_and_current_team_environments() {
             &RunAgentsExecutionMode::Remote {
                 environment_id: current_team_id.uid(),
                 worker_host: "warp".to_string(),
-                computer_use_enabled: false,
                 runner_id: String::new(),
             },
         );

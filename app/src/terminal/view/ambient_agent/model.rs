@@ -19,9 +19,6 @@ use crate::ai::ambient_agents::telemetry::CloudAgentTelemetryEvent;
 use crate::ai::ambient_agents::{AgentSource, AmbientAgentTaskId};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
-use crate::ai::execution_profiles::{
-    CloudAgentComputerUseState, resolve_cloud_agent_computer_use_state,
-};
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::orchestration::{
@@ -857,7 +854,7 @@ impl AmbientAgentViewModel {
 
     /// Builds the default `AgentConfigSnapshot` for spawning a cloud agent from this pane.
     ///
-    /// Reads the user's preferred model, computer-use autonomy, optional self-hosted
+    /// Reads the user's preferred model, optional self-hosted
     /// host (`WARP_CLOUD_MODE_DEFAULT_HOST`), and the pane's currently-selected env
     /// and harness.
     pub(crate) fn build_default_spawn_config(
@@ -866,15 +863,6 @@ impl AmbientAgentViewModel {
         ctx: &AppContext,
     ) -> AgentConfigSnapshot {
         let selected_harness = self.selected_harness();
-        let computer_use_enabled = if selected_harness == Harness::Oz {
-            // If the harness is Oz, determine computer use based on workspace AI autonomy settings.
-            let CloudAgentComputerUseState { enabled, .. } =
-                resolve_cloud_agent_computer_use_state(scope, ctx);
-            Some(enabled)
-        } else {
-            None
-        };
-
         let oz_model = (selected_harness == Harness::Oz).then(|| {
             let prefs = LLMPreferences::as_ref(ctx);
             let active_id = &prefs
@@ -912,7 +900,6 @@ impl AmbientAgentViewModel {
         AgentConfigSnapshot {
             environment_id: self.environment_id.as_ref().map(|id| id.to_string()),
             model_id: oz_model,
-            computer_use_enabled,
             worker_host: self.worker_host.clone(),
             harness: third_party_harness,
             harness_auth_secrets,

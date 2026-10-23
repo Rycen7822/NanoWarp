@@ -23,9 +23,8 @@ use crate::agent::action_result::{
     EditDocumentsResult, FetchConversationResult, FileGlobResult, FileGlobV2Result, GrepResult,
     InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadMCPResourceResult,
     ReadShellCommandOutputResult, ReadSkillResult, RequestCommandOutputResult,
-    RequestComputerUseResult, RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult,
-    SendMessageToAgentResult, SuggestNewConversationResult,
-    TransferShellCommandControlToUserResult, UseComputerResult, WaitForEventsResult,
+    RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult, SendMessageToAgentResult,
+    SuggestNewConversationResult, TransferShellCommandControlToUserResult, WaitForEventsResult,
     WriteToLongRunningShellCommandResult,
 };
 use crate::agent::{AIAgentCitation, FileLocations};
@@ -126,15 +125,11 @@ pub enum AIAgentActionType {
         delay: Option<ShellCommandDelay>,
     },
 
-    UseComputer(UseComputerRequest),
-
     InsertCodeReviewComments {
         repo_path: PathBuf,
         comments: Vec<InsertReviewComment>,
         base_branch: Option<String>,
     },
-
-    RequestComputerUse(RequestComputerUseRequest),
 
     // AI requested to read a skill.
     ReadSkill(ReadSkillRequest),
@@ -205,7 +200,6 @@ pub enum RunAgentsExecutionMode {
     Remote {
         environment_id: String,
         worker_host: String,
-        computer_use_enabled: bool,
         /// Runner UID selecting the children's compute config (docker
         /// image, instance shape, setup commands). Empty means "no
         /// override" — fall back to the environment's default runner then
@@ -250,7 +244,6 @@ pub enum StartAgentExecutionMode {
         environment_id: String,
         skill_references: Vec<SkillReference>,
         model_id: String,
-        computer_use_enabled: bool,
         worker_host: String,
         harness_type: String,
         title: String,
@@ -338,14 +331,8 @@ impl AIAgentActionType {
             Self::ReadShellCommandOutput { .. } => AIAgentActionResultType::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::Cancelled,
             ),
-            Self::UseComputer(_) => {
-                AIAgentActionResultType::UseComputer(UseComputerResult::Cancelled)
-            }
             Self::InsertCodeReviewComments { .. } => {
                 AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
-            }
-            Self::RequestComputerUse(_) => {
-                AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Cancelled)
             }
             Self::ReadSkill(_) => AIAgentActionResultType::ReadSkill(ReadSkillResult::Cancelled),
             Self::FetchConversation { .. } => {
@@ -393,11 +380,9 @@ impl AIAgentActionType {
             Self::EditDocuments(_) => "Edit documents".to_string(),
             Self::CreateDocuments(_) => "Create documents".to_string(),
             Self::ReadShellCommandOutput { .. } => "Read shell command output".to_string(),
-            Self::UseComputer(_) => "Use computer".to_string(),
             Self::InsertCodeReviewComments { comments, .. } => {
                 format!("Insert {} code review comments", comments.len())
             }
-            Self::RequestComputerUse(_) => "Request computer use".to_string(),
             Self::ReadSkill(_) => "Read skill".to_string(),
             Self::FetchConversation { .. } => "Fetch conversation".to_string(),
             Self::SendMessageToAgent { subject, .. } => format!("Send message: {subject}"),
@@ -522,14 +507,6 @@ impl Display for AIAgentActionType {
                     "ReadShellCommandOutput (block id: {block_id}): with {delay} delay"
                 )
             }
-            AIAgentActionType::UseComputer(req) => {
-                write!(
-                    f,
-                    "UseComputer: {} actions, screenshot_params={:?}",
-                    req.actions.len(),
-                    req.screenshot_params
-                )
-            }
             AIAgentActionType::InsertCodeReviewComments { comments, .. } => {
                 let file_paths = comments
                     .iter()
@@ -546,9 +523,6 @@ impl Display for AIAgentActionType {
                     comments.len(),
                     file_paths
                 )
-            }
-            AIAgentActionType::RequestComputerUse(req) => {
-                write!(f, "RequestComputerUse: {}", req.task_summary)
             }
             AIAgentActionType::ReadSkill(req) => {
                 write!(f, "ReadSkill: {}", req.skill)
@@ -703,23 +677,6 @@ pub struct DocumentToCreate {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CreateDocumentsRequest {
     pub documents: Vec<DocumentToCreate>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct UseComputerRequest {
-    pub action_summary: String,
-    /// Each action carries the surface (screen or a specific window) it targets.
-    pub actions: Vec<computer_use::TargetedAction>,
-    /// If set, a screenshot will be captured after the actions are executed.
-    pub screenshot_params: Option<computer_use::ScreenshotParams>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct RequestComputerUseRequest {
-    /// A short summary of the task.
-    pub task_summary: String,
-    /// If set, a screenshot will be captured after the actions are executed.
-    pub screenshot_params: Option<computer_use::ScreenshotParams>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -414,7 +414,7 @@ fn is_restricted_ipv6(ip: Ipv6Addr) -> bool {
 pub struct CustomEndpointModel {
     pub name: String,
     pub alias: Option<String>,
-    /// Stable identifier used as `ModelConfig.{base,coding,cli_agent,computer_use_agent}` and
+    /// Stable identifier used as `ModelConfig.{base,coding,cli_agent}` and
     /// as the `CustomModelProviders.providers[*].models[*].config_key` on the request wire.
     /// Generated as a UUIDv4 at model creation.
     pub config_key: String,
@@ -1089,7 +1089,7 @@ impl ApiKeyManager {
     ///
     /// Emits one [`CustomModelProvider`] per configured [`CustomEndpoint`], each populated with
     /// all of its [`CustomEndpointModel`]s. The per-model `config_key` is what the server uses
-    /// to map a `ModelConfig.{base,coding,cli_agent,computer_use_agent}` selection back to a
+    /// to map a `ModelConfig.{base,coding,cli_agent}` selection back to a
     /// user-provided endpoint, so it MUST be the same UUID we store locally.
     ///
     /// Returns `None` when custom models should not be included or no endpoint has both a

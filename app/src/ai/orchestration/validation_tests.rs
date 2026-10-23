@@ -63,7 +63,6 @@ fn cloud() -> RunAgentsExecutionMode {
     RunAgentsExecutionMode::Remote {
         environment_id: "env-1".to_string(),
         worker_host: "warp".to_string(),
-        computer_use_enabled: false,
         runner_id: String::new(),
     }
 }
@@ -83,7 +82,6 @@ fn empty_environment_recommendation_uses_visible_environment_availability() {
     let mode = RunAgentsExecutionMode::Remote {
         environment_id: String::new(),
         worker_host: "warp".to_string(),
-        computer_use_enabled: false,
         runner_id: String::new(),
     };
 

@@ -274,11 +274,7 @@ fn validate_target(model_id: &str) -> Result<(), String> {
 /// Custom auto models may not route to these.
 pub fn is_auto_target(model_id: &str) -> bool {
     let id = model_id.trim();
-    id == "auto"
-        || id.starts_with("auto-")
-        || id == "cli-agent-auto"
-        || id == "computer-use-agent-auto"
-        || is_custom_router_id(id)
+    id == "auto" || id.starts_with("auto-") || id == "cli-agent-auto" || is_custom_router_id(id)
 }
 
 /// Returns whether an id is the `config_key`/`LLMId` of any custom model

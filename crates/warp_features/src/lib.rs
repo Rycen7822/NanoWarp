@@ -486,16 +486,6 @@ pub enum FeatureFlag {
     /// Enables loading conversations in the Agent Management View.
     InteractiveConversationManagementView,
 
-    /// Allows agent mode to use computer use tools.
-    AgentModeComputerUse,
-
-    /// Enables computer use functionality in local clients.
-    LocalComputerUse,
-
-    /// Enables background, per-window computer use: driving a specific window directly without
-    /// raising it or moving the cursor.  Currently only supported on macOS.
-    BackgroundComputerUse,
-
     /// Enables team API key creation in the API key management UI.
     TeamApiKeys,
 
@@ -795,11 +785,6 @@ pub enum FeatureFlag {
     /// fuzzy-match score against the whole query as a single pattern. Disabling this is a full
     /// return to the pre-APP-5650 history search behavior, not an approximation of it.
     HistorySearchRankingV2,
-
-    /// Advertises client support for server-issued task-message updates that
-    /// replace inline computer-use screenshot bytes with references to
-    /// Warp-managed object storage.
-    StoredScreenshots,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =
@@ -844,7 +829,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::FileAndDiffSetComments,
     FeatureFlag::FileGlobV2Warnings,
     FeatureFlag::SummarizationViaMessageReplacement,
-    FeatureFlag::LocalComputerUse,
     // These are enabled via 100% experiment on prod warp-server,
     // but we need to enable here for dogfood builds.
     FeatureFlag::CrossRepoContext,
@@ -866,7 +850,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::BoxDrawingGlyphs,
     FeatureFlag::WarpingModelName,
     FeatureFlag::LrcActivitySignal,
-    FeatureFlag::StoredScreenshots,
     FeatureFlag::PreviewUrlsMcp,
 ];
 

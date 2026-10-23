@@ -22,7 +22,6 @@ fn confirmation_preserves_metadata_defaults_and_child_overrides() {
         RunAgentsExecutionMode::Remote {
             environment_id: String::new(),
             worker_host: String::new(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     );
@@ -101,7 +100,6 @@ fn local_to_cloud_initializes_remote_with_empty_environment() {
     let RunAgentsExecutionMode::Remote {
         environment_id,
         worker_host,
-        computer_use_enabled,
         ..
     } = state.orchestration_config_state.execution_mode
     else {
@@ -109,7 +107,6 @@ fn local_to_cloud_initializes_remote_with_empty_environment() {
     };
     assert_eq!(environment_id, "");
     assert_eq!(worker_host, "warp");
-    assert!(!computer_use_enabled);
 }
 
 #[test]
@@ -119,7 +116,6 @@ fn cloud_to_local_drops_environment() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-1".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     ));
@@ -149,7 +145,6 @@ fn cloud_without_env_no_longer_disables_accept() {
         RunAgentsExecutionMode::Remote {
             environment_id: String::new(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     ));
@@ -170,7 +165,6 @@ fn cloud_with_opencode_disables_accept() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-1".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     ));
@@ -196,7 +190,6 @@ fn cloud_with_env_and_non_opencode_harness_allows_accept() {
             RunAgentsExecutionMode::Remote {
                 environment_id: "env-1".to_string(),
                 worker_host: "warp".to_string(),
-                computer_use_enabled: false,
                 runner_id: String::new(),
             },
         ));
@@ -230,7 +223,6 @@ fn set_environment_id_updates_remote() {
         RunAgentsExecutionMode::Remote {
             environment_id: "old".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     ));
@@ -252,7 +244,6 @@ fn set_runner_id_updates_remote_and_round_trips() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-1".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: String::new(),
         },
     ));
@@ -271,7 +262,6 @@ fn set_runner_id_updates_remote_and_round_trips() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-1".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: false,
             runner_id: "runner-9".to_string(),
         }
     );
@@ -297,7 +287,6 @@ fn to_request_round_trips_request_fields() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-2".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: true,
             runner_id: String::new(),
         },
         vec![
@@ -531,7 +520,6 @@ mod override_from_approved_config_tests {
             RunAgentsExecutionMode::Remote {
                 environment_id: "env-1".to_string(),
                 worker_host: "warp".to_string(),
-                computer_use_enabled: true,
                 runner_id: String::new(),
             },
         ));
@@ -548,52 +536,24 @@ mod override_from_approved_config_tests {
     }
 
     #[test]
-    fn preserves_computer_use_when_both_remote() {
+    fn overrides_environment_when_both_remote() {
         let mut state = RunAgentsEditState::from_request(&make_request(
             "oz",
             RunAgentsExecutionMode::Remote {
                 environment_id: "old-env".to_string(),
                 worker_host: "warp".to_string(),
-                computer_use_enabled: true,
                 runner_id: String::new(),
             },
         ));
         state
             .orchestration_config_state
             .override_from_approved_config(&remote_config("auto", "oz", "new-env"));
-        let RunAgentsExecutionMode::Remote {
-            environment_id,
-            computer_use_enabled,
-            ..
-        } = &state.orchestration_config_state.execution_mode
+        let RunAgentsExecutionMode::Remote { environment_id, .. } =
+            &state.orchestration_config_state.execution_mode
         else {
             panic!("expected Remote");
         };
         assert_eq!(environment_id, "new-env", "env should come from config");
-        assert!(
-            *computer_use_enabled,
-            "computer_use_enabled should be preserved from original request"
-        );
-    }
-
-    #[test]
-    fn does_not_carry_computer_use_from_local_to_remote() {
-        let mut state =
-            RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
-        state
-            .orchestration_config_state
-            .override_from_approved_config(&remote_config("auto", "oz", "env-1"));
-        let RunAgentsExecutionMode::Remote {
-            computer_use_enabled,
-            ..
-        } = &state.orchestration_config_state.execution_mode
-        else {
-            panic!("expected Remote");
-        };
-        assert!(
-            !*computer_use_enabled,
-            "computer_use_enabled should default to false when original was Local"
-        );
     }
 
     #[test]
@@ -617,28 +577,20 @@ fn local_to_cloud_idempotent_when_already_remote() {
         RunAgentsExecutionMode::Remote {
             environment_id: "env-1".to_string(),
             worker_host: "warp".to_string(),
-            computer_use_enabled: true,
             runner_id: String::new(),
         },
     ));
     state
         .orchestration_config_state
         .toggle_execution_mode_to_remote(true);
-    let RunAgentsExecutionMode::Remote {
-        environment_id,
-        computer_use_enabled,
-        ..
-    } = state.orchestration_config_state.execution_mode
+    let RunAgentsExecutionMode::Remote { environment_id, .. } =
+        state.orchestration_config_state.execution_mode
     else {
         panic!("expected Remote");
     };
     assert_eq!(
         environment_id, "env-1",
         "toggle to Remote when already Remote should not clobber env"
-    );
-    assert!(
-        computer_use_enabled,
-        "toggle to Remote when already Remote should not clobber computer_use"
     );
 }
 

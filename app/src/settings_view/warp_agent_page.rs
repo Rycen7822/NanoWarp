@@ -1810,13 +1810,6 @@ impl WarpAgentPageView {
         other_widgets.push(Box::new(ConversationLayoutPreferenceWidget));
         categories.push(Category::new("Other", other_widgets));
 
-        if FeatureFlag::AgentModeComputerUse.is_enabled() {
-            categories.push(Category::new(
-                "Experimental",
-                vec![Box::new(CloudAgentComputerUseWidget::default())],
-            ));
-        }
-
         let global_ai_switch_state = SwitchStateHandle::default();
         let global_ai_sign_up_button = MouseStateHandle::default();
         PageType::new_categorized(
@@ -1950,7 +1943,6 @@ pub enum WarpAgentPageAction {
     RefreshAwsBedrockCredentials,
     RefreshGeminiEnterpriseCredentials,
     ToggleGeminiEnterpriseCredentialsEnabled,
-    ToggleCloudAgentComputerUse,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAutoApproveBypassesCommandDenylist,
@@ -2153,16 +2145,6 @@ impl TypedActionView for WarpAgentPageView {
                     report_if_error!(
                         settings
                             .gemini_enterprise_credentials_enabled
-                            .toggle_and_save_value(ctx)
-                    );
-                });
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleCloudAgentComputerUse => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .cloud_agent_computer_use_enabled
                             .toggle_and_save_value(ctx)
                     );
                 });
@@ -3212,100 +3194,6 @@ impl SettingsWidget for AgentAttributionWidget {
 #[cfg(test)]
 #[path = "warp_agent_page_tests.rs"]
 mod tests;
-
-#[derive(Default)]
-struct CloudAgentComputerUseWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for CloudAgentComputerUseWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "oz cloud agent computer use orchestration multi-agent"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        use crate::ai::execution_profiles::{
-            CloudAgentComputerUseState, resolve_cloud_agent_computer_use_state,
-        };
-
-        let is_any_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
-
-        // Determine toggle state based on workspace autonomy setting and user preference
-        let CloudAgentComputerUseState {
-            enabled: is_checked,
-            is_forced_by_org,
-        } = {
-            let scope = UserWorkspaces::as_ref(app).team_context(&view.self_handle, app);
-            resolve_cloud_agent_computer_use_state(&scope, app)
-        };
-
-        // Toggle is disabled if forced by org settings OR if AI is globally disabled
-        let is_disabled = is_forced_by_org || !is_any_ai_enabled;
-
-        let ui_builder = appearance.ui_builder();
-        let toggle = if is_forced_by_org {
-            // Disabled by organization setting - show tooltip on hover
-            ui_builder
-                .switch(self.toggle.clone())
-                .check(is_checked)
-                .with_tooltip(TooltipConfig {
-                    text: "This option is enforced by your organization's settings and cannot be customized.".to_string(),
-                    styles: ui_builder.default_tool_tip_styles(),
-                })
-                .disable()
-                .build()
-                .finish()
-        } else if !is_any_ai_enabled {
-            // Disabled because AI is off globally - no tooltip needed
-            ui_builder
-                .switch(self.toggle.clone())
-                .check(is_checked)
-                .with_disabled(true)
-                .build()
-                .finish()
-        } else {
-            // Enabled - allow toggling
-            ui_builder
-                .switch(self.toggle.clone())
-                .check(is_checked)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(WarpAgentPageAction::ToggleCloudAgentComputerUse);
-                })
-                .finish()
-        };
-
-        let toggle_row = build_toggle_element(
-            render_body_item_label::<WarpAgentPageAction>(
-                "Computer use in Cloud Agents".to_string(),
-                Some(styles::header_font_color(!is_disabled, app)),
-                None,
-                LocalOnlyIconState::Hidden,
-                ToggleState::Enabled,
-                appearance,
-            ),
-            toggle,
-            appearance,
-            None,
-        );
-
-        Flex::column()
-            .with_child(toggle_row)
-            .with_child(render_ai_setting_description(
-                "Enable computer use in cloud agent conversations started from the Warp app.",
-                !is_disabled,
-                app,
-            ))
-            .finish()
-    }
-}
 
 /// Which action the SuperGrok (xAI) subscription row's button currently offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

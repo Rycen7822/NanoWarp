@@ -55,7 +55,6 @@ pub enum ArtifactButtonsRowEvent {
     OpenPlan { notebook_uid: NotebookId },
     CopyBranch { branch: String },
     OpenPullRequest { url: String },
-    ViewScreenshots { artifact_uids: Vec<String> },
     DownloadFile { artifact_uid: String },
 }
 
@@ -64,7 +63,6 @@ pub enum ArtifactButtonAction {
     OpenPlan { notebook_uid: NotebookId },
     CopyBranch { branch: String },
     OpenPullRequest { url: String },
-    ViewScreenshots { artifact_uids: Vec<String> },
     DownloadFile { artifact_uid: String },
 }
 
@@ -108,11 +106,6 @@ impl TypedActionView for ArtifactButtonsRow {
             ArtifactButtonAction::OpenPullRequest { url } => {
                 ArtifactButtonsRowEvent::OpenPullRequest { url: url.clone() }
             }
-            ArtifactButtonAction::ViewScreenshots { artifact_uids } => {
-                ArtifactButtonsRowEvent::ViewScreenshots {
-                    artifact_uids: artifact_uids.clone(),
-                }
-            }
             ArtifactButtonAction::DownloadFile { artifact_uid } => {
                 ArtifactButtonsRowEvent::DownloadFile {
                     artifact_uid: artifact_uid.clone(),
@@ -130,7 +123,6 @@ fn collect_buttons(
     ctx: &mut ViewContext<ArtifactButtonsRow>,
 ) -> Vec<ViewHandle<ActionButton>> {
     let mut buttons = Vec::new();
-    let mut screenshot_uids = Vec::new();
 
     for artifact in artifacts {
         match artifact {
@@ -170,13 +162,6 @@ fn collect_buttons(
                     }));
                 }
             }
-            Artifact::Screenshot {
-                artifact_uid,
-                mime_type: _,
-                description: _,
-            } => {
-                screenshot_uids.push(artifact_uid.clone());
-            }
             Artifact::File {
                 artifact_uid,
                 filepath,
@@ -193,13 +178,6 @@ fn collect_buttons(
             // actionable button in the artifact row.
             Artifact::ExternalReference { .. } => {}
         }
-    }
-
-    if !screenshot_uids.is_empty() {
-        let theme = theme.clone();
-        buttons.push(ctx.add_typed_action_view(move |_| {
-            make_screenshot_button("Screenshots".to_string(), screenshot_uids, theme)
-        }));
     }
 
     buttons
@@ -249,21 +227,6 @@ fn make_pr_button(
         "Open pull request",
         None,
         ArtifactButtonAction::OpenPullRequest { url },
-        theme,
-    )
-}
-
-fn make_screenshot_button(
-    label: String,
-    artifact_uids: Vec<String>,
-    theme: Arc<dyn ActionButtonTheme>,
-) -> ActionButton {
-    make_artifact_button(
-        label,
-        Icon::Image,
-        "View screenshots",
-        None,
-        ArtifactButtonAction::ViewScreenshots { artifact_uids },
         theme,
     )
 }

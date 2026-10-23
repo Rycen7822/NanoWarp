@@ -287,7 +287,6 @@ fn error_exchange(error: RenderableAIError) -> AIAgentExchange {
         request_cost: None,
         coding_model_id: LLMId::from("test-model"),
         cli_agent_model_id: LLMId::from("test-model"),
-        computer_use_model_id: LLMId::from("test-model"),
         response_initiator: None,
     }
 }

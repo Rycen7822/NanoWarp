@@ -19,9 +19,7 @@ use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent_management::notifications::item::NotificationSourceAgent;
 use crate::ai::agent_management::notifications::{NotificationCategory, NotificationItem};
 use crate::ai::agent_management::telemetry::{AgentManagementTelemetryEvent, ArtifactType};
-use crate::ai::artifacts::{
-    Artifact, ArtifactButtonsRow, ArtifactButtonsRowEvent, open_screenshot_lightbox,
-};
+use crate::ai::artifacts::{Artifact, ArtifactButtonsRow, ArtifactButtonsRowEvent};
 use crate::appearance::Appearance;
 use crate::send_telemetry_from_ctx;
 use crate::ui_components::icon_with_status::{IconWithStatusVariant, render_icon_with_status};
@@ -480,9 +478,6 @@ pub(crate) fn handle_notification_artifact_buttons_event(
                 ctx
             );
             ctx.open_url(url);
-        }
-        ArtifactButtonsRowEvent::ViewScreenshots { artifact_uids } => {
-            open_screenshot_lightbox(artifact_uids, ctx);
         }
         ArtifactButtonsRowEvent::DownloadFile { artifact_uid } => {
             send_telemetry_from_ctx!(

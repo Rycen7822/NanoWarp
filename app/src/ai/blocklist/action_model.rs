@@ -59,7 +59,6 @@ use crate::terminal::TerminalModel;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::workspaces::user_workspaces::TeamContextResolver;
-use crate::{TelemetryEvent, send_telemetry_from_ctx};
 
 /// The status of an action from an AI output.
 #[derive(Clone, Debug)]
@@ -238,9 +237,6 @@ pub struct BlocklistAIActionModel {
     /// In view-only mode, we never block on user acceptance and avoid any interactive controls.
     /// This is used for agent session sharing to avoid any tools blocking on the viewer's acceptance.
     is_view_only: bool,
-
-    /// The ID of the ambient agent task which owns this action model, if any.
-    ambient_agent_task_id: Option<crate::ai::ambient_agents::AmbientAgentTaskId>,
 }
 
 impl BlocklistAIActionModel {
@@ -303,7 +299,6 @@ impl BlocklistAIActionModel {
             terminal_view_id,
             pending_preprocessed_actions: Default::default(),
             is_view_only: false,
-            ambient_agent_task_id: None,
         }
     }
 
@@ -399,7 +394,6 @@ impl BlocklistAIActionModel {
         id: Option<crate::ai::ambient_agents::AmbientAgentTaskId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.ambient_agent_task_id = id;
         self.executor.update(ctx, |executor, ctx| {
             executor.set_ambient_agent_task_id(id, ctx);
         });
@@ -1146,24 +1140,6 @@ impl BlocklistAIActionModel {
         reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
     ) {
-        if matches!(
-            pending_action.action,
-            AIAgentActionType::RequestComputerUse(_)
-        ) {
-            let server_conversation_id = BlocklistAIHistoryModel::as_ref(ctx)
-                .conversation(&conversation_id)
-                .and_then(|c| c.server_conversation_token())
-                .map(|t| t.as_str().to_string());
-            send_telemetry_from_ctx!(
-                TelemetryEvent::ComputerUseCancelled {
-                    client_conversation_id: conversation_id,
-                    server_conversation_id,
-                    ambient_agent_task_id: self.ambient_agent_task_id,
-                },
-                ctx
-            );
-        }
-
         let cancelled_result = pending_action.action.cancelled_result();
         send_run_agents_completed_telemetry(
             conversation_id,

@@ -23,7 +23,6 @@
         "mcpServersJson": "{\"linear\":{\"warp_id\":\"7f1d2c3b-4a59-4e6f-8b70-1c2d3e4f5a6b\"}}",
         "skills": ["warpdotdev/warp:review"],
         "factorySkillDirs": [".agents/skills"],
-        "computerUseEnabled": true,
         "providers": {
           "gcp": {
             "projectNumber": "123456789",

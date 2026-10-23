@@ -10,7 +10,6 @@ pub(super) mod read_documents;
 pub(super) mod read_files;
 pub(super) mod read_mcp_resource;
 pub(super) mod read_skill;
-pub(super) mod request_computer_use;
 pub(super) mod request_file_edits;
 pub(super) mod run_agents;
 pub(super) mod search_codebase;
@@ -18,7 +17,6 @@ pub(super) mod send_message;
 pub(super) mod shell_command;
 pub(super) mod start_agent;
 pub(super) mod suggest_new_conversation;
-pub(super) mod use_computer;
 pub(super) mod wait_for_events;
 
 use std::any::Any;
@@ -46,7 +44,6 @@ use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
 use read_mcp_resource::ReadMCPResourceExecutor;
 use read_skill::ReadSkillExecutor;
-use request_computer_use::RequestComputerUseExecutor;
 pub(crate) use request_file_edits::MalformedFinalLineProxyEvent;
 pub use request_file_edits::{
     EditAcceptClickedEvent, EditResolvedEvent, EditStats, RequestFileEditsExecutor,
@@ -64,7 +61,6 @@ pub use start_agent::{
 };
 pub use suggest_new_conversation::NewConversationDecision;
 use suggest_new_conversation::SuggestNewConversationExecutor;
-use use_computer::UseComputerExecutor;
 use wait_for_events::WaitForEventsExecutor;
 use warp_core::execution_mode::AppExecutionMode;
 #[cfg(feature = "local_fs")]
@@ -256,8 +252,6 @@ pub struct BlocklistAIActionExecutor {
     read_documents_executor: ModelHandle<ReadDocumentsExecutor>,
     edit_documents_executor: ModelHandle<EditDocumentsExecutor>,
     create_documents_executor: ModelHandle<CreateDocumentsExecutor>,
-    use_computer_executor: ModelHandle<UseComputerExecutor>,
-    request_computer_use_executor: ModelHandle<RequestComputerUseExecutor>,
     read_skill_executor: ModelHandle<ReadSkillExecutor>,
     fetch_conversation_executor: ModelHandle<FetchConversationExecutor>,
     start_agent_executor: ModelHandle<StartAgentExecutor>,
@@ -321,9 +315,6 @@ impl BlocklistAIActionExecutor {
         let edit_documents_executor = ctx.add_model(|_| EditDocumentsExecutor::new());
         let create_documents_executor = ctx
             .add_model(|_| CreateDocumentsExecutor::new(active_session.clone(), terminal_view_id));
-        let use_computer_executor = ctx.add_model(|_| UseComputerExecutor::new());
-        let request_computer_use_executor =
-            ctx.add_model(|_| RequestComputerUseExecutor::new(terminal_view_id));
         let read_skill_executor = ctx.add_model(|_| ReadSkillExecutor::new(active_session.clone()));
         let fetch_conversation_executor = ctx.add_model(|_| FetchConversationExecutor::new());
         let start_agent_executor = ctx.add_model(StartAgentExecutor::new);
@@ -353,8 +344,6 @@ impl BlocklistAIActionExecutor {
             read_documents_executor,
             edit_documents_executor,
             create_documents_executor,
-            use_computer_executor,
-            request_computer_use_executor,
             async_executing_actions: Default::default(),
             terminal_model,
             team_context_resolver,
@@ -459,10 +448,6 @@ impl BlocklistAIActionExecutor {
         self.send_message_executor.update(ctx, |executor, _| {
             executor.set_ambient_agent_task_id(id);
         });
-        self.request_computer_use_executor
-            .update(ctx, |executor, _| {
-                executor.set_ambient_agent_task_id(id);
-            });
     }
 
     pub fn preprocess_action(
@@ -526,12 +511,6 @@ impl BlocklistAIActionExecutor {
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             AIAgentActionType::CreateDocuments(_) => self
                 .create_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::UseComputer(_) => self
-                .use_computer_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::RequestComputerUse(_) => self
-                .request_computer_use_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor
@@ -700,14 +679,6 @@ impl BlocklistAIActionExecutor {
                 .update(ctx, |executor, ctx| {
                     executor.execute(input, conversation_id, ctx)
                 })
-                .into(),
-            AIAgentActionType::UseComputer(_) => self
-                .use_computer_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::RequestComputerUse(_) => self
-                .request_computer_use_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
                 .into(),
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor
@@ -963,15 +934,6 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::CreateDocuments(_) => self
                 .create_documents_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::UseComputer(_) => self
-                .use_computer_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::RequestComputerUse(_) => {
-                self.request_computer_use_executor
-                    .update(ctx, |executor, ctx| {
-                        executor.should_autoexecute(input, &team_context_resolver(ctx), ctx)
-                    })
-            }
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),

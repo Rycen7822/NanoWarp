@@ -47,7 +47,6 @@ pub struct FeatureModelChoice {
     pub planning: AvailableLlms,
     pub coding: AvailableLlms,
     pub cli_agent: AvailableLlms,
-    pub computer_use_agent: AvailableLlms,
 }
 
 #[derive(cynic::QueryFragment, Debug)]

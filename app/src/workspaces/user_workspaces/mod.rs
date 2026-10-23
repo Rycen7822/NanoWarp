@@ -956,7 +956,6 @@ impl UserWorkspaces {
                 team_settings.read_files.value = settings.read_files_setting;
                 team_settings.execute_commands.value = settings.execute_commands_setting;
                 team_settings.write_to_pty.value = settings.write_to_pty_setting;
-                team_settings.computer_use.value = settings.computer_use_setting;
                 team_settings.read_files_allowlist =
                     split_test_list(settings.read_files_allowlist.as_ref().map(|items| {
                         items

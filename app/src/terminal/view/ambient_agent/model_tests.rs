@@ -233,7 +233,6 @@ fn retry_request(prompt: impl Into<String>) -> SpawnAgentRequest {
             environment_id: Some("env-123".to_string()),
             model_id: Some("model-123".to_string()),
             worker_host: Some("worker-123".to_string()),
-            computer_use_enabled: Some(false),
             ..Default::default()
         }),
         title: Some("Retry title".to_string()),

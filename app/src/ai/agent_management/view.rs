@@ -633,11 +633,6 @@ impl AgentManagementView {
                     AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::Plan),
                 ),
             )),
-            MenuItem::Item(MenuItemFields::new("Screenshot").with_on_select_action(
-                DropdownAction::select_action_and_close(
-                    AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::Screenshot),
-                ),
-            )),
             MenuItem::Item(MenuItemFields::new("File").with_on_select_action(
                 DropdownAction::select_action_and_close(
                     AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::File),
@@ -1210,9 +1205,6 @@ impl AgentManagementView {
                     ctx
                 );
                 ctx.open_url(url);
-            }
-            ArtifactButtonsRowEvent::ViewScreenshots { artifact_uids } => {
-                crate::ai::artifacts::open_screenshot_lightbox(artifact_uids, ctx);
             }
             ArtifactButtonsRowEvent::DownloadFile { artifact_uid } => {
                 send_telemetry_from_ctx!(

@@ -3,9 +3,7 @@ use chrono::{TimeZone, Utc};
 
 use super::*;
 #[cfg(feature = "local_fs")]
-use crate::server::server_api::ai::{
-    ArtifactDownloadCommonFields, FileArtifactResponseData, ScreenshotArtifactResponseData,
-};
+use crate::server::server_api::ai::{ArtifactDownloadCommonFields, FileArtifactResponseData};
 
 #[cfg(feature = "local_fs")]
 fn sample_file_download_response(filename: &str, filepath: &str) -> ArtifactDownloadResponse {
@@ -73,21 +71,12 @@ fn default_download_filename_uses_content_type_extension_when_filename_missing()
 #[test]
 #[cfg(feature = "local_fs")]
 fn default_download_filename_omits_extension_when_content_type_unknown() {
-    let artifact = ArtifactDownloadResponse::Screenshot {
-        common: ArtifactDownloadCommonFields {
-            artifact_uid: "screenshot-123".to_string(),
-            created_at: Utc.with_ymd_and_hms(2024, 1, 15, 10, 30, 0).unwrap(),
-        },
-        data: ScreenshotArtifactResponseData {
-            download_url: "https://storage.example.com/screenshot".to_string(),
-            expires_at: Utc.with_ymd_and_hms(2024, 1, 15, 11, 30, 0).unwrap(),
-            content_type: "application/octet-stream".to_string(),
-            description: Some("dashboard screenshot".to_string()),
-        },
-    };
+    let mut artifact = sample_file_download_response("", "outputs/report");
+    let ArtifactDownloadResponse::File { data, .. } = &mut artifact;
+    data.content_type = "application/octet-stream".to_string();
 
     assert_eq!(
         default_download_filename(&artifact),
-        "artifact-screenshot-123"
+        "artifact-artifact-123"
     );
 }

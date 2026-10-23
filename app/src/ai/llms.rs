@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
 
 use ai::api_keys::{
     ApiKeyManager, ApiKeyManagerEvent, ChatGPTConnectionStatus, CustomEndpoint, CustomEndpointModel,
@@ -631,10 +630,6 @@ pub struct ModelsByFeature {
     /// This field is optional during deserialization, as older clients might not have this field.
     #[serde(default)]
     pub cli_agent: Option<AvailableLLMs>,
-    /// The set of LLMs available for computer use agent.
-    /// This field is optional during deserialization, as older clients might not have this field.
-    #[serde(default)]
-    pub computer_use: Option<AvailableLLMs>,
 }
 
 impl ModelsByFeature {
@@ -644,33 +639,6 @@ impl ModelsByFeature {
     /// any one of the metadata will be returned.
     pub(crate) fn info_for_id(&self, id: &LLMId) -> Option<&LLMInfo> {
         self.agent_mode.info_for_id(id)
-    }
-}
-
-/// Returns the default AvailableLLMs for computer use.
-/// Used both in `ModelsByFeature::default()` and as a fallback in `get_computer_use_available()`.
-fn default_computer_use_llms() -> AvailableLLMs {
-    AvailableLLMs {
-        default_id: "computer-use-agent-auto".to_owned().into(),
-        choices: vec![LLMInfo {
-            display_name: "auto".to_owned(),
-            base_model_name: "auto".to_owned(),
-            id: "computer-use-agent-auto".to_owned().into(),
-            reasoning_level: None,
-            usage_metadata: LLMUsageMetadata {
-                request_multiplier: 1,
-                credit_multiplier: None,
-            },
-            description: None,
-            disable_reason: None,
-            vision_supported: true,
-            spec: None,
-            provider: LLMProvider::Unknown,
-            host_configs: HashMap::new(),
-            discount_percentage: None,
-            context_window: LLMContextWindow::default(),
-        }],
-        preferred_codex_model_id: None,
     }
 }
 
@@ -743,7 +711,6 @@ impl Default for ModelsByFeature {
                 }],
                 preferred_codex_model_id: None,
             }),
-            computer_use: Some(default_computer_use_llms()),
         }
     }
 }
@@ -1143,65 +1110,6 @@ impl LLMPreferences {
             .unwrap_or(&models_by_feature.agent_mode)
     }
 
-    /// Returns the set of LLMs available for computer use agent.
-    pub fn get_computer_use_llm_choices<'a>(
-        &self,
-        scope: &(impl TeamScope + ?Sized),
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = &'a LLMInfo> {
-        self.get_computer_use_available(scope.team_uid(), app)
-            .choices
-            .iter()
-    }
-
-    /// Returns the `LLMInfo` for the computer use agent model.
-    pub fn get_active_computer_use_model<'a>(
-        &'a self,
-        scope: &(impl TeamScope + ?Sized),
-        app: &'a AppContext,
-        terminal_view_id: Option<EntityId>,
-    ) -> &'a LLMInfo {
-        let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app);
-
-        let available = self.get_computer_use_available(scope.team_uid(), app);
-        profile
-            .data()
-            .computer_use_model
-            .as_ref()
-            .and_then(|id| available.info_for_id(id))
-            .unwrap_or_else(|| self.get_default_computer_use_model(scope, app))
-    }
-
-    /// Returns the effective default computer use model as a fallback: the
-    /// server default when usable, else the first usable choice, else the
-    /// (possibly disabled) server default. No custom-endpoint fallback here:
-    /// custom models aren't offered for computer use.
-    pub fn get_default_computer_use_model<'a>(
-        &'a self,
-        scope: &(impl TeamScope + ?Sized),
-        app: &'a AppContext,
-    ) -> &'a LLMInfo {
-        let available = self.get_computer_use_available(scope.team_uid(), app);
-        available
-            .usable_default_llm_info(app)
-            .unwrap_or_else(|| available.default_llm_info())
-    }
-
-    /// Helper to get the AvailableLLMs for computer_use.
-    /// Falls back to a computer-use-specific default if None.
-    fn get_computer_use_available<'a>(
-        &self,
-        team_uid: Option<ServerId>,
-        app: &'a AppContext,
-    ) -> &'a AvailableLLMs {
-        static DEFAULT: OnceLock<AvailableLLMs> = OnceLock::new();
-        UserWorkspaces::as_ref(app)
-            .feature_model_choice_for_team_uid(team_uid)
-            .computer_use
-            .as_ref()
-            .unwrap_or_else(|| DEFAULT.get_or_init(default_computer_use_llms))
-    }
-
     /// Returns metadata about an LLM, if the client knows about it.
     /// Falls back to the user's custom-endpoint LLMs when the id isn't a server-known model
     /// id (e.g. when it's a `config_key` UUID).
@@ -1502,14 +1410,6 @@ impl LLMPreferences {
                     .is_some_and(|id| custom_ids.contains(id))
                 {
                     profiles.set_cli_agent_model(&profile_id, None, ctx);
-                    updated_other = true;
-                }
-                if profile_data
-                    .computer_use_model
-                    .as_ref()
-                    .is_some_and(|id| custom_ids.contains(id))
-                {
-                    profiles.set_computer_use_model(&profile_id, None, ctx);
                     updated_other = true;
                 }
             }
@@ -1907,8 +1807,8 @@ impl LLMPreferences {
     /// Reconcile stored model selections with the current model catalog and credentials.
     ///
     /// An `AdminDisabled` base-model selection and its context limit are preserved because
-    /// profiles are shared across teams. Other unusable base, coding, CLI agent, and computer use
-    /// selections are cleared.
+    /// profiles are shared across teams. Other unusable base, coding, and CLI agent selections
+    /// are cleared.
     ///
     /// Called both when the model list is refreshed from the server and when
     /// BYOK API keys change (since `RequiresUpgrade` usability is BYOK-aware).
@@ -2009,14 +1909,6 @@ impl LLMPreferences {
                             profiles.set_cli_agent_model(&profile_id, None, ctx);
                         }
                     }
-                    if let Some(preferred_llm_id) = &profile.data().computer_use_model
-                        && self
-                            .get_computer_use_available(team_uid, ctx)
-                            .usable_info_for_id(preferred_llm_id, ctx)
-                            .is_none()
-                    {
-                        profiles.set_computer_use_model(&profile_id, None, ctx);
-                    }
                 }
             }
         });
@@ -2099,7 +1991,7 @@ impl SingletonEntity for LLMPreferences {}
 /// One entry per `CustomEndpointModel`. The display label is the **alias** when present,
 /// falling back to the raw model name. The `id` is the model's `config_key`, which is
 /// also what flows out to `Request.Settings.custom_model_providers` so the server can map
-/// a `ModelConfig.{base,coding,cli_agent,computer_use_agent}` selection back to the
+/// a `ModelConfig.{base,coding,cli_agent}` selection back to the
 /// user-provided endpoint.
 ///
 /// Endpoints with empty URL or API key, and models with empty name or config_key, are

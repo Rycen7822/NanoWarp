@@ -22,7 +22,7 @@ fn request_team_scope() -> RequestTeamScope {
 }
 
 #[test]
-fn pi_remote_child_forwards_auth_and_model_without_computer_use() {
+fn pi_remote_child_forwards_auth_and_model() {
     App::test((), |mut app| async move {
         crate::test_util::terminal::initialize_app_for_terminal_view(&mut app);
         let request = StartAgentRequest {
@@ -41,7 +41,6 @@ fn pi_remote_child_forwards_auth_and_model_without_computer_use() {
                 let launch = RemoteChildLaunchConfig {
                     model_id: model_id.to_string(),
                     auth_secret_name: Some("pi-key".to_string()),
-                    computer_use_enabled: true,
                     ..config("pi")
                 };
                 let prepared =
@@ -60,7 +59,6 @@ fn pi_remote_child_forwards_auth_and_model_without_computer_use() {
                     wire["config"]["harness_auth_secrets"]["pi_auth_secret_name"],
                     "pi-key"
                 );
-                assert!(wire["config"].get("computer_use_enabled").is_none());
             }
         });
     });
@@ -72,7 +70,6 @@ fn config(harness_type: &str) -> RemoteChildLaunchConfig {
         skill_references: Vec::new(),
         working_dir: PathBuf::new(),
         model_id: String::new(),
-        computer_use_enabled: false,
         worker_host: String::new(),
         harness_type: harness_type.to_string(),
         title: String::new(),
@@ -107,7 +104,6 @@ fn prepared_remote_request_matches_gui_wire_semantics() {
                 environment_id: "env-1".to_string(),
                 skill_references: Vec::new(),
                 model_id: "auto".to_string(),
-                computer_use_enabled: true,
                 worker_host: "warp".to_string(),
                 harness_type: "oz".to_string(),
                 title: "Research".to_string(),
@@ -128,7 +124,6 @@ fn prepared_remote_request_matches_gui_wire_semantics() {
                     skill_references: Vec::new(),
                     working_dir: PathBuf::new(),
                     model_id: "auto".to_string(),
-                    computer_use_enabled: true,
                     worker_host: "warp".to_string(),
                     harness_type: "oz".to_string(),
                     title: "Research".to_string(),
@@ -161,7 +156,6 @@ fn prepared_remote_request_matches_gui_wire_semantics() {
             assert_eq!(config.runner_id.as_deref(), Some("runner-1"));
             assert_eq!(config.model_id.as_deref(), Some("auto"));
             assert_eq!(config.worker_host.as_deref(), Some("warp"));
-            assert_eq!(config.computer_use_enabled, Some(true));
         });
     });
 }
@@ -214,7 +208,6 @@ fn repo_qualified_skill_spec_resolves_into_runtime_skills() {
                 environment_id: String::new(),
                 skill_references: skill_references.clone(),
                 model_id: String::new(),
-                computer_use_enabled: false,
                 worker_host: String::new(),
                 harness_type: String::new(),
                 title: String::new(),
@@ -235,7 +228,6 @@ fn repo_qualified_skill_spec_resolves_into_runtime_skills() {
                     skill_references,
                     working_dir: temp.path().to_path_buf(),
                     model_id: String::new(),
-                    computer_use_enabled: false,
                     worker_host: String::new(),
                     harness_type: String::new(),
                     title: String::new(),
@@ -267,7 +259,6 @@ fn missing_repo_qualified_skill_reports_repository_and_reason() {
                 environment_id: String::new(),
                 skill_references: Vec::new(),
                 model_id: String::new(),
-                computer_use_enabled: false,
                 worker_host: String::new(),
                 harness_type: String::new(),
                 title: String::new(),

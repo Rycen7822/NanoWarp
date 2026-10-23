@@ -51,7 +51,7 @@ use warp_editor::render::element::VerticalExpansionBehavior;
 use warp_errors::{report_error, report_if_error};
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warp_util::path::ShellFamily;
-use warpui::assets::asset_cache::{AssetCache, AssetSource};
+use warpui::assets::asset_cache::AssetCache;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
@@ -92,8 +92,8 @@ use crate::ai::agent::{
     AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentTextSection, AIIdentifiers,
     CancellationReason, CreateDocumentsRequest, CreateDocumentsResult, DocumentToCreate,
     EditDocumentsResult, MessageId, ProgrammingLanguage, RenderableAIError,
-    RequestCommandOutputResult, RequestFileEditsResult, ScreenshotSource, SearchCodebaseResult,
-    ServerOutputId, SubagentCall, SubagentType, SummarizationType, TodoOperation,
+    RequestCommandOutputResult, RequestFileEditsResult, SearchCodebaseResult, ServerOutputId,
+    SubagentCall, SubagentType, SummarizationType, TodoOperation,
 };
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -140,7 +140,6 @@ use crate::ai::get_relevant_files::controller::{
 #[cfg(feature = "local_fs")]
 use crate::ai::skills::SkillOpenOrigin;
 use crate::ai::skills::{SkillManager, SkillTelemetryEvent};
-use crate::ai::stored_screenshots::stored_screenshot_asset_source;
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::auth::{AuthStateProvider, UserUid};
 use crate::code::editor::comment_editor::create_readonly_comment_markdown_editor;
@@ -156,7 +155,6 @@ use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
 use crate::editor::InteractionState;
 use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::notebooks::editor::view::{EditorViewEvent, RichTextEditorView};
-use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::{
     AgentModeRewindEntrypoint, AutonomySettingToggleSource, TelemetryEvent,
 };
@@ -1026,9 +1024,6 @@ pub struct AIBlock {
     /// Rewind button to revert to before this block.
     rewind_button: ViewHandle<ActionButton>,
 
-    /// Per-action button components for "View screenshot" buttons on UseComputer actions.
-    view_screenshot_buttons: HashMap<AIAgentActionId, ui_components::button::Button>,
-
     /// Stores the last command that was right-clicked by a child component.
     /// When set, CopyCommand will copy this specific command instead of all commands.
     last_right_clicked_command: Option<String>,
@@ -1454,7 +1449,6 @@ impl AIBlock {
             review_changes_button,
             open_all_comments_button,
             rewind_button,
-            view_screenshot_buttons: Default::default(),
             last_right_clicked_command: None,
             is_usage_footer_expanded: false,
             is_turn_panel_expanded: false,
@@ -1978,13 +1972,6 @@ impl AIBlock {
 
             if let AIAgentActionType::RunAgents(req) = &action.action {
                 self.ensure_run_agents_card_view(&action.id, req, ctx);
-            }
-
-            // Ensure a button component exists for UseComputer actions.
-            if matches!(&action.action, AIAgentActionType::UseComputer(_)) {
-                self.view_screenshot_buttons
-                    .entry(action.id.clone())
-                    .or_default();
             }
 
             match action {
@@ -5758,10 +5745,6 @@ pub enum AIBlockAction {
     RunAwsLoginCommand,
     /// Open settings to configure the AWS auth refresh command
     ConfigureAwsLoginCommand,
-    /// Open the screenshot lightbox for a UseComputer action.
-    ViewScreenshot {
-        action_id: AIAgentActionId,
-    },
     /// Open the lightbox for an image attached to an already-submitted user query
     /// rendered inside this AI block.
     OpenSubmittedAttachmentLightbox {
@@ -5799,30 +5782,6 @@ fn open_code_action_event(
             layout,
         },
     }
-}
-
-/// The raw-asset cache ID under which a UseComputer action's screenshot bytes are stored.
-fn screenshot_asset_id(action_id: &AIAgentActionId) -> String {
-    format!("screenshot-{action_id}")
-}
-
-/// Opens the lightbox over the given screenshot asset sources.
-fn open_screenshot_lightbox(
-    sources: Vec<AssetSource>,
-    initial_index: usize,
-    ctx: &mut ViewContext<AIBlock>,
-) {
-    let images = sources
-        .into_iter()
-        .map(|asset_source| ui_components::lightbox::LightboxImage {
-            source: ui_components::lightbox::LightboxImageSource::Resolved { asset_source },
-            description: None,
-        })
-        .collect();
-    ctx.dispatch_typed_action(&WorkspaceAction::OpenLightbox {
-        images,
-        initial_index,
-    });
 }
 
 impl TypedActionView for AIBlock {
@@ -6375,79 +6334,6 @@ impl TypedActionView for AIBlock {
                 ctx.open_url(url);
             }
 
-            AIBlockAction::ViewScreenshot { action_id } => {
-                // Collect all UseComputer action IDs across the entire conversation
-                // so the lightbox can navigate between their screenshots.
-                let conversation_id = self.client_ids.conversation_id;
-
-                let use_computer_action_ids: Vec<AIAgentActionId> =
-                    BlocklistAIHistoryModel::as_ref(ctx)
-                        .conversation(&conversation_id)
-                        .into_iter()
-                        .flat_map(|c| c.use_computer_action_ids())
-                        .collect();
-
-                let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-
-                // We Arc::clone the result each iteration to release the immutable
-                // borrow on ctx, allowing the mutable AssetCache update in the same
-                // loop body. Arc::clone is just a refcount bump (no data copied).
-                let mut screenshot_sources: Vec<(AIAgentActionId, AssetSource)> = Vec::new();
-                for action_id in &use_computer_action_ids {
-                    let Some(result) = self
-                        .action_model
-                        .as_ref(ctx)
-                        .get_action_result(action_id)
-                        .map(Arc::clone)
-                    else {
-                        continue;
-                    };
-                    let AIAgentActionResultType::UseComputer(
-                        crate::ai::agent::UseComputerResult::Success { screenshot, .. },
-                    ) = &result.result
-                    else {
-                        continue;
-                    };
-                    match screenshot {
-                        Some(ScreenshotSource::Inline(screenshot)) => {
-                            let asset_id = screenshot_asset_id(action_id);
-                            AssetCache::handle(ctx).update(ctx, |asset_cache, ctx| {
-                                asset_cache.insert_raw_asset_bytes::<ImageType>(
-                                    asset_id.clone(),
-                                    &screenshot.data,
-                                    ctx,
-                                );
-                            });
-                            screenshot_sources
-                                .push((action_id.clone(), AssetSource::Raw { id: asset_id }));
-                        }
-                        Some(ScreenshotSource::Stored { stored_ref, .. }) => {
-                            screenshot_sources.push((
-                                action_id.clone(),
-                                stored_screenshot_asset_source(
-                                    stored_ref.clone(),
-                                    ai_client.clone(),
-                                ),
-                            ));
-                        }
-                        None => {}
-                    }
-                }
-
-                if screenshot_sources.is_empty() {
-                    return;
-                }
-
-                let initial_index = screenshot_sources
-                    .iter()
-                    .position(|(id, _)| id == action_id)
-                    .unwrap_or(0);
-                let sources = screenshot_sources
-                    .into_iter()
-                    .map(|(_, source)| source)
-                    .collect();
-                open_screenshot_lightbox(sources, initial_index, ctx);
-            }
             AIBlockAction::OpenSubmittedAttachmentLightbox { image_index } => {
                 let decoded_images = self
                     .model

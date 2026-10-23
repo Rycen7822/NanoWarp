@@ -60,7 +60,6 @@ fn serializes_configuration_mutation_without_workload_token_input() {
         "mcpServersJson",
         "skills",
         "factorySkillDirs",
-        "computerUseEnabled",
         "providers",
         "gcp",
         "projectNumber",

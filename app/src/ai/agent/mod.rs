@@ -1808,7 +1808,6 @@ pub enum SubagentType {
     Cli,
     Research,
     Advice,
-    ComputerUse,
     Summarization,
     ConversationSearch {
         query: Option<String>,
@@ -1907,11 +1906,6 @@ pub enum ArtifactCreatedData {
     PullRequest {
         url: String,
         branch: String,
-    },
-    Screenshot {
-        artifact_uid: String,
-        mime_type: String,
-        description: Option<String>,
     },
     File {
         artifact_uid: String,
@@ -2073,9 +2067,6 @@ impl Display for AIAgentOutputMessage {
             AIAgentOutputMessageType::ArtifactCreated(data) => match data {
                 ArtifactCreatedData::PullRequest { url, branch } => {
                     write!(f, "Created PR: {url} (branch: {branch})")?
-                }
-                ArtifactCreatedData::Screenshot { artifact_uid, .. } => {
-                    write!(f, "Screenshot captured (artifact: {artifact_uid})")?
                 }
                 ArtifactCreatedData::File {
                     artifact_uid,
@@ -3170,9 +3161,6 @@ pub struct AIAgentExchange {
 
     /// The CLI agent model to which the request was sent.
     pub cli_agent_model_id: LLMId,
-
-    /// The computer use model to which the request was sent.
-    pub computer_use_model_id: LLMId,
 
     /// The participant who initiated this exchange (for shared sessions)
     /// For non-shared sessions, we just leave this as None.

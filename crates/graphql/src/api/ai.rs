@@ -157,13 +157,6 @@ pub struct PullRequestArtifact {
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct ScreenshotArtifact {
-    pub artifact_uid: cynic::Id,
-    pub mime_type: String,
-    pub description: Option<String>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct FileArtifact {
     pub artifact_uid: cynic::Id,
     pub filepath: String,
@@ -176,7 +169,6 @@ pub struct FileArtifact {
 pub enum AIConversationArtifact {
     PlanArtifact(PlanArtifact),
     PullRequestArtifact(PullRequestArtifact),
-    ScreenshotArtifact(ScreenshotArtifact),
     FileArtifact(FileArtifact),
     #[cynic(fallback)]
     Unknown,

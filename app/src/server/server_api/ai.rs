@@ -8,7 +8,6 @@ use ai::index::full_source_code_embedding::{
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
-use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use cynic::{MutationBuilder, QueryBuilder};
 use itertools::Itertools;
@@ -291,12 +290,6 @@ pub struct SpawnAgentResponse {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "artifact_type")]
 pub enum ArtifactDownloadResponse {
-    #[serde(rename = "SCREENSHOT")]
-    Screenshot {
-        #[serde(flatten)]
-        common: ArtifactDownloadCommonFields,
-        data: ScreenshotArtifactResponseData,
-    },
     #[serde(rename = "FILE")]
     File {
         #[serde(flatten)]
@@ -308,8 +301,7 @@ pub enum ArtifactDownloadResponse {
 impl ArtifactDownloadResponse {
     fn common(&self) -> &ArtifactDownloadCommonFields {
         match self {
-            ArtifactDownloadResponse::Screenshot { common, .. }
-            | ArtifactDownloadResponse::File { common, .. } => common,
+            ArtifactDownloadResponse::File { common, .. } => common,
         }
     }
 
@@ -319,21 +311,18 @@ impl ArtifactDownloadResponse {
 
     pub fn download_url(&self) -> &str {
         match self {
-            ArtifactDownloadResponse::Screenshot { data, .. } => &data.download_url,
             ArtifactDownloadResponse::File { data, .. } => &data.download_url,
         }
     }
 
     pub fn content_type(&self) -> &str {
         match self {
-            ArtifactDownloadResponse::Screenshot { data, .. } => &data.content_type,
             ArtifactDownloadResponse::File { data, .. } => &data.content_type,
         }
     }
 
     pub fn filename(&self) -> Option<&str> {
         match self {
-            ArtifactDownloadResponse::Screenshot { .. } => None,
             ArtifactDownloadResponse::File { data, .. } => Some(&data.filename),
         }
     }
@@ -343,15 +332,6 @@ impl ArtifactDownloadResponse {
 pub struct ArtifactDownloadCommonFields {
     pub artifact_uid: String,
     pub created_at: DateTime<Utc>,
-}
-
-/// Screenshot-specific data from the artifact endpoint.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ScreenshotArtifactResponseData {
-    pub download_url: String,
-    pub expires_at: DateTime<Utc>,
-    pub content_type: String,
-    pub description: Option<String>,
 }
 
 /// File-specific data from the artifact endpoint.
@@ -718,14 +698,6 @@ pub trait AIClient: 'static + Send + Sync {
         &self,
         artifact_uid: &str,
     ) -> anyhow::Result<ArtifactDownloadResponse, anyhow::Error>;
-
-    /// Downloads the bytes of a computer-use screenshot stored in Warp-managed
-    /// object storage. Requires view access to the conversation.
-    async fn download_stored_screenshot(
-        &self,
-        conversation_id: &str,
-        screenshot_uid: &str,
-    ) -> anyhow::Result<Bytes, anyhow::Error>;
 
     async fn prepare_attachments_for_upload(
         &self,
@@ -1501,27 +1473,6 @@ impl AIClient for ServerApi {
         Ok(response)
     }
 
-    async fn download_stored_screenshot(
-        &self,
-        conversation_id: &str,
-        screenshot_uid: &str,
-    ) -> anyhow::Result<Bytes, anyhow::Error> {
-        // The endpoint redirects to a short-lived signed URL, which the HTTP
-        // client follows transparently. Strip that URL from body-read errors so
-        // it cannot leak into logs or Sentry breadcrumbs.
-        let response = self
-            .get_public_api_response(&format!(
-                "agent/conversations/{}/screenshots/{}/download",
-                urlencoding::encode(conversation_id),
-                urlencoding::encode(screenshot_uid)
-            ))
-            .await?;
-        response
-            .bytes()
-            .await
-            .map_err(|error| anyhow::Error::new(error.without_url()))
-    }
-
     async fn prepare_attachments_for_upload(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1612,7 +1563,6 @@ impl TryFrom<warp_graphql::queries::get_feature_model_choices::FeatureModelChoic
             agent_mode: value.agent_mode.try_into()?,
             coding: value.coding.try_into()?,
             cli_agent: Some(value.cli_agent.try_into()?),
-            computer_use: Some(value.computer_use_agent.try_into()?),
         })
     }
 }
@@ -1625,7 +1575,6 @@ impl TryFrom<warp_graphql::workspace::FeatureModelChoice> for ModelsByFeature {
             agent_mode: value.agent_mode.try_into()?,
             coding: value.coding.try_into()?,
             cli_agent: Some(value.cli_agent.try_into()?),
-            computer_use: Some(value.computer_use_agent.try_into()?),
         })
     }
 }

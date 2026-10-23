@@ -278,15 +278,6 @@ pub fn render_models_section(
         &view.full_terminal_use_model_dropdown,
     ));
 
-    if FeatureFlag::LocalComputerUse.is_enabled() {
-        column.add_child(render_filterable_dropdown_row(
-            appearance,
-            "Computer use model",
-            "The model used when the agent takes control of your computer to interact with graphical applications through mouse movements, clicks, and keyboard input.",
-            &view.computer_use_model_dropdown,
-        ));
-    }
-
     Container::new(column.finish())
         .with_margin_bottom(12.)
         .finish()
@@ -531,20 +522,6 @@ pub fn render_permissions_section(
             .write_to_pty_tooltip_mouse_state
             .clone(),
     ));
-
-    if FeatureFlag::LocalComputerUse.is_enabled() {
-        column.add_child(render_permission_row(
-            appearance,
-            Icon::Laptop,
-            "Computer use",
-            &view.computer_use_dropdown,
-            profile_data.computer_use.description(),
-            !ai_settings.is_computer_use_permissions_editable(&scope, app),
-            view.tooltip_mouse_state_handles
-                .computer_use_tooltip_mouse_state
-                .clone(),
-        ));
-    }
 
     column.add_child(render_permission_row(
         appearance,

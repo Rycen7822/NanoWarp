@@ -112,9 +112,7 @@ impl DocumentActionPresentation {
                 | AIAgentActionType::OpenCodeReview
                 | AIAgentActionType::ReadDocuments(_)
                 | AIAgentActionType::ReadShellCommandOutput { .. }
-                | AIAgentActionType::UseComputer(_)
                 | AIAgentActionType::InsertCodeReviewComments { .. }
-                | AIAgentActionType::RequestComputerUse(_)
                 | AIAgentActionType::ReadSkill(_)
                 | AIAgentActionType::FetchConversation { .. }
                 | AIAgentActionType::SendMessageToAgent { .. }

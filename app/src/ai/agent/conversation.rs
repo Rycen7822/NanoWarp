@@ -434,7 +434,7 @@ pub(crate) fn artifact_from_fork_proto(
 
     match &proto_artifact.artifact {
         Some(ProtoArtifact::PullRequest(pr)) => Some(Artifact::from(pr.clone())),
-        Some(ProtoArtifact::Screenshot(ss)) => Some(Artifact::from(ss.clone())),
+        Some(ProtoArtifact::Screenshot(_)) => None,
         Some(ProtoArtifact::Plan(plan)) => Some(Artifact::from(plan.clone())),
         Some(ProtoArtifact::File(file)) => Some(Artifact::from(file.clone())),
         None => None,
@@ -1850,25 +1850,6 @@ impl AIConversation {
         })
     }
 
-    /// Returns an iterator over the IDs of all UseComputer actions across all exchanges
-    /// in this conversation.
-    pub fn use_computer_action_ids(&self) -> impl Iterator<Item = AIAgentActionId> + '_ {
-        self.all_exchanges().into_iter().flat_map(|exchange| {
-            exchange
-                .output_status
-                .output()
-                .into_iter()
-                .flat_map(|output| {
-                    output
-                        .get()
-                        .actions()
-                        .filter(|a| matches!(a.action, super::AIAgentActionType::UseComputer(_)))
-                        .map(|a| a.id.clone())
-                        .collect::<Vec<_>>()
-                })
-        })
-    }
-
     pub fn contains_action(&self, action_id: &AIAgentActionId) -> bool {
         self.task_store.tasks().any(|task| {
             task.exchanges()
@@ -1930,7 +1911,6 @@ impl AIConversation {
             model_id,
             coding_model_id,
             cli_agent_model_id,
-            computer_use_model_id,
             shared_session_response_initiator,
             request_start_ts,
             ..
@@ -1954,7 +1934,6 @@ impl AIConversation {
                 model_id: model_id.clone(),
                 coding_model_id: coding_model_id.clone(),
                 cli_agent_model_id: cli_agent_model_id.clone(),
-                computer_use_model_id: computer_use_model_id.clone(),
                 request_cost: None,
                 // This will be None for non-shared sessions
                 response_initiator: shared_session_response_initiator.clone(),
@@ -2693,8 +2672,8 @@ impl AIConversation {
                             self.driver.reconstructs_inputs_from_messages(),
                         );
 
-                        // Subtasks can come pre-populated with messages (for example: an advice subagent
-                        // or computer use subagent task created with an initial tool call already present
+                        // Subtasks can come pre-populated with messages (for example: an advice
+                        // subagent task created with an initial tool call already present
                         // in its task messages).
                         //
                         // In those cases, we need to ensure an AI block is created for the subtask's
@@ -2704,7 +2683,6 @@ impl AIConversation {
                         // TODO(QUALITY-276): We should check if we can generally add exchanges from any
                         // subtask, or if that breaks things (e.g. in the CLI subagent).
                         let initial_exchange_ids: Vec<_> = if subtask.is_advice_subagent()
-                            || subtask.is_computer_use_subagent()
                             || subtask.is_conversation_search_subagent()
                         {
                             subtask.exchanges().map(|e| e.id).collect()
@@ -2857,15 +2835,6 @@ impl AIConversation {
                                             );
                                         }
                                         Some(
-                                            api::message::artifact_event::artifact_created::Artifact::Screenshot(screenshot),
-                                        ) => {
-                                            self.add_artifact(
-                                                Artifact::from(screenshot.clone()),
-                                                terminal_surface_id,
-                                                ctx,
-                                            );
-                                        }
-                                        Some(
                                             api::message::artifact_event::artifact_created::Artifact::File(file),
                                         ) => {
                                             self.add_artifact(
@@ -2874,7 +2843,7 @@ impl AIConversation {
                                                 ctx,
                                             );
                                         }
-                                        None => {}
+                                        Some(api::message::artifact_event::artifact_created::Artifact::Screenshot(_)) | None => {}
                                     }
                                 }
                                 Some(api::message::artifact_event::Event::ForkArtifacts(
@@ -2932,15 +2901,6 @@ impl AIConversation {
                                     &task_id,
                                     &self.task_store,
                                 );
-                                // A computer-use subagent finishing normally ends its background
-                                // session; restore the user's keyboard focus so it no longer
-                                // targets the driven window. Scoped to this conversation so a
-                                // concurrent background session in another conversation is left
-                                // intact. Idempotent and a no-op when this conversation has no
-                                // active background session (e.g. other subagent types). The
-                                // ctrl-c / cancel path, where no SubagentResult is produced, is
-                                // handled in `BlocklistAIController::cancel_conversation_progress`.
-                                computer_use::end_background_session(&self.id.to_string());
                             }
                         }
                         Some(api::message::Message::ModelUsed(model_used)) => {
@@ -3098,8 +3058,7 @@ impl AIConversation {
 
                 let task_id = TaskId::new(task_id);
                 // Updates may target messages from exchanges added by earlier response
-                // streams (e.g. the server swapping computer-use screenshot bytes for a
-                // stored ref), so the current stream is not required to have added an
+                // streams, so the current stream is not required to have added an
                 // exchange for this task. `Task::upsert_message` resolves the exchange
                 // that owns the message and only needs this one for new messages.
                 let current_stream_exchange_id = self

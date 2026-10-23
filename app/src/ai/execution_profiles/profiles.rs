@@ -1249,35 +1249,6 @@ impl AIExecutionProfilesModel {
         }
     }
 
-    pub fn set_computer_use_model(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        model_id: Option<LLMId>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if profile.computer_use_model != model_id {
-                    profile.computer_use_model = model_id.clone();
-                    return true;
-                }
-                false
-            },
-            ctx,
-        );
-
-        if let Some(model_id) = &model_id {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::AIExecutionProfileModelSelected {
-                    model_type: "computer_use".to_string(),
-                    model_value: model_id.to_string(),
-                },
-                ctx
-            );
-        }
-    }
-
     pub fn set_context_window_limit(
         &mut self,
         profile_id: &ExecutionProfileId,
@@ -1461,39 +1432,6 @@ impl AIExecutionProfilesModel {
             },
             ctx
         );
-    }
-
-    pub fn set_computer_use(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        permission: &super::ComputerUsePermission,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let current_value = self
-            .get_profile_by_id(profile_id, ctx)
-            .map(|p| p.data().computer_use);
-
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if profile.computer_use != *permission {
-                    profile.computer_use = *permission;
-                    return true;
-                }
-                false
-            },
-            ctx,
-        );
-
-        if current_value != Some(*permission) {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::AIExecutionProfileSettingUpdated {
-                    setting_type: "computer_use".to_string(),
-                    setting_value: format!("{permission:?}"),
-                },
-                ctx
-            );
-        }
     }
 
     pub fn set_ask_user_question(
@@ -2362,7 +2300,7 @@ impl AIExecutionProfilesModel {
         is_sandboxed: bool,
         ctx: &mut ModelContext<Self>,
     ) {
-        let cli_profile = AIExecutionProfile::create_default_cli_profile(is_sandboxed, None);
+        let cli_profile = AIExecutionProfile::create_default_cli_profile(is_sandboxed);
         self.edit_profile_internal(
             profile_id,
             move |profile| {

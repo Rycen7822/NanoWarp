@@ -27,7 +27,6 @@ fn sample_tool_usage_metadata() -> ToolUsageMetadata {
             files_changed: 6,
         },
         read_shell_command_output_stats: tool_call_stats(0),
-        use_computer_stats: tool_call_stats(0),
     }
 }
 

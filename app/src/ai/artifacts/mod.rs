@@ -3,7 +3,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
-use ui_components::lightbox::{LightboxImage, LightboxImageSource};
 use warp_errors::report_error;
 use warp_multi_agent_api as api;
 use warpui::SingletonEntity;
@@ -54,12 +53,6 @@ pub enum Artifact {
         #[serde(skip_serializing_if = "Option::is_none")]
         metadata: Option<serde_json::Value>,
     },
-    #[serde(rename = "SCREENSHOT")]
-    Screenshot {
-        artifact_uid: String,
-        mime_type: String,
-        description: Option<String>,
-    },
     #[serde(rename = "FILE")]
     File {
         artifact_uid: String,
@@ -72,13 +65,7 @@ pub enum Artifact {
 }
 
 /// The tag names of [`Artifact`], used for unknown-variant errors.
-const ARTIFACT_TYPES: &[&str] = &[
-    "PLAN",
-    "PULL_REQUEST",
-    "EXTERNAL_REFERENCE",
-    "SCREENSHOT",
-    "FILE",
-];
+const ARTIFACT_TYPES: &[&str] = &["PLAN", "PULL_REQUEST", "EXTERNAL_REFERENCE", "FILE"];
 
 /// The adjacently tagged envelope shape of a serialized [`Artifact`]. The
 /// `data` payload is parsed once the tag is known.
@@ -107,13 +94,6 @@ struct ExternalReferenceData {
     url: String,
     title: Option<String>,
     metadata: Option<serde_json::Value>,
-}
-
-#[derive(serde::Deserialize)]
-struct ScreenshotData {
-    artifact_uid: String,
-    mime_type: String,
-    description: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -177,18 +157,6 @@ impl<'de> serde::Deserialize<'de> for Artifact {
                     metadata,
                 }
             }
-            "SCREENSHOT" => {
-                let ScreenshotData {
-                    artifact_uid,
-                    mime_type,
-                    description,
-                } = parse_artifact_data::<_, D::Error>(envelope.data)?;
-                Artifact::Screenshot {
-                    artifact_uid,
-                    mime_type,
-                    description,
-                }
-            }
             "FILE" => {
                 let FileData {
                     artifact_uid,
@@ -222,20 +190,6 @@ impl From<api::message::artifact_event::PullRequestArtifact> for Artifact {
             branch: pr.branch,
             repo,
             number,
-        }
-    }
-}
-
-impl From<api::message::artifact_event::ScreenshotArtifact> for Artifact {
-    fn from(screenshot: api::message::artifact_event::ScreenshotArtifact) -> Self {
-        Artifact::Screenshot {
-            artifact_uid: screenshot.artifact_uid,
-            mime_type: screenshot.mime_type,
-            description: if screenshot.description.is_empty() {
-                None
-            } else {
-                Some(screenshot.description)
-            },
         }
     }
 }
@@ -301,13 +255,6 @@ impl TryFrom<warp_graphql::ai::AIConversationArtifact> for Artifact {
                     number,
                 })
             }
-            warp_graphql::ai::AIConversationArtifact::ScreenshotArtifact(screenshot) => {
-                Ok(Artifact::Screenshot {
-                    artifact_uid: screenshot.artifact_uid.into_inner(),
-                    mime_type: screenshot.mime_type,
-                    description: screenshot.description,
-                })
-            }
             warp_graphql::ai::AIConversationArtifact::FileArtifact(file) => Ok(Artifact::File {
                 artifact_uid: file.artifact_uid.into_inner(),
                 filepath: file.filepath.clone(),
@@ -368,77 +315,6 @@ pub fn file_button_label(filename: &str, filepath: &str) -> String {
     "File".to_string()
 }
 
-pub fn open_screenshot_lightbox<V: warpui::View>(
-    artifact_uids: &[String],
-    ctx: &mut warpui::ViewContext<V>,
-) {
-    // Open lightbox immediately with Loading placeholders.
-    let loading_images: Vec<LightboxImage> = artifact_uids
-        .iter()
-        .map(|_| LightboxImage {
-            source: LightboxImageSource::Loading,
-            description: None,
-        })
-        .collect();
-    ctx.dispatch_typed_action(&WorkspaceAction::OpenLightbox {
-        images: loading_images,
-        initial_index: 0,
-    });
-
-    // Fetch each signed URL independently and update the lightbox as each resolves.
-    // TODO(QUALITY-318): We should cache the signed URL for each artifact UUID so
-    // we avoid fetching screenshots already in the asset cache.
-    let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-
-    for (i, uid) in artifact_uids.iter().enumerate() {
-        let ai_client = ai_client.clone();
-        let uid = uid.clone();
-        let uid_for_callback = uid.clone();
-
-        ctx.spawn(
-            async move { ai_client.get_artifact_download(&uid).await },
-            move |_me, result, ctx| {
-                if let Some(image) =
-                    screenshot_lightbox_image_from_download_result(result, &uid_for_callback, i)
-                {
-                    ctx.dispatch_typed_action(&WorkspaceAction::UpdateLightboxImage {
-                        index: i,
-                        image,
-                    });
-                }
-            },
-        );
-    }
-}
-
-fn screenshot_lightbox_image_from_download_result(
-    result: anyhow::Result<ArtifactDownloadResponse>,
-    uid_for_callback: &str,
-    index: usize,
-) -> Option<LightboxImage> {
-    match result {
-        Ok(ArtifactDownloadResponse::Screenshot { data, .. }) => Some(LightboxImage {
-            source: LightboxImageSource::Resolved {
-                asset_source: asset_cache::url_source(data.download_url),
-            },
-            description: data
-                .description
-                .filter(|description| !description.is_empty()),
-        }),
-        Ok(ArtifactDownloadResponse::File { .. }) => {
-            log::warn!("Artifact {uid_for_callback} was not a screenshot");
-            None
-        }
-        Err(e) => {
-            log::warn!("Failed to load screenshot artifact {index}: {e}");
-            Some(LightboxImage {
-                source: LightboxImageSource::Loading,
-                description: Some("Failed to load".to_string()),
-            })
-        }
-    }
-}
-
 pub fn download_file_artifact<V: warpui::View>(
     artifact_uid: &str,
     ctx: &mut warpui::ViewContext<V>,
@@ -454,7 +330,7 @@ pub fn download_file_artifact<V: warpui::View>(
                 .await
         },
         move |_me, result, ctx| match result {
-            Ok(artifact) => open_file_download_result(&artifact_uid, artifact, ctx),
+            Ok(artifact) => open_file_download_result(artifact, ctx),
             Err(error) => {
                 log::warn!("Failed to load file artifact {artifact_uid}: {error}");
                 show_file_download_toast(
@@ -468,25 +344,17 @@ pub fn download_file_artifact<V: warpui::View>(
 }
 
 fn open_file_download_result<V: warpui::View>(
-    artifact_uid: &str,
     artifact: ArtifactDownloadResponse,
     ctx: &mut warpui::ViewContext<V>,
 ) {
-    match artifact {
-        ArtifactDownloadResponse::File { .. } => {
-            #[cfg(feature = "local_fs")]
-            {
-                open_file_download_picker(artifact, ctx);
-            }
+    #[cfg(feature = "local_fs")]
+    {
+        open_file_download_picker(artifact, ctx);
+    }
 
-            #[cfg(not(feature = "local_fs"))]
-            {
-                ctx.open_url(artifact.download_url());
-            }
-        }
-        ArtifactDownloadResponse::Screenshot { .. } => {
-            log::warn!("Artifact {artifact_uid} was not a file");
-        }
+    #[cfg(not(feature = "local_fs"))]
+    {
+        ctx.open_url(artifact.download_url());
     }
 }
 

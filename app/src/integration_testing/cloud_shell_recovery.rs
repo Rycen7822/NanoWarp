@@ -101,7 +101,6 @@ fn execute_agent_command_step(
             request_cost: None,
             coding_model_id: LLMId::from("integration-test"),
             cli_agent_model_id: LLMId::from("integration-test"),
-            computer_use_model_id: LLMId::from("integration-test"),
             response_initiator: None,
         };
         let response_stream_id = ResponseStreamId::for_shared_session(&StreamInit {

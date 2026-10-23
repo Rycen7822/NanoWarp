@@ -103,7 +103,6 @@ fn convert_run_agents_execution_mode(
             RunAgentsExecutionMode::Remote {
                 environment_id: remote.environment_id,
                 worker_host: remote.worker_host,
-                computer_use_enabled: remote.computer_use_enabled,
                 runner_id: remote.runner_id,
             }
         }
@@ -508,25 +507,6 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
                             )
                             .with_citations(citations),
                         )),
-                        Some(
-                            api::message::artifact_event::artifact_created::Artifact::Screenshot(
-                                screenshot,
-                            ),
-                        ) => Ok(MaybeAIAgentOutputMessage::Message(
-                            AIAgentOutputMessage::artifact_created(
-                                MessageId::new(self.id),
-                                ArtifactCreatedData::Screenshot {
-                                    artifact_uid: screenshot.artifact_uid,
-                                    mime_type: screenshot.mime_type,
-                                    description: if screenshot.description.is_empty() {
-                                        None
-                                    } else {
-                                        Some(screenshot.description)
-                                    },
-                                },
-                            )
-                            .with_citations(citations),
-                        )),
                         Some(api::message::artifact_event::artifact_created::Artifact::File(
                             file,
                         )) => Ok(MaybeAIAgentOutputMessage::Message(
@@ -548,7 +528,8 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
                             )
                             .with_citations(citations),
                         )),
-                        None => Ok(MaybeAIAgentOutputMessage::NoClientRepresentation),
+                        Some(api::message::artifact_event::artifact_created::Artifact::Screenshot(_))
+                        | None => Ok(MaybeAIAgentOutputMessage::NoClientRepresentation),
                     }
                 }
                 Some(api::message::artifact_event::Event::ForkArtifacts(_)) | None => {
@@ -701,12 +682,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::TransferShellCommandControlToUser(
                 transfer_shell_command_control_to_user,
             ) => create_standard_action(transfer_shell_command_control_to_user.into()),
-            api::message::tool_call::Tool::UseComputer(use_computer) => {
-                create_standard_action(use_computer.try_into()?)
-            }
-            api::message::tool_call::Tool::RequestComputerUse(request_computer_use) => {
-                create_standard_action(request_computer_use.into())
-            }
             api::message::tool_call::Tool::Subagent(subagent) => {
                 use api::message::tool_call::subagent::Metadata;
                 use api::message::tool_call::subagent::conversation_search_metadata::Target;
@@ -714,7 +689,9 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
                     Some(Metadata::Cli(_)) => SubagentType::Cli,
                     Some(Metadata::Research(_)) => SubagentType::Research,
                     Some(Metadata::Advice(_)) => SubagentType::Advice,
-                    Some(Metadata::ComputerUse(_)) => SubagentType::ComputerUse,
+                    Some(Metadata::ComputerUse(_)) => {
+                        return Err(ToolToAIAgentActionError::UnexpectedTool);
+                    }
                     Some(Metadata::Summarization(_)) => SubagentType::Summarization,
                     Some(Metadata::ConversationSearch(cs_meta)) => {
                         let query = if cs_meta.query.is_empty() {

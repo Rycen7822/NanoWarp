@@ -1417,7 +1417,6 @@ pub struct ToolUsageMetadata {
     pub suggest_plan_stats: ToolCallStats,
     pub suggest_create_plan_stats: ToolCallStats,
     pub read_shell_command_output_stats: ToolCallStats,
-    pub use_computer_stats: ToolCallStats,
 }
 
 impl ToolUsageMetadata {
@@ -1434,7 +1433,6 @@ impl ToolUsageMetadata {
             + self.suggest_create_plan_stats.count
             + self.apply_file_diff_stats.count
             + self.read_shell_command_output_stats.count
-            + self.use_computer_stats.count
     }
 }
 
@@ -1457,7 +1455,7 @@ impl From<&ToolUsageMetadata> for stream_finished::ToolUsageMetadata {
             read_shell_command_output_stats: Some(
                 (&metadata.read_shell_command_output_stats).into(),
             ),
-            use_computer_stats: Some((&metadata.use_computer_stats).into()),
+            ..Default::default()
         }
     }
 }
@@ -1491,7 +1489,6 @@ impl From<&stream_finished::ToolUsageMetadata> for ToolUsageMetadata {
             read_shell_command_output_stats: convert(
                 &tool_usage_metadata.read_shell_command_output_stats,
             ),
-            use_computer_stats: convert(&tool_usage_metadata.use_computer_stats),
         }
     }
 }

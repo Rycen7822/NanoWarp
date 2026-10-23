@@ -145,7 +145,7 @@ impl TombstoneDisplayData {
             self.credits = Some(format_credits(credits));
         }
 
-        // Surface task artifacts (plans, PRs, files, screenshots) for third-party
+        // Surface task artifacts (plans, PRs, files) for third-party
         // harness runs.
         if !task.artifacts.is_empty() {
             self.artifacts = task.artifacts;
@@ -291,9 +291,6 @@ impl ConversationEndedTombstoneView {
                         ctx
                     );
                     ctx.open_url(url);
-                }
-                ArtifactButtonsRowEvent::ViewScreenshots { artifact_uids } => {
-                    crate::ai::artifacts::open_screenshot_lightbox(artifact_uids, ctx);
                 }
                 ArtifactButtonsRowEvent::DownloadFile { artifact_uid } => {
                     send_telemetry_from_ctx!(

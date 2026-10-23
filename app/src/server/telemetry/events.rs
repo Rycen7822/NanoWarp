@@ -23,7 +23,6 @@ use crate::ai::agent::{
     ServerOutputId,
 };
 use crate::ai::agent_management::notifications::NotificationSourceAgent;
-use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::{
     AIBlockResponseRating, CommandExecutionPermissionAllowedReason, InputType,
@@ -2001,26 +2000,6 @@ pub enum TelemetryEvent {
     CloudAgentCapacityModalOpened,
     /// Emitted when the cloud agent capacity modal is dismissed.
     CloudAgentCapacityModalDismissed,
-    /// Emitted when a RequestComputerUse action is approved (manually or auto-executed).
-    ComputerUseApproved {
-        client_conversation_id: AIConversationId,
-        server_conversation_id: Option<String>,
-        is_autoexecuted: bool,
-        ambient_agent_task_id: Option<AmbientAgentTaskId>,
-    },
-    /// Emitted when a RequestComputerUse action is cancelled/rejected.
-    ComputerUseCancelled {
-        client_conversation_id: AIConversationId,
-        server_conversation_id: Option<String>,
-        ambient_agent_task_id: Option<AmbientAgentTaskId>,
-    },
-    /// Emitted when computer use is enabled for a cloud agent run but the host cannot provide it
-    /// (e.g. no display), so the run's requests omit the computer-use tools. At most once per run.
-    ComputerUseUnavailable {
-        ambient_agent_task_id: AmbientAgentTaskId,
-        /// Whether the client is running inside a sandbox (a Warp-hosted cloud agent).
-        sandboxed: bool,
-    },
     /// Emitted when a warp://linear deeplink is opened.
     /// Emitted when the remote server binary check completes.
     RemoteServerBinaryCheck {
@@ -3404,34 +3383,6 @@ impl TelemetryEvent {
             })),
             TelemetryEvent::CloudAgentCapacityModalOpened => None,
             TelemetryEvent::CloudAgentCapacityModalDismissed => None,
-            TelemetryEvent::ComputerUseApproved {
-                client_conversation_id,
-                server_conversation_id,
-                is_autoexecuted,
-                ambient_agent_task_id,
-            } => Some(json!({
-                "client_conversation_id": client_conversation_id,
-                "server_conversation_id": server_conversation_id,
-                "is_autoexecuted": is_autoexecuted,
-                "ambient_agent_task_id": ambient_agent_task_id.map(|id| id.to_string()),
-            })),
-            TelemetryEvent::ComputerUseCancelled {
-                client_conversation_id,
-                server_conversation_id,
-                ambient_agent_task_id,
-            } => Some(json!({
-                "client_conversation_id": client_conversation_id,
-                "server_conversation_id": server_conversation_id,
-                "ambient_agent_task_id": ambient_agent_task_id.map(|id| id.to_string()),
-            })),
-            TelemetryEvent::ComputerUseUnavailable {
-                ambient_agent_task_id,
-                sandboxed,
-            } => Some(json!({
-                "ambient_agent_task_id": ambient_agent_task_id.to_string(),
-                "sandboxed": sandboxed,
-                "os": std::env::consts::OS,
-            })),
             TelemetryEvent::LoginButtonClicked { source }
             | TelemetryEvent::LoginLaterButtonClicked { source }
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { source }
@@ -3782,9 +3733,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleUseAgentToolbarSetting { .. }
             | TelemetryEvent::CloudAgentCapacityModalOpened
             | TelemetryEvent::CloudAgentCapacityModalDismissed
-            | TelemetryEvent::ComputerUseApproved { .. }
-            | TelemetryEvent::ComputerUseCancelled { .. }
-            | TelemetryEvent::ComputerUseUnavailable { .. }
             | TelemetryEvent::RemoteServerBinaryCheck { .. }
             | TelemetryEvent::RemoteServerInstallation { .. }
             | TelemetryEvent::RemoteServerInitialization { .. }
@@ -4195,11 +4143,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CloudAgentCapacityModalOpened | Self::CloudAgentCapacityModalDismissed => {
                 EnablementState::Flag(FeatureFlag::CloudMode)
             }
-            Self::ComputerUseApproved
-            | Self::ComputerUseCancelled
-            | Self::ComputerUseUnavailable => {
-                EnablementState::Flag(FeatureFlag::AgentModeComputerUse)
-            }
             Self::RemoteServerBinaryCheck
             | Self::RemoteServerInstallation
             | Self::RemoteServerInitialization
@@ -4609,9 +4552,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleUseAgentToolbarSetting { .. } => "UseAgentToolbar.SettingToggled",
             Self::CloudAgentCapacityModalOpened => "AmbientAgent.ConcurrencyModal.Opened",
             Self::CloudAgentCapacityModalDismissed => "AmbientAgent.ConcurrencyModal.Dismissed",
-            Self::ComputerUseApproved => "ComputerUse.Approved",
-            Self::ComputerUseCancelled => "ComputerUse.Cancelled",
-            Self::ComputerUseUnavailable => "ComputerUse.Unavailable",
         }
     }
 
@@ -5219,13 +5159,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CloudAgentCapacityModalOpened => "User opened the cloud agent capacity modal",
             Self::CloudAgentCapacityModalDismissed => {
                 "User dismissed the cloud agent capacity modal"
-            }
-            Self::ComputerUseApproved => {
-                "A RequestComputerUse action was approved (manually or auto-executed)"
-            }
-            Self::ComputerUseCancelled => "A RequestComputerUse action was cancelled/rejected",
-            Self::ComputerUseUnavailable => {
-                "Computer use was enabled for a cloud agent run but unavailable on the host"
             }
             Self::RemoteServerBinaryCheck => {
                 "Remote server binary check completed (found, not found, or error)"

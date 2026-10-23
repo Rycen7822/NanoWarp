@@ -67,7 +67,6 @@ pub async fn generate_multi_agent_output(
             model_config: Some(api::request::settings::ModelConfig {
                 base: params.model.into(),
                 cli_agent: params.cli_agent_model.into(),
-                computer_use_agent: params.computer_use_model.into(),
                 base_model_context_window_limit: params.context_window_limit.unwrap_or(0),
                 ..Default::default()
             }),
@@ -103,9 +102,6 @@ pub async fn generate_multi_agent_output(
             supports_orchestration_v2: supports_orchestration_v2(params.orchestration_enabled),
             supports_orchestration_runners: params.orchestration_enabled
                 && FeatureFlag::CloudAgentRunners.is_enabled(),
-            supports_background_computer_use: FeatureFlag::BackgroundComputerUse.is_enabled()
-                && computer_use::background_supported(),
-            supports_stored_screenshots: FeatureFlag::StoredScreenshots.is_enabled(),
             // Unconditional: echoed agent messages are always confirmed delivered, so injection
             // cannot produce a duplicate turn.
             supports_server_side_agent_message_injection: true,
@@ -259,11 +255,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         Some(SessionType::WarpifiedRemote { host_id: None }) => {
             // Feature flag off or not yet connected — no remote tools.
         }
-    }
-
-    if FeatureFlag::AgentModeComputerUse.is_enabled() && params.computer_use_enabled {
-        supported_tools.extend(&[api::ToolType::UseComputer]);
-        supported_tools.extend(&[api::ToolType::RequestComputerUse]);
     }
 
     supported_tools.push(api::ToolType::InsertReviewComments);

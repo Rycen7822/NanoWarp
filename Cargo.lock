@@ -174,7 +174,6 @@ dependencies = [
  "bytes",
  "cfg-if",
  "chrono",
- "computer_use",
  "derivative",
  "dirs 6.0.0",
  "dunce",
@@ -1030,24 +1029,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
 dependencies = [
  "libloading",
-]
-
-[[package]]
-name = "ashpd"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f3f79755c74fd155000314eb349864caa787c6592eace6c6882dad873d9c39"
-dependencies = [
- "async-fs",
- "async-net",
- "enumflags2",
- "futures-channel",
- "futures-util",
- "rand 0.9.4",
- "serde",
- "serde_repr",
- "url",
- "zbus",
 ]
 
 [[package]]
@@ -3026,43 +3007,6 @@ dependencies = [
  "ryu",
  "serde",
  "static_assertions",
-]
-
-[[package]]
-name = "computer_use"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "ashpd",
- "async-trait",
- "cfg-if",
- "cfg_aliases 0.2.1",
- "clap",
- "command",
- "computer_use",
- "dispatch2",
- "futures",
- "image",
- "instant",
- "libc",
- "log",
- "nix 0.26.4",
- "objc2 0.6.3",
- "objc2-app-kit 0.3.2",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "pathfinder_geometry",
- "serde",
- "serde_json",
- "serde_with",
- "tempfile",
- "tokio",
- "url",
- "warp_errors",
- "warpui_core",
- "windows 0.62.2",
- "x11rb",
- "zbus",
 ]
 
 [[package]]
@@ -8646,13 +8590,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
 dependencies = [
  "bitflags 2.13.0",
- "block2 0.6.2",
  "dispatch2",
- "libc",
  "objc2 0.6.3",
  "objc2-core-foundation",
  "objc2-io-surface",
- "objc2-metal 0.3.2",
 ]
 
 [[package]]
@@ -13944,7 +13885,6 @@ dependencies = [
  "comfy-table",
  "command",
  "command-corrections",
- "computer_use",
  "concat-idents",
  "console_error_panic_hook",
  "content_inspector",
@@ -16733,7 +16673,6 @@ dependencies = [
  "endi",
  "enumflags2",
  "serde",
- "url",
  "winnow 0.7.12",
  "zvariant_derive",
  "zvariant_utils",

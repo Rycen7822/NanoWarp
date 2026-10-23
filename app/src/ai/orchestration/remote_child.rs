@@ -42,7 +42,6 @@ pub struct RemoteChildLaunchConfig {
     pub skill_references: Vec<SkillReference>,
     pub working_dir: PathBuf,
     pub model_id: String,
-    pub computer_use_enabled: bool,
     pub worker_host: String,
     pub harness_type: String,
     pub title: String,
@@ -186,7 +185,6 @@ pub fn prepare_remote_child_launch(
         skill_references,
         working_dir,
         model_id,
-        computer_use_enabled,
         worker_host,
         harness_type,
         title,
@@ -220,8 +218,6 @@ pub fn prepare_remote_child_launch(
             }
         }
     };
-    let computer_use_enabled =
-        (orchestration_harness == Harness::Oz).then_some(computer_use_enabled);
     let harness_auth_secrets = auth_secret_name
         .filter(|name| !name.trim().is_empty())
         .and_then(|name| match orchestration_harness {
@@ -252,7 +248,6 @@ pub fn prepare_remote_child_launch(
             runner_id: (!runner_id.is_empty()).then_some(runner_id),
             model_id,
             worker_host: (!worker_host.is_empty()).then_some(worker_host),
-            computer_use_enabled,
             harness: harness_override,
             harness_auth_secrets,
             ..Default::default()

@@ -641,7 +641,6 @@ fn live_request_input(
         model_id: LLMId::from("test-model"),
         coding_model_id: LLMId::from("test-coding-model"),
         cli_agent_model_id: LLMId::from("test-cli-agent-model"),
-        computer_use_model_id: LLMId::from("test-computer-use-model"),
         shared_session_response_initiator: None,
         request_start_ts: Local::now(),
     }

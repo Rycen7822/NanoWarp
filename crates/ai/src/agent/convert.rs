@@ -18,18 +18,6 @@ pub enum ToolToAIAgentActionError {
     MissingTool,
     #[error("Could not parse args for MCP tool call: {0}")]
     CallMCPToolArgsError(String),
-    #[error("Required coordinates for computer use action were missing")]
-    MissingComputerUseCoordinates,
-    #[error("Required scroll distance for mouse wheel action was missing")]
-    MissingComputerUseScrollDistance,
-    #[error("Received missing computer use action type")]
-    MissingComputerUseActionType,
-    #[error("Wait duration must be non-negative")]
-    InvalidComputerUseWaitDuration,
-    #[error("Required key for KeyDown/KeyUp action was missing")]
-    MissingComputerUseKey,
-    #[error("Character key was empty")]
-    InvalidComputerUseCharKey,
     #[error("Received unexpected tool")]
     UnexpectedTool,
     #[error("Missing required reference for read skill tool call")]

@@ -11,9 +11,7 @@ use warp_graphql::billing::{
 
 use super::gql_convert::{ToAgentModeCommandExecutionPredicates, ToPathBufs};
 use super::team::{MembershipRole, Team};
-use crate::ai::execution_profiles::{
-    ActionPermission, ComputerUsePermission, WriteToPtyPermission,
-};
+use crate::ai::execution_profiles::{ActionPermission, WriteToPtyPermission};
 use crate::ai::llms::{LLMModelHost, LLMProvider, ModelsByFeature};
 use crate::auth::UserUid;
 use crate::server::ids::ServerId;
@@ -827,7 +825,6 @@ pub struct AiAutonomySettings {
     pub execute_commands_allowlist: Option<Vec<AgentModeCommandExecutionPredicate>>,
     pub execute_commands_denylist: Option<Vec<AgentModeCommandExecutionPredicate>>,
     pub write_to_pty_setting: Option<WriteToPtyPermission>,
-    pub computer_use_setting: Option<ComputerUsePermission>,
 }
 
 impl AiAutonomySettings {
@@ -839,7 +836,6 @@ impl AiAutonomySettings {
             || self.execute_commands_allowlist.is_some()
             || self.execute_commands_denylist.is_some()
             || self.write_to_pty_setting.is_some()
-            || self.computer_use_setting.is_some()
     }
 
     pub fn has_override_for_code_diffs(&self) -> bool {
@@ -868,10 +864,6 @@ impl AiAutonomySettings {
 
     pub fn has_override_for_write_to_pty(&self) -> bool {
         self.write_to_pty_setting.is_some()
-    }
-
-    pub fn has_override_for_computer_use(&self) -> bool {
-        self.computer_use_setting.is_some()
     }
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -1043,7 +1035,6 @@ pub struct TeamAiAutonomySettings {
     pub create_plans: EnforceableSetting<Option<ActionPermission>>,
     pub execute_commands: EnforceableSetting<Option<ActionPermission>>,
     pub write_to_pty: EnforceableSetting<Option<WriteToPtyPermission>>,
-    pub computer_use: EnforceableSetting<Option<ComputerUsePermission>>,
     pub read_files_allowlist: SplitListSetting<String>,
     pub execute_commands_allowlist: SplitListSetting<String>,
     pub execute_commands_denylist: SplitListSetting<String>,
@@ -1088,7 +1079,6 @@ impl From<&TeamAiAutonomySettings> for AiAutonomySettings {
                 ToAgentModeCommandExecutionPredicates::to_predicates,
             ),
             write_to_pty_setting: team.write_to_pty.value,
-            computer_use_setting: team.computer_use.value,
         }
     }
 }

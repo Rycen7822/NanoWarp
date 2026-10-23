@@ -32,9 +32,8 @@ use warp_graphql::workspace::{
     AiPermissionsSettings as GqlAiPermissionsSettings,
     ByoEndpointMetadata as GqlByoEndpointMetadata,
     ByoEndpointModelMetadata as GqlByoEndpointModelMetadata,
-    ByoFirstPartyKey as GqlByoFirstPartyKey,
-    ComputerUseAutonomyValue as GqlComputerUseAutonomyValue, EmailInvite as GqlEmailInvite,
-    FeatureModelChoice, HostEnablementSetting as GqlHostEnablementSetting,
+    ByoFirstPartyKey as GqlByoFirstPartyKey, EmailInvite as GqlEmailInvite, FeatureModelChoice,
+    HostEnablementSetting as GqlHostEnablementSetting,
     InviteLinkDomainRestriction as GqlInviteLinkDomainRestriction,
     MembershipRole as GqlMembershipRole, StringListSettingInfo as GqlStringListSettingInfo,
     Team as GqlTeam, TeamByoSettings as GqlTeamByoSettings, TeamMember as GqlTeamMember,
@@ -61,9 +60,7 @@ use super::workspace::{
     UgcCollectionSettings, UgcDataCollectionPolicy, UsageBasedPricingPolicy, WarpAiPolicy,
     Workspace, WorkspaceMember, WorkspaceMemberUsageInfo, WorkspaceSettings, WorkspaceSizePolicy,
 };
-use crate::ai::execution_profiles::{
-    ActionPermission, ComputerUsePermission, WriteToPtyPermission,
-};
+use crate::ai::execution_profiles::{ActionPermission, WriteToPtyPermission};
 use crate::ai::llms::ModelsByFeature;
 use crate::ai::{BonusGrant, BonusGrantScope};
 use crate::auth::UserUid;
@@ -794,25 +791,6 @@ fn convert_gql_write_to_pty_autonomy_value_to_write_to_pty_permission(
     }
 }
 
-fn convert_gql_computer_use_autonomy_value_to_computer_use_permission(
-    gql_computer_use_autonomy_value: GqlComputerUseAutonomyValue,
-) -> Option<ComputerUsePermission> {
-    match gql_computer_use_autonomy_value {
-        GqlComputerUseAutonomyValue::Never => Some(ComputerUsePermission::Never),
-        GqlComputerUseAutonomyValue::AlwaysAsk => Some(ComputerUsePermission::AlwaysAsk),
-        GqlComputerUseAutonomyValue::AlwaysAllow => Some(ComputerUsePermission::AlwaysAllow),
-        GqlComputerUseAutonomyValue::RespectUserSetting => None,
-        GqlComputerUseAutonomyValue::Other(value) => {
-            report_error!(
-                "Invalid ComputerUseAutonomyValue. Make sure to update client GraphQL types!",
-                extra: { "value" => %value },
-                warp_errors::ReportErrorLogMode::OncePerRun
-            );
-            None
-        }
-    }
-}
-
 pub(crate) trait ToAgentModeCommandExecutionPredicates {
     fn to_predicates(self) -> Vec<AgentModeCommandExecutionPredicate>;
 }
@@ -978,10 +956,6 @@ impl From<GqlWorkspaceSettings> for WorkspaceSettings {
                     .ai_autonomy_settings
                     .write_to_pty_setting
                     .and_then(convert_gql_write_to_pty_autonomy_value_to_write_to_pty_permission),
-                computer_use_setting: gql_workspace_settings
-                    .ai_autonomy_settings
-                    .computer_use_setting
-                    .and_then(convert_gql_computer_use_autonomy_value_to_computer_use_permission),
             },
             usage_based_pricing_settings: UsageBasedPricingSettings {
                 enabled: gql_workspace_settings.usage_based_pricing_settings.enabled,
@@ -1146,15 +1120,6 @@ impl From<GqlTeamSettings> for TeamSettings {
                     is_enforced_by_workspace: gql_team_settings
                         .ai_autonomy
                         .write_to_pty
-                        .is_enforced_by_workspace,
-                },
-                computer_use: EnforceableSetting {
-                    value: convert_gql_computer_use_autonomy_value_to_computer_use_permission(
-                        gql_team_settings.ai_autonomy.computer_use.value,
-                    ),
-                    is_enforced_by_workspace: gql_team_settings
-                        .ai_autonomy
-                        .computer_use
                         .is_enforced_by_workspace,
                 },
                 read_files_allowlist: split_string_list(

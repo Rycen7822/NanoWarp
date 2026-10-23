@@ -8,7 +8,6 @@ use chrono::{DateTime, Local};
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use warp_core::command::ExitCode;
-use warp_multi_agent_api::StoredScreenshotRef;
 use warp_multi_agent_api::apply_file_diffs_result::success::UpdatedFileContent;
 use warp_terminal::event::ObservedExitStatus;
 use warp_terminal::model::BlockId;
@@ -68,14 +67,8 @@ pub enum AIAgentActionResultType {
     /// The output of reading shell command output.
     ReadShellCommandOutput(ReadShellCommandOutputResult),
 
-    /// The output of using computer.
-    UseComputer(UseComputerResult),
-
     /// The result of inserting code review comments.
     InsertReviewComments(InsertReviewCommentsResult),
-
-    /// The output of requesting computer use.
-    RequestComputerUse(RequestComputerUseResult),
 
     /// The result of fetching a conversation's tasks.
     FetchConversation(FetchConversationResult),
@@ -161,9 +154,7 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::EditDocuments(result) => result.fmt(f),
             AIAgentActionResultType::CreateDocuments(result) => result.fmt(f),
             AIAgentActionResultType::ReadShellCommandOutput(result) => result.fmt(f),
-            AIAgentActionResultType::UseComputer(result) => result.fmt(f),
             AIAgentActionResultType::InsertReviewComments(result) => result.fmt(f),
-            AIAgentActionResultType::RequestComputerUse(result) => result.fmt(f),
             AIAgentActionResultType::FetchConversation(result) => result.fmt(f),
             AIAgentActionResultType::SendMessageToAgent(result) => result.fmt(f),
             AIAgentActionResultType::TransferShellCommandControlToUser(result) => result.fmt(f),
@@ -818,8 +809,6 @@ impl AIAgentActionResultType {
             AIAgentActionResultType::EditDocuments(_) => "The edited document content",
             AIAgentActionResultType::CreateDocuments(_) => "The newly created documents",
             AIAgentActionResultType::ReadShellCommandOutput(_) => "The shell command output",
-            AIAgentActionResultType::UseComputer(_) => "The computer use result",
-            AIAgentActionResultType::RequestComputerUse(_) => "The computer use request result",
             AIAgentActionResultType::FetchConversation(_) => "The fetched conversation tasks",
             AIAgentActionResultType::SendMessageToAgent(_) => "The result of sending a message",
             AIAgentActionResultType::TransferShellCommandControlToUser(_) => {
@@ -856,9 +845,7 @@ impl AIAgentActionResultType {
                 ReadShellCommandOutputResult::CommandFinished { .. }
                 | ReadShellCommandOutputResult::LongRunningCommandSnapshot { .. },
             )
-            | Self::UseComputer(UseComputerResult::Success { .. })
             | Self::InsertReviewComments(InsertReviewCommentsResult::Success { .. })
-            | Self::RequestComputerUse(RequestComputerUseResult::Approved { .. })
             | Self::OpenCodeReview
             | Self::ReadSkill(ReadSkillResult::Success { .. })
             | Self::FetchConversation(FetchConversationResult::Success { .. })
@@ -893,9 +880,7 @@ impl AIAgentActionResultType {
             | Self::ReadShellCommandOutput(ReadShellCommandOutputResult::ShellRecovered {
                 ..
             })
-            | Self::UseComputer(UseComputerResult::Error(_))
             | Self::InsertReviewComments(InsertReviewCommentsResult::Error { .. })
-            | Self::RequestComputerUse(RequestComputerUseResult::Error(_))
             | Self::FetchConversation(FetchConversationResult::Error(_))
             | Self::SendMessageToAgent(SendMessageToAgentResult::Error(_))
             | Self::AskUserQuestion(AskUserQuestionResult::Error(_))
@@ -933,9 +918,7 @@ impl AIAgentActionResultType {
             | Self::EditDocuments(EditDocumentsResult::Cancelled)
             | Self::CreateDocuments(CreateDocumentsResult::Cancelled)
             | Self::ReadShellCommandOutput(ReadShellCommandOutputResult::Cancelled)
-            | Self::UseComputer(UseComputerResult::Cancelled)
             | Self::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
-            | Self::RequestComputerUse(RequestComputerUseResult::Cancelled)
             | Self::TransferShellCommandControlToUser(
                 TransferShellCommandControlToUserResult::Cancelled,
             )
@@ -1173,65 +1156,6 @@ impl Display for ReadSkillResult {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq)]
-pub enum UseComputerResult {
-    /// Computer use succeeded. Mirrors the wire `Success` message.
-    Success {
-        screenshot: Option<ScreenshotSource>,
-        cursor_position: Option<computer_use::Vector2I>,
-        /// The on-screen windows, refreshed after the actions ran, so the caller always has a
-        /// fresh list to target next. Empty on platforms without window enumeration.
-        windows: Vec<computer_use::WindowInfo>,
-        /// Metadata about the captured window, populated only when a window target was
-        /// screenshotted, so window-local coordinates map onto the screenshot image.
-        captured_window: Option<computer_use::CapturedWindow>,
-    },
-    Error(String),
-    Cancelled,
-}
-
-/// Where a computer-use screenshot's bytes live, mirroring the wire's
-/// `RawImage.source` oneof.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ScreenshotSource {
-    /// The bytes are inline on the client.
-    Inline(computer_use::Screenshot),
-    /// The bytes live in Warp-managed object storage and must be fetched via a
-    /// signed URL.
-    Stored {
-        stored_ref: StoredScreenshotRef,
-        /// MIME type of the stored image (e.g. "image/png").
-        mime_type: String,
-        /// The width of the stored image, in pixels.
-        width: i32,
-        /// The height of the stored image, in pixels.
-        height: i32,
-    },
-}
-
-impl UseComputerResult {
-    /// Builds a success result from a locally captured action result, whose
-    /// screenshot bytes (if any) are inline.
-    pub fn success(result: computer_use::ActionResult) -> Self {
-        Self::Success {
-            screenshot: result.screenshot.map(ScreenshotSource::Inline),
-            cursor_position: result.cursor_position,
-            windows: result.windows,
-            captured_window: result.captured_window,
-        }
-    }
-}
-
-impl Display for UseComputerResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UseComputerResult::Success { .. } => write!(f, "Use computer completed"),
-            UseComputerResult::Error(error) => write!(f, "Use computer error: {error}"),
-            UseComputerResult::Cancelled => write!(f, "Use computer cancelled"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InsertReviewCommentsResult {
     Success { repo_path: String },
@@ -1254,46 +1178,6 @@ impl Display for InsertReviewCommentsResult {
             InsertReviewCommentsResult::Cancelled => {
                 write!(f, "Cancelled inserting code review comments")
             }
-        }
-    }
-}
-
-/// Screen dimensions for computer use.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScreenDimensions {
-    pub width_px: i32,
-    pub height_px: i32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RequestComputerUseResult {
-    /// Request was accepted, with the screen dimensions.
-    Approved {
-        screenshot: computer_use::Screenshot,
-        platform: computer_use::Platform,
-        /// The on-screen windows the agent may target.
-        windows: Vec<computer_use::WindowInfo>,
-    },
-    /// Request errored.
-    Error(String),
-    /// Request was cancelled or rejected by the user.
-    Cancelled,
-}
-
-impl Display for RequestComputerUseResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RequestComputerUseResult::Approved { screenshot, .. } => {
-                write!(
-                    f,
-                    "Request computer use accepted ({}x{})",
-                    screenshot.original_width, screenshot.original_height
-                )
-            }
-            RequestComputerUseResult::Error(error) => {
-                write!(f, "Request computer use error: {error}")
-            }
-            RequestComputerUseResult::Cancelled => write!(f, "Request computer use cancelled"),
         }
     }
 }
@@ -1354,7 +1238,6 @@ pub enum RunAgentsLaunchedExecutionMode {
     Remote {
         environment_id: String,
         worker_host: String,
-        computer_use_enabled: bool,
         /// Resolved runner UID the batch committed to; empty when none.
         #[serde(default)]
         runner_id: String,

@@ -661,7 +661,6 @@ fn active_models_fall_back_to_usable_choice_or_custom_endpoint_when_default_disa
                     Some(DisableReason::AdminDisabled),
                 )],
             )),
-            computer_use: None,
         };
         llm_preferences.update(&mut app, |preferences, ctx| {
             preferences.update_feature_model_choices(Ok(models), ctx);
@@ -724,7 +723,6 @@ fn active_models_use_default_when_usable() {
                 "cli-agent-auto",
                 vec![server_llm("cli-agent-auto", None)],
             )),
-            computer_use: None,
         };
         llm_preferences.update(&mut app, |preferences, ctx| {
             preferences.update_feature_model_choices(Ok(models), ctx);
@@ -1242,7 +1240,7 @@ fn preferences_for_profile_model_tests(ctx: &mut ModelContext<LLMPreferences>) -
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn with_computer_use_test_context(f: impl FnOnce(&mut App) + 'static) {
+fn with_profile_model_test_context(f: impl FnOnce(&mut App) + 'static) {
     App::test((), |mut app| async move {
         let _file_profiles = FeatureFlag::FileBackedExecutionProfiles.override_enabled(true);
         initialize_settings_for_tests(&mut app);
@@ -1265,65 +1263,15 @@ fn with_computer_use_test_context(f: impl FnOnce(&mut App) + 'static) {
         app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });
-        app.add_singleton_model(|ctx| {
-            UserWorkspaces::handle(ctx).update(ctx, |workspaces, _| {
-                workspaces.set_workspaceless_models_by_feature(ModelsByFeature {
-                    computer_use: Some(
-                        AvailableLLMs::new(
-                            "computer-use-agent-auto".into(),
-                            vec![
-                                agent_llm("computer-use-agent-auto", "auto"),
-                                agent_llm("computer-use-model", "selected"),
-                                agent_llm("profile-model", "profile"),
-                            ],
-                            None,
-                        )
-                        .unwrap(),
-                    ),
-                    ..Default::default()
-                });
-            });
-            LLMPreferences::for_test(Vec::new())
-        });
+        app.add_singleton_model(|_| LLMPreferences::for_test(Vec::new()));
         f(&mut app);
     });
 }
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
-fn computer_use_model_falls_back_to_the_profile_without_a_terminal_override() {
-    with_computer_use_test_context(|app| {
-        let profiles = AIExecutionProfilesModel::handle(app);
-        let preferences = LLMPreferences::handle(app);
-        let terminal_view_id = EntityId::new();
-        profiles.update(app, |profiles, ctx| {
-            profiles.set_computer_use_model(
-                &profiles.default_profile_id(),
-                Some("profile-model".into()),
-                ctx,
-            );
-        });
-
-        preferences.read(app, |preferences, ctx| {
-            assert_eq!(
-                preferences
-                    .get_active_computer_use_model(
-                        &TeamlessScopeForTest,
-                        ctx,
-                        Some(terminal_view_id)
-                    )
-                    .id
-                    .as_str(),
-                "profile-model"
-            );
-        });
-    });
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[test]
 fn resetting_session_model_overrides_restores_the_agent_mode_profile_model() {
-    with_computer_use_test_context(|app| {
+    with_profile_model_test_context(|app| {
         let preferences = LLMPreferences::handle(app);
         let terminal_view_id = EntityId::new();
         preferences.update(app, |preferences, ctx| {

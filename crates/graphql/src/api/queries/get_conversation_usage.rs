@@ -100,7 +100,6 @@ pub struct ToolUsageMetadata {
     pub write_to_long_running_shell_command_stats: ToolCallStats,
     pub apply_file_diff_stats: ApplyFileDiffStats,
     pub read_shell_command_output_stats: ToolCallStats,
-    pub use_computer_stats: ToolCallStats,
 }
 
 impl From<&ToolUsageMetadata> for persistence::model::ToolUsageMetadata {
@@ -145,9 +144,6 @@ impl From<&ToolUsageMetadata> for persistence::model::ToolUsageMetadata {
             },
             read_shell_command_output_stats: persistence::model::ToolCallStats {
                 count: gql.read_shell_command_output_stats.count,
-            },
-            use_computer_stats: persistence::model::ToolCallStats {
-                count: gql.use_computer_stats.count,
             },
         }
     }

@@ -41,9 +41,6 @@ pub struct OrchestrationConfigState {
     pub model_id: String,
     pub harness_type: String,
     pub execution_mode: RunAgentsExecutionMode,
-    /// Per-call value hidden from the orchestration editors. Kept outside
-    /// `execution_mode` so a temporary switch to Local does not discard it.
-    remote_computer_use_enabled: bool,
     /// Drives the picker display and Accept gate. Persisted as a scoped harness preference.
     pub auth_secret_selection: AuthSecretSelection,
 }
@@ -82,19 +79,10 @@ impl OrchestrationConfigState {
         harness_type: Option<&str>,
         execution_mode: &RunAgentsExecutionMode,
     ) -> Self {
-        let remote_computer_use_enabled = match execution_mode {
-            RunAgentsExecutionMode::Local => false,
-            RunAgentsExecutionMode::Remote {
-                computer_use_enabled,
-                ..
-            } => *computer_use_enabled,
-        };
-
         Self {
             model_id: model_id.unwrap_or_default().to_string(),
             harness_type: harness_type.unwrap_or_default().to_string(),
             execution_mode: execution_mode.clone(),
-            remote_computer_use_enabled,
             auth_secret_selection: AuthSecretSelection::Unset,
         }
     }
@@ -109,7 +97,6 @@ impl OrchestrationConfigState {
             } => RunAgentsExecutionMode::Remote {
                 environment_id: environment_id.clone(),
                 worker_host: worker_host.clone(),
-                computer_use_enabled: false,
                 runner_id: runner_id.clone(),
             },
         };
@@ -117,7 +104,6 @@ impl OrchestrationConfigState {
             model_id: config.model_id.clone(),
             harness_type: config.harness_type.clone(),
             execution_mode,
-            remote_computer_use_enabled: false,
             auth_secret_selection: AuthSecretSelection::Unset,
         }
     }
@@ -133,18 +119,10 @@ impl OrchestrationConfigState {
                 self.execution_mode = RunAgentsExecutionMode::Remote {
                     environment_id: String::new(),
                     worker_host: ORCHESTRATION_WARP_WORKER_HOST.to_string(),
-                    computer_use_enabled: self.remote_computer_use_enabled,
                     runner_id: String::new(),
                 };
             }
         } else {
-            if let RunAgentsExecutionMode::Remote {
-                computer_use_enabled,
-                ..
-            } = &self.execution_mode
-            {
-                self.remote_computer_use_enabled = *computer_use_enabled;
-            }
             self.execution_mode = RunAgentsExecutionMode::Local;
         }
     }
@@ -214,30 +192,10 @@ impl OrchestrationConfigState {
     /// from the approved orchestration config. The plan config is the
     /// user-approved source of truth — the LLM's run_agents call may
     /// omit or set these differently, but the config always wins.
-    ///
-    /// `computer_use_enabled` is preserved when the config changes execution
-    /// mode, since it is a per-call flag rather than part of the approved plan
-    /// configuration.
     pub fn override_from_approved_config(&mut self, config: &OrchestrationConfig) {
         self.model_id = config.model_id.clone();
         self.harness_type = config.harness_type.clone();
-        if let RunAgentsExecutionMode::Remote {
-            computer_use_enabled,
-            ..
-        } = &self.execution_mode
-        {
-            self.remote_computer_use_enabled = *computer_use_enabled;
-        }
-
         self.execution_mode = Self::from_orchestration_config(config).execution_mode;
-
-        if let RunAgentsExecutionMode::Remote {
-            computer_use_enabled,
-            ..
-        } = &mut self.execution_mode
-        {
-            *computer_use_enabled = self.remote_computer_use_enabled;
-        }
     }
 
     /// Converts to a native `OrchestrationConfig` for storage / match.

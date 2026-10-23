@@ -260,7 +260,6 @@ pub enum ArtifactFilter {
     All,
     PullRequest,
     Plan,
-    Screenshot,
     File,
 }
 
@@ -602,9 +601,6 @@ pub(crate) fn artifacts_match_filter(
         ArtifactFilter::Plan => artifacts
             .iter()
             .any(|artifact| matches!(artifact, Artifact::Plan { .. })),
-        ArtifactFilter::Screenshot => artifacts
-            .iter()
-            .any(|artifact| matches!(artifact, Artifact::Screenshot { .. })),
         ArtifactFilter::File => artifacts
             .iter()
             .any(|artifact| matches!(artifact, Artifact::File { .. })),

@@ -78,8 +78,6 @@ pub struct ExecutionConfiguration {
     pub mcp_servers_json: String,
     pub skills: Vec<ExecutionSkillSpec>,
     pub factory_skill_dirs: Vec<String>,
-    pub computer_use_enabled: bool,
-    pub computer_use_model_id: Option<String>,
     pub inference_providers: Option<InferenceProviderClientConfigs>,
     pub repositories: Vec<ExecutionRepository>,
     #[cynic(feature = "deferred_repositories")]

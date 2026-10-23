@@ -275,7 +275,6 @@ impl Task {
             model_id: existing_exchange.model_id.clone(),
             coding_model_id: existing_exchange.coding_model_id.clone(),
             cli_agent_model_id: existing_exchange.cli_agent_model_id.clone(),
-            computer_use_model_id: existing_exchange.computer_use_model_id.clone(),
             request_cost: None,
             response_initiator: existing_exchange.response_initiator.clone(),
         };
@@ -410,7 +409,6 @@ impl Task {
             model_id: existing_exchange.model_id.clone(),
             coding_model_id: existing_exchange.coding_model_id.clone(),
             cli_agent_model_id: existing_exchange.cli_agent_model_id.clone(),
-            computer_use_model_id: existing_exchange.computer_use_model_id.clone(),
             request_cost: None,
             response_initiator: existing_exchange.response_initiator.clone(),
         };
@@ -469,16 +467,6 @@ impl Task {
                 .subagent_params
                 .as_ref()
                 .is_some_and(|params| params.call.is_advice()),
-            TaskImpl::Optimistic(_) => false,
-        }
-    }
-
-    pub fn is_computer_use_subagent(&self) -> bool {
-        match &self.data {
-            TaskImpl::Server(server_data) => server_data
-                .subagent_params
-                .as_ref()
-                .is_some_and(|params| params.call.is_computer_use()),
             TaskImpl::Optimistic(_) => false,
         }
     }
@@ -651,8 +639,7 @@ impl Task {
     /// updated along with the resulting task message.
     ///
     /// An update for an existing message is applied to the exchange that added that message,
-    /// which may predate the current response stream (e.g. the server swapping an earlier
-    /// screenshot's inline bytes for a stored ref). Only a genuinely new message requires
+    /// which may predate the current response stream. Only a new message requires
     /// `current_stream_exchange_id`, the exchange the current stream added for this task.
     pub(super) fn upsert_message(
         &mut self,
@@ -987,8 +974,7 @@ impl AIAgentExchange {
         conversion_params: super::api::ConversionParams<'_>,
     ) -> Result<(), UpdateTaskError> {
         // Applies to finished outputs as well as streaming ones: updates can target
-        // messages owned by exchanges whose output already completed (e.g. a stored-ref
-        // swap for a screenshot from an earlier exchange).
+        // messages owned by exchanges whose output already completed.
         if let Some(output) = self.output_status.output() {
             let mut output = output.get_mut();
             let message_idx = output

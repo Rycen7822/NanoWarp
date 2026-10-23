@@ -827,19 +827,6 @@ define_settings_group!(AISettings, settings: [
         private: true,
     }
 
-    // Whether computer use is enabled for cloud agent conversations started from the Warp app.
-    // This setting is only used when the AI autonomy setting is AlwaysAsk or not set.
-    cloud_agent_computer_use_enabled: CloudAgentComputerUseEnabled {
-        type: bool,
-        default: warp_core::channel::ChannelState::channel().is_dogfood(),
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.other.cloud_agent_computer_use_enabled",
-        description: "Whether computer use is enabled for cloud agent conversations.",
-    }
-
-
     // Whether file-based MCP servers from third-party AI tools (e.g. Claude, Codex) should
     // be automatically detected and spawned. Warp-native config files (.warp/.mcp.json) are
     // always detected and spawned, regardless of this setting.
@@ -1172,17 +1159,6 @@ impl AISettings {
         let set_by_workspace = UserWorkspaces::as_ref(app)
             .ai_autonomy_settings(scope)
             .has_override_for_write_to_pty();
-        self.is_any_ai_enabled(app) && !set_by_workspace
-    }
-
-    pub(crate) fn is_computer_use_permissions_editable(
-        &self,
-        scope: &impl TeamScope,
-        app: &AppContext,
-    ) -> bool {
-        let set_by_workspace = UserWorkspaces::as_ref(app)
-            .ai_autonomy_settings(scope)
-            .has_override_for_computer_use();
         self.is_any_ai_enabled(app) && !set_by_workspace
     }
 

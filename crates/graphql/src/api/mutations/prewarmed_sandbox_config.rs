@@ -61,7 +61,6 @@ pub struct PrewarmedSandboxSpec {
     pub mcp_servers_json: String,
     pub skills: Vec<String>,
     pub factory_skill_dirs: Vec<String>,
-    pub computer_use_enabled: bool,
     pub providers: Option<CloudProviderClientConfigs>,
 }
 

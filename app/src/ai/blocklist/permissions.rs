@@ -199,7 +199,6 @@ impl BlocklistAIPermissions {
             directory_allowlist: self.get_read_files_allowlist_for_profile(profile_id, scope, ctx),
             mcp_allowlist: self.get_mcp_allowlist_for_profile(ctx, profile_id),
             mcp_denylist: self.get_mcp_denylist_for_profile(ctx, profile_id),
-            computer_use: self.get_computer_use_setting_for_profile(profile_id, scope, ctx),
             ask_user_question: self.get_ask_user_question_setting_for_profile(ctx, profile_id),
             run_agents: self.get_run_agents_setting_for_profile(ctx, profile_id),
 
@@ -209,7 +208,6 @@ impl BlocklistAIPermissions {
             base_model: profile_data.base_model.clone(),
             coding_model: profile_data.coding_model.clone(),
             cli_agent_model: profile_data.cli_agent_model.clone(),
-            computer_use_model: profile_data.computer_use_model.clone(),
             context_window_limit: profile_data.context_window_limit,
             autosync_plans_to_warp_drive: profile_data.autosync_plans_to_warp_drive,
             web_search_enabled: profile_data.web_search_enabled,
@@ -604,39 +602,6 @@ impl BlocklistAIPermissions {
         let active_profile =
             AIExecutionProfilesModel::as_ref(ctx).active_profile(terminal_view_id, ctx);
         self.get_web_search_enabled_for_profile(ctx, active_profile.id())
-    }
-
-    pub fn get_computer_use_setting_for_profile(
-        &self,
-        profile_id: &ExecutionProfileId,
-        scope: &impl TeamScope,
-        ctx: &AppContext,
-    ) -> crate::ai::execution_profiles::ComputerUsePermission {
-        let autonomy_settings = Self::team_autonomy_settings(scope, ctx);
-        let computer_use_workspace_setting = autonomy_settings.computer_use_setting;
-
-        computer_use_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .computer_use
-        })
-    }
-
-    pub fn get_computer_use_setting(
-        &self,
-        terminal_view_id: Option<EntityId>,
-        scope: &impl TeamScope,
-        ctx: &AppContext,
-    ) -> crate::ai::execution_profiles::ComputerUsePermission {
-        if let Some(policy) = Self::team_autonomy_settings(scope, ctx).computer_use_setting {
-            return policy;
-        }
-        let active_profile =
-            AIExecutionProfilesModel::as_ref(ctx).active_profile(terminal_view_id, ctx);
-        self.get_computer_use_setting_for_profile(active_profile.id(), scope, ctx)
     }
 
     pub fn get_ask_user_question_setting_for_profile(
