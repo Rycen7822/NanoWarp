@@ -1719,38 +1719,6 @@ type GenerateDialogueSuccess {
   truncated: Boolean!
 }
 
-type GenerateMetadataForCommandFailure {
-  type: GenerateMetadataForCommandFailureType!
-}
-
-enum GenerateMetadataForCommandFailureType {
-  AI_PROVIDER_ERROR
-  BAD_COMMAND
-  OTHER
-  RATE_LIMITED
-}
-
-"""This API is used for templatizing commands."""
-input GenerateMetadataForCommandInput {
-  command: String!
-}
-
-type GenerateMetadataForCommandOutput implements Response {
-  responseContext: ResponseContext!
-  status: GenerateMetadataForCommandStatus!
-}
-
-union GenerateMetadataForCommandResult = GenerateMetadataForCommandOutput | UserFacingError
-
-union GenerateMetadataForCommandStatus = GenerateMetadataForCommandFailure | GenerateMetadataForCommandSuccess
-
-type GenerateMetadataForCommandSuccess {
-  description: String!
-  parameterizedCommand: String!
-  parameters: [GeneratedMetadataForCommand!]!
-  title: String!
-}
-
 type GenerateUniqueUpgradePromoCodeOutput implements Response {
   promoCode: String
   responseContext: ResponseContext!
@@ -1768,12 +1736,6 @@ type GeneratedCommand {
 type GeneratedCommandParameter {
   description: String!
   id: String!
-}
-
-type GeneratedMetadataForCommand {
-  description: String!
-  name: String!
-  value: String!
 }
 
 type GenericStringObject {
@@ -3353,7 +3315,6 @@ type RootMutation {
   generateCodeEmbeddings(input: GenerateCodeEmbeddingsInput!, requestContext: RequestContext!): GenerateCodeEmbeddingsResult!
   generateCommands(input: GenerateCommandsInput!, requestContext: RequestContext!): GenerateCommandsResult!
   generateDialogue(input: GenerateDialogueInput!, requestContext: RequestContext!): GenerateDialogueResult!
-  generateMetadataForCommand(input: GenerateMetadataForCommandInput!, requestContext: RequestContext!): GenerateMetadataForCommandResult!
   generateUniqueUpgradePromoCode(requestContext: RequestContext!): GenerateUniqueUpgradePromoCodeResult!
   giveUpNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!
   grabNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!

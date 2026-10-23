@@ -29,7 +29,6 @@ const clientMutations = [
   'generateCodeEmbeddings',
   'generateCommands',
   'generateDialogue',
-  'generateMetadataForCommand',
   'generateUniqueUpgradePromoCode',
   'giveUpNotebookEditAccess',
   'grabNotebookEditAccess',

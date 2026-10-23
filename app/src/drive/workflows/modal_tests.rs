@@ -2,14 +2,13 @@ use std::sync::Arc;
 
 use warp_core::ui::appearance::Appearance;
 use warpui::platform::WindowStyle;
-use warpui::{App, SingletonEntity, ViewHandle};
+use warpui::{App, ViewHandle};
 
 use super::WorkflowModal;
 use crate::UserWorkspaces;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::editor::PlainTextEditorViewAction as EditorAction;
-use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -21,7 +20,6 @@ fn initialize_app(app: &mut App) {
 
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
@@ -42,10 +40,7 @@ fn initialize_app(app: &mut App) {
 
 fn create_modal(app: &mut App) -> ViewHandle<WorkflowModal> {
     initialize_app(app);
-    let (_, modal_view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-        let server_api = ServerApiProvider::as_ref(ctx).get();
-        WorkflowModal::new(server_api.clone(), ctx)
-    });
+    let (_, modal_view) = app.add_window(WindowStyle::NotStealFocus, WorkflowModal::new);
 
     modal_view
 }
@@ -521,65 +516,6 @@ fn test_pasting_command_same_number_of_arguments() {
                     .buffer_text(app)
                     .as_str(),
                 "default value for foo_2"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_populating_missing_fields_with_suggestion() {
-    App::test((), |mut app| async move {
-        let modal_view = create_modal(&mut app);
-
-        modal_view.update(&mut app, |view, ctx| {
-            view.content_editor.update(ctx, |editor, ctx| {
-                editor.set_buffer_text("git {{foo_1}} {{foo_2}}", ctx);
-            });
-
-            view.title_editor.update(ctx, |editor, ctx| {
-                editor.set_buffer_text("Title foo", ctx);
-            });
-        });
-
-        modal_view.read(&app, |view, _| {
-            assert_eq!(view.arguments_rows.len(), 2);
-        });
-
-        modal_view.update(&mut app, |view, ctx| {
-            let workflow = Workflow::Command {
-                name: "New Title".to_string(),
-                description: Some("New description".to_string()),
-                command: "git foo_1 foo_2".to_string(),
-                arguments: vec![],
-                tags: vec![],
-                source_url: None,
-                author: None,
-                author_url: None,
-                shells: vec![],
-                environment_variables: None,
-            };
-            view.populate_missing_field_with_suggestion(workflow, ctx)
-        });
-
-        modal_view.read(&app, |view, app| {
-            assert_eq!(view.arguments_rows.len(), 2);
-
-            assert_eq!(
-                view.content_editor.as_ref(app).buffer_text(app).as_str(),
-                "git {{foo_1}} {{foo_2}}"
-            );
-
-            assert_eq!(
-                view.title_editor.as_ref(app).buffer_text(app).as_str(),
-                "Title foo"
-            );
-
-            assert_eq!(
-                view.description_editor
-                    .as_ref(app)
-                    .buffer_text(app)
-                    .as_str(),
-                "New description"
             );
         });
     });
