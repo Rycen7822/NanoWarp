@@ -2,7 +2,6 @@ pub mod app_id;
 pub mod assertions;
 pub mod r#async;
 pub mod channel;
-pub mod cli_agent_protocol;
 pub mod command;
 pub mod context_flag;
 pub mod execution_mode;

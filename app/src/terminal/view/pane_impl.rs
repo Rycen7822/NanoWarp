@@ -41,7 +41,6 @@ use crate::pane_group::{BackingView, SplitPaneState, TOGGLE_MAXIMIZE_PANE_BINDIN
 use crate::settings::app_installation_detection::{
     UserAppInstallDetectionSettings, UserAppInstallStatus,
 };
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::shared_session::SharedSessionActionSource;
 use crate::terminal::shared_session::manager::Manager;
 use crate::terminal::shared_session::participant_avatar_view::render_participants_and_role_elements;
@@ -52,7 +51,6 @@ use crate::ui_components::buttons::icon_button_with_color;
 use crate::ui_components::icon_with_status::render_icon_with_status;
 use crate::ui_components::{blended_colors, icons};
 use crate::util::bindings::keybinding_name_to_display_string;
-use crate::workspace::tab_settings::TabSettings;
 #[cfg(target_arch = "wasm32")]
 use crate::workspace::{WorkspaceAction, WorkspaceRegistry};
 
@@ -121,31 +119,26 @@ impl TerminalView {
     pub(super) fn update_pane_configuration(&mut self, ctx: &mut ViewContext<Self>) {
         let is_ambient_agent = self.is_ambient_agent_session(ctx);
         let selected_conversation_title = self.selected_conversation_display_title(ctx);
-        let selected_cli_agent_title = self.selected_cli_agent_title_for_chrome(ctx);
 
-        // Prefer CLI agent session text before the terminal title,
-        // matching the vertical-tab behavior in terminal_primary_line_data().
-        let new_pane_title = if let Some(cli_agent_title) = selected_cli_agent_title {
-            self.is_using_conversation_for_pane_header_title = false;
-            cli_agent_title
-        } else if self.is_long_running_and_user_controlled() && !self.terminal_title.is_empty() {
-            self.is_using_conversation_for_pane_header_title = false;
-            self.terminal_title.clone()
-        } else {
-            match selected_conversation_title {
-                Some(conversation_title) => {
-                    self.is_using_conversation_for_pane_header_title = true;
-                    conversation_title
-                }
-                None => {
-                    if is_ambient_agent {
-                        default_agent_conversation_title(is_ambient_agent)
-                    } else {
-                        self.terminal_title.clone()
+        let new_pane_title =
+            if self.is_long_running_and_user_controlled() && !self.terminal_title.is_empty() {
+                self.is_using_conversation_for_pane_header_title = false;
+                self.terminal_title.clone()
+            } else {
+                match selected_conversation_title {
+                    Some(conversation_title) => {
+                        self.is_using_conversation_for_pane_header_title = true;
+                        conversation_title
+                    }
+                    None => {
+                        if is_ambient_agent {
+                            default_agent_conversation_title(is_ambient_agent)
+                        } else {
+                            self.terminal_title.clone()
+                        }
                     }
                 }
-            }
-        };
+            };
         self.pane_configuration.update(ctx, |pane_config, ctx| {
             pane_config.set_title(new_pane_title, ctx);
             if FeatureFlag::AgentView.is_enabled() {
@@ -339,7 +332,7 @@ impl TerminalView {
                     .is_some())
         {
             // Conversation-bound terminal: same shared helper — produces an OzAgent variant for
-            // local conversations and a CLIAgent variant for the (rare) CLI-backed terminal.
+            // local conversations and a harness-specific variant for task-backed terminals.
             terminal_view_agent_icon_variant(self, app).map(render_agent_circle)
         } else {
             self.render_terminal_mode_indicator(app)
@@ -1150,21 +1143,6 @@ impl TerminalView {
     ) -> Option<String> {
         self.selected_conversation_for_user_facing_chrome(ctx)
             .and_then(AIConversation::latest_user_query)
-    }
-
-    fn selected_cli_agent_title_for_chrome(&self, ctx: &AppContext) -> Option<String> {
-        let session = CLIAgentSessionsModel::as_ref(ctx)
-            .session(self.view_id)
-            .filter(|session| session.listener.is_some())?;
-
-        if *TabSettings::as_ref(ctx).use_latest_user_prompt_as_conversation_title_in_tab_names {
-            session
-                .session_context
-                .latest_user_prompt()
-                .or_else(|| session.session_context.title_like_text())
-        } else {
-            session.session_context.title_like_text()
-        }
     }
 }
 

@@ -6,23 +6,16 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use ai::skills::SkillProvider;
 use enum_iterator::Sequence;
-use markdown_parser::parse_markdown;
 use pathfinder_color::ColorU;
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 use warp_cli::agent::Harness;
 use warp_completer::parsers::simple::top_level_command;
-use warp_editor::content::buffer::Buffer;
-use warp_editor::content::markdown::MarkdownStyle;
 use warp_util::path::EscapeChar;
 use warpui::{AppContext, SingletonEntity};
 
-use crate::ai::agent::{AgentReviewCommentBatch, DiffSetHunk};
 use crate::ai::blocklist::CLAUDE_ORANGE;
-use crate::code::editor::line::EditorLineLocation;
-use crate::code_review::comments::AttachedReviewCommentTarget;
 use crate::ui_components::icons::Icon;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
@@ -183,31 +176,6 @@ pub enum CLIAgent {
 }
 
 impl CLIAgent {
-    /// Stable analytics values, independent of display names and session-sharing serialization.
-    pub fn telemetry_name(&self) -> &'static str {
-        match self {
-            CLIAgent::Claude => "Claude",
-            CLIAgent::Gemini => "Gemini",
-            CLIAgent::Codex => "Codex",
-            CLIAgent::Amp => "Amp",
-            CLIAgent::Droid => "Droid",
-            CLIAgent::OpenCode => "OpenCode",
-            CLIAgent::Copilot => "Copilot",
-            CLIAgent::Pi => "Pi",
-            CLIAgent::OhMyPi => "OhMyPi",
-            CLIAgent::Auggie => "Auggie",
-            CLIAgent::CursorCli => "Cursor",
-            CLIAgent::Goose => "Goose",
-            CLIAgent::Hermes => "Hermes",
-            CLIAgent::Vibe => "Vibe",
-            CLIAgent::Antigravity => "Antigravity",
-            CLIAgent::Grok => "Grok",
-            CLIAgent::Kiro => "Kiro",
-            CLIAgent::Muse => "Muse",
-            CLIAgent::Unknown => "Unknown",
-        }
-    }
-
     /// Command prefixes that identify this CLI agent.
     pub(crate) fn command_prefixes(&self) -> &'static [&'static str] {
         match self {
@@ -237,20 +205,6 @@ impl CLIAgent {
     /// that require one stable value.
     pub fn command_prefix(&self) -> &'static str {
         self.command_prefixes().first().copied().unwrap_or_default()
-    }
-
-    /// Serialized version of the CLIAgent name (e.g. "Claude", "Gemini"). Used for the
-    /// session-sharing protocol's opaque `cli_agent` string field.
-    pub fn to_serialized_name(&self) -> String {
-        serde_json::to_value(self)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default()
-    }
-
-    /// Inverse of `to_serialized_name`. Falls back to `Unknown`.
-    pub fn from_serialized_name(name: &str) -> CLIAgent {
-        serde_json::from_value(name.into()).unwrap_or(CLIAgent::Unknown)
     }
 
     /// Returns the [`CLIAgent`] corresponding to a cloud-agent [`Harness`] when it represents a
@@ -317,73 +271,6 @@ impl CLIAgent {
             CLIAgent::Muse => Some(Icon::MuseLogo),
             CLIAgent::Unknown => None,
         }
-    }
-
-    /// Returns the skill providers whose skills this CLI agent can natively interpret.
-    /// When the CLI agent rich input is open, only skills from these providers are shown
-    /// in the slash menu. Returns an empty slice for agents with no known skills support.
-    pub fn supported_skill_providers(&self) -> &'static [SkillProvider] {
-        match self {
-            CLIAgent::Claude => &[SkillProvider::Claude],
-            CLIAgent::Codex => &[
-                SkillProvider::Agents,
-                SkillProvider::Claude,
-                SkillProvider::Codex,
-            ],
-            CLIAgent::OpenCode => &[
-                SkillProvider::OpenCode,
-                SkillProvider::Agents,
-                SkillProvider::Claude,
-            ],
-            CLIAgent::Gemini => &[SkillProvider::Agents, SkillProvider::Gemini],
-            CLIAgent::Amp => &[SkillProvider::Agents],
-            CLIAgent::Copilot => &[SkillProvider::Agents, SkillProvider::Copilot],
-            CLIAgent::Droid => &[SkillProvider::Droid, SkillProvider::Agents],
-            CLIAgent::Pi => &[SkillProvider::Agents],
-            CLIAgent::OhMyPi => &[SkillProvider::Agents],
-            CLIAgent::Auggie => &[SkillProvider::Agents],
-            CLIAgent::CursorCli => &[SkillProvider::Agents],
-            CLIAgent::Goose => &[SkillProvider::Agents],
-            CLIAgent::Hermes => &[SkillProvider::Agents],
-            CLIAgent::Vibe => &[SkillProvider::Agents],
-            CLIAgent::Antigravity => &[],
-            CLIAgent::Grok => &[SkillProvider::Agents],
-            CLIAgent::Kiro => &[],
-            CLIAgent::Muse => &[
-                SkillProvider::Agents,
-                SkillProvider::Claude,
-                SkillProvider::Codex,
-            ],
-            CLIAgent::Unknown => &[],
-        }
-    }
-
-    /// Returns the prefix character used for skill invocations by this CLI agent.
-    /// Most agents use `/` (e.g. `/skill-name`), but Codex uses `$` (e.g. `$skill-name`).
-    pub fn skill_command_prefix(&self) -> &'static str {
-        match self {
-            CLIAgent::Codex => "$",
-            _ => "/",
-        }
-    }
-
-    /// Whether this CLI agent supports the `!` bash mode prefix in the rich input.
-    /// When `true`, typing `!` in the CLI agent rich input activates shell mode with
-    /// decorations, completions, and error underlining.
-    ///
-    /// TODO(advait): Check whether Gemini, Amp, Droid, and Copilot support `!` bash
-    /// mode and enable them here if so.
-    pub fn supports_bash_mode(&self) -> bool {
-        matches!(
-            self,
-            CLIAgent::Claude
-                | CLIAgent::Codex
-                | CLIAgent::OpenCode
-                | CLIAgent::OhMyPi
-                | CLIAgent::Grok
-                | CLIAgent::Kiro
-                | CLIAgent::Muse
-        )
     }
 
     /// Returns the brand color for this CLI agent, or `None` for unknown/custom agents.
@@ -506,162 +393,6 @@ impl CLIAgent {
             .flat_map(|workspace| workspace.teams.iter())
             .any(|team| team.uid.uid() == UBER_TEAM_UID)
     }
-}
-
-/// Builds a prompt string from a batch of code review comments suitable for
-/// writing to a CLI agent's PTY.
-///
-/// # Location format
-/// Locations use `L<line>` notation (1-indexed).
-/// Line ranges are written `L<start>-L<end>` where both ends are **inclusive**.
-/// Instructs the agent to run `git diff` for deleted-line context rather than
-/// inlining the full diff.
-pub fn build_review_prompt(review: &AgentReviewCommentBatch) -> String {
-    let mut text = String::from(
-        "Please address the following code review comments. \
-         Run `git diff` (or `git diff HEAD`) to see the full context of any changes, \
-         especially for deleted lines.\n",
-    );
-
-    for comment in &review.comments {
-        if comment.outdated {
-            continue;
-        }
-        let body = export_review_comment_for_cli_prompt(&comment.content);
-        let location = match &comment.target {
-            AttachedReviewCommentTarget::Line {
-                absolute_file_path,
-                line,
-                ..
-            } => {
-                let path = absolute_file_path.display_path();
-                match line {
-                    EditorLineLocation::Current { line_number, .. } => {
-                        let n = line_number.as_usize() + 1;
-                        format!("{path} L{n}")
-                    }
-                    EditorLineLocation::Removed { line_number, .. } => {
-                        let n = line_number.as_usize() + 1;
-                        format!("{path} (deleted, was L{n} — see `git diff`)")
-                    }
-                    EditorLineLocation::Collapsed { line_range } => {
-                        // line_range is [start, end) 0-indexed; convert to L<start>-L<end>
-                        // where both start and end are 1-indexed inclusive.
-                        let start = line_range.start.as_usize() + 1;
-                        let end = line_range.end.as_usize();
-                        format!("{path} (collapsed hunk, L{start}-L{end} — see `git diff`)")
-                    }
-                }
-            }
-            AttachedReviewCommentTarget::File { absolute_file_path } => {
-                let path = absolute_file_path.display_path();
-                let is_deleted = review.diff_set.iter().any(|(file_key, hunks)| {
-                    path.ends_with(file_key.as_str())
-                        && !hunks.is_empty()
-                        && hunks
-                            .iter()
-                            .all(|h| h.lines_added == 0 && h.lines_removed > 0)
-                });
-                if is_deleted {
-                    format!("{path} (deleted file — see `git diff`)")
-                } else {
-                    path
-                }
-            }
-            AttachedReviewCommentTarget::General => "General".to_string(),
-        };
-        text.push_str(&format!("\n- {location}: {body}"));
-    }
-
-    text
-}
-
-fn export_review_comment_for_cli_prompt(comment: &str) -> String {
-    let mut result = parse_markdown(comment)
-        .map(|parsed| {
-            Buffer::export_to_markdown(
-                parsed,
-                None,
-                MarkdownStyle::Export {
-                    app_context: None,
-                    should_not_escape_markdown_punctuation: true,
-                },
-            )
-        })
-        .unwrap_or_else(|_| comment.to_string());
-    result.truncate(result.trim_end().len());
-    result
-}
-
-/// Builds a prompt string for a single diff hunk location suitable for writing
-/// to a CLI agent's PTY. Includes change stats (+N -N) and instructs the agent
-/// to run `git diff` for full context.
-///
-/// # Location format
-/// `<path> L<start>-L<end>` where `start` and `end` are 1-indexed and both
-/// ends are **inclusive**.
-pub fn build_diff_hunk_prompt(
-    file_path: &str,
-    start_line: usize,
-    end_line: usize,
-    lines_added: u32,
-    lines_removed: u32,
-) -> String {
-    format!(
-        "{file_path} L{start_line}-L{end_line} (+{lines_added} -{lines_removed}) \
-         -- run `git diff` to see the full context."
-    )
-}
-
-/// Builds a prompt string for a set of diff file context hunks suitable for
-/// writing to a CLI agent's PTY.
-///
-/// # Location format
-/// Each line is `<path> L<start>-L<end> (+N -N)` where `start` and `end` are
-/// 1-indexed and both ends are **inclusive**.
-pub fn build_diff_context_prompt(file_diffs: &HashMap<String, Vec<DiffSetHunk>>) -> String {
-    let mut text = String::new();
-    let mut sorted_keys: Vec<&String> = file_diffs.keys().collect();
-    sorted_keys.sort();
-    for file_key in sorted_keys {
-        let hunks = &file_diffs[file_key];
-        for hunk in hunks {
-            // hunk.line_range is [start, end) 0-indexed; convert to L<start>-L<end>
-            // where both start and end are 1-indexed inclusive.
-            let start = hunk.line_range.start.as_usize() + 1;
-            let end = hunk.line_range.end.as_usize();
-            text.push_str(&format!(
-                "{file_key} L{start}-L{end} (+{} -{})",
-                hunk.lines_added, hunk.lines_removed,
-            ));
-            text.push('\n');
-        }
-    }
-    // Remove trailing newline.
-    text.truncate(text.trim_end().len());
-    text
-}
-
-/// Builds a prompt for a single-line text selection suitable for writing to a CLI agent's PTY.
-/// Prefixes the literal text with its file path and line number for context.
-///
-/// # Format
-/// `<path> L<line>: <text>` where `line` is 1-indexed.
-pub fn build_selection_substring_prompt(file_path: &str, line: usize, text: &str) -> String {
-    format!("{file_path} L{line}: {text}")
-}
-
-/// Builds a prompt for a multi-line selection suitable for writing to a CLI agent's PTY.
-/// For single-line selections, use [`build_selection_substring_prompt`] instead.
-///
-/// # Location format
-/// `<path> L<start>-L<end>` where line numbers are 1-indexed and both ends are inclusive.
-pub fn build_selection_line_range_prompt(
-    file_path: &str,
-    start_line: usize,
-    end_line: usize,
-) -> String {
-    format!("{file_path} L{start_line}-L{end_line}")
 }
 
 #[cfg(test)]

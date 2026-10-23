@@ -135,13 +135,6 @@ impl PromptType {
         self.resolve_chip_kinds(chip_kinds, ctx)
     }
 
-    pub fn cli_agent_chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        let chip_kinds = SessionSettings::as_ref(ctx)
-            .cli_agent_footer_chip_selection
-            .all_chips();
-        self.resolve_chip_kinds(chip_kinds, ctx)
-    }
-
     fn resolve_chip_kinds(
         &self,
         chip_kinds: Vec<ContextChipKind>,

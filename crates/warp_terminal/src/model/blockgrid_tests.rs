@@ -2,11 +2,11 @@ use warp_core::features::FeatureFlag;
 
 use crate::SizeInfo;
 use crate::event_listener::ChannelEventListener;
-use crate::model::ansi::{self, Handler};
-use crate::model::blockgrid::{BlockGrid, CursorDisplayPoint};
+use crate::model::ansi::Handler;
+use crate::model::blockgrid::BlockGrid;
 use crate::model::grid::Dimensions;
 use crate::model::grid::grid_handler::PerformResetGridChecks;
-use crate::model::index::{Point, VisibleRow};
+use crate::model::index::Point;
 use crate::model::kitty::{CursorMovementPolicy, KittyAction};
 use crate::model::secrets::ObfuscateSecrets;
 use crate::test_util::{
@@ -158,30 +158,6 @@ pub fn test_content_summary() {
 }
 
 #[test]
-pub fn test_trim_trailing_blank_rows_uses_active_floor_for_blank_started_grid() {
-    let size = SizeInfo::new_without_font_metrics(10, 10);
-    let mut block_grid = BlockGrid::new(
-        size,
-        1000,
-        ChannelEventListener::new_for_test(),
-        ObfuscateSecrets::No,
-        PerformResetGridChecks::default(),
-    );
-
-    block_grid.start();
-    block_grid.goto(VisibleRow(4), 0);
-    block_grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    block_grid.set_trim_trailing_blank_rows(true);
-
-    assert_eq!(block_grid.len(), 5);
-    assert_eq!(block_grid.len_displayed(), 1);
-    assert_eq!(
-        block_grid.cursor_display_point(),
-        Some(CursorDisplayPoint::HiddenCache(Point::new(0, 0)))
-    );
-}
-
-#[test]
 pub fn test_non_moving_kitty_image_keeps_finished_grid_visible() {
     let _kitty_images = FeatureFlag::KittyImages.override_enabled(true);
     let size = SizeInfo::new_without_font_metrics(10, 10);
@@ -210,42 +186,7 @@ pub fn test_non_moving_kitty_image_keeps_finished_grid_visible() {
 }
 
 #[test]
-pub fn test_cursor_display_point_hidden_when_cursor_below_trimmed_content() {
-    let size = SizeInfo::new_without_font_metrics(10, 10);
-    let mut block_grid = BlockGrid::new(
-        size,
-        1000,
-        ChannelEventListener::new_for_test(),
-        ObfuscateSecrets::No,
-        PerformResetGridChecks::default(),
-    );
-
-    block_grid.start();
-    block_grid.input('a');
-    block_grid.input('b');
-    block_grid.input('c');
-    block_grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    block_grid.set_trim_trailing_blank_rows(true);
-
-    assert_eq!(block_grid.len_displayed(), 1);
-    assert_eq!(
-        block_grid.cursor_display_point(),
-        Some(CursorDisplayPoint::Visible(Point::new(0, 3)))
-    );
-
-    block_grid.goto(VisibleRow(4), 2);
-    block_grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-
-    assert_eq!(block_grid.len(), 5);
-    assert_eq!(block_grid.len_displayed(), 1);
-    assert_eq!(
-        block_grid.cursor_display_point(),
-        Some(CursorDisplayPoint::HiddenCache(Point::new(0, 2)))
-    );
-}
-
-#[test]
-pub fn test_cursor_display_point_not_clipped_when_trimming_disabled() {
+pub fn test_cursor_display_point_preserves_marked_text_across_rows() {
     let size = SizeInfo::new_without_font_metrics(10, 10);
     let mut block_grid = BlockGrid::new(
         size,
@@ -264,16 +205,5 @@ pub fn test_cursor_display_point_not_clipped_when_trimming_disabled() {
         .set_marked_text("12345678", &(0..0));
 
     assert_eq!(block_grid.len_displayed(), 1);
-    assert_eq!(
-        block_grid.cursor_display_point(),
-        Some(CursorDisplayPoint::Visible(Point::new(1, 1)))
-    );
-
-    block_grid.set_trim_trailing_blank_rows(true);
-
-    assert_eq!(block_grid.len_displayed(), 1);
-    assert_eq!(
-        block_grid.cursor_display_point(),
-        Some(CursorDisplayPoint::HiddenCache(Point::new(0, 1)))
-    );
+    assert_eq!(block_grid.cursor_display_point(), Point::new(1, 1));
 }

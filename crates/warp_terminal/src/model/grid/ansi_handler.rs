@@ -23,7 +23,7 @@ use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warpui_core::image_cache::{FitType, resize_dimensions};
 
-use super::{AbsolutePoint, FullGridClearBehavior, GridHandler, PerformResetGridChecks, TermMode};
+use super::{AbsolutePoint, GridHandler, PerformResetGridChecks, TermMode};
 use crate::event::Event;
 use crate::event_listener::ChannelEventListener;
 use crate::model::ansi::{
@@ -850,11 +850,7 @@ impl ansi::Handler for GridHandler {
                 if self.ansi_handler_state.is_alt_screen {
                     self.grid.region_mut(..).each(|cell| *cell = bg.into());
                 } else {
-                    if self.full_grid_clear_behavior == FullGridClearBehavior::Clear {
-                        self.clear_visible_rows_in_place(bg);
-                    } else {
-                        self.clear_viewport();
-                    }
+                    self.clear_viewport();
                     self.active_hyperlink_id = None;
                 }
             }
@@ -1254,11 +1250,6 @@ impl ansi::Handler for GridHandler {
         }
 
         self.reset_dirty_cells_range_to_cursor_point();
-
-        // Update bottommost visible content row for content_len() trimming.
-        if self.track_content_length {
-            self.bottommost_visible_content_row = self.bottommost_visible_content_row_backward();
-        }
 
         if self.ansi_handler_state.is_alt_screen {
             debug_assert_eq!(
@@ -1752,31 +1743,6 @@ impl GridHandler {
         for i in positions..self.visible_rows() {
             self.grid[i].reset(&template);
         }
-    }
-
-    fn clear_visible_rows_in_place(&mut self, bg: Color) {
-        self.grid.region_mut(..).each(|cell| *cell = bg.into());
-        let visible_start_row = self.history_size();
-        let visible_end_row = visible_start_row + self.visible_rows();
-        if visible_start_row < visible_end_row {
-            self.images.evict_image_ids_between_points_with_type(
-                AbsolutePoint::from_point(Point::new(visible_start_row, 0), self),
-                AbsolutePoint::from_point(Point::new(visible_end_row - 1, usize::MAX), self),
-                vec![ImageType::ITerm, ImageType::Kitty],
-            );
-            if self.columns() > 0 {
-                self.clear_secrets_in_range(
-                    Point::new(visible_start_row, 0)
-                        ..=Point::new(visible_end_row - 1, self.columns() - 1),
-                );
-            }
-        }
-        self.clear_displayed_rows_and_filter_matches();
-        if self.track_content_length {
-            self.bottommost_visible_content_row = self.bottommost_visible_content_row_backward();
-        }
-        self.ansi_handler_state.dirty_cells_range =
-            Point::new(visible_start_row, 0)..Point::new(visible_end_row, 0);
     }
 
     pub fn disable_reset_grid_checks(&mut self) {

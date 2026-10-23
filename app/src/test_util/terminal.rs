@@ -56,7 +56,6 @@ use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::{SystemInfo, SystemStats};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::resizable_data::ResizableData;
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
@@ -114,7 +113,6 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     // Pill bar model subscribes to history events; register after the
     // history model is in place.
     app.add_singleton_model(|ctx| OrchestrationPillBarModel::new(Default::default(), ctx));
-    app.add_singleton_model(|_| CLIAgentSessionsModel::new());
     app.add_singleton_model(OrchestrationEventService::new);
     app.add_singleton_model(LocalAgentTaskSyncModel::new);
     app.add_singleton_model(OrchestrationEventStreamer::new);

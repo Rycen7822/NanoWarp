@@ -3,11 +3,6 @@ use super::*;
 /// The File explorer chip is offered to the agent view toolbelt editor.
 #[test]
 fn file_explorer_is_offered_in_the_agent_view() {
-    assert!(
-        AgentToolbarItemKind::FileExplorer
-            .available_in()
-            .is_available_for_agent_view()
-    );
     assert!(AgentToolbarItemKind::all_available().contains(&AgentToolbarItemKind::FileExplorer));
 }
 

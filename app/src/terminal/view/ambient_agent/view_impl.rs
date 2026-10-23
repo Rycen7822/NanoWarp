@@ -30,7 +30,6 @@ use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::conversation_details_panel::ConversationDetailsData;
 use crate::pane_group::TerminalViewResources;
 use crate::terminal::CLIAgent;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::view::rich_content::{RichContentInsertionPosition, RichContentMetadata};
 use crate::terminal::view::{
     ConversationDetailsPanelAutoOpenPolicy, Event as TerminalViewEvent, TerminalView,
@@ -536,29 +535,18 @@ impl TerminalView {
 
     /// Returns whether this view is a live shared-session viewer for a non-Oz cloud run.
     fn is_third_party_cloud_agent_viewer(&self, ctx: &AppContext) -> bool {
-        // The ambient model's harness resolves asynchronously after join, when we fetch the task.
-        // Until then, use the synced CLI-agent session (which we get on shared session join, if the
-        // CLI agent is currently active) as the live third-party harness signal.
         let has_ambient_third_party_harness = self
             .ambient_agent_view_model
             .as_ref()
             .is_some_and(|model| model.as_ref(ctx).is_third_party_harness());
-        let has_cli_agent_session = FeatureFlag::AgentHarness.is_enabled() && {
-            CLIAgentSessionsModel::as_ref(ctx)
-                .session(self.view_id)
-                .is_some()
-        };
         let is_shared_ambient_agent_session = self.is_shared_ambient_agent_session();
 
-        (has_ambient_third_party_harness || has_cli_agent_session)
-            && is_shared_ambient_agent_session
+        has_ambient_third_party_harness && is_shared_ambient_agent_session
     }
 
     /// Syncs agent view for a live shared-session viewer of a non-oz cloud run, so every
     /// viewer lands in the same agent-view chrome regardless of which entry point opened the
-    /// conversation. Called from two independent signals that race:
-    /// - `ViewerHarnessUpdated`: ambient model resolved the harness from the task fetch
-    /// - `apply_cli_agent_state_update`: CLI session synced on viewer join/reconnect
+    /// conversation. Called when `ViewerHarnessUpdated` resolves the harness from the task fetch.
     ///
     /// Transcript viewer entry is handled directly in `load_data_into_transcript_viewer` so
     /// the snapshot block exists before we retag — we intentionally do not trigger that path

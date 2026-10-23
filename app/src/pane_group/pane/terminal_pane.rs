@@ -58,7 +58,6 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::team_scope::RequestTeamScope;
 use crate::server::telemetry::CloudAgentShellRecoveryFailureClass;
 use crate::session_management::SessionNavigationData;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::general_settings::GeneralSettings;
 #[cfg(not(target_family = "wasm"))]
 use crate::terminal::shared_session::SharedSessionSource;
@@ -428,21 +427,12 @@ impl PaneContent for TerminalPane {
         // (and that any active views are no longer active). On a `HiddenForClose` detach,
         // `attach` will re-register via `register_agent_view_controller` when the tab is
         // restored, so this is safe to run unconditionally.
-        let terminal_view_id = self.terminal_view(ctx).id();
         ActiveAgentViewsModel::handle(ctx).update(ctx, |model, ctx| {
             for terminal_view_id in terminal_view_ids {
                 model.unregister_agent_view_controller(terminal_view_id, ctx);
                 model.unregister_ambient_session(terminal_view_id, ctx);
             }
         });
-
-        // Clean up any active CLI agent session so its notification is removed.
-        // Skip this for moves — the session is still running and will re-register in the new tab.
-        if !matches!(detach_type, DetachType::Moved) {
-            CLIAgentSessionsModel::handle(ctx).update(ctx, |sessions, ctx| {
-                sessions.remove_session(terminal_view_id, ctx);
-            });
-        }
 
         ctx.unsubscribe_to_model(&pane_stack);
 
@@ -1124,9 +1114,6 @@ fn handle_terminal_view_event(
             }
             Event::OpenAgentToolbarEditor => {
                 ctx.emit(pane_group::Event::OpenAgentToolbarEditor);
-            }
-            Event::OpenCLIAgentToolbarEditor => {
-                ctx.emit(pane_group::Event::OpenCLIAgentToolbarEditor);
             }
             Event::OpenFileInWarp { path, session } => {
                 ctx.emit(pane_group::Event::OpenFileInWarp {

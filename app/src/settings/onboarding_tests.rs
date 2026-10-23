@@ -131,7 +131,6 @@ fn apply_onboarding_settings_preserves_existing_cloud_profile_on_existing_user_l
             agent_settings: AgentDevelopmentSettings {
                 selected_model_id: Some(LLMId::from("onboarding-chosen-model")),
                 autonomy: Some(AgentAutonomy::None),
-                cli_agent_toolbar_enabled: true,
                 disable_oz: false,
                 show_agent_notifications: true,
             },
@@ -203,7 +202,6 @@ fn account_first_settings_enable_agent_for_authenticated_users_and_apply_ui_choi
             agent_settings: AgentDevelopmentSettings {
                 selected_model_id: None,
                 autonomy: None,
-                cli_agent_toolbar_enabled: true,
                 disable_oz: false,
                 show_agent_notifications: true,
             },
@@ -264,7 +262,6 @@ fn apply_account_first_onboarding_settings_sets_dollars_for_new_accounts_only() 
 
         let selected_settings = SelectedSettings::Terminal {
             ui_customization: None,
-            cli_agent_toolbar_enabled: true,
             show_agent_notifications: true,
         };
 
@@ -328,7 +325,6 @@ fn apply_onboarding_settings_pins_base_model_only_when_explicitly_selected() {
     let agent_settings = |selected_model_id| AgentDevelopmentSettings {
         selected_model_id,
         autonomy: Some(AgentAutonomy::Partial),
-        cli_agent_toolbar_enabled: true,
         disable_oz: false,
         show_agent_notifications: true,
     };
@@ -397,7 +393,6 @@ fn apply_onboarding_settings_gates_third_party_ai_on_account() {
             agent_settings: AgentDevelopmentSettings {
                 selected_model_id: None,
                 autonomy: None,
-                cli_agent_toolbar_enabled: true,
                 disable_oz: true,
                 show_agent_notifications: true,
             },

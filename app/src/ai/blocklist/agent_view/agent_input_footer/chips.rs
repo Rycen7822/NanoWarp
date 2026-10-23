@@ -163,27 +163,6 @@ impl AgentInputFooter {
             );
         }
 
-        // Build display chips for the CLI agent footer separately.
-        // The CLI selection may include chips not present in the agent view selection.
-        let new_cli_chips = model
-            .as_ref(ctx)
-            .cli_agent_chips(ctx)
-            .into_iter()
-            .filter(|chip_result| chip_result.value().is_some())
-            .collect::<Vec<ChipResult>>();
-        let should_update_cli =
-            Self::check_if_chip_values_have_changed(&self.cli_display_chips, &new_cli_chips, ctx);
-        if should_update_cli {
-            self.cli_display_chips =
-                self.create_display_chips(&new_cli_chips, git_line_changes_info.clone(), ctx);
-        } else {
-            Self::update_existing_display_chips(
-                &self.cli_display_chips,
-                git_line_changes_info,
-                ctx,
-            );
-        }
-
         ctx.notify();
     }
 }

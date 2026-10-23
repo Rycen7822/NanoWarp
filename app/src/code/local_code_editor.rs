@@ -130,8 +130,6 @@ pub enum LocalCodeEditorEvent {
         relative_file_path: String,
         /// 1-indexed line range of the selection: `[start, end]` both inclusive.
         line_range: Range<LineCount>,
-        /// Literal text content of the selection.
-        selected_text: String,
     },
     DiscardUnsavedChanges {
         path: PathBuf,
@@ -2064,7 +2062,6 @@ impl LocalCodeEditorView {
         };
 
         let mut line_range: Option<Range<LineCount>> = None;
-        let mut selected_text: Option<String> = None;
         self.editor.update(ctx, |editor, ctx| {
             // If we have a vim visual selection, update the editor model to use that as a selection range
             let has_vim_visual = matches!(editor.vim_mode(ctx), Some(VimMode::Visual(_)));
@@ -2077,7 +2074,6 @@ impl LocalCodeEditorView {
             if let Some((start, end)) = editor.selected_lines(ctx) {
                 // selected_lines() returns 1-indexed row numbers.
                 line_range = Some(LineCount::from(start as usize)..LineCount::from(end as usize));
-                selected_text = Some(editor.selected_text(ctx).unwrap_or_default());
             }
 
             // Enter normal mode
@@ -2086,14 +2082,13 @@ impl LocalCodeEditorView {
             }
         });
 
-        let (Some(line_range), Some(selected_text)) = (line_range, selected_text) else {
+        let Some(line_range) = line_range else {
             return;
         };
 
         ctx.emit(LocalCodeEditorEvent::SelectionAddedAsContext {
             relative_file_path,
             line_range,
-            selected_text,
         });
         self.editor.update(ctx, |editor, ctx| {
             editor.clear_selection(ctx);

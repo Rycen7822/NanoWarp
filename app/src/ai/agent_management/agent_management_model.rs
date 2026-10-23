@@ -12,17 +12,13 @@ use crate::ai::agent_management::notifications::{
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, ConversationStatusUpdate, QueuedQueryModel};
-use crate::terminal::cli_agent_sessions::{
-    CLIAgentSessionStatus, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
-};
-use crate::terminal::{CLIAgent, TerminalView};
+use crate::terminal::TerminalView;
 use crate::workspace::util::is_terminal_view_in_same_tab;
 use crate::workspace::{Workspace, WorkspaceRegistry};
 
 /// Singleton model responsible for triggering in-app notifications on blocking conversation
 /// status updates and tracking/storing these notifications for the notifications mailbox.
-/// Tracks and stores notifications for both warp agent conversations and other supported
-/// cli agent sessions.
+/// Tracks and stores notifications for Warp agent conversations.
 pub struct AgentNotificationsModel {
     notifications: NotificationItems,
     /// Artifacts accumulated during the current turn for each conversation.
@@ -41,11 +37,6 @@ impl AgentNotificationsModel {
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, move |me, _, event, ctx| {
             me.handle_history_event(event, ctx);
-        });
-
-        let cli_sessions_model = CLIAgentSessionsModel::handle(ctx);
-        ctx.subscribe_to_model(&cli_sessions_model, |me, _, event, ctx| {
-            me.handle_cli_agent_session_event(event, ctx);
         });
 
         let active_views_model = ActiveAgentViewsModel::handle(ctx);
@@ -116,140 +107,6 @@ impl AgentNotificationsModel {
             | ActiveAgentViewsEvent::WindowClosed
             | ActiveAgentViewsEvent::AmbientSessionOpened { .. }
             | ActiveAgentViewsEvent::AmbientSessionClosed { .. } => {}
-        }
-    }
-
-    fn handle_cli_agent_session_event(
-        &mut self,
-        event: &CLIAgentSessionsModelEvent,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if !FeatureFlag::HOANotifications.is_enabled() {
-            return;
-        }
-
-        match event {
-            CLIAgentSessionsModelEvent::Ended {
-                terminal_view_id, ..
-            } => {
-                self.remove_notification_by_source(
-                    NotificationOrigin::CLISession(*terminal_view_id),
-                    ctx,
-                );
-            }
-            CLIAgentSessionsModelEvent::Started { .. }
-            | CLIAgentSessionsModelEvent::InputSessionChanged { .. }
-            | CLIAgentSessionsModelEvent::SessionUpdated { .. } => {}
-            CLIAgentSessionsModelEvent::StatusChanged {
-                terminal_view_id,
-                agent,
-                status,
-                session_context,
-                ..
-            } => match status {
-                // When the agent resumes its work we can assume that the previous notification is stale.
-                CLIAgentSessionStatus::InProgress => {
-                    self.remove_notification_by_source(
-                        NotificationOrigin::CLISession(*terminal_view_id),
-                        ctx,
-                    );
-                }
-                CLIAgentSessionStatus::Success => {
-                    let title = session_context
-                        .display_title()
-                        .unwrap_or_else(|| format!("{} completed", agent.display_name()));
-                    let message = match agent {
-                        CLIAgent::Codex => "Notification from Codex",
-                        _ => "Task completed.",
-                    };
-                    let metadata = TerminalViewMetadata::lookup(*terminal_view_id, ctx);
-                    self.add_notification(
-                        title,
-                        message.to_owned(),
-                        NotificationCategory::Complete,
-                        NotificationSourceAgent::CLI {
-                            agent: *agent,
-                            is_ambient: metadata.is_ambient,
-                        },
-                        NotificationOrigin::CLISession(*terminal_view_id),
-                        *terminal_view_id,
-                        vec![],
-                        metadata.branch,
-                        ctx,
-                    );
-                }
-                CLIAgentSessionStatus::Failed {
-                    error_type,
-                    message,
-                } => {
-                    let title = session_context
-                        .display_title()
-                        .unwrap_or_else(|| format!("{} failed", agent.display_name()));
-                    let body = match (message.as_deref(), error_type.as_deref()) {
-                        (Some(msg), Some(kind)) => format!("{kind}: {msg}"),
-                        (Some(msg), None) => msg.to_owned(),
-                        (None, Some(kind)) => kind.to_owned(),
-                        (None, None) => "The agent encountered an error.".to_owned(),
-                    };
-                    let metadata = TerminalViewMetadata::lookup(*terminal_view_id, ctx);
-                    self.add_notification(
-                        title,
-                        body,
-                        NotificationCategory::Error,
-                        NotificationSourceAgent::CLI {
-                            agent: *agent,
-                            is_ambient: metadata.is_ambient,
-                        },
-                        NotificationOrigin::CLISession(*terminal_view_id),
-                        *terminal_view_id,
-                        vec![],
-                        metadata.branch,
-                        ctx,
-                    );
-                }
-                CLIAgentSessionStatus::Blocked { message, .. } => {
-                    let title = session_context
-                        .display_title()
-                        .unwrap_or_else(|| format!("{} needs attention", agent.display_name()));
-                    let metadata = TerminalViewMetadata::lookup(*terminal_view_id, ctx);
-                    self.add_notification(
-                        title,
-                        message
-                            .clone()
-                            .unwrap_or_else(|| "Waiting for input.".to_owned()),
-                        NotificationCategory::Request,
-                        NotificationSourceAgent::CLI {
-                            agent: *agent,
-                            is_ambient: metadata.is_ambient,
-                        },
-                        NotificationOrigin::CLISession(*terminal_view_id),
-                        *terminal_view_id,
-                        vec![],
-                        metadata.branch,
-                        ctx,
-                    );
-                }
-                CLIAgentSessionStatus::Cancelled => {
-                    let title = session_context
-                        .display_title()
-                        .unwrap_or_else(|| format!("{} cancelled", agent.display_name()));
-                    let metadata = TerminalViewMetadata::lookup(*terminal_view_id, ctx);
-                    self.add_notification(
-                        title,
-                        "Cancelled by user.".to_owned(),
-                        NotificationCategory::Complete,
-                        NotificationSourceAgent::CLI {
-                            agent: *agent,
-                            is_ambient: metadata.is_ambient,
-                        },
-                        NotificationOrigin::CLISession(*terminal_view_id),
-                        *terminal_view_id,
-                        vec![],
-                        metadata.branch,
-                        ctx,
-                    );
-                }
-            },
         }
     }
 

@@ -8,13 +8,13 @@ use warpui::geometry::vector::{Vector2F, vec2f};
 use warpui::{AppContext, Element, EntityId, PaintContext};
 
 use super::model::SecretHandle;
-use super::model::ansi::{CursorShape, CursorStyle};
+use super::model::ansi::CursorShape;
 use super::model::grid::RespectDisplayedOutput;
 use super::model::image_map::StoredImageMetadata;
 use crate::settings::EnforceMinimumContrast;
 use crate::terminal::grid_renderer::{CellGlyphCache, render_cursor, render_grid};
 use crate::terminal::model::ObfuscateSecrets;
-use crate::terminal::model::blockgrid::{BlockGrid, CursorDisplayPoint};
+use crate::terminal::model::blockgrid::BlockGrid;
 use crate::terminal::model::grid::grid_handler::Link;
 use crate::terminal::model::index::Point;
 use crate::terminal::{SizeInfo, color};
@@ -31,11 +31,6 @@ pub struct GridRenderParams {
     pub size_info: SizeInfo,
     pub cell_size: Vector2F,
     pub use_ligature_rendering: bool,
-    /// When true, suppresses cursor rendering for CLI agents when rich input is open. For agents that draw their own cursor (SHOW_CURSOR off),
-    /// the cursor cell is skipped. For agents that let Warp draw the cursor
-    /// (SHOW_CURSOR on), the `draw_cursor` call and cursor contrast colouring
-    /// are suppressed instead.
-    pub hide_cursor_cell: bool,
 }
 
 pub struct BlockGridParams {
@@ -160,7 +155,6 @@ impl BlockGridRenderer for BlockGrid {
             RespectDisplayedOutput::Yes,
             image_metadata,
             None,
-            block_grid_params.grid_render_params.hide_cursor_cell,
             ctx,
             app,
         );
@@ -206,30 +200,10 @@ impl BlockGridRenderer for BlockGrid {
         app: &AppContext,
     ) {
         let cursor_style = self.cursor_style();
-        let (cursor_display_point, is_cursor_on_wide_char, cursor_style, cursor_hint_text) =
-            match self.cursor_display_point() {
-                Some(CursorDisplayPoint::Visible(cursor_display_point)) => (
-                    cursor_display_point,
-                    self.grid_handler().is_cursor_on_wide_char(),
-                    cursor_style,
-                    cursor_hint_text,
-                ),
-                Some(CursorDisplayPoint::HiddenCache(cursor_display_point)) => (
-                    cursor_display_point,
-                    false,
-                    CursorStyle {
-                        shape: CursorShape::Hidden,
-                        ..cursor_style
-                    },
-                    None,
-                ),
-                None => return,
-            };
-
         render_cursor(
             grid_render_params,
-            cursor_display_point,
-            is_cursor_on_wide_char,
+            self.cursor_display_point(),
+            self.grid_handler().is_cursor_on_wide_char(),
             cursor_style,
             grid_render_params.size_info.padding_x_px(),
             grid_origin,

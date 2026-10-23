@@ -410,11 +410,6 @@ fn render_agent_avatar(
             status: Some(status),
             is_ambient,
         },
-        NotificationSourceAgent::CLI { agent, is_ambient } => IconWithStatusVariant::CLIAgent {
-            agent,
-            status: Some(status),
-            is_ambient,
-        },
     };
     render_icon_with_status(
         variant,

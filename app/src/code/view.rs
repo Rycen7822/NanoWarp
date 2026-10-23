@@ -67,10 +67,6 @@ use crate::search::files::icon::icon_from_file_path;
 use crate::server::telemetry::CodeContextDestination;
 use crate::settings::CodeSettings;
 use crate::tab::TAB_BAR_BORDER_HEIGHT;
-use crate::terminal::cli_agent::{
-    build_selection_line_range_prompt, build_selection_substring_prompt,
-};
-use crate::terminal::view::CliAgentRouting;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::util::path::{display_name_with_host, display_path_with_host};
@@ -533,13 +529,11 @@ impl CodeView {
             LocalCodeEditorEvent::SelectionAddedAsContext {
                 relative_file_path,
                 line_range,
-                selected_text,
             } => {
                 me.insert_selection_as_context(
                     relative_file_path.clone(),
                     line_range.start.as_usize(),
                     line_range.end.as_usize(),
-                    selected_text.clone(),
                     ctx,
                 );
             }
@@ -1096,35 +1090,9 @@ impl CodeView {
         file_path: String,
         start_line: usize,
         end_line: usize,
-        selected_text: String,
         ctx: &mut ViewContext<Self>,
     ) {
-        // If a CLI agent is active, send appropriate content to the PTY (or rich input if open).
-        let window_id = ctx.window_id();
-        if let Some(terminal_view) = get_context_target_terminal_view(window_id, ctx) {
-            let prompt = if start_line == end_line {
-                // Single-line: send the literal text with file/line context.
-                build_selection_substring_prompt(&file_path, start_line, &selected_text)
-            } else {
-                // Multi-line: send a line-range reference with format note.
-                build_selection_line_range_prompt(&file_path, start_line, end_line)
-            };
-            if let Some(routing) = terminal_view.update(ctx, |tv, ctx| {
-                tv.try_send_text_to_cli_agent_or_rich_input(prompt, ctx)
-            }) {
-                let destination = match routing {
-                    CliAgentRouting::RichInput => CodeContextDestination::RichInput,
-                    CliAgentRouting::Pty => CodeContextDestination::Pty,
-                };
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::CodeSelectionAddedAsContext { destination },
-                    ctx
-                );
-                return;
-            }
-        }
-
-        // Otherwise insert the location snippet into the input buffer (original behavior).
+        // Insert the location snippet into the input buffer.
         send_telemetry_from_ctx!(
             TelemetryEvent::CodeSelectionAddedAsContext {
                 destination: CodeContextDestination::AgentInput,

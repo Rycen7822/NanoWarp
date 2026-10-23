@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use input_classifier::InputType;
 use session_sharing_protocol::common::{
-    CLIAgentSessionState, InputMode, InputType as ProtocolInputType, SelectedAgentModel,
-    SelectedConversation, ServerConversationToken, UniversalDeveloperInputContextUpdate,
+    InputMode, InputType as ProtocolInputType, SelectedAgentModel, SelectedConversation,
+    ServerConversationToken, UniversalDeveloperInputContextUpdate,
 };
 use warp_core::features::FeatureFlag;
 use warpui::{AppContext, ModelHandle, SingletonEntity, WeakViewHandle};
@@ -12,11 +12,7 @@ use warpui::{AppContext, ModelHandle, SingletonEntity, WeakViewHandle};
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
 use crate::ai::blocklist::{BlocklistAIContextModel, BlocklistAIHistoryModel, InputConfig};
 use crate::ai::llms::{LLMId, LLMPreferences};
-use crate::terminal::cli_agent_sessions::{
-    CLIAgentInputEntrypoint, CLIAgentInputState, CLIAgentRichInputCloseReason, CLIAgentSession,
-    CLIAgentSessionContext, CLIAgentSessionStatus, CLIAgentSessionsModel,
-};
-use crate::terminal::{CLIAgent, TerminalView};
+use crate::terminal::TerminalView;
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
 
 /// Handles updating the local LLM preferences when a selected agent model update is received.
@@ -361,92 +357,6 @@ fn build_selected_conversation_update_agent_view_enabled(
         selected_conversation: Some(selected_conversation),
         ..Default::default()
     })
-}
-
-/// Applies CLI agent session + rich-input state from the remote side.
-/// Creates/removes the session and opens/closes rich input based on
-/// the given `CLIAgentSessionState`.
-pub(crate) fn apply_cli_agent_state_update(
-    weak_view_handle: &WeakViewHandle<TerminalView>,
-    cli_agent_session: &CLIAgentSessionState,
-    _guard: &ActiveRemoteUpdate,
-    ctx: &mut AppContext,
-) {
-    let Some(view) = weak_view_handle.upgrade(ctx) else {
-        return;
-    };
-    let view_id = view.id();
-
-    match cli_agent_session {
-        CLIAgentSessionState::Active {
-            cli_agent,
-            is_rich_input_open,
-        } => {
-            let agent = CLIAgent::from_serialized_name(cli_agent);
-
-            // Create the agent session if it does not exist.
-            let already_exists = CLIAgentSessionsModel::as_ref(ctx)
-                .session(view_id)
-                .is_some_and(|s| s.agent == agent);
-            if !already_exists {
-                CLIAgentSessionsModel::handle(ctx).update(ctx, |sessions_model, ctx| {
-                    sessions_model.set_session(
-                        view_id,
-                        CLIAgentSession {
-                            agent,
-                            status: CLIAgentSessionStatus::InProgress,
-                            session_context: CLIAgentSessionContext::default(),
-                            input_state: CLIAgentInputState::Closed,
-                            listener: None,
-                            draft_text: None,
-                            received_rich_notification: false,
-                            // Viewer input is managed by the sync protocol,
-                            // not local status-change auto-toggle.
-                            should_auto_toggle_input: false,
-                        },
-                        ctx,
-                    );
-                });
-
-                view.update(ctx, |view, ctx| {
-                    view.apply_cli_agent_footer_visibility(true, ctx);
-                });
-            }
-
-            // For cloud agent sessions with non-Oz harnesses, auto-open rich
-            // input when creating a new CLI agent session so the viewer gets the
-            // composer immediately (byte-sharing has roundtrip lag without it).
-            let effective_rich_input_open =
-                if !already_exists && view.as_ref(ctx).is_shared_ambient_agent_session() {
-                    true
-                } else {
-                    *is_rich_input_open
-                };
-
-            // Update the rich input state.
-            let currently_open = CLIAgentSessionsModel::as_ref(ctx).is_input_open(view_id);
-            if currently_open != effective_rich_input_open {
-                view.update(ctx, |view, ctx| {
-                    if effective_rich_input_open {
-                        view.open_cli_agent_rich_input(
-                            CLIAgentInputEntrypoint::SharedSessionSync,
-                            ctx,
-                        );
-                    } else {
-                        view.close_cli_agent_rich_input(CLIAgentRichInputCloseReason::Other, ctx);
-                    }
-                });
-            }
-
-            view.update(ctx, |view, ctx| {
-                view.sync_agent_view_for_shared_third_party_viewer(ctx);
-            });
-        }
-        CLIAgentSessionState::Inactive => {
-            // Session cleanup is handled by BlockCompleted events on the
-            // viewer side, so no explicit teardown is needed here.
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

@@ -53,18 +53,12 @@ pub(crate) fn apply_account_first_onboarding_settings(
         }
         SelectedSettings::Terminal {
             ui_customization,
-            cli_agent_toolbar_enabled,
             show_agent_notifications,
         } => {
             if let Some(ui) = ui_customization {
                 apply_ui_customization_settings(ui, false, app);
             }
             AISettings::handle(app).update(app, |settings, ctx| {
-                report_if_error!(
-                    settings
-                        .should_render_cli_agent_footer
-                        .set_value(*cli_agent_toolbar_enabled, ctx)
-                );
                 report_if_error!(
                     settings
                         .show_agent_notifications
@@ -108,18 +102,12 @@ pub(crate) fn apply_onboarding_settings(
         }
         SelectedSettings::Terminal {
             ui_customization,
-            cli_agent_toolbar_enabled,
             show_agent_notifications,
         } => {
             if let Some(ui) = ui_customization {
                 apply_ui_customization_settings(ui, false, app);
             }
             AISettings::handle(app).update(app, |settings, ctx| {
-                report_if_error!(
-                    settings
-                        .should_render_cli_agent_footer
-                        .set_value(*cli_agent_toolbar_enabled, ctx)
-                );
                 report_if_error!(
                     settings
                         .show_agent_notifications
@@ -198,11 +186,6 @@ fn apply_agent_settings(
     let team_autonomy_settings = UserWorkspaces::as_ref(app).ai_autonomy_settings(team_context);
 
     AISettings::handle(app).update(app, |settings, ctx| {
-        report_if_error!(
-            settings
-                .should_render_cli_agent_footer
-                .set_value(agent_settings.cli_agent_toolbar_enabled, ctx)
-        );
         report_if_error!(
             settings
                 .show_agent_notifications

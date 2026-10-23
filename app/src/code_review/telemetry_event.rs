@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use serde_json::json;
 use serde_with::SerializeDisplay;
 use strum_macros::{EnumDiscriminants, EnumIter};
@@ -9,7 +9,6 @@ use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 
 use crate::code_review::diff_state::{BackendOrigin, DiffMode, DiffOperation};
 use crate::features::FeatureFlag;
-use crate::terminal::CLIAgent;
 use crate::view_components::find::FindDirection;
 
 /// Identifies which git button the user clicked in the code review header.
@@ -91,8 +90,6 @@ pub enum CodeReviewPaneEntrypoint {
     PaneHeader,
     // Opened via the code mode v2 right panel button
     RightPanel,
-    /// Opened via the CLI agent view footer (e.g., Claude Code).
-    CLIAgentView,
     /// Opened via other means (unknown entry point).
     #[default]
     Other,
@@ -110,7 +107,6 @@ impl Display for CodeReviewPaneEntrypoint {
             Self::CodeDiffHeader => write!(f, "agent_mode_diff_header"),
             Self::PaneHeader => write!(f, "pane_header"),
             Self::RightPanel => write!(f, "right_panel"),
-            Self::CLIAgentView => write!(f, "cli_agent_view"),
             Self::Other => write!(f, "other"),
         }
     }
@@ -134,9 +130,6 @@ pub enum AddToContextOrigin {
 /// Where code review content was sent after the user action.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum CodeReviewContextDestination {
-    /// Written directly to the terminal PTY for an active CLI agent.
-    #[serde(rename = "pty")]
-    Pty,
     /// Inserted into the Warp AI input buffer as plain text.
     #[serde(rename = "agent_input")]
     AgentInput,
@@ -149,9 +142,6 @@ pub enum CodeReviewContextDestination {
     /// Submitted as an inline code review request through the Warp AI path.
     #[serde(rename = "agent_review")]
     AgentReview,
-    /// Inserted into CLI agent rich input.
-    #[serde(rename = "rich_input")]
-    RichInput,
 }
 
 /// Scope of a diff set attachment initiated from code review.
@@ -187,9 +177,6 @@ pub enum CodeReviewTelemetryEvent {
         is_local: Option<bool>,
         entrypoint: CodeReviewPaneEntrypoint,
         is_code_mode_v2: bool,
-        /// The CLI agent type if opened from a CLI agent footer (e.g., Claude Code).
-        #[serde(serialize_with = "serialize_optional_cli_agent_telemetry_name")]
-        cli_agent: Option<CLIAgent>,
     },
     /// Emitted when a user adds content to AI context from code review.
     AddToContext {
@@ -343,15 +330,6 @@ pub enum CodeReviewTelemetryEvent {
     },
 }
 
-fn serialize_optional_cli_agent_telemetry_name<S: Serializer>(
-    agent: &Option<CLIAgent>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    agent
-        .map(|agent| agent.telemetry_name())
-        .serialize(serializer)
-}
-
 impl TelemetryEvent for CodeReviewTelemetryEvent {
     fn name(&self) -> &'static str {
         CodeReviewTelemetryEventDiscriminants::from(self).name()
@@ -363,12 +341,10 @@ impl TelemetryEvent for CodeReviewTelemetryEvent {
                 is_local,
                 entrypoint,
                 is_code_mode_v2,
-                cli_agent,
             } => Some(json!({
                 "is_local": is_local,
                 "entrypoint": entrypoint,
                 "is_code_mode_v2": is_code_mode_v2,
-                "agent_name": cli_agent.map(|agent| agent.telemetry_name()),
             })),
             CodeReviewTelemetryEvent::AddToContext {
                 is_local,

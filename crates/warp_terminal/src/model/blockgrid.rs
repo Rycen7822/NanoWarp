@@ -54,16 +54,6 @@ pub struct BlockGrid {
     cached_starts_with_input_buffer_sequence: OnceLock<bool>,
 
     pub should_scan_for_secrets: ObfuscateSecrets,
-
-    /// When true, `len_displayed()` caps its return value at the bottommost
-    /// visible content row to trim trailing blank rows.
-    trim_trailing_blank_rows: bool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CursorDisplayPoint {
-    Visible(Point),
-    HiddenCache(Point),
 }
 
 #[cfg(debug_assertions)]
@@ -109,7 +99,6 @@ impl BlockGrid {
             cached_has_visible_chars: Default::default(),
             should_scan_for_secrets,
             cached_starts_with_input_buffer_sequence: Default::default(),
-            trim_trailing_blank_rows: false,
         }
     }
 
@@ -150,7 +139,6 @@ impl BlockGrid {
             cached_has_visible_chars: Default::default(),
             should_scan_for_secrets: self.should_scan_for_secrets,
             cached_starts_with_input_buffer_sequence: Default::default(),
-            trim_trailing_blank_rows: false,
         }
     }
 
@@ -167,54 +155,18 @@ impl BlockGrid {
     }
 
     /// Returns the length of the blockgrid containing only displayed rows.
-    /// When `trim_trailing_blank_rows` is set, caps at the bottommost visible
-    /// content row to exclude trailing blank rows from the displayed height.
     pub fn len_displayed(&self) -> usize {
-        let base = if let Some(len_displayed) = self.grid_handler().len_displayed() {
-            len_displayed
-        } else {
-            self.len()
-        };
-        if self.trim_trailing_blank_rows {
-            let content_len = self
-                .grid_handler()
-                .visible_content_len_for_trimming()
-                .unwrap_or(usize::from(self.started));
-            base.min(content_len)
-        } else {
-            base
-        }
+        self.grid_handler()
+            .len_displayed()
+            .unwrap_or_else(|| self.len())
     }
 
-    pub fn cursor_display_point(&self) -> Option<CursorDisplayPoint> {
-        let cursor_point = self.grid_handler().cursor_render_point();
-        let cursor_display_point = self
-            .grid_handler()
-            .maybe_translate_point_from_original_to_displayed(cursor_point);
-        let len_displayed = self.len_displayed();
-
-        if !self.trim_trailing_blank_rows || cursor_display_point.row < len_displayed {
-            return Some(CursorDisplayPoint::Visible(cursor_display_point));
-        }
-
-        if len_displayed == 0 {
-            return None;
-        }
-        Some(CursorDisplayPoint::HiddenCache(Point::new(
-            cursor_display_point.row.min(len_displayed - 1),
-            cursor_display_point
-                .col
-                .min(self.grid_handler().columns().saturating_sub(1)),
-        )))
-    }
-
-    /// Returns the visible cursor position in displayed-grid coordinates as
-    /// `(column, row)`. A cursor hidden below trimmed content is omitted.
-    pub fn visible_cursor_display_position(&self) -> Option<(usize, usize)> {
-        match self.cursor_display_point()? {
-            CursorDisplayPoint::Visible(point) => Some((point.col, point.row)),
-            CursorDisplayPoint::HiddenCache(_) => None,
-        }
+    /// Returns the cursor position in displayed-grid coordinates, including marked text.
+    pub fn cursor_display_point(&self) -> Point {
+        self.grid_handler()
+            .maybe_translate_point_from_original_to_displayed(
+                self.grid_handler().cursor_render_point(),
+            )
     }
 
     /// Determine whether the block is currently empty
@@ -298,18 +250,8 @@ impl BlockGrid {
     pub fn finish(&mut self) {
         self.started = true;
         self.finished = true;
-        self.trim_trailing_blank_rows = false;
 
         self.grid_handler_mut().finish();
-    }
-
-    pub fn set_trim_trailing_blank_rows(&mut self, trim: bool) {
-        self.trim_trailing_blank_rows = trim;
-        self.grid_handler.set_track_content_length(trim);
-    }
-
-    pub fn enable_full_grid_clear_behavior(&mut self) {
-        self.grid_handler.enable_full_grid_clear_behavior();
     }
 
     /// Returns a freshly-computed value of rightmost_nonempty_cell if this grid isn't

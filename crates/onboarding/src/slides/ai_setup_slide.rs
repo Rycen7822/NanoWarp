@@ -63,13 +63,10 @@ impl AiSetupSlide {
         }
     }
 
-    // The final DES-816 visual exports have not landed yet, so the right panel
-    // reuses existing bundled assets that match each choice: the agent
-    // experience for "Use Warp agent" and the CLI-agent toolbar for
-    // "Use third party agents".
+    // Reuse the existing agent and terminal intention visuals for the setup choices.
     pub(crate) const VISUAL_IMAGE_PATHS: &'static [&'static str] = &[
         "async/png/onboarding/welcome_agent.png",
-        "async/png/onboarding/thirdparty_toolbar_enabled_vertical.png",
+        "async/png/onboarding/welcome_terminal.png",
     ];
 
     fn choice(&self, app: &AppContext) -> AiSetupChoice {
@@ -440,7 +437,7 @@ impl AiSetupSlide {
             ),
             AiSetupChoice::ThirdParty => layout::onboarding_right_panel_with_bg(
                 Self::VISUAL_IMAGE_PATHS[1],
-                layout::FOREGROUND_LAYOUT_THIRD_PARTY,
+                layout::FOREGROUND_LAYOUT_DEFAULT,
             ),
         }
     }

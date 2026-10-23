@@ -5,10 +5,10 @@ use async_broadcast::InactiveReceiver;
 use parking_lot::FairMutex;
 use pathfinder_geometry::vector::Vector2F;
 use session_sharing_protocol::common::{
-    ActivePrompt, AddGuestsResponse, CLIAgentSessionState, CommandExecutionFailureReason,
-    LinkAccessLevelUpdateResponse, LongRunningCommandAgentInteraction, RemoveGuestResponse,
-    SelectedAgentModel, SessionId, TeamAccessLevelUpdateResponse,
-    UniversalDeveloperInputContextUpdate, UpdatePendingUserRoleResponse,
+    ActivePrompt, AddGuestsResponse, CommandExecutionFailureReason, LinkAccessLevelUpdateResponse,
+    LongRunningCommandAgentInteraction, RemoveGuestResponse, SelectedAgentModel, SessionId,
+    TeamAccessLevelUpdateResponse, UniversalDeveloperInputContextUpdate,
+    UpdatePendingUserRoleResponse,
 };
 use session_sharing_protocol::sharer::SessionSourceType;
 use session_sharing_protocol::viewer::SessionEndedReason;
@@ -44,9 +44,6 @@ use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::pane_group::TerminalViewResources;
 use crate::pane_group::pane::DetachType;
 use crate::settings::{InputModeSettings, WarpPromptSeparator};
-use crate::terminal::cli_agent_sessions::{
-    CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
-};
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::input::CommandExecutionSource;
 use crate::terminal::model::ObfuscateSecrets;
@@ -58,8 +55,8 @@ use crate::terminal::shared_session::manager::Manager;
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
 use crate::terminal::shared_session::shared_handlers::{
     ActiveRemoteUpdate, RemoteUpdateGuard, apply_auto_approve_agent_actions_update,
-    apply_cli_agent_state_update, apply_input_mode_update, apply_selected_agent_model_update,
-    apply_selected_conversation_update, build_selected_conversation_update,
+    apply_input_mode_update, apply_selected_agent_model_update, apply_selected_conversation_update,
+    build_selected_conversation_update,
 };
 use crate::terminal::terminal_manager::{BlockSpacing, compute_block_size, terminal_colors_list};
 use crate::terminal::view::ExecuteCommandEvent;
@@ -761,50 +758,6 @@ impl TerminalManager {
                 },
             );
 
-            // Broadcast CLI agent rich input open/close changes from viewer back to sharer.
-            let current_network_for_cli = self.current_network.clone();
-            let model_for_cli = self.model.clone();
-            let view_id_for_cli = self.view.id();
-            let cli_remote_update_guard = self.viewer_remote_update_guard.clone();
-            ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), move |_, event, ctx| {
-                let CLIAgentSessionsModelEvent::InputSessionChanged {
-                    terminal_view_id,
-                    new_input_state,
-                    ..
-                } = event
-                else {
-                    return;
-                };
-                if *terminal_view_id != view_id_for_cli
-                    || !cli_remote_update_guard.should_broadcast()
-                {
-                    return;
-                }
-                let cli_agent_session = {
-                    let sessions_model = CLIAgentSessionsModel::as_ref(ctx);
-                    match sessions_model.session(view_id_for_cli) {
-                        Some(session) => CLIAgentSessionState::Active {
-                            cli_agent: session.agent.to_serialized_name(),
-                            is_rich_input_open: matches!(
-                                new_input_state,
-                                CLIAgentInputState::Open { .. }
-                            ),
-                        },
-                        None => CLIAgentSessionState::Inactive,
-                    }
-                };
-                Self::send_input_context_update_to_current_network(
-                    &cli_remote_update_guard,
-                    &model_for_cli,
-                    &current_network_for_cli,
-                    UniversalDeveloperInputContextUpdate {
-                        cli_agent_session: Some(cli_agent_session),
-                        ..Default::default()
-                    },
-                    ctx,
-                );
-            });
-
             self.outbound_handlers_registered = true;
         }
         self.network_state = NetworkState::Active(network);
@@ -860,12 +813,6 @@ impl TerminalManager {
                     if let Some(ref input_mode) = universal_developer_input_context.input_mode {
                         Self::handle_input_mode_update(&weak_view_handle, input_mode, &active_remote_update, ctx);
                     }
-                    apply_cli_agent_state_update(
-                        &weak_view_handle,
-                        &universal_developer_input_context.cli_agent_session,
-                        &active_remote_update,
-                        ctx,
-                    );
                     if let Some(ref selected_conversation) = universal_developer_input_context.selected_conversation {
                         Self::handle_selected_conversation_update(
                             &weak_view_handle,
@@ -1155,15 +1102,6 @@ impl TerminalManager {
                             });
                         }
                     }
-                }
-
-                if let Some(ref cli_agent_session) = context_update.cli_agent_session {
-                    apply_cli_agent_state_update(
-                        &weak_view_handle,
-                        cli_agent_session,
-                        &active_remote_update,
-                        ctx,
-                    );
                 }
             }
             NetworkEvent::Reconnecting => {

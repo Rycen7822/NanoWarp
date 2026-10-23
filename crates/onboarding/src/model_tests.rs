@@ -326,7 +326,7 @@ fn agent_path_routes_through_ai_setup() {
 }
 
 #[test]
-fn third_party_choice_routes_to_third_party_slide() {
+fn third_party_choice_routes_directly_to_customize() {
     App::test((), |mut app| async move {
         let model = add_test_model(&mut app);
 
@@ -334,16 +334,11 @@ fn third_party_choice_routes_to_third_party_slide() {
             model.next(ctx); // Intro → Intention
             model.next(ctx); // Intention → AiSetup
             model.set_ai_setup_choice(AiSetupChoice::ThirdParty, ctx);
-            model.next(ctx); // AiSetup → ThirdParty
+            model.next(ctx); // AiSetup → Customize
         });
-        assert_eq!(step(&app, &model), OnboardingStep::ThirdParty);
-
-        model.update(&mut app, |model, ctx| model.next(ctx));
         assert_eq!(step(&app, &model), OnboardingStep::Customize);
 
         // Back from Customize returns to the chosen AI-setup slide.
-        model.update(&mut app, |model, ctx| model.back(ctx));
-        assert_eq!(step(&app, &model), OnboardingStep::ThirdParty);
         model.update(&mut app, |model, ctx| model.back(ctx));
         assert_eq!(step(&app, &model), OnboardingStep::AiSetup);
     });
@@ -490,13 +485,12 @@ fn agent_intent_keeps_ai_enabled_for_any_setup_choice() {
 }
 
 #[test]
-fn terminal_path_skips_third_party() {
+fn terminal_path_goes_directly_to_customize() {
     App::test((), |mut app| async move {
         let model = add_test_model(&mut app);
         model.update(&mut app, |model, ctx| model.set_intention_terminal(ctx));
 
-        // Terminal goes Intention → Customize → ThemePicker; the "Customize third
-        // party agents" slide is only for the agent → third-party choice.
+        // Terminal goes Intention → Customize → ThemePicker.
         for expected in [
             OnboardingStep::Intention,
             OnboardingStep::Customize,
@@ -506,7 +500,7 @@ fn terminal_path_skips_third_party() {
             assert_eq!(step(&app, &model), expected);
         }
 
-        // Back navigation mirrors the forward path, also skipping third-party.
+        // Back navigation mirrors the forward path.
         model.update(&mut app, |model, ctx| model.back(ctx));
         assert_eq!(step(&app, &model), OnboardingStep::Customize);
         model.update(&mut app, |model, ctx| model.back(ctx));
@@ -544,14 +538,12 @@ fn progress_reports_v3_positions_for_third_party_path() {
             model.set_ai_setup_choice(AiSetupChoice::ThirdParty, ctx)
         });
 
-        // Third-party path has no "Choose how to access AI" step, so it is one
-        // dot shorter than the Warp Agent path.
+        // Third-party choice goes directly from AI setup to customization.
         let cases = [
-            (OnboardingStep::Intention, (0, 5)),
-            (OnboardingStep::AiSetup, (1, 5)),
-            (OnboardingStep::ThirdParty, (2, 5)),
-            (OnboardingStep::Customize, (3, 5)),
-            (OnboardingStep::ThemePicker, (4, 5)),
+            (OnboardingStep::Intention, (0, 4)),
+            (OnboardingStep::AiSetup, (1, 4)),
+            (OnboardingStep::Customize, (2, 4)),
+            (OnboardingStep::ThemePicker, (3, 4)),
         ];
         for (target, expected) in cases {
             model.update(&mut app, |model, ctx| model.set_step(target, ctx));

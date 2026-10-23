@@ -40,7 +40,6 @@ pub const CANCEL_COMMAND_KEYBINDING: &str = "terminal:cancel_command";
 pub const TOGGLE_AUTOEXECUTE_MODE_KEYBINDING: &str = "terminal:toggle_autoexecute_mode";
 pub const TOGGLE_QUEUE_NEXT_PROMPT_KEYBINDING: &str = "terminal:toggle_queue_next_prompt";
 pub const TOGGLE_HIDE_CLI_RESPONSES_KEYBINDING: &str = "terminal:toggle_hide_cli_responses";
-pub const OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING: &str = "terminal:open_cli_agent_rich_input";
 pub const ATTACH_FILE_KEYBINDING: &str = "terminal:attach_file";
 pub const CYCLE_NEXT_ORCHESTRATION_CHILD_AGENT_KEYBINDING: &str =
     "terminal:cycle_next_orchestration_child_agent";
@@ -55,7 +54,6 @@ pub const CAN_FORK_FROM_LAST_KNOWN_GOOD_STATE_KEY: &str = "CanForkFromLastKnownG
 
 pub const INPUT_BOX_VISIBLE_KEY: &str = "InputVisible";
 pub const KEYBOARD_PROTOCOL_ENABLED_KEY: &str = "KeyboardProtocolEnabled";
-pub const CLI_AGENT_SESSION_ACTIVE_KEY: &str = "CLIAgentSessionActive";
 /// Shared-session availability for attach-file, including FileAttach's cloud-viewer exception.
 pub const CAN_ATTACH_FILE_KEY: &str = "CanAttachFile";
 pub const ROOT_CLOUD_MODE_PANE_KEY: &str = "RootCloudModePane";
@@ -271,32 +269,6 @@ pub fn init(app: &mut AppContext) {
     ]);
 
     app.register_editable_bindings([
-        // Ctrl-G: toggle CLI agent rich input.
-        // Three contexts match this binding:
-        // 1. Terminal context when CLI agent footer is visible (opens rich input)
-        // 2. EditorView context when rich input is already open (closes rich input, fix for #9286)
-        // 3. Terminal context when rich input is open (closes rich input regardless
-        //    of focus location or active-block state; fix for #9916)
-        EditableBinding::new(
-            OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING,
-            "Toggle CLI Agent Rich Input",
-            TerminalAction::ToggleCLIAgentRichInput,
-        )
-        .with_key_binding("ctrl-g")
-        .with_context_predicate(
-            // Case 1: Open from terminal during CLI agent session
-            (id!("Terminal")
-                & !id!("IMEOpen")
-                & (id!("LongRunningCommand") | id!("AltScreen"))
-                & id!(flags::CLI_AGENT_FOOTER_ENABLED)
-                & id!(flags::CLI_AGENT_RICH_INPUT_CHIP_ENABLED))
-            // Case 2: Close from focused editor when rich input is open
-            | (id!("EditorView") & !id!("IMEOpen") & id!(flags::CLI_AGENT_RICH_INPUT_OPEN))
-            // Case 3: Close from terminal context when rich input is open (covers
-            // cases where the active block is no longer long-running and focus is
-            // not on the editor — see #9916).
-            | (id!("Terminal") & !id!("IMEOpen") & id!(flags::CLI_AGENT_RICH_INPUT_OPEN)),
-        ),
         EditableBinding::new(
             "terminal:warpify_subshell",
             "Warpify subshell",
@@ -953,9 +925,7 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::WarpAi.as_str())
         .with_context_predicate(
             (id!("Input") | id!("Terminal"))
-                & (id!(flags::ACTIVE_AGENT_VIEW)
-                    | id!(flags::ACTIVE_INLINE_AGENT_VIEW)
-                    | id!(CLI_AGENT_SESSION_ACTIVE_KEY))
+                & (id!(flags::ACTIVE_AGENT_VIEW) | id!(flags::ACTIVE_INLINE_AGENT_VIEW))
                 & id!(CAN_ATTACH_FILE_KEY),
         ),
         EditableBinding::new(
@@ -1097,14 +1067,9 @@ pub fn init(app: &mut AppContext) {
 fn register_input_mode_bindings(app: &mut AppContext) {
     use warpui::keymap::macros::*;
 
-    // A context predicate that matches when the input mode bindings are
-    // available for use. Disabled when a CLI agent session is active — the
-    // Warp agent should not be tagged into a CLI agent's command, and the
-    // `!` prefix is the only way to toggle shell mode in the rich input.
-    let base_context = id!(flags::IS_ANY_AI_ENABLED)
-        & (id!("Input") | id!("Terminal"))
-        & !id!("SubshellBanner")
-        & !id!(CLI_AGENT_SESSION_ACTIVE_KEY);
+    // A context predicate that matches when the input mode bindings are available for use.
+    let base_context =
+        id!(flags::IS_ANY_AI_ENABLED) & (id!("Input") | id!("Terminal")) & !id!("SubshellBanner");
 
     // A context predicate that is active when there is a long running command.
     let command_predicate = id!("LongRunningCommand") | id!("AltScreen");

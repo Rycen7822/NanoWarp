@@ -59,7 +59,6 @@ use crate::tab::{
     SelectedTabColor, TAB_INDICATOR_SYNCED_COLOR, TabData, reveals_tab_shortcut_hints,
     tab_activate_binding_name, tab_position_id,
 };
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::view::TerminalViewState;
 use crate::terminal::{CLIAgent, TerminalView};
@@ -151,14 +150,6 @@ pub(crate) fn vtab_group_position_id(group_id: TabGroupId) -> String {
 /// drag math.
 pub(crate) fn htab_group_position_id(group_id: TabGroupId) -> String {
     format!("horizontal_tabs:group:{group_id:?}")
-}
-
-fn terminal_title_fallback_font(agent_text: &TerminalAgentText) -> TerminalPrimaryLineFont {
-    if agent_text.cli_agent.is_some() {
-        TerminalPrimaryLineFont::Ui
-    } else {
-        TerminalPrimaryLineFont::Monospace
-    }
 }
 
 fn supports_vertical_tabs_detail_sidecar(typed: &TypedPane<'_>) -> bool {
@@ -1056,20 +1047,12 @@ fn normalize_summary_text(text: &str) -> Option<String> {
 
 /// Returns the conversation status for a terminal pane, used to render the per-line status
 /// pill prefix in Summary mode. Mirrors the status sources used by `render_detail_status_pill`
-/// in the detail sidecar — CLI agent sessions with rich status, Warp Agent conversations, or
+/// in the detail sidecar — Warp Agent conversations or
 /// ambient agent sessions. Returns `None` for plain terminals or conversations without status.
 fn summary_conversation_status_for_terminal(
     terminal_view: &TerminalView,
     app: &AppContext,
 ) -> Option<ConversationStatus> {
-    let cli_agent_session = CLIAgentSessionsModel::as_ref(app).session(terminal_view.id());
-    if let Some(session) = cli_agent_session
-        .filter(|s| s.supports_rich_status())
-        .filter(|s| !matches!(s.agent, CLIAgent::Unknown))
-    {
-        return Some(session.status.to_conversation_status());
-    }
-
     let is_ambient = terminal_view.is_ambient_agent_session(app);
     let has_conversation = terminal_view
         .selected_conversation_display_title(app)
@@ -1463,15 +1446,6 @@ fn render_detail_kind_badge_icon(
         TypedPane::Terminal(terminal_pane) => {
             let terminal_view = terminal_pane.terminal_view(app);
             let terminal_view = terminal_view.as_ref(app);
-            let cli_agent_session = CLIAgentSessionsModel::as_ref(app).session(terminal_view.id());
-            if let Some(icon) = cli_agent_session.and_then(|session| session.agent.icon()) {
-                let color = cli_agent_session
-                    .and_then(|session| session.agent.brand_color())
-                    .map(WarpThemeFill::Solid)
-                    .unwrap_or_else(|| theme.accent());
-                return icon.to_warpui_icon(color).finish();
-            }
-
             let icon = if terminal_view.is_ambient_agent_session(app) {
                 WarpIcon::CloudFilled
             } else if terminal_view
@@ -3821,16 +3795,15 @@ fn build_vertical_tabs_summary_data(
                     .filter(|wd| !wd.trim().is_empty())
                     .unwrap_or_else(|| title_text.clone());
                 let agent_text = terminal_agent_text(terminal_view, app);
-                let (conversation_display_title, cli_agent_title) =
+                let conversation_display_title =
                     preferred_agent_tab_titles(&agent_text, agent_tab_text_preference(app));
 
                 let primary_label = terminal_primary_line_data(
                     terminal_view.is_long_running_and_user_controlled(),
                     conversation_display_title,
-                    cli_agent_title,
                     title_text.as_str(),
                     working_directory_text.as_str(),
-                    terminal_title_fallback_font(&agent_text),
+                    TerminalPrimaryLineFont::Monospace,
                     terminal_view.last_completed_command_text(),
                 );
                 let status = summary_conversation_status_for_terminal(terminal_view, app);
@@ -4217,7 +4190,7 @@ fn terminal_pane_search_text_fragments(
     let working_directory = resolved_terminal_working_directory(terminal_view, app)
         .unwrap_or_else(|| title_text.clone());
     let agent_text = terminal_agent_text(terminal_view, app);
-    let (conversation_display_title, cli_agent_title) =
+    let conversation_display_title =
         preferred_agent_tab_titles(&agent_text, agent_tab_text_preference(app));
 
     let primary_text = display_title_override
@@ -4226,10 +4199,9 @@ fn terminal_pane_search_text_fragments(
             terminal_primary_line_data(
                 terminal_view.is_long_running_and_user_controlled(),
                 conversation_display_title,
-                cli_agent_title,
                 title_text.as_str(),
                 working_directory.as_str(),
-                terminal_title_fallback_font(&agent_text),
+                TerminalPrimaryLineFont::Monospace,
                 terminal_view.last_completed_command_text(),
             )
             .text()
@@ -4244,7 +4216,7 @@ fn terminal_pane_search_text_fragments(
         primary_text,
         working_directory,
         terminal_view.current_git_branch(app),
-        terminal_kind_badge_label(agent_text.is_oz_agent, agent_text.cli_agent),
+        terminal_kind_badge_label(agent_text.is_oz_agent),
         pull_request_label,
         terminal_view.current_diff_line_changes(app),
     )
@@ -4274,7 +4246,6 @@ fn terminal_search_text_fragments(
 fn terminal_primary_line_data(
     is_long_running: bool,
     conversation_display_title: Option<String>,
-    cli_agent_title: Option<String>,
     terminal_title: &str,
     working_directory: &str,
     terminal_title_font: TerminalPrimaryLineFont,
@@ -4282,12 +4253,6 @@ fn terminal_primary_line_data(
 ) -> TerminalPrimaryLineData {
     let trimmed_title = terminal_title.trim();
     let trimmed_working_directory = working_directory.trim();
-    if let Some(cli_agent_title) = cli_agent_title {
-        return TerminalPrimaryLineData::StatusText {
-            text: cli_agent_title,
-        };
-    }
-
     if is_long_running && !trimmed_title.is_empty() && trimmed_title != trimmed_working_directory {
         return TerminalPrimaryLineData::Text {
             text: trimmed_title.to_string(),
@@ -4320,10 +4285,8 @@ fn terminal_primary_line_data(
     }
 }
 
-fn terminal_kind_badge_label(is_oz_agent: bool, cli_agent: Option<CLIAgent>) -> String {
-    if let Some(cli_agent) = cli_agent {
-        cli_agent.display_name().to_string()
-    } else if is_oz_agent {
+fn terminal_kind_badge_label(is_oz_agent: bool) -> String {
+    if is_oz_agent {
         "Warp Agent".to_string()
     } else {
         "Terminal".to_string()
@@ -4340,10 +4303,7 @@ enum AgentTabTextPreference {
 struct TerminalAgentText {
     conversation_display_title: Option<String>,
     conversation_latest_user_prompt: Option<String>,
-    cli_agent_title: Option<String>,
-    cli_agent_latest_user_prompt: Option<String>,
     is_oz_agent: bool,
-    cli_agent: Option<CLIAgent>,
 }
 
 fn agent_tab_text_preference(app: &AppContext) -> AgentTabTextPreference {
@@ -4357,8 +4317,8 @@ fn agent_tab_text_preference(app: &AppContext) -> AgentTabTextPreference {
 fn preferred_agent_tab_titles(
     agent_text: &TerminalAgentText,
     preference: AgentTabTextPreference,
-) -> (Option<String>, Option<String>) {
-    let conversation_title = match preference {
+) -> Option<String> {
+    match preference {
         AgentTabTextPreference::ConversationTitle => agent_text
             .conversation_display_title
             .clone()
@@ -4367,45 +4327,19 @@ fn preferred_agent_tab_titles(
             .conversation_latest_user_prompt
             .clone()
             .or_else(|| agent_text.conversation_display_title.clone()),
-    };
-    let cli_agent_title = match preference {
-        AgentTabTextPreference::ConversationTitle => agent_text.cli_agent_title.clone(),
-        AgentTabTextPreference::LatestUserPrompt => agent_text
-            .cli_agent_latest_user_prompt
-            .clone()
-            .or_else(|| agent_text.cli_agent_title.clone()),
-    };
-
-    (conversation_title, cli_agent_title)
+    }
 }
 
 fn terminal_agent_text(terminal_view: &TerminalView, app: &AppContext) -> TerminalAgentText {
-    let cli_agent_session = CLIAgentSessionsModel::as_ref(app).session(terminal_view.id());
-    let is_plugin_backed = cli_agent_session.is_some_and(|session| session.listener.is_some());
-    let is_ambient_agent = terminal_view.is_ambient_agent_session(app);
-
-    let mut agent_text = TerminalAgentText {
-        is_oz_agent: is_ambient_agent,
-        cli_agent: cli_agent_session.map(|session| session.agent),
-        ..Default::default()
-    };
-
-    if cli_agent_session.is_some() && !is_plugin_backed {
-        return agent_text;
+    let conversation_display_title = terminal_view.selected_conversation_display_title(app);
+    let is_oz_agent =
+        conversation_display_title.is_some() || terminal_view.is_ambient_agent_session(app);
+    TerminalAgentText {
+        conversation_display_title,
+        conversation_latest_user_prompt: terminal_view
+            .selected_conversation_latest_user_prompt_for_tab_name(app),
+        is_oz_agent,
     }
-
-    agent_text.conversation_display_title = terminal_view.selected_conversation_display_title(app);
-    agent_text.conversation_latest_user_prompt =
-        terminal_view.selected_conversation_latest_user_prompt_for_tab_name(app);
-    agent_text.is_oz_agent =
-        agent_text.conversation_display_title.is_some() || agent_text.is_oz_agent;
-
-    if let Some(session) = cli_agent_session {
-        agent_text.cli_agent_title = session.session_context.title_like_text();
-        agent_text.cli_agent_latest_user_prompt = session.session_context.latest_user_prompt();
-    }
-
-    agent_text
 }
 
 fn terminal_pull_request_badge_label(pull_request_url: &str) -> String {
@@ -5400,17 +5334,16 @@ fn render_terminal_primary_line_for_view(
     let working_directory = resolved_terminal_working_directory(terminal_view, app)
         .unwrap_or_else(|| title_text.clone());
     let agent_text = terminal_agent_text(terminal_view, app);
-    let (conversation_display_title, cli_agent_title) =
+    let conversation_display_title =
         preferred_agent_tab_titles(&agent_text, agent_tab_text_preference(app));
 
     render_terminal_primary_line(
         terminal_primary_line_data(
             terminal_view.is_long_running_and_user_controlled(),
             conversation_display_title,
-            cli_agent_title,
             title_text.as_str(),
             working_directory.as_str(),
-            terminal_title_fallback_font(&agent_text),
+            TerminalPrimaryLineFont::Monospace,
             terminal_view.last_completed_command_text(),
         ),
         terminal_view,
@@ -5420,9 +5353,8 @@ fn render_terminal_primary_line_for_view(
 }
 
 /// Primary line for terminal pane rows. Precedence:
-/// 1. CLI agent session with plugin data (query/summary) + status
-/// 2. Warp Agent conversation title + status
-/// 3. Terminal title
+/// 1. Warp Agent conversation title + status
+/// 2. Terminal title
 fn render_terminal_primary_line(
     primary_line: TerminalPrimaryLineData,
     terminal_view: &TerminalView,
@@ -6941,27 +6873,22 @@ fn render_terminal_detail_section(
     let text_colors = detail_sidecar_text_colors(theme);
     let working_directory = resolved_terminal_working_directory(terminal_view, app);
     let git_branch = terminal_view.current_git_branch(app);
-    let cli_agent_session = CLIAgentSessionsModel::as_ref(app).session(terminal_view.id());
     let agent_text = terminal_agent_text(terminal_view, app);
-    let (conversation_display_title, cli_agent_title) =
+    let conversation_display_title =
         preferred_agent_tab_titles(&agent_text, agent_tab_text_preference(app));
-    let kind_label = terminal_kind_badge_label(agent_text.is_oz_agent, agent_text.cli_agent);
-    let status = if let Some(session) = cli_agent_session.filter(|s| s.supports_rich_status()) {
-        Some(session.status.to_conversation_status())
-    } else if agent_text.is_oz_agent {
-        terminal_view.selected_conversation_status_for_display(app)
-    } else {
-        None
-    };
+    let kind_label = terminal_kind_badge_label(agent_text.is_oz_agent);
+    let status = agent_text
+        .is_oz_agent
+        .then(|| terminal_view.selected_conversation_status_for_display(app))
+        .flatten();
 
     let title_text = terminal_view.terminal_title_from_shell();
     let primary_line = terminal_primary_line_data(
         terminal_view.is_long_running_and_user_controlled(),
         conversation_display_title,
-        cli_agent_title,
         title_text.as_str(),
         working_directory.as_deref().unwrap_or(title_text.as_str()),
-        terminal_title_fallback_font(&agent_text),
+        TerminalPrimaryLineFont::Monospace,
         terminal_view.last_completed_command_text(),
     );
 
@@ -7466,15 +7393,14 @@ fn render_compact_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn El
                 }),
                 VerticalTabsCompactSubtitle::Command => {
                     let agent_text = terminal_agent_text(terminal_view, app);
-                    let (conv_title, cli_title) =
+                    let conv_title =
                         preferred_agent_tab_titles(&agent_text, agent_tab_text_preference(app));
                     let line_data = terminal_primary_line_data(
                         terminal_view.is_long_running_and_user_controlled(),
                         conv_title,
-                        cli_title,
                         terminal_title.as_str(),
                         working_directory_text.as_str(),
-                        terminal_title_fallback_font(&agent_text),
+                        TerminalPrimaryLineFont::Monospace,
                         terminal_view.last_completed_command_text(),
                     );
                     Some(

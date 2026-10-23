@@ -74,9 +74,7 @@ use super::{
 use crate::ai::AIRequestUsageModel;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::aws_credentials::refresh_local_chain_aws_credentials;
-use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
-    AgentToolbarEditorMode, AgentToolbarInlineEditor,
-};
+use crate::ai::blocklist::agent_view::agent_input_footer::editor::AgentToolbarInlineEditor;
 use crate::ai::chatgpt_subscription::{ChatGPTSubscriptionEvent, ChatGPTSubscriptionModel};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 #[cfg(not(target_family = "wasm"))]
@@ -1089,9 +1087,7 @@ impl WarpAgentPageView {
             ctx,
         );
 
-        let agent_toolbar_inline_editor = ctx.add_typed_action_view(|ctx| {
-            AgentToolbarInlineEditor::new(AgentToolbarEditorMode::AgentView, ctx)
-        });
+        let agent_toolbar_inline_editor = ctx.add_typed_action_view(AgentToolbarInlineEditor::new);
 
         #[cfg(feature = "local_fs")]
         let conversation_layout_dropdown = ctx.add_typed_action_view(|ctx| {

@@ -443,10 +443,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::HandoffLocalCloud,
         #[cfg(feature = "hoa_notifications")]
         FeatureFlag::HOANotifications,
-        #[cfg(feature = "open_code_notifications")]
-        FeatureFlag::OpenCodeNotifications,
-        #[cfg(feature = "cli_agent_rich_input")]
-        FeatureFlag::CLIAgentRichInput,
         #[cfg(feature = "transfer_control_tool")]
         FeatureFlag::TransferControlTool,
         #[cfg(feature = "warpify_footer")]
@@ -465,12 +461,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::GitOperationsInCodeReview,
         #[cfg(feature = "hoa_remote_control")]
         FeatureFlag::HOARemoteControl,
-        #[cfg(feature = "codex_notifications")]
-        FeatureFlag::CodexNotifications,
-        #[cfg(feature = "codex_plugin")]
-        FeatureFlag::CodexPlugin,
-        #[cfg(feature = "trim_trailing_blank_lines")]
-        FeatureFlag::TrimTrailingBlankLines,
         #[cfg(feature = "cloud_mode_setup_v2")]
         FeatureFlag::CloudModeSetupV2,
         #[cfg(feature = "cloud_mode_input_v2")]
@@ -499,8 +489,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::OscHyperlinks,
         #[cfg(feature = "terminal_lifecycle_recovery")]
         FeatureFlag::TerminalLifecycleRecovery,
-        #[cfg(feature = "ctrl_c_cancels_third_party_harness")]
-        FeatureFlag::CtrlCCancelsThirdPartyHarness,
         #[cfg(feature = "shell_widget_handoff")]
         FeatureFlag::ShellWidgetHandoff,
         #[cfg(feature = "history_search_ranking_v2")]

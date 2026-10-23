@@ -65,7 +65,6 @@ pub enum OnboardingAuthState {
 pub enum SelectedSettings {
     Terminal {
         ui_customization: Option<UICustomizationSettings>,
-        cli_agent_toolbar_enabled: bool,
         show_agent_notifications: bool,
     },
     AgentDrivenDevelopment {
@@ -113,7 +112,6 @@ pub(crate) enum OnboardingStep {
     Customize,
     Agent,
     AiAccess,
-    ThirdParty,
     ThemePicker,
     PostAuthOffer,
 }
@@ -260,7 +258,6 @@ impl OnboardingStateModel {
         match &self.intention {
             OnboardingIntention::Terminal => SelectedSettings::Terminal {
                 ui_customization,
-                cli_agent_toolbar_enabled: self.agent_settings.cli_agent_toolbar_enabled,
                 show_agent_notifications: self.agent_settings.show_agent_notifications,
             },
             OnboardingIntention::AgentDrivenDevelopment => {
@@ -272,7 +269,6 @@ impl OnboardingStateModel {
                         } else {
                             self.agent_settings.autonomy
                         },
-                        cli_agent_toolbar_enabled: self.agent_settings.cli_agent_toolbar_enabled,
                         disable_oz: self.agent_settings.disable_oz,
                         // Agent intention always has notifications enabled (no toggle shown).
                         show_agent_notifications: true,
@@ -562,44 +558,6 @@ impl OnboardingStateModel {
         ctx.notify();
     }
 
-    pub(crate) fn set_cli_agent_toolbar_enabled(
-        &mut self,
-        value: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if self.agent_settings.cli_agent_toolbar_enabled == value {
-            return;
-        }
-        send_telemetry_from_ctx!(
-            OnboardingEvent::SettingChanged {
-                setting: "cli_agent_toolbar".to_string(),
-                value: if value { "enabled" } else { "disabled" }.to_string(),
-            },
-            ctx
-        );
-        self.agent_settings.cli_agent_toolbar_enabled = value;
-        ctx.notify();
-    }
-
-    pub(crate) fn set_show_agent_notifications(
-        &mut self,
-        value: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if self.agent_settings.show_agent_notifications == value {
-            return;
-        }
-        send_telemetry_from_ctx!(
-            OnboardingEvent::SettingChanged {
-                setting: "show_agent_notifications".to_string(),
-                value: if value { "enabled" } else { "disabled" }.to_string(),
-            },
-            ctx
-        );
-        self.agent_settings.show_agent_notifications = value;
-        ctx.notify();
-    }
-
     pub(crate) fn set_show_code_review_button(
         &mut self,
         value: bool,
@@ -728,9 +686,7 @@ impl OnboardingStateModel {
         } else {
             matches!(
                 self.step,
-                OnboardingStep::ThirdParty
-                    | OnboardingStep::ThemePicker
-                    | OnboardingStep::PostAuthOffer
+                OnboardingStep::ThemePicker | OnboardingStep::PostAuthOffer
             )
         };
         if is_past_agent_slide {
@@ -825,8 +781,7 @@ impl OnboardingStateModel {
                 OnboardingStep::Intention
                 | OnboardingStep::AiSetup
                 | OnboardingStep::Agent
-                | OnboardingStep::AiAccess
-                | OnboardingStep::ThirdParty => Some(OnboardingStep::Intro),
+                | OnboardingStep::AiAccess => Some(OnboardingStep::Intro),
             }
         } else {
             match self.step {
@@ -837,7 +792,7 @@ impl OnboardingStateModel {
                     if agent_intention {
                         match self.ai_setup_choice {
                             AiSetupChoice::WarpAgent => Some(OnboardingStep::AiAccess),
-                            AiSetupChoice::ThirdParty => Some(OnboardingStep::ThirdParty),
+                            AiSetupChoice::ThirdParty => Some(OnboardingStep::AiSetup),
                         }
                     } else {
                         Some(OnboardingStep::Intention)
@@ -845,7 +800,6 @@ impl OnboardingStateModel {
                 }
                 OnboardingStep::AiAccess => Some(OnboardingStep::Agent),
                 OnboardingStep::Agent => Some(OnboardingStep::AiSetup),
-                OnboardingStep::ThirdParty => Some(OnboardingStep::AiSetup),
                 OnboardingStep::ThemePicker => Some(OnboardingStep::Customize),
                 OnboardingStep::PostAuthOffer => None,
             }
@@ -886,8 +840,7 @@ impl OnboardingStateModel {
                 OnboardingStep::Intention
                 | OnboardingStep::AiSetup
                 | OnboardingStep::Agent
-                | OnboardingStep::AiAccess
-                | OnboardingStep::ThirdParty => self.set_step(OnboardingStep::Intro, ctx),
+                | OnboardingStep::AiAccess => self.set_step(OnboardingStep::Intro, ctx),
             }
         } else {
             match self.step {
@@ -900,18 +853,11 @@ impl OnboardingStateModel {
                 },
                 OnboardingStep::AiSetup => match self.ai_setup_choice {
                     AiSetupChoice::WarpAgent => self.set_step(OnboardingStep::Agent, ctx),
-                    AiSetupChoice::ThirdParty => self.set_step(OnboardingStep::ThirdParty, ctx),
+                    AiSetupChoice::ThirdParty => self.set_step(OnboardingStep::Customize, ctx),
                 },
                 OnboardingStep::Customize => self.set_step(OnboardingStep::ThemePicker, ctx),
                 OnboardingStep::Agent => self.set_step(OnboardingStep::AiAccess, ctx),
                 OnboardingStep::AiAccess => self.set_step(OnboardingStep::Customize, ctx),
-                OnboardingStep::ThirdParty => {
-                    if matches!(self.intention, OnboardingIntention::AgentDrivenDevelopment) {
-                        self.set_step(OnboardingStep::Customize, ctx)
-                    } else {
-                        self.set_step(OnboardingStep::ThemePicker, ctx)
-                    }
-                }
                 OnboardingStep::ThemePicker => {}
                 OnboardingStep::PostAuthOffer => {}
             }
@@ -944,7 +890,6 @@ impl OnboardingStateModel {
             OnboardingStep::AiAccess => "ai_access",
             OnboardingStep::Customize => "customize",
             OnboardingStep::Agent => "agent",
-            OnboardingStep::ThirdParty => "third_party",
         };
         send_telemetry_from_ctx!(
             OnboardingEvent::SlideViewed {
@@ -967,8 +912,7 @@ impl OnboardingStateModel {
                 | OnboardingStep::Intention
                 | OnboardingStep::AiSetup
                 | OnboardingStep::Agent
-                | OnboardingStep::AiAccess
-                | OnboardingStep::ThirdParty => (0, 3),
+                | OnboardingStep::AiAccess => (0, 3),
                 OnboardingStep::Customize => (0, 3),
                 OnboardingStep::ThemePicker => (1, 3),
                 OnboardingStep::PostAuthOffer => (0, 0),
@@ -977,8 +921,7 @@ impl OnboardingStateModel {
 
         let is_terminal = matches!(self.intention, OnboardingIntention::Terminal);
 
-        // The Warp Agent path has the extra "Choose how to access AI" step, so it
-        // is one longer than the third-party-agent path.
+        // The Warp Agent path has model/autonomy and AI-access steps before customization.
         let is_warp_agent_path =
             !is_terminal && matches!(self.ai_setup_choice, AiSetupChoice::WarpAgent);
         let step_count = if is_terminal {
@@ -986,7 +929,7 @@ impl OnboardingStateModel {
         } else if is_warp_agent_path {
             6
         } else {
-            5
+            4
         };
         let step_index = match self.step {
             OnboardingStep::Intro | OnboardingStep::Intention => 0,
@@ -999,10 +942,9 @@ impl OnboardingStateModel {
                 } else if is_warp_agent_path {
                     4
                 } else {
-                    3
+                    2
                 }
             }
-            OnboardingStep::ThirdParty => 2,
             OnboardingStep::ThemePicker => step_count - 1,
             OnboardingStep::PostAuthOffer => 0,
         };
@@ -1018,7 +960,6 @@ impl OnboardingStateModel {
             OnboardingStep::AiSetup => "ai_setup",
             OnboardingStep::Agent => "agent",
             OnboardingStep::AiAccess => "ai_access",
-            OnboardingStep::ThirdParty => "third_party",
             OnboardingStep::PostAuthOffer => self
                 .offer_variant
                 .expect("offer variant is selected before entering the post-auth offer")

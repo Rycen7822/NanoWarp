@@ -14,8 +14,8 @@ use chrono::Utc;
 use warp_cli::agent::Harness;
 
 use super::{
-    CLISessionInputs, TerminalIconInputs, agent_conversation_entry_icon_variant,
-    agent_icon_variant_for_run, agent_icon_variant_from_terminal_inputs,
+    TerminalIconInputs, agent_conversation_entry_icon_variant, agent_icon_variant_for_run,
+    agent_icon_variant_from_terminal_inputs,
 };
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent_conversations_model::entry::{
@@ -79,7 +79,7 @@ enum CanonicalRunState {
     CloudOzInProgress,
     /// Cloud Claude harness selected, pre-dispatch (no session, no status yet).
     /// This is the state the pre-setup icon bug regressed on — the tab must already render
-    /// the Claude brand circle even though no CLI session exists yet.
+    /// the Claude brand circle before dispatch.
     CloudClaudePreDispatch,
     /// Cloud Claude harness selected, dispatch in flight (status = InProgress, no session).
     CloudClaudeInProgress,
@@ -87,12 +87,6 @@ enum CanonicalRunState {
     /// model exists, so the harness comes from the conversation's server metadata; the icon
     /// must still render as cloud Codex.
     ViewingCloudCodexTranscript,
-    /// Local Claude CLI session with a plugin listener (rich status), in-progress.
-    LocalClaudePluginInProgress,
-    /// Local Claude CLI session with a plugin listener (rich status), blocked.
-    LocalClaudePluginBlocked,
-    /// Local Claude CLI session detected via command matching only (no listener, no rich status).
-    LocalClaudeCommandDetected,
 }
 
 impl CanonicalRunState {
@@ -105,9 +99,6 @@ impl CanonicalRunState {
             CloudClaudePreDispatch,
             CloudClaudeInProgress,
             ViewingCloudCodexTranscript,
-            LocalClaudePluginInProgress,
-            LocalClaudePluginBlocked,
-            LocalClaudeCommandDetected,
         ]
     }
 
@@ -147,26 +138,6 @@ impl CanonicalRunState {
                 status: Some(ConversationStatus::Success),
                 is_ambient: true,
             }),
-            LocalClaudePluginInProgress => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Claude),
-                status: Some(ConversationStatus::InProgress),
-                is_ambient: false,
-            }),
-            LocalClaudePluginBlocked => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Claude),
-                status: Some(ConversationStatus::Blocked {
-                    blocked_action: String::new(),
-                }),
-                is_ambient: false,
-            }),
-            LocalClaudeCommandDetected => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Claude),
-                status: None,
-                is_ambient: false,
-            }),
         }
     }
 
@@ -176,35 +147,30 @@ impl CanonicalRunState {
         match self {
             PlainTerminal => TerminalIconInputs {
                 is_ambient: false,
-                cli_session: None,
                 selected_third_party_cli_agent: None,
                 selected_conversation_status: None,
                 has_selected_conversation: false,
             },
             LocalOzInProgress => TerminalIconInputs {
                 is_ambient: false,
-                cli_session: None,
                 selected_third_party_cli_agent: None,
                 selected_conversation_status: Some(ConversationStatus::InProgress),
                 has_selected_conversation: true,
             },
             CloudOzInProgress => TerminalIconInputs {
                 is_ambient: true,
-                cli_session: None,
                 selected_third_party_cli_agent: None,
                 selected_conversation_status: Some(ConversationStatus::InProgress),
                 has_selected_conversation: false,
             },
             CloudClaudePreDispatch => TerminalIconInputs {
                 is_ambient: true,
-                cli_session: None,
                 selected_third_party_cli_agent: Some(CLIAgent::Claude),
                 selected_conversation_status: None,
                 has_selected_conversation: false,
             },
             CloudClaudeInProgress => TerminalIconInputs {
                 is_ambient: true,
-                cli_session: None,
                 selected_third_party_cli_agent: Some(CLIAgent::Claude),
                 selected_conversation_status: Some(ConversationStatus::InProgress),
                 has_selected_conversation: false,
@@ -213,48 +179,9 @@ impl CanonicalRunState {
                 // VM has shut down: the caller resolves these fields from the conversation's
                 // server metadata, so the waterfall sees the same shape as a live run.
                 is_ambient: true,
-                cli_session: None,
                 selected_third_party_cli_agent: Some(CLIAgent::Codex),
                 selected_conversation_status: Some(ConversationStatus::Success),
                 has_selected_conversation: true,
-            },
-            LocalClaudePluginInProgress => TerminalIconInputs {
-                is_ambient: false,
-                cli_session: Some(CLISessionInputs {
-                    agent: CLIAgent::Claude,
-                    has_listener: true,
-                    status: ConversationStatus::InProgress,
-                    supports_rich_status: true,
-                }),
-                selected_third_party_cli_agent: None,
-                selected_conversation_status: None,
-                has_selected_conversation: false,
-            },
-            LocalClaudePluginBlocked => TerminalIconInputs {
-                is_ambient: false,
-                cli_session: Some(CLISessionInputs {
-                    agent: CLIAgent::Claude,
-                    has_listener: true,
-                    status: ConversationStatus::Blocked {
-                        blocked_action: String::new(),
-                    },
-                    supports_rich_status: true,
-                }),
-                selected_third_party_cli_agent: None,
-                selected_conversation_status: None,
-                has_selected_conversation: false,
-            },
-            LocalClaudeCommandDetected => TerminalIconInputs {
-                is_ambient: false,
-                cli_session: Some(CLISessionInputs {
-                    agent: CLIAgent::Claude,
-                    has_listener: false,
-                    status: ConversationStatus::InProgress,
-                    supports_rich_status: false,
-                }),
-                selected_third_party_cli_agent: None,
-                selected_conversation_status: None,
-                has_selected_conversation: false,
             },
         }
     }
@@ -271,11 +198,7 @@ impl CanonicalRunState {
             ViewingCloudCodexTranscript => {
                 Some((Harness::Codex, ConversationStatus::Success, true))
             }
-            PlainTerminal
-            | LocalOzInProgress
-            | LocalClaudePluginInProgress
-            | LocalClaudePluginBlocked
-            | LocalClaudeCommandDetected => None,
+            PlainTerminal | LocalOzInProgress => None,
         }
     }
 }
@@ -360,28 +283,6 @@ fn run_card_with_oz_or_unknown_harness_renders_as_oz() {
     let fields = AgentIconFields::from_variant(&variant).unwrap();
     assert!(!fields.is_cli);
     assert!(fields.is_ambient);
-}
-
-/// A local Claude session and an ambient Claude run must render with the same CLI agent
-/// brand but differ only by `is_ambient`. This answers the product-spec ambiguity about
-/// whether those should look different — they should.
-#[test]
-fn local_claude_vs_cloud_claude_differ_only_by_is_ambient() {
-    let local = agent_icon_variant_from_terminal_inputs(
-        &CanonicalRunState::LocalClaudePluginInProgress.terminal_inputs(),
-    )
-    .and_then(|v| AgentIconFields::from_variant(&v))
-    .unwrap();
-    let cloud = agent_icon_variant_from_terminal_inputs(
-        &CanonicalRunState::CloudClaudeInProgress.terminal_inputs(),
-    )
-    .and_then(|v| AgentIconFields::from_variant(&v))
-    .unwrap();
-
-    assert_eq!(local.cli_agent, cloud.cli_agent);
-    assert_eq!(local.cli_agent, Some(CLIAgent::Claude));
-    assert!(!local.is_ambient);
-    assert!(cloud.is_ambient);
 }
 
 #[test]

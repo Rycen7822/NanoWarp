@@ -1,4 +1,4 @@
-use super::{AbsolutePoint, AbsoluteRectangle, GridHandler};
+use super::{AbsoluteRectangle, GridHandler};
 use crate::model::Point;
 use crate::model::image_map::ImagePlacementData;
 
@@ -35,14 +35,6 @@ impl GridHandler {
                     })
             })
             .collect()
-    }
-
-    pub fn has_image_in_row(&self, displayed_row: usize) -> bool {
-        if self.has_displayed_output() {
-            return false;
-        }
-        let absolute_row = AbsolutePoint::from_point(Point::new(displayed_row, 0), self).row;
-        self.images.has_image_in_row(absolute_row)
     }
 
     pub fn has_visible_images(&self) -> bool {

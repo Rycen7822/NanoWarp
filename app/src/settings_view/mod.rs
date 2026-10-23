@@ -5,7 +5,6 @@ use agent_profiles_page::{AgentProfilesPageAction, AgentProfilesPageEvent, Agent
 use appearance_page::{AppearancePageAction, AppearanceSettingsPageView};
 use billing_and_usage_dispatch::BillingAndUsageDispatchView;
 use billing_and_usage_page::BillingAndUsagePageEvent;
-use cli_agents_page::{CLIAgentsPageAction, CLIAgentsPageEvent, CLIAgentsPageView};
 use code_editor_review_page::{EditorAndCodeReviewPageAction, EditorAndCodeReviewPageView};
 use code_indexing_page::{CodeIndexingPageAction, CodeIndexingPageEvent};
 use environments_page::EnvironmentsPageView;
@@ -84,7 +83,6 @@ mod billing_and_usage;
 mod billing_and_usage_dispatch;
 mod billing_and_usage_page;
 mod billing_and_usage_page_v2;
-mod cli_agents_page;
 mod code_editor_review_page;
 mod code_indexing_page;
 pub(crate) mod custom_inference_modal;
@@ -125,8 +123,6 @@ mod warpify_page;
 
 pub(crate) use admin_actions::AdminActions;
 pub use billing_and_usage_page::create_discount_badge;
-#[cfg(not(target_family = "wasm"))]
-pub use cli_agents_page::cli_agent_settings_widget_id;
 pub use code_indexing_page::CodeIndexingPageView;
 pub use features_page::FeaturesPageAction;
 pub use main_page::handle_experiment_change;
@@ -324,7 +320,6 @@ pub enum SettingsSection {
     AgentProfiles,
     AgentMCPServers,
     Knowledge,
-    ThirdPartyCLIAgents,
     // ── Code umbrella subpages ──
     CodeIndexing,
     EditorAndCodeReview,
@@ -348,7 +343,6 @@ impl Display for SettingsSection {
             SettingsSection::AgentProfiles => write!(f, "Profiles"),
             SettingsSection::AgentMCPServers => write!(f, "MCP servers"),
             SettingsSection::Knowledge => write!(f, "Knowledge"),
-            SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             SettingsSection::CloudEnvironments => write!(f, "Environments"),
@@ -388,7 +382,6 @@ impl SettingsSection {
             Self::AgentProfiles => "Profiles",
             Self::AgentMCPServers => "MCP servers",
             Self::Knowledge => "Knowledge",
-            Self::ThirdPartyCLIAgents => "Third party CLI agents",
             Self::CodeIndexing => "Indexing and projects",
             Self::EditorAndCodeReview => "Editor and Code Review",
             Self::CloudEnvironments => "Environments",
@@ -426,7 +419,6 @@ impl SettingsSection {
             // Agents umbrella; it differs from the current slug only by casing.
             "MCP servers" | "MCP Servers" | "AgentMCPServers" => Self::AgentMCPServers,
             "Knowledge" => Self::Knowledge,
-            "Third party CLI agents" | "ThirdPartyCLIAgents" => Self::ThirdPartyCLIAgents,
             // "Code" named the combined page before it split in two.
             "Indexing and projects" | "CodeIndexing" | "Code" => Self::CodeIndexing,
             "Editor and Code Review" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
@@ -452,11 +444,6 @@ pub fn settings_widget_deeplink_target(slug: &str) -> Option<(SettingsSection, &
             features_page::global_hotkey_widget_id(),
         )),
         "custom_router" => Some((SettingsSection::WarpAgent, custom_model_routers_widget_id())),
-        #[cfg(not(target_family = "wasm"))]
-        "cli_agents" => Some((
-            SettingsSection::ThirdPartyCLIAgents,
-            cli_agent_settings_widget_id(),
-        )),
         _ => None,
     }
 }
@@ -640,13 +627,6 @@ pub mod flags {
     pub const AGENT_VIEW_ENABLED: &str = "FeatureFlag.AgentView";
     pub const LOCKED_INPUT: &str = "LockedInput";
     pub const EMPTY_INPUT_BUFFER: &str = "EmptyInputBuffer";
-    pub const CLI_AGENT_RICH_INPUT_OPEN: &str = "CLIAgentRichInputOpen";
-    pub const CLI_AGENT_FOOTER_ENABLED: &str = "CLIAgentFooterEnabled";
-    pub const CLI_AGENT_RICH_INPUT_CHIP_ENABLED: &str = "CLIAgentRichInputChipEnabled";
-    pub const AUTO_TOGGLE_RICH_INPUT_FLAG: &str = "AutoToggleRichInput";
-    pub const AUTO_OPEN_RICH_INPUT_ON_CLI_AGENT_START_FLAG: &str =
-        "AutoOpenRichInputOnCLIAgentStart";
-    pub const AUTO_DISMISS_RICH_INPUT_AFTER_SUBMIT_FLAG: &str = "AutoDismissRichInputAfterSubmit";
     pub const ENABLE_WARP_DRIVE: &str = "EnableWarpDrive";
     // Tools panel settings
     pub const SHOW_CONVERSATION_HISTORY: &str = "ShowConversationHistory";
@@ -668,7 +648,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     warp_agent_page::init_actions_from_parent_view(app, context, builder);
     agent_profiles_page::init_actions_from_parent_view(app, context, builder);
     knowledge_page::init_actions_from_parent_view(app, context, builder);
-    cli_agents_page::init_actions_from_parent_view(app, context, builder);
     code_indexing_page::init_actions_from_parent_view(app, context, builder);
     code_editor_review_page::init_actions_from_parent_view(app, context, builder);
     warp_drive_page::init_actions_from_parent_view(app, context, builder);
@@ -976,7 +955,6 @@ pub enum SettingsAction {
     WarpAgent(WarpAgentPageAction),
     AgentProfiles(AgentProfilesPageAction),
     Knowledge(KnowledgePageAction),
-    CLIAgents(CLIAgentsPageAction),
     CodeIndexing(CodeIndexingPageAction),
     EditorAndCodeReview(EditorAndCodeReviewPageAction),
     WarpDrive(warp_drive_page::WarpDriveSettingsPageAction),
@@ -1135,7 +1113,6 @@ macro_rules! update_page {
             SettingsPageViewHandle::WarpAgent(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::AgentProfiles(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Knowledge(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::CLIAgents(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::CloudEnvironments(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::CodeIndexing(handle) => $ctx.update_view(handle, $update),
@@ -1235,12 +1212,6 @@ impl SettingsView {
         let knowledge_page_handle = ctx.add_typed_action_view(KnowledgePageView::new);
         ctx.subscribe_to_view(&knowledge_page_handle, |me, _, event, ctx| {
             me.handle_knowledge_page_event(event, ctx);
-        });
-
-        // Third party CLI agents page, under the Agents umbrella
-        let cli_agents_page_handle = ctx.add_typed_action_view(CLIAgentsPageView::new);
-        ctx.subscribe_to_view(&cli_agents_page_handle, |me, _, event, ctx| {
-            me.handle_cli_agents_page_event(event, ctx);
         });
 
         // Environments page
@@ -1350,7 +1321,6 @@ impl SettingsView {
             SettingsPage::new(warp_agent_page_handle),
             SettingsPage::new(agent_profiles_page_handle),
             SettingsPage::new(knowledge_page_handle),
-            SettingsPage::new(cli_agents_page_handle),
             billing_and_usage_page,
             SettingsPage::new(code_indexing_page_handle),
             SettingsPage::new(editor_review_page_handle),
@@ -1383,7 +1353,6 @@ impl SettingsView {
                     SettingsSection::AgentProfiles,
                     SettingsSection::AgentMCPServers,
                     SettingsSection::Knowledge,
-                    SettingsSection::ThirdPartyCLIAgents,
                 ],
             )),
             SettingsNavItem::Page(SettingsSection::BillingAndUsage),
@@ -1934,16 +1903,6 @@ impl SettingsView {
         }
     }
 
-    fn handle_cli_agents_page_event(
-        &mut self,
-        event: &CLIAgentsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            CLIAgentsPageEvent::FocusModal => ctx.focus(&self.search_editor),
-        }
-    }
-
     fn handle_code_indexing_page_event(
         &mut self,
         event: &CodeIndexingPageEvent,
@@ -2079,7 +2038,6 @@ impl SettingsView {
             SettingsPageViewHandle::WarpAgent(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::AgentProfiles(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Knowledge(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::CLIAgents(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::CloudEnvironments(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::MCPServers(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::CodeIndexing(v) => v.as_ref(app).should_render(app),
@@ -2744,15 +2702,6 @@ impl TypedActionView for SettingsView {
                 {
                     view.update(ctx, |view, ctx| {
                         view.handle_action(knowledge_action, ctx);
-                    })
-                }
-            }
-            SettingsAction::CLIAgents(cli_agents_action) => {
-                if let Some(page) = self.settings_page(SettingsSection::ThirdPartyCLIAgents)
-                    && let SettingsPageViewHandle::CLIAgents(view) = &page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(cli_agents_action, ctx);
                     })
                 }
             }

@@ -91,7 +91,6 @@ use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::history::History;
 use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::local_tty::TerminalManager;
@@ -190,7 +189,6 @@ fn initialize_app_with_history(app: &mut App, conversations: Vec<AgentConversati
             ctx,
         )
     });
-    app.add_singleton_model(|_| CLIAgentSessionsModel::new());
     app.add_singleton_model(OrchestrationEventService::new);
     app.add_singleton_model(LocalAgentTaskSyncModel::new);
     app.add_singleton_model(OrchestrationEventStreamer::new);

@@ -189,7 +189,6 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::telemetry::HandoffEntryPoint;
 use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::agent_view::agent_input_footer::editor::AgentToolbarEditorMode;
 use crate::ai::blocklist::agent_view::editor::{AgentToolbarEditorEvent, AgentToolbarEditorModal};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::blocklist::handoff;
@@ -384,7 +383,6 @@ use crate::terminal::available_shells::AvailableShell;
 #[cfg(target_os = "windows")]
 use crate::terminal::available_shells::AvailableShells;
 use crate::terminal::block_list_viewport::InputMode;
-use crate::terminal::cli_agent_sessions::{CLIAgentSessionsModel, CLIAgentSessionsModelEvent};
 use crate::terminal::enable_auto_reload_modal::{
     EnableAutoReloadModal, EnableAutoReloadModalEvent,
 };
@@ -952,7 +950,6 @@ struct RightPanelUpdateParams<'a> {
     pane_group: &'a ViewHandle<PaneGroup>,
     target_open_state: bool,
     entrypoint: Option<CodeReviewPaneEntrypoint>,
-    cli_agent: Option<crate::terminal::CLIAgent>,
     review_pane_context: Option<&'a CodeReviewPaneContext>,
 }
 
@@ -3195,10 +3192,6 @@ impl Workspace {
             &BlocklistAIHistoryModel::handle(ctx),
             Self::handle_history_model_event,
         );
-        ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), |me, _, event, ctx| {
-            me.handle_cli_agent_sessions_event(event, ctx);
-        });
-
         ctx.subscribe_to_model(
             &AgentNotificationsModel::handle(ctx),
             Self::handle_agent_management_event,
@@ -3766,23 +3759,6 @@ impl Workspace {
         ) && event.terminal_surface_id().is_some_and(|terminal_view_id| {
             self.workspace_contains_terminal_view(terminal_view_id, ctx)
         })
-    }
-
-    fn handle_cli_agent_sessions_event(
-        &mut self,
-        event: &CLIAgentSessionsModelEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if matches!(
-            event,
-            CLIAgentSessionsModelEvent::Started { .. }
-                | CLIAgentSessionsModelEvent::StatusChanged { .. }
-                | CLIAgentSessionsModelEvent::Ended { .. }
-                | CLIAgentSessionsModelEvent::SessionUpdated { .. }
-        ) && self.workspace_contains_terminal_view(event.terminal_view_id(), ctx)
-        {
-            ctx.notify();
-        }
     }
 
     /// Handle session settings changes.
@@ -9650,13 +9626,7 @@ impl Workspace {
             diff_state_model,
         };
 
-        self.open_right_panel(
-            &context,
-            &pane_group,
-            panel_context.entrypoint,
-            panel_context.cli_agent,
-            ctx,
-        );
+        self.open_right_panel(&context, &pane_group, panel_context.entrypoint, ctx);
 
         let active_conversation_id = panel_context
             .terminal_view
@@ -9725,7 +9695,6 @@ impl Workspace {
                             .map(LocalOrRemotePath::is_local),
                         entrypoint: panel_update_params.entrypoint.unwrap_or_default(),
                         is_code_mode_v2: true,
-                        cli_agent: panel_update_params.cli_agent,
                     },
                     ctx
                 );
@@ -9774,7 +9743,6 @@ impl Workspace {
                 pane_group: pane_group_handle,
                 target_open_state,
                 entrypoint: Some(CodeReviewPaneEntrypoint::RightPanel),
-                cli_agent: None,
                 review_pane_context: context.as_ref(),
             },
             ctx,
@@ -9787,7 +9755,6 @@ impl Workspace {
         context: &CodeReviewPaneContext,
         pane_group_handle: &ViewHandle<PaneGroup>,
         entrypoint: CodeReviewPaneEntrypoint,
-        cli_agent: Option<crate::terminal::CLIAgent>,
         ctx: &mut ViewContext<Self>,
     ) {
         if pane_group_handle.as_ref(ctx).right_panel_open {
@@ -9804,7 +9771,6 @@ impl Workspace {
                 pane_group: pane_group_handle,
                 target_open_state: true,
                 entrypoint: Some(entrypoint),
-                cli_agent,
                 review_pane_context: Some(context),
             },
             ctx,
@@ -9822,7 +9788,6 @@ impl Workspace {
         _context: &CodeReviewPaneContext,
         _pane_group_handle: &ViewHandle<PaneGroup>,
         _entrypoint: CodeReviewPaneEntrypoint,
-        _cli_agent: Option<crate::terminal::CLIAgent>,
         _ctx: &mut ViewContext<Self>,
     ) {
     }
@@ -9837,7 +9802,6 @@ impl Workspace {
                 pane_group: pane_group_handle,
                 target_open_state: false,
                 entrypoint: None,
-                cli_agent: None,
                 review_pane_context: None,
             },
             ctx,
@@ -16202,10 +16166,7 @@ impl Workspace {
                 self.open_prompt_editor(PromptEditorOpenSource::InputContextMenu, ctx);
             }
             pane_group::Event::OpenAgentToolbarEditor => {
-                self.open_agent_toolbar_editor(AgentToolbarEditorMode::AgentView, ctx);
-            }
-            pane_group::Event::OpenCLIAgentToolbarEditor => {
-                self.open_agent_toolbar_editor(AgentToolbarEditorMode::CLIAgent, ctx);
+                self.open_agent_toolbar_editor(ctx);
             }
             pane_group::Event::OpenMCPSettingsPage { page } => {
                 // Open the MCP servers settings page to the list page
@@ -17879,11 +17840,7 @@ impl Workspace {
             return;
         };
 
-        let prefix = CLIAgentSessionsModel::as_ref(ctx)
-            .session(terminal_view_handle.id())
-            .map(|session| session.agent.skill_command_prefix())
-            .unwrap_or("/");
-        let prompt = format!("{prefix}update-tab-config Update {} to...", path.display());
+        let prompt = format!("/update-tab-config Update {} to...", path.display());
 
         terminal_view_handle.update(ctx, |terminal_view, ctx| {
             terminal_view.input().update(ctx, |input, ctx| {
@@ -19389,16 +19346,12 @@ impl Workspace {
         );
     }
 
-    fn open_agent_toolbar_editor(
-        &mut self,
-        mode: AgentToolbarEditorMode,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn open_agent_toolbar_editor(&mut self, ctx: &mut ViewContext<Self>) {
         if !FeatureFlag::AgentToolbarEditor.is_enabled() {
             return;
         }
         self.agent_toolbar_editor_modal
-            .update(ctx, |modal, ctx| modal.open(mode, ctx));
+            .update(ctx, |modal, ctx| modal.open(ctx));
         self.close_all_overlays(ctx);
         self.current_workspace_state.is_agent_toolbar_editor_open = true;
         ctx.focus(&self.agent_toolbar_editor_modal);
@@ -23161,22 +23114,6 @@ impl Workspace {
         if *ai_settings.can_use_warp_credits_for_fallback.value() {
             context.set.insert(flags::WARP_CREDIT_FALLBACK_FLAG);
         }
-        if *ai_settings.should_render_cli_agent_footer.value() {
-            context.set.insert(flags::CLI_AGENT_FOOTER_ENABLED);
-        }
-        if *ai_settings.auto_toggle_rich_input.value() {
-            context.set.insert(flags::AUTO_TOGGLE_RICH_INPUT_FLAG);
-        }
-        if *ai_settings.auto_open_rich_input_on_cli_agent_start.value() {
-            context
-                .set
-                .insert(flags::AUTO_OPEN_RICH_INPUT_ON_CLI_AGENT_START_FLAG);
-        }
-        if *ai_settings.auto_dismiss_rich_input_after_submit.value() {
-            context
-                .set
-                .insert(flags::AUTO_DISMISS_RICH_INPUT_AFTER_SUBMIT_FLAG);
-        }
         if *ai_settings.show_agent_notifications.value() {
             context.set.insert(flags::AGENT_IN_APP_NOTIFICATIONS_FLAG);
         }
@@ -24388,7 +24325,6 @@ impl TypedActionView for Workspace {
                             TelemetryEvent::FileTreeToggled {
                                 source: FileTreeSource::LeftPanelToolbelt,
                                 is_code_mode_v2: true,
-                                cli_agent: None,
                             },
                             ctx
                         );
@@ -24446,7 +24382,6 @@ impl TypedActionView for Workspace {
                                 &context,
                                 &pane_group_handle,
                                 CodeReviewPaneEntrypoint::GitDiffChip,
-                                None,
                                 ctx,
                             );
                         }
@@ -24950,10 +24885,7 @@ impl TypedActionView for Workspace {
                 self.open_prompt_editor(*open_source, ctx);
             }
             OpenAgentToolbarEditor => {
-                self.open_agent_toolbar_editor(AgentToolbarEditorMode::AgentView, ctx);
-            }
-            OpenCLIAgentToolbarEditor => {
-                self.open_agent_toolbar_editor(AgentToolbarEditorMode::CLIAgent, ctx);
+                self.open_agent_toolbar_editor(ctx);
             }
             OpenHeaderToolbarEditor => {
                 self.open_header_toolbar_editor(ctx);

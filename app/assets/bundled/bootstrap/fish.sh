@@ -867,8 +867,6 @@ if test "$WARP_IS_LOCAL_SHELL_SESSION" = "1"
 "
 export TERM_PROGRAM='WarpTerminal'
 test -n '$WARP_CLIENT_VERSION' && export WARP_CLIENT_VERSION='$WARP_CLIENT_VERSION'
-# Only forward the protocol version if it was set locally (i.e. the HOANotifications feature flag is on).
-test -n '$WARP_CLI_AGENT_PROTOCOL_VERSION' && export WARP_CLI_AGENT_PROTOCOL_VERSION='$WARP_CLI_AGENT_PROTOCOL_VERSION'
 hook="'$(printf "{\"hook\": \"SSH\", \"value\": {\"socket_path\": \"'$control_path'\", \"remote_shell\": \"%s\", \"session_id\": '"$WARP_SESSION_ID"', \"remote_session_id\": '"$remote_session_id"', \"external_control_master\": '"$external_control_master"'}}" "${SHELL##*/}" | command od -An -v -tx1 | command tr -d " \n")'"
 printf '$DCS_START$DCS_JSON_MARKER%s$DCS_END' "'$hook'"
 

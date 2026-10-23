@@ -664,10 +664,6 @@ pub enum FeatureFlag {
     /// Enables attaching conversations as context in Agent Mode via the @ menu.
     ConversationsAsContext,
 
-    /// Enables the rich input editor for CLI agents (e.g., Claude Code).
-    /// Ctrl-G intercepts the keystroke and opens Warp's input editor instead of $EDITOR.
-    CLIAgentRichInput,
-
     /// Enables incremental (diff-based) buffer updates for auto-reload instead of full replace.
     IncrementalAutoReload,
 
@@ -737,24 +733,8 @@ pub enum FeatureFlag {
     ///   block snapshot from the server.
     OzHandoff,
 
-    /// Enables the upgraded CLI agent session tracking and notifications infrastructure.
+    /// Enables Native Agent mailbox notifications and notification toasts.
     HOANotifications,
-
-    /// Enables the install/update chip for the OpenCode Warp plugin.
-    /// Requires HOANotifications to also be enabled.
-    OpenCodeNotifications,
-
-    /// Enables the install/update chip for the Codex Warp notification plugin.
-    /// Requires HOANotifications to also be enabled.
-    CodexNotifications,
-
-    /// Enables the Codex Warp plugin marketplace integration.
-    /// When disabled, Codex uses native OSC9 notifications.
-    CodexPlugin,
-
-    /// Enables the install/update chip for the Gemini CLI Warp extension.
-    /// Requires HOANotifications to also be enabled.
-    GeminiNotifications,
 
     /// When enabled, the "Skip for now" login flow does not create a Firebase
     /// anonymous user. The user remains fully logged out (no credentials) and
@@ -783,12 +763,8 @@ pub enum FeatureFlag {
     /// Enables commit, push, and create-PR actions in the code review panel.
     GitOperationsInCodeReview,
 
-    /// Gates the remote control chip and `/remote-control` slash command in the CLI agent footer.
+    /// Gates Native Agent remote-control sharing from the footer and slash command.
     HOARemoteControl,
-
-    /// Trims trailing blank rows from CLI agent block output so unused vertical
-    /// space is not rendered while the agent is running.
-    TrimTrailingBlankLines,
 
     /// Gates the new SSH remote server flow that installs and connects to a
     /// persistent binary on the remote machine instead of using ControlMaster
@@ -924,15 +900,6 @@ pub enum FeatureFlag {
     /// `--no-snapshot` is set.
     PeriodicHandoffCheckpoints,
 
-    /// Observes Ctrl-C (`0x03`) written on the shared-session viewer input
-    /// path to a terminal with a working, rich-status-capable CLI agent
-    /// session (e.g. Claude Code). Arms a short grace window; if no further
-    /// plugin activity is seen, the session (and its ambient task) resolves
-    /// to `Cancelled`. Purely client-side status synthesis: the keystroke is
-    /// always forwarded unchanged and the harness process/sandbox are never
-    /// signaled or torn down.
-    CtrlCCancelsThirdPartyHarness,
-
     /// Uses fzf or atuin for history search instead of Warp's command search.
     ShellWidgetHandoff,
 
@@ -1015,7 +982,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::CodeReviewScrollPreservation,
     FeatureFlag::RememberFastForwardState,
-    FeatureFlag::GeminiNotifications,
     FeatureFlag::LocalDockerSandbox,
     #[cfg(not(windows))]
     FeatureFlag::SshRemoteServer,
@@ -1027,7 +993,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::MultiLevelOrchestration,
     FeatureFlag::McpJsonTreeView,
     FeatureFlag::BoxDrawingGlyphs,
-    FeatureFlag::CtrlCCancelsThirdPartyHarness,
     FeatureFlag::WarpingModelName,
     FeatureFlag::LrcActivitySignal,
     FeatureFlag::StoredScreenshots,

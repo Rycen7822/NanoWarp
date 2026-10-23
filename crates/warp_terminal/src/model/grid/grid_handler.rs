@@ -42,8 +42,8 @@ use crate::SizeInfo;
 use crate::event_listener::ChannelEventListener;
 pub use crate::model::TermMode;
 use crate::model::ansi::{self, Color, CursorStyle, Handler, NamedColor};
-use crate::model::cell::{Cell, DEFAULT_CHAR, Flags, LineLength};
-use crate::model::char_or_str::{CharOrStr, PushCharOrStr};
+use crate::model::cell::{Cell, Flags, LineLength};
+use crate::model::char_or_str::PushCharOrStr;
 use crate::model::find::{Match, RegexDFAs};
 use crate::model::grid::{
     CellType, Dimensions, FlatStorage, GridStorage, HyperlinkId, HyperlinkRegistry,
@@ -399,18 +399,6 @@ enum StorageRow {
     FlatStorage(usize),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Controls whether full-grid operations on a primary-screen grid preserve the old visible rows as
-/// scrollback or treat them as a mutable redraw surface.
-pub(crate) enum FullGridClearBehavior {
-    /// Reset visible cells in place for full-grid clears and resizes, avoiding scrollback growth
-    /// during TUI-style redraws on the primary grid.
-    Clear,
-    /// Preserve normal primary-grid behavior where full-grid clears and resizes move visible rows
-    /// into scrollback.
-    Scroll,
-}
-
 /// An implementation of `ansi::Handler` that writes to a `Grid`.
 #[derive(Clone)]
 pub struct GridHandler {
@@ -448,21 +436,6 @@ pub struct GridHandler {
     all_bytes_scanned_for_secrets: bool,
     pub(super) images: ImageMap,
     marked_text: Option<String>,
-
-    /// Bottommost row with content that should contribute to trimmed CLI agent
-    /// block height, updated per PTY-read batch in `on_finish_byte_processing`
-    /// when `track_content_length` is true.
-    ///
-    /// `None` = not yet computed or no visible content.
-    /// `Some(row)` = bottommost visible content row index.
-    bottommost_visible_content_row: Option<usize>,
-
-    /// When true, `on_finish_byte_processing` computes
-    /// `bottommost_visible_content_row` via backward scan. Set by the owning
-    /// `BlockGrid` when `trim_trailing_blank_rows` is active.
-    track_content_length: bool,
-
-    full_grid_clear_behavior: FullGridClearBehavior,
 
     /// Accumulates dirty row ranges for find operations.
     ///
@@ -519,9 +492,6 @@ impl GridHandler {
             all_bytes_scanned_for_secrets: true,
             images: Default::default(),
             marked_text: None,
-            bottommost_visible_content_row: None,
-            track_content_length: false,
-            full_grid_clear_behavior: FullGridClearBehavior::Scroll,
             find_dirty_rows_range: None,
         }
     }
@@ -561,20 +531,6 @@ impl GridHandler {
 
     pub fn ansi_handler(&mut self) -> &mut (impl ansi::Handler + use<>) {
         self
-    }
-
-    pub fn set_track_content_length(&mut self, track: bool) {
-        self.track_content_length = track;
-        if track {
-            // Eagerly compute so the very first render after enabling
-            // trimming sees the correct content length instead of falling
-            // back to the full max_cursor_point-based height.
-            self.bottommost_visible_content_row = self.bottommost_visible_content_row_backward();
-        }
-    }
-
-    pub fn enable_full_grid_clear_behavior(&mut self) {
-        self.full_grid_clear_behavior = FullGridClearBehavior::Clear;
     }
 
     pub fn set_supports_emoji_presentation_selector(
@@ -657,9 +613,6 @@ impl GridHandler {
             // We do not support splitting marked text, though at the moment,
             // we never split an active grid, so it should not be an issue.
             marked_text: None,
-            bottommost_visible_content_row: None,
-            track_content_length: false,
-            full_grid_clear_behavior: FullGridClearBehavior::Scroll,
             find_dirty_rows_range: None,
         };
 
@@ -2581,50 +2534,6 @@ impl GridHandler {
             }
         }
         max_nonempty_row
-    }
-
-    fn cell_has_visible_content_for_trimming(cell: &Cell) -> bool {
-        match cell.raw_content() {
-            CharOrStr::Char(c) => c != DEFAULT_CHAR && !c.is_ascii_whitespace(),
-            CharOrStr::Str(s) => s
-                .chars()
-                .any(|c| c != DEFAULT_CHAR && !c.is_ascii_whitespace()),
-        }
-    }
-
-    fn row_has_visible_content_for_trimming(&self, row_idx: usize) -> bool {
-        let Some(row) = self.row(row_idx) else {
-            return false;
-        };
-        row[..]
-            .iter()
-            .any(Self::cell_has_visible_content_for_trimming)
-            || self.has_image_in_row(row_idx)
-    }
-
-    /// Scans backward from the max cursor row to find the bottommost row that
-    /// should contribute to trimmed display height. O(trailing_blank_rows × cols)
-    /// for the common cell-only case.
-    fn bottommost_visible_content_row_backward(&self) -> Option<usize> {
-        let max_row = self.grid.max_cursor_point.row.0 + self.history_size();
-        (0..=max_row)
-            .rev()
-            .find(|&row_idx| self.row_has_visible_content_for_trimming(row_idx))
-    }
-
-    /// Returns the "content length" of the grid — the number of rows up to and
-    /// including the bottommost row with visible content. Falls back to the
-    /// full `max_cursor_point`-based length when not computed or grid is all
-    /// blank (avoids trimming to 0).
-    pub fn content_len(&self) -> usize {
-        match self.bottommost_visible_content_row {
-            Some(row) => row + 1,
-            None => self.grid.max_cursor_point.row.0 + self.history_size() + 1,
-        }
-    }
-
-    pub fn visible_content_len_for_trimming(&self) -> Option<usize> {
-        self.bottommost_visible_content_row.map(|row| row + 1)
     }
 
     /// Returns the index of the right-most cell with visible contents in the

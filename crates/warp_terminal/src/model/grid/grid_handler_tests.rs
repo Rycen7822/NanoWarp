@@ -2066,18 +2066,6 @@ fn test_clear_screen_all_primary_preserves_visible_rows_in_history_by_default() 
 }
 
 #[test]
-fn test_clear_screen_all_primary_with_full_grid_clear_behavior_clears_in_place() {
-    let mut grid = GridHandler::new_for_test_with_scroll_limit(3, 5, MAX_SCROLL_LIMIT);
-    write_two_visible_rows(&mut grid);
-    grid.enable_full_grid_clear_behavior();
-
-    grid.clear_screen(ansi::ClearMode::All);
-
-    assert_eq!(grid.history_size(), 0);
-    assert_visible_grid_blank(&grid);
-}
-
-#[test]
 fn test_clear_screen_all_alt_screen_clears_in_place() {
     let mut grid = GridHandler::new_for_alt_screen_test(3, 5);
     write_two_visible_rows(&mut grid);
@@ -2092,28 +2080,6 @@ fn test_clear_screen_all_alt_screen_clears_in_place() {
 fn test_resize_primary_preserves_visible_rows_in_history_by_default() {
     let mut grid = GridHandler::new_for_test_with_scroll_limit(1, 5, MAX_SCROLL_LIMIT);
     grid.input_at_cursor("12345");
-
-    grid.resize(SizeInfo::new_without_font_metrics(1, 2));
-
-    assert!(grid.history_size() > 0);
-}
-
-#[test]
-fn test_resize_primary_with_full_grid_clear_behavior_keeps_visible_rows_in_place() {
-    let mut grid = GridHandler::new_for_test_with_scroll_limit(1, 5, MAX_SCROLL_LIMIT);
-    grid.input_at_cursor("12345");
-    grid.enable_full_grid_clear_behavior();
-    grid.resize(SizeInfo::new_without_font_metrics(1, 2));
-
-    assert_eq!(grid.history_size(), 0);
-}
-
-#[test]
-fn test_resize_finished_primary_with_full_grid_clear_behavior_uses_scrollback() {
-    let mut grid = GridHandler::new_for_test_with_scroll_limit(1, 5, MAX_SCROLL_LIMIT);
-    grid.input_at_cursor("12345");
-    grid.finish();
-    grid.enable_full_grid_clear_behavior();
 
     grid.resize(SizeInfo::new_without_font_metrics(1, 2));
 
@@ -2392,243 +2358,13 @@ fn test_insert_blank_resets_wide_char_pushed_off_end() {
     assert_no_orphaned_wide_chars(&grid, VisibleRow(0));
 }
 
-// ─── content_len / trailing blank row trimming ───────────────────────
-
 #[test]
-fn content_len_interspersed_blanks_preserved() {
-    // Blank rows between content are interior, not trailing.
-    // "line1\n\n\nline4" → content_len() == 4
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.carriage_return();
-    grid.linefeed();
-    // row 1 blank
-    grid.linefeed();
-    // row 2 blank
-    grid.linefeed();
-    grid.input_at_cursor("line4");
-    assert_eq!(grid.content_len(), 4);
-}
-
-#[test]
-fn content_len_trailing_blanks_trimmed() {
-    // "line1\nline2" then cursor moved to row 4 via goto → content_len() == 2
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.carriage_return();
-    grid.linefeed();
-    grid.input_at_cursor("line2");
-    // Move cursor below content via CUP (as real TUI apps do)
-    grid.goto(VisibleRow(4), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    assert_eq!(grid.content_len(), 2);
-}
-
-#[test]
-fn visible_content_len_for_trimming_ignores_whitespace_rows() {
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.goto(VisibleRow(4), 0);
-    grid.input_at_cursor("   ");
-    grid.goto(VisibleRow(6), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-
-    assert_eq!(grid.visible_content_len_for_trimming(), Some(1));
-    assert_eq!(grid.content_len(), 1);
-}
-
-#[test]
-fn visible_content_len_for_trimming_ignores_style_only_rows() {
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.grid_storage_mut()[VisibleRow(4)][0].bg = Color::Named(NamedColor::Red);
-    grid.grid_storage_mut()[VisibleRow(4)][1]
-        .flags
-        .bitor_assign(Flags::UNDERLINE);
-    grid.goto(VisibleRow(6), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-
-    assert_eq!(grid.visible_content_len_for_trimming(), Some(1));
-    assert_eq!(grid.content_len(), 1);
-}
-
-#[test]
-fn visible_content_len_for_trimming_visible_glyph_after_blanks_restores_height() {
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.goto(VisibleRow(4), 0);
-    grid.input_at_cursor("   ");
-    grid.grid_storage_mut()[VisibleRow(5)][0].bg = Color::Named(NamedColor::Red);
-    grid.grid_storage_mut()[VisibleRow(5)][1]
-        .flags
-        .bitor_assign(Flags::UNDERLINE);
-    grid.goto(VisibleRow(6), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-
-    assert_eq!(grid.visible_content_len_for_trimming(), Some(1));
-
-    grid.input_at_cursor("visible");
-
-    assert_eq!(grid.visible_content_len_for_trimming(), Some(7));
-    assert_eq!(grid.content_len(), 7);
-}
-
-#[test]
-fn content_len_cursor_below_content() {
-    // Content on rows 0-2, cursor moved to row 5 via goto → content_len() == 3
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("row0");
-    grid.carriage_return();
-    grid.linefeed();
-    grid.input_at_cursor("row1");
-    grid.carriage_return();
-    grid.linefeed();
-    grid.input_at_cursor("row2");
-    // Move cursor below content via CUP (as real TUI apps do)
-    grid.goto(VisibleRow(5), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    assert_eq!(grid.content_len(), 3);
-}
-
-#[test]
-fn content_len_new_output_restores_height() {
-    // After trimming, new content grows content_len()
-    let mut grid = GridHandler::new_for_test(10, 20);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("row0");
-    grid.carriage_return();
-    grid.linefeed();
-    grid.input_at_cursor("row1");
-    // Move cursor below content via CUP
-    grid.goto(VisibleRow(4), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    assert_eq!(grid.content_len(), 2);
-    // Write on row 2
-    grid.goto(VisibleRow(2), 0);
-    grid.input_at_cursor("row2");
-    assert_eq!(grid.content_len(), 3);
-}
-
-#[test]
-fn content_len_single_trailing_newline() {
-    // "line1" then cursor moved to row 1 via goto → content_len() == 1
-    let mut grid = GridHandler::new_for_test(10, 10);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("line1");
-    grid.goto(VisibleRow(1), 0);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    assert_eq!(grid.content_len(), 1);
-}
-
-#[test]
-fn content_len_all_blank_grid() {
-    // Grid started but no visible chars → content_len() falls back to
-    // max_cursor_point-based length (no trimming to 0).
-    let mut grid = GridHandler::new_for_test(10, 10);
-    grid.set_track_content_length(true);
-    grid.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
-    let expected = grid.grid_storage().max_cursor_point.row.0 + grid.history_size() + 1;
-    assert_eq!(grid.visible_content_len_for_trimming(), None);
-    assert_eq!(grid.content_len(), expected);
-}
-
-#[test]
-fn content_len_equals_len_when_no_trailing_blanks() {
-    // No trailing blanks → content_len() == max_cursor-based length
-    let mut grid = GridHandler::new_for_test(10, 10);
-    grid.set_track_content_length(true);
-    grid.input_at_cursor("abc");
-    let expected = grid.grid_storage().max_cursor_point.row.0 + grid.history_size() + 1;
-    assert_eq!(grid.content_len(), expected);
-}
-
-// ─── FullGridClearBehavior::Clear resize + scroll desync ─────────────
-
-#[test]
-fn test_full_grid_clear_resize_then_scroll_does_not_panic_on_row_iteration() {
-    // Regression test for issue with `FullGridClearBehavior`: make sure that
-    // when FullGridClearBehavior::Clear is active, resize_storage
-    // resizes the active GridStorage and the flat storage correctly.
-    // Before, we didn't set 'flat_storage.set_columns(), and subsequent scrolls pushed
-    // wider rows into the narrower flat storage, corrupting the index. Iterating
-    // those rows then panicked.
-    let old_cols = 10;
-    let new_cols = 20;
-    let num_rows = 3;
-
-    let mut grid =
-        GridHandler::new_for_test_with_scroll_limit(num_rows, old_cols, MAX_SCROLL_LIMIT);
-    grid.enable_full_grid_clear_behavior();
-
-    // Resize grid wider.
-    grid.resize(SizeInfo::new_without_font_metrics(num_rows, new_cols));
-
-    // Fill visible rows with new-width content and trigger a scroll so
-    // a wide row gets pushed into narrow flat storage.
-    for _ in 0..num_rows {
-        for c in "abcdefghijklmnopqrst".chars() {
-            grid.input(c);
-        }
-        grid.carriage_return();
-        grid.linefeed();
-    }
-
-    // Iterating flat storage rows should not panic.
-    for row_idx in 0..grid.flat_storage.total_rows() {
-        let _ = grid.flat_storage.rows_from(row_idx).next();
-    }
-}
-
-#[test]
-fn test_full_grid_clear_resize_narrower_then_scroll_does_not_panic() {
-    // Same scenario but resizing to a narrower width.
-    let old_cols = 20;
-    let new_cols = 10;
-    let num_rows = 3;
-
-    let mut grid =
-        GridHandler::new_for_test_with_scroll_limit(num_rows, old_cols, MAX_SCROLL_LIMIT);
-
-    // Fill grid with wide content before enabling Clear behavior.
-    for _ in 0..num_rows {
-        for c in "abcdefghijklmnopqrst".chars() {
-            grid.input(c);
-        }
-        grid.carriage_return();
-        grid.linefeed();
-    }
-
-    grid.enable_full_grid_clear_behavior();
-    grid.resize(SizeInfo::new_without_font_metrics(num_rows, new_cols));
-
-    // Trigger more scrolling with narrow content.
-    for _ in 0..num_rows {
-        for c in "abcdefghij".chars() {
-            grid.input(c);
-        }
-        grid.carriage_return();
-        grid.linefeed();
-    }
-
-    for row_idx in 0..grid.flat_storage.total_rows() {
-        let _ = grid.flat_storage.rows_from(row_idx).next();
-    }
-}
-
-#[test]
-fn test_full_grid_clear_shrink_cols_does_not_orphan_wide_char_at_boundary() {
+fn test_alt_screen_shrink_cols_does_not_orphan_wide_char_at_boundary() {
     let old_cols = 6;
     let new_cols = 5;
     let num_rows = 1;
 
-    let mut grid =
-        GridHandler::new_for_test_with_scroll_limit(num_rows, old_cols, MAX_SCROLL_LIMIT);
+    let mut grid = GridHandler::new_for_alt_screen_test(num_rows, old_cols);
     for c in ['a', 'b', 'c', 'd', 'Ｗ'] {
         grid.input(c);
     }
@@ -2645,58 +2381,14 @@ fn test_full_grid_clear_shrink_cols_does_not_orphan_wide_char_at_boundary() {
             .contains(Flags::WIDE_CHAR_SPACER)
     );
 
-    grid.enable_full_grid_clear_behavior();
     grid.resize(SizeInfo::new_without_font_metrics(num_rows, new_cols));
 
     assert_no_orphaned_wide_chars(&grid, VisibleRow(0));
 
-    let retained_row = grid.grid_storage()[VisibleRow(0)].clone();
-    grid.flat_storage.push_rows([&retained_row]);
-    let materialized_rows = grid.flat_storage.pop_rows(1);
-
-    assert_eq!(materialized_rows.len(), 1);
     assert_eq!(
         grid.grid_storage()[VisibleRow(0)][new_cols - 1],
         Cell::from(Color::Named(NamedColor::Red))
     );
-    assert_eq!(
-        materialized_rows[0][new_cols - 1],
-        Cell::from(Color::Named(NamedColor::Red))
-    );
-}
-
-#[test]
-fn test_full_grid_clear_resize_then_bounds_to_string_does_not_panic() {
-    // End-to-end repro via the same code path as block_snapshot:
-    // bounds_to_string → line_to_string → row() → RowIterator::next.
-    let old_cols = 10;
-    let new_cols = 20;
-    let num_rows = 3;
-
-    let mut grid =
-        GridHandler::new_for_test_with_scroll_limit(num_rows, old_cols, MAX_SCROLL_LIMIT);
-    grid.enable_full_grid_clear_behavior();
-    grid.resize(SizeInfo::new_without_font_metrics(num_rows, new_cols));
-
-    for _ in 0..num_rows {
-        for c in "abcdefghijklmnopqrst".chars() {
-            grid.input(c);
-        }
-        grid.carriage_return();
-        grid.linefeed();
-    }
-
-    let total = grid.total_rows();
-    if total > 0 {
-        let _ = grid.bounds_to_string(
-            Point::new(0, 0),
-            Point::new(total - 1, grid.columns().saturating_sub(1)),
-            false,
-            RespectObfuscatedSecrets::No,
-            false,
-            RespectDisplayedOutput::No,
-        );
-    }
 }
 
 /// Write `text` into the grid with `uri` as the active OSC 8 hyperlink, then
@@ -2801,10 +2493,9 @@ fn test_hyperlink_at_point_short_circuits_when_flag_disabled() {
 }
 
 #[test]
-fn test_full_grid_clear_drops_active_hyperlink() {
+fn test_primary_clear_drops_active_hyperlink() {
     let _flag = warp_core::features::FeatureFlag::OscHyperlinks.override_enabled(true);
     let mut grid = GridHandler::new_for_test_with_scroll_limit(3, 20, MAX_SCROLL_LIMIT);
-    grid.enable_full_grid_clear_behavior();
 
     // Open a hyperlink and write a linked char, but never close it.
     grid.set_hyperlink(Some(crate::model::ansi::Hyperlink {
@@ -2816,11 +2507,12 @@ fn test_full_grid_clear_drops_active_hyperlink() {
     // A full-screen clear of the primary screen must drop the active link so
     // output written afterwards does not inherit the stale URI.
     grid.clear_screen(ansi::ClearMode::All);
+    let unlinked_point = grid.cursor_point();
     grid.input('b');
 
-    for row in 0..3 {
-        for col in 0..20 {
-            assert_eq!(grid.hyperlink_uri_at_point(Point::new(row, col)), None);
-        }
-    }
+    assert_eq!(grid.hyperlink_uri_at_point(unlinked_point), None);
+    assert_eq!(
+        grid.hyperlink_uri_at_point(Point::new(0, 0)),
+        Some("https://example.com")
+    );
 }

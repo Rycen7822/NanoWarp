@@ -5,6 +5,7 @@
 //! filtering across both top-level pages and umbrella subpages — so that
 //! refactors of the settings page model cannot silently regress them.
 
+use warp::features::FeatureFlag;
 use warp::integration_testing::settings::{
     assert_settings_nav_page_visible, assert_settings_nav_subpage_visible, assert_settings_section,
     assert_settings_widget_rendered, assert_umbrella_expanded, clear_settings_search,
@@ -12,7 +13,7 @@ use warp::integration_testing::settings::{
     press_settings_nav_down, press_settings_nav_up, type_settings_search,
 };
 use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
-use warp::settings_view::{SettingsSection, cli_agent_settings_widget_id};
+use warp::settings_view::{SettingsSection, settings_widget_deeplink_target};
 
 use super::{Builder, new_builder};
 
@@ -79,9 +80,7 @@ pub fn test_settings_keyboard_navigation_up_into_collapsed_umbrella() -> Builder
         .with_step(open_settings_page(SettingsSection::BillingAndUsage))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, false))
         .with_step(press_settings_nav_up())
-        .with_step(assert_settings_section(
-            SettingsSection::ThirdPartyCLIAgents,
-        ))
+        .with_step(assert_settings_section(SettingsSection::Knowledge))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, true))
 }
 
@@ -128,23 +127,23 @@ pub fn test_settings_search_filters_top_level_pages() -> Builder {
 /// A query that only matches one umbrella subpage auto-expands the umbrella,
 /// hides its sibling subpages, and selects the surviving one.
 pub fn test_settings_search_filters_subpages() -> Builder {
+    FeatureFlag::CustomModelRouters.set_enabled(true);
+
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Account))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, false))
-        .with_step(type_settings_search("codex"))
+        .with_step(type_settings_search("custom model router"))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, true))
         .with_step(assert_settings_nav_subpage_visible(
-            SettingsSection::ThirdPartyCLIAgents,
+            SettingsSection::WarpAgent,
             true,
         ))
         .with_step(assert_settings_nav_subpage_visible(
             SettingsSection::Knowledge,
             false,
         ))
-        .with_step(assert_settings_section(
-            SettingsSection::ThirdPartyCLIAgents,
-        ))
+        .with_step(assert_settings_section(SettingsSection::WarpAgent))
 }
 
 /// A search that matches only one subpage must still render that subpage's
@@ -154,33 +153,31 @@ pub fn test_settings_search_filters_subpages() -> Builder {
 /// can keep its row while the content pane renders nothing. No sidebar-only
 /// assertion would catch that, which is why this asserts on a widget.
 pub fn test_settings_search_subpage_still_renders_content() -> Builder {
+    FeatureFlag::CustomModelRouters.set_enabled(true);
+    let (_, widget_id) = settings_widget_deeplink_target("custom_router")
+        .expect("custom_router must resolve to the existing settings widget");
+
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Account))
-        // The CLI agent widget lives on the Third party CLI agents subpage, and
+        // The custom router widget lives on the Warp Agent subpage, and
         // nothing has rendered it yet.
-        .with_step(assert_settings_widget_rendered(
-            cli_agent_settings_widget_id(),
-            false,
-        ))
-        .with_step(type_settings_search("codex"))
-        .with_step(assert_settings_section(
-            SettingsSection::ThirdPartyCLIAgents,
-        ))
-        .with_step(assert_settings_widget_rendered(
-            cli_agent_settings_widget_id(),
-            true,
-        ))
+        .with_step(assert_settings_widget_rendered(widget_id, false))
+        .with_step(type_settings_search("custom model router"))
+        .with_step(assert_settings_section(SettingsSection::WarpAgent))
+        .with_step(assert_settings_widget_rendered(widget_id, true))
 }
 
 /// Clearing the search restores the umbrella expansion state the user had
 /// before searching, rather than leaving auto-expanded umbrellas open.
 pub fn test_settings_search_clear_restores_umbrella_state() -> Builder {
+    FeatureFlag::CustomModelRouters.set_enabled(true);
+
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Account))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, false))
-        .with_step(type_settings_search("codex"))
+        .with_step(type_settings_search("custom model router"))
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, true))
         .with_step(clear_settings_search())
         .with_step(assert_umbrella_expanded(AGENTS_UMBRELLA, false))

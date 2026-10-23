@@ -1135,10 +1135,10 @@ impl<S> TerminalManager<S> {
         let is_crash_reporting_enabled = PrivacySettings::as_ref(ctx).is_crash_reporting_enabled;
 
         // Determine whether the Node.js Version chip is enabled anywhere it could be
-        // shown (the Warp prompt, the agent footer, or the CLI agent footer). When it
+        // shown (the Warp prompt or the agent footer). When it
         // is not, the shell bootstrap skips the expensive per-prompt `node --version`
         // detection. The chip value is fed by the same precmd payload regardless of
-        // where it is displayed, so we must check all three locations.
+        // where it is displayed, so both locations must be checked.
         let node_version_chip_enabled = {
             let in_prompt = !is_honor_ps1_enabled
                 && Prompt::as_ref(ctx)
@@ -1148,10 +1148,6 @@ impl<S> TerminalManager<S> {
             in_prompt
                 || settings
                     .agent_footer_chip_selection
-                    .all_chips()
-                    .contains(&ContextChipKind::NodeVersion)
-                || settings
-                    .cli_agent_footer_chip_selection
                     .all_chips()
                     .contains(&ContextChipKind::NodeVersion)
         };

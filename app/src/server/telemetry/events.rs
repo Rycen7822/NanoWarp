@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use session_sharing_protocol::common::{ParticipantId, Role, SessionId as SharedSessionId};
 use session_sharing_protocol::sharer::{SessionEndedReason, SessionSourceType};
@@ -55,8 +55,8 @@ use crate::settings::import::config::ParsedTerminalSetting;
 use crate::settings::import::model::TerminalType;
 use crate::settings_view::TeamsInviteOption;
 use crate::tab::TabTelemetryAction;
+use crate::terminal::ShareBlockType;
 use crate::terminal::block_list_viewport::InputMode;
-use crate::terminal::cli_agent_sessions::{CLIAgentInputEntrypoint, CLIAgentRichInputCloseReason};
 use crate::terminal::input::TelemetryInputSuggestionsMode;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::SessionId;
@@ -71,7 +71,6 @@ use crate::terminal::view::{
     BlockEntity, BlockSelectionDetails, NotificationsDiscoveryBannerAction,
     NotificationsErrorBannerAction, NotificationsTrigger, PromptPart,
 };
-use crate::terminal::{CLIAgent, ShareBlockType};
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::settings::EditorLayout;
 #[cfg(feature = "local_fs")]
@@ -431,7 +430,6 @@ pub enum FileTreeSource {
     LeftPanelToolbelt,
     ForceOpened,
     /// Opened from the CLI agent view footer (e.g., Claude Code).
-    CLIAgentView,
     /// Opened from the File explorer chip in Warp's own agent input toolbelt.
     AgentToolbelt,
 }
@@ -451,24 +449,14 @@ pub enum CodePanelsFileOpenEntrypoint {
 pub enum NotificationAgentVariant {
     /// Warp's built-in agent (Oz).
     Oz,
-    /// A CLI agent (e.g., Claude Code, Gemini CLI, etc.).
-    CLIAgent(#[serde(serialize_with = "serialize_cli_agent_telemetry_name")] CLIAgent),
 }
 
 impl From<NotificationSourceAgent> for NotificationAgentVariant {
     fn from(agent: NotificationSourceAgent) -> Self {
         match agent {
             NotificationSourceAgent::Oz { .. } => Self::Oz,
-            NotificationSourceAgent::CLI { agent, .. } => Self::CLIAgent(agent),
         }
     }
-}
-
-fn serialize_cli_agent_telemetry_name<S: Serializer>(
-    agent: &CLIAgent,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(agent.telemetry_name())
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -858,9 +846,7 @@ pub enum AddTabWithShellSource {
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeContextDestination {
-    Pty,
     AgentInput,
-    RichInput,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1710,8 +1696,6 @@ pub enum TelemetryEvent {
     FileTreeToggled {
         source: FileTreeSource,
         is_code_mode_v2: bool,
-        /// The CLI agent type if opened from a CLI agent footer (e.g., Claude Code).
-        cli_agent: Option<CLIAgent>,
     },
     /// User attached a file or directory as context from the file tree
     FileTreeItemAttachedAsContext {
@@ -2495,56 +2479,10 @@ pub enum TelemetryEvent {
         used_fallback_directory: Option<bool>,
         failure_class: Option<CloudAgentShellRecoveryFailureClass>,
     },
-    /// Emitted when the user uses voice input from the CLI agent footer.
-    CLIAgentToolbarVoiceInputUsed {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-    },
-    /// Emitted when the user attaches an image from the CLI agent footer.
-    CLIAgentToolbarImageAttached {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-    },
-    /// Emitted when the CLI agent footer is shown.
-    CLIAgentToolbarShown {
-        /// The CLI agent being shown.
-        cli_agent: CLIAgent,
-    },
-    /// Emitted when the user opens the CLI agent rich input editor.
-    CLIAgentRichInputOpened {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// How the editor was opened (Ctrl-G or footer button).
-        entrypoint: CLIAgentInputEntrypoint,
-    },
-    /// Emitted when the CLI agent rich input editor is closed.
-    CLIAgentRichInputClosed {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// Why the editor was closed.
-        reason: CLIAgentRichInputCloseReason,
-    },
-    /// Emitted when the user submits a prompt via the CLI agent rich input editor.
-    CLIAgentRichInputSubmitted {
-        /// The CLI agent being used.
-        cli_agent: CLIAgent,
-        /// Length of the submitted prompt in characters.
-        prompt_length: usize,
-    },
-    /// Emitted when a CLI agent plugin is first recognized (SessionStart event received).
-    CLIAgentPluginDetected {
-        /// The CLI agent whose plugin was detected.
-        cli_agent: CLIAgent,
-    },
     /// Emitted when an agent notification is shown (toast or mailbox notification).
     AgentNotificationShown {
         /// Which agent variant produced the notification.
         agent_variant: NotificationAgentVariant,
-    },
-    /// Emitted when the user toggles the CLI agent footer setting.
-    ToggleCLIAgentToolbarSetting {
-        /// Whether the setting is enabled or disabled.
-        is_enabled: bool,
     },
     /// Emitted when the user toggles the "Use Agent" footer setting.
     ToggleUseAgentToolbarSetting {
@@ -2896,11 +2834,9 @@ impl TelemetryEvent {
             TelemetryEvent::FileTreeToggled {
                 source,
                 is_code_mode_v2,
-                cli_agent,
             } => Some(json!({
                 "source": source,
                 "is_code_mode_v2": is_code_mode_v2,
-                "cli_agent": cli_agent.map(|agent| agent.telemetry_name()),
             })),
             TelemetryEvent::FileTreeItemAttachedAsContext { is_directory } => {
                 Some(json!({"is_directory": is_directory}))
@@ -4330,41 +4266,8 @@ impl TelemetryEvent {
                 "used_fallback_directory": used_fallback_directory,
                 "failure_class": failure_class,
             })),
-            TelemetryEvent::CLIAgentToolbarVoiceInputUsed { cli_agent } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-            })),
-            TelemetryEvent::CLIAgentToolbarImageAttached { cli_agent } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-            })),
-            TelemetryEvent::CLIAgentToolbarShown { cli_agent } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-            })),
-            TelemetryEvent::CLIAgentRichInputOpened {
-                cli_agent,
-                entrypoint,
-            } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "entrypoint": entrypoint,
-            })),
-            TelemetryEvent::CLIAgentRichInputClosed { cli_agent, reason } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "reason": reason,
-            })),
-            TelemetryEvent::CLIAgentRichInputSubmitted {
-                cli_agent,
-                prompt_length,
-            } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-                "prompt_length": prompt_length,
-            })),
-            TelemetryEvent::CLIAgentPluginDetected { cli_agent } => Some(json!({
-                "agent_name": cli_agent.telemetry_name(),
-            })),
             TelemetryEvent::AgentNotificationShown { agent_variant } => Some(json!({
                 "agent_variant": agent_variant,
-            })),
-            TelemetryEvent::ToggleCLIAgentToolbarSetting { is_enabled } => Some(json!({
-                "is_enabled": is_enabled,
             })),
             TelemetryEvent::ToggleUseAgentToolbarSetting { is_enabled } => Some(json!({
                 "is_enabled": is_enabled,
@@ -4846,15 +4749,7 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentTipClicked { .. }
             | TelemetryEvent::ToggleShowAgentTips { .. }
             | TelemetryEvent::CloudAgentShellRecovery { .. }
-            | TelemetryEvent::CLIAgentToolbarVoiceInputUsed { .. }
-            | TelemetryEvent::CLIAgentToolbarImageAttached { .. }
-            | TelemetryEvent::CLIAgentToolbarShown { .. }
-            | TelemetryEvent::CLIAgentPluginDetected { .. }
             | TelemetryEvent::AgentNotificationShown { .. }
-            | TelemetryEvent::CLIAgentRichInputOpened { .. }
-            | TelemetryEvent::CLIAgentRichInputClosed { .. }
-            | TelemetryEvent::CLIAgentRichInputSubmitted { .. }
-            | TelemetryEvent::ToggleCLIAgentToolbarSetting { .. }
             | TelemetryEvent::ToggleUseAgentToolbarSetting { .. }
             | TelemetryEvent::CodexModalOpened
             | TelemetryEvent::CodexModalUseCodexClicked
@@ -5368,19 +5263,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CloudAgentShellRecovery { .. } => {
                 EnablementState::Flag(FeatureFlag::CloudAgentShellRespawn)
             }
-            Self::CLIAgentToolbarVoiceInputUsed { .. } => EnablementState::Always,
-            Self::CLIAgentToolbarImageAttached { .. } => EnablementState::Always,
-            Self::CLIAgentToolbarShown { .. } => EnablementState::Always,
-            Self::CLIAgentPluginDetected { .. } => EnablementState::Always,
             Self::AgentNotificationShown { .. } => {
                 EnablementState::Flag(FeatureFlag::HOANotifications)
             }
-            Self::CLIAgentRichInputOpened { .. }
-            | Self::CLIAgentRichInputClosed { .. }
-            | Self::CLIAgentRichInputSubmitted { .. } => {
-                EnablementState::Flag(FeatureFlag::CLIAgentRichInput)
-            }
-            Self::ToggleCLIAgentToolbarSetting { .. } => EnablementState::Always,
             Self::ToggleUseAgentToolbarSetting { .. } => EnablementState::Always,
             Self::CodexModalOpened | Self::CodexModalUseCodexClicked => EnablementState::Always,
             Self::LinearIssueLinkOpened => EnablementState::Always,
@@ -5902,15 +5787,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleShowAgentTips => "Toggle Show Agent Tips",
             Self::AgentExitedShellProcess => "AgentMode.ExitedShellProcess",
             Self::CloudAgentShellRecovery { .. } => "AgentMode.CloudShellRecovery",
-            Self::CLIAgentToolbarVoiceInputUsed { .. } => "CLIAgentFooter.VoiceInputUsed",
-            Self::CLIAgentToolbarImageAttached { .. } => "CLIAgentFooter.ImageAttached",
-            Self::CLIAgentToolbarShown { .. } => "CLIAgentFooter.Shown",
-            Self::CLIAgentPluginDetected { .. } => "CLIAgentPlugin.Detected",
             Self::AgentNotificationShown { .. } => "AgentNotification.Shown",
-            Self::CLIAgentRichInputOpened { .. } => "CLIAgentRichInput.Opened",
-            Self::CLIAgentRichInputClosed { .. } => "CLIAgentRichInput.Closed",
-            Self::CLIAgentRichInputSubmitted { .. } => "CLIAgentRichInput.Submitted",
-            Self::ToggleCLIAgentToolbarSetting { .. } => "CLIAgentFooter.SettingToggled",
             Self::ToggleUseAgentToolbarSetting { .. } => "UseAgentToolbar.SettingToggled",
             Self::CodexModalOpened => "CodexModal.Opened",
             Self::CodexModalUseCodexClicked => "CodexModal.UseCodexClicked",
@@ -6676,26 +6553,8 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CloudAgentShellRecovery { .. } => {
                 "A cloud agent persistent shell recovery changed state"
             }
-            Self::CLIAgentToolbarVoiceInputUsed { .. } => {
-                "User used voice input from the CLI agent footer"
-            }
-            Self::CLIAgentToolbarImageAttached { .. } => {
-                "User attached an image from the CLI agent footer"
-            }
-            Self::CLIAgentToolbarShown { .. } => "CLI agent footer was shown to the user",
-            Self::CLIAgentPluginDetected { .. } => {
-                "A CLI agent plugin was detected via a SessionStart event"
-            }
             Self::AgentNotificationShown { .. } => {
                 "An agent notification was shown to the user (toast or mailbox)"
-            }
-            Self::CLIAgentRichInputOpened { .. } => "User opened CLI agent Rich Input",
-            Self::CLIAgentRichInputClosed { .. } => "CLI agent Rich Input was closed",
-            Self::CLIAgentRichInputSubmitted { .. } => {
-                "User submitted a prompt via CLI agent Rich Input"
-            }
-            Self::ToggleCLIAgentToolbarSetting { .. } => {
-                "User toggled the CLI agent footer setting"
             }
             Self::ToggleUseAgentToolbarSetting { .. } => {
                 "User toggled the Use Agent footer setting"

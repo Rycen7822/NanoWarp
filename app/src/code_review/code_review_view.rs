@@ -122,11 +122,8 @@ use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::CodePanelsFileOpenEntrypoint;
 use crate::settings::{AISettings, CodeSettings};
 use crate::settings_view::SettingsSection;
-use crate::terminal::cli_agent::{
-    build_selection_line_range_prompt, build_selection_substring_prompt,
-};
 use crate::terminal::input::MenuPositioning;
-use crate::terminal::view::{CliAgentRouting, InitProjectModel, TerminalAction, TerminalView};
+use crate::terminal::view::{InitProjectModel, TerminalAction, TerminalView};
 use crate::themes::theme::WarpTheme;
 use crate::ui_components::blended_colors::{neutral_2, neutral_3};
 use crate::ui_components::buttons::icon_button_with_color;
@@ -3216,13 +3213,11 @@ impl CodeReviewView {
             LocalCodeEditorEvent::SelectionAddedAsContext {
                 relative_file_path,
                 line_range,
-                selected_text,
             } => {
                 self.insert_selection_as_context(
                     relative_file_path.clone(),
                     line_range.start.as_usize(),
                     line_range.end.as_usize(),
-                    selected_text.clone(),
                     ctx,
                 );
             }
@@ -5726,37 +5721,9 @@ impl CodeReviewView {
         file_path: String,
         start_line: usize,
         end_line: usize,
-        selected_text: String,
         ctx: &mut ViewContext<Self>,
     ) {
         if let Some(terminal_view) = self.attach_target_terminal(ctx) {
-            // If a CLI agent is active, send appropriate content to the PTY.
-            let prompt = if start_line == end_line {
-                // Single-line: send the literal text with file/line context.
-                build_selection_substring_prompt(&file_path, start_line, &selected_text)
-            } else {
-                // Multi-line: send a line-range reference with format note.
-                build_selection_line_range_prompt(&file_path, start_line, end_line)
-            };
-            if let Some(routing) = terminal_view.update(ctx, |tv, ctx| {
-                tv.try_send_text_to_cli_agent_or_rich_input(prompt, ctx)
-            }) {
-                let destination = match routing {
-                    CliAgentRouting::RichInput => CodeReviewContextDestination::RichInput,
-                    CliAgentRouting::Pty => CodeReviewContextDestination::Pty,
-                };
-                send_telemetry_from_ctx!(
-                    CodeReviewTelemetryEvent::AddToContext {
-                        is_local: self.repo_is_local(),
-                        origin: AddToContextOrigin::SelectedText,
-                        destination,
-                        diff_set_scope: None,
-                    },
-                    ctx
-                );
-                return;
-            }
-
             let is_long_running =
                 terminal_view.read(ctx, |terminal_view, _| terminal_view.is_long_running());
 
@@ -5772,7 +5739,7 @@ impl CodeReviewView {
                 return;
             }
 
-            // Otherwise insert the location snippet into the input buffer (original behavior).
+            // Insert the location snippet into the input buffer.
             let location = format!("{file_path}:{start_line}-{end_line} ");
             send_telemetry_from_ctx!(
                 CodeReviewTelemetryEvent::AddToContext {
@@ -5820,50 +5787,10 @@ impl CodeReviewView {
     #[cfg(feature = "local_fs")]
     fn insert_diff_as_context(&mut self, scope: DiffSetScope, ctx: &mut ViewContext<Self>) {
         if let Some(terminal_view) = self.attach_target_terminal(ctx) {
-            let active_cli_agent = terminal_view.read(ctx, |tv, ctx| tv.active_cli_agent(ctx));
-
             let diff_set_scope = match &scope {
                 DiffSetScope::All => DiffSetContextScope::All,
                 DiffSetScope::File(_) => DiffSetContextScope::File,
             };
-            // CLI agent path: write per-file hunk ranges to the PTY (or rich input if open).
-            if active_cli_agent.is_some() {
-                if let CodeReviewViewState::Loaded(state) = self.state() {
-                    let files_to_process = match &scope {
-                        DiffSetScope::All => state
-                            .file_states
-                            .values()
-                            .map(|fs| &fs.file_diff)
-                            .collect_vec(),
-                        DiffSetScope::File(target_path) => state
-                            .file_states
-                            .values()
-                            .filter(|fs| fs.file_diff.file_path == *target_path)
-                            .map(|fs| &fs.file_diff)
-                            .collect_vec(),
-                    };
-                    let file_diffs =
-                        convert_file_diffs_to_diffset_hunks(files_to_process.into_iter());
-                    let routing = terminal_view.update(ctx, |tv, ctx| {
-                        tv.send_diff_context_to_cli_agent_or_rich_input(&file_diffs, ctx)
-                    });
-                    let destination = match routing {
-                        Some(CliAgentRouting::RichInput) => CodeReviewContextDestination::RichInput,
-                        _ => CodeReviewContextDestination::Pty,
-                    };
-                    send_telemetry_from_ctx!(
-                        CodeReviewTelemetryEvent::AddToContext {
-                            is_local: self.repo_is_local(),
-                            origin: AddToContextOrigin::CodeReviewHeader,
-                            destination,
-                            diff_set_scope: Some(diff_set_scope),
-                        },
-                        ctx
-                    );
-                }
-                return;
-            }
-
             let is_input_box_visible = terminal_view.read(ctx, |terminal_view, _| {
                 terminal_view.is_input_box_visible(&terminal_view.model.lock(), ctx)
             });
@@ -6034,44 +5961,8 @@ impl CodeReviewView {
         if let Some(terminal_view) = self.attach_target_terminal(ctx) {
             let is_long_running =
                 terminal_view.read(ctx, |terminal_view, _| terminal_view.is_long_running());
-            let active_cli_agent = terminal_view.read(ctx, |tv, ctx| tv.active_cli_agent(ctx));
 
-            // Case 1: CLI agent — send location + change stats to PTY or rich input
-            if active_cli_agent.is_some() {
-                if let Some((_, lines_added, lines_removed)) =
-                    self.extract_diff_hunk_data(&file_path, &line_range)
-                {
-                    // Use repo-relative path strings so the prompt avoids machine-specific paths.
-                    let start_line = line_range.start.as_usize() + 1;
-                    let end_line = line_range.end.as_usize();
-                    let routing = terminal_view.update(ctx, |tv, ctx| {
-                        tv.send_diff_hunk_to_cli_agent_or_rich_input(
-                            &file_path,
-                            start_line,
-                            end_line,
-                            lines_added,
-                            lines_removed,
-                            ctx,
-                        )
-                    });
-                    let destination = match routing {
-                        Some(CliAgentRouting::RichInput) => CodeReviewContextDestination::RichInput,
-                        _ => CodeReviewContextDestination::Pty,
-                    };
-                    send_telemetry_from_ctx!(
-                        CodeReviewTelemetryEvent::AddToContext {
-                            is_local: self.repo_is_local(),
-                            origin: AddToContextOrigin::Gutter,
-                            destination,
-                            diff_set_scope: None,
-                        },
-                        ctx
-                    );
-                }
-                return;
-            }
-
-            // Case 2: Generic long-running (non-CLI-agent) — insert file path + line range as text
+            // For a long-running command, insert file path + line range as text.
             if is_long_running {
                 // When a command is running, just insert the file path and line range as text
                 // (similar to file tree drag/drop behavior)

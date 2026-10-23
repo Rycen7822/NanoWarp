@@ -296,7 +296,6 @@ use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::tab::TabShortcutModifierState;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::resizable_data::ResizableData;
 use crate::terminal::view::inline_banner::ByoLlmAuthBannerSessionState;
@@ -1857,7 +1856,6 @@ pub(crate) fn initialize_app(
     // Conversations restore lazily from the local DB on demand; startup only
     // loads metadata.
     ctx.add_singleton_model(|_| RestoredAgentConversations::new());
-    ctx.add_singleton_model(|_| CLIAgentSessionsModel::new());
     // ActiveAgentViewsModel is used to track active agent conversations and notify listeners when they change.
     ctx.add_singleton_model(|_| ActiveAgentViewsModel::new());
     ctx.add_singleton_model(AgentNotificationsModel::new);

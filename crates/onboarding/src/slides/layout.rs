@@ -141,8 +141,6 @@ pub enum ForegroundFit {
     CoverTopAligned,
     /// `contain().top_aligned()`: full image visible, centered horizontally, pinned to top.
     ContainTopAligned,
-    /// `contain().right_aligned()`: full image visible, right edge flush, space on the left.
-    ContainRightAligned,
 }
 
 /// Sizing and positioning for a foreground image on the onboarding right panel.
@@ -190,16 +188,6 @@ pub const FOREGROUND_LAYOUT_CODE_REVIEW: ForegroundLayout = ForegroundLayout {
         left_offset: -16.,
     },
     fit: ForegroundFit::CoverTopAligned,
-};
-
-/// Layout for third-party slides.
-/// No horizontal padding; contain() shows the full image; right-aligned so any
-/// leftover horizontal space appears on the left.
-/// We contain because the most important part is the bottom of the image which needs to be visible.
-pub const FOREGROUND_LAYOUT_THIRD_PARTY: ForegroundLayout = ForegroundLayout {
-    top_mode: TopMode::Ratio(118. / 800.),
-    h_padding: HPadding::Fixed(0.),
-    fit: ForegroundFit::ContainRightAligned,
 };
 
 /// Wraps an image slot with a dynamic top offset that keeps a chosen fraction
@@ -306,12 +294,6 @@ pub fn onboarding_right_panel_with_bg(
             Image::new(AssetSource::Bundled { path }, CacheOption::Original)
                 .contain()
                 .top_aligned()
-                .finish()
-        }
-        ForegroundFit::ContainRightAligned => {
-            Image::new(AssetSource::Bundled { path }, CacheOption::Original)
-                .contain()
-                .right_aligned()
                 .finish()
         }
     };

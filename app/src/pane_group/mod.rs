@@ -528,7 +528,6 @@ pub enum Event {
     OpenWorkflowModalWithTemporary(Box<Workflow>),
     OpenPromptEditor,
     OpenAgentToolbarEditor,
-    OpenCLIAgentToolbarEditor,
     /// tell the workspace to open a file within Warp.
     OpenFileInWarp {
         /// The file path to open.

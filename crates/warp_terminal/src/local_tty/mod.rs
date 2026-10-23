@@ -34,6 +34,9 @@ pub use self::windows::*;
 use crate::SizeInfo;
 use crate::event::ObservedExitStatus;
 
+/// Environment variable that identifies the hosting Warp client version.
+const WARP_CLIENT_VERSION_ENV: &str = "WARP_CLIENT_VERSION";
+
 /// This trait defines the behaviour needed to read and/or write to a stream.
 /// It defines an abstraction over mio's interface in order to allow either one
 /// read/write object or a separate read and write object.

@@ -224,56 +224,6 @@ impl ToolbarChipSelection for AgentToolbarChipSelection {
     }
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "CLI agent toolbar layout configuration.",
-    rename_all = "snake_case"
-)]
-pub enum CLIAgentToolbarChipSelection {
-    #[default]
-    #[schemars(description = "Use the default toolbar layout.")]
-    Default,
-    #[schemars(description = "Use a custom arrangement of toolbar items.")]
-    Custom {
-        left: Vec<AgentToolbarItemKind>,
-        right: Vec<AgentToolbarItemKind>,
-    },
-}
-
-impl ToolbarChipSelection for CLIAgentToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::cli_default_left()
-    }
-
-    fn default_right_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::cli_default_right()
-    }
-
-    fn left_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_left_items(),
-            Self::Custom { left, .. } => left.clone(),
-        }
-    }
-
-    fn right_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_right_items(),
-            Self::Custom { right, .. } => right.clone(),
-        }
-    }
-}
-
 define_settings_group!(SessionSettings, settings: [
     working_directory_config: WorkingDirectoryConfig,
     startup_shell_override: StartupShellOverride {
@@ -363,15 +313,6 @@ define_settings_group!(SessionSettings, settings: [
         private: false,
         toml_path: "agents.warp_agent.input.agent_toolbar_chip_selection_setting",
         description: "Controls the layout of context chips in the Agent Mode toolbar.",
-    },
-    cli_agent_footer_chip_selection: CLIAgentToolbarChipSelectionSetting {
-        type: CLIAgentToolbarChipSelection,
-        default: CLIAgentToolbarChipSelection::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.third_party.cli_agent_toolbar_chip_selection_setting",
-        description: "Controls the layout of context chips in the CLI Agent toolbar.",
     },
     notification_toast_duration_secs: NotificationToastDurationSecs {
         type: u64,

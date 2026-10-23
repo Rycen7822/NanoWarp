@@ -28,7 +28,6 @@ use warpui::fonts::{FamilyId, Properties, Weight};
 use warpui::geometry::rect::RectF;
 use warpui::geometry::vector::{Vector2F, vec2f};
 use warpui::platform::Cursor;
-use warpui::platform::keyboard::KeyCode;
 use warpui::text::SelectionType;
 use warpui::ui_components::components::UiComponent;
 use warpui::units::{IntoLines, IntoPixels, Lines, Pixels};
@@ -711,12 +710,6 @@ pub struct BlockListElement {
 
     use_ligature_rendering: bool,
 
-    /// When true, suppresses cursor rendering for CLI agents when rich input is open. For agents that draw their own cursor (SHOW_CURSOR off),
-    /// the cursor cell is skipped. For agents that let Warp draw the cursor
-    /// (SHOW_CURSOR on), the `draw_cursor` call and cursor contrast colouring
-    /// are suppressed instead.
-    hide_cursor_cell: bool,
-
     /// Child Elements to use for rich content inserted into the block list
     rich_content_elements: HashMap<EntityId, Box<dyn Element>>,
     rich_content_metadata: HashMap<EntityId, RichContentMetadata>,
@@ -739,10 +732,6 @@ pub struct BlockListElement {
 
     /// If `Some()`, lays out and renders the element next to the cursor.
     cursor_hint_text_element: Option<Box<dyn Element>>,
-
-    /// Voice input toggle key code for CLI agent footer integration.
-    #[cfg(feature = "voice_input")]
-    voice_input_toggle_key_code: Option<KeyCode>,
 }
 
 #[derive(Debug)]
@@ -954,7 +943,6 @@ impl BlockListElement {
             block_banner,
             hovered_secret: terminal_view_render_context.hovered_secret,
             use_ligature_rendering: false,
-            hide_cursor_cell: false,
             active_filter_editor_block_index: None,
             filtered_blocks: None,
             rich_content_elements: HashMap::new(),
@@ -969,25 +957,11 @@ impl BlockListElement {
             block_footer_elements: HashMap::new(),
             cursor_hint_text_element,
             cli_subagent_views,
-            #[cfg(feature = "voice_input")]
-            voice_input_toggle_key_code: None,
         }
-    }
-
-    /// Sets the voice input toggle key code for CLI agent footer integration.
-    #[cfg(feature = "voice_input")]
-    pub fn with_voice_input_toggle_key(mut self, key_code: Option<KeyCode>) -> Self {
-        self.voice_input_toggle_key_code = key_code;
-        self
     }
 
     pub fn with_ligature_rendering(mut self) -> Self {
         self.use_ligature_rendering = true;
-        self
-    }
-
-    pub fn with_hide_cursor_cell(mut self) -> Self {
-        self.hide_cursor_cell = true;
         self
     }
 
@@ -2722,12 +2696,7 @@ impl BlockListElement {
                 app,
             );
 
-            if block.is_output_cursor_visible()
-            // Don't draw the Warp cursor when rich input is hiding
-            // the CLI agent's cursor cell — agents like OpenCode and Codex
-            // rely on Warp's cursor, so we suppress it here too.
-            && !block_grid_params.grid_render_params.hide_cursor_cell
-            {
+            if block.is_output_cursor_visible() {
                 block.output_grid().draw_cursor(
                     *grid_origin,
                     &block_grid_params.grid_render_params,
@@ -3073,36 +3042,6 @@ impl BlockListElement {
         }
 
         result
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn maybe_handle_voice_toggle(
-        &self,
-        key_code: &KeyCode,
-        state: &KeyState,
-        ctx: &mut EventContext,
-    ) -> bool {
-        use crate::terminal::view::TerminalAction;
-
-        if let Some(voice_input_toggle_key_code) = self.voice_input_toggle_key_code
-            && *key_code == voice_input_toggle_key_code
-        {
-            ctx.dispatch_typed_action(TerminalAction::ToggleCLIAgentVoiceInput(
-                voice_input::VoiceInputToggledFrom::Key { state: *state },
-            ));
-            return true;
-        }
-        false
-    }
-
-    #[cfg(not(feature = "voice_input"))]
-    fn maybe_handle_voice_toggle(
-        &self,
-        _key_code: &KeyCode,
-        _state: &KeyState,
-        _ctx: &mut EventContext,
-    ) -> bool {
-        false
     }
 }
 
@@ -3768,7 +3707,6 @@ impl Element for BlockListElement {
             size_info: self.size_info,
             cell_size,
             use_ligature_rendering: self.use_ligature_rendering,
-            hide_cursor_cell: self.hide_cursor_cell,
         };
         let block_grid_params = BlockGridParams {
             grid_render_params,
@@ -4707,10 +4645,8 @@ impl Element for BlockListElement {
                         ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
                         return true;
                     }
-                    self.maybe_handle_voice_toggle(key_code, state, ctx)
-                } else {
-                    false
                 }
+                false
             }
             _ => false,
         };

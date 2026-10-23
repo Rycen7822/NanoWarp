@@ -1,8 +1,6 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use warp_core::settings::Setting as _;
-use warp_terminal::model::escape_sequences::{BRACKETED_PASTE_END, BRACKETED_PASTE_START};
 use warpui::{App, AppContext, SingletonEntity, ViewContext};
 
 use super::super::{AIBlockMetadata, RichContentMetadata, RichContentType};
@@ -19,13 +17,8 @@ use crate::ai::blocklist::{AIBlock, ClientIdentifiers};
 use crate::ai::llms::LLMId;
 use crate::features::FeatureFlag;
 use crate::settings::AISettings;
-use crate::terminal::cli_agent_sessions::{
-    CLIAgentInputState, CLIAgentSession, CLIAgentSessionContext, CLIAgentSessionStatus,
-    CLIAgentSessionsModel,
-};
 use crate::terminal::model::ansi::{BootstrappedValue, Handler as _, InitShellValue};
 use crate::terminal::shared_session::SharedSessionSource;
-use crate::terminal::{CLIAgent, Event};
 use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::initialize_app_for_terminal_view;
 
@@ -290,8 +283,7 @@ fn use_agent_footer_renders_for_manual_handoff_when_unfinished_ai_block_remains(
 }
 
 /// During the setup phase of a cloud agent (ambient) shared session — LRCs
-/// running before any CLI agent has started — the use-agent footer must stay
-/// hidden.
+/// running before the task is ready — the use-agent footer must stay hidden.
 #[test]
 fn use_agent_footer_hidden_during_cloud_agent_setup_lrc() {
     App::test((), |mut app| async move {
@@ -303,17 +295,10 @@ fn use_agent_footer_hidden_during_cloud_agent_setup_lrc() {
             simulate_user_started_long_running_command(view);
 
             // Cloud agent setup phase: ambient source type set, LRC running,
-            // NO CLIAgentSession registered yet.
             view.model
                 .lock()
                 .set_shared_session_source(SharedSessionSource::ambient_agent(None));
             assert!(view.model.lock().is_shared_ambient_agent_session());
-            assert!(
-                CLIAgentSessionsModel::as_ref(ctx)
-                    .session(view.id())
-                    .is_none(),
-                "precondition: no CLI agent session yet",
-            );
 
             view.maybe_show_use_agent_footer_in_blocklist(ctx);
 
@@ -331,151 +316,5 @@ fn use_agent_footer_hidden_during_cloud_agent_setup_lrc() {
                 "footer rich content should not be in the blocklist during cloud setup",
             );
         });
-    })
-}
-
-/// When viewing a shared cloud-agent (ambient agent) session whose sharer is
-/// running a CLI agent, the CLI agent footer should still render.
-#[test]
-fn cli_agent_footer_renders_for_viewer_of_shared_cloud_agent_session() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        terminal.update(&mut app, |view, ctx| {
-            simulate_user_started_long_running_command(view);
-
-            // Mark the model as a shared ambient (cloud) agent session, mirroring
-            // what the viewer's terminal manager does on `JoinedSuccessfully`.
-            view.model
-                .lock()
-                .set_shared_session_source(SharedSessionSource::ambient_agent(None));
-            assert!(view.model.lock().is_shared_ambient_agent_session());
-
-            // Inject a CLI agent session as `apply_cli_agent_state_update` would on
-            // the viewer when the sharer reports an active CLI agent.
-            let view_id = view.id();
-            CLIAgentSessionsModel::handle(ctx).update(ctx, |sessions, ctx| {
-                sessions.set_session(
-                    view_id,
-                    CLIAgentSession {
-                        agent: CLIAgent::Claude,
-                        status: CLIAgentSessionStatus::InProgress,
-                        session_context: CLIAgentSessionContext::default(),
-                        input_state: CLIAgentInputState::Closed,
-                        listener: None,
-                        draft_text: None,
-                        received_rich_notification: false,
-                        should_auto_toggle_input: false,
-                    },
-                    ctx,
-                );
-            });
-
-            view.maybe_show_use_agent_footer_in_blocklist(ctx);
-
-            let model = view.model.lock();
-            assert!(
-                view.should_render_use_agent_footer(&model, ctx),
-                "footer should render for viewer of shared cloud agent session with CLI agent",
-            );
-            let active_block_index = model.block_list().active_block_index();
-            let rendered_footer_view_id = model
-                .block_list()
-                .last_non_hidden_rich_content_block_after_block(Some(active_block_index))
-                .map(|(_, item)| item.view_id);
-            assert_eq!(rendered_footer_view_id, Some(view.use_agent_footer.id()));
-        });
-    })
-}
-
-#[test]
-fn test_rich_input_submit_strategy_for_muse_uses_bracketed_paste() {
-    assert_eq!(
-        rich_input_submit_strategy(CLIAgent::Muse),
-        RichInputSubmitStrategy::BracketedPaste
-    );
-}
-
-#[test]
-fn test_rich_input_submit_strategy_for_oh_my_pi() {
-    assert_eq!(
-        rich_input_submit_strategy(CLIAgent::OhMyPi),
-        RichInputSubmitStrategy::BracketedPaste
-    );
-}
-
-#[test]
-fn test_rich_input_submit_strategy_for_antigravity() {
-    assert_eq!(
-        rich_input_submit_strategy(CLIAgent::Antigravity),
-        RichInputSubmitStrategy::DelayedEnter
-    );
-}
-
-/// Hermes interprets embedded newlines as submit actions when text is written
-/// directly. Bracketed paste preserves them as part of one input payload.
-#[test]
-fn test_rich_input_submit_strategy_for_hermes_uses_bracketed_paste() {
-    assert_eq!(
-        rich_input_submit_strategy(CLIAgent::Hermes),
-        RichInputSubmitStrategy::BracketedPaste
-    );
-}
-
-#[test]
-fn insert_cli_agent_voice_text_hermes_multiline_uses_bracketed_paste_without_submitting() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-
-        let terminal = add_window_with_terminal(&mut app, None);
-        let pty_writes = Rc::new(RefCell::new(Vec::new()));
-        let writes = pty_writes.clone();
-        app.update(|ctx| {
-            ctx.subscribe_to_view(&terminal, move |_, event, _| {
-                if let Event::WriteBytesToPty { bytes } = event {
-                    writes.borrow_mut().push(bytes.to_vec());
-                }
-            });
-        });
-
-        terminal.update(&mut app, |view, ctx| {
-            CLIAgentSessionsModel::handle(ctx).update(ctx, |sessions, ctx| {
-                sessions.set_session(
-                    view.view_id,
-                    CLIAgentSession {
-                        agent: CLIAgent::Hermes,
-                        status: CLIAgentSessionStatus::InProgress,
-                        session_context: CLIAgentSessionContext::default(),
-                        input_state: CLIAgentInputState::Closed,
-                        should_auto_toggle_input: false,
-                        listener: None,
-                        draft_text: None,
-                        received_rich_notification: false,
-                    },
-                    ctx,
-                );
-            });
-
-            view.handle_use_agent_footer_event(
-                &UseAgentToolbarEvent::InsertIntoCLIPty("line1\nline2".to_owned()),
-                ctx,
-            );
-        });
-
-        let writes = pty_writes.borrow();
-        assert_eq!(
-            writes.len(),
-            1,
-            "voice transcription should be inserted without a separate submit"
-        );
-
-        let mut expected_paste =
-            Vec::with_capacity(BRACKETED_PASTE_START.len() + 11 + BRACKETED_PASTE_END.len());
-        expected_paste.extend_from_slice(BRACKETED_PASTE_START);
-        expected_paste.extend_from_slice(b"line1\nline2");
-        expected_paste.extend_from_slice(BRACKETED_PASTE_END);
-        assert_eq!(writes[0], expected_paste);
     })
 }

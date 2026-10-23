@@ -61,8 +61,6 @@ pub struct AgentDevelopmentSettings {
     /// connected).
     pub selected_model_id: Option<LLMId>,
     pub autonomy: Option<AgentAutonomy>,
-    /// Whether the CLI agent toolbar is enabled (maps to `should_render_cli_agent_footer`).
-    pub cli_agent_toolbar_enabled: bool,
     /// Whether the user chose to disable the Oz AI assistant.
     pub disable_oz: bool,
     /// Whether agent notifications (mailbox button, toasts, notification items) are shown.
@@ -74,7 +72,6 @@ impl Default for AgentDevelopmentSettings {
         Self {
             selected_model_id: None,
             autonomy: Some(AgentAutonomy::default()),
-            cli_agent_toolbar_enabled: true,
             disable_oz: false,
             show_agent_notifications: true,
         }

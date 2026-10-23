@@ -173,31 +173,6 @@ impl ImageMap {
             .collect_vec()
     }
 
-    pub fn has_image_in_row(&self, row: u64) -> bool {
-        // We extend our search window upwards by the height of the largest image in the map such that we can
-        // check for images that start above the given row but still overlap.
-        let range_start = AbsolutePoint {
-            row: row.saturating_sub(self.largest_height as u64),
-            col: usize::MIN,
-        };
-        let range_end = AbsolutePoint {
-            row,
-            col: usize::MAX,
-        };
-
-        self.image_ids_by_point
-            .range((Included(&range_start), Included(&range_end)))
-            .any(|(&top_left, image_ids)| {
-                image_ids.iter().any(|(image_id, placement_id)| {
-                    let height = match self.image_placement_data.get(&(*image_id, *placement_id)) {
-                        Some(placement_data) => placement_data.height_cells,
-                        None => return false,
-                    };
-                    height != 0 && top_left.add_rows(height).row >= row
-                })
-            })
-    }
-
     pub fn evict_image_ids_between_points_with_type(
         &mut self,
         start_point: AbsolutePoint,

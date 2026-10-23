@@ -5,7 +5,6 @@ use warpui::EntityId;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::artifacts::Artifact;
-use crate::terminal::CLIAgent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NotificationId(Uuid);
@@ -46,29 +45,24 @@ impl NotificationFilter {
 /// ambient (cloud) or local. The `is_ambient` flag drives the cloud-lobe rendering in
 /// [`render_agent_avatar`].
 #[derive(Debug, Clone, Copy)]
-#[allow(clippy::upper_case_acronyms)]
 pub enum NotificationSourceAgent {
     Oz { is_ambient: bool },
-    CLI { agent: CLIAgent, is_ambient: bool },
 }
 
 impl NotificationSourceAgent {
     pub fn is_ambient(&self) -> bool {
         match self {
-            NotificationSourceAgent::Oz { is_ambient }
-            | NotificationSourceAgent::CLI { is_ambient, .. } => *is_ambient,
+            NotificationSourceAgent::Oz { is_ambient } => *is_ambient,
         }
     }
 }
 
-/// Identifies the conversation or session a notification belongs to.
+/// Identifies the conversation a notification belongs to.
 /// Used for de-duplication (replacing stale notifications on update)
 /// and cleanup (removing notifications when the source closes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotificationOrigin {
     Conversation(AIConversationId),
-    /// CLI sessions are keyed by terminal view because we only track one session per pane.
-    CLISession(EntityId),
 }
 
 #[derive(Debug, Clone)]

@@ -14,25 +14,17 @@ use pathfinder_geometry::vector::{Vector2F, vec2f};
 use settings::Setting;
 use settings::ToggleableSetting;
 use toolbar_item::AgentToolbarItemKind;
-#[cfg(feature = "voice_input")]
-use voice_input::{
-    StartListeningError, VoiceInputLifecycle, VoiceInputLifecycleState, VoiceSessionResult,
-};
 use warp_core::context_flag::ContextFlag;
-use warp_core::ui::color::ContrastingColor;
 use warp_core::ui::color::blend::Blend;
-use warp_core::ui::color::contrast::MinimumAllowedContrast;
 use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::theme::{AnsiColorIdentifier, Fill};
-#[cfg(feature = "voice_input")]
-use warp_errors::report_error;
 use warp_errors::report_if_error;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::{
     ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, Element, Empty, EventHandler, Flex, MainAxisAlignment, MainAxisSize,
     OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, SavePosition,
-    Shrinkable, Stack, Wrap, WrapFill, WrapFillEntireRun,
+    Shrinkable, Stack, Wrap, WrapFill,
 };
 use warpui::{
     AppContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
@@ -54,43 +46,29 @@ use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::appearance::Appearance;
 use crate::auth::{AuthManager, AuthStateProvider};
 use crate::completer::SessionContext;
+use crate::context_chips;
 use crate::context_chips::display_chip::{DisplayChip, DisplayChipConfig, PromptChipShellCommand};
 use crate::context_chips::prompt_type::PromptType;
-use crate::context_chips::{self, ContextChipKind};
 use crate::features::FeatureFlag;
 use crate::network::NetworkStatus;
-use crate::send_telemetry_from_ctx;
-#[cfg(feature = "voice_input")]
-use crate::server::server_api::TranscribeError;
-#[cfg(feature = "voice_input")]
-use crate::server::team_scope::RequestTeamScope;
-#[cfg(not(target_family = "wasm"))]
-use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{
     AISettings, AISettingsChangedEvent, CodeSettings, CodeSettingsChangedEvent, PrivacySettings,
     PrivacySettingsChangedEvent,
 };
 use crate::settings_view::SettingsSection;
-use crate::terminal::cli_agent_sessions::{
-    CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
-};
+use crate::terminal::TerminalModel;
 use crate::terminal::input::{HandoffComposeState, MenuPositioning, MenuPositioningProvider};
 use crate::terminal::session_settings::{
     SessionSettings, SessionSettingsChangedEvent, ToolbarChipSelection,
 };
 use crate::terminal::shared_session::SharedSessionStatus;
 use crate::terminal::view::ambient_agent::AmbientAgentViewModel;
-use crate::terminal::view::init::{ATTACH_FILE_KEYBINDING, OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING};
+use crate::terminal::view::init::ATTACH_FILE_KEYBINDING;
 use crate::terminal::view::{CloudRoutingIndicator, TerminalAction, resolve_ai_query_routing};
-use crate::terminal::{CLIAgent, TerminalModel};
 use crate::ui_components::icons::Icon;
-use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource, TooltipAlignment,
 };
-use crate::workspace::ToastStack;
-#[cfg(not(target_family = "wasm"))]
-use crate::workspace::WorkspaceAction;
 use crate::workspace::view::TOGGLE_PROJECT_EXPLORER_BINDING_NAME;
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::workspaces::workspace::ChargeUnit;
@@ -122,20 +100,10 @@ fn is_conversation_transcript_context(
     terminal_model.is_conversation_transcript_viewer()
         || BlocklistAIHistoryModel::as_ref(app)
             .active_conversation(terminal_view_id)
-            .is_some_and(|conversation| {
-                conversation.is_viewing_shared_session() || conversation.is_cli_agent_transcript()
-            })
+            .is_some_and(|conversation| conversation.is_viewing_shared_session())
 }
 
 /// Footer control bar at the bottom of the agent input.
-///
-/// Renders in two modes:
-/// - **Agent View mode** (default): model selector, NLD toggle, chips, etc.
-/// - **CLI agent mode**: agent icon, image, mic, file explorer, view changes, rich input.
-///
-/// The mode is determined by reading `CLIAgentSessionsModel` at render time.
-/// A single `ViewHandle<AgentInputFooter>` is shared between `Input` and
-/// `UseAgentToolbar`, rendering the appropriate mode in each context.
 pub struct AgentInputFooter {
     terminal_view_id: EntityId,
     #[cfg_attr(not(feature = "voice_input"), allow(unused))]
@@ -158,20 +126,12 @@ pub struct AgentInputFooter {
     handoff_compose_state: ModelHandle<HandoffComposeState>,
     left_display_chips: Vec<ViewHandle<DisplayChip>>,
     right_display_chips: Vec<ViewHandle<DisplayChip>>,
-    // Separate set of display chips for the CLI agent footer.
-    // Needed because the CLI footer chip selection can include chips not present in the agent view selection.
-    cli_display_chips: Vec<ViewHandle<DisplayChip>>,
     display_chip_config: DisplayChipConfig,
 
     terminal_model: Arc<FairMutex<TerminalModel>>,
 
-    /// Opens the file explorer side panel. Available in both footers, but only
-    /// present in the CLI agent toolbar by default.
+    /// Opens the file explorer side panel.
     file_explorer_button: ViewHandle<ActionButton>,
-
-    // CLI agent-specific buttons (rendered when a CLI agent session is active).
-    rich_input_button: ViewHandle<ActionButton>,
-    settings_button: ViewHandle<ActionButton>,
 
     // Fast-forward (auto-approve) toggle button shown in the agent view footer.
     fast_forward_button: ViewHandle<ActionButton>,
@@ -180,14 +140,6 @@ pub struct AgentInputFooter {
     // availability. Per-conversation eligibility is enforced by
     // `Workspace::start_local_to_cloud_handoff`.
     handoff_to_cloud_button: ViewHandle<ActionButton>,
-
-    // CLI agent voice input state (self-contained, bypasses editor voice flow).
-    #[cfg(feature = "voice_input")]
-    cli_voice_input_lifecycle: VoiceInputLifecycle,
-    #[cfg(feature = "voice_input")]
-    cli_recording_handle: Option<SpawnedFutureHandle>,
-    #[cfg(feature = "voice_input")]
-    cli_transcription_handle: Option<SpawnedFutureHandle>,
 
     /// Pending one-shot timer that refreshes the context-window button at the
     /// prompt-cache expiry instant so the notification dot appears while idle.
@@ -381,12 +333,11 @@ impl AgentInputFooter {
                 })
         });
 
-        let cli_button_size = ButtonSize::AgentInputButton;
         let file_explorer_button = ctx.add_typed_action_view(|ctx| {
             ActionButton::new("File explorer", AgentInputButtonTheme)
                 .with_icon(Icon::FileCopy)
                 .with_tooltip("Open file explorer")
-                .with_size(cli_button_size)
+                .with_size(button_size)
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .with_keybinding(
                     KeystrokeSource::Binding(TOGGLE_PROJECT_EXPLORER_BINDING_NAME),
@@ -397,85 +348,11 @@ impl AgentInputFooter {
                     ctx.dispatch_typed_action(AgentInputFooterAction::ToggleFileExplorer);
                 })
         });
-        // CLI agent-specific buttons (only rendered when a CLI agent session is active).
-        let rich_input_button = ctx.add_typed_action_view(|ctx| {
-            ActionButton::new("Rich Input", AgentInputButtonTheme)
-                .with_icon(Icon::TextInput)
-                .with_tooltip("Open Rich Input")
-                .with_size(cli_button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .with_keybinding(
-                    KeystrokeSource::Binding(OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING),
-                    ctx,
-                )
-                .with_compact_keybinding(true)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AgentInputFooterAction::ToggleRichInput);
-                })
-        });
-        let settings_button = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", AgentInputButtonTheme)
-                .with_icon(Icon::Settings)
-                .with_tooltip("Open coding agent settings")
-                .with_size(cli_button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AgentInputFooterAction::OpenCodingAgentSettings);
-                })
-        });
-
-        // Toggle rich input button label when CLI input session opens/closes.
-        // Also reset CLI voice state if the session ends while voice is active.
-        ctx.subscribe_to_model(
-            &CLIAgentSessionsModel::handle(ctx),
-            move |me, _, event, ctx| {
-                if event.terminal_view_id() != terminal_view_id {
-                    return;
-                }
-
-                #[cfg(feature = "voice_input")]
-                if matches!(event, CLIAgentSessionsModelEvent::Ended { .. }) {
-                    me.stop_cli_voice_and_reset(ctx);
-                }
-
-                let CLIAgentSessionsModelEvent::InputSessionChanged {
-                    new_input_state, ..
-                } = event
-                else {
-                    ctx.notify();
-                    return;
-                };
-                let is_open = matches!(new_input_state, CLIAgentInputState::Open { .. });
-                me.rich_input_button.update(ctx, |button, ctx| {
-                    if is_open {
-                        button.set_label("Hide Rich Input", ctx);
-                        button.set_tooltip(Some("Hide Rich Input"), ctx);
-                        button.set_keybinding(
-                            Some(KeystrokeSource::Binding(
-                                OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING,
-                            )),
-                            ctx,
-                        );
-                    } else {
-                        button.set_label("Rich Input", ctx);
-                        button.set_tooltip(Some("Open Rich Input"), ctx);
-                        button.set_keybinding(
-                            Some(KeystrokeSource::Binding(
-                                OPEN_CLI_AGENT_RICH_INPUT_KEYBINDING,
-                            )),
-                            ctx,
-                        );
-                    }
-                });
-                ctx.notify();
-            },
-        );
-
         let start_remote_control_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("/remote-control", RemoteControlButtonTheme)
                 .with_icon(Icon::Phone01)
                 .with_tooltip(START_REMOTE_CONTROL_TOOLTIP)
-                .with_size(cli_button_size)
+                .with_size(button_size)
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(AgentInputFooterAction::StartRemoteControl);
@@ -487,7 +364,7 @@ impl AgentInputFooter {
                 .with_icon(Icon::StopFilled)
                 .with_icon_ansi_color(AnsiColorIdentifier::Red)
                 .with_tooltip("Stop sharing")
-                .with_size(cli_button_size)
+                .with_size(button_size)
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(AgentInputFooterAction::StopRemoteControl);
@@ -644,7 +521,6 @@ impl AgentInputFooter {
             &SessionSettings::handle(ctx),
             move |me, _, event, ctx| match event {
                 SessionSettingsChangedEvent::AgentToolbarChipSelectionSetting { .. }
-                | SessionSettingsChangedEvent::CLIAgentToolbarChipSelectionSetting { .. }
                 | SessionSettingsChangedEvent::GithubPrChipDefaultValidation { .. } => {
                     me.update_display_chips(&prompt_for_session_settings, ctx);
                     ctx.notify();
@@ -723,8 +599,6 @@ impl AgentInputFooter {
             mic_button,
             file_button,
             file_explorer_button,
-            rich_input_button,
-            settings_button,
             start_remote_control_button,
             stop_remote_control_button,
             context_window_button,
@@ -738,16 +612,9 @@ impl AgentInputFooter {
             handoff_compose_state,
             left_display_chips: vec![],
             right_display_chips: vec![],
-            cli_display_chips: vec![],
             display_chip_config,
             fast_forward_button,
             handoff_to_cloud_button,
-            #[cfg(feature = "voice_input")]
-            cli_voice_input_lifecycle: VoiceInputLifecycle::default(),
-            #[cfg(feature = "voice_input")]
-            cli_recording_handle: None,
-            #[cfg(feature = "voice_input")]
-            cli_transcription_handle: None,
             prompt_cache_expiry_timer_handle: None,
             prompt_cache_expired: false,
             menu_positioning_provider: menu_positioning_provider.clone(),
@@ -851,7 +718,6 @@ impl AgentInputFooter {
         self.left_display_chips
             .iter()
             .chain(self.right_display_chips.iter())
-            .chain(self.cli_display_chips.iter())
     }
 
     pub fn update_session_context(
@@ -867,142 +733,8 @@ impl AgentInputFooter {
         }
     }
 
-    fn has_active_cli_agent_input_session(&self, app: &AppContext) -> bool {
-        CLIAgentSessionsModel::as_ref(app).is_input_open(self.terminal_view_id)
-    }
-
-    fn cli_agent(&self, app: &AppContext) -> Option<CLIAgent> {
-        CLIAgentSessionsModel::as_ref(app)
-            .session(self.terminal_view_id)
-            .map(|session| session.agent)
-    }
-
-    fn is_cli_agent_session_active(&self, app: &AppContext) -> bool {
-        CLIAgentSessionsModel::as_ref(app)
-            .session(self.terminal_view_id)
-            .is_some()
-    }
-
     pub(crate) fn select_file(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.is_cli_agent_session_active(ctx) {
-            self.select_cli_file(ctx);
-        } else {
-            ctx.emit(AgentInputFooterEvent::SelectFile);
-        }
-    }
-
-    fn select_cli_file(&mut self, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        let view_id = ctx.view_id();
-        let file_picker_config = warpui::platform::FilePickerConfiguration::new();
-
-        ctx.open_file_picker(
-            move |result, ctx| match result {
-                Ok(paths) => {
-                    if let Some(path) = paths.first() {
-                        ctx.dispatch_typed_action_for_view(
-                            window_id,
-                            view_id,
-                            &AgentInputFooterAction::InsertFilePath(path.clone()),
-                        );
-                    }
-                }
-                Err(err) => {
-                    let window_id = ctx.window_id();
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            DismissibleToast::error(format!("{err}")),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-            },
-            file_picker_config,
-        );
-    }
-
-    fn cli_display_chip(
-        &self,
-        chip_kind: ContextChipKind,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        self.cli_display_chips
-            .iter()
-            .find(|chip| chip.as_ref(app).chip_kind() == &chip_kind)
-            .filter(|chip| chip.as_ref(app).should_render(app))
-            .map(|chip| ChildView::new(chip).finish())
-    }
-
-    fn render_cli_toolbar_item(
-        &self,
-        item: &AgentToolbarItemKind,
-        shared_status: &SharedSessionStatus,
-        is_conversation_transcript_context: bool,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        if !item.available_in().is_available_for_cli()
-            || !item.available_to_session_viewer(shared_status, false)
-        {
-            return None;
-        }
-
-        // Hide ShareSession for shared ambient (cloud) agent sessions —
-        // it doesn't make sense to offer remote-control when already
-        // viewing a cloud agent's shared session.
-        if matches!(item, AgentToolbarItemKind::ShareSession)
-            && (is_conversation_transcript_context
-                || self.terminal_model.lock().is_shared_ambient_agent_session())
-        {
-            return None;
-        }
-
-        match item {
-            AgentToolbarItemKind::ContextChip(chip_kind) => {
-                self.cli_display_chip(chip_kind.clone(), app)
-            }
-            AgentToolbarItemKind::FileExplorer => item
-                .is_available(app)
-                .then(|| ChildView::new(&self.file_explorer_button).finish()),
-            AgentToolbarItemKind::RichInput => FeatureFlag::CLIAgentRichInput
-                .is_enabled()
-                .then(|| ChildView::new(&self.rich_input_button).finish()),
-            AgentToolbarItemKind::FileAttach => Some(ChildView::new(&self.file_button).finish()),
-            AgentToolbarItemKind::VoiceInput => {
-                #[cfg(feature = "voice_input")]
-                {
-                    let enabled = AISettings::as_ref(app).is_voice_input_enabled(app);
-                    enabled.then(|| ChildView::new(&self.mic_button).finish())
-                }
-                #[cfg(not(feature = "voice_input"))]
-                None
-            }
-            AgentToolbarItemKind::ShareSession => {
-                if is_conversation_transcript_context {
-                    return None;
-                }
-                let enabled = FeatureFlag::CreatingSharedSessions.is_enabled()
-                    && FeatureFlag::HOARemoteControl.is_enabled()
-                    && ContextFlag::CreateSharedSession.is_enabled();
-                if !enabled {
-                    return None;
-                }
-
-                let button = if shared_status.is_sharer() {
-                    &self.stop_remote_control_button
-                } else {
-                    &self.start_remote_control_button
-                };
-                Some(ChildView::new(button).finish())
-            }
-            AgentToolbarItemKind::Settings => Some(ChildView::new(&self.settings_button).finish()),
-            // Handled by the available_in() guard above; included for exhaustiveness.
-            AgentToolbarItemKind::NLDToggle
-            | AgentToolbarItemKind::ContextWindowUsage
-            | AgentToolbarItemKind::UsageSummary
-            | AgentToolbarItemKind::FastForwardToggle
-            | AgentToolbarItemKind::HandoffToCloud => None,
-        }
+        ctx.emit(AgentInputFooterEvent::SelectFile);
     }
 
     fn cloud_routing_indicator_view(
@@ -1028,124 +760,6 @@ impl AgentInputFooter {
         }
     }
 
-    fn render_cli_mode_footer(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let cli_icon_size = ButtonSize::AgentInputButton.icon_size(appearance, app);
-
-        // Extract everything we need from the terminal model up front and drop
-        // the lock before calling `render_cli_toolbar_item`, which may re-lock the same model and
-        // would deadlock since the lock is non-reentrant.
-        let (
-            background_color,
-            shared_status,
-            is_conversation_transcript_context,
-            cloud_routing_indicator,
-        ) = {
-            let terminal_model = self.terminal_model.lock();
-            let background_color = if terminal_model.is_alt_screen_active() {
-                terminal_model
-                    .alt_screen()
-                    .inferred_bg_color()
-                    .unwrap_or_else(|| appearance.theme().surface_1().into_solid())
-            } else {
-                appearance.theme().surface_1().into_solid()
-            };
-            let shared_status = terminal_model.shared_session_status().clone();
-            let is_conversation_transcript_context =
-                is_conversation_transcript_context(self.terminal_view_id, &terminal_model, app);
-            let cloud_routing_indicator = self.cloud_routing_indicator_view(&terminal_model, app);
-            (
-                background_color,
-                shared_status,
-                is_conversation_transcript_context,
-                cloud_routing_indicator,
-            )
-        };
-
-        let session_settings = SessionSettings::as_ref(app);
-        let left_items = session_settings
-            .cli_agent_footer_chip_selection
-            .left_items();
-        let right_items = session_settings
-            .cli_agent_footer_chip_selection
-            .right_items();
-
-        let mut left_buttons = Wrap::row()
-            .with_main_axis_size(MainAxisSize::Min)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_alignment(MainAxisAlignment::Start)
-            .with_run_spacing(4.)
-            .with_spacing(4.);
-
-        // CLI agent brand icon is always rendered (not configurable).
-        if let Some(agent) = self.cli_agent(app)
-            && let Some(icon) = agent.icon()
-        {
-            let icon_color = agent
-                .brand_color()
-                .map(|c| c.on_background(background_color, MinimumAllowedContrast::NonText))
-                .unwrap_or_else(|| appearance.theme().foreground().into_solid());
-            left_buttons.add_child(
-                Container::new(
-                    ConstrainedBox::new(icon.to_warpui_icon(Fill::Solid(icon_color)).finish())
-                        .with_width(cli_icon_size)
-                        .with_height(cli_icon_size)
-                        .finish(),
-                )
-                .with_padding_right(8.)
-                .finish(),
-            );
-        }
-
-        if let Some(indicator) = cloud_routing_indicator {
-            left_buttons.add_child(indicator);
-        }
-
-        for item in &left_items {
-            if let Some(element) = self.render_cli_toolbar_item(
-                item,
-                &shared_status,
-                is_conversation_transcript_context,
-                app,
-            ) {
-                left_buttons.add_child(element);
-            }
-        }
-
-        let mut right_buttons = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_size(MainAxisSize::Min)
-            .with_spacing(4.);
-
-        for item in &right_items {
-            if let Some(element) = self.render_cli_toolbar_item(
-                item,
-                &shared_status,
-                is_conversation_transcript_context,
-                app,
-            ) {
-                right_buttons.add_child(element);
-            }
-        }
-
-        let content = Wrap::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(WrapFillEntireRun::new(left_buttons.finish()).finish())
-            .with_child(WrapFill::new(0., right_buttons.finish()).finish())
-            .with_run_spacing(context_chips::spacing::UDI_ROW_RUN_SPACING)
-            .finish();
-        let content = EventHandler::new(content)
-            .on_right_mouse_down(|ctx, _, position, _| {
-                ctx.dispatch_typed_action(AgentInputFooterAction::ShowContextMenu { position });
-                DispatchEventResult::StopPropagation
-            })
-            .finish();
-
-        Container::new(content).with_vertical_padding(4.).finish()
-    }
-
     pub fn has_open_chip_menu(&self, app: &AppContext) -> bool {
         let has_open_display_chip = self
             .all_display_chips()
@@ -1164,270 +778,6 @@ impl AgentInputFooter {
     pub fn set_voice_is_active(&mut self, is_active: bool, ctx: &mut ViewContext<Self>) {
         self.mic_button.update(ctx, |button, ctx| {
             button.set_active(is_active, ctx);
-        });
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn stop_cli_voice_and_reset(&mut self, ctx: &mut ViewContext<Self>) {
-        let lifecycle_state = self.cli_voice_input_lifecycle.state();
-        if lifecycle_state == VoiceInputLifecycleState::Idle
-            && self.cli_recording_handle.is_none()
-            && self.cli_transcription_handle.is_none()
-        {
-            return;
-        }
-        if let Some(handle) = self.cli_recording_handle.take() {
-            handle.abort();
-        }
-        if let Some(handle) = self.cli_transcription_handle.take() {
-            handle.abort();
-        }
-        voice_input::VoiceInput::handle(ctx).update(ctx, |voice_input, _| {
-            if voice_input.is_listening() {
-                voice_input.abort_listening();
-            }
-            voice_input.set_transcribing_active(false);
-        });
-
-        self.cli_voice_input_lifecycle.cancel();
-        self.update_cli_mic_button_state(ctx);
-    }
-
-    // ── CLI agent voice input (self-contained, bypasses editor) ──────
-
-    /// Toggle voice input for CLI agent mode. Records audio and writes the
-    /// transcription directly to the PTY, bypassing the editor voice flow.
-    #[cfg(feature = "voice_input")]
-    pub fn toggle_cli_voice_input(
-        &mut self,
-        source: &voice_input::VoiceInputToggledFrom,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !UserWorkspaces::as_ref(ctx).is_voice_enabled() {
-            return;
-        }
-
-        if !AISettings::as_ref(ctx).is_voice_input_enabled(ctx) {
-            return;
-        }
-
-        // For key-based toggling, validate the key state against current voice state.
-        if let voice_input::VoiceInputToggledFrom::Key { state } = source {
-            match (self.cli_voice_input_lifecycle.state(), state) {
-                (VoiceInputLifecycleState::Idle, warpui::event::KeyState::Released) => return,
-                (VoiceInputLifecycleState::Listening, warpui::event::KeyState::Pressed) => return,
-                _ => {}
-            }
-        }
-
-        match self.cli_voice_input_lifecycle.state() {
-            VoiceInputLifecycleState::Idle => {
-                if !crate::ai::AIRequestUsageModel::as_ref(ctx).can_request_voice() {
-                    self.show_cli_voice_error_toast("Voice input limit reached", ctx);
-                    return;
-                }
-
-                let session_result = voice_input::VoiceInput::handle(ctx)
-                    .update(ctx, |voice_input, ctx| {
-                        voice_input.start_listening(ctx, source.clone())
-                    });
-
-                match session_result {
-                    Ok(session) => {
-                        if !self.cli_voice_input_lifecycle.start() {
-                            return;
-                        }
-                        self.update_cli_mic_button_state(ctx);
-
-                        if let Some(agent) = self.cli_agent(ctx) {
-                            send_telemetry_from_ctx!(
-                                TelemetryEvent::CLIAgentToolbarVoiceInputUsed { cli_agent: agent },
-                                ctx
-                            );
-                        }
-
-                        if matches!(*source, voice_input::VoiceInputToggledFrom::Button) {
-                            self.maybe_show_first_time_cli_voice_toast(ctx);
-                        }
-
-                        self.cli_recording_handle = Some(ctx.spawn(
-                            async move { session.await_result().await },
-                            AgentInputFooter::handle_cli_voice_session_result,
-                        ));
-                    }
-                    Err(StartListeningError::AccessDenied) => {
-                        self.show_cli_microphone_access_toast(ctx);
-                    }
-                    Err(e) => {
-                        report_error!(
-                            anyhow::Error::new(e).context("Failed to start CLI voice input")
-                        );
-                    }
-                }
-            }
-            VoiceInputLifecycleState::Listening => {
-                voice_input::VoiceInput::handle(ctx).update(ctx, |voice_input, ctx| {
-                    if let Err(e) = anyhow::Context::context(
-                        voice_input.stop_listening(ctx),
-                        "Failed to stop CLI voice input",
-                    ) {
-                        report_error!(e);
-                    }
-                });
-            }
-            VoiceInputLifecycleState::Transcribing => {
-                // Don't allow toggling while transcribing.
-            }
-        }
-        ctx.notify();
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn handle_cli_voice_session_result(
-        &mut self,
-        result: VoiceSessionResult,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        use crate::editor::VoiceTranscriber;
-        self.cli_recording_handle = None;
-
-        match result {
-            VoiceSessionResult::Audio {
-                wav_base64,
-                session_duration_ms: _,
-            } => {
-                let voice_transcriber = VoiceTranscriber::as_ref(ctx);
-                if let Some(transcriber) = voice_transcriber.transcriber() {
-                    let transcriber = transcriber.clone();
-                    let language = AISettings::as_ref(ctx)
-                        .voice_input_language_code()
-                        .map(str::to_owned);
-                    let team_scope = RequestTeamScope::from_scope(
-                        &UserWorkspaces::as_ref(ctx).team_context_for_view(ctx),
-                    );
-                    if !self.cli_voice_input_lifecycle.begin_transcribing() {
-                        return;
-                    }
-
-                    voice_input::VoiceInput::handle(ctx).update(ctx, |voice, _| {
-                        voice.set_transcribing_active(true);
-                    });
-
-                    self.cli_transcription_handle = Some(ctx.spawn(
-                        async move {
-                            transcriber
-                                .transcribe(wav_base64, language, team_scope)
-                                .await
-                        },
-                        AgentInputFooter::apply_cli_transcribed_voice_input,
-                    ));
-                } else {
-                    self.cli_voice_input_lifecycle.fail();
-                }
-            }
-            VoiceSessionResult::Aborted { .. } => {
-                self.cli_voice_input_lifecycle.fail();
-            }
-        }
-        self.update_cli_mic_button_state(ctx);
-        ctx.notify();
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn apply_cli_transcribed_voice_input(
-        &mut self,
-        result: Result<String, TranscribeError>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !self.cli_voice_input_lifecycle.complete() {
-            return;
-        }
-
-        voice_input::VoiceInput::handle(ctx).update(ctx, |voice, _| {
-            voice.set_transcribing_active(false);
-        });
-
-        match result {
-            Ok(transcribed_text) => {
-                if !transcribed_text.is_empty() {
-                    if self.has_active_cli_agent_input_session(ctx) {
-                        ctx.emit(AgentInputFooterEvent::InsertIntoCLIRichInput(
-                            transcribed_text,
-                        ));
-                    } else {
-                        ctx.emit(AgentInputFooterEvent::InsertIntoCLIPty(transcribed_text));
-                    }
-                }
-            }
-            Err(e) => match e {
-                TranscribeError::QuotaLimit => {
-                    self.show_cli_voice_error_toast("Voice input limit reached", ctx);
-                }
-                _ => {
-                    report_error!(
-                        anyhow::Error::new(e).context("Failed to transcribe CLI voice input")
-                    );
-                    self.show_cli_voice_error_toast("Failed to transcribe voice input", ctx);
-                }
-            },
-        }
-
-        self.cli_transcription_handle = None;
-        self.update_cli_mic_button_state(ctx);
-        ctx.notify();
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn update_cli_mic_button_state(&self, ctx: &mut ViewContext<Self>) {
-        let icon = match self.cli_voice_input_lifecycle.state() {
-            VoiceInputLifecycleState::Idle => Icon::Microphone,
-            VoiceInputLifecycleState::Listening => Icon::Stop,
-            VoiceInputLifecycleState::Transcribing => Icon::DotsHorizontal,
-        };
-        let is_transcribing = matches!(
-            self.cli_voice_input_lifecycle.state(),
-            VoiceInputLifecycleState::Transcribing
-        );
-
-        self.mic_button.update(ctx, |button, ctx| {
-            button.set_icon(Some(icon), ctx);
-            button.set_active(is_transcribing, ctx);
-        });
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn show_cli_voice_error_toast(&self, message: &str, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            let toast = DismissibleToast::error(message.to_string());
-            toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-        });
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn show_cli_microphone_access_toast(&self, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            let toast = DismissibleToast::error(String::from(
-                "Failed to start voice input (you may need to enable Microphone access)",
-            ));
-            toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-        });
-    }
-
-    #[cfg(feature = "voice_input")]
-    fn maybe_show_first_time_cli_voice_toast(&self, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        AISettings::handle(ctx).update(ctx, |settings, ctx| {
-            if let Some(toggle_key) = settings.maybe_setup_first_time_voice(ctx) {
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::success(format!(
-                        "Voice input is enabled. You can also press and hold the `{}` key to activate voice input (configure in Settings > AI > Voice)",
-                        toggle_key.display_name()
-                    ));
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-            }
         });
     }
 
@@ -1604,9 +954,7 @@ impl AgentInputFooter {
                 .is_some_and(|ambient_agent_model| {
                     ambient_agent_model.as_ref(app).is_ambient_agent()
                 });
-        if !item.available_in().is_available_for_agent_view()
-            || !item.available_to_session_viewer(shared_status, is_cloud_mode)
-        {
+        if !item.available_to_session_viewer(shared_status, is_cloud_mode) {
             return None;
         }
 
@@ -1762,8 +1110,6 @@ impl AgentInputFooter {
             AgentToolbarItemKind::FileExplorer => item
                 .is_available(app)
                 .then(|| ChildView::new(&self.file_explorer_button).finish()),
-            // Handled by the available_in() guard above; included for exhaustiveness.
-            AgentToolbarItemKind::RichInput | AgentToolbarItemKind::Settings => None,
         }
     }
 
@@ -1786,17 +1132,6 @@ impl AgentInputFooter {
             collect_chip_kinds(&self.left_display_chips),
             collect_chip_kinds(&self.right_display_chips),
         )
-    }
-
-    #[cfg(test)]
-    pub fn cli_display_chip_kinds(
-        &self,
-        app: &AppContext,
-    ) -> Vec<crate::context_chips::ContextChipKind> {
-        self.cli_display_chips
-            .iter()
-            .map(|chip| chip.as_ref(app).chip_kind().clone())
-            .collect()
     }
 
     #[cfg(test)]
@@ -1827,11 +1162,6 @@ impl View for AgentInputFooter {
         if self.should_render_cloud_mode_v2(app) {
             return self.render_cloud_mode_v2_footer(app);
         }
-        // When a CLI agent session is active, render the CLI agent toolbar instead.
-        if self.is_cli_agent_session_active(app) {
-            return self.render_cli_mode_footer(app);
-        }
-
         let session_settings = SessionSettings::as_ref(app);
         let left_items = session_settings.agent_footer_chip_selection.left_items();
         let right_items = session_settings.agent_footer_chip_selection.right_items();
@@ -1950,14 +1280,10 @@ pub enum AgentInputFooterAction {
     #[cfg(feature = "voice_input")]
     ToggleVoiceInput,
     SelectFile,
-    InsertFilePath(String),
-    ToggleCodeReview,
     ToggleFileExplorer,
-    ToggleRichInput,
     ToggleAutodetectionSetting,
     StartRemoteControl,
     StopRemoteControl,
-    OpenCodingAgentSettings,
     /// User clicked the "Hand off to cloud" footer chip. The terminal `Input`
     /// subscriber decides whether to dispatch the immediate empty-prompt
     /// handoff or enter `&` compose mode based on the current input state.
@@ -1975,51 +1301,15 @@ impl TypedActionView for AgentInputFooter {
         match action {
             #[cfg(feature = "voice_input")]
             AgentInputFooterAction::ToggleVoiceInput => {
-                // In CLI agent mode, handle voice recording/transcription
-                // directly so text is written to the PTY instead of the editor.
-                if self.is_cli_agent_session_active(ctx) {
-                    self.toggle_cli_voice_input(&voice_input::VoiceInputToggledFrom::Button, ctx);
-                } else {
-                    ctx.emit(AgentInputFooterEvent::ToggleVoiceInput(
-                        voice_input::VoiceInputToggledFrom::Button,
-                    ));
-                }
+                ctx.emit(AgentInputFooterEvent::ToggleVoiceInput(
+                    voice_input::VoiceInputToggledFrom::Button,
+                ));
             }
             AgentInputFooterAction::SelectFile => {
                 self.select_file(ctx);
             }
-            AgentInputFooterAction::InsertFilePath(path) => {
-                if let Some(agent) = self.cli_agent(ctx) {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::CLIAgentToolbarImageAttached { cli_agent: agent },
-                        ctx
-                    );
-                }
-                let path_with_space = format!("{path} ");
-                if self.has_active_cli_agent_input_session(ctx) {
-                    ctx.emit(AgentInputFooterEvent::InsertIntoCLIRichInput(
-                        path_with_space,
-                    ));
-                } else {
-                    ctx.emit(AgentInputFooterEvent::WriteToPty(path_with_space));
-                }
-            }
-            AgentInputFooterAction::ToggleCodeReview => {
-                if let Some(agent) = self.cli_agent(ctx) {
-                    ctx.emit(AgentInputFooterEvent::ToggleCodeReviewPane(agent));
-                }
-            }
             AgentInputFooterAction::ToggleFileExplorer => {
-                ctx.emit(AgentInputFooterEvent::ToggleFileExplorer(
-                    self.cli_agent(ctx),
-                ));
-            }
-            AgentInputFooterAction::ToggleRichInput => {
-                if self.has_active_cli_agent_input_session(ctx) {
-                    ctx.emit(AgentInputFooterEvent::HideRichInput);
-                } else {
-                    ctx.emit(AgentInputFooterEvent::OpenRichInput);
-                }
+                ctx.emit(AgentInputFooterEvent::ToggleFileExplorer);
             }
             AgentInputFooterAction::ToggleAutodetectionSetting => {
                 let ai_settings = AISettings::handle(ctx);
@@ -2036,13 +1326,6 @@ impl TypedActionView for AgentInputFooter {
             }
             AgentInputFooterAction::StopRemoteControl => {
                 ctx.emit(AgentInputFooterEvent::StopRemoteControl);
-            }
-            AgentInputFooterAction::OpenCodingAgentSettings => {
-                #[cfg(not(target_family = "wasm"))]
-                ctx.dispatch_typed_action_deferred(WorkspaceAction::ScrollToSettingsWidget {
-                    page: SettingsSection::ThirdPartyCLIAgents,
-                    widget_id: crate::settings_view::cli_agent_settings_widget_id(),
-                });
             }
             AgentInputFooterAction::HandoffChipClicked => {
                 if FeatureFlag::OzHandoff.is_enabled()
@@ -2086,19 +1369,9 @@ pub enum AgentInputFooterEvent {
     #[cfg(feature = "voice_input")]
     ToggleVoiceInput(voice_input::VoiceInputToggledFrom),
     SelectFile,
-    WriteToPty(String),
-    /// Insert text into the CLI agent's PTY input using its paste strategy.
-    InsertIntoCLIPty(String),
-    /// Insert text into the CLI agent rich input.
-    InsertIntoCLIRichInput(String),
-    ToggleCodeReviewPane(CLIAgent),
-    /// Toggle the file explorer side panel. `None` when no CLI agent session is
-    /// attached to this pane.
-    ToggleFileExplorer(Option<CLIAgent>),
+    ToggleFileExplorer,
     StartRemoteControl,
     StopRemoteControl,
-    OpenRichInput,
-    HideRichInput,
     ToggledChipMenu {
         open: bool,
     },
@@ -2131,7 +1404,7 @@ pub(crate) struct AgentInputButtonTheme;
 impl ActionButtonTheme for AgentInputButtonTheme {
     fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
         // Solid surface fills keep the button readable even when its parent
-        // isn't `theme.background()` (for example, over an alt-screen CLI agent).
+        // isn't `theme.background()`.
         let theme = appearance.theme();
         Some(if hovered {
             theme.surface_2()

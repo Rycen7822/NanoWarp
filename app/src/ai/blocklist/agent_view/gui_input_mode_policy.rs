@@ -1,7 +1,7 @@
 //! GUI implementation of [`InputModePolicy`].
 
 use warp_core::features::FeatureFlag;
-use warpui::{AppContext, EntityId, ModelHandle, SingletonEntity};
+use warpui::{AppContext, ModelHandle, SingletonEntity};
 
 use super::super::conversation_selection::ConversationSelectionEvent;
 use super::super::input_mode_policy::{InputModePolicy, PolicyConfigUpdate};
@@ -9,16 +9,14 @@ use super::super::input_model::{InputConfig, InputType, InputTypeAutoDetectionSo
 use super::super::{BlocklistAIContextModel, ConversationSelectionHandle};
 use super::AgentViewEntryOrigin;
 use crate::settings::{AISettings, AISettingsChangedEvent};
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 
 /// GUI input-mode policy. The surface is either a fullscreen agent view or a
 /// top-level terminal (when `FeatureFlag::AgentView` is enabled), each with its
 /// own autodetection setting, and AI input may only be locked inside an agent
-/// view or an open CLI-agent rich input session.
+/// view.
 pub(crate) struct GuiInputModePolicy {
     conversation_selection: ConversationSelectionHandle,
     ai_context_model: ModelHandle<BlocklistAIContextModel>,
-    terminal_surface_id: EntityId,
 }
 
 impl GuiInputModePolicy {
@@ -26,12 +24,10 @@ impl GuiInputModePolicy {
     pub(crate) fn new(
         conversation_selection: ConversationSelectionHandle,
         ai_context_model: ModelHandle<BlocklistAIContextModel>,
-        terminal_surface_id: EntityId,
     ) -> Self {
         Self {
             conversation_selection,
             ai_context_model,
-            terminal_surface_id,
         }
     }
 }
@@ -52,16 +48,13 @@ impl InputModePolicy for GuiInputModePolicy {
     fn allows_locked_ai_input(&self, app: &AppContext) -> bool {
         // When `AgentView` is enabled, AI input mode can only be set in the top-level terminal
         // mode via autodetection; it cannot be locked to AI input mode unless there is an active
-        // agent view or a CLI agent rich input session is open. In the agent view case, executing
-        // autodetected AI input will trigger entering the agent view with that query. In the CLI
-        // agent rich input case, the input must be in AI mode to suppress shell decorations
-        // (syntax highlighting, error underlining).
+        // agent view. Executing autodetected AI input will trigger entering the agent view
+        // with that query.
         !FeatureFlag::AgentView.is_enabled()
             || self
                 .conversation_selection
                 .as_ref(app)
                 .is_conversation_active(app)
-            || CLIAgentSessionsModel::as_ref(app).is_input_open(self.terminal_surface_id)
     }
 
     fn is_autodetection_enabled(&self, app: &AppContext) -> bool {
