@@ -4621,7 +4621,6 @@ impl TerminalView {
                     | RemoteServerManagerEvent::CommitChainResponse { .. }
                     | RemoteServerManagerEvent::GitPushResponse { .. }
                     | RemoteServerManagerEvent::CreatePrResponse { .. }
-                    | RemoteServerManagerEvent::GenerateCommitMessageResponse { .. }
                     | RemoteServerManagerEvent::GetCommittedBranchFilesResponse { .. }
                     | RemoteServerManagerEvent::GitStatusPushReceived { .. }
                     | RemoteServerManagerEvent::GitHubPrInfoPushReceived { .. }

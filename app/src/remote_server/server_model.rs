@@ -43,9 +43,8 @@ use super::proto::{
     FragmentMetadataLookupError as ProtoFragmentMetadataLookupError,
     FragmentMetadataLookupErrorCode, GetBranchesError, GetBranchesResponse, GetBranchesSuccess,
     GetDiffStateResponse, GetFragmentMetadataFromHash, GetFragmentMetadataFromHashResponse,
-    GetFragmentMetadataFromHashSuccess, GitCommitChainMode, GitCommitChainRequest,
-    GitCommitChainResponse, GitCommitChainSuccess, GitCreatePrRequest, GitCreatePrResponse,
-    GitGenerateCommitMessageRequest, GitGenerateCommitMessageResponse,
+    GetFragmentMetadataFromHashSuccess, GitCommitChainRequest, GitCommitChainResponse,
+    GitCommitChainSuccess, GitCreatePrRequest, GitCreatePrResponse,
     GitGetCommittedBranchFilesRequest, GitGetCommittedBranchFilesResponse,
     GitGetCommittedBranchFilesSuccess, GitHubPrInfoPush, GitHubRepositoryInfoPush, GitOpDelta,
     GitOpError, GitPushRequest, GitPushResponse, GitStatusPush, HomeSkillMetadata, IndexCodebase,
@@ -59,10 +58,10 @@ use super::proto::{
     UpdateGitHubPrInfo, UpdateGitHubRepoInfo, UpdateGitStatus, UploadHandoffSnapshot, WriteFile,
     WriteFileResponse, WriteFileSuccess, client_message, delete_file_response,
     discard_files_response, get_diff_state_response, get_fragment_metadata_from_hash_response,
-    git_commit_chain_response, git_create_pr_response, git_generate_commit_message_response,
-    git_get_committed_branch_files_response, git_push_response, host_scoped_request, notification,
-    remote_skill_proto, rename_file_response, resolve_conflict_response, run_command_response,
-    save_buffer_response, server_message, session_scoped_request, write_file_response,
+    git_commit_chain_response, git_create_pr_response, git_get_committed_branch_files_response,
+    git_push_response, host_scoped_request, notification, remote_skill_proto, rename_file_response,
+    resolve_conflict_response, run_command_response, save_buffer_response, server_message,
+    session_scoped_request, write_file_response,
 };
 use super::server_buffer_tracker::{PendingBufferRequestKind, ServerBufferTracker};
 use super::{diff_state_proto, ripgrep_search};
@@ -960,9 +959,6 @@ impl ServerModel {
                     }
                     Some(host_scoped_request::Message::GitCreatePr(m)) => {
                         self.handle_create_pr(m, &request_id, conn_id, ctx)
-                    }
-                    Some(host_scoped_request::Message::GitGenerateCommitMessage(m)) => {
-                        self.handle_generate_git_commit_message(m, &request_id, conn_id, ctx)
                     }
                     Some(host_scoped_request::Message::GitGetCommittedBranchFiles(m)) => {
                         self.handle_get_committed_branch_files(m, &request_id, conn_id, ctx)
@@ -3219,13 +3215,6 @@ impl ServerModel {
         let message = msg.message;
         let include_unstaged = msg.include_unstaged;
         let branch = msg.branch;
-        // The create-PR stage AI-generates the title/body only when the client
-        // asked for it. Capture the client on the main thread (ctx isn't
-        // available inside the spawned future) and only for the PR mode, so
-        // commit-only / commit-and-push never touch the AI path.
-        let ai_client = (matches!(mode, GitCommitChainMode::CommitAndCreatePr)
-            && msg.autogenerate_pr_content)
-            .then(|| ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client());
         let chain_mode = CommitChainMode::from(mode);
         let path_future = Self::interactive_path_future(ctx);
         let request_id_for_response = request_id.clone();
@@ -3249,7 +3238,6 @@ impl ServerModel {
                     &message,
                     include_unstaged,
                     &branch,
-                    ai_client.as_deref(),
                     path_env,
                 )
                 .await
@@ -3363,15 +3351,6 @@ impl ServerModel {
             "Handling CreatePr repo={} (request_id={request_id})",
             msg.repo_path
         );
-        let branch = msg.branch;
-        // Generate the PR title/body via AI only when the client asked for it
-        // and didn't already supply them. Reuses the same helper the local
-        // dialog uses, so local and remote PRs are produced identically
-        // (AI-with-`--fill`-fallback). The daemon's `ServerApiProvider` is
-        // authenticated with the user's forwarded bearer token.
-        let ai_client = msg
-            .autogenerate_content
-            .then(|| ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client());
         let path_future = Self::interactive_path_future(ctx);
         let request_id_for_response = request_id.clone();
         let handle = self.spawn_request_handler(
@@ -3383,8 +3362,7 @@ impl ServerModel {
                         "another git operation is in progress (merge, rebase, cherry-pick, or a lock file is present)"
                     );
                 }
-                git_actions::create_pr(&repo_path, &branch, ai_client.as_deref(), path_env.as_deref())
-                    .await
+                git::create_pr(&repo_path, path_env.as_deref()).await
             },
             move |me, result, _ctx| {
                 let message = match result {
@@ -3446,66 +3424,6 @@ impl ServerModel {
                     Err(e) => server_message::Message::GitGetCommittedBranchFilesResponse(
                         GitGetCommittedBranchFilesResponse {
                             result: Some(git_get_committed_branch_files_response::Result::Error(
-                                GitOpError {
-                                    message: format!("{e:#}"),
-                                },
-                            )),
-                        },
-                    ),
-                };
-                me.send_server_message(Some(conn_id), Some(&request_id_for_response), message);
-            },
-            ctx,
-        );
-        HandlerOutcome::Async(Some(handle))
-    }
-
-    /// Handles `GitGenerateCommitMessageRequest` — computes the working-tree
-    /// diff locally, then calls the Warp server's code-review content endpoint
-    /// via the daemon's authenticated `AIClient` and returns the generated
-    /// message.
-    fn handle_generate_git_commit_message(
-        &mut self,
-        msg: GitGenerateCommitMessageRequest,
-        request_id: &RequestId,
-        conn_id: ConnectionId,
-        ctx: &mut ModelContext<Self>,
-    ) -> HandlerOutcome {
-        let repo_path = match requested_repo_path(&msg.repo_path) {
-            Ok(p) => p,
-            Err(e) => return invalid_request_response(e),
-        };
-        log::info!(
-            "Handling GenerateCommitMessage repo={} (request_id={request_id})",
-            msg.repo_path
-        );
-        let include_unstaged = msg.include_unstaged;
-        let branch_name = msg.branch_name;
-        let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-        let request_id_for_response = request_id.clone();
-        let handle = self.spawn_request_handler(
-            request_id.clone(),
-            async move {
-                git_actions::generate_commit_message(
-                    &repo_path,
-                    &branch_name,
-                    include_unstaged,
-                    ai_client.as_ref(),
-                )
-                .await
-            },
-            move |me, result, _ctx| {
-                let message = match result {
-                    Ok(message) => server_message::Message::GitGenerateCommitMessageResponse(
-                        GitGenerateCommitMessageResponse {
-                            result: Some(git_generate_commit_message_response::Result::Message(
-                                message,
-                            )),
-                        },
-                    ),
-                    Err(e) => server_message::Message::GitGenerateCommitMessageResponse(
-                        GitGenerateCommitMessageResponse {
-                            result: Some(git_generate_commit_message_response::Result::Error(
                                 GitOpError {
                                     message: format!("{e:#}"),
                                 },

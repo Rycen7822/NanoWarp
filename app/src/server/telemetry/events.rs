@@ -1767,11 +1767,6 @@ pub enum TelemetryEvent {
         is_shared_block_title_generation_enabled: bool,
     },
 
-    /// Emitted when the user toggles the "Git Operations Autogen" setting in the AI settings page.
-    ToggleGitOperationsAutogenSetting {
-        is_git_operations_autogen_enabled: bool,
-    },
-
     TierLimitHit(TierLimitHitEvent),
     SharedObjectLimitHitBannerViewPlansButtonClicked,
     ResourceUsageStats {
@@ -2917,11 +2912,6 @@ impl TelemetryEvent {
                 is_shared_block_title_generation_enabled,
             } => Some(
                 json!({"is_shared_block_title_generation_enabled": is_shared_block_title_generation_enabled}),
-            ),
-            TelemetryEvent::ToggleGitOperationsAutogenSetting {
-                is_git_operations_autogen_enabled,
-            } => Some(
-                json!({"is_git_operations_autogen_enabled": is_git_operations_autogen_enabled}),
             ),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
                 AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { input_text },
@@ -4150,7 +4140,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeError { .. }
             | TelemetryEvent::AgentModeRequestRetrySucceeded { .. }
             | TelemetryEvent::ToggleSharedBlockTitleGenerationSetting { .. }
-            | TelemetryEvent::ToggleGitOperationsAutogenSetting { .. }
             | TelemetryEvent::GrepToolSucceeded
             | TelemetryEvent::FileGlobToolSucceeded
             | TelemetryEvent::FileGlobToolFailed { .. }
@@ -4578,9 +4567,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleSharedBlockTitleGenerationSetting => {
                 EnablementState::Flag(FeatureFlag::SharedBlockTitleGeneration)
             }
-            Self::ToggleGitOperationsAutogenSetting => {
-                EnablementState::Flag(FeatureFlag::GitOperationsInCodeReview)
-            }
             Self::AgentModeCodeSuggestionEditedByUser
             | Self::AgentModeCodeFilesNavigated
             | Self::AgentModeCodeDiffHunksNavigated => EnablementState::Always,
@@ -5003,7 +4989,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::AgentModeChangedInputType => "AgentMode.ChangedInputType",
             Self::ToggleSharedBlockTitleGenerationSetting => "Toggle SharedBlock Title Generation",
-            Self::ToggleGitOperationsAutogenSetting => "Toggle Git Operations Autogen Setting",
             Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
             Self::AgentModeCodeFilesNavigated => "AgentMode.Code.FilesNavigated",
             Self::AgentModeCodeDiffHunksNavigated => "AgentMode.Code.DiffHunksNavigated",
@@ -5626,9 +5611,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::ToggleSharedBlockTitleGenerationSetting => {
                 "Toggled on/off the shared block title generation setting"
-            }
-            Self::ToggleGitOperationsAutogenSetting => {
-                "Toggled on/off the git operations autogen setting"
             }
             Self::AgentModeCodeSuggestionEditedByUser => {
                 "Agent Mode Code suggestion edited by user"

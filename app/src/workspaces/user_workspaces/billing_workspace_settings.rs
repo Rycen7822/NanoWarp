@@ -70,20 +70,6 @@ impl UserWorkspaces {
             || ChannelState::channel().is_dogfood()
     }
 
-    /// Whether Git Operations AI is enabled for the current user, based on the active policies.
-    /// Note that the value may be incorrect if called before the team's billing metadata has been fetched.
-    pub fn is_git_operations_ai_enabled(&self) -> bool {
-        self.current_workspace()
-            // If the user has no team, they can toggle Git Operations AI (no restrictions).
-            .is_none_or(|workspace| {
-                workspace
-                    .billing_metadata
-                    .tier
-                    .warp_ai_policy
-                    .is_some_and(|policy| policy.is_git_operations_ai_enabled)
-            })
-    }
-
     /// Whether BYO API key is enabled for the current user, based on the active policies.
     /// Note that the value may be incorrect if called before the team's billing metadata has been fetched.
     /// For solo users (no workspace), this is controlled by the `SoloUserByok` feature flag.

@@ -91,7 +91,7 @@ use crate::server::telemetry::AgentModeAutoDetectionSettingOrigin;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent,
     AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin, AwsBedrockCredentialsEnabled,
-    CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled, GitOperationsAutogenEnabled,
+    CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
     IncludeAgentCommandsInHistory, InputSettings, LongRunningCommandSubmissionMode,
     NLDInTerminalEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
     SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
@@ -113,8 +113,6 @@ const AI_SETTINGS_DROPDOWN_MAX_HEIGHT: f32 = 250.;
 
 const SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION: &str =
     "Let AI generate a title for your shared block based on the command and output.";
-const GIT_OPERATIONS_AUTOGEN_DESCRIPTION: &str =
-    "Let AI generate commit messages and pull request titles and descriptions.";
 const CUSTOM_INFERENCE_LEARN_MORE_URL: &str =
     "https://docs.warp.dev/agents/inference/custom-inference-endpoint/";
 const CUSTOM_INFERENCE_INFO_TOOLTIP_MAX_WIDTH: f32 = 320.;
@@ -330,26 +328,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::SharedBlockTitleGeneration.is_enabled()),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "commit and pull request generation",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleGitOperationsAutogen,
-                )),
-                &(context.clone() & id!(flags::IS_ACTIVE_AI_ENABLED)),
-                flags::GIT_OPERATIONS_AUTOGEN_FLAG,
-            )
-            .with_enabled(|| FeatureFlag::GitOperationsInCodeReview.is_enabled())
-            .is_supported_on_current_platform(
-                AISettings::as_ref(app)
-                    .git_operations_autogen_enabled_internal
-                    .is_supported_on_current_platform()
-                    && UserWorkspaces::as_ref(app).is_git_operations_ai_enabled(),
-            ),
         ],
         app,
     );
@@ -2045,19 +2023,13 @@ impl WarpAgentPageView {
 
         let mut categories: Vec<Category<Self>> = Vec::new();
 
-        if (FeatureFlag::SharedBlockTitleGeneration.is_enabled()
+        if FeatureFlag::SharedBlockTitleGeneration.is_enabled()
             && ai_settings
                 .shared_block_title_generation_enabled_internal
-                .is_supported_on_current_platform())
-            || (FeatureFlag::GitOperationsInCodeReview.is_enabled()
-                && ai_settings
-                    .git_operations_autogen_enabled_internal
-                    .is_supported_on_current_platform())
+                .is_supported_on_current_platform()
         {
-            let active_ai_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-                Box::new(SharedBlockTitleGenerationWidget::new(ctx)),
-                Box::new(GitOperationsAutogenWidget::default()),
-            ];
+            let active_ai_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
+                vec![Box::new(SharedBlockTitleGenerationWidget::new(ctx))];
             let active_ai_toggle = SwitchStateHandle::default();
             categories.push(Category::with_header(
                 CategoryHeader::new("Active AI").with_trailing_element(
@@ -2271,7 +2243,6 @@ pub enum WarpAgentPageAction {
     ToggleGlobalAI,
     ToggleActiveAI,
     ToggleSharedTitleGeneration,
-    ToggleGitOperationsAutogen,
     ToggleAIInputAutoDetection,
     ToggleNLDInTerminal,
     ToggleUseAgentToolbar,
@@ -2381,29 +2352,6 @@ impl TypedActionView for WarpAgentPageView {
                         log::warn!(
                             "Failed to set value for Shared Block Title Generation setting: {e:?}"
                         );
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleGitOperationsAutogen => {
-                if !UserWorkspaces::as_ref(ctx).is_git_operations_ai_enabled() {
-                    return;
-                }
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .git_operations_autogen_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleGitOperationsAutogenSetting {
-                                is_git_operations_autogen_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Git Operations Autogen setting: {e:?}");
                     }
                 }
                 ctx.notify();
@@ -2895,14 +2843,6 @@ fn is_shared_block_title_generation_toggleable(
             || ChannelState::channel().is_dogfood())
 }
 
-fn is_git_operations_autogen_toggleable(app: &AppContext) -> bool {
-    FeatureFlag::GitOperationsInCodeReview.is_enabled()
-        && AISettings::as_ref(app)
-            .git_operations_autogen_enabled_internal
-            .is_supported_on_current_platform()
-        && UserWorkspaces::as_ref(app).is_git_operations_ai_enabled()
-}
-
 /// The "Active AI" category's header trailing widget: the master switch for all of
 /// the category's child settings.
 fn render_active_ai_toggle(toggle: &SwitchStateHandle, app: &AppContext) -> Box<dyn Element> {
@@ -2966,49 +2906,6 @@ impl SettingsWidget for SharedBlockTitleGenerationWidget {
             )
             .with_child(render_ai_setting_description(
                 SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
-}
-
-#[derive(Default)]
-struct GitOperationsAutogenWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for GitOperationsAutogenWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. unit tests commit pull request pr git code review autogen generate"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_git_operations_autogen_toggleable(app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-        Flex::column()
-            .with_child(render_ai_setting_toggle::<GitOperationsAutogenEnabled>(
-                "Commit & Pull Request Generation",
-                WarpAgentPageAction::ToggleGitOperationsAutogen,
-                *ai_settings.git_operations_autogen_enabled_internal,
-                is_toggleable,
-                self.toggle.clone(),
-                &view.local_only_icon_tooltip_states,
-                app,
-            ))
-            .with_child(render_ai_setting_description(
-                GIT_OPERATIONS_AUTOGEN_DESCRIPTION,
                 is_toggleable,
                 app,
             ))

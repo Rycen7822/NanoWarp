@@ -341,7 +341,6 @@ pub enum DelinquencyStatus {
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub struct WarpAiPolicy {
     pub limit: i64,
-    pub is_git_operations_ai_enabled: bool,
 }
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub struct WorkspaceSizePolicy {

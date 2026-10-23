@@ -467,7 +467,6 @@ impl RemoteCodebaseIndexModel {
             | RemoteServerManagerEvent::CommitChainResponse { .. }
             | RemoteServerManagerEvent::GitPushResponse { .. }
             | RemoteServerManagerEvent::CreatePrResponse { .. }
-            | RemoteServerManagerEvent::GenerateCommitMessageResponse { .. }
             | RemoteServerManagerEvent::GetCommittedBranchFilesResponse { .. }
             | RemoteServerManagerEvent::SetupStateChanged { .. }
             | RemoteServerManagerEvent::BinaryCheckComplete { .. }

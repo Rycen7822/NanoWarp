@@ -560,17 +560,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.active_ai.shared_block_title_generation_enabled",
         description: "Controls whether titles are auto-generated when sharing blocks.",
     }
-    // This field should not be referenced directly to lookup git operations AI autogen
-    // enablement -- use the `is_git_operations_autogen_enabled()` getter.
-    git_operations_autogen_enabled_internal: GitOperationsAutogenEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.git_operations_autogen_enabled",
-        description: "Controls whether AI auto-generates commit messages and PR title/body in the code review dialogs.",
-    }
     // Predicates that Agent Mode can use to decide if it can execute
     // a command without explicit user consent.
     //
@@ -1242,10 +1231,6 @@ impl AISettings {
 
     pub fn is_shared_block_title_generation_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.shared_block_title_generation_enabled_internal
-    }
-
-    pub fn is_git_operations_autogen_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.git_operations_autogen_enabled_internal
     }
 
     /// Returns `true` if input autodetection is enabled.

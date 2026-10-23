@@ -342,16 +342,14 @@ message GitOpDelta {
 // the SSH link carries one request/response instead of the 2–3 a client-side
 // chain would send.
 message GitCommitChainRequest {
+  reserved 6;
+  reserved "autogenerate_pr_content";
   string repo_path = 1;
   string message = 2;
   bool include_unstaged = 3;
   // Branch to push / open the PR against. Ignored for COMMIT_ONLY.
   string branch = 4;
   GitCommitChainMode mode = 5;
-  // When mode is COMMIT_AND_CREATE_PR, generate the PR title/body via AI on the
-  // daemon (get_diff_for_pr + generate_code_review_content), falling back to
-  // `gh pr create --fill`. Ignored for the other modes.
-  bool autogenerate_pr_content = 6;
 }
 
 // What to run after the commit succeeds.
@@ -389,16 +387,10 @@ message GitPushResponse {
 }
 
 // Client → server: create a PR for the current branch (must be pushed).
-// Absent title/body => `gh pr create --fill`, unless autogenerate_content is
-// set (then the daemon generates the title/body via AI first).
 message GitCreatePrRequest {
+  reserved 2, 3;
+  reserved "branch", "autogenerate_content";
   string repo_path = 1;
-  // Current branch name, passed as context to daemon-side AI generation.
-  string branch = 2;
-  // When true and title/body are both absent, the daemon generates the PR
-  // title + body via AI (get_diff_for_pr + generate_code_review_content)
-  // before running `gh pr create`, falling back to `--fill` on failure.
-  bool autogenerate_content = 3;
 }
 
 message GitCreatePrResponse {
@@ -426,27 +418,6 @@ message GitGetCommittedBranchFilesResponse {
 
 message GitGetCommittedBranchFilesSuccess {
   repeated FileChangeEntry files = 1;
-}
-
-// Client → server: generate a commit message via AI on the remote host.
-// The daemon computes the working-tree diff locally and calls the Warp
-// server's code-review content endpoint, returning the message string. Sent
-// at commit-dialog open time, mirroring the local open-time autogen.
-message GitGenerateCommitMessageRequest {
-  string repo_path = 1;
-  // Whether to include unstaged changes in the diff sent to AI (mirrors the
-  // commit dialog's include-unstaged toggle).
-  bool include_unstaged = 2;
-  // Current branch name, passed as context to the AI request.
-  string branch_name = 3;
-}
-
-message GitGenerateCommitMessageResponse {
-  oneof result {
-    // The generated commit message (already trimmed, non-empty).
-    string message = 1;
-    GitOpError error = 2;
-  }
 }
 
 // ── Git and GitHub info ──────────────────────────────────────────────────
