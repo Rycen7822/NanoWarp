@@ -15,7 +15,6 @@ use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity, WeakVi
 use super::AmbientAgentProgressUIState;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::ambient_agents::spawn::monitor_spawned_task;
 use crate::ai::ambient_agents::spawn::{AmbientAgentEvent, spawn_task, submit_run_followup};
@@ -132,7 +131,6 @@ pub struct AmbientAgentViewModel {
 
     /// The request with which the cloud agent was spawned, if it was spawned.
     request: Option<SpawnAgentRequest>,
-    request_team_scope: Option<RequestTeamScope>,
 
     /// The terminal view this model is part of.
     terminal_view_id: EntityId,
@@ -214,12 +212,6 @@ impl AmbientAgentViewModel {
             },
         );
 
-        ctx.subscribe_to_model(&GitHubAuthNotifier::handle(ctx), |me, _, event, ctx| {
-            if matches!(event, GitHubAuthEvent::AuthCompleted) {
-                me.handle_github_auth_completed(ctx);
-            }
-        });
-
         // Validate the default environment once Warp Drive sync completes.
         // The environment ID may be restored from settings before environments are synced,
         // so we need to validate it once the initial load is complete.
@@ -247,7 +239,6 @@ impl AmbientAgentViewModel {
         Self {
             status: Status::Composing,
             request: None,
-            request_team_scope: None,
             terminal_view_id,
             terminal_view,
             environment_id: None,
@@ -520,14 +511,12 @@ impl AmbientAgentViewModel {
     pub(crate) fn begin_local_to_cloud_handoff(
         &mut self,
         request: SpawnAgentRequest,
-        team_scope: RequestTeamScope,
         cancel: oneshot::Sender<()>,
         ctx: &mut ModelContext<Self>,
     ) {
         let previous_harness = self.selected_harness();
         self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Preparing { cancel });
         self.request = Some(request);
-        self.request_team_scope = Some(team_scope);
         self.source = None;
         self.status = Status::WaitingForSession {
             progress: AgentProgress::new(),
@@ -1057,7 +1046,6 @@ impl AmbientAgentViewModel {
         self.last_ended_execution_session_id = None;
         self.pending_followup_prompt = None;
         self.request = None;
-        self.request_team_scope = None;
         #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
         {
             self.local_to_cloud_handoff_state = None;
@@ -1217,7 +1205,6 @@ impl AmbientAgentViewModel {
     ) {
         request.interactive = Some(true);
         self.request = Some(request.clone());
-        self.request_team_scope = Some(team_scope);
         self.source = None;
         let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
         let stream = spawn_task(request, team_scope, ai_client, None);
@@ -1523,7 +1510,6 @@ impl AmbientAgentViewModel {
 
         if !matches!(startup_kind, Some(SessionStartupKind::InitialRun)) {
             self.request = None;
-            self.request_team_scope = None;
         };
 
         self.status = Status::NeedsGithubAuth {
@@ -1534,17 +1520,6 @@ impl AmbientAgentViewModel {
         self.pending_followup_prompt = None;
 
         ctx.emit(AmbientAgentViewModelEvent::NeedsGithubAuth);
-    }
-
-    fn handle_github_auth_completed(&mut self, ctx: &mut ModelContext<Self>) {
-        if !matches!(self.status, Status::NeedsGithubAuth { .. }) {
-            return;
-        }
-        let (Some(request), Some(team_scope)) = (self.request.clone(), self.request_team_scope)
-        else {
-            return;
-        };
-        self.spawn_internal(request, team_scope, ctx);
     }
 
     /// Handles cancellation by transitioning to the Cancelled state.

@@ -58,7 +58,6 @@ use crate::settings_view::mcp_servers::server_card::{
 };
 use crate::settings_view::mcp_servers::update_modal::{UpdateModalBody, UpdateModalBodyEvent};
 use crate::settings_view::mcp_servers::{ServerCardItemId, style};
-use crate::settings_view::mcp_servers_page::InstallOrigin;
 use crate::settings_view::settings_page::{
     LocalOnlyIconState, ToggleState, build_toggle_element, render_body_item_label,
 };
@@ -76,15 +75,9 @@ const DESCRIPTION_TEXT: &str = "Add MCP servers to extend the Warp Agent's capab
 pub enum MCPServersListPageViewEvent {
     Add,
     Edit(ServerCardItemId),
-    LogOut(ServerCardItemId, String),
     StartInstallation {
         templatable_mcp_server: TemplatableMCPServer,
         instructions_in_markdown: Option<String>,
-        /// Where the install request was initiated from. List-page-originated
-        /// events are always `InstallOrigin::InApp` because they are emitted in
-        /// response to a direct user gesture on the gallery card. See
-        /// `specs/GH686/product.md`.
-        origin: InstallOrigin,
     },
     ShowModal,
     HideModal,
@@ -130,12 +123,11 @@ impl MCPServersListPageView {
 
         cfg_if::cfg_if!(
             if #[cfg(feature = "local_fs")] {
-                // Refresh cards when active servers are spawned, removed, or logged out.
+                // Refresh cards when active servers are spawned or removed.
                 let file_based_manager = FileBasedMCPManager::handle(ctx);
                 ctx.subscribe_to_model(&file_based_manager, |me, _, event, ctx| match event {
                     FileBasedMCPManagerEvent::SpawnServers { .. }
-                    | FileBasedMCPManagerEvent::DespawnServers { .. }
-                    | FileBasedMCPManagerEvent::PurgeCredentials { .. } => {
+                    | FileBasedMCPManagerEvent::DespawnServers { .. } => {
                         // Refresh cards when servers are spawned or removed.
                         me.refresh_file_based_server_cards(ctx);
                     }
@@ -370,7 +362,6 @@ impl MCPServersListPageView {
     ) {
         let installation_uuid = installation.uuid();
         let item_id = ServerCardItemId::TemplatableMCPInstallation(installation_uuid);
-        let uses_oauth = Self::should_show_oauth_components(item_id, ctx);
         let server_card_status =
             match TemplatableMCPServerManager::as_ref(ctx).get_server_state(installation_uuid) {
                 Some(state) => state.into(),
@@ -418,7 +409,6 @@ impl MCPServersListPageView {
             error_text,
             title_chip_text.into_iter().collect(),
             ServerCardOptions {
-                show_log_out_icon_button: uses_oauth,
                 show_share_icon_button: is_shareable,
                 show_update_available_icon_button: should_show_update_symbol,
                 ..server_card_status.into()
@@ -578,38 +568,6 @@ impl MCPServersListPageView {
         }
     }
 
-    fn get_server_card(
-        &mut self,
-        item_id: ServerCardItemId,
-    ) -> Option<&mut ViewHandle<ServerCardView>> {
-        self.server_cards.get_mut(&item_id)
-    }
-
-    fn should_show_oauth_components(item_id: ServerCardItemId, ctx: &AppContext) -> bool {
-        match item_id {
-            ServerCardItemId::TemplatableMCP(_) => false,
-            ServerCardItemId::TemplatableMCPInstallation(uuid) => {
-                let template_uuid =
-                    TemplatableMCPServerManager::as_ref(ctx).get_template_uuid(uuid);
-                if let Some(template_uuid) = template_uuid {
-                    TemplatableMCPServerManager::as_ref(ctx)
-                        .has_oauth_credentials_for_server(template_uuid)
-                } else {
-                    false
-                }
-            }
-            ServerCardItemId::FileBasedMCP(uuid) => FileBasedMCPManager::as_ref(ctx)
-                .get_installation_by_uuid(uuid)
-                .is_some_and(|installation| {
-                    installation.hash().is_some_and(|hash| {
-                        TemplatableMCPServerManager::as_ref(ctx)
-                            .has_oauth_credentials_for_file_based_server(hash)
-                    })
-                }),
-            ServerCardItemId::GalleryMCP(_) => false,
-        }
-    }
-
     fn open_logs_for_server(&self, log_file_path: &PathBuf, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         let Some(workspace_view_handle) = ctx
@@ -726,7 +684,6 @@ impl MCPServersListPageView {
                         ctx.emit(MCPServersListPageViewEvent::StartInstallation {
                             templatable_mcp_server: templatable_mcp_server.clone(),
                             instructions_in_markdown: None,
-                            origin: InstallOrigin::InApp,
                         });
                         let source: MCPTemplateInstallationSource = match is_shared {
                             true => MCPTemplateInstallationSource::Shared,
@@ -754,16 +711,6 @@ impl MCPServersListPageView {
                     return;
                 };
                 self.start_server_update(*installation_uuid, ctx);
-            }
-            ServerCardEvent::LogOut(item_id) => {
-                if let Some(server_card) = self.get_server_card(*item_id) {
-                    let server_name = server_card.as_ref(ctx).title();
-                    ctx.emit(MCPServersListPageViewEvent::LogOut(
-                        *item_id,
-                        server_name.to_string(),
-                    ));
-                    ctx.notify();
-                }
             }
         }
     }
@@ -955,7 +902,6 @@ impl MCPServersListPageView {
         ctx.emit(MCPServersListPageViewEvent::StartInstallation {
             templatable_mcp_server: new_templatable_mcp_server,
             instructions_in_markdown: None,
-            origin: InstallOrigin::InApp,
         });
         ctx.notify();
     }
@@ -981,7 +927,6 @@ impl MCPServersListPageView {
                 ctx.emit(MCPServersListPageViewEvent::StartInstallation {
                     templatable_mcp_server: templatable_server,
                     instructions_in_markdown: instructions,
-                    origin: InstallOrigin::InApp,
                 });
                 send_telemetry_from_ctx!(
                     TelemetryEvent::MCPTemplateInstalled {
@@ -1667,7 +1612,6 @@ impl MCPServersListPageView {
     ) {
         let uuid = installation.uuid();
         let item_id = ServerCardItemId::FileBasedMCP(uuid);
-        let uses_oauth = Self::should_show_oauth_components(item_id, ctx);
         let server_card_status =
             match TemplatableMCPServerManager::as_ref(ctx).get_server_state(uuid) {
                 Some(state) => state.into(),
@@ -1698,7 +1642,6 @@ impl MCPServersListPageView {
             title_chips,
             ServerCardOptions {
                 // File-based servers cannot be edited or shared from settings.
-                show_log_out_icon_button: uses_oauth,
                 show_edit_config_icon_button: false,
                 show_share_icon_button: false,
                 ..server_card_status.into()

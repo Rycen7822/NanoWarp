@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-async-channel.workspace = true
 async-trait.workspace = true
 cfg-if.workspace = true
 cloud_object_models.workspace = true
@@ -16,7 +15,6 @@ handlebars.workspace = true
 http = "1"
 instant.workspace = true
 log.workspace = true
-oauth2.workspace = true
 pin-project-lite = "0.2"
 reqwest = { workspace = true, features = ["json", "stream"] }
 rmcp = { workspace = true, features = ["client"] }
@@ -27,15 +25,13 @@ sse-stream = "0.2.6"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-url.workspace = true
 uuid.workspace = true
 warp_core.workspace = true
 warp_errors.workspace = true
 warpui.workspace = true
-warpui_extras = { workspace = true, features = ["default", "user_preferences-toml"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-rmcp = { workspace = true, features = ["client", "client-side-sse", "auth", "transport-streamable-http-client-reqwest", "transport-child-process"] }
+rmcp = { workspace = true, features = ["client", "client-side-sse", "transport-streamable-http-client-reqwest", "transport-child-process"] }
 tokio = { workspace = true, features = ["sync", "macros", "rt", "time", "process", "io-util", "net"] }
 
 [target.'cfg(windows)'.dependencies]

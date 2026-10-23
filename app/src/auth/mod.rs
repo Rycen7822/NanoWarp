@@ -19,10 +19,8 @@ use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
 use itertools::Itertools;
-pub use login_failure_notification::LoginFailureReason;
 pub use user_uid::UserUid;
 use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
 use warp_core::user_preferences::GetUserPreferences as _;
 use warp_errors::{report_error, report_if_error};
 use warpui::modals::{AlertDialogWithCallbacks, ModalButton};
@@ -31,7 +29,6 @@ use warpui::{AppContext, SingletonEntity};
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;
-use crate::ai::chatgpt_subscription::ChatGPTSubscriptionModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::llms::LLMPreferences;
 #[cfg(not(target_family = "wasm"))]
@@ -259,9 +256,6 @@ pub fn log_out(app: &mut AppContext) {
     AIRequestUsageModel::handle(app).update(app, |usage_model, ctx| {
         usage_model.reset_server_availability(ctx);
     });
-    if FeatureFlag::ChatGPTSubscription.is_enabled() {
-        ChatGPTSubscriptionModel::handle(app).update(app, |model, ctx| model.reset(ctx));
-    }
     BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
         history_model.reset();
     });

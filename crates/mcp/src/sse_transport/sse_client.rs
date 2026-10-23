@@ -33,8 +33,6 @@ pub enum SseTransportError<E: std::error::Error + Send + Sync + 'static> {
     UnexpectedEndOfStream,
     #[error("Unexpected content type: {0:?}")]
     UnexpectedContentType(Option<String>),
-    #[error("Auth error: {0}")]
-    Auth(#[from] rmcp::transport::AuthError),
     #[error("Invalid uri: {0}")]
     InvalidUri(#[from] http::uri::InvalidUri),
     #[error("Invalid uri parts: {0}")]

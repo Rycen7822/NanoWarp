@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use url::Url;
-use uuid::Uuid;
 #[cfg(target_family = "wasm")]
 use warp_core::context_flag::ContextFlag;
 
@@ -11,12 +10,8 @@ use crate::uri::browser_url_handler::parse_current_url;
 #[derive(Debug)]
 /// Represents an intent parsed from a web url
 pub enum WebIntent {
-    SessionView(Url),
-    ConversationView(Url),
-    DriveObject(Url),
     SettingsView(Url),
     Home(Url),
-    CloudAgentHome(Url),
     Action(Url),
 }
 
@@ -43,70 +38,6 @@ impl WebIntent {
                 ))?));
             } else {
                 match segments[0] {
-                    "app" => {
-                        return Ok(WebIntent::CloudAgentHome(Url::parse(&format!(
-                            "{url_scheme}://action/new_cloud_agent_conversation?source=web_home"
-                        ))?));
-                    }
-                    // For sessions, we expect the URL to be in the format: {scheme}/session/{session_id}
-                    "session" => {
-                        if segments.len() != 2 {
-                            return Err(anyhow!("Attempting to parse invalid url: {}", url));
-                        }
-
-                        let session_id = segments[1];
-
-                        // Validate that the session ID is a UUID. If it's not, this isn't a
-                        // valid shared-session URL and we should return an error so the
-                        // caller can ignore it.
-                        if Uuid::parse_str(session_id).is_err() {
-                            return Err(anyhow!("Attempting to parse invalid url: {}", url));
-                        }
-
-                        let mut session_intent = Url::parse(
-                            format!("{url_scheme}://shared_session/{session_id}").as_str(),
-                        )
-                        .map_err(|_| anyhow!("Attempting to parse invalid url: {}", url))?;
-
-                        // Preserve any query parameters (e.g. pwd, preview) from the original URL.
-                        if let Some(query) = url.query() {
-                            session_intent.set_query(Some(query));
-                        }
-
-                        return Ok(WebIntent::SessionView(session_intent));
-                    }
-                    // For conversations, we expect the URL to be in the format: {scheme}/conversation/{conversation_id}
-                    "conversation" => {
-                        if segments.len() != 2 {
-                            return Err(anyhow!("Attempting to parse invalid url: {}", url));
-                        }
-
-                        let conversation_id = segments[1];
-                        let conversation_intent = Url::parse(
-                            format!("{url_scheme}://conversation/{conversation_id}").as_str(),
-                        )
-                        .map_err(|_| anyhow!("Attempting to parse invalid url: {}", url))?;
-
-                        return Ok(WebIntent::ConversationView(conversation_intent));
-                    }
-                    // For drive objects, we expect the URL to be of the format: {scheme}/drive/{object-type}/{object-name}-{object-id}?focused_folder_id={focused_folder_id}
-                    // The focused_folder_id is optional, and if it is not provided, we will not include it in the intent url.
-                    "drive" => {
-                        if segments.len() != 3 {
-                            return Err(anyhow!("Attempting to parse invalid url: {}", url));
-                        }
-                        let id_and_name: Vec<&str> =
-                            segments[segments.len() - 1].split('-').collect();
-                        let id = id_and_name[id_and_name.len() - 1];
-                        let object_type = segments[segments.len() - 2];
-                        if let Ok(mut drive_intent) =
-                            Url::parse(format!("{url_scheme}://drive/{object_type}").as_str())
-                        {
-                            drive_intent.set_query(url.query());
-                            drive_intent.query_pairs_mut().append_pair("id", id);
-                            return Ok(WebIntent::DriveObject(drive_intent));
-                        }
-                    }
                     "settings" => {
                         // For the settings links, we expect the URL to be of the format: {scheme}/settings/{sub_section}?{query_str}
                         if segments.len() != 2 {
@@ -120,6 +51,7 @@ impl WebIntent {
                         if let Ok(settings_intent) = Url::parse(
                             format!("{url_scheme}://settings/{sub_section}?{query_str}").as_str(),
                         ) {
+                            super::validate_custom_uri(&settings_intent)?;
                             return Ok(WebIntent::SettingsView(settings_intent));
                         }
                     }
@@ -130,7 +62,7 @@ impl WebIntent {
                         let action_type = segments[1];
                         // Allowlist of valid actions,
                         // since we shouldn't expose all Warp actions as web URLs.
-                        const ALLOWED_ACTIONS: &[&str] = &["open-repo", "focus_cloud_mode"];
+                        const ALLOWED_ACTIONS: &[&str] = &["open-repo"];
                         if !ALLOWED_ACTIONS.contains(&action_type) {
                             return Err(anyhow!("Unknown action type in url: {}", action_type));
                         }
@@ -150,24 +82,10 @@ impl WebIntent {
     /// Convert this web intent into the underlying native desktop URL.
     pub fn into_intent_url(self) -> Url {
         match self {
-            WebIntent::SessionView(url) => url,
-            WebIntent::ConversationView(url) => url,
-            WebIntent::DriveObject(url) => url,
             WebIntent::SettingsView(url) => url,
             WebIntent::Home(url) => url,
-            WebIntent::CloudAgentHome(url) => url,
             WebIntent::Action(url) => url,
         }
-    }
-
-    /// True when `url` resolves to a `ConversationView` or `SessionView` —
-    /// the two routes that anchor the web session viewer.
-    #[cfg(any(target_family = "wasm", test))]
-    pub fn is_conversation_or_session_view(url: &Url) -> bool {
-        matches!(
-            Self::try_from_url(url),
-            Ok(WebIntent::ConversationView(_) | WebIntent::SessionView(_))
-        )
     }
 }
 
@@ -183,11 +101,7 @@ pub fn maybe_rewrite_web_url_to_intent(url: &Url) -> Option<Url> {
 #[cfg(target_family = "wasm")]
 pub fn open_url_on_desktop(url: &Url) {
     match WebIntent::try_from_url(url) {
-        Ok(WebIntent::ConversationView(intent))
-        | Ok(WebIntent::DriveObject(intent))
-        | Ok(WebIntent::SessionView(intent))
-        | Ok(WebIntent::CloudAgentHome(intent))
-        | Ok(WebIntent::Action(intent)) => {
+        Ok(WebIntent::Action(intent)) => {
             crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::OpenOnNative {
                 url: intent.into(),
             });
@@ -201,12 +115,8 @@ pub fn open_url_on_desktop(url: &Url) {
 #[cfg(target_family = "wasm")]
 fn set_context_flags_from_url(url: Url) {
     match WebIntent::try_from_url(&url) {
-        Ok(WebIntent::SessionView(_)) => ContextFlag::set_shared_session_only(),
-        Ok(WebIntent::ConversationView(_)) => ContextFlag::set_conversation_only(),
-        Ok(WebIntent::DriveObject(_)) => ContextFlag::set_warp_drive_link_only(),
         Ok(WebIntent::SettingsView(_)) => ContextFlag::set_settings_link_only(),
         Ok(WebIntent::Home(_)) => ContextFlag::set_warp_home_link_only(),
-        Ok(WebIntent::CloudAgentHome(_)) => {}
         Ok(WebIntent::Action(_)) => {} // No special context flag for actions
         _ => {}
     }

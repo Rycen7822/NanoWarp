@@ -153,17 +153,6 @@ impl TemplatableMCPServerManager {
         log::warn!("Installing Figma from gallery is not supported in WASM");
     }
 
-    /// Delete oauth credentials from secure storage
-    ///
-    /// No-op in WASM, as MCP servers are not supported in WASM
-    pub fn delete_credentials_from_secure_storage(
-        &mut self,
-        _sync_id: Uuid,
-        _app: &mut warpui::AppContext,
-    ) {
-        log::warn!("Deleting credentials for MCP servers is not supported in WASM")
-    }
-
     pub fn is_server_installation_shared(
         &self,
         _installation_uuid: Uuid,
@@ -278,28 +267,12 @@ impl TemplatableMCPServerManager {
         Default::default()
     }
 
-    pub fn has_oauth_credentials_for_server(&self, _template_uuid: Uuid) -> bool {
-        false
-    }
-
     pub fn spawn_ephemeral_server(
         &mut self,
         _installation: TemplatableMCPServerInstallation,
         _ctx: &mut ModelContext<Self>,
     ) {
         log::warn!("Ephemeral MCP server spawning not supported in WASM");
-    }
-
-    pub fn purge_file_based_server_credentials(
-        &mut self,
-        _installation_hashes: &Vec<u64>,
-        _ctx: &mut ModelContext<Self>,
-    ) {
-        log::warn!("Purging file-based server credentials not supported in WASM");
-    }
-
-    pub fn has_oauth_credentials_for_file_based_server(&self, _hash: u64) -> bool {
-        false
     }
 
     pub fn extract_server_info<T: std::cmp::Eq + std::hash::Hash>(

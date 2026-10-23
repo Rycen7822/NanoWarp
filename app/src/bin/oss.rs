@@ -16,7 +16,6 @@ fn main() -> Result<()> {
             server_config: WarpServerConfig::production(),
             oz_config: OzConfig::production(),
             telemetry_config: None,
-            mcp_static_config: None,
         },
     );
     if cfg!(debug_assertions) {

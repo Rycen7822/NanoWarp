@@ -62,7 +62,6 @@ pub enum ServerCardAction {
     Install(ServerCardItemId),
     InstallServerUpdate(ServerCardItemId),
     ViewLogs(ServerCardItemId),
-    LogOut(ServerCardItemId),
     FullCardClick,
 }
 
@@ -74,13 +73,11 @@ pub enum ServerCardEvent {
     Install(ServerCardItemId),
     InstallServerUpdate(ServerCardItemId),
     ViewLogs(ServerCardItemId),
-    LogOut(ServerCardItemId),
 }
 
 #[derive(Default)]
 pub struct ServerCardMouseHandles {
     show_logs_icon_button: MouseStateHandle,
-    logout_icon_button: MouseStateHandle,
     share_icon_button: MouseStateHandle,
     edit_icon_button: MouseStateHandle,
     update_icon_button: MouseStateHandle,
@@ -128,7 +125,6 @@ pub enum Background {
 #[derive(Default)]
 pub struct ServerCardOptions {
     pub show_view_logs_icon_button: bool,
-    pub show_log_out_icon_button: bool,
     pub show_share_icon_button: bool,
     pub show_edit_config_icon_button: bool,
     pub show_update_available_icon_button: bool,
@@ -150,7 +146,6 @@ pub enum ServerCardStatus {
     SavedToDrive,
     Installed,
     StartingServer,
-    Authenticating,
     Running,
     ShuttingDown,
     Error,
@@ -162,7 +157,6 @@ impl From<MCPServerState> for ServerCardStatus {
         match state {
             MCPServerState::NotRunning => ServerCardStatus::Installed,
             MCPServerState::Starting => ServerCardStatus::StartingServer,
-            MCPServerState::Authenticating => ServerCardStatus::Authenticating,
             MCPServerState::Running => ServerCardStatus::Running,
             MCPServerState::ShuttingDown => ServerCardStatus::ShuttingDown,
             MCPServerState::FailedToStart => ServerCardStatus::Error,
@@ -175,7 +169,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
         match status {
             ServerCardStatus::AvailableToSave => ServerCardOptions {
                 show_view_logs_icon_button: false,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: false,
                 show_update_available_icon_button: false,
@@ -192,7 +185,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
             },
             ServerCardStatus::SavedToDrive => ServerCardOptions {
                 show_view_logs_icon_button: false,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: true,
                 show_update_available_icon_button: false,
@@ -209,7 +201,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
             },
             ServerCardStatus::Installed => ServerCardOptions {
                 show_view_logs_icon_button: true,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: true,
                 show_update_available_icon_button: false,
@@ -229,7 +220,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
             },
             ServerCardStatus::StartingServer => ServerCardOptions {
                 show_view_logs_icon_button: true,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: true,
                 show_update_available_icon_button: false,
@@ -247,29 +237,8 @@ impl From<ServerCardStatus> for ServerCardOptions {
                 background: Background::Filled,
                 full_card_clickable: false,
             },
-            ServerCardStatus::Authenticating => ServerCardOptions {
-                show_view_logs_icon_button: true,
-                show_log_out_icon_button: false,
-                show_share_icon_button: false,
-                show_edit_config_icon_button: true,
-                show_update_available_icon_button: false,
-                show_view_logs_text_button: false,
-                show_edit_config_text_button: false,
-                show_setup_text_button: false,
-                show_add_icon: false,
-
-                server_running_switch_state: Some(true),
-                status_indicator: Some(StatusElement {
-                    indicator_type: StatusElementTypes::Circle,
-                    color: StatusColor::Yellow,
-                }),
-                status_line: Some("Authenticating...".to_string()),
-                background: Background::Filled,
-                full_card_clickable: false,
-            },
             ServerCardStatus::Running => ServerCardOptions {
                 show_view_logs_icon_button: true,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: true,
                 show_update_available_icon_button: false,
@@ -289,7 +258,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
             },
             ServerCardStatus::ShuttingDown => ServerCardOptions {
                 show_view_logs_icon_button: true,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: true,
                 show_update_available_icon_button: false,
@@ -309,7 +277,6 @@ impl From<ServerCardStatus> for ServerCardOptions {
             },
             ServerCardStatus::Error => ServerCardOptions {
                 show_view_logs_icon_button: false,
-                show_log_out_icon_button: false,
                 show_share_icon_button: false,
                 show_edit_config_icon_button: false,
                 show_update_available_icon_button: false,
@@ -755,21 +722,6 @@ impl ServerCardView {
                 );
             }
 
-            if self.render_options.show_log_out_icon_button {
-                actions_row = actions_row.with_child(
-                    self.build_icon_button(
-                        appearance,
-                        Icon::LogOut,
-                        "Log out".to_string(),
-                        self.mouse_handles.logout_icon_button.clone(),
-                    )
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(ServerCardAction::LogOut(item_id));
-                    })
-                    .finish(),
-                );
-            }
-
             if self.render_options.show_share_icon_button {
                 actions_row = actions_row.with_child(
                     self.build_icon_button(
@@ -981,10 +933,6 @@ impl TypedActionView for ServerCardView {
             }
             ServerCardAction::ViewLogs(item_id) => {
                 ctx.emit(ServerCardEvent::ViewLogs(*item_id));
-                ctx.notify();
-            }
-            ServerCardAction::LogOut(item_id) => {
-                ctx.emit(ServerCardEvent::LogOut(*item_id));
                 ctx.notify();
             }
             ServerCardAction::FullCardClick => ctx.emit(ServerCardEvent::Install(self.item_id)),

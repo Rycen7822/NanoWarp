@@ -1,6 +1,4 @@
 #[cfg(not(target_family = "wasm"))]
-pub mod oauth;
-#[cfg(not(target_family = "wasm"))]
 pub mod runtime;
 #[cfg(not(target_family = "wasm"))]
 pub mod sse_transport;
@@ -23,12 +21,6 @@ pub struct TemplatableMCPServerInfo {
     /// well-known integration id); `None` for local servers.
     warp_id: Option<String>,
     description: Option<String>,
-    /// Whether the underlying transport uses authentication.
-    ///
-    /// TODO(vorporeal): Use this to display a toast when server authentication and connection is complete, and
-    /// to provide a "log out" button.
-    #[allow(dead_code)]
-    is_authenticated_transport: bool,
 }
 
 impl TemplatableMCPServerInfo {
@@ -54,9 +46,6 @@ impl TemplatableMCPServerInfo {
 
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
-    }
-    pub fn is_authenticated_transport(&self) -> bool {
-        self.is_authenticated_transport
     }
 
     pub fn peer(&self) -> rmcp::Peer<rmcp::RoleClient> {

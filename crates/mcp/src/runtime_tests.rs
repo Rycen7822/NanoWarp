@@ -301,9 +301,7 @@ fn headers(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         .collect()
 }
 
-/// Only a protected-resource challenge means "begin OAuth". A plain rejection
-/// of a bearer token must not be read as one, since that is what sends a user
-/// looking for an OAuth flow that does not exist.
+/// A protected-resource challenge is distinct from rejection of a configured token.
 #[test]
 fn oauth_challenge_requires_resource_metadata() {
     let challenge =
@@ -326,7 +324,7 @@ fn oauth_challenge_requires_resource_metadata() {
 
 /// A quoted parameter value that merely mentions `resource_metadata` is still
 /// a rejection. Matching the raw string rather than the parameter name would
-/// route this back into OAuth and undo the whole disambiguation.
+/// misclassify the rejection and undo the whole disambiguation.
 #[test]
 fn oauth_challenge_ignores_resource_metadata_inside_quoted_values() {
     assert!(!is_oauth_challenge(
@@ -386,7 +384,7 @@ fn caller_supplied_credential_detects_configured_auth_headers() {
         "application/json"
     )])));
     // An empty credential is not a credential; treating it as one would
-    // suppress the OAuth path for a server that legitimately needs it.
+    // misclassify a server that requires authentication.
     assert!(!has_caller_supplied_credential(&headers(&[(
         "Authorization",
         "   "
@@ -448,7 +446,6 @@ async fn start_http_server(
             None,
             TransportType::ServerSentEvents(ServerSentEvents { url, headers }),
             logger,
-            None,
         ),
     )
     .await
@@ -650,7 +647,7 @@ async fn preflight_preserves_modern_rejections_and_http_auth_or_server_errors() 
             }),
         );
         let (url, server) = serve_http_router(app).await;
-        let result = determine_transport("test".to_string(), &url, &HashMap::new(), None).await;
+        let result = determine_transport("test".to_string(), &url, &HashMap::new()).await;
         server.abort();
         assert!(result.is_err(), "status {status}, code {code:?}");
         assert_eq!(
@@ -687,7 +684,7 @@ async fn preflight_rejects_unknown_or_exhausted_supported_versions_without_initi
         let (url, server) = serve_http_router(app).await;
         let result = tokio::time::timeout(
             Duration::from_secs(5),
-            determine_transport("test".to_string(), &url, &HashMap::new(), None),
+            determine_transport("test".to_string(), &url, &HashMap::new()),
         )
         .await
         .expect("negotiation should terminate");
@@ -754,7 +751,7 @@ async fn preflight_rejects_uncorrelated_version_errors_without_retrying() {
         }),
     );
     let (url, server) = serve_http_router(app).await;
-    let result = determine_transport("test".to_string(), &url, &HashMap::new(), None).await;
+    let result = determine_transport("test".to_string(), &url, &HashMap::new()).await;
     server.abort();
     assert!(matches!(
         result,
@@ -785,9 +782,9 @@ async fn preflight_routes_legacy_endpoint_not_found_to_deprecated_sse() {
         }),
     );
     let (url, server) = serve_http_router(app).await;
-    let result = determine_transport("test".to_string(), &url, &HashMap::new(), None).await;
+    let result = determine_transport("test".to_string(), &url, &HashMap::new()).await;
     server.abort();
-    assert!(matches!(result, Ok(super::Transport::Sse(None))));
+    assert!(matches!(result, Ok(super::Transport::Sse)));
     assert_eq!(
         *methods.lock().expect("captured requests"),
         vec![json!("server/discover"), json!("initialize")]
@@ -806,7 +803,7 @@ async fn preflight_bounds_sse_body_before_complete_event_arrives() {
         }),
     );
     let (url, server) = serve_http_router(app).await;
-    let result = determine_transport("test".to_string(), &url, &HashMap::new(), None).await;
+    let result = determine_transport("test".to_string(), &url, &HashMap::new()).await;
     server.abort();
     let message = transport_error_message(result, "oversized response must be rejected");
     assert!(message.contains("exceeds 1 MiB"), "{message}");
@@ -853,7 +850,7 @@ async fn serve_401(
     (url, requests, server)
 }
 
-/// `Transport` owns a live HTTP client and is deliberately not `Debug`, so
+/// `Transport` is deliberately not `Debug`, so
 /// `expect_err` is unavailable; this unwraps the error side explicitly.
 fn transport_error_message(
     result: Result<super::Transport, rmcp::RmcpError>,
@@ -867,7 +864,7 @@ fn transport_error_message(
 
 /// A static credential was configured and the server rejected it with a bare
 /// `401`, so the transport should surface the credential rejection and never
-/// enter the OAuth flow.
+/// report an unsupported authentication challenge.
 #[tokio::test]
 async fn bare_401_with_configured_credential_reports_rejection_not_oauth() {
     let (url, requests, server) = serve_401(&[]).await;
@@ -877,10 +874,6 @@ async fn bare_401_with_configured_credential_reports_rejection_not_oauth() {
             "internal-db-mcp".to_string(),
             &url,
             &headers(&[("Authorization", "Bearer rejected-token")]),
-            // `None` stands in for "OAuth is not usable here". If the branch
-            // wrongly fell through, the error would be the generic
-            // authentication-unsupported message instead.
-            None,
         )
         .await,
         "a rejected credential should not produce a transport",
@@ -890,8 +883,8 @@ async fn bare_401_with_configured_credential_reports_rejection_not_oauth() {
         "expected a credential-rejection error, got: {message}"
     );
     assert!(
-        !message.contains("not yet supported"),
-        "should not have fallen through to the OAuth path: {message}"
+        !message.contains("requires authentication"),
+        "should report the configured credential rejection: {message}"
     );
     assert_eq!(requests.load(Ordering::SeqCst), 1);
 
@@ -900,7 +893,7 @@ async fn bare_401_with_configured_credential_reports_rejection_not_oauth() {
 
 /// Every authentication challenge is considered before classifying a `401`.
 #[tokio::test]
-async fn oauth_challenge_in_repeated_header_routes_to_oauth() {
+async fn oauth_challenge_in_repeated_header_reports_unsupported_authentication() {
     let (url, _requests, server) = serve_401(&[
         r#"Bearer error="invalid_token""#,
         r#"Bearer resource_metadata = "https://srv.example/.well-known/oauth-protected-resource""#,
@@ -912,23 +905,22 @@ async fn oauth_challenge_in_repeated_header_routes_to_oauth() {
             "oauth-server".to_string(),
             &url,
             &headers(&[("Authorization", "Bearer stale-token")]),
-            None,
         )
         .await,
-        "no auth context means the OAuth path cannot complete",
+        "interactive authentication should be rejected",
     );
     assert!(
-        message.contains("not yet supported"),
-        "expected the OAuth path to be taken, got: {message}"
+        message.contains("requires authentication"),
+        "expected authentication rejection, got: {message}"
     );
 
     server.abort();
 }
 
-/// A genuine protected-resource challenge still routes into OAuth, even when a
+/// A genuine protected-resource challenge reports unsupported authentication, even when a
 /// stale credential header happens to be configured.
 #[tokio::test]
-async fn oauth_challenge_still_routes_to_oauth_despite_configured_credential() {
+async fn oauth_challenge_reports_unsupported_authentication_despite_configured_credential() {
     let (url, _requests, server) = serve_401(&[
         r#"Bearer resource_metadata="https://srv.example/.well-known/oauth-protected-resource""#,
     ])
@@ -939,32 +931,30 @@ async fn oauth_challenge_still_routes_to_oauth_despite_configured_credential() {
             "oauth-server".to_string(),
             &url,
             &headers(&[("Authorization", "Bearer stale-token")]),
-            None,
         )
         .await,
-        "no auth context means the OAuth path cannot complete",
+        "interactive authentication should be rejected",
     );
     assert!(
-        message.contains("not yet supported"),
-        "expected the OAuth path to be taken, got: {message}"
+        message.contains("requires authentication"),
+        "expected authentication rejection, got: {message}"
     );
 
     server.abort();
 }
 
-/// With no caller credential to blame, a bare `401` keeps its previous
-/// meaning so servers that under-specify their challenge still work.
+/// Without a configured credential, a bare `401` reports unsupported authentication.
 #[tokio::test]
-async fn bare_401_without_configured_credential_still_attempts_oauth() {
+async fn bare_401_without_configured_credential_reports_unsupported_authentication() {
     let (url, _requests, server) = serve_401(&[]).await;
 
     let message = transport_error_message(
-        determine_transport("srv".to_string(), &url, &headers(&[]), None).await,
-        "no auth context means the OAuth path cannot complete",
+        determine_transport("srv".to_string(), &url, &headers(&[])).await,
+        "interactive authentication should be rejected",
     );
     assert!(
-        message.contains("not yet supported"),
-        "expected the OAuth path to be taken, got: {message}"
+        message.contains("requires authentication"),
+        "expected authentication rejection, got: {message}"
     );
 
     server.abort();
@@ -981,7 +971,6 @@ async fn credential_header_contents_are_not_parsed_as_template_references() {
             "internal-db-mcp".to_string(),
             &url,
             &headers(&[("Authorization", "Bearer literal-{{token_fragment}}")]),
-            None,
         )
         .await,
         "a rejected credential should not produce a transport",

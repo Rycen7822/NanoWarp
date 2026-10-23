@@ -3,18 +3,11 @@ use std::sync::Arc;
 
 use async_compat::CompatExt as _;
 use futures::channel::oneshot;
-use mcp::oauth::{
-    self, AuthContext, CallbackResult, FILE_BASED_MCP_CREDENTIALS_KEY,
-    FileBasedPersistedCredentialsMap, OAuthCallbackMode, PersistedCredentials,
-    PersistedCredentialsMap, TEMPLATABLE_MCP_CREDENTIALS_KEY, load_credentials_from_secure_storage,
-    write_to_secure_storage,
-};
+
 use mcp::runtime::{error_to_user_message, spawn_server};
 use parking_lot::Mutex;
 use simple_logger::manager::LogManager;
-use url::Url;
 use uuid::Uuid;
-use warp_core::channel::ChannelState;
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::features::FeatureFlag;
 use warp_core::safe_error;
@@ -111,121 +104,6 @@ impl TemplatableMCPServerManager {
         }
     }
 
-    /// Handles an incoming OAuth callback URL.
-    ///
-    /// Routes the callback to the correct in-flight OAuth flow using the `state` query
-    /// parameter (the CSRF token that rmcp embedded in the authorization URL). This avoids
-    /// encoding routing data in the redirect URI, keeping it RFC 6749 §3.1.2.2 compliant.
-    pub fn handle_oauth_callback(&mut self, url: &Url) -> anyhow::Result<()> {
-        // Ensure the URL has the expected path
-        if url.path() != "/oauth2callback" {
-            anyhow::bail!(
-                "Invalid OAuth callback path: expected '/oauth2callback', got '{}'",
-                url.path()
-            );
-        }
-
-        let query_params: HashMap<_, _> = url.query_pairs().collect();
-
-        let Some(state) = query_params.get("state") else {
-            anyhow::bail!("Missing 'state' parameter in OAuth callback");
-        };
-
-        let code = query_params.get("code");
-        let error = query_params.get("error");
-
-        let result = match code {
-            Some(code) => CallbackResult::Success {
-                code: code.to_string(),
-                // Pass the state value through as the CSRF token; rmcp will validate it
-                // against the token it stored when generating the authorization URL.
-                csrf_token: state.to_string(),
-                issuer: query_params.get("iss").map(|issuer| issuer.to_string()),
-            },
-            None => CallbackResult::Error {
-                error: error.map(|e| e.to_string()),
-            },
-        };
-
-        let Some(&server_uuid) = self.pending_oauth_csrf.get(state.as_ref() as &str) else {
-            anyhow::bail!("No active OAuth flow found for state={state}");
-        };
-
-        let Some(server_info) = self.spawned_servers.get(&server_uuid) else {
-            anyhow::bail!("No spawned server found for uuid={server_uuid}");
-        };
-
-        warpui::r#async::block_on(server_info.oauth_result_tx.send(result)).map_err(|_| {
-            anyhow::anyhow!(
-                "Failed to send OAuth result to server {server_uuid} - receiver dropped"
-            )
-        })?;
-
-        self.pending_oauth_csrf.remove(state.as_ref() as &str);
-        Ok(())
-    }
-
-    fn save_credentials_to_secure_storage(
-        &mut self,
-        app: &mut ModelContext<Self>,
-        installation_uuid: Uuid,
-        credentials: PersistedCredentials,
-    ) {
-        if let Some(hash) = FileBasedMCPManager::as_ref(app).get_hash_by_uuid(installation_uuid) {
-            self.file_based_server_credentials.insert(hash, credentials);
-            write_to_secure_storage(
-                app,
-                FILE_BASED_MCP_CREDENTIALS_KEY,
-                &self.file_based_server_credentials,
-            );
-            return;
-        }
-
-        if let Some(template_uuid) = self.get_template_uuid(installation_uuid) {
-            self.server_credentials.insert(template_uuid, credentials);
-            write_to_secure_storage(
-                app,
-                TEMPLATABLE_MCP_CREDENTIALS_KEY,
-                &self.server_credentials,
-            );
-        } else {
-            report_error!(
-                "Corresponding file or cloud-based server not found for installation UUID",
-                extra: { "installation_uuid" => %installation_uuid }
-            );
-        }
-    }
-
-    pub fn delete_credentials_from_secure_storage(
-        &mut self,
-        installation_uuid: Uuid,
-        app: &mut ModelContext<Self>,
-    ) {
-        if let Some(hash) = FileBasedMCPManager::as_ref(app).get_hash_by_uuid(installation_uuid) {
-            self.file_based_server_credentials.remove(&hash);
-            write_to_secure_storage(
-                app,
-                FILE_BASED_MCP_CREDENTIALS_KEY,
-                &self.file_based_server_credentials,
-            );
-            return;
-        }
-        if let Some(template_uuid) = self.get_template_uuid(installation_uuid) {
-            self.server_credentials.remove(&template_uuid);
-            write_to_secure_storage(
-                app,
-                TEMPLATABLE_MCP_CREDENTIALS_KEY,
-                &self.server_credentials,
-            );
-        } else {
-            report_error!(
-                "No template UUID found for installation UUID",
-                extra: { "installation_uuid" => %installation_uuid },
-                warp_errors::ReportErrorLogMode::OncePerRun
-            );
-        }
-    }
-
     /// Creates a new [`TemplatableMCPServerManager`] instance.
     pub fn new(
         locally_installed_servers: HashMap<Uuid, TemplatableMCPServerInstallation>,
@@ -241,11 +119,6 @@ impl TemplatableMCPServerManager {
             }
             FileBasedMCPManagerEvent::DespawnServers { installation_uuids } => {
                 me.despawn_file_based_servers(installation_uuids.clone(), ctx);
-            }
-            FileBasedMCPManagerEvent::PurgeCredentials {
-                installation_hashes,
-            } => {
-                me.purge_file_based_server_credentials(installation_hashes, ctx);
             }
             FileBasedMCPManagerEvent::ServersChanged
             | FileBasedMCPManagerEvent::ConfigDiagnosticChanged => {}
@@ -381,37 +254,17 @@ impl TemplatableMCPServerManager {
             active_servers: Default::default(),
             spawned_servers: Default::default(),
             reconnectable_ephemeral_installations: Default::default(),
-            server_credentials: Default::default(),
-            file_based_server_credentials: Default::default(),
             locally_installed_servers,
             database_connection,
             server_error_messages: Default::default(),
             spawner: Some(ctx.spawner()),
             pending_reconnections: Default::default(),
-            pending_oauth_csrf: Default::default(),
-            authorization_urls: Default::default(),
             builtin_server_uuids: Default::default(),
             builtin_server_token: Default::default(),
             server_loggers: Default::default(),
         };
 
         me.fetch_cloud_servers(ctx);
-
-        // If we're not in a test, try to load credentials from secure storage.
-        if !cfg!(test) {
-            me.server_credentials = load_credentials_from_secure_storage::<PersistedCredentialsMap>(
-                ctx,
-                TEMPLATABLE_MCP_CREDENTIALS_KEY,
-            );
-
-            if FeatureFlag::FileBasedMcp.is_enabled() {
-                me.file_based_server_credentials = load_credentials_from_secure_storage::<
-                    FileBasedPersistedCredentialsMap,
-                >(
-                    ctx, FILE_BASED_MCP_CREDENTIALS_KEY
-                );
-            }
-        }
 
         if AppExecutionMode::as_ref(ctx).can_autostart_mcp_servers() {
             for installation_uuid in running_server_uuids {
@@ -593,7 +446,7 @@ impl TemplatableMCPServerManager {
         let installation = self.get_installation_by_template_uuid(uuid);
         if let Some(installation) = installation {
             let installation_uuid = installation.uuid();
-            self.delete_credentials_from_secure_storage(installation_uuid, ctx);
+
             self.delete_templatable_mcp_server_installation(installation_uuid, ctx);
         }
 
@@ -618,8 +471,7 @@ impl TemplatableMCPServerManager {
         ctx: &mut ModelContext<Self>,
     ) {
         // The legacy MCPServerManager no longer runs servers, so we only need
-        // to delete the cloud object. OAuth credentials were already copied
-        // during conversion.
+        // to delete the cloud object.
         let cloud_object_type_and_id = CloudObjectTypeAndId::GenericStringObject {
             object_type: GenericStringObjectFormat::Json(JsonObjectType::MCPServer),
             id: sync_id,
@@ -970,111 +822,8 @@ impl TemplatableMCPServerManager {
             .insert(installation_uuid, logger.clone());
         let logger_clone = logger.clone();
 
-        // Create channel that we can use to send OAuth callback results
-        // to the server initialization task, if the server requires OAuth.
-        let (oauth_result_tx, oauth_result_rx) = async_channel::unbounded();
-
-        let is_headless = AppExecutionMode::as_ref(ctx).is_autonomous();
-
-        let mut persisted_credentials = self.server_credentials.get(&template_uuid).cloned();
-        if persisted_credentials.is_none() && FeatureFlag::FileBasedMcp.is_enabled() {
-            persisted_credentials = installation
-                .hash()
-                .and_then(|hash| self.file_based_server_credentials.get(&hash).cloned());
-        }
-
-        let is_file_based = FeatureFlag::FileBasedMcp.is_enabled()
-            && FileBasedMCPManager::as_ref(ctx)
-                .get_hash_by_uuid(installation_uuid)
-                .is_some();
-
         let server_name = server.name.clone();
         let description = installation.templatable_mcp_server().description.clone();
-        let auth_context = FeatureFlag::McpOauth.is_enabled().then(|| {
-            let persist_spawner = ctx.spawner();
-            let requires_authentication_spawner = ctx.spawner();
-            let authenticated_spawner = ctx.spawner();
-            let callback_mode = OAuthCallbackMode::CustomScheme {
-                redirect_uri: format!("{}://mcp/oauth2callback", ChannelState::url_scheme()),
-                result_rx: oauth_result_rx,
-            };
-
-            AuthContext {
-                callback_mode,
-                uuid: installation_uuid,
-                persisted_credentials,
-                is_headless,
-                is_file_based,
-                persist_credentials: Box::new(move |installation_uuid, credentials| {
-                    let spawner = persist_spawner.clone();
-                    Box::pin(async move {
-                        spawner
-                            .spawn(move |manager, ctx| {
-                                manager.save_credentials_to_secure_storage(
-                                    ctx,
-                                    installation_uuid,
-                                    credentials,
-                                );
-                            })
-                            .await
-                            .map_err(|err| {
-                                anyhow::anyhow!(
-                                    "Failed to persist auto-refreshed MCP credentials: {err:?}"
-                                )
-                            })?;
-                        Ok(())
-                    })
-                }),
-                requires_authentication: Box::new(move |uuid, csrf_state, auth_url| {
-                    let spawner = requires_authentication_spawner.clone();
-                    Box::pin(async move {
-                        spawner
-                            .spawn(move |manager, ctx| {
-                                if !csrf_state.is_empty() {
-                                    manager.pending_oauth_csrf.insert(csrf_state, uuid);
-                                }
-                                manager.authorization_urls.insert(uuid, auth_url.clone());
-                                ctx.open_url(&auth_url);
-                                manager.change_server_state(uuid, MCPServerState::Authenticating, ctx);
-                            })
-                            .await
-                            .map_err(|err| {
-                                anyhow::anyhow!(
-                                    "Failed to emit MCP authentication-required state: {err:?}"
-                                )
-                            })?;
-                        Ok(())
-                    })
-                }),
-                authenticated: Some(Box::new(move |server_name| {
-                    let spawner = authenticated_spawner.clone();
-                    Box::pin(async move {
-                        spawner
-                            .spawn(move |_, ctx| {
-                                if let Some(active_window_id) = ctx.windows().active_window() {
-                                    ToastStack::handle(ctx).update(ctx, |stack, ctx| {
-                                        stack.add_ephemeral_toast(
-                                            DismissibleToast::default(format!(
-                                                "Successfully authenticated {server_name} MCP server"
-                                            )),
-                                            active_window_id,
-                                            ctx,
-                                        );
-                                    });
-                                }
-                            })
-                            .await
-                            .map_err(|err| {
-                                anyhow::anyhow!(
-                                    "Failed to emit MCP authenticated notification: {err:?}"
-                                )
-                            })?;
-                        Ok(())
-                    })
-                })),
-            }
-        });
-
         // Extract values from mode before moving it into the closure.
         let should_persist = mode.should_persist_running_state_to_sqlite();
         let should_send_telemetry = mode.should_send_telemetry();
@@ -1088,13 +837,10 @@ impl TemplatableMCPServerManager {
                 installation.warp_id().map(str::to_owned),
                 server.transport_type.clone(),
                 logger.clone(),
-                auth_context,
             )
             .compat(),
             move |me, server_info: Result<_, rmcp::RmcpError>, ctx| {
                 me.spawned_servers.remove(&installation_uuid);
-                me.pending_oauth_csrf.retain(|_, v| *v != installation_uuid);
-                me.authorization_urls.remove(&installation_uuid);
 
                 let error = match server_info {
                     Ok(info) => {
@@ -1131,8 +877,6 @@ impl TemplatableMCPServerManager {
                             ctx,
                         );
 
-                        me.delete_credentials_from_secure_storage(installation_uuid, ctx);
-
                         me.notify_reconnect_waiters(installation_uuid, Err(error_message));
 
                         Some(e.into())
@@ -1161,7 +905,6 @@ impl TemplatableMCPServerManager {
             installation_uuid,
             SpawnedServerInfo {
                 abort_handle: task.abort_handle(),
-                oauth_result_tx,
             },
         );
 
@@ -1201,9 +944,7 @@ impl TemplatableMCPServerManager {
         if let Some(logger) = self.server_loggers.remove(&installation_uuid) {
             logger.close();
         }
-        self.pending_oauth_csrf
-            .retain(|_, v| *v != installation_uuid);
-        self.authorization_urls.remove(&installation_uuid);
+
         match self.active_servers.remove(&installation_uuid) {
             Some(server_info) => {
                 self.change_server_state(installation_uuid, MCPServerState::ShuttingDown, ctx);
@@ -1596,33 +1337,6 @@ impl TemplatableMCPServerManager {
         }
     }
 
-    fn copy_oauth_from_legacy_to_templatable(
-        &mut self,
-        sync_id: SyncId,
-        template_uuid: Uuid,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // Read legacy credentials directly from secure storage rather than
-        // going through the (now-removed) MCPServerManager singleton.
-        let legacy_credentials: HashMap<SyncId, oauth::PersistedCredentials> =
-            oauth::load_credentials_from_secure_storage(
-                ctx,
-                crate::ai::mcp::manager::oauth::LEGACY_MCP_CREDENTIALS_KEY,
-            );
-        if let Some(legacy_cred) = legacy_credentials.get(&sync_id) {
-            log::info!(
-                "Copying OAuth credentials from legacy server {sync_id} to template {template_uuid}"
-            );
-            self.server_credentials
-                .insert(template_uuid, legacy_cred.clone());
-            write_to_secure_storage(
-                ctx,
-                TEMPLATABLE_MCP_CREDENTIALS_KEY,
-                &self.server_credentials,
-            );
-        }
-    }
-
     fn convert_legacy_to_templatable(
         &mut self,
         sync_id: SyncId,
@@ -1651,9 +1365,8 @@ impl TemplatableMCPServerManager {
             templatable_mcp_server_installation,
             ..
         } = parsed_result.clone();
-        let template_uuid = templatable_mcp_server.uuid;
         self.create_templatable_mcp_server(templatable_mcp_server, space, initiated_by, ctx);
-        self.copy_oauth_from_legacy_to_templatable(sync_id, template_uuid, ctx);
+
         if let Some(templatable_mcp_server_installation) = templatable_mcp_server_installation {
             let installation = self.install_from_template(
                 templatable_mcp_server_installation
@@ -1788,10 +1501,6 @@ impl TemplatableMCPServerManager {
         }
     }
 
-    pub fn has_oauth_credentials_for_server(&self, template_uuid: Uuid) -> bool {
-        self.server_credentials.contains_key(&template_uuid)
-    }
-
     /// Returns the peer for the given installation UUID if it is connected and the transport is not closed.
     pub fn get_peer_if_connected(
         &self,
@@ -1832,8 +1541,6 @@ impl TemplatableMCPServerManager {
         if let Some(logger) = self.server_loggers.remove(&installation_uuid) {
             logger.close();
         }
-        self.pending_oauth_csrf
-            .retain(|_, v| *v != installation_uuid);
 
         let Some(installation) = self.reconnectable_installation(installation_uuid).cloned() else {
             self.notify_reconnect_waiters(
@@ -1923,27 +1630,5 @@ impl TemplatableMCPServerManager {
         ctx: &mut ModelContext<Self>,
     ) {
         self.delete_templatable_mcp_server_installations(installation_uuids, ctx);
-    }
-
-    pub fn purge_file_based_server_credentials(
-        &mut self,
-        installation_hashes: &Vec<u64>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        for hash in installation_hashes {
-            self.file_based_server_credentials.remove(hash);
-        }
-        if !installation_hashes.is_empty() {
-            write_to_secure_storage(
-                ctx,
-                FILE_BASED_MCP_CREDENTIALS_KEY,
-                &self.file_based_server_credentials,
-            );
-        }
-    }
-
-    pub fn has_oauth_credentials_for_file_based_server(&self, installation_hash: u64) -> bool {
-        self.file_based_server_credentials
-            .contains_key(&installation_hash)
     }
 }

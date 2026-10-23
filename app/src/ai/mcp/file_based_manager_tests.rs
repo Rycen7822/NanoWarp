@@ -90,8 +90,7 @@ fn subscribe_events(
                 me.despawned_uuids
                     .extend(installation_uuids.iter().copied());
             }
-            FileBasedMCPManagerEvent::PurgeCredentials { .. }
-            | FileBasedMCPManagerEvent::ServersChanged
+            FileBasedMCPManagerEvent::ServersChanged
             | FileBasedMCPManagerEvent::ConfigDiagnosticChanged => {}
         });
     });
@@ -301,11 +300,8 @@ fn test_update_file_based_servers_adds_reference_to_existing_server() {
                 "Should have one server after first scan"
             );
             let first_hash = *manager.file_based_servers.keys().next().unwrap();
-            let first_installation_uuid = manager
-                .file_based_servers
-                .get(&first_hash)
-                .unwrap()
-                .uuid();
+            let first_installation_uuid =
+                manager.file_based_servers.get(&first_hash).unwrap().uuid();
 
             // Second repo with same config should reuse the server
             manager.apply_parsed_servers(repo2.clone(), MCPProvider::Claude, parsed2, ctx);
@@ -338,15 +334,11 @@ fn test_update_file_based_servers_adds_reference_to_existing_server() {
             );
 
             // Verify the installation at the hash hasn't changed
-            let installation_uuid_after_rescan = manager
-                .file_based_servers
-                .get(&hash1)
-                .unwrap()
-                .uuid();
+            let installation_uuid_after_rescan =
+                manager.file_based_servers.get(&hash1).unwrap().uuid();
             assert_eq!(
-                first_installation_uuid,
-                installation_uuid_after_rescan,
-                "Installation UUID must remain stable when reusing a hash - OAuth flow depends on this mapping"
+                first_installation_uuid, installation_uuid_after_rescan,
+                "Installation UUID must remain stable when reusing an unchanged installation"
             );
         });
     });

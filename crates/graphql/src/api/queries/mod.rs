@@ -5,7 +5,6 @@ pub mod free_available_models;
 pub mod get_ai_credit_availability;
 pub mod get_ai_overages_for_workspace;
 pub mod get_available_harnesses;
-pub mod get_chatgpt_connection;
 pub mod get_cloud_environments;
 pub mod get_cloud_object;
 pub mod get_conversation_usage;

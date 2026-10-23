@@ -236,7 +236,6 @@ pub struct HandoffTargetMaterialization {
     pub title: Option<String>,
     /// Pre-snapshot request used to present the queued prompt immediately.
     pub request: SpawnAgentRequest,
-    pub team_scope: RequestTeamScope,
     /// One-shot signal the frontend consumes when the user cancels the handoff.
     pub cancel: oneshot::Sender<()>,
 }
@@ -696,7 +695,6 @@ async fn execute_validated_handoff(
                 None,
                 forked.pending.team_scope,
             ),
-            team_scope: forked.pending.team_scope,
             cancel,
         };
         if let Err(error) = materialize_handoff_target(materialization)

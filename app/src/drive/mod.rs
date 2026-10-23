@@ -21,26 +21,10 @@ use warpui::AppContext;
 
 use crate::cloud_object::model::view::{CloudViewModel, UpdateTimestamp};
 use crate::cloud_object::{CloudObject, ObjectType};
-use crate::server::ids::ServerId;
 use crate::ui_components::icons::Icon;
 use crate::workflows::CloudWorkflow;
 
 type SortByComparator<'a> = dyn FnMut(&&dyn CloudObject, &&dyn CloudObject) -> Ordering + 'a;
-
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub struct OpenWarpDriveObjectSettings {
-    /// The folder that should be focused in the Warp Drive when the object is opened.
-    pub focused_folder_id: Option<ServerId>,
-    /// The email of the user to invite to the object, if the object is being opened via the request access flow.
-    pub invitee_email: Option<String>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct OpenWarpDriveObjectArgs {
-    pub object_type: ObjectType,
-    pub server_id: ServerId,
-    pub settings: OpenWarpDriveObjectSettings,
-}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DriveObjectType {

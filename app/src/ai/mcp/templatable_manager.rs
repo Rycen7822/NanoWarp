@@ -12,8 +12,6 @@ use diesel::SqliteConnection;
 use futures_util::stream::AbortHandle;
 use mcp::TemplatableMCPServerInfo;
 #[cfg(not(target_family = "wasm"))]
-use mcp::oauth;
-#[cfg(not(target_family = "wasm"))]
 pub use native::McpIntegration;
 #[cfg(not(target_family = "wasm"))]
 use parking_lot::Mutex;
@@ -52,15 +50,6 @@ pub struct TemplatableMCPServerManager {
     spawned_servers: HashMap<Uuid, SpawnedServerInfo>,
     #[cfg(not(target_family = "wasm"))]
     reconnectable_ephemeral_installations: HashMap<Uuid, TemplatableMCPServerInstallation>,
-    /// Cached credentials for each server.
-    ///
-    /// We persist these to secure storage, and if they are present when the server is started,
-    /// we use them instead of going through the OAuth flow again.
-    #[cfg(not(target_family = "wasm"))]
-    server_credentials: oauth::PersistedCredentialsMap,
-    /// Cached credentials for file-based servers, keyed by installation hash.
-    #[cfg(not(target_family = "wasm"))]
-    file_based_server_credentials: oauth::FileBasedPersistedCredentialsMap,
     #[cfg(not(target_family = "wasm"))]
     database_connection: Option<Arc<Mutex<SqliteConnection>>>,
     /// Error messages for failed servers, keyed by installation UUID.
@@ -77,16 +66,6 @@ pub struct TemplatableMCPServerManager {
     /// reconnection completes, all waiters are notified with the result.
     #[cfg(not(target_family = "wasm"))]
     pending_reconnections: HashMap<Uuid, Vec<ReconnectResultSender>>,
-    /// Maps the OAuth CSRF `state` token to the installation UUID of the server whose
-    /// authorization flow is in progress.
-    ///
-    /// Populated just before opening the authorization URL; removed once the callback
-    /// is received or the spawn task terminates.
-    #[cfg(not(target_family = "wasm"))]
-    pending_oauth_csrf: HashMap<String, Uuid>,
-    /// Short-lived authorization URLs for interactive OAuth flows.
-    #[cfg(not(target_family = "wasm"))]
-    authorization_urls: HashMap<Uuid, String>,
     /// UUIDs of built-in Warp-hosted servers (e.g. the Factory MCP), which are
     /// spawned automatically from in-code definitions and authenticated with
     /// the logged-in user's session credentials.
@@ -114,8 +93,6 @@ pub struct TemplatableMCPServerManager {
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 struct SpawnedServerInfo {
     abort_handle: AbortHandle,
-    #[cfg(not(target_family = "wasm"))]
-    oauth_result_tx: async_channel::Sender<oauth::CallbackResult>,
 }
 
 /// The current status of the Figma MCP server.
@@ -125,7 +102,7 @@ pub enum FigmaMcpStatus {
     NotInstalled,
     /// The Figma MCP server is installed but not currently running.
     Installed,
-    /// The Figma MCP server is in the process of enabling (e.g. OAuth flow in progress).
+    /// The Figma MCP server is in the process of enabling.
     Enabling,
     /// The Figma MCP server is running.
     Running,

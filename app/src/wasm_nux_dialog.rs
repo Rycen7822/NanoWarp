@@ -15,7 +15,7 @@ use crate::settings::app_installation_detection::{
 };
 use crate::settings::{NativePreferenceSettings, UserNativePreference};
 use crate::ui_components::dialog::{Dialog, dialog_styles};
-use crate::uri::web_intent_parser::{self, WebIntent};
+use crate::uri::web_intent_parser;
 
 const CLOSE_BUTTON_DIAMETER: f32 = 20.;
 const DIALOG_WIDTH: f32 = 350.;
@@ -80,17 +80,6 @@ impl WasmNUXDialog {
     pub fn should_display(app: &AppContext) -> bool {
         // Don't show on mobile devices - they can't use the desktop app
         if warpui::platform::wasm::is_mobile_device() {
-            return false;
-        }
-
-        // Someone just viewing a shared session or a conversation transcript (e.g. a
-        // factory-onboarding link) isn't a prospective new user composing in their own
-        // workspace, so the desktop-download prompt isn't relevant to them. The "Open in
-        // Warp" header button remains available as the unobtrusive path to the app.
-        if matches!(
-            web_intent_parser::current_web_intent(),
-            Some(WebIntent::SessionView(_)) | Some(WebIntent::ConversationView(_))
-        ) {
             return false;
         }
 
@@ -227,14 +216,8 @@ impl View for WasmNUXDialog {
                     appearance,
                 ))
         } else {
-            let object_kind = match web_intent_parser::current_web_intent() {
-                Some(WebIntent::DriveObject(_)) => "Warp Drive objects",
-                Some(WebIntent::SessionView(_)) => "shared sessions",
-                _ => "Warp links",
-            };
-
             Dialog::new(
-                format!("Always open {object_kind} on the web?"),
+                "Always open Warp links on the web?".to_owned(),
                 Some("You can change this at any time in settings.".to_string()),
                 dialog_styles,
             )

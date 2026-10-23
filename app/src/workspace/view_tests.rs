@@ -26,7 +26,6 @@ use super::*;
 use crate::ai::AIRequestUsageModel;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
 use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;
 use crate::ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::cloud_environments::CloudEnvironmentCatalog;
@@ -42,6 +41,7 @@ use crate::ai::outline::RepoOutlines;
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::ai::restored_conversations::RestoredAgentConversations;
 use crate::ai::skills::SkillManager;
+use crate::cloud_object::Owner;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
 use crate::context_chips::prompt::Prompt;
@@ -121,7 +121,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| DisplayCount::mock());
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
-    app.add_singleton_model(|_| GitHubAuthNotifier::new());
     app.add_singleton_model(|_ctx| SyncedInputState::mock());
     app.add_singleton_model(|_| ResizableData::default());
     app.add_singleton_model(UndoCloseStack::new);
@@ -458,7 +457,7 @@ fn restored_workspace(
         Workspace::new(
             global_resource_handles,
             NewWorkspaceSource::Restored {
-                window_snapshot,
+                window_snapshot: Box::new(window_snapshot),
                 block_lists: Arc::new(HashMap::new()),
             },
             ctx,
@@ -1477,22 +1476,14 @@ fn mock_workspace_with_shared_session(app: &mut App) -> ViewHandle<Workspace> {
 
 // Creates a workspace as a viewer of a shared session.
 pub(crate) fn mock_workspace_viewing_shared_session(app: &mut App) -> ViewHandle<Workspace> {
-    // Create the workspace as a session-sharing sharer.
-    let global_resource_handles = GlobalResourceHandles::mock(app);
-
-    let session_id = SessionId::new();
-
-    let (_, workspace) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-        Workspace::new(
-            global_resource_handles,
-            NewWorkspaceSource::SharedSessionAsViewer { session_id },
-            ctx,
-        )
+    let workspace = mock_workspace(app);
+    workspace.update(app, |workspace, ctx| {
+        workspace.add_tab_for_joining_shared_session(SessionId::new(), true, ctx);
     });
 
-    // Get the single terminal view in the workspace.
+    // Get the focused viewer in the workspace.
     let terminal_view = workspace.read(app, |workspace, ctx| {
-        assert_eq!(workspace.tabs.len(), 1);
+        assert_eq!(workspace.tabs.len(), 2);
         workspace
             .active_tab_pane_group()
             .as_ref(ctx)
@@ -2769,7 +2760,6 @@ fn test_notebook_pane_tracking() {
                     owner: Owner::mock_current_user(),
                     initial_folder_id: None,
                 },
-                &OpenWarpDriveObjectSettings::default(),
                 ctx,
                 true,
             );
@@ -2807,12 +2797,7 @@ fn test_notebook_pane_tracking() {
             );
 
             // Re-opening the notebook should not create a new view.
-            workspace.open_notebook(
-                &NotebookSource::Existing(notebook_id),
-                &OpenWarpDriveObjectSettings::default(),
-                ctx,
-                true,
-            );
+            workspace.open_notebook(&NotebookSource::Existing(notebook_id), ctx, true);
             assert_eq!(
                 ctx.views_of_type::<NotebookView>(ctx.window_id()),
                 Some(vec![notebook_view])
@@ -5388,20 +5373,6 @@ mod simplified_wasm_tab_bar {
     use crate::persistence::model::ConversationUsageMetadata;
     use crate::server::ids::ServerId;
 
-    fn mock_workspace_from_cloud_conversation(app: &mut App) -> ViewHandle<Workspace> {
-        let global_resource_handles = GlobalResourceHandles::mock(app);
-        let (_, workspace) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-            Workspace::new(
-                global_resource_handles,
-                NewWorkspaceSource::FromCloudConversationId {
-                    conversation_id: ServerConversationToken::new("test-server-token".to_string()),
-                },
-                ctx,
-            )
-        });
-        workspace
-    }
-
     fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
         Uuid::new_v4().to_string().parse().unwrap()
     }
@@ -5539,7 +5510,6 @@ mod simplified_wasm_tab_bar {
             initialize_app(&mut app);
             let workspace = mock_workspace(&mut app);
             workspace.read(&app, |workspace, ctx| {
-                assert!(!workspace.opened_from_content_deep_link);
                 assert_eq!(workspace.get_simplified_wasm_tab_bar_content(ctx), None);
             });
         });
@@ -5551,7 +5521,6 @@ mod simplified_wasm_tab_bar {
             initialize_app(&mut app);
             let workspace = mock_workspace_viewing_shared_session(&mut app);
             workspace.read(&app, |workspace, ctx| {
-                assert!(workspace.opened_from_content_deep_link);
                 assert!(matches!(
                     workspace.get_simplified_wasm_tab_bar_content(ctx),
                     Some(SimplifiedWasmTabBarContent::SharedSession { .. })
@@ -5561,12 +5530,11 @@ mod simplified_wasm_tab_bar {
     }
 
     #[test]
-    fn simplified_wasm_tab_bar_is_some_for_drive_object_without_deep_link() {
+    fn simplified_wasm_tab_bar_is_some_for_drive_object() {
         App::test((), |mut app| async move {
             initialize_app(&mut app);
             let workspace = mock_workspace(&mut app);
             workspace.update(&mut app, |workspace, ctx| {
-                assert!(!workspace.opened_from_content_deep_link);
                 workspace.active_tab_pane_group().update(ctx, |panes, ctx| {
                     panes.add_pane_with_direction(
                         Direction::Right,
@@ -5591,7 +5559,7 @@ mod simplified_wasm_tab_bar {
     }
 
     #[test]
-    fn simplified_wasm_tab_bar_is_none_after_owned_handoff_restore_without_deep_link() {
+    fn simplified_wasm_tab_bar_is_none_after_owned_handoff_restore() {
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
         let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
         let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
@@ -5602,7 +5570,6 @@ mod simplified_wasm_tab_bar {
             let workspace = mock_workspace(&mut app);
             workspace.update(&mut app, |workspace, ctx| {
                 restore_owned_handoff_cloud_cloud_pane(workspace, ctx);
-                assert!(!workspace.opened_from_content_deep_link);
                 assert_owned_handoff_restore_is_chrome_hostile(workspace, ctx);
                 assert_eq!(workspace.get_simplified_wasm_tab_bar_content(ctx), None);
                 assert!(
@@ -5612,37 +5579,6 @@ mod simplified_wasm_tab_bar {
                         .contains("Workspace_CloudConversationWebViewer")
                 );
             });
-        });
-    }
-
-    #[test]
-    fn simplified_wasm_tab_bar_stays_some_after_owned_handoff_cloud_cloud_restore() {
-        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
-        let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
-        let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
-        let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(true);
-
-        App::test((), |mut app| async move {
-            initialize_app(&mut app);
-            let workspace = mock_workspace_from_cloud_conversation(&mut app);
-            workspace.update(&mut app, |workspace, ctx| {
-            let task_id = restore_owned_handoff_cloud_cloud_pane(workspace, ctx);
-            assert!(workspace.opened_from_content_deep_link);
-            assert_owned_handoff_restore_is_chrome_hostile(workspace, ctx);
-            assert_eq!(
-                workspace.get_simplified_wasm_tab_bar_content(ctx),
-                Some(SimplifiedWasmTabBarContent::ConversationTranscript {
-                    task_id: Some(task_id),
-                })
-            );
-            assert!(
-                workspace
-                    .keymap_context(ctx)
-                    .set
-                    .contains("Workspace_CloudConversationWebViewer"),
-                "deep-linked conversation viewers must keep the web-viewer context so the command palette stays disabled"
-            );
-        });
         });
     }
 }

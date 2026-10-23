@@ -173,14 +173,6 @@ impl FileBasedMCPManager {
             ctx.emit(FileBasedMCPManagerEvent::DespawnServers {
                 installation_uuids: removed_uuids,
             });
-
-            let removed_hashes = removed_servers
-                .iter()
-                .filter_map(|server| server.hash())
-                .collect_vec();
-            ctx.emit(FileBasedMCPManagerEvent::PurgeCredentials {
-                installation_hashes: removed_hashes,
-            });
         }
     }
 
@@ -598,9 +590,6 @@ pub enum FileBasedMCPManagerEvent {
     },
     DespawnServers {
         installation_uuids: Vec<Uuid>,
-    },
-    PurgeCredentials {
-        installation_hashes: Vec<u64>,
     },
 }
 

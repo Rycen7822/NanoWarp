@@ -96,7 +96,7 @@ const CREDENTIAL_HEADER_NAMES: [&str; 3] = ["authorization", "x-api-key", "api-k
 
 /// Reports whether the caller configured a header that carries its own
 /// credential, i.e. whether a `401` should be read as a rejection of that
-/// credential rather than as an invitation to start OAuth.
+/// credential rather than an unsupported authentication challenge.
 fn has_caller_supplied_credential(headers: &HashMap<String, String>) -> bool {
     headers.iter().any(|(name, value)| {
         !value.trim().is_empty()
@@ -114,7 +114,7 @@ fn has_caller_supplied_credential(headers: &HashMap<String, String>) -> bool {
 ///
 /// Matching is on the parameter *name*. A substring test over the raw value
 /// would also fire on a rejection whose quoted `error_description` happened to
-/// mention the term, routing that rejection back into OAuth and undoing the
+/// mention the term, misclassifying that rejection and undoing the
 /// distinction this function exists to draw.
 fn is_oauth_challenge(www_authenticate: &str) -> bool {
     challenge_parameter_names(www_authenticate)
@@ -200,11 +200,9 @@ pub async fn spawn_server(
     warp_id: Option<String>,
     transport_type: TransportType,
     logger: SimpleLogger,
-    auth_context: Option<crate::oauth::AuthContext>,
 ) -> Result<TemplatableMCPServerInfo, rmcp::RmcpError> {
     logger.log("[note] Attention! There may be sensitive information (such as API keys) in these logs. Make sure to redact any secrets before sharing with others.".to_string());
 
-    let mut is_authenticated_transport = false;
     let service = match transport_type {
         TransportType::CLIServer(cli_server) => {
             logger.log("[info] MCP: Using stdio transport".to_string());
@@ -327,31 +325,8 @@ pub async fn spawn_server(
                 .iter()
                 .map(|h| (h.name.clone(), h.value.clone()))
                 .collect();
-            match determine_transport(server_name.clone(), &sse_server.url, &headers, auth_context)
-                .await
-            {
-                // TODO: these need headers also?
-                Ok(Transport::Http(Some(client), protocol)) => {
-                    is_authenticated_transport = true;
-
-                    logger.log("[info] MCP: Using Streaming HTTP transport".to_string());
-                    let transport = rmcp::transport::StreamableHttpClientTransport::with_client(
-                        client,
-                        rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
-                            sse_server.url.clone(),
-                        ),
-                    );
-                    let transport = TransportLoggingWrapper {
-                        transport,
-                        logger: logger.clone(),
-                    };
-                    Ok(make_client_info()
-                        .with_protocol_version(protocol.version.clone())
-                        .into_dyn()
-                        .serve_with_lifecycle(transport, protocol.lifecycle())
-                        .await?)
-                }
-                Ok(Transport::Http(None, protocol)) => {
+            match determine_transport(server_name.clone(), &sse_server.url, &headers).await {
+                Ok(Transport::Http(protocol)) => {
                     logger.log("[info] MCP: Using Streaming HTTP transport".to_string());
                     let transport = if headers.is_empty() {
                         rmcp::transport::StreamableHttpClientTransport::from_uri(
@@ -376,30 +351,7 @@ pub async fn spawn_server(
                         .serve_with_lifecycle(transport, protocol.lifecycle())
                         .await?)
                 }
-                Ok(Transport::Sse(Some(client))) => {
-                    is_authenticated_transport = true;
-
-                    logger.log("[info] MCP: Using (legacy) SSE transport (due to preflight failing with a 404)".to_string());
-                    let transport = crate::sse_transport::SseClientTransport::start_with_client(
-                        client,
-                        crate::sse_transport::SseClientConfig {
-                            sse_endpoint: sse_server.url.into(),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                    .map_err(rmcp::RmcpError::transport_creation::<ReqwestSseTransport>)?;
-                    let transport = TransportLoggingWrapper {
-                        transport,
-                        logger: logger.clone(),
-                    };
-                    Ok(make_client_info()
-                        .with_protocol_version(ProtocolVersion::LATEST_WITH_INITIALIZE)
-                        .into_dyn()
-                        .serve(transport)
-                        .await?)
-                }
-                Ok(Transport::Sse(None)) => {
+                Ok(Transport::Sse) => {
                     logger.log("[info] MCP: Using (legacy) SSE transport (due to preflight failing with a 404)".to_string());
                     let transport = if headers.is_empty() {
                         crate::sse_transport::SseClientTransport::start(sse_server.url.clone())
@@ -456,30 +408,23 @@ pub async fn spawn_server(
         installation_id: uuid,
         warp_id,
         description,
-        is_authenticated_transport,
     })
 }
 
 /// The transport to use for MCP.
 enum Transport {
-    /// The HTTP transport, with an optional authenticated client.
-    Http(
-        Option<rmcp::transport::auth::AuthClient<reqwest::Client>>,
-        NegotiatedProtocol,
-    ),
-    /// The SSE transport, with an optional authenticated client.
-    Sse(Option<rmcp::transport::auth::AuthClient<reqwest::Client>>),
+    Http(NegotiatedProtocol),
+    Sse,
 }
 
 /// Determines which transport to use.
 ///
-/// Negotiates the protocol revision while retaining the authentication challenges needed for OAuth.
+/// Negotiates the protocol revision and distinguishes rejected credentials from authentication challenges.
 #[allow(clippy::result_large_err)]
 async fn determine_transport(
     server_name: String,
     url: &str,
     headers: &HashMap<String, String>,
-    auth_context: Option<crate::oauth::AuthContext>,
 ) -> Result<Transport, rmcp::RmcpError> {
     use reqwest::StatusCode;
 
@@ -489,16 +434,16 @@ async fn determine_transport(
         ))
     }
 
-    let preflight = negotiate_protocol(url, headers, None).await?;
+    let preflight = negotiate_protocol(url, headers).await?;
     match preflight.status {
-        StatusCode::OK => Ok(Transport::Http(None, preflight.protocol)),
-        StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED => Ok(Transport::Sse(None)),
+        StatusCode::OK => Ok(Transport::Http(preflight.protocol)),
+        StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED => Ok(Transport::Sse),
         StatusCode::UNAUTHORIZED => {
             // A server that wants OAuth says so with a protected-resource
             // challenge. Without one, a `401` on a request that already carried
             // the caller's own credential means that credential was rejected —
-            // starting an OAuth flow there would replace an accurate error with
-            // a misleading one.
+            // reporting unsupported authentication there would hide the accurate
+            // credential-rejection error.
             if !preflight
                 .www_authenticate
                 .iter()
@@ -515,46 +460,9 @@ async fn determine_transport(
                 ));
             }
 
-            let Some(mut auth_context) = auth_context else {
-                return Err(rmcp::RmcpError::transport_creation::<ReqwestHttpTransport>(
-                    "Server requires authentication, which is not yet supported.".to_string(),
-                ));
-            };
-
-            // Grab the post-authentication callback so we can invoke it once we know for sure that we successfully
-            // went through the OAuth flow for a server and negotiated a compatible protocol.
-            let authenticated_callback = std::mem::take(&mut auth_context.authenticated);
-
-            // Go through the OAuth flow to get an authenticated client.
-            // This will first attempt to use cached credentials before starting interactive OAuth.
-            let http_client = build_client_with_headers(headers)?;
-            let (client, did_require_login) =
-                crate::oauth::make_authenticated_client(url, http_client, auth_context)
-                    .await
-                    .map_err(rmcp::RmcpError::transport_creation::<ReqwestHttpTransport>)?;
-
-            // Define a helper function to invoke when we've successfully authenticated.
-            let emit_authenticated_notification = async move || {
-                if did_require_login
-                    && let Some(authenticated_callback) = authenticated_callback
-                    && let Err(err) = authenticated_callback(server_name).await
-                {
-                    log::warn!("Failed to emit MCP authenticated notification: {err:?}");
-                }
-            };
-
-            let preflight = negotiate_protocol(url, headers, Some(&client)).await?;
-            match preflight.status {
-                StatusCode::OK => {
-                    emit_authenticated_notification().await;
-                    Ok(Transport::Http(Some(client), preflight.protocol))
-                }
-                StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED => {
-                    emit_authenticated_notification().await;
-                    Ok(Transport::Sse(Some(client)))
-                }
-                other => Err(unexpected_error(other)),
-            }
+            Err(rmcp::RmcpError::transport_creation::<ReqwestHttpTransport>(
+                "MCP server requires authentication, which is not supported.".to_string(),
+            ))
         }
         status => Err(unexpected_error(status)),
     }
@@ -599,7 +507,6 @@ struct PreflightResponse {
 async fn negotiate_protocol(
     url: &str,
     headers: &HashMap<String, String>,
-    auth_client: Option<&rmcp::transport::auth::AuthClient<reqwest::Client>>,
 ) -> Result<PreflightResponse, rmcp::RmcpError> {
     let mut protocol = NegotiatedProtocol {
         version: ProtocolVersion::LATEST,
@@ -609,7 +516,7 @@ async fn negotiate_protocol(
     loop {
         attempted.push(protocol.version.clone());
         let (mut preflight, message) =
-            send_preflight_request(url, headers, auth_client, protocol.clone()).await?;
+            send_preflight_request(url, headers, protocol.clone()).await?;
         if (!protocol.discover
             && matches!(
                 preflight.status,
@@ -724,7 +631,6 @@ async fn negotiate_protocol(
 async fn send_preflight_request(
     url: &str,
     headers: &HashMap<String, String>,
-    auth_client: Option<&rmcp::transport::auth::AuthClient<reqwest::Client>>,
     protocol: NegotiatedProtocol,
 ) -> Result<(PreflightResponse, Option<ServerJsonRpcMessage>), rmcp::RmcpError> {
     use rmcp::transport::common::http_header::{
@@ -757,14 +663,6 @@ async fn send_preflight_request(
         .json(&message);
     if protocol.discover {
         request = request.header(HEADER_MCP_METHOD, "server/discover");
-    }
-
-    if let Some(auth_client) = auth_client.as_ref() {
-        let access_token = auth_client
-            .get_access_token()
-            .await
-            .map_err(rmcp::RmcpError::transport_creation::<ReqwestHttpTransport>)?;
-        request = request.bearer_auth(access_token);
     }
 
     let response = request

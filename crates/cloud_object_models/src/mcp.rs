@@ -50,7 +50,6 @@ pub struct MCPServer {
 pub enum MCPServerState {
     NotRunning,
     Starting,
-    Authenticating,
     Running,
     ShuttingDown,
     FailedToStart,

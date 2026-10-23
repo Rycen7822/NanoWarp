@@ -11,7 +11,6 @@ use super::{
     EnvironmentFormCopy, EnvironmentFormInitArgs, EnvironmentFormValues, SuggestImageState,
     UpdateEnvironmentForm, UpdateEnvironmentFormAction,
 };
-use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
 use crate::ai::ambient_agents::github_auth_url::{self, AuthSource, GithubAuthRedirectTarget};
 use crate::ai::cloud_environments::GithubRepo;
 use crate::auth::AuthStateProvider;
@@ -194,8 +193,6 @@ fn init_update_environment_form_test_models(app: &mut App) {
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
-
-    app.add_singleton_model(|_| GitHubAuthNotifier::new());
 }
 
 #[derive(Debug)]

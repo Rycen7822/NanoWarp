@@ -12,8 +12,8 @@ use super::{
 };
 use crate::app_state::{LeafContents, NotebookPaneSnapshot};
 use crate::cloud_object::Space;
+use crate::drive::CloudObjectTypeAndId;
 use crate::drive::items::WarpDriveItemId;
-use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectSettings};
 use crate::notebooks::link::{LinkEvent, NotebookLinks};
 use crate::notebooks::manager::{NotebookManager, NotebookSource};
 use crate::notebooks::notebook::{NotebookEvent, NotebookView};
@@ -43,7 +43,6 @@ impl NotebookPane {
     /// Restore a notebook pane given its cloud notebook ID.
     pub fn restore(
         notebook_id: Option<SyncId>,
-        settings: &OpenWarpDriveObjectSettings,
         ctx: &mut ViewContext<PaneGroup>,
     ) -> anyhow::Result<Self> {
         let window_id = ctx.window_id();
@@ -59,7 +58,7 @@ impl NotebookPane {
         };
 
         Ok(NotebookManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.create_pane(&source, settings, window_id, ctx)
+            manager.create_pane(&source, window_id, ctx)
         }))
     }
 
@@ -75,10 +74,7 @@ impl PaneContent for NotebookPane {
 
     fn snapshot(&self, app: &AppContext) -> LeafContents {
         let notebook_id = self.notebook_view(app).as_ref(app).notebook_id(app);
-        LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-            notebook_id,
-            settings: OpenWarpDriveObjectSettings::default(),
-        })
+        LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook { notebook_id })
     }
 
     fn attach(
@@ -179,11 +175,6 @@ pub(super) fn subscribe_to_link_model(
                 session: session.clone(),
             })
         }
-        LinkEvent::OpenWarpDriveLink {
-            open_warp_drive_args,
-        } => ctx.emit(crate::pane_group::Event::OpenWarpDriveLink {
-            open_warp_drive_args: open_warp_drive_args.clone(),
-        }),
         LinkEvent::StartLocalSession { path } => {
             pane_group.add_session_in_directory(
                 Direction::Right,

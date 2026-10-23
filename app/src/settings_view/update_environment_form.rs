@@ -29,7 +29,6 @@ use warpui::{
 use super::editor_text_colors;
 use super::settings_page::{InputListItem, render_input_list};
 use crate::ChannelState;
-use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};
 use crate::ai::ambient_agents::github_auth_url::{self, AuthSource, GithubAuthRedirectTarget};
 use crate::ai::ambient_agents::telemetry::CloudAgentTelemetryEvent;
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, GithubRepo};
@@ -612,13 +611,6 @@ impl UpdateEnvironmentForm {
                 EnvironmentFormMode::Edit { env_id: *env_id }
             }
         };
-
-        // Subscribe to GitHubAuthNotifier to refetch repos when auth completes
-        ctx.subscribe_to_model(&GitHubAuthNotifier::handle(ctx), |me, _, event, ctx| {
-            if matches!(event, GitHubAuthEvent::AuthCompleted) {
-                me.fetch_github_repos(ctx);
-            }
-        });
 
         let mut form = Self {
             self_handle: ctx.handle(),

@@ -6,7 +6,6 @@ use warpui::{
 };
 
 use super::CreateEnvironmentModal;
-use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::network::NetworkStatus;
@@ -59,7 +58,6 @@ fn init_create_environment_modal_test_models(app: &mut App) {
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
-    app.add_singleton_model(|_| GitHubAuthNotifier::new());
 }
 
 #[test]

@@ -72,7 +72,6 @@ pub enum MCPServersEditPageViewEvent {
     Back,
     Reinstall(Uuid),
     Delete(ServerCardItemId),
-    LogOut(ServerCardItemId, Option<String>),
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +81,6 @@ pub enum MCPServersEditPageViewAction {
     Save,
     Delete,
     Unshare,
-    LogOut,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -122,7 +120,6 @@ pub struct MCPServersEditPageView {
     back_button: MouseStateHandle,
     json_editor: ViewHandle<CodeEditorView>,
     destructive_mcp_confirmation_dialog: ViewHandle<DestructiveMCPConfirmationDialog>,
-    log_out_icon_button_mouse_handle: MouseStateHandle,
     editing_disabled_banner: ViewHandle<Banner<()>>,
 
     #[cfg(feature = "local_fs")]
@@ -214,7 +211,6 @@ impl MCPServersEditPageView {
             back_button: Default::default(),
             json_editor,
             destructive_mcp_confirmation_dialog,
-            log_out_icon_button_mouse_handle: Default::default(),
             editing_disabled_banner,
 
             #[cfg(feature = "local_fs")]
@@ -290,27 +286,6 @@ impl MCPServersEditPageView {
         ctx.notify();
     }
 
-    fn should_show_oauth_components(&self, ctx: &AppContext) -> bool {
-        if let Some(item_id) = self.server_card_item_id {
-            match item_id {
-                ServerCardItemId::TemplatableMCP(_) => false,
-                ServerCardItemId::TemplatableMCPInstallation(uuid) => {
-                    let template_uuid =
-                        TemplatableMCPServerManager::as_ref(ctx).get_template_uuid(uuid);
-                    if let Some(template_uuid) = template_uuid {
-                        TemplatableMCPServerManager::as_ref(ctx)
-                            .has_oauth_credentials_for_server(template_uuid)
-                    } else {
-                        false
-                    }
-                }
-                ServerCardItemId::GalleryMCP(_) | ServerCardItemId::FileBasedMCP(_) => false,
-            }
-        } else {
-            false
-        }
-    }
-
     fn render_header(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let title = if self.server_card_item_id.is_none() {
@@ -321,24 +296,9 @@ impl MCPServersEditPageView {
             "Edit MCP Server".to_string()
         };
 
-        let ui_builder = appearance.ui_builder().clone();
-        let log_out_icon_button = icon_button(
-            appearance,
-            Icon::LogOut,
-            false,
-            self.log_out_icon_button_mouse_handle.clone(),
-        )
-        .with_tooltip(move || ui_builder.tool_tip("Log out".to_string()).build().finish())
-        .build()
-        .on_click(|ctx, _, _| ctx.dispatch_typed_action(MCPServersEditPageViewAction::LogOut))
-        .finish();
-
         let mut rhs_row = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(style::PAGE_SPACING);
-        if self.should_show_oauth_components(app) {
-            rhs_row.add_child(log_out_icon_button);
-        }
         if self.is_editable(self.server_card_item_id, app) {
             rhs_row.add_child(
                 Container::new(ChildView::new(&self.save_button).finish())
@@ -961,14 +921,6 @@ impl TypedActionView for MCPServersEditPageView {
                     ctx.emit(MCPServersEditPageViewEvent::Back);
                 }
             },
-            MCPServersEditPageViewAction::LogOut => {
-                if let Some(item_id) = self.server_card_item_id {
-                    ctx.emit(MCPServersEditPageViewEvent::LogOut(
-                        item_id,
-                        self.server_model.name(),
-                    ));
-                }
-            }
         }
     }
 }

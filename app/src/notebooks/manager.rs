@@ -8,7 +8,6 @@ use warpui::{
 use super::notebook::NotebookView;
 use crate::cloud_object::Owner;
 use crate::cloud_object::model::persistence::CloudModel;
-use crate::drive::OpenWarpDriveObjectSettings;
 use crate::pane_group::{NotebookPane, PaneContent};
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
@@ -86,7 +85,6 @@ impl NotebookManager {
     pub fn create_pane(
         &mut self,
         source: &NotebookSource,
-        settings: &OpenWarpDriveObjectSettings,
         window_id: WindowId,
         ctx: &mut ModelContext<Self>,
     ) -> NotebookPane {
@@ -96,11 +94,11 @@ impl NotebookManager {
             NotebookSource::Existing(notebook_id) => {
                 let notebook = CloudModel::as_ref(ctx).get_notebook(notebook_id).cloned();
                 if let Some(notebook) = notebook {
-                    view.update(ctx, |view, ctx| view.load(notebook, settings, ctx));
+                    view.update(ctx, |view, ctx| view.load(notebook, ctx));
                 } else {
                     // If the notebook doesn't exist yet, try waiting for initial load and check again
                     view.update(ctx, |view, ctx| {
-                        view.wait_for_initial_load_then_load(*notebook_id, settings, window_id, ctx)
+                        view.wait_for_initial_load_then_load(*notebook_id, window_id, ctx)
                     });
                 }
             }

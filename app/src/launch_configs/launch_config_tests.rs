@@ -6,7 +6,6 @@ use crate::app_state::{
     PaneNodeSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
     WindowSnapshot,
 };
-use crate::drive::OpenWarpDriveObjectSettings;
 use crate::tab::SelectedTabColor;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::tab_group::TabGroupId;
@@ -83,7 +82,6 @@ fn test_config_from_snapshot_flattens_single_pane() {
                     custom_vertical_tabs_title: None,
                     contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                         notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
                     }),
                 }),
             ),
@@ -153,7 +151,6 @@ fn test_config_from_snapshot_filters_panes() {
                     custom_vertical_tabs_title: None,
                     contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                         notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
                     }),
                 }),
             ),
@@ -217,7 +214,6 @@ fn test_config_from_snapshot_filters_tabs() {
                 custom_vertical_tabs_title: None,
                 contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                     notebook_id: None,
-                    settings: OpenWarpDriveObjectSettings::default(),
                 }),
             }),
         )],
@@ -414,7 +410,6 @@ fn test_config_with_active_tab_index_and_filtered_tabs() {
                             custom_vertical_tabs_title: None,
                             contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                                 notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
                             }),
                         }),
                     )],
@@ -511,7 +506,6 @@ fn test_config_with_active_tab_being_filtered() {
                             custom_vertical_tabs_title: None,
                             contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                                 notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
                             }),
                         }),
                     )],
@@ -572,7 +566,6 @@ fn unsaveable_tab(group_id: Option<TabGroupId>) -> TabSnapshot {
             custom_vertical_tabs_title: None,
             contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                 notebook_id: None,
-                settings: OpenWarpDriveObjectSettings::default(),
             }),
         }),
         left_panel: None,

@@ -344,7 +344,6 @@ pub enum SharingDialogSource {
     /// The sharing dialog was auto-opened from shared session creation.
     StartedSessionShare,
     /// The user intented into Warp with an email address to invite.
-    InviteeRequest,
     /// The user jumped from an inherited ACL to its definition on a parent object.
     InheritedPermission,
     /// The onboarding block shown after users create new personal objects.
@@ -859,7 +858,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     CodeReviewContext,
     ContinueConversationButton,
     ResumeConversationButton,
-    CodexModal,
     LongRunningCommand,
     OnboardingCallout,
     ConversationListView,
@@ -905,7 +903,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::LongRunningCommand => Self::LongRunningCommand,
             AgentViewEntryOrigin::ContinueConversationButton => Self::ContinueConversationButton,
             AgentViewEntryOrigin::ResumeConversationButton => Self::ResumeConversationButton,
-            AgentViewEntryOrigin::CodexModal => Self::CodexModal,
             AgentViewEntryOrigin::OnboardingCallout => Self::OnboardingCallout,
             AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
@@ -2088,9 +2085,7 @@ pub enum TelemetryEvent {
         is_visible: bool,
     },
     /// Emitted when the Codex modal is opened.
-    CodexModalOpened,
     /// Emitted when the user clicks "Use Codex" in the Codex modal.
-    CodexModalUseCodexClicked,
     /// Emitted when the cloud agent capacity modal is opened.
     CloudAgentCapacityModalOpened,
     /// Emitted when the cloud agent capacity modal is dismissed.
@@ -2116,7 +2111,6 @@ pub enum TelemetryEvent {
         sandboxed: bool,
     },
     /// Emitted when a warp://linear deeplink is opened.
-    LinearIssueLinkOpened,
     /// Emitted when the remote server binary check completes.
     RemoteServerBinaryCheck {
         found: bool,
@@ -3527,9 +3521,6 @@ impl TelemetryEvent {
             TelemetryEvent::AgentShortcutsViewToggled { is_visible } => Some(json!({
                 "is_visible": is_visible,
             })),
-            TelemetryEvent::CodexModalOpened => None,
-            TelemetryEvent::CodexModalUseCodexClicked => None,
-            TelemetryEvent::LinearIssueLinkOpened => None,
             TelemetryEvent::CloudAgentCapacityModalOpened => None,
             TelemetryEvent::CloudAgentCapacityModalDismissed => None,
             TelemetryEvent::ComputerUseApproved {
@@ -3918,9 +3909,6 @@ impl TelemetryEvent {
             | TelemetryEvent::CloudAgentShellRecovery { .. }
             | TelemetryEvent::AgentNotificationShown { .. }
             | TelemetryEvent::ToggleUseAgentToolbarSetting { .. }
-            | TelemetryEvent::CodexModalOpened
-            | TelemetryEvent::CodexModalUseCodexClicked
-            | TelemetryEvent::LinearIssueLinkOpened
             | TelemetryEvent::CloudAgentCapacityModalOpened
             | TelemetryEvent::CloudAgentCapacityModalDismissed
             | TelemetryEvent::ComputerUseApproved { .. }
@@ -4345,8 +4333,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 EnablementState::Flag(FeatureFlag::HOANotifications)
             }
             Self::ToggleUseAgentToolbarSetting { .. } => EnablementState::Always,
-            Self::CodexModalOpened | Self::CodexModalUseCodexClicked => EnablementState::Always,
-            Self::LinearIssueLinkOpened => EnablementState::Always,
             Self::CloudAgentCapacityModalOpened | Self::CloudAgentCapacityModalDismissed => {
                 EnablementState::Flag(FeatureFlag::CloudMode)
             }
@@ -4778,9 +4764,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CloudAgentShellRecovery { .. } => "AgentMode.CloudShellRecovery",
             Self::AgentNotificationShown { .. } => "AgentNotification.Shown",
             Self::ToggleUseAgentToolbarSetting { .. } => "UseAgentToolbar.SettingToggled",
-            Self::CodexModalOpened => "CodexModal.Opened",
-            Self::CodexModalUseCodexClicked => "CodexModal.UseCodexClicked",
-            Self::LinearIssueLinkOpened => "Linear.IssueLinkOpened",
             Self::CloudAgentCapacityModalOpened => "AmbientAgent.ConcurrencyModal.Opened",
             Self::CloudAgentCapacityModalDismissed => "AmbientAgent.ConcurrencyModal.Dismissed",
             Self::ComputerUseApproved => "ComputerUse.Approved",
@@ -5413,11 +5396,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::ToggleUseAgentToolbarSetting { .. } => {
                 "User toggled the Use Agent footer setting"
-            }
-            Self::CodexModalOpened => "User opened the Codex modal",
-            Self::CodexModalUseCodexClicked => "User clicked 'Use Codex' in the Codex modal",
-            Self::LinearIssueLinkOpened => {
-                "User opened a warp://linear deeplink to work on an issue"
             }
             Self::CloudAgentCapacityModalOpened => "User opened the cloud agent capacity modal",
             Self::CloudAgentCapacityModalDismissed => {
