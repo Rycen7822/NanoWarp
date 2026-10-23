@@ -29,9 +29,6 @@ pub fn teardown(ctx: &mut AppContext) {
 pub fn pass_startup_args_to_existing_instance(
     args: &warp_cli::AppArgs,
 ) -> Result<(), StartupArgsForwardingError> {
-    if args.finish_update {
-        return Err(StartupArgsForwardingError::IgnoredAfterAutoUpdate);
-    }
     // Guarded because this module also compiles on FreeBSD, where
     // enable_crash_recovery is not set and crate::crash_recovery doesn't exist.
     #[cfg(target_os = "linux")]
@@ -74,10 +71,6 @@ pub enum StartupArgsForwardingError {
     /// There's no instance of Warp already running.
     #[error("no existing instance found to forward args to")]
     NoExistingInstance,
-    /// This instance was launched after an auto-update and should not forward
-    /// arguments to the old (terminating) instance.
-    #[error("should not forward args after an auto-update")]
-    IgnoredAfterAutoUpdate,
     #[error("should not forward args from the crash recovery process")]
     IgnoredForCrashRecoveryProcess,
     /// An unknown D-Bus error occurred.

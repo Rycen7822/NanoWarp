@@ -25,7 +25,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) new_tab_button: MouseStateHandle,
     pub(super) new_tab_menu: MouseStateHandle,
     pub(super) new_tab: MouseStateHandle,
-    pub(super) overflow_button: MouseStateHandle,
     pub(super) banner_button: MouseStateHandle,
     pub(super) banner_secondary_button: MouseStateHandle,
     pub(super) more_info_banner_button: MouseStateHandle,
@@ -85,7 +84,6 @@ pub struct WorkspaceState {
     pub is_theme_chooser_open: bool,
     pub is_theme_creator_modal_open: bool,
     pub is_theme_deletion_modal_open: bool,
-    pub is_changelog_modal_open: bool,
     pub is_tab_being_dragged: bool,
     pub is_launch_config_save_modal_open: bool,
     pub is_resource_center_open: bool,
@@ -131,7 +129,6 @@ impl WorkspaceState {
     pub fn is_any_non_palette_modal_open(&self) -> bool {
         self.is_theme_creator_modal_open
             || self.is_theme_deletion_modal_open
-            || self.is_changelog_modal_open
             || self.tab_being_renamed.is_some()
             || self.pane_being_renamed.is_some()
             || self.tab_group_being_renamed.is_some()
@@ -163,7 +160,6 @@ impl WorkspaceState {
         self.is_ctrl_tab_palette_open = false;
         self.is_theme_creator_modal_open = false;
         self.is_theme_deletion_modal_open = false;
-        self.is_changelog_modal_open = false;
         self.tab_being_renamed = None;
         self.pane_being_renamed = None;
         self.tab_group_being_renamed = None;

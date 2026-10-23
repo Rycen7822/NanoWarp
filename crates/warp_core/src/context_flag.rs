@@ -20,7 +20,6 @@ pub enum ContextFlag {
     CloseWindow,
     ForceSidePanelOpen,
     HideOpenOnDesktopButton,
-    PromptForVersionUpdates,
     NetworkLogConsole,
     RunWorkflow,
     LaunchConfigurations,
@@ -64,7 +63,6 @@ impl ContextFlag {
         disable_flag(Self::CreateSharedSession);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
-        disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::WarpEssentials);
         disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::ShowMCPServers);
@@ -77,7 +75,6 @@ impl ContextFlag {
         disable_flag(Self::CreateSharedSession);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
-        disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::WarpEssentials);
         disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::AllowSettingsModalToClose);
@@ -93,7 +90,6 @@ impl ContextFlag {
         disable_flag(Self::CreateSharedSession);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
-        disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::WarpEssentials);
         disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::ShowMCPServers);
@@ -106,7 +102,6 @@ impl ContextFlag {
         disable_flag(Self::CloseWindow);
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::LaunchConfigurations);
         disable_flag(Self::WarpEssentials);
@@ -119,7 +114,6 @@ impl ContextFlag {
         disable_flag(Self::CloseWindow);
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::LaunchConfigurations);
         disable_flag(Self::WarpEssentials);
@@ -138,7 +132,6 @@ impl FromStr for ContextFlag {
             "CloseWindow" => Ok(Self::CloseWindow),
             "ForceSidePanelOpen" => Ok(Self::ForceSidePanelOpen),
             "HideOpenOnDesktopButton" => Ok(Self::HideOpenOnDesktopButton),
-            "PromptForVersionUpdates" => Ok(Self::PromptForVersionUpdates),
             "NetworkLogConsole" => Ok(Self::NetworkLogConsole),
             "RunWorkflow" => Ok(Self::RunWorkflow),
             "LaunchConfigurations" => Ok(Self::LaunchConfigurations),

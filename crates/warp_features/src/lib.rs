@@ -6,11 +6,9 @@ pub use overrides::{get_overrides, set_overrides};
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Sequence)]
 pub enum FeatureFlag {
-    Changelog,
     CocoaSentry,
     CrashReporting,
     DebugMode,
-    Autoupdate,
     LogExpensiveFramesInSentry,
     WithSandboxTelemetry,
     RecordAppActiveEvents,
@@ -202,9 +200,6 @@ pub enum FeatureFlag {
 
     /// If enabled, the default theme is set to Adeberry for new users.
     DefaultAdeberryTheme,
-
-    /// New, less intrusive autoupdate UI.
-    AutoupdateUIRevamp,
 
     /// Enables Kitty image rendering
     KittyImages,
@@ -594,9 +589,6 @@ pub enum FeatureFlag {
     /// Enables Oz identity federation commands.
     OzIdentityFederation,
 
-    /// Gates populating/reading oz updates from channel versions in the changelog model.
-    OzChangelogUpdates,
-
     /// Enables image upload for ambient agents.
     AmbientAgentsImageUpload,
 
@@ -966,8 +958,6 @@ pub const PREVIEW_FLAGS: &[FeatureFlag] = &[];
 /// NOTE: if you are promoting a feature from Preview to launch, you'll likely
 /// want to enable the feature by default in app/Cargo.toml, rather than add it to RELEASE_FLAGS.
 pub const RELEASE_FLAGS: &[FeatureFlag] = &[
-    FeatureFlag::Autoupdate,
-    FeatureFlag::Changelog,
     FeatureFlag::CrashReporting,
     FeatureFlag::PeriodicHandoffCheckpoints,
     FeatureFlag::VideoRecording,
@@ -1032,42 +1022,6 @@ impl FeatureFlag {
     #[cfg(feature = "test-util")]
     pub fn override_enabled(self, enabled: bool) -> overrides::OverrideGuard {
         overrides::override_flag(self, enabled)
-    }
-
-    pub fn flag_description(&self) -> Option<&'static str> {
-        use FeatureFlag::*;
-
-        // Note: many feature flags are purposefully omitted from this list, in order to avoid blowing up
-        // the Preview changelog. Features below which are enabled for Preview via PREVIEW_FLAGS, will be added to the changelog.
-        // Features which are added to Stable should ideally have their feature flag removed entirely, but at the
-        // very least, the feature flag should be removed from the Preview changelog by removing it from PREVIEW_FLAGS.
-        // ** ONLY Preview-exclusive features should be added to this list! **
-        match self {
-            AgentSharedSessions => {
-                Some("Enables viewing agent conversations within shared sessions.")
-            }
-            CodeReviewFind => Some("Enables the find bar in the code review pane."),
-            BlocklistMarkdownImages => {
-                Some("Enables rendering markdown images inline in AI block list responses.")
-            }
-            CloudEnvironments => {
-                Some("Enables creating and managing Warp Environments via the CLI.")
-            }
-            GlobalSearch => Some("Enables global search in the left panel"),
-            BlocklistMarkdownTableRendering => {
-                Some("Enables rendering markdown tables inline in AI block list responses.")
-            }
-            MarkdownTables => {
-                Some("Enables rendering and interaction support for markdown tables in notebooks.")
-            }
-            SettingsFile => Some(
-                "Enables configuring Warp via a user-editable `settings.toml` file, with hot reload and error reporting for invalid values.",
-            ),
-            GitOperationsInCodeReview => Some(
-                "Enables commit, push, and create-PR actions directly from the code review panel.",
-            ),
-            _ => None,
-        }
     }
 }
 

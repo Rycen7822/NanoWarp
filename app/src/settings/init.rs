@@ -14,9 +14,9 @@ use super::cloud_preferences::CloudPreferencesSettings;
 use super::native_preference::NativePreferenceSettings;
 use super::{
     AISettings, AccessibilitySettings, AliasExpansionSettings, AppEditorSettings,
-    BlockVisibilitySettings, ChangelogSettings, CodeSettings, DebugSettings, EmacsBindingsSettings,
-    FontSettings, FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings,
-    InputSettings, PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
+    BlockVisibilitySettings, CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings,
+    FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings, InputSettings,
+    PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
     SharedObjectLimitBannerSettings, SshSettings, ThemeSettings, VimBannerSettings,
     WarpDrivePrivacySettings,
 };
@@ -68,7 +68,6 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     CodeSettings::register(ctx);
     LigatureSettings::register(ctx);
     GPUSettings::register(ctx);
-    ChangelogSettings::register(ctx);
     GeneralSettings::register(ctx);
     AISettings::register_and_subscribe_to_events(ctx);
     CloudAgentSettings::register(ctx);

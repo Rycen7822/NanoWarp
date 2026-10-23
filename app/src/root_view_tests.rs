@@ -373,7 +373,6 @@ fn test_show_needs_sso_link_view_blocks_pre_terminal_onboarding_states() {
             let marker = global_resource_handles.tips_completed.id();
             let target = AuthOnboardingTarget::Workspace(Box::new(WorkspaceArgs {
                 global_resource_handles,
-                server_time: None,
                 workspace_setting: NewWorkspaceSource::Empty {
                     previous_active_window: None,
                     shell: None,
@@ -500,7 +499,6 @@ fn assert_pending_workspace_retargeted(
 fn pending_workspace_args(app: &mut App) -> Box<WorkspaceArgs> {
     Box::new(WorkspaceArgs {
         global_resource_handles: GlobalResourceHandles::mock(app),
-        server_time: None,
         workspace_setting: NewWorkspaceSource::Empty {
             previous_active_window: None,
             shell: None,

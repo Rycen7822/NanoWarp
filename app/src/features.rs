@@ -23,10 +23,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
     }
 
     flags.extend([
-        #[cfg(feature = "autoupdate")]
-        FeatureFlag::Autoupdate,
-        #[cfg(feature = "changelog")]
-        FeatureFlag::Changelog,
         #[cfg(feature = "cocoa_sentry")]
         FeatureFlag::CocoaSentry,
         #[cfg(feature = "crash_reporting")]
@@ -119,8 +115,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ValidateAutosuggestions,
         #[cfg(feature = "clear_autosuggestion_on_escape")]
         FeatureFlag::ClearAutosuggestionOnEscape,
-        #[cfg(feature = "autoupdate_ui_revamp")]
-        FeatureFlag::AutoupdateUIRevamp,
         #[cfg(all(not(windows), feature = "kitty_images"))]
         FeatureFlag::KittyImages,
         #[cfg(feature = "warp_packs")]
@@ -375,8 +369,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::OzPlatformSkills,
         #[cfg(feature = "oz_identity_federation")]
         FeatureFlag::OzIdentityFederation,
-        #[cfg(feature = "oz_changelog_updates")]
-        FeatureFlag::OzChangelogUpdates,
         #[cfg(feature = "bundled_skills")]
         FeatureFlag::BundledSkills,
         #[cfg(feature = "new_tab_styling")]

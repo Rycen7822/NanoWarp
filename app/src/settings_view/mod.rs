@@ -10,7 +10,6 @@ use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
 use knowledge_page::{KnowledgePageAction, KnowledgePageEvent, KnowledgePageView};
-use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
 use mcp_servers_page::MCPServersSettingsPageView;
 use nav::{SettingsNavItem, SettingsUmbrella};
 use pathfinder_geometry::vector::Vector2F;
@@ -63,7 +62,6 @@ use crate::terminal::model::blockgrid::BlockGrid;
 use crate::ui_components::icons;
 use crate::util::bindings::{BindingGroup, CustomAction, keybinding_name_to_display_string};
 use crate::workspace::WorkspaceAction;
-use crate::workspaces::workspace::{BillingMetadata, CustomerType};
 use crate::{GlobalResourceHandlesProvider, TelemetryEvent};
 
 mod about_page;
@@ -85,7 +83,6 @@ mod features_page;
 pub(crate) mod handoff_environment_creation_modal;
 pub mod keybindings;
 mod knowledge_page;
-mod main_page;
 pub mod mcp_servers;
 pub mod mcp_servers_page;
 mod nav;
@@ -107,7 +104,6 @@ mod warpify_page;
 pub(crate) use admin_actions::AdminActions;
 pub use code_indexing_page::CodeIndexingPageView;
 pub use features_page::FeaturesPageAction;
-pub use main_page::handle_experiment_change;
 pub use privacy_page::PrivacyPageAction;
 pub use settings_page::{
     AdditionalInfo, InputListItem, LocalOnlyIconState, ToggleState, render_body_item_label,
@@ -143,32 +139,6 @@ fn sidebar_width() -> f32 {
 const SECTION_BORDER_WIDTH: f32 = 1.;
 
 const POSITION_ID: &str = "settings_pane";
-
-struct PlanHeaderPresentation {
-    badge_label: Option<String>,
-    show_personal_upgrade: bool,
-}
-
-fn plan_header_presentation(
-    billing_metadata: Option<&BillingMetadata>,
-    has_team: bool,
-    is_anonymous: bool,
-) -> PlanHeaderPresentation {
-    let badge_label = if is_anonymous || billing_metadata.is_none() {
-        Some("Free".to_string())
-    } else {
-        billing_metadata
-            .filter(|billing_metadata| billing_metadata.customer_type != CustomerType::Unknown)
-            .map(|billing_metadata| billing_metadata.customer_type.to_display_string())
-    };
-
-    PlanHeaderPresentation {
-        badge_label,
-        show_personal_upgrade: is_anonymous
-            || (!has_team
-                && billing_metadata.is_none_or(BillingMetadata::can_upgrade_to_build_plan)),
-    }
-}
 
 /// Saved-position id for the settings search input.
 pub const SEARCH_EDITOR_POSITION_ID: &str = "settings_search_editor";
@@ -259,7 +229,6 @@ pub(super) fn render_model_chips(
 pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
-    CheckForUpdate,
     LaunchNetworkLogging,
     SignupAnonymousUser,
     OpenAIFactCollection,
@@ -276,7 +245,6 @@ pub enum SettingsViewEvent {
 pub enum SettingsSection {
     About,
     #[default]
-    Account,
     Appearance,
     Features,
     Keybindings,
@@ -333,7 +301,6 @@ impl SettingsSection {
     pub fn slug(self) -> &'static str {
         match self {
             Self::About => "About",
-            Self::Account => "Account",
             Self::Appearance => "Appearance",
             Self::Features => "Features",
             Self::Keybindings => "Keyboard shortcuts",
@@ -363,7 +330,6 @@ impl SettingsSection {
     pub fn from_slug(slug: &str) -> Option<Self> {
         let section = match slug {
             "About" => Self::About,
-            "Account" => Self::Account,
             "Appearance" => Self::Appearance,
             "Features" => Self::Features,
             "Keyboard shortcuts" => Self::Keybindings,
@@ -466,7 +432,6 @@ pub mod flags {
     pub const SYNTAX_HIGHLIGHTING_FLAG: &str = "syntax_highlighting";
     pub const SAME_LINE_PROMPT: &str = "Same_Line_Prompt_Enabled";
     pub const TELEMETRY_FLAG: &str = "telemetry";
-    pub const SETTINGS_SYNC_FLAG: &str = "settings_sync";
     pub const SAFE_MODE_FLAG: &str = "safe_mode";
     pub const CRASH_REPORTING_FLAG: &str = "crash_reporting";
     pub const CLOUD_CONVERSATION_STORAGE_FLAG: &str = "Cloud_Conversation_Storage_Enabled";
@@ -505,7 +470,6 @@ pub mod flags {
     pub const SYNC_ALL_PANES_IN_CURRENT_TAB: &str = "Sync_All_Panes_In_Current_Tab";
     pub const USE_AUDIBLE_BELL_CONTEXT_FLAG: &str = "Use_Audible_Terminal_Bell";
     pub const SHOW_INPUT_HINT_TEXT_CONTEXT_FLAG: &str = "Show_Input_Hint_text";
-    pub const SHOW_OZ_UPDATES_IN_ZERO_STATE_FLAG: &str = "Show_Oz_Updates_In_Zero_State";
     pub const USE_AGENT_FOOTER_FLAG: &str = "Use_Agent_Footer";
     pub const THINKING_DISPLAY_SHOW_AND_COLLAPSE: &str = "Thinking_Display_ShowAndCollapse";
     pub const THINKING_DISPLAY_ALWAYS_SHOW: &str = "Thinking_Display_AlwaysShow";
@@ -584,7 +548,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    main_page::init_actions_from_parent_view(app, context, builder);
     appearance_page::init_actions_from_parent_view(app, context, builder);
     features_page::init_actions_from_parent_view(app, context, builder);
     warpify_page::init_actions_from_parent_view(app, context, builder);
@@ -892,7 +855,6 @@ pub enum DebugSettingsAction {
 pub enum SettingsAction {
     SelectAndRefresh(SettingsSection),
     ToggleUmbrella(usize),
-    MainPageToggle(MainPageAction),
     AppearancePageToggle(AppearancePageAction),
     FeaturesPageToggle(FeaturesPageAction),
     PrivacyPageToggle(PrivacyPageAction),
@@ -1042,7 +1004,6 @@ fn next_stop_index(current: usize, len: usize, direction: CycleDirection) -> usi
 macro_rules! update_page {
     ($handle:expr_2021, $update:expr_2021, $ctx:expr_2021) => {
         match $handle {
-            SettingsPageViewHandle::Main(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Appearance(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Features(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Keybindings(handle) => $ctx.update_view(handle, $update),
@@ -1098,12 +1059,6 @@ impl SettingsView {
         let pane_configuration = ctx.add_model(|_ctx| PaneConfiguration::new("Settings"));
 
         let global_resource_handles = GlobalResourceHandlesProvider::as_ref(ctx).get().clone();
-        // Main settings page with accounts info
-        let main_page_handle = ctx.add_typed_action_view(MainSettingsPageView::new);
-        ctx.subscribe_to_view(&main_page_handle, |me, _, event, ctx| {
-            me.handle_main_page_event(event, ctx);
-        });
-
         // Appearance & themes page
         let appearance_page_handle = ctx.add_typed_action_view(AppearanceSettingsPageView::new);
         ctx.subscribe_to_view(&appearance_page_handle, |me, _, event, ctx| {
@@ -1214,7 +1169,6 @@ impl SettingsView {
         });
 
         let mut settings_pages = vec![
-            SettingsPage::new(main_page_handle),
             SettingsPage::new(warp_agent_page_handle),
             SettingsPage::new(agent_profiles_page_handle),
             SettingsPage::new(knowledge_page_handle),
@@ -1238,7 +1192,7 @@ impl SettingsView {
         // Build sidebar nav items. Umbrellas group their subpages here and
         // nowhere else, so this list is the only place membership is declared.
         let mut nav_items = vec![
-            SettingsNavItem::Page(SettingsSection::Account),
+            SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Agents",
                 vec![
@@ -1262,7 +1216,6 @@ impl SettingsView {
                     SettingsSection::WarpCloudAgentAPIKeys,
                 ],
             )),
-            SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Page(SettingsSection::Features),
             SettingsNavItem::Page(SettingsSection::Keybindings),
             SettingsNavItem::Page(SettingsSection::Warpify),
@@ -1541,20 +1494,6 @@ impl SettingsView {
             .iter()
             .map(|_| MatchData::Uncounted(true))
             .collect();
-    }
-
-    fn handle_main_page_event(
-        &mut self,
-        event: &MainSettingsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            MainSettingsPageEvent::CheckForUpdate => ctx.emit(SettingsViewEvent::CheckForUpdate),
-            MainSettingsPageEvent::SignupAnonymousUser => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            _ => (),
-        }
     }
 
     fn handle_appearance_page_event(
@@ -1873,7 +1812,6 @@ impl SettingsView {
 
     fn should_render_page(&self, settings_page: &SettingsPage, app: &AppContext) -> bool {
         match &settings_page.view_handle {
-            SettingsPageViewHandle::Main(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Keybindings(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Features(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Appearance(v) => v.as_ref(app).should_render(app),
@@ -2449,15 +2387,6 @@ impl TypedActionView for SettingsView {
                 {
                     umbrella.toggle();
                     ctx.notify();
-                }
-            }
-            SettingsAction::MainPageToggle(main_page_action) => {
-                if let Some(main_page) = self.settings_page(SettingsSection::Account)
-                    && let SettingsPageViewHandle::Main(view) = &main_page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(main_page_action, ctx);
-                    })
                 }
             }
             SettingsAction::AppearancePageToggle(appearance_action) => {

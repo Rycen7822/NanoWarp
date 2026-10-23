@@ -81,9 +81,6 @@ pub(super) enum DProtoHook {
     SourcedRcFileForWarp {
         value: SourcedRcFileForWarpValue,
     },
-    FinishUpdate {
-        value: FinishUpdateValue,
-    },
     ExitShell {
         value: ExitShellValue,
     },
@@ -103,7 +100,6 @@ const DPROTO_HOOK_VARIANTS: &[&str] = &[
     "Clear",
     "InitSubshell",
     "SourcedRcFileForWarp",
-    "FinishUpdate",
     "ExitShell",
 ];
 
@@ -165,9 +161,6 @@ impl<'de> Deserialize<'de> for DProtoHook {
             "SourcedRcFileForWarp" => DProtoHook::SourcedRcFileForWarp {
                 value: parse_hook_value::<_, D::Error>(raw.value)?,
             },
-            "FinishUpdate" => DProtoHook::FinishUpdate {
-                value: parse_hook_value::<_, D::Error>(raw.value)?,
-            },
             "ExitShell" => DProtoHook::ExitShell {
                 value: parse_hook_value::<_, D::Error>(raw.value)?,
             },
@@ -196,7 +189,6 @@ impl DProtoHook {
             DProtoHook::Clear { .. } => "Clear",
             DProtoHook::InitSubshell { .. } => "InitSubshell",
             DProtoHook::SourcedRcFileForWarp { .. } => "SourcedRcFileForWarp",
-            DProtoHook::FinishUpdate { .. } => "FinishUpdate",
             DProtoHook::ExitShell { .. } => "ExitShell",
         }
     }
@@ -216,7 +208,6 @@ impl DProtoHook {
                 value.session_id.map(SessionId::from)
             }
             DProtoHook::Clear { value } => value.session_id.map(SessionId::from),
-            DProtoHook::FinishUpdate { value } => value.session_id.map(SessionId::from),
             DProtoHook::PreInteractiveSSHSession { value } => value.session_id.map(SessionId::from),
             DProtoHook::SSH { value } => value.session_id.map(SessionId::from),
             DProtoHook::InitSubshell { value } => value.session_id.map(SessionId::from),
@@ -239,7 +230,6 @@ impl DProtoHook {
             | DProtoHook::ExternalShellWidgetSelection { .. }
             | DProtoHook::Clear { .. }
             | DProtoHook::InitSubshell { .. }
-            | DProtoHook::FinishUpdate { .. }
             | DProtoHook::ExitShell { .. } => true,
             DProtoHook::SourcedRcFileForWarp { .. } => false,
         }
@@ -277,9 +267,6 @@ impl DProtoHook {
                 value: Default::default(),
             }),
             "SourcedRcFileForWarp" => Some(DProtoHook::SourcedRcFileForWarp {
-                value: Default::default(),
-            }),
-            "FinishUpdate" => Some(DProtoHook::FinishUpdate {
                 value: Default::default(),
             }),
             "ExitShell" => Some(DProtoHook::ExitShell {
@@ -438,15 +425,6 @@ impl DProtoHook {
                 "session_id" => value.session_id = v.parse::<u64>().ok(),
                 _ => {
                     log::warn!("Tried to add unknown field {key} to Clear hook");
-                }
-            },
-            DProtoHook::FinishUpdate { value } => match key.as_ref() {
-                "update_id" => {
-                    value.update_id = v;
-                }
-                "session_id" => value.session_id = v.parse::<u64>().ok(),
-                _ => {
-                    log::warn!("Tried to add unknown field {key} to FinishUpdate hook");
                 }
             },
             DProtoHook::InputBuffer { value } => match key.as_ref() {
@@ -1019,15 +997,6 @@ impl std::fmt::Debug for ExternalShellWidgetSelectionValue {
 /// the `clear` command or ctrl-l).
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ClearValue {
-    #[serde(default)]
-    pub session_id: HookSessionId,
-}
-
-/// Received from the pty when warp_finish_update is called at the end of an
-/// assisted auto-update.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct FinishUpdateValue {
-    pub update_id: String,
     #[serde(default)]
     pub session_id: HookSessionId,
 }

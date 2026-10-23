@@ -11,61 +11,6 @@ use warpui::{
 
 use super::*;
 use crate::appearance::Appearance;
-use crate::workspaces::workspace::{BillingMetadata, CustomerType};
-
-fn billing_metadata(customer_type: CustomerType) -> BillingMetadata {
-    BillingMetadata {
-        customer_type,
-        ..Default::default()
-    }
-}
-
-#[test]
-fn paid_workspace_without_team_shows_only_workspace_badge() {
-    let billing_metadata = billing_metadata(CustomerType::Enterprise);
-
-    let presentation = plan_header_presentation(Some(&billing_metadata), false, false);
-
-    assert_eq!(presentation.badge_label.as_deref(), Some("Enterprise"));
-    assert!(!presentation.show_personal_upgrade);
-}
-
-#[test]
-fn free_workspace_without_team_shows_free_badge_once() {
-    let billing_metadata = billing_metadata(CustomerType::Free);
-
-    let presentation = plan_header_presentation(Some(&billing_metadata), false, false);
-
-    assert_eq!(presentation.badge_label.as_deref(), Some("Free"));
-    assert!(presentation.show_personal_upgrade);
-}
-
-#[test]
-fn paid_workspace_with_team_shows_only_workspace_badge() {
-    let billing_metadata = billing_metadata(CustomerType::Enterprise);
-
-    let presentation = plan_header_presentation(Some(&billing_metadata), true, false);
-
-    assert_eq!(presentation.badge_label.as_deref(), Some("Enterprise"));
-    assert!(!presentation.show_personal_upgrade);
-}
-
-#[test]
-fn anonymous_account_shows_free_badge_once() {
-    let presentation = plan_header_presentation(None, false, true);
-
-    assert_eq!(presentation.badge_label.as_deref(), Some("Free"));
-    assert!(presentation.show_personal_upgrade);
-}
-
-#[test]
-fn signed_in_account_without_workspace_shows_free_badge_once() {
-    let presentation = plan_header_presentation(None, false, false);
-
-    assert_eq!(presentation.badge_label.as_deref(), Some("Free"));
-    assert!(presentation.show_personal_upgrade);
-}
-
 // ── MatchData behavior ──────────────────────────────────────────────────────
 
 #[test]
@@ -123,7 +68,6 @@ fn subpage_display_names_are_correct() {
 /// breaks the exhaustive match there, which is the prompt to add it here.
 const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::About,
-    SettingsSection::Account,
     SettingsSection::Appearance,
     SettingsSection::Features,
     SettingsSection::Keybindings,
@@ -151,7 +95,6 @@ fn all_sections_list_is_exhaustive() {
     fn is_listed(section: SettingsSection) -> bool {
         let known = match section {
             SettingsSection::About
-            | SettingsSection::Account
             | SettingsSection::Appearance
             | SettingsSection::Features
             | SettingsSection::Keybindings
@@ -319,7 +262,7 @@ const AGENT_SUBPAGES: &[SettingsSection] = &[
 /// sidebar ordering so tests exercise realistic nav orders.
 fn realistic_nav_items() -> Vec<SettingsNavItem> {
     vec![
-        SettingsNavItem::Page(SettingsSection::Account),
+        SettingsNavItem::Page(SettingsSection::Appearance),
         SettingsNavItem::Umbrella(SettingsUmbrella::new("Agents", AGENT_SUBPAGES.to_vec())),
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Code",
@@ -335,7 +278,7 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
                 SettingsSection::WarpCloudAgentAPIKeys,
             ],
         )),
-        SettingsNavItem::Page(SettingsSection::Appearance),
+        SettingsNavItem::Page(SettingsSection::Keybindings),
     ]
 }
 
@@ -354,12 +297,12 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
     // All umbrellas default to collapsed.
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Expect: Account, <Agents umbrella>, <Code umbrella>,
-    // <Cloud platform umbrella>, Appearance.
+    // Expect: Appearance, <Agents umbrella>, <Code umbrella>,
+    // <Cloud platform umbrella>, Keybindings.
     assert_eq!(stops.len(), 5);
     assert!(matches!(
         stops[0],
-        NavStop::Section(SettingsSection::Account)
+        NavStop::Section(SettingsSection::Appearance)
     ));
     assert!(matches!(
         stops[1],
@@ -387,7 +330,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
     ));
     assert!(matches!(
         stops[4],
-        NavStop::Section(SettingsSection::Appearance)
+        NavStop::Section(SettingsSection::Keybindings)
     ));
 }
 
@@ -399,9 +342,9 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
 
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Expect: Account, WarpAgent, AgentProfiles, AgentMCPServers, Knowledge,
+    // Expect: Appearance, WarpAgent, AgentProfiles, AgentMCPServers, Knowledge,
     // <Code umbrella>,
-    // <Cloud platform umbrella>, Appearance.
+    // <Cloud platform umbrella>, Keybindings.
     let sections: Vec<_> = stops
         .iter()
         .map(|s| match s {
@@ -412,14 +355,14 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
     assert_eq!(
         sections,
         vec![
-            "Account",
+            "Appearance",
             "WarpAgent",
             "AgentProfiles",
             "AgentMCPServers",
             "Knowledge",
             "Umbrella@2",
             "Umbrella@3",
-            "Appearance",
+            "Keybindings",
         ]
     );
 }
@@ -492,19 +435,21 @@ fn umbrella_with_no_visible_subpages_is_skipped_entirely() {
 fn filtered_out_top_level_page_is_skipped() {
     let nav_items = realistic_nav_items();
 
-    let stops = build_nav_stops(&nav_items, |section| section != SettingsSection::Appearance);
+    let stops = build_nav_stops(&nav_items, |section| {
+        section != SettingsSection::Keybindings
+    });
 
     assert!(
         !stops
             .iter()
-            .any(|s| matches!(s, NavStop::Section(SettingsSection::Appearance))),
-        "Appearance should be filtered out entirely"
+            .any(|s| matches!(s, NavStop::Section(SettingsSection::Keybindings))),
+        "Keybindings should be filtered out entirely"
     );
     // But other pages remain.
     assert!(
         stops
             .iter()
-            .any(|s| matches!(s, NavStop::Section(SettingsSection::Account)))
+            .any(|s| matches!(s, NavStop::Section(SettingsSection::Appearance)))
     );
 }
 
@@ -515,7 +460,7 @@ fn current_stop_index_matches_section_stop() {
     let nav_items = realistic_nav_items();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    let idx = current_stop_index(&stops, &nav_items, SettingsSection::Appearance);
+    let idx = current_stop_index(&stops, &nav_items, SettingsSection::Keybindings);
     assert_eq!(idx, Some(4));
 }
 
@@ -596,16 +541,16 @@ fn simulate_cycle(
 }
 
 #[test]
-fn arrow_down_from_account_with_collapsed_agents_lands_on_first_subpage() {
+fn arrow_down_from_appearance_with_collapsed_agents_lands_on_first_subpage() {
     let nav_items = realistic_nav_items();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Pressing Down from Account should auto-expand Agents and select WarpAgent,
+    // Pressing Down from Appearance should auto-expand Agents and select WarpAgent,
     // not skip over to CodeIndexing.
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::Account,
+        SettingsSection::Appearance,
         CycleDirection::Down,
     );
     assert_eq!(next, SettingsSection::WarpAgent);
@@ -707,13 +652,13 @@ fn arrow_down_collapsed_umbrella_respects_search_filter() {
     };
     let stops = build_nav_stops(&nav_items, is_visible);
 
-    // From Account, Down should land on AgentMCPServers (first visible
+    // From Appearance, Down should land on AgentMCPServers (first visible
     // subpage of the still-collapsed Agents umbrella), not on WarpAgent /
     // AgentProfiles.
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::Account,
+        SettingsSection::Appearance,
         CycleDirection::Down,
     );
     assert_eq!(next, SettingsSection::AgentMCPServers);

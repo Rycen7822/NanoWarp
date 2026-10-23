@@ -280,7 +280,6 @@ use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
 use crate::auth::auth_view_modal::AuthViewVariant;
 use crate::auth::{AuthStateProvider, UserUid};
-use crate::autoupdate::{self, AutoupdateStage, get_update_state};
 use crate::banner::{
     Banner, BannerAction, BannerEvent, BannerState, BannerTextButton, BannerTextContent,
     DismissalType,
@@ -12606,26 +12605,6 @@ impl TerminalView {
                 }
             }
             ModelEvent::Handler(_) => {}
-            ModelEvent::FinishUpdate(data) => {
-                let AutoupdateStage::UpdateReady {
-                    update_id: expected_update_id,
-                    ..
-                } = get_update_state(ctx)
-                else {
-                    log::warn!(
-                        "Got a FinishUpdate event without AutoupdateState being UpdateReady!"
-                    );
-                    return;
-                };
-                if expected_update_id == data.update_id {
-                    // Terminate this shell session so that it doesn't come
-                    // back when we restore sessions after the relaunch.
-                    self.shutdown_pty(ctx);
-                    autoupdate::initiate_relaunch_for_update(ctx);
-                } else {
-                    log::warn!("Got a FinishUpdate event with non-matching update id!");
-                }
-            }
             ModelEvent::ExternalShellWidgetSelection(data) => {
                 if FeatureFlag::ShellWidgetHandoff.is_enabled()
                     && let Some(session_id) = data.session_id.map(SessionId::from)

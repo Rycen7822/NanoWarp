@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
-use anyhow::Result;
 use cfg_if::cfg_if;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -59,8 +58,6 @@ use crate::auth::paste_auth_token_modal::{PasteAuthTokenModalEvent, PasteAuthTok
 #[cfg(target_family = "wasm")]
 use crate::auth::web_handoff::{WebHandoffEvent, WebHandoffView};
 use crate::auth::{AuthStateProvider, LoginFailureReason};
-use crate::autoupdate::{AutoupdateState, AutoupdateStateEvent, RequestType, UpdateReady};
-use crate::changelog_model::ChangelogRequestType;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType, ObjectType};
 use crate::drive::export::ExportManager;
@@ -78,7 +75,7 @@ use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ServerId, SyncId};
 use crate::server::server_api::auth::UserAuthenticationError;
-use crate::server::server_api::{ServerApi, ServerApiProvider, ServerTime};
+use crate::server::server_api::{ServerApi, ServerApiProvider};
 use crate::server::telemetry::{LaunchConfigUiLocation, TelemetryEvent};
 use crate::settings::cloud_preferences_syncer::{
     CloudPreferencesSyncer, CloudPreferencesSyncerEvent,
@@ -1666,7 +1663,6 @@ impl NewWorkspaceSource {
 #[derive(Clone)]
 struct WorkspaceArgs {
     global_resource_handles: GlobalResourceHandles,
-    server_time: Option<Arc<ServerTime>>,
     workspace_setting: NewWorkspaceSource,
 }
 
@@ -1788,7 +1784,6 @@ enum AuthOnboardingState {
 
 pub struct RootView {
     auth_onboarding_state: AuthOnboardingState,
-    server_time: Option<Arc<ServerTime>>,
     auth_view: ViewHandle<AuthView>,
     auth_override_view: ViewHandle<AuthOverrideWarningModal>,
     needs_sso_link_view: ViewHandle<NeedsSsoLinkView>,
@@ -1857,7 +1852,6 @@ impl RootView {
         let model_event_sender = global_resource_handles.model_event_sender.clone();
         let workspace_args = WorkspaceArgs {
             global_resource_handles,
-            server_time: None,
             workspace_setting,
         };
 
@@ -1907,7 +1901,6 @@ impl RootView {
 
         let root_view = Self {
             auth_onboarding_state,
-            server_time: None,
             auth_view,
             auth_override_view,
             needs_sso_link_view,
@@ -1928,12 +1921,6 @@ impl RootView {
         };
 
         match &root_view.auth_onboarding_state {
-            AuthOnboardingState::Terminal(workspace) if FeatureFlag::Changelog.is_enabled() => {
-                // Only show the changelog if we aren't about to launch the authentication flow
-                workspace.update(ctx, |workspace, ctx| {
-                    workspace.check_for_changelog(ChangelogRequestType::WindowLaunch, ctx);
-                })
-            }
             AuthOnboardingState::Auth(_) => {
                 // ApplePressAndHoldEnabled is the setting for whether or not the accent
                 // menu is shown when a key is held. If "false", we repeat the character
@@ -1969,17 +1956,6 @@ impl RootView {
             _ => {}
         }
 
-        let autoupdate_handle = AutoupdateState::handle(ctx);
-        ctx.subscribe_to_model(&autoupdate_handle, |root_view, _handle, evt, ctx| {
-            if let AutoupdateStateEvent::CheckComplete {
-                result,
-                request_type: RequestType::Poll,
-            } = evt
-            {
-                root_view.polling_update_check_complete(result, ctx)
-            }
-        });
-
         // Ensure the onboarding view has focus after all views are created.
         // The auth_view's internal editor may have grabbed focus during construction;
         // this overrides that so keyboard input (Enter, arrow keys) routes to onboarding.
@@ -1990,21 +1966,7 @@ impl RootView {
             ctx.focus(onboarding_view);
         }
 
-        // For users who bypass onboarding (already logged in, or onboarding flags not active),
-        // start autoupdate polling immediately. For new users in onboarding, this is a no-op;
-        // polling will be started once onboarding completes.
-        root_view.start_autoupdate_polling(ctx);
-
         root_view
-    }
-
-    /// Starts the autoupdate polling loop, but only if we are already in the `Terminal` state
-    /// (i.e. onboarding has completed or was not shown). Safe to call unconditionally — it is
-    /// a no-op when still in a pre-terminal state.
-    fn start_autoupdate_polling(&self, ctx: &mut ViewContext<Self>) {
-        if matches!(self.auth_onboarding_state, AuthOnboardingState::Terminal(_)) {
-            AutoupdateState::handle(ctx).update(ctx, |state, ctx| state.start_polling(ctx));
-        }
     }
 
     /// Used for integration tests.
@@ -2012,47 +1974,6 @@ impl RootView {
         match &self.auth_onboarding_state {
             AuthOnboardingState::Terminal(workspace) => Some(workspace),
             _ => None,
-        }
-    }
-
-    fn polling_update_check_complete(
-        &mut self,
-        result: &Result<UpdateReady>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Ok(UpdateReady::Yes { new_version, .. }) = result {
-            log::info!("Update ready for channel version {new_version:?}");
-            if new_version.update_by.is_some() {
-                log::info!("Update ready, there is an update-by time, checking for server time.");
-                let server_api = self.server_api.clone();
-                let _ = ctx.spawn(
-                    async move { server_api.server_time().await },
-                    Self::server_time_updated,
-                );
-            }
-        }
-    }
-
-    fn server_time_updated(
-        &mut self,
-        server_time: Result<ServerTime>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Ok(server_time) = server_time {
-            let server_time = Arc::new(server_time);
-            self.server_time = Some(server_time.clone());
-
-            if let AuthOnboardingState::Terminal(workspace) = &self.auth_onboarding_state {
-                workspace.update(ctx, |workspace, ctx| {
-                    workspace.set_server_time(server_time);
-                    ctx.notify();
-                })
-            }
-        } else {
-            report_error!(anyhow::anyhow!(
-                "Error fetching server time {:?}",
-                server_time.err()
-            ));
         }
     }
 
@@ -2478,7 +2399,6 @@ impl RootView {
         if completion.starts_agent_tutorial() && settings_applied {
             self.start_pending_tutorial(ctx);
         }
-        self.start_autoupdate_polling(ctx);
         self.focus(ctx);
         ctx.notify();
     }
@@ -2528,7 +2448,6 @@ impl RootView {
                 self.auth_onboarding_state = AuthOnboardingState::Terminal(workspace);
                 ctx.emit(RootViewEvent::AuthOnboardingStateChanged);
                 self.start_pending_tutorial(ctx);
-                self.start_autoupdate_polling(ctx);
                 self.focus(ctx);
                 ctx.notify();
             }
@@ -2689,7 +2608,6 @@ impl RootView {
                 self.auth_onboarding_state = AuthOnboardingState::Terminal(workspace);
                 ctx.emit(RootViewEvent::AuthOnboardingStateChanged);
                 self.start_pending_tutorial(ctx);
-                self.start_autoupdate_polling(ctx);
                 ctx.notify();
             }
             AgentOnboardingEvent::OnboardingSkipped => {
@@ -2711,7 +2629,6 @@ impl RootView {
                 let workspace = target.to_workspace(ctx);
                 self.auth_onboarding_state = AuthOnboardingState::Terminal(workspace);
                 ctx.emit(RootViewEvent::AuthOnboardingStateChanged);
-                self.start_autoupdate_polling(ctx);
                 ctx.notify();
             }
             AgentOnboardingEvent::UpgradeRequested => {
@@ -3495,7 +3412,6 @@ impl RootView {
                         .complete_auth_and_create_workspace(ctx);
                 }
 
-                self.start_autoupdate_polling(ctx);
                 self.focus(ctx);
             }
             AuthManagerEvent::AuthFailed(err) => match err {
@@ -3553,7 +3469,6 @@ impl RootView {
                     ctx.emit(RootViewEvent::AuthOnboardingStateChanged);
                     self.start_pending_tutorial(ctx);
                 }
-                self.start_autoupdate_polling(ctx);
                 self.focus(ctx);
             }
             AuthManagerEvent::LoginOverrideDetected(interrupted_auth_payload) => {
@@ -3929,12 +3844,7 @@ impl TypedActionView for RootView {
 impl WorkspaceArgs {
     fn create_workspace(self, ctx: &mut ViewContext<RootView>) -> ViewHandle<Workspace> {
         ctx.add_typed_action_view(|ctx| {
-            Workspace::new(
-                self.global_resource_handles,
-                self.server_time,
-                self.workspace_setting,
-                ctx,
-            )
+            Workspace::new(self.global_resource_handles, self.workspace_setting, ctx)
         })
     }
 }
@@ -4111,7 +4021,6 @@ impl AuthOnboardingState {
                 };
                 let workspace_args = WorkspaceArgs {
                     global_resource_handles,
-                    server_time: None,
                     workspace_setting,
                 };
 

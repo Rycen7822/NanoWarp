@@ -92,8 +92,8 @@ use crate::settings::{
     CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
     IncludeAgentCommandsInHistory, InputSettings, LongRunningCommandSubmissionMode,
     NLDInTerminalEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
+    ShouldRenderUseAgentToolbarForUserCommands, ShowConversationHistory, ShowHintText,
+    ThinkingDisplayMode,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -162,31 +162,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 )),
                 &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
                 flags::NLD_IN_TERMINAL_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::custom(
-                SettingActionPairDescriptions::new(
-                    "Show Warp Agent changelog in new agent conversation view",
-                    "Hide Warp Agent changelog in new agent conversation view",
-                ),
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleShowOzUpdatesInZeroState,
-                )),
-                SettingActionPairContexts::new(
-                    context.clone()
-                        & id!(flags::IS_ANY_AI_ENABLED)
-                        & !id!(flags::SHOW_OZ_UPDATES_IN_ZERO_STATE_FLAG),
-                    context.clone()
-                        & id!(flags::IS_ANY_AI_ENABLED)
-                        & id!(flags::SHOW_OZ_UPDATES_IN_ZERO_STATE_FLAG),
-                ),
-                None,
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
@@ -2054,7 +2029,6 @@ impl WarpAgentPageView {
 
         #[cfg_attr(not(feature = "local_fs"), allow(unused_mut))]
         let mut other_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-            Box::new(ShowOzUpdatesInZeroStateWidget::default()),
             Box::new(UseAgentFooterWidget::default()),
             Box::new(AgentToolbarLayoutEditorWidget),
             Box::new(ShowConversationHistoryWidget::default()),
@@ -2195,7 +2169,6 @@ pub enum WarpAgentPageAction {
     ToggleCanUseWarpCreditsForFallback,
     HyperlinkClick(HyperlinkUrl),
     ToggleShowInputHintText,
-    ToggleShowOzUpdatesInZeroState,
     SetThinkingDisplayMode(ThinkingDisplayMode),
     SetOrchestrationMessageDisplayMode(OrchestrationMessageDisplayMode),
     SetPromptSubmissionMode(PromptSubmissionMode),
@@ -2340,16 +2313,6 @@ impl TypedActionView for WarpAgentPageView {
                         ctx
                     );
                 });
-            }
-            WarpAgentPageAction::ToggleShowOzUpdatesInZeroState => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .should_show_oz_updates_in_zero_state
-                            .toggle_and_save_value(ctx)
-                    );
-                });
-                ctx.notify();
             }
             WarpAgentPageAction::SetThinkingDisplayMode(mode) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3186,42 +3149,6 @@ impl OtherAIWidget {
             dropdown.add_items(items, ctx);
             dropdown
         })
-    }
-}
-
-#[derive(Default)]
-struct ShowOzUpdatesInZeroStateWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for ShowOzUpdatesInZeroStateWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "other oz updates zero state empty changelog new conversation agent what's new"
-    }
-
-    fn should_render(&self, _app: &AppContext) -> bool {
-        FeatureFlag::AgentView.is_enabled()
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_any_ai_enabled(app);
-        render_ai_setting_toggle::<ShouldShowOzUpdatesInZeroState>(
-            "Show Warp Agent changelog in new conversation view",
-            WarpAgentPageAction::ToggleShowOzUpdatesInZeroState,
-            *ai_settings.should_show_oz_updates_in_zero_state,
-            is_toggleable,
-            self.toggle.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        )
     }
 }
 
