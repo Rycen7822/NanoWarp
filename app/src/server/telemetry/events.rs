@@ -31,10 +31,6 @@ use crate::ai::blocklist::{
 };
 use crate::ai::execution_profiles::AskUserQuestionPermission;
 use crate::ai::mcp::TemplateVariable;
-use crate::ai::predict::generate_ai_input_suggestions::{
-    GenerateAIInputSuggestionsRequest, GenerateAIInputSuggestionsResponseV2,
-};
-use crate::ai::predict::next_command_model::HistoryBasedAutosuggestionState;
 use crate::auth::auth_manager::LoginGatedFeature;
 use crate::channel::Channel;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
@@ -539,7 +535,6 @@ pub enum AnonymousUserSignupEntrypoint {
     SignUpButton,
     RenotificationBlock,
     SignUpAIPrompt,
-    NextCommandSuggestionsUpgradeBanner,
     Unknown,
 }
 
@@ -1818,23 +1813,6 @@ pub enum TelemetryEvent {
     /// language auto-detection false-positive.
     AgentModePotentialAutoDetectionFalsePositive(AgentModeAutoDetectionFalsePositivePayload),
 
-    /// This is a telemetry event used to help track performance of Agent Predict in Warp,
-    /// by keeping track of the context given and the predictions generated.
-    AgentModePrediction {
-        was_suggestion_accepted: bool,
-        request_duration_ms: i64,
-        is_from_ai: bool,
-        does_actual_command_match_prediction: bool,
-        does_actual_command_match_history_prediction: bool,
-        history_prediction_likelihood: f64,
-        total_history_count: usize,
-        // The below fields are only collected if telemetry is enabled.
-        actual_next_command_run: Option<String>,
-        history_based_autosuggestion_state: Option<HistoryBasedAutosuggestionState>,
-        generate_ai_input_suggestions_request: Option<GenerateAIInputSuggestionsRequest>,
-        generate_ai_input_suggestions_response: Option<GenerateAIInputSuggestionsResponseV2>,
-    },
-
     /// Keeps track of number of times the user is presented with a Prompt Suggestions banner.
     PromptSuggestionShown {
         id: String,
@@ -1933,11 +1911,6 @@ pub enum TelemetryEvent {
 
     AgentModeCodeDiffHunksNavigated {
         output_id: ServerOutputId,
-    },
-
-    /// Emitted when the user toggles the "Intelligent autosuggestions" setting in the AI settings page.
-    ToggleIntelligentAutosuggestionsSetting {
-        is_intelligent_autosuggestions_enabled: bool,
     },
 
     /// Emitted when the user toggles global AI.
@@ -3207,11 +3180,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"is_autodetection_enabled": is_autodetection_enabled, "origin": origin }),
             ),
-            TelemetryEvent::ToggleIntelligentAutosuggestionsSetting {
-                is_intelligent_autosuggestions_enabled,
-            } => Some(
-                json!({"is_intelligent_autosuggestions_enabled": is_intelligent_autosuggestions_enabled}),
-            ),
             // Using legacy name to avoid breaking telemetry.
             TelemetryEvent::TogglePromptSuggestionsSetting {
                 is_prompt_suggestions_enabled,
@@ -3255,44 +3223,6 @@ impl TelemetryEvent {
             } => Some(
                 json!({"input": input, "buffer_length": buffer_length, "is_manually_changed": is_manually_changed, "new_input_type": new_input_type, "active_block_id": active_block_id, "is_udi_enabled": is_udi_enabled}),
             ),
-            TelemetryEvent::AgentModePrediction {
-                was_suggestion_accepted,
-                request_duration_ms,
-                is_from_ai,
-                does_actual_command_match_prediction,
-                does_actual_command_match_history_prediction,
-                history_prediction_likelihood,
-                total_history_count,
-                actual_next_command_run,
-                history_based_autosuggestion_state,
-                generate_ai_input_suggestions_request,
-                generate_ai_input_suggestions_response,
-            } => {
-                let (history_command_prediction, history_command_prediction_likelihood) =
-                    if let Some(state) = history_based_autosuggestion_state {
-                        (
-                            Some(state.history_command_prediction.clone()),
-                            Some(state.history_command_prediction_likelihood),
-                        )
-                    } else {
-                        (None, None)
-                    };
-
-                Some(json!({
-                    "was_suggestion_accepted": was_suggestion_accepted,
-                    "request_duration_ms": request_duration_ms,
-                    "is_from_ai": is_from_ai,
-                    "does_actual_command_match_prediction": does_actual_command_match_prediction,
-                    "does_actual_command_match_history_prediction": does_actual_command_match_history_prediction,
-                    "history_prediction_likelihood": history_prediction_likelihood,
-                    "total_history_count": total_history_count,
-                    "actual_next_command_run": actual_next_command_run,
-                    "generate_ai_input_suggestions_request": generate_ai_input_suggestions_request,
-                    "generate_ai_input_suggestions_response": generate_ai_input_suggestions_response,
-                    "history_command_prediction": history_command_prediction,
-                    "history_command_prediction_likelihood": history_command_prediction_likelihood,
-                }))
-            }
             TelemetryEvent::PromptSuggestionShown {
                 id,
                 request_duration_ms,
@@ -4339,19 +4269,6 @@ impl TelemetryEvent {
             TelemetryEvent::CreateProjectPromptSubmitted { .. } => false,
             TelemetryEvent::CreateProjectPromptSubmittedContent { .. } => true,
             TelemetryEvent::InputBufferSubmitted { .. } => false,
-            TelemetryEvent::AgentModePrediction {
-                actual_next_command_run,
-                history_based_autosuggestion_state,
-                generate_ai_input_suggestions_request,
-                generate_ai_input_suggestions_response,
-                ..
-            } => {
-                // These fields can contain UGC, so if any are set, assume this event contains UGC.
-                actual_next_command_run.is_some()
-                    || history_based_autosuggestion_state.is_some()
-                    || generate_ai_input_suggestions_request.is_some()
-                    || generate_ai_input_suggestions_response.is_some()
-            }
             TelemetryEvent::AgentModeChangedInputType { input, .. } => input.is_some(),
             TelemetryEvent::UnitTestSuggestionAccepted { query, .. } => query.is_some(),
             TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(payload) => {
@@ -4598,7 +4515,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeCodeSuggestionEditedByUser { .. }
             | TelemetryEvent::AgentModeCodeFilesNavigated { .. }
             | TelemetryEvent::AgentModeCodeDiffHunksNavigated { .. }
-            | TelemetryEvent::ToggleIntelligentAutosuggestionsSetting { .. }
             | TelemetryEvent::ToggleGlobalAI { .. }
             | TelemetryEvent::SuperGrokSubscriptionConnectInitiated
             | TelemetryEvent::SuperGrokSubscriptionConnectFinished { .. }
@@ -5109,9 +5025,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::SettingsImportConfigFocused
             | Self::SettingsImportResetButtonClicked
             | Self::ITermMultipleHotkeys => EnablementState::Always,
-            Self::ToggleIntelligentAutosuggestionsSetting | Self::AgentModePrediction => {
-                EnablementState::Always
-            }
             Self::PromptSuggestionShown
             | Self::SuggestedCodeDiffBannerShown
             | Self::SuggestedCodeDiffFailed
@@ -5567,7 +5480,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AgentMode.PotentialAutoDetectionFalsePositive"
             }
             Self::AgentModeChangedInputType => "AgentMode.ChangedInputType",
-            Self::AgentModePrediction => "Agent Predict",
             // Agent Mode Query Suggestions is the legacy name for Prompt Suggestions - we avoid renaming
             // the event to avoid breaking historical telemetry data.
             Self::PromptSuggestionShown => "Agent Mode Query Suggestions Banner Shown",
@@ -5590,9 +5502,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
             Self::AgentModeCodeFilesNavigated => "AgentMode.Code.FilesNavigated",
             Self::AgentModeCodeDiffHunksNavigated => "AgentMode.Code.DiffHunksNavigated",
-            Self::ToggleIntelligentAutosuggestionsSetting => {
-                "Toggle Intelligent Autosuggestions Setting"
-            }
             Self::ToggleVoiceInputSetting => "Toggle Voice Input Setting",
             Self::EnvVarCollectionInvoked => "Invoked Environment Variables",
             Self::EnvVarWorkflowParameterization => {
@@ -6251,10 +6160,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::AgentModeChangedInputType => {
                 "The input type was changed from shell -> AI or AI -> shell"
-            }
-            Self::AgentModePrediction => "Completed an Agent Predict prediction",
-            Self::ToggleIntelligentAutosuggestionsSetting => {
-                "Toggled on/off the intelligent autosuggestions setting"
             }
             Self::TogglePromptSuggestionsSetting => "Toggled on/off the prompt suggestions setting",
             Self::ToggleCodeSuggestionsSetting => "Toggled on/off the code suggestions setting",

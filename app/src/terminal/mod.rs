@@ -27,7 +27,6 @@ mod blockgrid_renderer;
 mod bootstrap;
 mod buy_credits_banner;
 pub mod color;
-mod command_corrections_denylist;
 pub mod conversation_restoration;
 pub mod dynamic_enum_suggestions;
 pub mod enable_auto_reload_modal;

@@ -843,9 +843,7 @@ impl<T: Action + Clone> SearchBar<T> {
                             editor.set_autosuggestion(
                                 suggestion,
                                 AutosuggestionLocation::EndOfBuffer,
-                                AutosuggestionType::Command {
-                                    was_intelligent_autosuggestion: false,
-                                },
+                                AutosuggestionType::Command,
                                 ctx,
                             );
                         } else {

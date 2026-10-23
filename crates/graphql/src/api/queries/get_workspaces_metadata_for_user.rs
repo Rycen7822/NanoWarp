@@ -67,7 +67,6 @@ query GetWorkspacesMetadataForUser($requestContext: RequestContext!) {
                 limit
                 isCodeSuggestionsToggleable
                 isPromptSuggestionsToggleable
-                isNextCommandEnabled
                 isGitOperationsAiEnabled
                 isVoiceEnabled
               }

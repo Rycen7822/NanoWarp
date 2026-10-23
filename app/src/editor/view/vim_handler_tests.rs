@@ -4500,9 +4500,7 @@ fn test_vim_accept_full_autosuggestions_char() {
             view.set_autosuggestion(
                 "foo bar-baz",
                 AutosuggestionLocation::EndOfBuffer,
-                AutosuggestionType::Command {
-                    was_intelligent_autosuggestion: false,
-                },
+                AutosuggestionType::Command,
                 ctx,
             );
             view.vim_user_insert("$", ctx);
@@ -4541,9 +4539,7 @@ fn test_vim_accept_full_autosuggestions_line_end() {
             view.set_autosuggestion(
                 "foo bar-baz",
                 AutosuggestionLocation::EndOfBuffer,
-                AutosuggestionType::Command {
-                    was_intelligent_autosuggestion: false,
-                },
+                AutosuggestionType::Command,
                 ctx,
             );
             view.vim_user_insert("$", ctx);
@@ -4582,9 +4578,7 @@ fn test_vim_accept_partial_autosuggestions_word() {
             view.set_autosuggestion(
                 "foo bar-baz",
                 AutosuggestionLocation::EndOfBuffer,
-                AutosuggestionType::Command {
-                    was_intelligent_autosuggestion: false,
-                },
+                AutosuggestionType::Command,
                 ctx,
             );
             view.vim_user_insert("e", ctx);

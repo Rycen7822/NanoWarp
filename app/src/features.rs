@@ -109,14 +109,10 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::SshDragAndDrop,
         #[cfg(feature = "drag_tabs_to_windows")]
         FeatureFlag::DragTabsToWindows,
-        #[cfg(feature = "cycle_next_command_suggestion")]
-        FeatureFlag::CycleNextCommandSuggestion,
         #[cfg(feature = "multi_workspace")]
         FeatureFlag::MultiWorkspace,
         #[cfg(feature = "ime_marked_text")]
         FeatureFlag::ImeMarkedText,
-        #[cfg(feature = "partial_next_command_suggestions")]
-        FeatureFlag::PartialNextCommandSuggestions,
         #[cfg(feature = "iterm_images")]
         FeatureFlag::ITermImages,
         #[cfg(feature = "validate_autosuggestions")]

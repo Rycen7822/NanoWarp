@@ -5388,15 +5388,13 @@ fn test_clear_buffer_clears_autosuggestion() {
 
         let terminal = add_window_with_terminal(&mut app, None);
         terminal.update(&mut app, |view, ctx| {
-            // Set a next command suggestion (empty input)
+            // Set a command correction suggestion on an empty input.
             view.input.update(ctx, |input, ctx| {
                 input.editor().update(ctx, |editor, ctx| {
                     editor.set_autosuggestion(
                         "git status",
                         AutosuggestionLocation::EndOfBuffer,
-                        AutosuggestionType::Command {
-                            was_intelligent_autosuggestion: true,
-                        },
+                        AutosuggestionType::Command,
                         ctx,
                     );
                 });

@@ -15,9 +15,8 @@ use warp_core::ui::appearance::DEFAULT_UI_FONT_SIZE;
 use warp_errors::report_error;
 use warp_util::user_input::UserInput;
 use warpui::elements::{
-    AfterLayoutContext, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-    DEFAULT_UI_LINE_HEIGHT_RATIO, Element, Event, EventContext, Flex, LayoutContext, PaintContext,
-    ParentElement, Point, Radius, SizeConstraint, Text,
+    AfterLayoutContext, ChildView, CornerRadius, DEFAULT_UI_LINE_HEIGHT_RATIO, Element, Event,
+    EventContext, LayoutContext, PaintContext, Point, Radius, SizeConstraint,
 };
 use warpui::event::{DispatchedEvent, KeyState, ModifiersState};
 use warpui::keymap::Keystroke;
@@ -50,8 +49,6 @@ use crate::editor::position_id_for_first_cursor;
 use crate::editor::view::AutosuggestionLocation;
 use crate::settings::CursorDisplayType;
 use crate::themes::theme::Fill;
-use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon;
 
 // Similar to the terminal::model::ansi::CursorShape, this Editor Element has different cursor
 // shapes. However, this element doesn't implement all the same variants, so we don't share that
@@ -198,7 +195,6 @@ pub struct EditorElement {
     soft_wrap_state: SoftWrapState,
     autosuggestion_shortcut_icon: Option<Box<dyn Element>>,
     autosuggestion_ignore_icon: Option<Box<dyn Element>>,
-    cycle_next_command_hint: Option<Box<dyn Element>>,
 
     vim_mode: Option<VimMode>,
     text_colors: TextColors,
@@ -255,7 +251,6 @@ impl EditorElement {
             local_selection_data,
             remote_selections_data,
             preferred_cursor_type: cursor_display_type.unwrap_or_default(),
-            cycle_next_command_hint: None,
             voice_input_cursor_icon: None,
             voice_input_toggle_key_code,
         }
@@ -1436,17 +1431,6 @@ impl EditorElement {
         Ok(FrameLayouts::new(frames, start_line, end_line))
     }
 
-    fn should_show_cycle_next_command_hint(&self, is_cycling: bool, ctx: &AppContext) -> bool {
-        FeatureFlag::CycleNextCommandSuggestion.is_enabled()
-            && self
-                .view_snapshot
-                .editor_model
-                .as_ref(ctx)
-                .buffer(ctx)
-                .is_empty()
-            && (self.view_snapshot.active_next_command_suggestion() || is_cycling)
-    }
-
     /// Adds icons used in the input editor but not other editors.
     pub fn with_input_editor_icons(
         mut self,
@@ -1454,8 +1438,6 @@ impl EditorElement {
         autosuggestion_ignore: &ViewHandle<AutosuggestionIgnore>,
         show_autosuggestion_keybinding_hint: bool,
         show_autosuggestion_ignore_button: bool,
-        is_cycling: bool,
-        ctx: &AppContext,
     ) -> Self {
         // Text in the input is cut off at line heights < 1, so it's not possible
         // to render the keybinding shortcut / ignore button at these small line heights.
@@ -1474,46 +1456,7 @@ impl EditorElement {
                     Some(ChildView::new(autosuggestion_ignore).finish());
             }
         }
-        // If the input buffer is empty, down arrow cycles suggestions.
-        let cycle_next_command_hint = if self.should_show_cycle_next_command_hint(is_cycling, ctx) {
-            let appearance = Appearance::as_ref(ctx);
-            Some(
-                self.render_cycle_next_command_hint(warp_core::ui::theme::Fill::Solid(
-                    blended_colors::semantic_text_disabled(appearance.theme()),
-                )),
-            )
-        } else {
-            None
-        };
-        Self {
-            cycle_next_command_hint,
-            ..self
-        }
-    }
-
-    fn render_cycle_next_command_hint(&self, color: Fill) -> Box<dyn Element + 'static> {
-        let font_size = self.view_snapshot.font_size - 2.;
-        let icon_height = Self::cursor_height(font_size, self.view_snapshot.line_height_ratio);
-        Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::End)
-            .with_children([
-                Container::new(
-                    ConstrainedBox::new(Icon::ArrowDown.to_warpui_icon(color).finish())
-                        .with_max_height(icon_height)
-                        .with_max_width(icon_height)
-                        .finish(),
-                )
-                .with_margin_right(self.view_snapshot.em_width)
-                .finish(),
-                Text::new(
-                    "Cycle suggestions",
-                    self.view_snapshot.font_family,
-                    font_size,
-                )
-                .with_color(self.text_colors.hint_color.into())
-                .finish(),
-            ])
-            .finish()
+        self
     }
 
     #[cfg(feature = "voice_input")]
@@ -1685,10 +1628,6 @@ impl Element for EditorElement {
                 .reduce(f32::max)
                 .unwrap_or(0.),
         );
-
-        if let Some(element) = self.cycle_next_command_hint.as_mut() {
-            element.layout(constraint, ctx, app);
-        }
 
         let cursor_height =
             Self::cursor_height(view_snapshot.font_size, view_snapshot.line_height_ratio);
@@ -1999,21 +1938,6 @@ impl Element for EditorElement {
                     ctx,
                     app,
                 );
-            }
-
-            if let Some(cycle_next_command_hint) = self.cycle_next_command_hint.as_mut() {
-                let hint_size = cycle_next_command_hint
-                    .size()
-                    .expect("should have element size at paint");
-
-                let origin = vec2f(
-                    bounds.max_x() - hint_size.x(),
-                    bounds.max_y() - hint_size.y(),
-                );
-                // Only render the hint if it wouldn't overlap with the rightmost icon.
-                if next_icon_origin_without_padding.is_none_or(|p| p.x() < origin.x()) {
-                    cycle_next_command_hint.paint(origin, ctx, app);
-                }
             }
 
             let cursor_size = vec2f(BEAM_CURSOR_WIDTH_PX, cursor_height);

@@ -95,11 +95,11 @@ use crate::settings::{
     AgentModeQuerySuggestionsEnabled, AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin,
     AwsBedrockCredentialsEnabled, CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
     GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
-    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, NLDInTerminalEnabled,
-    NaturalLanguageAutosuggestionsEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
-    ShouldShowOzUpdatesInZeroState, ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
-    VOICE_INPUT_LANGUAGES, VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
+    LongRunningCommandSubmissionMode, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
+    OrchestrationMessageDisplayMode, PromptSubmissionMode, SharedBlockTitleGenerationEnabled,
+    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState,
+    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VOICE_INPUT_LANGUAGES,
+    VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -115,7 +115,6 @@ use crate::{TelemetryEvent, UserWorkspaces, send_telemetry_from_ctx};
 const AI_SETTINGS_DROPDOWN_WIDTH: f32 = 250.;
 const AI_SETTINGS_DROPDOWN_MAX_HEIGHT: f32 = 250.;
 
-const NEXT_COMMAND_DESCRIPTION: &str = "Let AI suggest the next command to run based on your command history, outputs, and common workflows.";
 const PROMPT_SUGGESTIONS_DESCRIPTION: &str = "Let AI suggest natural language prompts, as inline banners in the input, based on recent commands and their outputs.";
 const SUGGESTED_CODE_BANNERS_DESCRIPTION: &str = "Let AI suggest code diffs and queries as inline banners in the blocklist, based on recent commands and their outputs.";
 const NATURAL_LANGUAGE_AUTOSUGGESTIONS: &str =
@@ -196,20 +195,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "Next Command",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleIntelligentAutosuggestions,
-                )),
-                &(context.clone() & id!(flags::IS_ACTIVE_AI_ENABLED)),
-                flags::INTELLIGENT_AUTOSUGGESTIONS_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi),
         ],
         app,
     );
@@ -2250,11 +2235,8 @@ impl WarpAgentPageView {
         let mut categories: Vec<Category<Self>> = Vec::new();
 
         if ai_settings
-            .intelligent_autosuggestions_enabled_internal
+            .prompt_suggestions_enabled_internal
             .is_supported_on_current_platform()
-            || ai_settings
-                .prompt_suggestions_enabled_internal
-                .is_supported_on_current_platform()
             || (FeatureFlag::PredictAMQueries.is_enabled()
                 && ai_settings
                     .natural_language_autosuggestions_enabled_internal
@@ -2269,7 +2251,6 @@ impl WarpAgentPageView {
                     .is_supported_on_current_platform())
         {
             let active_ai_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-                Box::new(NextCommandWidget::default()),
                 Box::new(PromptSuggestionsWidget::default()),
                 Box::new(SuggestedCodeBannersWidget::default()),
                 Box::new(NaturalLanguageAutosuggestionsWidget::default()),
@@ -2501,7 +2482,6 @@ pub enum WarpAgentPageAction {
     SetVoiceInputLanguage(String),
     ToggleGlobalAI,
     ToggleActiveAI,
-    ToggleIntelligentAutosuggestions,
     TogglePromptSuggestions,
     ToggleCodeSuggestions,
     ToggleNaturalLanguageAutosuggestions,
@@ -2613,26 +2593,6 @@ impl TypedActionView for WarpAgentPageView {
                     }
                     Err(e) => {
                         log::warn!("Failed to set value for Active AI setting: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleIntelligentAutosuggestions => {
-                match AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings
-                        .intelligent_autosuggestions_enabled_internal
-                        .toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleIntelligentAutosuggestionsSetting {
-                                is_intelligent_autosuggestions_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Next Command setting: {e:?}");
                     }
                 }
                 ctx.notify();
@@ -3238,13 +3198,6 @@ fn render_global_ai_toggle(
     row.finish()
 }
 
-fn is_next_command_toggleable(app: &AppContext) -> bool {
-    UserWorkspaces::as_ref(app).is_next_command_enabled()
-        && AISettings::as_ref(app)
-            .intelligent_autosuggestions_enabled_internal
-            .is_supported_on_current_platform()
-}
-
 fn is_prompt_suggestions_toggleable(app: &AppContext) -> bool {
     UserWorkspaces::as_ref(app).is_prompt_suggestions_toggleable()
         && AISettings::as_ref(app)
@@ -3306,52 +3259,6 @@ fn render_active_ai_toggle(toggle: &SwitchStateHandle, app: &AppContext) -> Box<
     ))
     .with_padding_right(TOGGLE_BUTTON_RIGHT_PADDING)
     .finish()
-}
-
-#[derive(Default)]
-struct NextCommandWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for NextCommandWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "active ai a.i. next command suggestions"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        is_next_command_toggleable(app)
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_toggleable = ai_settings.is_active_ai_enabled(app);
-
-        Flex::column()
-            .with_child(
-                render_ai_setting_toggle::<IntelligentAutosuggestionsEnabled>(
-                    "Next Command",
-                    WarpAgentPageAction::ToggleIntelligentAutosuggestions,
-                    *ai_settings.intelligent_autosuggestions_enabled_internal,
-                    is_toggleable,
-                    self.toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
-                    app,
-                ),
-            )
-            .with_child(render_ai_setting_description(
-                NEXT_COMMAND_DESCRIPTION,
-                is_toggleable,
-                app,
-            ))
-            .finish()
-    }
 }
 
 #[derive(Default)]

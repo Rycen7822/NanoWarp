@@ -928,17 +928,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
     },
-    // This field should not be referenced directly to lookup intelligent autosuggestion enablement
-    // -- use the `is_intelligent_autosuggestions_enabled()` getter.
-    intelligent_autosuggestions_enabled_internal: IntelligentAutosuggestionsEnabled {
-        type: bool,
-        default: true, // TODO(roland): revisit this when launched to stable
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.intelligent_autosuggestions_enabled",
-        description: "Controls whether AI-powered intelligent autosuggestions are enabled.",
-    }
     // This field should not be referenced directly to lookup Prompt Suggestions
     // enablement -- use the `is_prompt_suggestions_enabled()` getter.
     // Note that AgentModeQuerySuggestionsEnabled is a legacy name (the feature was initially named Agent
@@ -1771,10 +1760,6 @@ impl AISettings {
 
     pub fn is_git_operations_autogen_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.git_operations_autogen_enabled_internal
-    }
-
-    pub fn is_intelligent_autosuggestions_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.intelligent_autosuggestions_enabled_internal
     }
 
     pub fn is_voice_input_enabled(&self, app: &warpui::AppContext) -> bool {

@@ -178,9 +178,6 @@ pub enum FeatureFlag {
     /// Enables the overflow menu on AI blocks.
     AIBlockOverflowMenu,
 
-    /// Enables cycling through the next command suggestions with down arrow.
-    CycleNextCommandSuggestion,
-
     /// Enables multi-workspace selection.
     MultiWorkspace,
 
@@ -192,9 +189,6 @@ pub enum FeatureFlag {
     OscHyperlinks,
 
     ImeMarkedText,
-
-    /// Enables partial next command suggestions with a prefix.
-    PartialNextCommandSuggestions,
 
     AIGeneratedOnboardingSuggestions,
 

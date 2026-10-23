@@ -882,6 +882,68 @@ impl History {
     }
 }
 
+/// Scans the given history entries in reverse order for commands that start
+/// with the buffer text to return as a potential autosuggestion. Prioritizes commands
+/// in history that were executed in the user's current working directory,
+/// with any command executed in other directories at the end.
+pub(crate) fn find_potential_autosuggestions_from_history<'a>(
+    history_entries: impl DoubleEndedIterator<Item = &'a HistoryEntry>,
+    buffer_text: &str,
+    working_dir: Option<&str>,
+) -> Vec<HistoryEntry> {
+    let mut commands_in_same_dir = vec![];
+    let mut commands_in_other_dirs = vec![];
+    for entry in history_entries.rev() {
+        if !entry.command.starts_with(buffer_text) {
+            continue;
+        }
+        let same_dir = entry
+            .pwd
+            .as_ref()
+            .zip(working_dir)
+            .is_some_and(|(pwd, working_dir)| pwd == working_dir);
+
+        if same_dir {
+            commands_in_same_dir.push(entry.clone());
+        } else {
+            commands_in_other_dirs.push(entry.clone());
+        }
+    }
+    commands_in_same_dir.extend(commands_in_other_dirs);
+    commands_in_same_dir
+}
+
+/// Finds commands that followed matching commands in history, from oldest to newest.
+#[cfg(feature = "local_fs")]
+pub(crate) fn find_next_commands_from_similar_history(
+    conn: &mut diesel::SqliteConnection,
+    command: &str,
+    pwd: &Option<String>,
+    exit_code: ExitCode,
+    shell_host: Option<&ShellHost>,
+) -> Vec<crate::persistence::model::Command> {
+    const MAX_NUM_SIMILAR_HISTORY_CONTEXT: usize = 25;
+
+    // The number of commands from history affects how quickly we "learn" new patterns, the lower the faster.
+    let Ok(same_commands_from_history) =
+        crate::persistence::commands::get_same_commands_from_history(
+            conn,
+            command,
+            pwd,
+            exit_code,
+            shell_host,
+            MAX_NUM_SIMILAR_HISTORY_CONTEXT,
+        )
+    else {
+        return vec![];
+    };
+    same_commands_from_history
+        .into_iter()
+        .rev()
+        .filter_map(|command| crate::persistence::commands::get_next_command(conn, &command).ok())
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "history_tests.rs"]
 pub mod tests;

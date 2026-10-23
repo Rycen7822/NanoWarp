@@ -383,7 +383,6 @@ use crate::terminal::block_list_viewport::{
 };
 use crate::terminal::bootstrap::init_subshell_command;
 use crate::terminal::color::List;
-use crate::terminal::command_corrections_denylist::COMMAND_CORRECTIONS_PREFERRED_DENYLIST;
 use crate::terminal::event::{
     AfterBlockCompletedEvent, BlockType, RemoteServerSetupState, TerminalMode, UserBlockCompleted,
 };
@@ -15218,24 +15217,12 @@ impl TerminalView {
         ctx: &mut ViewContext<TerminalView>,
     ) {
         if let Some(correction) = corrections.into_iter().next() {
-            let rule = correction.rule_applied;
-
-            if AISettings::as_ref(ctx).is_intelligent_autosuggestions_enabled(ctx)
-                && UserWorkspaces::as_ref(ctx).is_next_command_enabled()
-                && COMMAND_CORRECTIONS_PREFERRED_DENYLIST.contains(rule.to_str())
-            {
-                // Defer to Next Command if the rule is in the denylist.
-                return;
-            }
-
             // Set the autosuggestion only if the input is still empty
             self.input.update(ctx, |input, ctx| {
                 if input.buffer_text(ctx).is_empty() {
                     input.set_autosuggestion(
                         correction.command.as_str(),
-                        AutosuggestionType::Command {
-                            was_intelligent_autosuggestion: false,
-                        },
+                        AutosuggestionType::Command,
                         ctx,
                     );
                 }
@@ -19692,7 +19679,6 @@ impl TerminalView {
                     autosuggestion,
                     AutosuggestionType::AgentModeQuery {
                         context_block_ids: selected_block_ids,
-                        was_intelligent_autosuggestion: false,
                     },
                     ctx,
                 );

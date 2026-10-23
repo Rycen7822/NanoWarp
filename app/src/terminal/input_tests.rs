@@ -4603,13 +4603,7 @@ fn test_tab_completion_hides_autosuggestion() {
         input.update(&mut app, |input, ctx| {
             input.clear_buffer_and_reset_undo_stack(ctx);
             input.user_insert("open-file ", ctx);
-            input.set_autosuggestion(
-                "sesame",
-                AutosuggestionType::Command {
-                    was_intelligent_autosuggestion: false,
-                },
-                ctx,
-            )
+            input.set_autosuggestion("sesame", AutosuggestionType::Command, ctx)
         });
 
         input.update(&mut app, |input, ctx| {
@@ -4666,13 +4660,7 @@ fn test_completions_while_typing_doesnt_hide_autosuggestion() {
         input.update(&mut app, |input, ctx| {
             input.clear_buffer_and_reset_undo_stack(ctx);
             input.user_insert("open-file ", ctx);
-            input.set_autosuggestion(
-                "sesame",
-                AutosuggestionType::Command {
-                    was_intelligent_autosuggestion: false,
-                },
-                ctx,
-            )
+            input.set_autosuggestion("sesame", AutosuggestionType::Command, ctx)
         });
 
         // Autosuggestion should be active.

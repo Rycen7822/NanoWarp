@@ -23055,9 +23055,6 @@ impl Workspace {
         if ai_settings.is_nld_in_terminal_enabled(app) {
             context.set.insert(flags::NLD_IN_TERMINAL_FLAG);
         }
-        if ai_settings.is_intelligent_autosuggestions_enabled(app) {
-            context.set.insert(flags::INTELLIGENT_AUTOSUGGESTIONS_FLAG);
-        }
         if ai_settings.is_prompt_suggestions_enabled(app) {
             context.set.insert(flags::PROMPT_SUGGESTIONS_FLAG);
         }

@@ -7,9 +7,13 @@ use typed_path::{TypedPath, TypedPathBuf};
 #[cfg(windows)]
 use typed_path::{UnixComponent, WindowsComponent, WindowsPrefix};
 use warp_completer::completer::{CompletionContext, EngineDirEntry, PathCompletionContext};
+use warp_completer::meta::SpannedItem;
+use warp_completer::parsers::hir::{ArgType, Expression};
+use warp_completer::parsers::{ParsedExpression, ParsedToken};
 use warp_completer::signatures::CommandRegistry;
 use warpui::App;
 
+use super::{is_arg_valid, is_command_valid};
 use crate::completer::SessionContext;
 use crate::terminal::model::session::command_executor::testing::TestCommandExecutor;
 use crate::terminal::model::session::{Session, SessionInfo};
@@ -573,4 +577,35 @@ pub fn test_parse_ls_script_output_truncated_mid_file_entry_fails() {
     let output = b"./dir\0\0./whole_file.txt\0./partial_fil";
 
     assert_eq!(super::parse_ls_script_output(output), None);
+}
+
+#[test]
+fn test_feature_flag_arg_is_valid_with_no_whitespace_before_arg() {
+    App::test((), |app| async move {
+        let session = Session::new(
+            SessionInfo::new_for_test(),
+            Arc::new(TestCommandExecutor::default()),
+        );
+        let ctx = test_session_context(session, TypedPathBuf::from("/test/home/"), &app);
+
+        let full_command = "cargo run --features=with_local_server,fast_dev";
+        let with_local_server_arg = ParsedExpression::new(
+            Expression::ValidatableArgument(vec![ArgType::Generator("feature_flags".into())]),
+            ParsedToken::new("with_local_server".to_string()),
+        )
+        .spanned((21, 38));
+        let fast_dev_arg = ParsedExpression::new(
+            Expression::ValidatableArgument(vec![ArgType::Generator("feature_flags".into())]),
+            ParsedToken::new("fast_dev".to_string()),
+        )
+        .spanned((39, 47));
+        let is_valid = is_arg_valid(full_command, &with_local_server_arg, &ctx, None).await;
+        assert!(is_valid);
+
+        let is_valid = is_arg_valid(full_command, &fast_dev_arg, &ctx, None).await;
+        assert!(is_valid);
+
+        let is_valid = is_command_valid(full_command, Some(&ctx), None).await;
+        assert!(is_valid);
+    });
 }

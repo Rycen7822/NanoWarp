@@ -52,10 +52,9 @@ use workspace::WorkspaceClient;
 use super::experiments::{ServerExperiment, ServerExperiments};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::get_relevant_files::api::{GetRelevantFiles, GetRelevantFilesResponse};
-use crate::ai::predict::generate_ai_input_suggestions::GenerateAIInputSuggestionsRequest;
+use crate::ai::predict::generate_am_query_suggestions;
 use crate::ai::predict::generate_am_query_suggestions::GenerateAMQuerySuggestionsRequest;
 use crate::ai::predict::predict_am_queries::{PredictAMQueriesRequest, PredictAMQueriesResponse};
-use crate::ai::predict::{generate_ai_input_suggestions, generate_am_query_suggestions};
 use crate::ai::voice::transcribe::{TranscribeRequest, TranscribeResponse};
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
@@ -1120,37 +1119,6 @@ impl ServerApi {
     ) -> Result<()> {
         self.telemetry_api
             .flush_and_persist_events(max_event_count, settings_snapshot)
-    }
-
-    /// Hits the /ai/generate_input_suggestions endpoint to get the predicted next action, based on past context.
-    pub async fn generate_ai_input_suggestions(
-        &self,
-        request: &GenerateAIInputSuggestionsRequest,
-        team_scope: RequestTeamScope,
-    ) -> Result<generate_ai_input_suggestions::GenerateAIInputSuggestionsResponseV2, AIApiError>
-    {
-        let auth_token = self.get_or_refresh_access_token().await?;
-
-        let mut request_builder = self.base_client.http_client().post(format!(
-            "{}/ai/generate_input_suggestions",
-            ChannelState::server_root_url()
-        ));
-        if let Some(team_uid) = team_scope.team_uid() {
-            request_builder = request_builder.header(TEAM_UID_HEADER, team_uid.uid());
-        }
-        let response = if let Some(token) = auth_token.as_bearer_token() {
-            request_builder.bearer_auth(token)
-        } else {
-            request_builder
-        }
-        .json(request)
-        .send()
-        .await?
-        .error_for_status_with_body()
-        .await?
-        .json()
-        .await?;
-        Ok(response)
     }
 
     pub async fn get_relevant_files(
