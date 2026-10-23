@@ -16,7 +16,6 @@ use instant::Instant;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tracing::Instrument as _;
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use warp_cli::agent::{RepositoryForge, RepositoryHeadRef};
 use warp_cli::environment_checkout::EnvironmentCheckoutArgs;
 use warp_core::features::FeatureFlag;
@@ -50,7 +49,6 @@ pub(crate) fn run(args: &EnvironmentCheckoutArgs) -> anyhow::Result<()> {
         result_ok = tracing::field::Empty,
         err = tracing::field::Empty,
     );
-    let _ = span.set_parent(opentelemetry::Context::current());
     let result = runtime.block_on(run_async(args).instrument(span.clone()));
     span.record("result_ok", result.is_ok());
     if let Err(err) = &result {
@@ -233,7 +231,6 @@ async fn identity_query(cwd: &Path, args: &[&str], input: Option<&str>) -> Optio
     tokio::time::timeout(IDENTITY_QUERY_TIMEOUT, async {
         let mut child = Command::new("git")
             .current_dir(cwd)
-            .env_remove("WARP_CLOUD_AGENT_OTLP_TOKEN")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GCM_INTERACTIVE", "never")
             .args(args)
@@ -541,7 +538,6 @@ impl Git {
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .env("GCM_INTERACTIVE", "never")
                 .envs(env.iter().copied())
-                .env_remove("WARP_CLOUD_AGENT_OTLP_TOKEN")
                 .args(args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())

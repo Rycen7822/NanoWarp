@@ -77,7 +77,6 @@ mod tab;
 mod test_util;
 mod throttle;
 mod tips;
-mod tracing;
 mod ui_components;
 mod undo_close;
 mod uri;
@@ -623,13 +622,12 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             // It only needs logging to stderr since stdout is the protocol
             // channel. No crash reporting, no initialize_app.
             let launch_mode = LaunchMode::RemoteServerProxy;
-            let mut tracing_initialization = tracing::init()?;
+            ::tracing::subscriber::set_global_default(::tracing::subscriber::NoSubscriber::new())?;
             warp_logging::init(warp_logging::LogConfig {
                 frontend: launch_mode.log_frontend(),
                 log_destination: launch_mode.log_destination(),
                 ..Default::default()
             })?;
-            tracing_initialization.log_initialization_warning();
             crate::remote_server::run_proxy(args.identity_key.clone())
         }
         #[cfg(not(target_family = "wasm"))]
@@ -640,15 +638,12 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
         }
         #[cfg(not(target_family = "wasm"))]
         warp_cli::WorkerCommand::EnvironmentCheckout(args) => {
-            let (mut tracing_initialization, parent_context) =
-                tracing::init_child_process(&args.requests_file)?;
-            let _parent_context = parent_context.attach();
+            ::tracing::subscriber::set_global_default(::tracing::subscriber::NoSubscriber::new())?;
             warp_logging::init(warp_logging::LogConfig {
                 frontend: LogFrontend::Cli,
                 log_destination: Some(LogDestination::Stderr),
                 ..Default::default()
             })?;
-            tracing_initialization.log_initialization_warning();
             ai::agent_sdk::run_environment_checkout(args)
         }
         #[cfg(not(target_family = "wasm"))]
@@ -714,10 +709,9 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
         sentry::Hub::main();
     }
 
-    let mut tracing_initialization = tracing::init()?;
+    ::tracing::subscriber::set_global_default(::tracing::subscriber::NoSubscriber::new())?;
 
-    // Start the `run_internal` span here - we can't do it before this point
-    // because we need the tracing initialization to be complete first.
+    // Install the subscriber before creating spans so tracing does not duplicate log output.
     let span = ::tracing::info_span!(
         "run_internal",
         launch_mode = launch_mode.as_str_for_tracing()
@@ -745,8 +739,6 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
             })?;
         }
     }
-
-    tracing_initialization.log_initialization_warning();
     timer.mark_interval_end("LOG_FILE_SETUP_COMPLETE");
 
     // Claim a background-only process type before anything else can reach
@@ -884,10 +876,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     let pty_spawner =
         terminal::local_tty::spawner::PtySpawner::new().context("Failed to create pty spawner")?;
 
-    let callbacks = app_callbacks(
-        launch_mode.is_integration_test(),
-        Some(tracing_initialization),
-    );
+    let callbacks = app_callbacks(launch_mode.is_integration_test());
     let mut app_builder = if launch_mode.is_gui() {
         warpui::platform::AppBuilder::new(
             callbacks,
@@ -1172,13 +1161,6 @@ pub(crate) fn initialize_app(
     #[cfg(not(target_family = "wasm"))]
     server_api.set_ambient_agent_task_id(ambient_agent_task_id);
     let ai_client = server_api_provider.as_ref(ctx).get_ai_client();
-    #[cfg(not(target_family = "wasm"))]
-    // Refresh starts only after the authenticated server client exists; tracing initialization
-    // remains responsible for deciding whether this process opted in to cloud-agent export.
-    tracing::start_auth_refresh(
-        server_api_provider.as_ref(ctx).get_managed_secrets_client(),
-        ctx,
-    );
 
     ctx.add_singleton_model(|_ctx| AuthStateProvider::new(auth_state.clone()));
 
@@ -2199,10 +2181,7 @@ pub(crate) fn initialize_app(
     app_state
 }
 
-pub(crate) fn app_callbacks(
-    is_integration_test: bool,
-    mut tracing_initialization: Option<tracing::Initialization>,
-) -> warpui::platform::AppCallbacks {
+pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppCallbacks {
     warpui::platform::AppCallbacks {
         on_internet_reachability_changed: Some(Box::new(move |reachable, ctx| {
             NetworkStatus::handle(ctx)
@@ -2321,9 +2300,6 @@ pub(crate) fn app_callbacks(
             crash_recovery::CrashRecovery::handle(ctx).update(ctx, |crash_recovery, _ctx| {
                 crash_recovery.teardown();
             });
-            if let Some(initialization) = tracing_initialization.as_mut() {
-                initialization.shutdown();
-            }
 
             // Tear down crash reporting as the last thing we do before the application
             // terminates.

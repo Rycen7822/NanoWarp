@@ -118,10 +118,6 @@ fn mount_command(cache_root: &Path, cwd: &Path, modes: &[String]) -> Command {
         disk_usage_total = tracing::field::Empty,
         disk_usage_used = tracing::field::Empty,
         mount_error = tracing::field::Empty,
-        // These fields are interpreted by `tracing-opentelemetry`:
-        // https://docs.rs/tracing-opentelemetry/0.33.0/tracing_opentelemetry/#special-fields
-        otel.status_code = tracing::field::Empty,
-        otel.status_description = tracing::field::Empty,
     )
 )]
 pub(super) async fn run_spacectl_mount<F, Fut>(
@@ -187,8 +183,6 @@ where
             let diagnostic = mount_error_diagnostic(&err);
             let diagnostic: &str = diagnostic.as_ref();
             span.record("mount_error", diagnostic);
-            span.record("otel.status_code", "ERROR");
-            span.record("otel.status_description", err.to_string());
             tracing::error!(error = ?err, "spacectl cache mount failed");
             failed_invocation(scope, modes, context.relative_cache_dir, err, duration)
         }
