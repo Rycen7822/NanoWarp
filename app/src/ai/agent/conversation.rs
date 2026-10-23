@@ -37,7 +37,7 @@ use super::{
     AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutput, AIAgentOutputStatus,
     AIAgentTodo, AIAgentTodoId, FinishedAIAgentOutput, MessageId, OutputModelInfo,
     RenderableAIError, RequestCost, ServerOutputId, Shared, StartRecordingResult,
-    StopRecordingResult, SuggestedLoggingId, Suggestions,
+    StopRecordingResult,
 };
 use crate::ai::agent::api::convert_conversation::{
     ConvertToExchanges, compute_time_to_first_token_ms_from_messages,
@@ -385,12 +385,6 @@ pub struct AIConversation {
     /// A set of action IDs that have been reverted by the user.
     reverted_action_ids: HashSet<AIAgentActionId>,
 
-    /// Accumulated suggestions received in the course of this conversation.
-    existing_suggestions: Option<Suggestions>,
-
-    /// A set of suggestion logging IDs that have been dismissed for this conversation.
-    dismissed_suggestion_ids: HashSet<SuggestedLoggingId>,
-
     total_request_cost: RequestCost,
     total_token_usage_by_model: HashMap<String, TokenUsage>,
     /// True once hydrated usage metadata shows evidence of usage (see
@@ -492,8 +486,6 @@ impl AIConversation {
             added_exchanges_by_response: Default::default(),
             hidden_exchanges: Default::default(),
             reverted_action_ids: Default::default(),
-            existing_suggestions: None,
-            dismissed_suggestion_ids: Default::default(),
             total_request_cost: RequestCost::new(0.),
             total_token_usage_by_model: Default::default(),
             has_usage_metadata: false,
@@ -748,10 +740,8 @@ impl AIConversation {
             transaction: None,
             autoexecute_override,
             added_exchanges_by_response: Default::default(),
-            existing_suggestions: None,
             hidden_exchanges: Default::default(),
             reverted_action_ids,
-            dismissed_suggestion_ids: Default::default(),
             total_request_cost: RequestCost::new(0.),
             total_token_usage_by_model: Default::default(),
             has_usage_metadata,
@@ -1623,27 +1613,6 @@ impl AIConversation {
             || self.is_child_agent_conversation()
     }
 
-    pub fn existing_suggestions(&self) -> Option<&Suggestions> {
-        self.existing_suggestions.as_ref()
-    }
-
-    pub fn dismissed_suggestion_ids(&self) -> &HashSet<SuggestedLoggingId> {
-        &self.dismissed_suggestion_ids
-    }
-
-    pub fn dismiss_current_suggestions(&mut self) {
-        if let Some(suggestions) = &self.existing_suggestions {
-            self.dismissed_suggestion_ids
-                .extend(suggestions.rules.iter().map(|r| r.logging_id.clone()));
-            self.dismissed_suggestion_ids.extend(
-                suggestions
-                    .agent_mode_workflows
-                    .iter()
-                    .map(|w| w.logging_id.clone()),
-            );
-        }
-    }
-
     pub fn is_exchange_hidden(&self, exchange_id: AIAgentExchangeId) -> bool {
         self.hidden_exchanges.contains(&exchange_id)
     }
@@ -2444,17 +2413,6 @@ impl AIConversation {
             if let Some(output_shared) = output {
                 let output = output_shared.get();
                 has_new_actions |= output.actions().next().is_some();
-
-                if let Some(new_suggestions) = output.suggestions.clone() {
-                    if let Some(existing_suggestions) = self.existing_suggestions.as_mut() {
-                        existing_suggestions.rules.extend(new_suggestions.rules);
-                        existing_suggestions
-                            .agent_mode_workflows
-                            .extend(new_suggestions.agent_mode_workflows);
-                    } else {
-                        self.existing_suggestions = Some(new_suggestions);
-                    }
-                }
             }
 
             ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
@@ -2488,25 +2446,7 @@ impl AIConversation {
                 task_id,
             } in added_exchanges.into_iter()
             {
-                let completed_exchange = self.mark_exchange_completed(&task_id, exchange_id)?;
-                let output = completed_exchange
-                    .output_status
-                    .output()
-                    .map(Shared::get_owned);
-                if let Some(output_shared) = output {
-                    let output = output_shared.get();
-
-                    if let Some(new_suggestions) = output.suggestions.clone() {
-                        if let Some(existing_suggestions) = self.existing_suggestions.as_mut() {
-                            existing_suggestions.rules.extend(new_suggestions.rules);
-                            existing_suggestions
-                                .agent_mode_workflows
-                                .extend(new_suggestions.agent_mode_workflows);
-                        } else {
-                            self.existing_suggestions = Some(new_suggestions);
-                        }
-                    }
-                }
+                self.mark_exchange_completed(&task_id, exchange_id)?;
 
                 ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                     exchange_id,
@@ -3415,22 +3355,6 @@ impl AIConversation {
                         conversation_id: self.id,
                     });
                 }
-                ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
-                    exchange_id,
-                    terminal_surface_id,
-                    conversation_id: self.id,
-                    is_hidden: self.is_exchange_hidden(exchange_id),
-                });
-            }
-            Action::ShowSuggestions(suggestions) => {
-                let exchange_id = self
-                    .added_exchanges_by_response
-                    .get(response_stream_id)
-                    .ok_or(UpdateConversationError::NoPendingRequest)?
-                    .last()
-                    .exchange_id;
-                let exchange_to_update = self.get_exchange_to_update(exchange_id)?;
-                exchange_to_update.update_suggestions(suggestions);
                 ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                     exchange_id,
                     terminal_surface_id,
@@ -4922,7 +4846,6 @@ impl AIAgentExchange {
                         citations: vec![],
                         server_output_id: Some(server_output_id),
                         api_metadata_bytes: None,
-                        suggestions: None,
                         telemetry_events: vec![],
                         model_info: None,
                         request_cost: None,
@@ -4931,16 +4854,6 @@ impl AIAgentExchange {
                 Ok(())
             }
             AIAgentOutputStatus::Finished { .. } => Err(UpdateTaskError::OutputAlreadyFinished),
-        }
-    }
-
-    fn update_suggestions(&self, suggestions: api::Suggestions) {
-        if let AIAgentOutputStatus::Streaming {
-            output: Some(output),
-        } = &self.output_status
-        {
-            let mut output = output.get_mut();
-            output.suggestions = Some(suggestions.into());
         }
     }
 }

@@ -200,13 +200,6 @@ use crate::ai::blocklist::handoff::{
 };
 use crate::ai::blocklist::history_model::load_conversation_from_server;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::suggested_agent_mode_workflow_modal::{
-    SuggestedAgentModeWorkflowAndId, SuggestedAgentModeWorkflowModal,
-    SuggestedAgentModeWorkflowModalEvent,
-};
-use crate::ai::blocklist::suggested_rule_modal::{
-    SuggestedRuleAndId, SuggestedRuleModal, SuggestedRuleModalEvent,
-};
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, FORK_PREFIX, PendingAttachment, PendingQueryState, QueuedQueryOrigin,
     SerializedBlockListItem, SlashCommandRequest,
@@ -1115,8 +1108,6 @@ pub struct Workspace {
     show_team_switcher_menu: bool,
     theme_creator_modal: ViewHandle<ThemeCreatorModal>,
     theme_deletion_modal: ViewHandle<ThemeDeletionModal>,
-    suggested_agent_mode_workflow_modal: ViewHandle<SuggestedAgentModeWorkflowModal>,
-    suggested_rule_modal: ViewHandle<SuggestedRuleModal>,
     oz_launch_modal: ModalWithTab<LaunchModal<OzLaunchSlide>>,
     openwarp_launch_modal: ViewHandle<OpenWarpLaunchModal>,
     orchestration_launch_modal: ViewHandle<OrchestrationLaunchModal>,
@@ -1884,60 +1875,6 @@ impl Workspace {
         });
 
         theme_deletion_modal
-    }
-
-    fn build_suggested_agent_mode_workflow_modal(
-        ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<SuggestedAgentModeWorkflowModal> {
-        let suggested_agent_mode_workflow_modal =
-            ctx.add_typed_action_view(|_| SuggestedAgentModeWorkflowModal::default());
-
-        ctx.subscribe_to_view(&suggested_agent_mode_workflow_modal, |me, _, event, ctx| {
-            me.handle_suggested_agent_mode_workflow_modal_event(event, ctx);
-        });
-
-        suggested_agent_mode_workflow_modal
-    }
-
-    fn build_suggested_rule_modal(ctx: &mut ViewContext<Self>) -> ViewHandle<SuggestedRuleModal> {
-        let suggested_rule_modal = ctx.add_typed_action_view(SuggestedRuleModal::new);
-        ctx.subscribe_to_view(&suggested_rule_modal, |me, _, event, ctx| {
-            me.handle_suggested_rule_modal_event(event, ctx);
-        });
-        suggested_rule_modal
-    }
-
-    fn handle_suggested_rule_modal_event(
-        &mut self,
-        event: &SuggestedRuleModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SuggestedRuleModalEvent::AddNewRule { rule } => {
-                self.current_workspace_state.is_suggested_rule_modal_open = false;
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::AISuggestedRuleAdded {
-                        rule_id: rule.logging_id.clone(),
-                    },
-                    ctx
-                );
-            }
-            SuggestedRuleModalEvent::OpenRuleForEditing { rule } => {
-                self.current_workspace_state.is_suggested_rule_modal_open = false;
-                self.open_ai_fact_collection_pane(Some(Direction::Right), None, ctx);
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::AISuggestedRuleEdited {
-                        rule_id: rule.logging_id.clone(),
-                    },
-                    ctx
-                );
-            }
-            SuggestedRuleModalEvent::Close => {
-                self.current_workspace_state.is_suggested_rule_modal_open = false;
-                self.focus_active_tab(ctx);
-            }
-        }
-        ctx.notify();
     }
 
     fn build_close_session_confirmation_dialog(
@@ -3010,11 +2947,6 @@ impl Workspace {
 
         let theme_deletion_modal = Self::build_theme_deletion_modal(ctx);
 
-        let suggested_agent_mode_workflow_modal =
-            Self::build_suggested_agent_mode_workflow_modal(ctx);
-
-        let suggested_rule_modal = Self::build_suggested_rule_modal(ctx);
-
         let oz_launch_view = ctx.add_typed_action_view(LaunchModal::<OzLaunchSlide>::new);
         ctx.subscribe_to_view(&oz_launch_view, |me, _, event, ctx| {
             me.handle_oz_launch_modal_event(event, ctx);
@@ -3467,8 +3399,6 @@ impl Workspace {
             should_show_ai_assistant_warm_welcome,
             ai_assistant_close_warm_welcome_mouse_state_handle: Default::default(),
             auth_override_warning_modal,
-            suggested_agent_mode_workflow_modal,
-            suggested_rule_modal,
             build_plan_migration_modal,
             require_login_modal,
             workflow_modal,
@@ -6067,37 +5997,6 @@ impl Workspace {
         }
     }
 
-    fn handle_suggested_agent_mode_workflow_modal_event(
-        &mut self,
-        event: &SuggestedAgentModeWorkflowModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SuggestedAgentModeWorkflowModalEvent::Close
-            | SuggestedAgentModeWorkflowModalEvent::WorkflowCreated => {
-                self.current_workspace_state
-                    .is_suggested_agent_mode_workflow_modal_open = false;
-                self.focus_active_tab(ctx);
-                ctx.notify();
-            }
-            SuggestedAgentModeWorkflowModalEvent::RunWorkflow {
-                workflow,
-                source,
-                argument_override,
-                workflow_selection_source,
-            } => {
-                self.run_workflow_in_active_input(
-                    workflow,
-                    *source.clone(),
-                    *workflow_selection_source,
-                    argument_override.clone(),
-                    TerminalSessionFallbackBehavior::default(),
-                    ctx,
-                );
-            }
-        }
-    }
-
     /// Handle the call-to-action event from the reward modal view
     fn handle_reward_view_event(&mut self, event: &RewardEvent, ctx: &mut ViewContext<Self>) {
         match event {
@@ -8387,36 +8286,6 @@ impl Workspace {
                 }
             });
         }
-    }
-
-    fn open_suggested_agent_mode_workflow_modal(
-        &mut self,
-        workflow_and_id: &SuggestedAgentModeWorkflowAndId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.current_workspace_state
-            .is_suggested_agent_mode_workflow_modal_open = true;
-        self.suggested_agent_mode_workflow_modal.update(
-            ctx,
-            |suggested_agent_mode_workflow_modal, ctx| {
-                suggested_agent_mode_workflow_modal.open_workflow(workflow_and_id, ctx);
-            },
-        );
-        ctx.notify();
-    }
-
-    fn open_suggested_rule_modal(
-        &mut self,
-        rule_and_id: &SuggestedRuleAndId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.current_workspace_state.is_suggested_rule_modal_open = true;
-        self.suggested_rule_modal
-            .update(ctx, |suggested_rule_modal, ctx| {
-                suggested_rule_modal.set_rule_and_id(rule_and_id, ctx);
-                ctx.notify();
-            });
-        ctx.notify();
     }
 
     /// Opens the Warp Drive object identified by `uid` in a new pane
@@ -16801,12 +16670,6 @@ impl Workspace {
             pane_group::Event::OpenWarpDriveObjectInPane(uid) => {
                 self.open_warp_drive_object_in_new_pane(uid, ctx);
             }
-            pane_group::Event::OpenSuggestedAgentModeWorkflowModal { workflow_and_id } => {
-                self.open_suggested_agent_mode_workflow_modal(workflow_and_id, ctx);
-            }
-            pane_group::Event::OpenSuggestedRuleModal { rule_and_id } => {
-                self.open_suggested_rule_modal(rule_and_id, ctx);
-            }
             pane_group::Event::AnonymousUserSignup => {
                 self.initiate_user_signup(AnonymousUserSignupEntrypoint::RenotificationBlock, ctx);
             }
@@ -23018,9 +22881,6 @@ impl Workspace {
         if *ai_settings.memory_enabled.value() {
             context.set.insert(flags::AI_RULES_FLAG);
         }
-        if *ai_settings.rule_suggestions_enabled_internal.value() {
-            context.set.insert(flags::SUGGESTED_RULES_FLAG);
-        }
         if *ai_settings.warp_drive_context_enabled.value() {
             context.set.insert(flags::WARP_DRIVE_CONTEXT_FLAG);
         }
@@ -26880,17 +26740,6 @@ impl View for Workspace {
 
         if self.current_workspace_state.is_header_toolbar_editor_open {
             stack.add_child(ChildView::new(&self.header_toolbar_editor_modal).finish());
-        }
-
-        if self
-            .current_workspace_state
-            .is_suggested_agent_mode_workflow_modal_open
-        {
-            stack.add_child(ChildView::new(&self.suggested_agent_mode_workflow_modal).finish());
-        }
-
-        if self.current_workspace_state.is_suggested_rule_modal_open {
-            stack.add_child(ChildView::new(&self.suggested_rule_modal).finish());
         }
 
         let one_time_modal_model = OneTimeModalModel::as_ref(app);

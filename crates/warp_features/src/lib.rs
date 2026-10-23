@@ -232,12 +232,6 @@ pub enum FeatureFlag {
     /// Enables Agent Mode onboarding.
     AgentOnboarding,
 
-    /// Enables suggested rules.
-    SuggestedRules,
-
-    /// Enables suggested workflows for Agent Mode.
-    SuggestedAgentModeWorkflows,
-
     /// Forces users to login.
     ForceLogin,
 

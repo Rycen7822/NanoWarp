@@ -23,7 +23,7 @@ use super::settings_page::{
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, flags};
 use crate::appearance::Appearance;
-use crate::settings::{AISettings, MemoryEnabled, RuleSuggestionsEnabled, WarpDriveContextEnabled};
+use crate::settings::{AISettings, MemoryEnabled, WarpDriveContextEnabled};
 use crate::util::bindings;
 
 const PAGE_TITLE: &str = "Knowledge";
@@ -47,9 +47,6 @@ impl KnowledgePageView {
         let mut widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = Vec::new();
         if FeatureFlag::AIRules.is_enabled() {
             widgets.push(Box::new(RulesWidget::default()));
-            if FeatureFlag::SuggestedRules.is_enabled() {
-                widgets.push(Box::new(SuggestedRulesWidget::default()));
-            }
             widgets.extend([
                 Box::new(ManageRulesWidget::default()) as Box<dyn SettingsWidget<View = Self>>,
                 Box::new(WarpDriveContextWidget::default()),
@@ -80,7 +77,6 @@ pub enum KnowledgePageEvent {
 #[derive(Debug, Clone)]
 pub enum KnowledgePageAction {
     ToggleRules,
-    ToggleRuleSuggestions,
     ToggleWarpDriveContext,
     OpenAIFactCollection,
     HyperlinkClick(HyperlinkUrl),
@@ -94,14 +90,6 @@ impl TypedActionView for KnowledgePageView {
             KnowledgePageAction::ToggleRules => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     let _ = settings.memory_enabled.toggle_and_save_value(ctx);
-                });
-                ctx.notify();
-            }
-            KnowledgePageAction::ToggleRuleSuggestions => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings
-                        .rule_suggestions_enabled_internal
-                        .toggle_and_save_value(ctx);
                 });
                 ctx.notify();
             }
@@ -167,18 +155,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .with_enabled(|| FeatureFlag::AIRules.is_enabled()),
-            ToggleSettingActionPair::new(
-                "Suggested Rules",
-                builder(SettingsAction::Knowledge(
-                    KnowledgePageAction::ToggleRuleSuggestions,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::SUGGESTED_RULES_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| {
-                FeatureFlag::AIRules.is_enabled() && FeatureFlag::SuggestedRules.is_enabled()
-            }),
             ToggleSettingActionPair::new(
                 "Warp Drive as agent context",
                 builder(SettingsAction::Knowledge(
@@ -249,48 +225,6 @@ impl SettingsWidget for RulesWidget {
         .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
         .with_margin_right(styles::TOGGLE_WIDTH_MARGIN)
         .finish();
-
-        Flex::column()
-            .with_child(toggle)
-            .with_child(description)
-            .finish()
-    }
-}
-
-#[derive(Default)]
-struct SuggestedRulesWidget {
-    rule_suggestions_toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for SuggestedRulesWidget {
-    type View = KnowledgePageView;
-
-    fn search_terms(&self) -> &str {
-        "suggested rules suggest save"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let toggle = render_ai_setting_toggle::<RuleSuggestionsEnabled>(
-            "Suggested Rules",
-            KnowledgePageAction::ToggleRuleSuggestions,
-            *ai_settings.rule_suggestions_enabled_internal,
-            ai_settings.is_any_ai_enabled(app),
-            self.rule_suggestions_toggle.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        );
-
-        let description = render_ai_setting_description(
-            "Let AI suggest rules to save based on your interactions.",
-            ai_settings.is_any_ai_enabled(app),
-            app,
-        );
 
         Flex::column()
             .with_child(toggle)

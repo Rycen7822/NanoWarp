@@ -25,9 +25,8 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentAttachment, AIAgentCitation, AIAgentInput,
     AIAgentOutputMessage, AIAgentText, AIAgentTodo, ArtifactCreatedData, BaseUserQuery,
     CloneRepositoryURL, InvokeSkillUserQuery, MessageId, RunAgentsAgentRunConfig,
-    RunAgentsExecutionMode, RunAgentsRequest, SubagentCall, SubagentType,
-    SuggestedAgentModeWorkflow, SuggestedRule, Suggestions, SummarizationType, TodoOperation,
-    UserQueryMode, WebFetchStatus, WebSearchStatus,
+    RunAgentsExecutionMode, RunAgentsRequest, SubagentCall, SubagentType, SummarizationType,
+    TodoOperation, UserQueryMode, WebFetchStatus, WebSearchStatus,
 };
 use crate::ai::artifact_download::sanitized_basename;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -804,31 +803,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
                 })
             }
             _ => Err(ToolToAIAgentActionError::UnexpectedTool),
-        }
-    }
-}
-
-impl From<api::Suggestions> for Suggestions {
-    fn from(api_suggestions: api::Suggestions) -> Self {
-        Self {
-            rules: api_suggestions
-                .rules
-                .into_iter()
-                .map(|rule| SuggestedRule {
-                    name: rule.name,
-                    content: rule.content,
-                    logging_id: rule.logging_id.into(),
-                })
-                .collect(),
-            agent_mode_workflows: api_suggestions
-                .workflows
-                .into_iter()
-                .map(|workflow| SuggestedAgentModeWorkflow {
-                    name: workflow.name,
-                    prompt: workflow.prompt,
-                    logging_id: workflow.logging_id.into(),
-                })
-                .collect(),
         }
     }
 }

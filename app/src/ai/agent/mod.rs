@@ -458,9 +458,6 @@ pub struct AIAgentOutput {
     /// to `AIAgentApi` as conversation history.
     pub api_metadata_bytes: Option<Vec<u8>>,
 
-    /// Suggested objects to apply to the output.
-    pub suggestions: Option<Suggestions>,
-
     /// Information about the model that generated this output.
     pub model_info: Option<OutputModelInfo>,
 
@@ -1135,13 +1132,6 @@ impl From<String> for ProgrammingLanguage {
 pub enum AgentOutputImageLayout {
     Block,
     Inline,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SuggestedAgentModeWorkflow {
-    pub name: String,
-    pub prompt: String,
-    pub logging_id: SuggestedLoggingId,
 }
 
 /// An "action" included in an AI output.
@@ -3386,51 +3376,6 @@ pub struct RequestMetadata {
 
     /// Whether this request is an automatic resume triggered by a previous error.
     pub is_auto_resume_after_error: bool,
-}
-
-pub use cloud_object_models::SuggestedLoggingId;
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SuggestedRule {
-    pub name: String,
-    pub content: String,
-    pub logging_id: SuggestedLoggingId,
-}
-
-#[derive(Debug, Default, Clone, Eq, PartialEq)]
-pub struct Suggestions {
-    pub rules: Vec<SuggestedRule>,
-    pub agent_mode_workflows: Vec<SuggestedAgentModeWorkflow>,
-}
-
-impl Suggestions {
-    /// Extend the suggestions, ensuring that we don't add duplicates by checking the logging_id
-    pub fn extend(&mut self, other: &Suggestions) {
-        let existing_logging_ids: Vec<_> = self
-            .rules
-            .iter()
-            .map(|rule| rule.logging_id.clone())
-            .collect();
-        let new_rules = other
-            .rules
-            .iter()
-            .filter(|rule| !existing_logging_ids.contains(&rule.logging_id))
-            .cloned();
-        self.rules.extend(new_rules);
-
-        // Add new agent mode workflows, ensuring no duplicates by logging_id
-        let existing_workflow_ids: Vec<_> = self
-            .agent_mode_workflows
-            .iter()
-            .map(|workflow| workflow.logging_id.clone())
-            .collect();
-        let new_workflows = other
-            .agent_mode_workflows
-            .iter()
-            .filter(|workflow| !existing_workflow_ids.contains(&workflow.logging_id))
-            .cloned();
-        self.agent_mode_workflows.extend(new_workflows);
-    }
 }
 
 #[cfg(test)]

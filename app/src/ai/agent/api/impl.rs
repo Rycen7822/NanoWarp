@@ -140,10 +140,8 @@ pub async fn generate_multi_agent_output(
             parent_agent_id: params.parent_agent_id.unwrap_or_default(),
             agent_name: params.agent_name.unwrap_or_default(),
         }),
-        existing_suggestions: params
-            .existing_suggestions
-            .map(|suggestions| suggestions.into()),
         mcp_context: params.mcp_context.map(Into::into),
+        ..Default::default()
     };
 
     let response_stream = warp_multi_agent_client::generate_multi_agent_output(

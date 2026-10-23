@@ -20,7 +20,7 @@ use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentActionId, AIAgentInput as FullAIAgentInput, AIIdentifiers, EntrypointType,
-    ServerOutputId, SuggestedLoggingId,
+    ServerOutputId,
 };
 use crate::ai::agent_management::notifications::NotificationSourceAgent;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -1258,12 +1258,6 @@ pub enum TelemetryEvent {
     },
     OpenNewSessionFromFilePath,
     OpenTeamFromURI,
-    ShowedSuggestedAgentModeWorkflowChip {
-        logging_id: SuggestedLoggingId,
-    },
-    ShowedSuggestedAgentModeWorkflowModal {
-        logging_id: SuggestedLoggingId,
-    },
     AuthCommonQuestionClicked {
         question: &'static str,
     },
@@ -1964,19 +1958,6 @@ pub enum TelemetryEvent {
     },
     #[cfg(feature = "local_fs")]
     PreviewPanePromoted,
-    AISuggestedRuleAdded {
-        rule_id: SuggestedLoggingId,
-    },
-    AISuggestedRuleEdited {
-        rule_id: SuggestedLoggingId,
-    },
-    AISuggestedRuleContentChanged {
-        rule_id: SuggestedLoggingId,
-        is_saved: bool,
-    },
-    AISuggestedAgentModeWorkflowAdded {
-        logging_id: SuggestedLoggingId,
-    },
     AttachedImagesToAgentModeQuery {
         num_images: usize,
         /// Whether or not Universal Developer Input mode is enabled
@@ -2514,15 +2495,6 @@ impl TelemetryEvent {
 
     pub fn payload(&self) -> Option<Value> {
         match self {
-            TelemetryEvent::ShowedSuggestedAgentModeWorkflowChip { logging_id } => Some(json!({
-                "logging_id": logging_id,
-            })),
-            TelemetryEvent::ShowedSuggestedAgentModeWorkflowModal { logging_id } => Some(json!({
-                "logging_id": logging_id,
-            })),
-            TelemetryEvent::AISuggestedAgentModeWorkflowAdded { logging_id } => Some(json!({
-                "logging_id": logging_id,
-            })),
             TelemetryEvent::AgentModeContinueConversationButtonClicked { conversation_id } => {
                 Some(json!({"conversation_id": conversation_id}))
             }
@@ -2816,13 +2788,6 @@ impl TelemetryEvent {
             TelemetryEvent::CodeSelectionAddedAsContext { destination } => Some(json!({
                 "destination": destination,
             })),
-            TelemetryEvent::AISuggestedRuleAdded { rule_id } => Some(json!({ "rule_id": rule_id })),
-            TelemetryEvent::AISuggestedRuleEdited { rule_id } => {
-                Some(json!({ "rule_id": rule_id }))
-            }
-            TelemetryEvent::AISuggestedRuleContentChanged { rule_id, is_saved } => {
-                Some(json!({ "rule_id": rule_id, "is_saved": is_saved }))
-            }
             TelemetryEvent::UsedWarpAIPreparedPrompt { prompt } => {
                 Some(json!({ "prompt": prompt }))
             }
@@ -3990,10 +3955,7 @@ impl TelemetryEvent {
                     AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { .. }
                 )
             }
-            TelemetryEvent::ShowedSuggestedAgentModeWorkflowModal { .. }
-            | TelemetryEvent::ShowedSuggestedAgentModeWorkflowChip { .. }
-            | TelemetryEvent::AISuggestedAgentModeWorkflowAdded { .. }
-            | TelemetryEvent::BlockCompleted { .. }
+            TelemetryEvent::BlockCompleted { .. }
             | TelemetryEvent::BlockCompletedOnDogfoodOnly { .. }
             | TelemetryEvent::BackgroundBlockStarted
             | TelemetryEvent::SessionCreation
@@ -4271,9 +4233,6 @@ impl TelemetryEvent {
             | TelemetryEvent::SettingsImportInitiated
             | TelemetryEvent::AgentModeCreatedAIBlock { .. }
             | TelemetryEvent::AgentModeRatedResponse { .. }
-            | TelemetryEvent::AISuggestedRuleAdded { .. }
-            | TelemetryEvent::AISuggestedRuleEdited { .. }
-            | TelemetryEvent::AISuggestedRuleContentChanged { .. }
             | TelemetryEvent::AttachedImagesToAgentModeQuery { .. }
             | TelemetryEvent::FileExceededContextLimit { .. }
             | TelemetryEvent::AgentModeError { .. }
@@ -4412,11 +4371,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SearchCodebaseRequested { .. } | Self::SearchCodebaseRepoUnavailable { .. } => {
                 EnablementState::Flag(FeatureFlag::CrossRepoContext)
             }
-            Self::AISuggestedAgentModeWorkflowAdded
-            | Self::ShowedSuggestedAgentModeWorkflowChip
-            | Self::ShowedSuggestedAgentModeWorkflowModal => {
-                EnablementState::Flag(FeatureFlag::SuggestedAgentModeWorkflows)
-            }
             Self::RepoOutlineConstructionSuccess { .. } => {
                 EnablementState::Flag(FeatureFlag::AgentModeAnalytics)
             }
@@ -4463,13 +4417,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CodePanelsFileOpened { .. } => EnablementState::Always,
             #[cfg(feature = "local_fs")]
             Self::PreviewPanePromoted => EnablementState::Always,
-            Self::AISuggestedRuleAdded { .. } => EnablementState::Flag(FeatureFlag::SuggestedRules),
-            Self::AISuggestedRuleEdited { .. } => {
-                EnablementState::Flag(FeatureFlag::SuggestedRules)
-            }
-            Self::AISuggestedRuleContentChanged { .. } => {
-                EnablementState::Flag(FeatureFlag::SuggestedRules)
-            }
             Self::ToggleFocusPaneOnHover { .. } => EnablementState::Always,
             Self::InitiateAnonymousUserSignup { .. }
             | Self::LoginLaterButtonClicked
@@ -4936,9 +4883,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CodePanelsFileOpened { .. } => "CodePanels.FileOpened",
             #[cfg(feature = "local_fs")]
             Self::PreviewPanePromoted => "Preview Pane Promoted",
-            Self::AISuggestedRuleAdded { .. } => "AI Suggested Rule Added",
-            Self::AISuggestedRuleEdited { .. } => "AI Suggested Rule Edited",
-            Self::AISuggestedRuleContentChanged { .. } => "AI Suggested Rule Content Changed",
             Self::AnonymousUserHitCloudObjectLimit => "Anonymous User Hit Cloud Object Limit",
             Self::BootstrappingSucceeded => "Bootstrapping Succeeded",
             Self::SessionAbandonedBeforeBootstrap => "Session Abandoned Before Bootstrap",
@@ -5260,13 +5204,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::FullEmbedCodebaseContextSearchFailed { .. } => {
                 "AgentMode.FullEmbedCodebaseContextSearch.Failed"
             }
-            Self::ShowedSuggestedAgentModeWorkflowChip => "AgentMode.ShowedSuggestedWorkflowChip",
-            Self::AISuggestedAgentModeWorkflowAdded => {
-                "AgentMode.AISuggestedAgentModeWorkflowAdded"
-            }
-            Self::ShowedSuggestedAgentModeWorkflowModal => {
-                "AgentMode.ShowedSuggestedAgentModeWorkflowModal"
-            }
             Self::SearchCodebaseRequested { .. } => "AgentMode.SearchCodebase.Requested",
             Self::SearchCodebaseRepoUnavailable { .. } => {
                 "AgentMode.SearchCodebase.RepoUnavailable"
@@ -5350,12 +5287,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AIExecutionProfileContextWindowSelected { .. } => {
                 "Selected a context window limit for an execution profile's base model"
             }
-            Self::AISuggestedAgentModeWorkflowAdded => {
-                "User created an AI suggested Agent Mode workflow"
-            }
-            Self::ShowedSuggestedAgentModeWorkflowModal => {
-                "Showed the suggested Agent Mode workflow modal to the user"
-            }
             Self::RepoOutlineConstructionSuccess => {
                 "Repository outline built successfully for providing codebase context"
             }
@@ -5406,15 +5337,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             #[cfg(feature = "local_fs")]
             Self::PreviewPanePromoted => "Promoted a preview code tab to a normal tab",
-            Self::AISuggestedRuleAdded { .. } => {
-                "Clicked the Add Suggested Rule button in the AI blocklist"
-            }
-            Self::AISuggestedRuleEdited { .. } => {
-                "Clicked the Edit Suggested Rule button in the AI blocklist"
-            }
-            Self::AISuggestedRuleContentChanged { .. } => {
-                "Content changed by the user in the suggested rule dialog"
-            }
             Self::ToggleSettingsSync => "Toggle Settings Sync",
             Self::Login => "Login is successful",
             Self::LoginLaterButtonClicked => "Clicked \"Login later\" button",
@@ -5979,9 +5901,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::FullEmbedCodebaseContextSearchFailed => {
                 "Failed to search full embed codebase context"
-            }
-            Self::ShowedSuggestedAgentModeWorkflowChip => {
-                "Showed the Suggested Agent Mode workflow chip to the user"
             }
             Self::SearchCodebaseRequested { .. } => "Ran the Search Codebase tool",
             Self::SearchCodebaseRepoUnavailable { .. } => {

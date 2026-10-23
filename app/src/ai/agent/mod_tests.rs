@@ -689,6 +689,3 @@ fn ai_agent_attachment_round_trips_untagged_block_variant() {
     let deserialized: AIAgentAttachment = serde_json::from_value(json).unwrap();
     assert_eq!(deserialized, attachment);
 }
-
-#[path = "suggestions_tests.rs"]
-mod suggestions;

@@ -37,7 +37,7 @@ use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{
     AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
     AIAgentTodoId, CancellationReason, FinishedAIAgentOutput, MessageId, RenderableAIError,
-    RequestCost, Suggestions,
+    RequestCost,
 };
 use crate::ai::ambient_agents::AmbientAgentTask;
 use crate::ai::artifacts::Artifact;
@@ -1142,15 +1142,6 @@ impl BlocklistAIHistoryModel {
                     .is_some_and(|conversation| conversation.contains_action(action_id))
             })
             .copied()
-    }
-
-    pub fn existing_suggestions_for_conversation(
-        &self,
-        conversation_id: AIConversationId,
-    ) -> Option<&Suggestions> {
-        self.conversations_by_id
-            .get(&conversation_id)
-            .and_then(|c| c.existing_suggestions())
     }
 
     /// The active conversation is the one we're currently or have most recently streamed outputs for.

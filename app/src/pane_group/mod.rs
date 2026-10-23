@@ -57,8 +57,6 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::BlocklistAIHistoryEvent;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
-use crate::ai::blocklist::suggested_rule_modal::SuggestedRuleAndId;
 use crate::ai::blocklist::{BlocklistAIHistoryModel, InputConfig, SerializedBlockListItem};
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentModel, AIDocumentVersion};
 use crate::ai::execution_profiles::ExecutionProfileId;
@@ -616,12 +614,6 @@ pub enum Event {
     /// from the orchestration pill bar's 3-dot menu.
     OpenChildAgentInNewTab {
         conversation_id: AIConversationId,
-    },
-    OpenSuggestedAgentModeWorkflowModal {
-        workflow_and_id: SuggestedAgentModeWorkflowAndId,
-    },
-    OpenSuggestedRuleModal {
-        rule_and_id: SuggestedRuleAndId,
     },
     OpenAIFactCollection {
         /// If set, open the fact collection to the specific rule.

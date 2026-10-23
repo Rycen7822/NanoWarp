@@ -951,18 +951,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.active_ai.git_operations_autogen_enabled",
         description: "Controls whether AI auto-generates commit messages and PR title/body in the code review dialogs.",
     }
-    // This field should not be referenced directly to lookup Rule Suggestions
-    // enablement -- use the `is_rule_suggestions_enabled()` getter.
-    rule_suggestions_enabled_internal: RuleSuggestionsEnabled {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.active_ai.rule_suggestions_enabled",
-        description: "Controls whether the agent suggests rules to save after responses.",
-        feature_flag: FeatureFlag::SuggestedRules,
-    }
     // This field should not be referenced directly to lookup Voice AI enablement -- use the
     // `is_voice_input_enabled()` getter.
     voice_input_enabled_internal: VoiceInputEnabled {
@@ -1685,10 +1673,6 @@ impl AISettings {
         self.is_any_ai_enabled(app)
             && *self.is_active_ai_enabled_internal
             && AppExecutionMode::as_ref(app).allows_active_ai()
-    }
-
-    pub fn is_rule_suggestions_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app) && *self.rule_suggestions_enabled_internal
     }
 
     pub fn is_shared_block_title_generation_enabled(&self, app: &warpui::AppContext) -> bool {

@@ -921,7 +921,6 @@ fn request_params_scope_member_byo_credentials_by_the_windows_team() {
                             .forked_from_server_conversation_token()
                             .cloned(),
                         ambient_agent_task_id: controller.ambient_agent_task_id,
-                        existing_suggestions: conversation.existing_suggestions().cloned(),
                         use_warp_credits_instead_of_chatgpt: conversation
                             .use_warp_credits_instead_of_chatgpt(),
                     };

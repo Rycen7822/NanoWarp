@@ -10,8 +10,7 @@ use warp_multi_agent_api as api;
 use crate::ai::agent::base_user_query::warp_client_origin;
 use crate::ai::agent::{
     AIAgentActionResult, AIAgentActionResultType, AIAgentAttachment, AIAgentContext, AIAgentInput,
-    BaseUserQuery, DriveObjectPayload, MCPContext, RunningCommand, StaticQueryType, Suggestions,
-    UserQueryMode,
+    BaseUserQuery, DriveObjectPayload, MCPContext, RunningCommand, StaticQueryType, UserQueryMode,
 };
 use crate::ai::block_context::BlockContext;
 
@@ -824,31 +823,6 @@ fn api_pull_request_state(
         "CLOSED" => Some(State::Closed),
         "MERGED" => Some(State::Merged),
         _ => None,
-    }
-}
-
-impl From<Suggestions> for api::Suggestions {
-    fn from(value: Suggestions) -> Self {
-        Self {
-            rules: value
-                .rules
-                .into_iter()
-                .map(|rule| api::SuggestedRule {
-                    name: rule.name,
-                    content: rule.content,
-                    logging_id: rule.logging_id.to_string(),
-                })
-                .collect(),
-            workflows: value
-                .agent_mode_workflows
-                .into_iter()
-                .map(|workflow| api::SuggestedAgentModeWorkflow {
-                    name: workflow.name,
-                    prompt: workflow.prompt,
-                    logging_id: workflow.logging_id.to_string(),
-                })
-                .collect(),
-        }
     }
 }
 

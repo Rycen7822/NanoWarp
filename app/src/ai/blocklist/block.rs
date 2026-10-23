@@ -82,8 +82,6 @@ use super::inline_action::code_diff_view::{
 use super::inline_action::requested_action::{CTRL_C_KEYSTROKE, ENTER_KEYSTROKE};
 use super::inline_action::requested_command_attribution::is_command_copied_from_document;
 use super::permissions::is_agent_mode_autonomy_allowed;
-use super::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
-use super::suggested_rule_modal::SuggestedRuleAndId;
 use super::usage::request_metadata_turn_view::RequestMetadataTurnView;
 use super::{
     BlocklistAIActionModel, BlocklistAIController, BlocklistAIHistoryModel, BlocklistAIPermissions,
@@ -98,8 +96,7 @@ use crate::ai::agent::{
     CancellationReason, CreateDocumentsRequest, CreateDocumentsResult, DocumentToCreate,
     EditDocumentsResult, MessageId, ProgrammingLanguage, RenderableAIError,
     RequestCommandOutputResult, RequestFileEditsResult, ScreenshotSource, SearchCodebaseResult,
-    ServerOutputId, SubagentCall, SubagentType, SuggestedLoggingId, SummarizationType,
-    TodoOperation,
+    ServerOutputId, SubagentCall, SubagentType, SummarizationType, TodoOperation,
 };
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -137,13 +134,9 @@ use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::permissions::{
     CommandExecutionPermission, CommandExecutionPermissionDeniedReason,
 };
-use crate::ai::blocklist::suggestion_chip_view::{SuggestedChipViewEvent, SuggestionChipView};
-use crate::ai::blocklist::{
-    BlocklistAIContextEvent, BlocklistAIContextModel, SuggestionDismissButtonTheme,
-};
+use crate::ai::blocklist::{BlocklistAIContextEvent, BlocklistAIContextModel};
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentModel, AIDocumentVersion};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
 use crate::ai::get_relevant_files::controller::{
     GetRelevantFilesController, GetRelevantFilesControllerEvent,
 };
@@ -153,8 +146,6 @@ use crate::ai::skills::{SkillManager, SkillTelemetryEvent};
 use crate::ai::stored_screenshots::stored_screenshot_asset_source;
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::auth::{AuthStateProvider, UserUid};
-use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::editor::comment_editor::create_readonly_comment_markdown_editor;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
 use crate::code::editor_management::CodeSource;
@@ -168,7 +159,6 @@ use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
 use crate::editor::InteractionState;
 use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::notebooks::editor::view::{EditorViewEvent, RichTextEditorView};
-use crate::server::ids::SyncId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::{
     AgentModeRewindEntrypoint, AutonomySettingToggleSource, TelemetryEvent,
@@ -1015,14 +1005,6 @@ pub struct AIBlock {
     /// Assumes we only have 1 action per AI block.
     autonomy_setting_speedbump: AutonomySettingSpeedbump,
 
-    /// The suggested rules to render in the block.
-    suggested_rules: Vec<ViewHandle<SuggestionChipView>>,
-
-    /// The suggested agent mode workflows to render in the block.
-    suggested_agent_mode_workflow: Option<ViewHandle<SuggestionChipView>>,
-
-    manage_rules_button: ViewHandle<ActionButton>,
-
     action_buttons: HashMap<AIAgentActionId, ActionButtons>,
 
     /// A user menu presenting an accept and reject choice.
@@ -1043,9 +1025,6 @@ pub struct AIBlock {
 
     review_changes_button: ViewHandle<ActionButton>,
     open_all_comments_button: ViewHandle<ActionButton>,
-
-    dismiss_suggestion_button: ViewHandle<ActionButton>,
-    disable_rule_suggestions_button: ViewHandle<ActionButton>,
 
     /// Rewind button to revert to before this block.
     rewind_button: ViewHandle<ActionButton>,
@@ -1289,11 +1268,6 @@ impl AIBlock {
             }
         });
 
-        let manage_rules_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Manage rules", NakedTheme)
-                .on_click(|ctx| ctx.dispatch_typed_action(AIBlockAction::OpenAIFactCollection))
-        });
-
         ctx.subscribe_to_model(&AIRequestUsageModel::handle(ctx), |me, _, event, ctx| {
             if let AIRequestUsageModelEvent::RequestBonusRefunded {
                 requests_refunded,
@@ -1412,23 +1386,6 @@ impl AIBlock {
                 })
         });
 
-        let dismiss_suggestion_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Dismiss", SuggestionDismissButtonTheme)
-                .with_icon(Icon::X)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AIBlockAction::DismissSuggestionsSection);
-                })
-        });
-
-        let disable_rule_suggestions_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Don't show again", SuggestionDismissButtonTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AIBlockAction::DisableRuleSuggestions);
-                })
-        });
-
         let ai_block_view_id = ctx.view_id();
         let exchange_id = client_ids.client_exchange_id;
         let conversation_id = client_ids.conversation_id;
@@ -1515,9 +1472,6 @@ impl AIBlock {
             is_references_section_open: false,
             active_session,
             autonomy_setting_speedbump: Default::default(),
-            suggested_rules: Default::default(),
-            suggested_agent_mode_workflow: Default::default(),
-            manage_rules_button,
             keyboard_navigable_buttons: None,
             response_rating: OnceCell::new(),
             terminal_view_id,
@@ -1529,8 +1483,6 @@ impl AIBlock {
             requested_commands_to_auto_collapse: Default::default(),
             review_changes_button,
             open_all_comments_button,
-            dismiss_suggestion_button,
-            disable_rule_suggestions_button,
             rewind_button,
             view_screenshot_buttons: Default::default(),
             open_recording_buttons: Default::default(),
@@ -2541,83 +2493,6 @@ impl AIBlock {
 
     fn handle_complete_output(&mut self, output: &AIAgentOutput, ctx: &mut ViewContext<Self>) {
         self.finish_orchestration_message_collapsible_states(output, ctx);
-        let mut suggestions = BlocklistAIHistoryModel::as_ref(ctx)
-            .existing_suggestions_for_conversation(self.client_ids.conversation_id)
-            .cloned()
-            .unwrap_or_default();
-        if let Some(output_suggestions) = &output.suggestions {
-            suggestions.extend(output_suggestions);
-        }
-
-        if FeatureFlag::SuggestedRules.is_enabled()
-            && AISettings::as_ref(ctx).is_rule_suggestions_enabled(ctx)
-        {
-            // Ensure we don't suggest rules that were already suggested and saved by checking the logging id.
-            let existing_suggestions = self
-                .suggested_rules
-                .iter()
-                .map(|rule| rule.read(ctx, |rule, _| rule.logging_id()))
-                .collect_vec();
-
-            let existing_rules: HashSet<SuggestedLoggingId> = {
-                CloudModel::as_ref(ctx)
-                    .get_all_objects_of_type::<GenericStringObjectId, CloudAIFactModel>()
-                    .filter_map(|fact| {
-                        let AIFact::Memory(AIMemory {
-                            suggested_logging_id,
-                            ..
-                        }) = fact.model().string_model.clone();
-                        suggested_logging_id
-                    })
-                    .collect()
-            };
-
-            for rule in suggestions.rules.into_iter() {
-                if existing_rules.contains(&rule.logging_id)
-                    || existing_suggestions.contains(&rule.logging_id)
-                {
-                    continue;
-                }
-
-                let rule_view =
-                    ctx.add_typed_action_view(|ctx| SuggestionChipView::new_rule_chip(rule, ctx));
-                ctx.subscribe_to_view(&rule_view, |_me, _view, event, ctx| match event {
-                    SuggestedChipViewEvent::OpenAIFactCollection { sync_id } => {
-                        ctx.emit(AIBlockEvent::OpenAIFactCollection { sync_id: *sync_id });
-                    }
-                    SuggestedChipViewEvent::ShowSuggestedRuleDialog { rule_and_id } => {
-                        ctx.emit(AIBlockEvent::OpenSuggestedRuleDialog {
-                            rule_and_id: rule_and_id.clone(),
-                        });
-                    }
-                    _ => {}
-                });
-                self.suggested_rules.push(rule_view);
-            }
-        }
-
-        // Only show the agent mode workflow if there are no rules.
-        if FeatureFlag::SuggestedAgentModeWorkflows.is_enabled()
-            && self.suggested_rules.is_empty()
-            && let Some(workflow) = suggestions.agent_mode_workflows.first()
-        {
-            let workflow_view = ctx.add_typed_action_view(|ctx| {
-                SuggestionChipView::new_agent_mode_workflow_chip(workflow.clone(), ctx)
-            });
-            ctx.subscribe_to_view(&workflow_view, |_me, _view, event, ctx| match event {
-                SuggestedChipViewEvent::OpenWorkflow { sync_id } => {
-                    ctx.emit(AIBlockEvent::OpenWorkflow { sync_id: *sync_id });
-                }
-                SuggestedChipViewEvent::ShowSuggestedAgentModeWorkflowModal { workflow_and_id } => {
-                    ctx.emit(AIBlockEvent::OpenSuggestedAgentModeWorkflowModal {
-                        workflow_and_id: workflow_and_id.clone(),
-                    });
-                }
-                _ => {}
-            });
-            self.suggested_agent_mode_workflow = Some(workflow_view);
-        }
-
         for action in output.actions() {
             match action {
                 AIAgentAction {
@@ -5777,22 +5652,9 @@ pub enum AIBlockEvent {
     ShowSecretTooltip(RichContentSecretTooltipInfo),
     DismissSecretTooltip,
     OpenCitation(AIAgentCitation),
-    OpenAIFactCollection {
-        /// If set, open the fact collection to the specific rule.
-        sync_id: Option<SyncId>,
-    },
-    OpenWorkflow {
-        sync_id: SyncId,
-    },
     /// Emitted when the continue conversation button is clicked
     ContinueConversation {
         conversation_id: AIConversationId,
-    },
-    OpenSuggestedAgentModeWorkflowModal {
-        workflow_and_id: SuggestedAgentModeWorkflowAndId,
-    },
-    OpenSuggestedRuleDialog {
-        rule_and_id: SuggestedRuleAndId,
     },
     FocusTerminal,
     OpenThemeChooser,
@@ -5921,7 +5783,6 @@ pub enum AIBlockAction {
         location: TextLocation,
     },
     OpenCitation(AIAgentCitation),
-    OpenAIFactCollection,
     ToggleReferencesSection,
     ToggleAutoexecuteReadonlyCommandsSpeedbumpCheckbox,
     ToggleAutoreadFilesSpeedbumpCheckbox,
@@ -5971,8 +5832,6 @@ pub enum AIBlockAction {
         pinned_to_bottom: bool,
     },
     ToggleCodeReviewPane,
-    DismissSuggestionsSection,
-    DisableRuleSuggestions,
     /// Copy the debug ID to clipboard
     CopyDebugId(String),
     CopyText(String),
@@ -6243,9 +6102,6 @@ impl TypedActionView for AIBlock {
                     );
                 }
             }
-            AIBlockAction::OpenAIFactCollection => {
-                ctx.emit(AIBlockEvent::OpenAIFactCollection { sync_id: None });
-            }
             AIBlockAction::ToggleReferencesSection => {
                 self.is_references_section_open = !self.is_references_section_open;
             }
@@ -6281,34 +6137,6 @@ impl TypedActionView for AIBlock {
                 });
 
                 ctx.notify()
-            }
-            AIBlockAction::DismissSuggestionsSection => {
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, _| {
-                    if let Some(conversation) =
-                        model.conversation_mut(&self.client_ids.conversation_id)
-                    {
-                        conversation.dismiss_current_suggestions();
-                    }
-                });
-                ctx.notify();
-            }
-            AIBlockAction::DisableRuleSuggestions => {
-                // Dismiss the current suggestions and permanently disable future ones.
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, _| {
-                    if let Some(conversation) =
-                        model.conversation_mut(&self.client_ids.conversation_id)
-                    {
-                        conversation.dismiss_current_suggestions();
-                    }
-                });
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .rule_suggestions_enabled_internal
-                            .set_value(false, ctx)
-                    );
-                });
-                ctx.notify();
             }
             AIBlockAction::ToggleAutoexecuteReadonlyCommandsSpeedbumpCheckbox => {
                 if let AutonomySettingSpeedbump::ShouldShowForAutoexecutingReadonlyCommands {

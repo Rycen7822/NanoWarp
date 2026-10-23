@@ -585,7 +585,6 @@ pub mod flags {
     pub const AUTO_APPROVE_BYPASSES_COMMAND_DENYLIST_FLAG: &str =
         "Auto_Approve_Bypasses_Command_Denylist";
     pub const AI_RULES_FLAG: &str = "AI_Rules";
-    pub const SUGGESTED_RULES_FLAG: &str = "Suggested_Rules";
     pub const WARP_DRIVE_CONTEXT_FLAG: &str = "Warp_Drive_Context";
     pub const FILE_BASED_MCP_FLAG: &str = "File_Based_MCP";
     pub const WARP_CREDIT_FALLBACK_FLAG: &str = "Warp_Credit_Fallback";
