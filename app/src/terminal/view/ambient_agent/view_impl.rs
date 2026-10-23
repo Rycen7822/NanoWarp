@@ -127,17 +127,6 @@ impl TerminalView {
         }
 
         match event {
-            AmbientAgentViewModelEvent::EnteredSetupState => {
-                // Re-render to show the setup view.
-                self.update_pane_configuration(ctx);
-                ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
-                ctx.notify();
-            }
-            AmbientAgentViewModelEvent::EnteredComposingState => {
-                // Update pane configuration to show cloud indicator.
-                self.update_pane_configuration(ctx);
-                ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
-            }
             AmbientAgentViewModelEvent::DispatchedAgent => {
                 // Pane chrome (e.g. cloud indicator, task id) must update on viewer surfaces
                 // too, so this runs above the viewer short-circuit below.
@@ -646,7 +635,7 @@ impl TerminalView {
         if is_nested_cloud_mode
             && self.ambient_agent_view_model.as_ref().is_some_and(|model| {
                 let model = model.as_ref(ctx);
-                model.is_in_setup() || model.is_configuring_ambient_agent()
+                model.is_configuring_ambient_agent()
             })
         {
             return;
@@ -894,32 +883,6 @@ impl TerminalView {
 
         // Center the screen within the terminal view
         Align::new(screen).finish()
-    }
-
-    /// Handles events from the first-time cloud agent setup view.
-    pub(in crate::terminal::view) fn handle_first_time_cloud_agent_setup_event(
-        &mut self,
-        event: &super::FirstTimeCloudAgentSetupViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            super::FirstTimeCloudAgentSetupViewEvent::Cancelled => {
-                // Exit agent view (pops from nav stack)
-                self.exit_agent_view(ctx);
-            }
-            super::FirstTimeCloudAgentSetupViewEvent::EnvironmentCreated => {
-                // Set the environment on the ambient agent view model
-                if let Some(ambient_agent_view_model) = self.ambient_agent_view_model.as_ref() {
-                    ambient_agent_view_model.update(ctx, |model, ctx| {
-                        // Transition from Setup to Composing
-                        model.enter_composing_from_setup(ctx);
-                    });
-                }
-
-                // Focus the input box so user can start typing
-                self.focus_input_box(ctx);
-            }
-        }
     }
 
     /// Fetches task data and updates the conversation details panel.

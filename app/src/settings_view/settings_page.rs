@@ -31,7 +31,6 @@ use super::agent_profiles_page::AgentProfilesPageView;
 use super::appearance_page::AppearanceSettingsPageView;
 use super::code_editor_review_page::EditorAndCodeReviewPageView;
 use super::code_indexing_page::CodeIndexingPageView;
-use super::environments_page::EnvironmentsPageView;
 use super::features_page::FeaturesPageView;
 use super::keybindings::KeybindingsView;
 use super::knowledge_page::KnowledgePageView;
@@ -107,7 +106,6 @@ pub enum SettingsPageViewHandle {
     WarpAgent(ViewHandle<WarpAgentPageView>),
     AgentProfiles(ViewHandle<AgentProfilesPageView>),
     Knowledge(ViewHandle<KnowledgePageView>),
-    CloudEnvironments(ViewHandle<EnvironmentsPageView>),
     MCPServers(ViewHandle<MCPServersSettingsPageView>),
     WarpDrive(ViewHandle<WarpDriveSettingsPageView>),
 }
@@ -128,7 +126,6 @@ impl SettingsPageViewHandle {
             WarpAgent(view_handle) => ChildView::new(view_handle).finish(),
             AgentProfiles(view_handle) => ChildView::new(view_handle).finish(),
             Knowledge(view_handle) => ChildView::new(view_handle).finish(),
-            CloudEnvironments(view_handle) => ChildView::new(view_handle).finish(),
             MCPServers(view_handle) => ChildView::new(view_handle).finish(),
             WarpDrive(view_handle) => ChildView::new(view_handle).finish(),
         }
@@ -184,16 +181,6 @@ impl SettingsPage {
 #[derive(PartialEq, Eq)]
 pub enum SettingsPageEvent {
     FocusModal,
-    Pane(PaneEventWrapper),
-    EnvironmentSetupModeSelectorToggled { is_open: bool },
-    AgentAssistedEnvironmentModalToggled { is_open: bool },
-}
-
-/// Wrapper for pane events to avoid circular dependency with pane module.
-/// The actual handling converts this to the real PaneEvent.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PaneEventWrapper {
-    Close,
 }
 
 /// Adds padding to the sub header
@@ -1522,17 +1509,6 @@ impl<V: warpui::View> PageType<V> {
                 ..
             } => {
                 *highlighted_widget_id = None;
-            }
-        }
-    }
-
-    /// Set the minimum page width for narrow panes.
-    pub fn set_min_page_width(&mut self, width: f32) {
-        match self {
-            Self::Monolith { min_page_width, .. }
-            | Self::Uncategorized { min_page_width, .. }
-            | Self::Categorized { min_page_width, .. } => {
-                *min_page_width = width;
             }
         }
     }

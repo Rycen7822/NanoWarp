@@ -10,8 +10,8 @@ pub(crate) const TITLE: &str = "Cloud agents need a team";
 pub(crate) const CLOUD_AGENT_TEAM_REQUIRED_MESSAGE: &str =
     "Cloud runs are unavailable without team membership.";
 
-pub(crate) fn should_render(team_required: bool, is_in_setup: bool, is_configuring: bool) -> bool {
-    team_required && (is_in_setup || is_configuring)
+pub(crate) fn should_render(team_required: bool, is_configuring: bool) -> bool {
+    team_required && is_configuring
 }
 
 pub struct CloudAgentTeamRequiredView;

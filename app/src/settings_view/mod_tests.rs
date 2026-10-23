@@ -51,10 +51,6 @@ fn subpage_display_names_are_correct() {
         "Editor and Code Review"
     );
     assert_eq!(
-        SettingsSection::CloudEnvironments.to_string(),
-        "Environments"
-    );
-    assert_eq!(
         SettingsSection::WarpCloudAgentAPIKeys.to_string(),
         "API keys"
     );
@@ -80,7 +76,6 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Knowledge,
     SettingsSection::CodeIndexing,
     SettingsSection::EditorAndCodeReview,
-    SettingsSection::CloudEnvironments,
     SettingsSection::WarpCloudAgentAPIKeys,
 ];
 
@@ -107,7 +102,6 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Knowledge
             | SettingsSection::CodeIndexing
             | SettingsSection::EditorAndCodeReview
-            | SettingsSection::CloudEnvironments
             | SettingsSection::WarpCloudAgentAPIKeys => section,
         };
         ALL_SECTIONS.contains(&known)
@@ -202,10 +196,6 @@ fn from_slug_accepts_legacy_spellings() {
         Some(SettingsSection::EditorAndCodeReview)
     );
     assert_eq!(
-        SettingsSection::from_slug("CloudEnvironments"),
-        Some(SettingsSection::CloudEnvironments)
-    );
-    assert_eq!(
         SettingsSection::from_slug("OzCloudAPIKeys"),
         Some(SettingsSection::WarpCloudAgentAPIKeys)
     );
@@ -273,10 +263,7 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
         )),
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Cloud platform",
-            vec![
-                SettingsSection::CloudEnvironments,
-                SettingsSection::WarpCloudAgentAPIKeys,
-            ],
+            vec![SettingsSection::WarpCloudAgentAPIKeys],
         )),
         SettingsNavItem::Page(SettingsSection::Keybindings),
     ]
@@ -324,7 +311,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
         stops[3],
         NavStop::CollapsedUmbrella {
             nav_index: 3,
-            first_subpage: SettingsSection::CloudEnvironments,
+            first_subpage: SettingsSection::WarpCloudAgentAPIKeys,
             last_subpage: SettingsSection::WarpCloudAgentAPIKeys,
         }
     ));
@@ -636,7 +623,7 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
         SettingsSection::CodeIndexing,
         CycleDirection::Down,
     );
-    assert_eq!(next_after_code, SettingsSection::CloudEnvironments);
+    assert_eq!(next_after_code, SettingsSection::WarpCloudAgentAPIKeys);
 }
 
 #[test]

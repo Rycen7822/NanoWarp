@@ -547,7 +547,6 @@ default = [
     "integration_command",
     "artifact_command",
     "conversation_api",
-    "cloud_environments",
     "code_review_find",
     "async_find",
     "shared_session_long_running_commands",
@@ -819,7 +818,6 @@ warp_packs = []
 command_correction_key = []
 full_source_code_embedding = []
 use_tantivy_search = []
-simulate_github_unauthed = []
 reload_stale_conversation_files = []
 retry_truncated_code_responses = []
 usage_based_pricing = []
@@ -863,7 +861,6 @@ auto_open_code_review_pane = []
 inline_code_review = []
 integration_command = []
 artifact_command = []
-cloud_environments = []
 cloud_runners = []
 cloud_agent_runners = []
 cloud_agent_execution_config = []

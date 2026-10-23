@@ -183,7 +183,7 @@ impl AmbientAgentEntryBlock {
     /// Gets the detail text to display based on the ambient agent status.
     fn detail_text(&self, app: &AppContext) -> Option<&'static str> {
         match self.ambient_agent_view_model(app)?.status() {
-            Status::Setup | Status::Composing => None,
+            Status::Composing => None,
             Status::WaitingForSession { .. } => Some("Starting environment..."),
             Status::AgentRunning => Some("Agent is working on task"),
             Status::Failed { .. } => Some("Agent failed"),
@@ -194,7 +194,7 @@ impl AmbientAgentEntryBlock {
 
     fn ambient_status_for_icon(&self, app: &AppContext) -> Option<ConversationStatus> {
         match self.ambient_agent_view_model(app)?.status() {
-            Status::Setup | Status::Composing => None,
+            Status::Composing => None,
             Status::WaitingForSession { .. } | Status::AgentRunning => {
                 Some(ConversationStatus::InProgress)
             }

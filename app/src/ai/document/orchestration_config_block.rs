@@ -4,29 +4,22 @@
 
 use ai::agent::action::RunAgentsExecutionMode;
 use ai::agent::orchestration_config::OrchestrationConfigStatus;
-use pathfinder_geometry::vector::vec2f;
 use warp_cli::agent::Harness;
 use warp_core::send_telemetry_from_ctx;
 use warp_graphql::queries::get_runners::RunnerSortBy;
 use warpui::elements::{
-    ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
-    Flex, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, Radius, Stack, Text,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable,
+    MouseStateHandle, ParentElement, Radius, Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::platform::Cursor;
 use warpui::ui_components::components::UiComponent;
 use warpui::ui_components::switch::SwitchStateHandle;
-use warpui::{
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
-};
+use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::BlocklistAIHistoryEvent;
-use crate::ai::blocklist::inline_action::create_environment_modal::{
-    CreateEnvironmentModal, CreateEnvironmentModalEvent,
-};
 use crate::ai::blocklist::inline_action::host_picker::{HostPicker, HostPickerEvent};
 use crate::ai::blocklist::inline_action::orchestration_controls::{
     self as oc, AuthSecretSelection, OrchestrationConfigState, OrchestrationControlAction,
@@ -93,7 +86,6 @@ pub enum OrchestrationConfigBlockAction {
     EnvironmentChanged {
         environment_id: String,
     },
-    CreateEnvironmentRequested,
     RunnerChanged {
         runner_id: String,
     },
@@ -120,9 +112,6 @@ impl OrchestrationControlAction for OrchestrationConfigBlockAction {
     fn environment_changed(environment_id: String) -> Self {
         Self::EnvironmentChanged { environment_id }
     }
-    fn create_environment_requested() -> Self {
-        Self::CreateEnvironmentRequested
-    }
     fn runner_changed(runner_id: String) -> Self {
         Self::RunnerChanged { runner_id }
     }
@@ -142,7 +131,6 @@ pub struct OrchestrationConfigBlockView {
     /// Run-wide config being edited plus per-harness model memory.
     orchestration_edit_state: OrchestrationEditState,
     pickers: OrchestrationPickerHandles<OrchestrationConfigBlockAction>,
-    create_environment_modal: ViewHandle<CreateEnvironmentModal>,
     is_approved: bool,
     details_expanded: bool,
     pickers_initialized: bool,
@@ -291,16 +279,6 @@ impl OrchestrationConfigBlockView {
             },
         );
 
-        let create_environment_modal = ctx.add_typed_action_view(CreateEnvironmentModal::new);
-        ctx.subscribe_to_view(&create_environment_modal, |me, _, event, ctx| match event {
-            CreateEnvironmentModalEvent::Created { environment_id } => {
-                me.select_created_environment(environment_id.clone(), ctx);
-            }
-            CreateEnvironmentModalEvent::Cancelled => {
-                ctx.notify();
-            }
-        });
-
         ctx.subscribe_to_model(
             &ConnectedSelfHostedWorkersModel::handle(ctx),
             |me, _, event, ctx| match event {
@@ -347,7 +325,6 @@ impl OrchestrationConfigBlockView {
             plan_id,
             orchestration_edit_state: OrchestrationEditState::new(config_state),
             pickers: OrchestrationPickerHandles::default(),
-            create_environment_modal,
             is_approved,
             details_expanded: false,
             pickers_initialized: false,
@@ -658,27 +635,6 @@ impl OrchestrationConfigBlockView {
         );
     }
 
-    fn open_create_environment_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(environment_picker) = &self.pickers.environment_picker {
-            environment_picker.update(ctx, |dropdown, ctx| dropdown.close(ctx));
-        }
-        self.create_environment_modal.update(ctx, |modal, ctx| {
-            modal.show(ctx);
-        });
-        ctx.notify();
-    }
-
-    fn select_created_environment(&mut self, environment_id: String, ctx: &mut ViewContext<Self>) {
-        self.orchestration_edit_state
-            .orchestration_config_state
-            .set_environment_id(environment_id.clone());
-        if let Some(environment_picker) = &self.pickers.environment_picker {
-            oc::populate_environment_picker(environment_picker, &environment_id, ctx);
-        }
-        self.apply_field_change(ctx);
-        ctx.notify();
-    }
-
     fn apply_field_change(&mut self, ctx: &mut ViewContext<Self>) {
         self.suppress_refresh = true;
         let config = self
@@ -985,26 +941,12 @@ impl View for OrchestrationConfigBlockView {
         }
 
         // Outer container with accent styling per Figma
-        let card = Container::new(column.finish())
+        Container::new(column.finish())
             .with_uniform_padding(12.)
             .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
             .with_background(warp_core::ui::theme::color::internal_colors::accent_overlay_1(theme))
             .with_border(warpui::elements::Border::all(1.).with_border_fill(theme.accent()))
-            .finish();
-
-        let mut stack = Stack::new().with_child(card);
-        if self.create_environment_modal.as_ref(app).is_visible() {
-            stack.add_positioned_overlay_child(
-                ChildView::new(&self.create_environment_modal).finish(),
-                OffsetPositioning::offset_from_parent(
-                    vec2f(0., 0.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::Center,
-                    ChildAnchor::Center,
-                ),
-            );
-        }
-        stack.finish()
+            .finish()
     }
 }
 
@@ -1095,9 +1037,6 @@ impl TypedActionView for OrchestrationConfigBlockView {
                 oc::persist_environment_selection(environment_id, ctx);
                 self.apply_field_change(ctx);
                 ctx.notify();
-            }
-            OrchestrationConfigBlockAction::CreateEnvironmentRequested => {
-                self.open_create_environment_modal(ctx);
             }
             OrchestrationConfigBlockAction::RunnerChanged { runner_id } => {
                 self.orchestration_edit_state

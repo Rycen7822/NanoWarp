@@ -407,9 +407,6 @@ pub enum FeatureFlag {
     /// Enables inline code review functionality
     InlineCodeReview,
 
-    /// Enables cloud environments management via CLI.
-    CloudEnvironments,
-
     /// Enables the local docker sandbox entrypoints in the client.
     LocalDockerSandbox,
 
@@ -552,11 +549,6 @@ pub enum FeatureFlag {
     /// Enables pluggable notifications via OSC 9 and OSC 777 escape sequences.
     /// External programs can trigger system and in-app notifications.
     PluggableNotifications,
-
-    /// Dev-only: simulate a GitHub-unauthed user in the Environments page flow.
-    ///
-    /// This is intended for developer testing and should have no effect in release builds.
-    SimulateGithubUnauthed,
 
     /// Enables sending the server a list of Skills that the client has access to.
     ///

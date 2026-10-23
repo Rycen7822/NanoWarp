@@ -2,68 +2,13 @@ use url::Url;
 
 use crate::ChannelState;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GithubAuthRedirectTarget {
-    SettingsEnvironments,
-    FocusCloudMode,
-}
-
-impl GithubAuthRedirectTarget {
-    fn next_path(self) -> &'static str {
-        match self {
-            Self::SettingsEnvironments => "settings/environments",
-            Self::FocusCloudMode => "action/focus_cloud_mode",
-        }
-    }
-}
-
-/// Indicates where the GitHub authorization flow was initiated from.
-/// This affects the redirect URL used after auth completes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum AuthSource {
-    /// Auth initiated from the settings page (default behavior: redirect to settings)
-    #[default]
-    Settings,
-    /// Auth initiated from cloud agent setup (skip redirect, just refresh in place)
-    CloudSetup,
-}
-
 #[derive(Clone, Copy, Debug)]
 enum OAuthNextPlatform {
     Native,
     Web,
 }
 
-pub fn auth_url_with_next(
-    base_auth_url: &str,
-    target: GithubAuthRedirectTarget,
-    auth_source: AuthSource,
-) -> String {
-    let scheme = oauth_next_scheme();
-    build_auth_url_with_next(base_auth_url, target, &scheme, auth_source)
-}
-pub fn settings_environments_auth_url_with_next(base_auth_url: &str) -> String {
-    auth_url_with_next(
-        base_auth_url,
-        GithubAuthRedirectTarget::SettingsEnvironments,
-        AuthSource::Settings,
-    )
-}
-
 pub fn cloud_setup_auth_url_with_next(base_auth_url: &str) -> String {
-    auth_url_with_next(
-        base_auth_url,
-        GithubAuthRedirectTarget::FocusCloudMode,
-        AuthSource::CloudSetup,
-    )
-}
-
-pub(crate) fn build_auth_url_with_next(
-    base_auth_url: &str,
-    target: GithubAuthRedirectTarget,
-    scheme: &str,
-    auth_source: AuthSource,
-) -> String {
     let Ok(mut url) = Url::parse(base_auth_url) else {
         return base_auth_url.to_string();
     };
@@ -77,7 +22,7 @@ pub(crate) fn build_auth_url_with_next(
                 .map(|(_, value)| value.into_owned())
         })
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| scheme.to_string());
+        .unwrap_or_else(|| ChannelState::url_scheme().to_string());
 
     let platform = if cfg!(target_family = "wasm") {
         OAuthNextPlatform::Web
@@ -85,8 +30,8 @@ pub(crate) fn build_auth_url_with_next(
         OAuthNextPlatform::Native
     };
 
-    let next_url = build_next_url(target, &scheme_for_next, auth_source, platform)
-        .unwrap_or_else(|| format!("{scheme_for_next}://{}", target.next_path()));
+    let next_url = build_next_url(&scheme_for_next, platform)
+        .unwrap_or_else(|| format!("{scheme_for_next}://action/focus_cloud_mode"));
 
     let existing_pairs = url
         .query_pairs()
@@ -106,21 +51,14 @@ pub(crate) fn build_auth_url_with_next(
     url.to_string()
 }
 
-fn build_next_url(
-    target: GithubAuthRedirectTarget,
-    scheme_for_next: &str,
-    auth_source: AuthSource,
-    platform: OAuthNextPlatform,
-) -> Option<String> {
+fn build_next_url(scheme_for_next: &str, platform: OAuthNextPlatform) -> Option<String> {
     match platform {
         OAuthNextPlatform::Native => {
-            let base = format!("{scheme_for_next}://{}", target.next_path());
+            let base = format!("{scheme_for_next}://action/focus_cloud_mode");
             let mut url = Url::parse(&base).ok()?;
 
-            if matches!(auth_source, AuthSource::CloudSetup) {
-                url.query_pairs_mut()
-                    .append_pair("source", crate::uri::CLOUD_SETUP_SOURCE);
-            }
+            url.query_pairs_mut()
+                .append_pair("source", crate::uri::CLOUD_SETUP_SOURCE);
 
             Some(url.to_string())
         }
@@ -128,32 +66,9 @@ fn build_next_url(
             let mut url = Url::parse(&ChannelState::server_root_url()).ok()?;
             url.set_query(None);
 
-            match target {
-                GithubAuthRedirectTarget::SettingsEnvironments => {
-                    url.set_path("/settings/environments");
-                    {
-                        let mut pairs = url.query_pairs_mut();
-                        pairs.append_pair("oauth", "github");
-                        if matches!(auth_source, AuthSource::CloudSetup) {
-                            pairs.append_pair("source", crate::uri::CLOUD_SETUP_SOURCE);
-                        }
-                    }
-                }
-                GithubAuthRedirectTarget::FocusCloudMode => {
-                    url.set_path("/action/focus_cloud_mode");
-                }
-            }
+            url.set_path("/action/focus_cloud_mode");
 
             Some(url.to_string())
         }
     }
-}
-
-fn oauth_next_scheme() -> String {
-    if let Ok(override_value) = std::env::var("WARP_OAUTH_NEXT_SCHEME")
-        && !override_value.is_empty()
-    {
-        return override_value;
-    }
-    ChannelState::url_scheme().to_string()
 }

@@ -2915,12 +2915,6 @@ pub enum AIAgentInput {
         display_query: Option<String>,
     },
 
-    CreateEnvironment {
-        context: Arc<[AIAgentContext]>,
-        display_query: Option<String>,
-        repo_paths: Vec<String>,
-    },
-
     CreateNewProject {
         query: String,
         context: Arc<[AIAgentContext]>,
@@ -3053,7 +3047,6 @@ impl Display for AIAgentInput {
             Self::ActionResult { result, .. } => write!(f, "ActionResult: {result}"),
             Self::ResumeConversation { .. } => write!(f, "ResumeConversation"),
             Self::InitProjectRules { .. } => write!(f, "InitProjectRules"),
-            Self::CreateEnvironment { .. } => write!(f, "CreateEnvironment"),
             Self::CreateNewProject { .. } => write!(f, "CreateNewProject"),
             Self::CloneRepository { .. } => write!(f, "CloneRepository"),
             Self::CodeReview { .. } => write!(f, "CodeReview"),
@@ -3097,8 +3090,7 @@ impl AIAgentInput {
                 clone_repo_url: url,
                 ..
             } => Some(url.query.clone()),
-            Self::InitProjectRules { display_query, .. }
-            | Self::CreateEnvironment { display_query, .. } => display_query.clone(),
+            Self::InitProjectRules { display_query, .. } => display_query.clone(),
             Self::CodeReview { .. } => Some("Address these comments".to_string()),
             Self::InvokeSkill {
                 skill, user_query, ..
@@ -3149,7 +3141,6 @@ impl AIAgentInput {
             | Self::ActionResult { context, .. }
             | Self::ResumeConversation { context, .. }
             | Self::InitProjectRules { context, .. }
-            | Self::CreateEnvironment { context, .. }
             | Self::CreateNewProject { context, .. }
             | Self::CloneRepository { context, .. }
             | Self::CodeReview { context, .. }
@@ -3178,7 +3169,6 @@ impl AIAgentInput {
             Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
             | Self::InitProjectRules { .. }
-            | Self::CreateEnvironment { .. }
             | Self::CreateNewProject { .. }
             | Self::CloneRepository { .. }
             | Self::CodeReview { .. }

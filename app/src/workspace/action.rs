@@ -498,8 +498,6 @@ pub enum WorkspaceAction {
     },
     OpenAIFactCollection,
     OpenMCPServerCollection,
-    /// Open the Environment Management pane in Create mode.
-    OpenEnvironmentManagementPane,
     ToggleAIDocumentPane {
         document_id: AIDocumentId,
         document_version: AIDocumentVersion,
@@ -607,10 +605,6 @@ pub enum WorkspaceAction {
         conversation_id: AIConversationId,
         trigger: AutoCloudHandoffTrigger,
     },
-    /// Show the environment creation modal during `&` handoff compose when no
-    /// environments exist.
-    ShowHandoffEnvironmentCreationModal,
-    ShowCloudModeV2EnvironmentCreationModal,
     /// Open the workspace modal for creating a new managed auth secret.
     /// Dispatched by orchestration card pickers' "New API key…" item.
     OpenCreateAuthSecretModal {
@@ -1072,8 +1066,6 @@ impl WorkspaceAction {
             | FixSettingsWithOz { .. }
             | OpenLocalToCloudHandoffPane { .. }
             | AutoHandoffActiveAgentToCloud { .. }
-            | ShowHandoffEnvironmentCreationModal
-            | ShowCloudModeV2EnvironmentCreationModal
             | OpenCreateAuthSecretModal { .. }
             | OpenNetworkLogPane
             | OpenNewWindowForTeam { .. }
@@ -1095,7 +1087,6 @@ impl WorkspaceAction {
             FileRenamed { .. } => false, // File rename doesn't change workspace state
             #[cfg(feature = "local_fs")]
             FileDeleted { .. } => false, // File deletion doesn't change workspace state
-            OpenEnvironmentManagementPane => false,
             #[cfg(target_os = "linux")]
             DismissWaylandCrashRecoveryBannerAndOpenLink => false,
             #[cfg(target_family = "wasm")]

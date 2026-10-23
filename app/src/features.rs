@@ -73,8 +73,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::IntegrationCommand,
         #[cfg(feature = "artifact_command")]
         FeatureFlag::ArtifactCommand,
-        #[cfg(feature = "cloud_environments")]
-        FeatureFlag::CloudEnvironments,
         #[cfg(feature = "cloud_runners")]
         FeatureFlag::CloudRunners,
         #[cfg(feature = "cloud_agent_runners")]
@@ -83,8 +81,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CloudAgentExecutionConfig,
         #[cfg(feature = "account_first_onboarding")]
         FeatureFlag::AccountFirstOnboarding,
-        #[cfg(all(feature = "simulate_github_unauthed", debug_assertions))]
-        FeatureFlag::SimulateGithubUnauthed,
         #[cfg(feature = "session_sharing_acls")]
         FeatureFlag::SessionSharingAcls,
         #[cfg(feature = "full_screen_zen_mode")]

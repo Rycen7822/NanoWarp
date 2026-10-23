@@ -386,7 +386,7 @@ fn github_auth_url_for_initial_run_includes_focus_cloud_mode_next() {
                 anyhow::Error::new(ClientError {
                     error: "auth required".to_string(),
                     auth_url: Some(
-                        "https://example.com/oauth/connect/github?scheme=warpdev".to_string(),
+                        "https://example.com/oauth/connect/github?scheme=warpdev&foo=bar&next=old://settings/environments".to_string(),
                     ),
                 }),
                 ctx,
@@ -397,13 +397,19 @@ fn github_auth_url_for_initial_run_includes_focus_cloud_mode_next() {
             let auth_url = model.github_auth_url().expect("auth url should be present");
             assert_eq!(model.github_auth_error_message(), Some("auth required"));
             let parsed = Url::parse(auth_url).expect("auth url should parse");
-            let next = parsed
+            let next_values = parsed
                 .query_pairs()
-                .find(|(key, _)| key == "next")
-                .map(|(_, value)| value.into_owned());
+                .filter(|(key, _)| key == "next")
+                .map(|(_, value)| value.into_owned())
+                .collect::<Vec<_>>();
             assert_eq!(
-                next,
-                Some("warpdev://action/focus_cloud_mode?source=cloud_setup".to_string())
+                next_values,
+                vec!["warpdev://action/focus_cloud_mode?source=cloud_setup".to_string()]
+            );
+            assert!(
+                parsed
+                    .query_pairs()
+                    .any(|(key, value)| key == "foo" && value == "bar")
             );
         });
     });

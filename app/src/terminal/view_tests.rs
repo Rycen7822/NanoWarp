@@ -3065,12 +3065,7 @@ fn set_input_mode_agent_does_not_enter_local_agent_from_root_cloud_mode_pane() {
 
         let terminal = add_window_with_cloud_mode_terminal(&mut app);
 
-        terminal.update(&mut app, |view, ctx| {
-            view.ambient_agent_view_model()
-                .expect("cloud mode terminal should have ambient model")
-                .update(ctx, |model, ctx| {
-                    model.enter_setup(ctx);
-                });
+        terminal.update(&mut app, |view, _| {
             view.model
                 .lock()
                 .set_shared_session_status(SharedSessionStatus::FinishedViewer);
@@ -3140,9 +3135,7 @@ fn cloud_mode_v2_agent_prefixed_query_spawns_cloud_agent() {
         let terminal = add_window_with_cloud_mode_terminal(&mut app);
         let input = terminal.read(&app, |view, _| view.input.clone());
 
-        // The cloud mode v2 submit path now opens a create-environment modal if
-        // no environment is selected. Register a stub environment and select it
-        // so the test exercises the spawn path instead of the modal-open path.
+        // Select an existing environment so this test reaches the cloud spawn path.
         let env_id = register_test_cloud_environment(&mut app);
         terminal.update(&mut app, |view, ctx| {
             view.ambient_agent_view_model()

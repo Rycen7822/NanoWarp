@@ -92,8 +92,6 @@ pub enum SessionStartupKind {
 /// Status of the ambient agent run.
 #[derive(Debug, Clone)]
 pub enum Status {
-    /// First-time environment setup for cloud agents.
-    Setup,
     /// The user is composing their ambient agent prompt.
     Composing,
     /// Waiting for the ambient agent run to be ready.
@@ -700,11 +698,6 @@ impl AmbientAgentViewModel {
             .is_some_and(AgentSource::blocks_cloud_followups)
     }
 
-    /// Whether or not this terminal session is in the setup state (first-time environment creation).
-    pub fn is_in_setup(&self) -> bool {
-        matches!(self.status, Status::Setup)
-    }
-
     /// Whether or not this terminal session is currently setting up an ambient agent run.
     pub fn is_configuring_ambient_agent(&self) -> bool {
         matches!(self.status, Status::Composing)
@@ -782,18 +775,6 @@ impl AmbientAgentViewModel {
             Status::NeedsGithubAuth { error_message, .. } => Some(error_message),
             _ => None,
         }
-    }
-
-    /// Enter the setup state for first-time environment creation.
-    pub fn enter_setup(&mut self, ctx: &mut ModelContext<Self>) {
-        self.status = Status::Setup;
-        ctx.emit(AmbientAgentViewModelEvent::EnteredSetupState);
-    }
-
-    /// Transition from Setup to Composing state.
-    pub fn enter_composing_from_setup(&mut self, ctx: &mut ModelContext<Self>) {
-        self.status = Status::Composing;
-        ctx.emit(AmbientAgentViewModelEvent::EnteredComposingState);
     }
 
     /// This is used when we join an already-running ambient agent shared session (e.g. from the
@@ -1358,8 +1339,7 @@ impl AmbientAgentViewModel {
                                 session_id: event_session_id,
                             }
                         }
-                        Status::Setup
-                        | Status::Composing
+                        Status::Composing
                         | Status::Failed { .. }
                         | Status::NeedsGithubAuth { .. }
                         | Status::Cancelled { .. } => return,
@@ -1606,9 +1586,7 @@ impl AmbientAgentViewModel {
 #[derive(Debug, Clone)]
 pub enum AmbientAgentViewModelEvent {
     /// The user has entered the setup state (first-time environment creation).
-    EnteredSetupState,
     /// The user has entered the composing state (typing their prompt).
-    EnteredComposingState,
     /// The ambient agent run has been dispatched.
     DispatchedAgent,
     /// A follow-up execution has been submitted and is waiting for a new session.

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
 use cfg_if::cfg_if;
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use onboarding::{
     AgentOnboardingEvent, AgentOnboardingView, OfferVariant, OnboardingEvent, OnboardingIntention,
@@ -15,7 +14,6 @@ use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 use serde::{Deserialize, Serialize};
 use settings::Setting as _;
-use url::Url;
 use warp_core::context_flag::ContextFlag;
 use warp_core::user_preferences::GetUserPreferences as _;
 use warp_errors::{report_error, report_if_error};
@@ -77,7 +75,7 @@ use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::shell::ShellType;
-use crate::terminal::view::{TerminalAction, cell_size_and_padding};
+use crate::terminal::view::cell_size_and_padding;
 use crate::themes::onboarding_theme_picker_themes;
 use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, WarpThemeConfig};
 use crate::uri::OpenSettingsArgs;
@@ -250,42 +248,6 @@ pub struct SubshellCommandArg {
     pub shell_type: Option<ShellType>,
 }
 
-// Arguments for creating an ambient agent environment.
-pub struct CreateEnvironmentArg {
-    pub repos: Vec<String>,
-}
-
-impl CreateEnvironmentArg {
-    /// Formats the `/create-environment` slash command invocation.
-    pub fn to_query(&self) -> String {
-        // Filter repos to accept either valid URLs or POSIX portable pathnames for security.
-        //
-        // Note: we also allow *absolute* POSIX paths (e.g., /Users/me/repo) as long as every
-        // component is portable. This is important for local indexed repos.
-        let safe_repos = self
-            .repos
-            .iter()
-            .filter(|repo| {
-                // Accept valid URLs (e.g., https://github.com/user/repo)
-                Url::parse(repo).is_ok()
-                    // Or valid POSIX portable pathnames (e.g., user/repo)
-                    || warp_util::path::is_posix_portable_pathname(repo)
-                    // Or absolute POSIX paths with portable components (e.g., /Users/me/repo)
-                    || repo
-                        .strip_prefix('/')
-                        .is_some_and(warp_util::path::is_posix_portable_pathname)
-            })
-            .join(" ");
-
-        if safe_repos.is_empty() {
-            // Include a trailing space to trigger slash command syntax highlighting and ghost text.
-            "/create-environment ".to_string()
-        } else {
-            format!("/create-environment {}", safe_repos)
-        }
-    }
-}
-
 pub fn init(app: &mut AppContext) {
     app.register_binding_validator::<RootView>(is_binding_pty_compliant);
 
@@ -338,15 +300,6 @@ pub fn init(app: &mut AppContext) {
         RootView::toggle_maximize_window,
     );
     app.add_action("root_view:toggle_fullscreen", RootView::toggle_fullscreen);
-
-    app.add_global_action(
-        "root_view:create_environment_and_run",
-        create_environment_and_run,
-    );
-    app.add_action(
-        "root_view:create_environment_in_existing_window_and_run",
-        RootView::create_environment_in_existing_window_and_run,
-    );
 
     app.add_global_action(
         "root_view:open_settings_page_in_new_window",
@@ -822,40 +775,6 @@ pub(crate) fn open_new_from_path(
         },
         ctx,
     )
-}
-
-/// Opens a new window and starts the guided `/create-environment` setup flow immediately.
-fn create_environment_and_run(arg: &CreateEnvironmentArg, ctx: &mut AppContext) {
-    let repos = arg.repos.clone();
-    let (window_id, root_handle) = open_new_with_workspace_source(
-        NewWorkspaceSource::Session {
-            options: Box::default(),
-            initial_team_uid: None,
-        },
-        ctx,
-    );
-
-    root_handle.update(ctx, |root_view, ctx| {
-        if let AuthOnboardingState::Terminal(workspace_handle) = &root_view.auth_onboarding_state {
-            workspace_handle.update(ctx, |workspace, ctx| {
-                workspace
-                    .active_tab_pane_group()
-                    .update(ctx, |pane_group, ctx| {
-                        pane_group.set_title("Create Environment", ctx);
-
-                        if let Some(terminal_view) = pane_group.active_session_view(ctx) {
-                            terminal_view.update(ctx, |_, ctx| {
-                                ctx.dispatch_typed_action_deferred(
-                                    TerminalAction::SetupCloudEnvironmentAndStart(repos.clone()),
-                                );
-                            });
-                        }
-                    });
-            });
-        }
-    });
-
-    ctx.windows().show_window_and_focus_app(window_id);
 }
 
 fn open_settings_page_in_new_window(section: &SettingsSection, ctx: &mut AppContext) {
@@ -2615,50 +2534,6 @@ impl RootView {
         } else {
             log::warn!("Auth not complete before trying to add new session at path");
         }
-        true
-    }
-
-    /// Adds a tab and starts the guided `/create-environment` setup flow immediately.
-    fn create_environment_in_existing_window_and_run(
-        &mut self,
-        arg: &CreateEnvironmentArg,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let AuthOnboardingState::Terminal(handle) = &self.auth_onboarding_state else {
-            log::warn!("Auth not complete before trying to create environment");
-            return false;
-        };
-
-        let repos = arg.repos.clone();
-
-        handle.update(ctx, |workspace, ctx| {
-            workspace.add_tab_with_pane_layout(
-                PanesLayout::SingleTerminal(Box::default()),
-                Arc::new(HashMap::new()),
-                None,
-                ctx,
-            );
-
-            workspace
-                .active_tab_pane_group()
-                .update(ctx, |pane_group, ctx| {
-                    pane_group.set_title("Create Environment", ctx);
-
-                    if let Some(terminal_view) = pane_group.active_session_view(ctx) {
-                        terminal_view.update(ctx, |_, ctx| {
-                            ctx.dispatch_typed_action_deferred(
-                                crate::terminal::view::TerminalAction::SetupCloudEnvironmentAndStart(
-                                    repos.clone(),
-                                ),
-                            );
-                        });
-                    }
-                });
-        });
-
-        let window_id = ctx.window_id();
-        ctx.windows().show_window_and_focus_app(window_id);
-        ctx.notify();
         true
     }
 

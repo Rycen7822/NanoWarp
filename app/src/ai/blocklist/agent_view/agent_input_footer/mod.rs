@@ -188,9 +188,6 @@ impl AgentInputFooter {
                     ctx.emit(AgentInputFooterEvent::EnvironmentSelectorClosed);
                 }
             }
-            EnvironmentSelectorEvent::OpenEnvironmentManagementPane => {
-                ctx.emit(AgentInputFooterEvent::OpenEnvironmentManagementPane);
-            }
         });
         self.environment_selector = Some(environment_selector);
 
@@ -394,9 +391,6 @@ impl AgentInputFooter {
                     if !*open {
                         ctx.emit(AgentInputFooterEvent::EnvironmentSelectorClosed);
                     }
-                }
-                EnvironmentSelectorEvent::OpenEnvironmentManagementPane => {
-                    ctx.emit(AgentInputFooterEvent::OpenEnvironmentManagementPane);
                 }
             },
         );
@@ -1308,7 +1302,6 @@ pub enum AgentInputFooterEvent {
     ShowContextMenu {
         position: Vector2F,
     },
-    OpenEnvironmentManagementPane,
     /// Local-to-cloud handoff chip clicked. The terminal `Input` subscriber
     /// either dispatches the immediate empty-prompt handoff (empty buffer +
     /// source conversation with content) or activates `&` compose mode

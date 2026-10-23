@@ -22,7 +22,7 @@ use crate::ai::cloud_environments::{
 use crate::appearance::Appearance;
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::context_chips::display_menu::{
-    ChipMenuType, DisplayChipMenu, FixedFooter, GenericMenuItem, PromptDisplayMenuEvent,
+    ChipMenuType, DisplayChipMenu, GenericMenuItem, PromptDisplayMenuEvent,
 };
 use crate::server::ids::SyncId;
 use crate::terminal::input::{
@@ -122,7 +122,6 @@ pub struct EnvironmentSelector {
 
 pub enum EnvironmentSelectorEvent {
     MenuVisibilityChanged { open: bool },
-    OpenEnvironmentManagementPane,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,28 +171,6 @@ impl GenericMenuItem for EnvironmentMenuItem {
     }
 }
 
-/// Menu item for the "New Environment" footer option.
-#[derive(Debug, Clone)]
-struct NewEnvironmentMenuItem;
-
-impl GenericMenuItem for NewEnvironmentMenuItem {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn name(&self) -> String {
-        "New environment".to_string()
-    }
-
-    fn icon(&self, _app: &AppContext) -> Option<Icon> {
-        Some(Icon::Plus)
-    }
-
-    fn action_data(&self) -> String {
-        "new_environment".to_string()
-    }
-}
-
 impl EnvironmentSelector {
     pub fn new(
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
@@ -214,7 +191,7 @@ impl EnvironmentSelector {
         let dropdown = ctx.add_typed_action_view(move |ctx| {
             DisplayChipMenu::new(
                 Vec::<EnvironmentMenuItem>::new(),
-                Some(FixedFooter::new(Arc::new(NewEnvironmentMenuItem))),
+                None,
                 ChipMenuType::Environments,
                 ctx,
             )
@@ -222,23 +199,6 @@ impl EnvironmentSelector {
 
         ctx.subscribe_to_view(&dropdown, |me, _, event, ctx| match event {
             PromptDisplayMenuEvent::MenuAction(generic_event) => {
-                // Check if this is the "New Environment" footer action
-                if generic_event
-                    .action_item
-                    .as_any()
-                    .downcast_ref::<NewEnvironmentMenuItem>()
-                    .is_some()
-                {
-                    send_telemetry_from_ctx!(
-                        CloudAgentTelemetryEvent::OpenedEnvironmentManagementPane,
-                        ctx
-                    );
-                    me.set_menu_visibility(false, ctx);
-                    ctx.emit(EnvironmentSelectorEvent::OpenEnvironmentManagementPane);
-                    return;
-                }
-
-                // Otherwise, it's an environment selection.
                 if let Some(env_item) = generic_event
                     .action_item
                     .as_any()

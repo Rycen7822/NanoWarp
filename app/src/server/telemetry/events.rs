@@ -656,14 +656,6 @@ pub enum AgentModeSetupCodebaseContextActionType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeSetupCreateEnvironmentActionType {
-    #[serde(rename = "create_environment")]
-    CreateEnvironment,
-    #[serde(rename = "skip_environment")]
-    SkipEnvironment,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CpuUsageStats {
     /// The number of logical CPUs on the system.
     pub num_cpus: usize,
@@ -784,7 +776,6 @@ pub enum AIAgentInput {
     UserQuery { query: String },
     ResumeConversation,
     InitProjectRules { display_query: Option<String> },
-    CreateEnvironment { display_query: Option<String> },
     ActionResult { action_id: AIAgentActionId },
     CreateNewProject { query: String },
     CloneRepository { url: String },
@@ -805,9 +796,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
             FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
             FullAIAgentInput::InitProjectRules { display_query, .. } => {
                 Self::InitProjectRules { display_query }
-            }
-            FullAIAgentInput::CreateEnvironment { display_query, .. } => {
-                Self::CreateEnvironment { display_query }
             }
             FullAIAgentInput::ActionResult { result, .. } => Self::ActionResult {
                 action_id: result.id,
@@ -864,7 +852,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     Onboarding,
     Keybinding,
     SlashInit,
-    CreateEnvironment,
     ProjectEntry,
     ClearBuffer,
     ChildAgent,
@@ -908,7 +895,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
             AgentViewEntryOrigin::Keybinding(_) => Self::Keybinding,
             AgentViewEntryOrigin::SlashInit => Self::SlashInit,
-            AgentViewEntryOrigin::CreateEnvironment => Self::CreateEnvironment,
             AgentViewEntryOrigin::ProjectEntry => Self::ProjectEntry,
             AgentViewEntryOrigin::ClearBuffer => Self::ClearBuffer,
             AgentViewEntryOrigin::ChildAgent => Self::ChildAgent,
@@ -1954,9 +1940,6 @@ pub enum TelemetryEvent {
 
     AgentModeSetupCodebaseContextAction {
         action: AgentModeSetupCodebaseContextActionType,
-    },
-    AgentModeSetupCreateEnvironmentAction {
-        action: AgentModeSetupCreateEnvironmentActionType,
     },
     InputBufferSubmitted {
         input_type: input_classifier::InputType,
@@ -3378,9 +3361,6 @@ impl TelemetryEvent {
             TelemetryEvent::AgentModeSetupCodebaseContextAction { action } => Some(json!({
                 "action": action,
             })),
-            TelemetryEvent::AgentModeSetupCreateEnvironmentAction { action } => Some(json!({
-                "action": action,
-            })),
             #[cfg(windows)]
             TelemetryEvent::WSLRegistryError => None,
             TelemetryEvent::InputBufferSubmitted {
@@ -3877,7 +3857,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentModeSetupBannerDismissed
             | TelemetryEvent::AgentModeSetupProjectScopedRulesAction { .. }
             | TelemetryEvent::AgentModeSetupCodebaseContextAction { .. }
-            | TelemetryEvent::AgentModeSetupCreateEnvironmentAction { .. }
             | TelemetryEvent::CloneRepoPromptSubmitted { .. }
             | TelemetryEvent::GetStartedSkipToTerminal
             | TelemetryEvent::FileTreeItemAttachedAsContext { .. }
@@ -4301,7 +4280,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentModeSetupBannerDismissed => EnablementState::Always,
             Self::AgentModeSetupProjectScopedRulesAction { .. } => EnablementState::Always,
             Self::AgentModeSetupCodebaseContextAction { .. } => EnablementState::Always,
-            Self::AgentModeSetupCreateEnvironmentAction { .. } => EnablementState::Always,
             Self::InputBufferSubmitted => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
@@ -4742,9 +4720,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::AgentModeSetupCodebaseContextAction { .. } => {
                 "Agent Mode.Setup Codebase Context Action"
-            }
-            Self::AgentModeSetupCreateEnvironmentAction { .. } => {
-                "AgentMode.SetupCreateEnvironmentAction"
             }
             Self::InputBufferSubmitted => "AgentMode.NaturalLanguageDetection.InputBufferSubmitted",
             Self::RecentMenuItemSelected { .. } => "Recent Menu Item Selected",
@@ -5347,9 +5322,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::AgentModeSetupCodebaseContextAction { .. } => {
                 "User clicked a button in the Agent Mode setup codebase context step"
-            }
-            Self::AgentModeSetupCreateEnvironmentAction { .. } => {
-                "User clicked a button in the Agent Mode setup create environment step"
             }
             Self::InputBufferSubmitted => "Input buffer submitted",
             Self::RecentMenuItemSelected { .. } => {

@@ -838,7 +838,6 @@ pub enum Event {
     OpenViewMCPPane,
     OpenAddMCPPane,
     OpenProjectRulesPane,
-    OpenEnvironmentManagementPane,
     OpenFilesPalette {
         source: PaletteSource,
     },
@@ -873,14 +872,8 @@ pub enum Event {
     ExitCloudModeAndStartLocalAgent {
         initial_prompt: Option<String>,
     },
-    /// Trigger environment setup flow with optional repository arguments
-    TriggerEnvironmentSetup {
-        repos: Vec<String>,
-    },
     OpenShareSessionModal,
     StartRemoteControl,
-    OpenHandoffEnvironmentCreationModal,
-    OpenCloudModeV2EnvironmentCreationModal,
 }
 
 pub enum InputState {
@@ -1934,9 +1927,7 @@ impl Input {
             let should_notify = handle.as_ref(ctx).should_show_status_footer()
                 || matches!(
                     event,
-                    AmbientAgentViewModelEvent::EnteredSetupState
-                        | AmbientAgentViewModelEvent::EnteredComposingState
-                        | AmbientAgentViewModelEvent::DispatchedAgent
+                    AmbientAgentViewModelEvent::DispatchedAgent
                         | AmbientAgentViewModelEvent::SessionReady { .. }
                         | AmbientAgentViewModelEvent::Failed { .. }
                         | AmbientAgentViewModelEvent::Cancelled
@@ -2443,9 +2434,6 @@ impl Input {
                     ctx.dispatch_typed_action(&TerminalAction::PromptContextMenu {
                         position_offset_from_prompt: offset,
                     });
-                }
-                AgentInputFooterEvent::OpenEnvironmentManagementPane => {
-                    ctx.emit(Event::OpenEnvironmentManagementPane);
                 }
                 AgentInputFooterEvent::HandoffChipClicked => {
                     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -3529,11 +3517,6 @@ impl Input {
         );
     }
 
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub(crate) fn handoff_entry_point(&self, ctx: &AppContext) -> HandoffEntryPoint {
-        self.handoff_compose_state.as_ref(ctx).entry_point()
-    }
-
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     pub(crate) fn exit_cloud_handoff_compose_and_clear_prompt(
         &mut self,
@@ -3778,7 +3761,6 @@ impl Input {
             }
 
             if CloudAmbientAgentEnvironment::get_all(ctx).is_empty() {
-                ctx.emit(Event::OpenHandoffEnvironmentCreationModal);
                 return true;
             }
 
@@ -3798,7 +3780,6 @@ impl Input {
         }
 
         if CloudAmbientAgentEnvironment::get_all(ctx).is_empty() {
-            ctx.emit(Event::OpenHandoffEnvironmentCreationModal);
             return true;
         }
 
@@ -4221,10 +4202,6 @@ impl Input {
 
     pub fn editor(&self) -> &ViewHandle<EditorView> {
         &self.editor
-    }
-
-    pub(crate) fn ai_context_model(&self) -> &ModelHandle<BlocklistAIContextModel> {
-        &self.ai_context_model
     }
 
     pub fn buffer_text(&self, ctx: &AppContext) -> String {
@@ -9659,12 +9636,11 @@ impl Input {
                 if self.is_cloud_mode_input_v2_composing(ctx)
                     && let Some(ambient_agent_view_model) = self.ambient_agent_view_model()
                 {
-                    let needs_env_modal = ambient_agent_view_model
+                    let has_no_environment = ambient_agent_view_model
                         .as_ref(ctx)
                         .selected_environment_id()
                         .is_none();
-                    if needs_env_modal {
-                        ctx.emit(Event::OpenCloudModeV2EnvironmentCreationModal);
+                    if has_no_environment {
                         return;
                     }
                 }
