@@ -10,7 +10,7 @@ use warp_multi_agent_api as api;
 use crate::ai::agent::base_user_query::warp_client_origin;
 use crate::ai::agent::{
     AIAgentActionResult, AIAgentActionResultType, AIAgentAttachment, AIAgentContext, AIAgentInput,
-    BaseUserQuery, DriveObjectPayload, MCPContext, RunningCommand, StaticQueryType, UserQueryMode,
+    BaseUserQuery, DriveObjectPayload, RunningCommand, StaticQueryType, UserQueryMode,
 };
 use crate::ai::block_context::BlockContext;
 
@@ -533,12 +533,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             AIAgentActionResultType::FileGlobV2(file_glob_result) => {
                 Some(file_glob_result.try_into()?)
             }
-            AIAgentActionResultType::ReadMCPResource(read_mcp_resource_result) => {
-                Some(read_mcp_resource_result.try_into()?)
-            }
-            AIAgentActionResultType::CallMCPTool(call_mcp_tool_result) => {
-                Some(call_mcp_tool_result.try_into()?)
-            }
             AIAgentActionResultType::ReadSkill(read_skill_result) => {
                 Some(read_skill_result.try_into()?)
             }
@@ -762,130 +756,6 @@ fn api_pull_request_state(
     }
 }
 
-// Convert rmcp resource to proto format.
-fn convert_mcp_resource(resource: rmcp::model::Resource) -> api::request::mcp_context::McpResource {
-    let rmcp::model::Resource {
-        uri,
-        name,
-        description,
-        mime_type,
-        ..
-    } = resource;
-    api::request::mcp_context::McpResource {
-        uri,
-        name,
-        description: description.unwrap_or_default(),
-        mime_type: mime_type.unwrap_or_default(),
-    }
-}
-
-// Convert rmcp tool to proto format, skipping tools with invalid schemas.
-fn convert_mcp_tool(tool: rmcp::model::Tool) -> Option<api::request::mcp_context::McpTool> {
-    let Ok(prost_types::Value {
-        kind: Some(prost_types::value::Kind::StructValue(input_schema)),
-    }) = serde_json_to_prost(tool.input_schema.as_ref().clone().into())
-    else {
-        return None;
-    };
-
-    Some(api::request::mcp_context::McpTool {
-        name: tool.name.to_string(),
-        description: tool.description.map(|d| d.to_string()).unwrap_or_default(),
-        input_schema: Some(input_schema),
-    })
-}
-
-/// Builds the `MCPContext.MCPServer.identity` for a server from its `warp_id`
-/// (the `MCPServerConfig.warp_id` it was resolved from).
-///
-/// A uuid is a managed MCP server; anything else is a well-known integration
-/// id owned by warp-server. An id this build does not know yields `None`, so a
-/// newer server-side integration is simply unnamed rather than misattributed;
-/// so does an empty id (local and ad-hoc servers). `display_name` is left
-/// unset: `MCPContext.MCPServer.name` carries it, and warp-server fills it in
-/// when it copies the identity onto tool calls.
-fn mcp_server_identity(warp_id: &str) -> Option<api::McpServerIdentity> {
-    if warp_id.is_empty() {
-        return None;
-    }
-    if uuid::Uuid::parse_str(warp_id).is_ok() {
-        return Some(api::McpServerIdentity {
-            managed_server_uid: warp_id.to_string(),
-            ..Default::default()
-        });
-    }
-    let integration = match warp_id {
-        "linear" => api::McpIntegration::Linear,
-        "slack" => api::McpIntegration::Slack,
-        "jira" => api::McpIntegration::Jira,
-        "linear_agent_session" => api::McpIntegration::LinearAgentSession,
-        _ => return None,
-    };
-    Some(api::McpServerIdentity {
-        integration: integration as i32,
-        ..Default::default()
-    })
-}
-
-impl From<MCPContext> for api::request::McpContext {
-    #[allow(deprecated)]
-    fn from(value: MCPContext) -> Self {
-        // Check if we're using the old flat structure (no servers)
-        // or the new grouped structure (servers populated)
-        if value.servers.is_empty() {
-            // Old behavior: use deprecated flat resources and tools lists
-            api::request::McpContext {
-                #[allow(deprecated)]
-                resources: value
-                    .resources
-                    .into_iter()
-                    .map(convert_mcp_resource)
-                    .collect(),
-                #[allow(deprecated)]
-                tools: value
-                    .tools
-                    .into_iter()
-                    .filter_map(convert_mcp_tool)
-                    .collect(),
-                servers: vec![], // Empty for old behavior
-            }
-        } else {
-            // New behavior: group by server
-            let servers: Vec<_> = value
-                .servers
-                .into_iter()
-                .map(|server| {
-                    let identity = mcp_server_identity(&server.warp_id);
-                    api::request::mcp_context::McpServer {
-                        id: server.id,
-                        name: server.name,
-                        description: server.description,
-                        identity,
-                        resources: server
-                            .resources
-                            .into_iter()
-                            .map(convert_mcp_resource)
-                            .collect(),
-                        tools: server
-                            .tools
-                            .into_iter()
-                            .filter_map(convert_mcp_tool)
-                            .collect(),
-                    }
-                })
-                .collect();
-
-            api::request::McpContext {
-                #[allow(deprecated)]
-                resources: vec![], // Empty - everything is grouped by server
-                #[allow(deprecated)]
-                tools: vec![], // Empty - everything is grouped by server
-                servers,
-            }
-        }
-    }
-}
-
 impl From<BlockContext> for api::ExecutedShellCommand {
     fn from(block: BlockContext) -> Self {
         api::ExecutedShellCommand {
@@ -898,39 +768,6 @@ impl From<BlockContext> for api::ExecutedShellCommand {
             finished_ts: block.finished_ts.map(local_datetime_to_timestamp),
         }
     }
-}
-
-/// Tries to convert a [`serde_json::Value`] to a [`prost_types::Value`].
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn serde_json_to_prost(value: serde_json::Value) -> Result<prost_types::Value, String> {
-    use std::collections::BTreeMap;
-
-    use prost_types::value::Kind::*;
-    use serde_json::Value::*;
-
-    Ok(prost_types::Value {
-        kind: Some(match value {
-            Null => NullValue(0),
-            Bool(v) => BoolValue(v),
-            Number(n) => NumberValue(
-                n.as_f64()
-                    .ok_or_else(|| format!("float {n} is not valid JSON number"))?,
-            ),
-            String(s) => StringValue(s),
-            Array(a) => ListValue(prost_types::ListValue {
-                values: a
-                    .into_iter()
-                    .map(serde_json_to_prost)
-                    .collect::<Result<Vec<_>, std::string::String>>()?,
-            }),
-            Object(v) => StructValue(prost_types::Struct {
-                fields: v
-                    .into_iter()
-                    .map(|(k, v)| serde_json_to_prost(v).map(|v| (k, v)))
-                    .collect::<Result<BTreeMap<_, _>, std::string::String>>()?,
-            }),
-        }),
-    })
 }
 
 #[cfg(test)]

@@ -224,7 +224,6 @@ fn initialize_llm_preferences_dependencies(app: &mut App) {
         warpui_extras::secure_storage::register_noop("test", ctx);
     });
     app.add_singleton_model(ai::api_keys::ApiKeyManager::new);
-    app.add_singleton_model(|_| crate::ai::mcp::TemplatableMCPServerManager::default());
     app.add_singleton_model(|ctx| {
         crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::new(
             &crate::LaunchMode::new_for_unit_test(),

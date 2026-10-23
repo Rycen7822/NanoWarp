@@ -135,7 +135,6 @@ pub async fn generate_multi_agent_output(
             parent_agent_id: params.parent_agent_id.unwrap_or_default(),
             agent_name: params.agent_name.unwrap_or_default(),
         }),
-        mcp_context: params.mcp_context.map(Into::into),
         ..Default::default()
     };
 
@@ -217,8 +216,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::Grep,
         api::ToolType::FileGlob,
         api::ToolType::FileGlobV2,
-        api::ToolType::ReadMcpResource,
-        api::ToolType::CallMcpTool,
         api::ToolType::OpenCodeReview,
         api::ToolType::RunShellCommand,
         api::ToolType::SuggestNewConversation,

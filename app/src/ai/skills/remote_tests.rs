@@ -37,11 +37,6 @@ fn snapshot_protos_serialize_activation_conditions() {
             BundledSkillActivation::Always,
         ),
         (
-            "figma-skill".to_string(),
-            daemon_skill("figma-skill", "# figma"),
-            BundledSkillActivation::RequiresMcp(McpIntegration::Figma),
-        ),
-        (
             "file-present-skill".to_string(),
             daemon_skill("file-present-skill", "# file"),
             BundledSkillActivation::RequiresFile(present_file),
@@ -62,22 +57,7 @@ fn snapshot_protos_serialize_activation_conditions() {
         .map(|proto| bundled_metadata(proto).id.as_str())
         .collect();
     ids.sort_unstable();
-    assert_eq!(ids, ["always-skill", "figma-skill", "file-present-skill"]);
-
-    let figma = protos
-        .iter()
-        .find(|proto| bundled_metadata(proto).id == "figma-skill")
-        .unwrap();
-    assert_eq!(
-        bundled_metadata(figma).requires_mcp.as_deref(),
-        Some("figma")
-    );
-    for proto in protos
-        .iter()
-        .filter(|proto| bundled_metadata(proto).id != "figma-skill")
-    {
-        assert_eq!(bundled_metadata(proto).requires_mcp, None);
-    }
+    assert_eq!(ids, ["always-skill", "file-present-skill"]);
 
     let always = protos
         .iter()

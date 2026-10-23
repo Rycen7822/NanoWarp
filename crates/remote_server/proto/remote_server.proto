@@ -250,9 +250,7 @@ message ErrorResponse {
 message BundledSkillMetadata {
   // Directory-based skill ID, unique within the bundled catalog.
   string id = 1;
-  // When set, the skill is only active while the named MCP integration
-  // is running on the client (e.g. "figma"). Evaluated client-side.
-  optional string requires_mcp = 2;
+  reserved 2;
 }
 
 // Marker metadata for a file-based skill from the daemon host's home directory.

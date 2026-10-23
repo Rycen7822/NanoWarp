@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use uuid::Uuid;
 use warp_core::features::FeatureFlag;
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
@@ -12,6 +11,7 @@ use warpui::{
     WeakViewHandle,
 };
 
+use crate::UserWorkspaces;
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::execution_profiles::profiles::{
     AIExecutionProfilesModel, AIExecutionProfilesModelEvent,
@@ -26,7 +26,6 @@ use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::settings::AISettings;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, ButtonSize, SecondaryTheme};
-use crate::{TemplatableMCPServerManager, UserWorkspaces};
 
 #[derive(Debug, Clone)]
 pub enum ExecutionProfileViewAction {
@@ -295,49 +294,6 @@ impl View for ExecutionProfileView {
                             ),
                         ));
 
-                        permissions_column.add_child(with_standard_vertical_margin(
-                            render_action_permission_line_with_icon(
-                                Icon::Dataflow,
-                                "Call MCP servers:",
-                                &profile.mcp_permissions,
-                                appearance,
-                                is_any_ai_enabled,
-                            ),
-                        ));
-
-                        match profile.mcp_permissions {
-                            ActionPermission::AlwaysAllow => {
-                                permissions_column.add_child(render_mcp_denylist(
-                                    &profile,
-                                    appearance,
-                                    app,
-                                    is_any_ai_enabled,
-                                ));
-                            }
-                            ActionPermission::AlwaysAsk => {
-                                permissions_column.add_child(render_mcp_allowlist(
-                                    &profile,
-                                    appearance,
-                                    app,
-                                    is_any_ai_enabled,
-                                ));
-                            }
-                            ActionPermission::AgentDecides | ActionPermission::Unknown => {
-                                permissions_column.add_child(render_mcp_allowlist(
-                                    &profile,
-                                    appearance,
-                                    app,
-                                    is_any_ai_enabled,
-                                ));
-                                permissions_column.add_child(render_mcp_denylist(
-                                    &profile,
-                                    appearance,
-                                    app,
-                                    is_any_ai_enabled,
-                                ));
-                            }
-                        }
-
                         if FeatureFlag::WebSearchUI.is_enabled() {
                             permissions_column.add_child(with_standard_vertical_margin(
                                 render_bool_permission_line_with_icon(
@@ -522,21 +478,6 @@ fn render_command_predicate_row(
     is_ai_enabled: bool,
 ) -> Box<dyn Element> {
     let items_str: Vec<String> = items.iter().map(|c| c.to_string()).collect();
-    render_allowlist_denylist_row(icon, label, &items_str, appearance, is_ai_enabled)
-}
-
-fn render_mcp_uuid_row(
-    icon: Icon,
-    label: String,
-    uuids: &[Uuid],
-    appearance: &Appearance,
-    app: &AppContext,
-    is_ai_enabled: bool,
-) -> Box<dyn Element> {
-    let items_str: Vec<String> = uuids
-        .iter()
-        .filter_map(|uuid| TemplatableMCPServerManager::get_mcp_name(uuid, app))
-        .collect();
     render_allowlist_denylist_row(icon, label, &items_str, appearance, is_ai_enabled)
 }
 
@@ -781,38 +722,6 @@ fn render_command_denylist(
         "Command denylist:".to_string(),
         &profile.command_denylist,
         appearance,
-        is_ai_enabled,
-    ))
-}
-
-fn render_mcp_allowlist(
-    profile: &crate::ai::execution_profiles::AIExecutionProfile,
-    appearance: &Appearance,
-    app: &AppContext,
-    is_ai_enabled: bool,
-) -> Box<dyn Element> {
-    with_standard_vertical_margin(render_mcp_uuid_row(
-        Icon::Check,
-        "MCP allowlist:".to_string(),
-        &profile.mcp_allowlist,
-        appearance,
-        app,
-        is_ai_enabled,
-    ))
-}
-
-fn render_mcp_denylist(
-    profile: &crate::ai::execution_profiles::AIExecutionProfile,
-    appearance: &Appearance,
-    app: &AppContext,
-    is_ai_enabled: bool,
-) -> Box<dyn Element> {
-    with_standard_vertical_margin(render_mcp_uuid_row(
-        Icon::SlashCircle,
-        "MCP denylist:".to_string(),
-        &profile.mcp_denylist,
-        appearance,
-        app,
         is_ai_enabled,
     ))
 }

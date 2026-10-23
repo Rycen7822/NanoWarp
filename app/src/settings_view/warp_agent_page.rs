@@ -24,7 +24,6 @@ use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
 #[cfg(not(target_family = "wasm"))]
 use uuid::Uuid;
-use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
 use warp_editor::editor::NavigationKey;
@@ -331,25 +330,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 flags::SHOW_CONVERSATION_HISTORY,
             )
             .with_group(bindings::BindingGroup::WarpAi),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "Auto-spawn servers from third-party agents",
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleFileBasedMcp,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::FILE_BASED_MCP_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| {
-                FeatureFlag::McpServer.is_enabled()
-                    && FeatureFlag::FileBasedMcp.is_enabled()
-                    && ContextFlag::ShowMCPServers.is_enabled()
-            }),
         ],
         app,
     );
@@ -1943,7 +1923,6 @@ pub enum WarpAgentPageAction {
     RefreshAwsBedrockCredentials,
     RefreshGeminiEnterpriseCredentials,
     ToggleGeminiEnterpriseCredentialsEnabled,
-    ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAutoApproveBypassesCommandDenylist,
     ToggleAgentAttribution,
@@ -2147,12 +2126,6 @@ impl TypedActionView for WarpAgentPageView {
                             .gemini_enterprise_credentials_enabled
                             .toggle_and_save_value(ctx)
                     );
-                });
-                ctx.notify();
-            }
-            WarpAgentPageAction::ToggleFileBasedMcp => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.file_based_mcp_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }

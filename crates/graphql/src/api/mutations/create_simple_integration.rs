@@ -15,12 +15,9 @@ pub struct CreateSimpleIntegrationVariables {
 pub struct SimpleIntegrationConfig {
     // For these fields, None means "don't change".
     // For base_prompt/environment_uid/model_id, Some("") means "clear".
-    // Note: mcp_servers_json is treated as patch data; on update, an empty string is a no-op.
     pub base_prompt: Option<String>,
     pub environment_uid: Option<String>,
     pub model_id: Option<String>,
-    pub mcp_servers_json: Option<String>,
-    pub remove_mcp_server_names: Option<Vec<String>>,
     pub worker_host: Option<String>,
 }
 

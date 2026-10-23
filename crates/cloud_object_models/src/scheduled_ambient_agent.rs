@@ -33,9 +33,6 @@ pub struct AgentConfigSnapshot {
     pub model_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_prompt: Option<String>,
-    /// MCP server configuration map (unwrapped; no `mcpServers` wrapper).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mcp_servers: Option<serde_json::Map<String, serde_json::Value>>,
     /// Profile ID for local agent runs. This configures the terminal session
     /// with the specified execution profile. Only used for local runs, not cloud runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -143,7 +140,6 @@ impl AgentConfigSnapshot {
             runner_id,
             model_id,
             base_prompt,
-            mcp_servers,
             profile_id,
             worker_host,
             skill_spec,
@@ -158,7 +154,6 @@ impl AgentConfigSnapshot {
             && runner_id.is_none()
             && model_id.is_none()
             && base_prompt.is_none()
-            && mcp_servers.is_none()
             && profile_id.is_none()
             && worker_host.is_none()
             && skill_spec.is_none()

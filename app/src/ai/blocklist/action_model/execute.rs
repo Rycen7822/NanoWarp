@@ -1,5 +1,4 @@
 pub(super) mod ask_user_question;
-pub(super) mod call_mcp_tool;
 pub(super) mod create_documents;
 pub(super) mod edit_documents;
 pub(super) mod fetch_conversation;
@@ -8,7 +7,6 @@ pub(super) mod grep;
 pub(super) mod lrc_activity;
 pub(super) mod read_documents;
 pub(super) mod read_files;
-pub(super) mod read_mcp_resource;
 pub(super) mod read_skill;
 pub(super) mod request_file_edits;
 pub(super) mod run_agents;
@@ -26,8 +24,6 @@ use std::sync::Arc;
 
 use ai::agent::action_result::{InsertReviewCommentsResult, RequestCommandOutputResult};
 pub use ask_user_question::AskUserQuestionExecutor;
-use call_mcp_tool::CallMCPToolExecutor;
-pub(crate) use call_mcp_tool::coerce_integer_args;
 use create_documents::CreateDocumentsExecutor;
 use edit_documents::EditDocumentsExecutor;
 use fetch_conversation::FetchConversationExecutor;
@@ -42,7 +38,6 @@ use mime_guess::from_path;
 use parking_lot::FairMutex;
 use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
-use read_mcp_resource::ReadMCPResourceExecutor;
 use read_skill::ReadSkillExecutor;
 pub(crate) use request_file_edits::MalformedFinalLineProxyEvent;
 pub use request_file_edits::{
@@ -246,8 +241,6 @@ pub struct BlocklistAIActionExecutor {
     request_file_edits_executor: ModelHandle<RequestFileEditsExecutor>,
     grep_executor: ModelHandle<GrepExecutor>,
     file_glob_executor: ModelHandle<FileGlobExecutor>,
-    read_mcp_resource_executor: ModelHandle<ReadMCPResourceExecutor>,
-    call_mcp_tool_executor: ModelHandle<CallMCPToolExecutor>,
     suggest_new_conversation_executor: ModelHandle<SuggestNewConversationExecutor>,
     read_documents_executor: ModelHandle<ReadDocumentsExecutor>,
     edit_documents_executor: ModelHandle<EditDocumentsExecutor>,
@@ -305,10 +298,6 @@ impl BlocklistAIActionExecutor {
             ctx.add_model(|_| GrepExecutor::new(active_session.clone(), terminal_view_id));
         let file_glob_executor =
             ctx.add_model(|_| FileGlobExecutor::new(active_session.clone(), terminal_view_id));
-        let read_mcp_resource_executor = ctx
-            .add_model(|_| ReadMCPResourceExecutor::new(active_session.clone(), terminal_view_id));
-        let call_mcp_tool_executor =
-            ctx.add_model(|_| CallMCPToolExecutor::new(active_session.clone(), terminal_view_id));
         let suggest_new_conversation_executor =
             ctx.add_model(|_| SuggestNewConversationExecutor::new());
         let read_documents_executor = ctx.add_model(|_| ReadDocumentsExecutor::new());
@@ -338,8 +327,6 @@ impl BlocklistAIActionExecutor {
             request_file_edits_executor,
             grep_executor,
             file_glob_executor,
-            read_mcp_resource_executor,
-            call_mcp_tool_executor,
             suggest_new_conversation_executor,
             read_documents_executor,
             edit_documents_executor,
@@ -484,12 +471,6 @@ impl BlocklistAIActionExecutor {
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             AIAgentActionType::FileGlob { .. } | AIAgentActionType::FileGlobV2 { .. } => self
                 .file_glob_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::CallMCPTool { .. } => self
-                .call_mcp_tool_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::ReadMCPResource { .. } => self
-                .read_mcp_resource_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             // Normally, requested file edits are not handled by the executor. However, when performing a task autonomously,
             // the executor is responsible for auto-approving diffs.
@@ -646,14 +627,6 @@ impl BlocklistAIActionExecutor {
                 .into(),
             AIAgentActionType::FileGlob { .. } | AIAgentActionType::FileGlobV2 { .. } => self
                 .file_glob_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::CallMCPTool { .. } => self
-                .call_mcp_tool_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::ReadMCPResource { .. } => self
-                .read_mcp_resource_executor
                 .update(ctx, |executor, ctx| executor.execute(input, ctx))
                 .into(),
             // Normally, requested file edits are not handled by the executor. However, when performing a task autonomously,
@@ -914,12 +887,6 @@ impl BlocklistAIActionExecutor {
                     executor.should_autoexecute(input, &team_context_resolver(ctx), ctx)
                 })
             }
-            AIAgentActionType::CallMCPTool { .. } => self
-                .call_mcp_tool_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::ReadMCPResource { .. } => self
-                .read_mcp_resource_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
             AIAgentActionType::OpenCodeReview => true,
             AIAgentActionType::InsertCodeReviewComments { .. } => true,
             AIAgentActionType::SuggestNewConversation { .. } => self

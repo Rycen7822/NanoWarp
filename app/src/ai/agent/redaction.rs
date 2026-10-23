@@ -171,10 +171,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                     | AIAgentActionResultType::FileGlob(_)
                     | AIAgentActionResultType::FileGlobV2(_) => {}
 
-                    // TODO: Redact MCP-related results
-                    AIAgentActionResultType::CallMCPTool { .. }
-                    | AIAgentActionResultType::ReadSkill { .. }
-                    | AIAgentActionResultType::ReadMCPResource { .. }
+                    AIAgentActionResultType::ReadSkill { .. }
                     | AIAgentActionResultType::ReadDocuments(_)
                     | AIAgentActionResultType::EditDocuments(_)
                     | AIAgentActionResultType::CreateDocuments(_) => {}

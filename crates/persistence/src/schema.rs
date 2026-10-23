@@ -1,13 +1,6 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    active_mcp_servers (id) {
-        id -> Integer,
-        mcp_server_uuid -> Text,
-    }
-}
-
-diesel::table! {
     agent_conversations (id) {
         id -> Integer,
         conversation_id -> Text,
@@ -191,31 +184,6 @@ diesel::table! {
         id -> Integer,
         suggestion -> Text,
         suggestion_type -> Text,
-    }
-}
-
-diesel::table! {
-    mcp_environment_variables (mcp_server_uuid) {
-        mcp_server_uuid -> Binary,
-        environment_variables -> Text,
-    }
-}
-
-diesel::table! {
-    mcp_server_installations (id) {
-        id -> Text,
-        templatable_mcp_server -> Text,
-        template_version_ts -> Timestamp,
-        variable_values -> Text,
-        restore_running -> Bool,
-        last_modified_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    mcp_server_panes (id) {
-        id -> Integer,
-        kind -> Text,
     }
 }
 

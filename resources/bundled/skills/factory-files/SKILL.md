@@ -1,6 +1,6 @@
 ---
 name: factory-files
-description: Create and edit file-based Warp software factory definitions, in a repository tree rooted at a factory.yaml. Use when authoring or changing that factory.yaml, Agent, Automation, Scorer, Benchmark, Runner, or Webhook files under that root, or its factory and agent skill trees, and when fixing Factory file diagnostics. Do not use for agent-definition Markdown that belongs to another tool, for a tree with no factory.yaml, or to operate a live factory or hand work to one through Factory MCP.
+description: Create and edit file-based Warp software factory definitions, in a repository tree rooted at a factory.yaml. Use when authoring or changing that factory.yaml, Agent, Automation, Scorer, Benchmark, Runner, or Webhook files under that root, or its factory and agent skill trees, and when fixing Factory file diagnostics. Do not use for agent-definition Markdown that belongs to another tool, for a tree with no factory.yaml, or to operate a live factory.
 ---
 
 # Factory Files
@@ -15,9 +15,7 @@ skill carries no copy of the format: a copy ships inside a Warp release, goes
 stale against the server, and then reports confident, wrong diagnostics. When
 the server cannot be reached, the answer is that the tree was not checked.
 
-Use this skill for repository files. It is not the skill for operating a live
-factory: use `factory-mcp` to send work to a factory, inspect task status, or
-pull a task down locally. Playbooks under a factory's own `skills/` directories
+Use this skill for repository files. Playbooks under a factory's own `skills/` directories
 tell that factory's agents how to do their job; editing one is a prompt change,
 not a schema change, so this skill's rules do not apply to their contents.
 

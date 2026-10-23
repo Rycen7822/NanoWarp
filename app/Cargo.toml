@@ -143,7 +143,6 @@ warp_logging.workspace = true
 warp_harness_usage.workspace = true
 lz4_flex = "0.11"
 markdown_parser.workspace = true
-mcp.workspace = true
 memchr.workspace = true
 memo-map.workspace = true
 mermaid_to_svg.workspace = true
@@ -257,7 +256,6 @@ warp_multi_agent_api.workspace = true
 remote_server.workspace = true
 repo_metadata.workspace = true
 vim.workspace = true
-rmcp.workspace = true
 warp_isolation_platform.workspace = true
 warp_ripgrep.workspace = true
 warp_managed_secrets.workspace = true
@@ -445,7 +443,6 @@ embed-resource = "3.0"
 # Note that we support channel-specific enables for these features
 [features]
 ai_resume_button = []
-figma_detection = []
 bundled_skills = []
 supergrok = []
 chatgpt_subscription = []
@@ -464,9 +461,6 @@ context_line_review_comments = []
 creating_shared_sessions = []
 cross_repo_context = []
 codebase_index_persistence = ["full_source_code_embedding"]
-well_known_mcp_ids = []
-factory_mcp = []
-preview_urls_mcp = []
 default = [
     "agent_mode",
     "osc_hyperlinks",
@@ -498,7 +492,6 @@ default = [
     "validate_autosuggestions",
     "clear_autosuggestion_on_escape",
     "file_retrieval_tools",
-    "mcp_server",
     "fast_forward_autoexecute_button",
     "image_as_context",
     "command_palette_file_search",
@@ -542,7 +535,6 @@ default = [
     "code_review_find",
     "async_find",
     "shared_session_long_running_commands",
-    "mcp_grouped_server_context",
     "context_window_usage_v2",
     "context_window_usage_breakdown",
     "ambient_agents_command_line",
@@ -580,8 +572,6 @@ default = [
     "skill_arguments",
     "incremental_auto_reload",
     "active_conversation_requires_interaction",
-    "figma_detection",
-    "file_based_mcp",
     "kitty_keyboard_protocol",
     "github_pr_prompt_chip",
     "conversations_as_context",
@@ -630,8 +620,6 @@ default = [
     "cloud_agent_runners",
     "cloud_agent_execution_config",
     "file_backed_execution_profiles",
-    "well_known_mcp_ids",
-    "factory_mcp",
     "ime_marked_text",
     "shell_widget_handoff",
     "native_shell_completions",
@@ -726,8 +714,6 @@ local_fs = [
 jupyter_notebook_rendering = []
 markdown_tables = []
 markdown_mermaid = []
-mcp_server = []
-mcp_debugging_ids = []
 # Remote-backed tty that connects to a PTY-like interface via a server.
 remote_tty = ["warp_terminal/remote_tty"]
 # Fix for cursor reflow bug during window resize, from Alacritty resizing logic.
@@ -848,7 +834,6 @@ cloud_runners = []
 cloud_agent_runners = []
 cloud_agent_execution_config = []
 summarize_conversation_command = []
-mcp_grouped_server_context = []
 web_search_ui = []
 web_fetch_ui = []
 context_window_usage_v2 = []
@@ -879,7 +864,6 @@ inline_model_selector = ["agent_view"]
 oz_platform_skills = []
 oz_identity_federation = []
 new_tab_styling = []
-file_based_mcp = []
 skill_arguments = []
 active_conversation_requires_interaction = []
 incremental_auto_reload = []

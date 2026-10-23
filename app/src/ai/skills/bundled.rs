@@ -4,17 +4,14 @@ use std::path::{Path, PathBuf};
 use ai::skills::{ParsedSkill, SkillPathOrigin, SkillReference, parse_bundled_skill};
 use futures::TryStreamExt;
 use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
 use warp_core::safe_warn;
 use warp_core::ui::icons::Icon;
 use warp_errors::report_error;
 use warp_util::host_id::HostId;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warp_util::remote_path::RemotePath;
-use warpui::{AppContext, SingletonEntity};
 
 use super::SkillDescriptor;
-use crate::ai::mcp::{McpIntegration, TemplatableMCPServerManager};
 use crate::keyboard::keybinding_file_path;
 use crate::settings::user_preferences_toml_file_path;
 
@@ -23,22 +20,14 @@ use crate::settings::user_preferences_toml_file_path;
 pub enum BundledSkillActivation {
     /// Always active.
     Always,
-    /// Active only when a specific Warp feature is enabled.
-    RequiresFeature(FeatureFlag),
-    /// Active only when a specific MCP server is running.
-    RequiresMcp(McpIntegration),
     /// Active only when a specific file exists on disk.
     RequiresFile(PathBuf),
 }
 
 impl BundledSkillActivation {
-    pub fn is_enabled(&self, ctx: &AppContext) -> bool {
+    pub fn is_enabled(&self) -> bool {
         match self {
             Self::Always => true,
-            Self::RequiresFeature(feature) => feature.is_enabled(),
-            Self::RequiresMcp(integration) => {
-                TemplatableMCPServerManager::as_ref(ctx).is_mcp_server_running(*integration)
-            }
             Self::RequiresFile(path) => path.exists(),
         }
     }
@@ -56,18 +45,14 @@ impl BundledSkills {
         self.local = bundled_skill;
     }
 
-    pub fn active_descriptors(
-        &self,
-        path_origin: &SkillPathOrigin,
-        ctx: &AppContext,
-    ) -> Vec<SkillDescriptor> {
+    pub fn active_descriptors(&self, path_origin: &SkillPathOrigin) -> Vec<SkillDescriptor> {
         match path_origin {
             SkillPathOrigin::Local | SkillPathOrigin::RestoredDisplayOnly => {
-                self.local.active_descriptors(ctx)
+                self.local.active_descriptors()
             }
             SkillPathOrigin::Remote { host_id } => self
                 .remote(host_id)
-                .map(|bundled_skill| bundled_skill.active_path_referenced_descriptors(ctx))
+                .map(|bundled_skill| bundled_skill.active_path_referenced_descriptors())
                 .unwrap_or_default(),
             SkillPathOrigin::Unavailable => Vec::new(),
         }
@@ -81,13 +66,8 @@ impl BundledSkills {
         self.local.skill(id)
     }
 
-    pub fn active_skill(
-        &self,
-        id: &str,
-        path_origin: &SkillPathOrigin,
-        ctx: &AppContext,
-    ) -> Option<&ParsedSkill> {
-        self.for_path_origin(path_origin)?.active_skill(id, ctx)
+    pub fn active_skill(&self, id: &str, path_origin: &SkillPathOrigin) -> Option<&ParsedSkill> {
+        self.for_path_origin(path_origin)?.active_skill(id)
     }
 
     /// Installs the catalog for a connected remote host, replacing any
@@ -119,14 +99,10 @@ impl BundledSkills {
 
     /// Like [`Self::remote_skill_by_path`], but only returns the skill when
     /// its activation condition is met.
-    pub fn remote_active_skill_by_path(
-        &self,
-        path: &RemotePath,
-        ctx: &AppContext,
-    ) -> Option<&ParsedSkill> {
+    pub fn remote_active_skill_by_path(&self, path: &RemotePath) -> Option<&ParsedSkill> {
         self.remote_by_host
             .get(&path.host_id)?
-            .active_skill_by_path(&LocalOrRemotePath::Remote(path.clone()), ctx)
+            .active_skill_by_path(&LocalOrRemotePath::Remote(path.clone()))
     }
 
     /// Returns the bundled catalog selected by the execution path origin.
@@ -193,19 +169,15 @@ impl BundledSkill {
     /// the global install location rather than inside an app bundle (which
     /// is what [`warp_core::paths::bundled_resources_dir`] resolves).
     pub(crate) async fn detect_in_resources_dir(resources_dir: PathBuf) -> Self {
-        let (mut definitions, figma_definitions) = futures::join!(
-            load_bundled_skill_definitions(&resources_dir),
-            load_figma_skill_definitions(&resources_dir)
-        );
-        definitions.extend(figma_definitions);
+        let definitions = load_bundled_skill_definitions(&resources_dir).await;
         Self { definitions }
     }
 
     /// Returns descriptors for bundled skills whose activation conditions are met.
-    pub fn active_descriptors(&self, ctx: &AppContext) -> Vec<SkillDescriptor> {
+    pub fn active_descriptors(&self) -> Vec<SkillDescriptor> {
         self.definitions
             .iter()
-            .filter(|(_, definition)| definition.activation.is_enabled(ctx))
+            .filter(|(_, definition)| definition.activation.is_enabled())
             .map(|(id, definition)| {
                 SkillDescriptor::new_bundled(id.clone(), definition.skill.clone(), definition.icon)
             })
@@ -221,10 +193,10 @@ impl BundledSkill {
     /// must carry the skill's real remote path — which resolves back to this
     /// catalog through the path lookups — or invoking a listed skill would
     /// serve the local client's content.
-    pub fn active_path_referenced_descriptors(&self, ctx: &AppContext) -> Vec<SkillDescriptor> {
+    pub fn active_path_referenced_descriptors(&self) -> Vec<SkillDescriptor> {
         self.definitions
             .values()
-            .filter(|definition| definition.activation.is_enabled(ctx))
+            .filter(|definition| definition.activation.is_enabled())
             .map(|definition| {
                 let mut descriptor = SkillDescriptor::from(definition.skill.clone());
                 descriptor.icon_override = Some(definition.icon);
@@ -247,11 +219,11 @@ impl BundledSkill {
     }
 
     /// Returns a bundled skill by ID only if its activation condition is met.
-    pub fn active_skill(&self, id: &str, ctx: &AppContext) -> Option<&ParsedSkill> {
+    pub fn active_skill(&self, id: &str) -> Option<&ParsedSkill> {
         let definition = self.definitions.get(id)?;
         definition
             .activation
-            .is_enabled(ctx)
+            .is_enabled()
             .then_some(&definition.skill)
     }
 
@@ -265,15 +237,11 @@ impl BundledSkill {
 
     /// Returns a bundled skill by its `SKILL.md` path only if its activation
     /// condition is met.
-    pub fn active_skill_by_path(
-        &self,
-        path: &LocalOrRemotePath,
-        ctx: &AppContext,
-    ) -> Option<&ParsedSkill> {
+    pub fn active_skill_by_path(&self, path: &LocalOrRemotePath) -> Option<&ParsedSkill> {
         self.definitions
             .values()
             .find(|definition| definition.skill.path == *path)
-            .filter(|definition| definition.activation.is_enabled(ctx))
+            .filter(|definition| definition.activation.is_enabled())
             .map(|definition| &definition.skill)
     }
 
@@ -286,14 +254,7 @@ impl BundledSkill {
         let definitions = definitions
             .into_iter()
             .map(|(id, skill, activation)| {
-                // MCP-gated skills carry their integration's brand icon, like
-                // the local figma catalog loaded from `mcp_skills/figma`.
-                let icon = match &activation {
-                    BundledSkillActivation::RequiresMcp(McpIntegration::Figma) => Icon::Figma,
-                    BundledSkillActivation::Always
-                    | BundledSkillActivation::RequiresFeature(_)
-                    | BundledSkillActivation::RequiresFile(_) => icon_for_bundled_skill(&id),
-                };
+                let icon = icon_for_bundled_skill(&id);
                 (
                     id,
                     BundledSkillDefinition {
@@ -352,28 +313,6 @@ async fn load_bundled_skill_definitions(
                 skill,
                 activation,
                 icon,
-            };
-            (id, bundled)
-        })
-        .collect()
-}
-
-/// Load Figma-specific bundled skills from the `figma/` subdirectory.
-async fn load_figma_skill_definitions(
-    resources_dir: &Path,
-) -> HashMap<String, BundledSkillDefinition> {
-    let figma_skills_dir = resources_dir
-        .join("bundled")
-        .join("mcp_skills")
-        .join("figma");
-    read_bundled_skills(&figma_skills_dir, resources_dir)
-        .await
-        .into_iter()
-        .map(|(id, skill)| {
-            let bundled = BundledSkillDefinition {
-                skill,
-                activation: BundledSkillActivation::RequiresMcp(McpIntegration::Figma),
-                icon: Icon::Figma,
             };
             (id, bundled)
         })
@@ -498,7 +437,7 @@ pub(crate) fn icon_for_bundled_skill(skill_id: &str) -> Icon {
 /// Returns the activation condition for a bundled skill.
 ///
 /// Most skills are always active. Other skills appear only when their required
-/// feature, integration, or bundled resource is available.
+/// bundled resource is available.
 pub(crate) fn activation_for_bundled_skill(
     skill_id: &str,
     resources_dir: &Path,
@@ -507,10 +446,6 @@ pub(crate) fn activation_for_bundled_skill(
         "modify-settings" => {
             BundledSkillActivation::RequiresFile(resources_dir.join("settings_schema.json"))
         }
-        // Gate the Factory MCP skill on the same flag that attaches the
-        // Factory MCP server, so the skill and the server it documents roll
-        // out together.
-        "factory-mcp" => BundledSkillActivation::RequiresFeature(FeatureFlag::FactoryMcp),
         _ => BundledSkillActivation::Always,
     }
 }

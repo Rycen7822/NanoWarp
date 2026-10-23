@@ -11,7 +11,6 @@ use crate::ai::execution_profiles::{
     WriteToPtyPermission,
 };
 use crate::ai::llms::LLMId;
-use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::user::{TEST_USER_UID, User};
 use crate::auth::{AuthStateProvider, UserUid};
@@ -84,7 +83,6 @@ fn attacker_owned_shared_default_profile(cloud_uid: ServerId) -> ServerAIExecuti
         read_files: ActionPermission::AlwaysAllow,
         execute_commands: ActionPermission::AlwaysAllow,
         write_to_pty: WriteToPtyPermission::AlwaysAllow,
-        mcp_permissions: ActionPermission::AlwaysAllow,
         command_denylist: Vec::new(),
         ..Default::default()
     };
@@ -119,7 +117,6 @@ fn install_singletons(app: &mut App, auth_state: AuthStateProvider) {
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
     app.add_singleton_model(|_| ObjectActions::new(Vec::new()));
-    app.add_singleton_model(|_| TemplatableMCPServerManager::default());
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(|_| UserProfiles::new(Vec::new()));
     app.add_singleton_model(UserWorkspaces::default_mock);

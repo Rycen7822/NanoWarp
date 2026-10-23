@@ -68,7 +68,6 @@ pub enum DrivePanelEvent {
     },
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
     OpenAIFactCollection,
-    OpenMCPServerCollection,
     OpenNotebook(NotebookSource),
     OpenEnvVarCollection(EnvVarCollectionSource),
     FocusWarpDrive,
@@ -189,9 +188,6 @@ impl DrivePanel {
             },
             DriveIndexEvent::OpenAIFactCollection => {
                 self.open_ai_fact_collection_pane(ctx);
-            }
-            DriveIndexEvent::OpenMCPServerCollection => {
-                self.open_mcp_server_collection_pane(ctx);
             }
             DriveIndexEvent::OpenObject(cloud_object_type_and_id) => {
                 let cloud_model = CloudModel::as_ref(ctx);
@@ -429,10 +425,6 @@ impl DrivePanel {
 
     pub fn open_ai_fact_collection_pane(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.emit(DrivePanelEvent::OpenAIFactCollection);
-    }
-
-    pub fn open_mcp_server_collection_pane(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.emit(DrivePanelEvent::OpenMCPServerCollection);
     }
 
     /// Recomputes and initializes the section states for the WD Index. This is needed after

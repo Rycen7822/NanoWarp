@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use cloud_objects::cloud_object::{
     GenericCloudObject, GenericServerObject, GenericStringModel, JsonObjectType,
 };
@@ -20,9 +18,6 @@ pub struct AgentConfig {
     /// Base prompt to prepend to user prompts
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_prompt: Option<String>,
-    /// MCP servers configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_servers: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl AgentConfig {
@@ -38,7 +33,6 @@ impl AgentConfig {
             runner_id: None,
             model_id: self.base_model_id.clone(),
             base_prompt: self.base_prompt.clone(),
-            mcp_servers: self.mcp_servers.clone().map(|m| m.into_iter().collect()),
             profile_id: None,
             worker_host: None,
             skill_spec: None,

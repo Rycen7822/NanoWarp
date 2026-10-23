@@ -184,9 +184,7 @@ pub enum JsonObjectType {
     EnvVarCollection,
     WorkflowEnum,
     AIFact,
-    MCPServer,
     AIExecutionProfile,
-    TemplatableMCPServer,
     CloudEnvironment,
     ScheduledAmbientAgent,
     CloudAgentConfig,
@@ -199,9 +197,7 @@ impl JsonObjectType {
             JsonObjectType::EnvVarCollection => "ENVVARCOLLECTION",
             JsonObjectType::WorkflowEnum => "WORKFLOWENUM",
             JsonObjectType::AIFact => "AIFACT",
-            JsonObjectType::MCPServer => "MCPSERVER",
             JsonObjectType::AIExecutionProfile => "AIEXECUTIONPROFILE",
-            JsonObjectType::TemplatableMCPServer => "TEMPLATABLEMCPSERVER",
             JsonObjectType::CloudEnvironment => "CLOUDENVIRONMENT",
             JsonObjectType::ScheduledAmbientAgent => "SCHEDULEDAMBIENTAGENT",
             JsonObjectType::CloudAgentConfig => "CLOUDAGENTCONFIG",
@@ -218,9 +214,7 @@ impl TryFrom<&str> for JsonObjectType {
             "ENVVARCOLLECTION" => Ok(JsonObjectType::EnvVarCollection),
             "WORKFLOWENUM" => Ok(JsonObjectType::WorkflowEnum),
             "AIFACT" => Ok(JsonObjectType::AIFact),
-            "MCPSERVER" => Ok(JsonObjectType::MCPServer),
             "AIEXECUTIONPROFILE" => Ok(JsonObjectType::AIExecutionProfile),
-            "TEMPLATABLEMCPSERVER" => Ok(JsonObjectType::TemplatableMCPServer),
             "CLOUDENVIRONMENT" => Ok(JsonObjectType::CloudEnvironment),
             "SCHEDULEDAMBIENTAGENT" => Ok(JsonObjectType::ScheduledAmbientAgent),
             "CLOUDAGENTCONFIG" => Ok(JsonObjectType::CloudAgentConfig),
@@ -858,14 +852,8 @@ impl From<GenericStringObjectFormat>
                 GraphQLFormat::JsonWorkflowEnum
             }
             GenericStringObjectFormat::Json(JsonObjectType::AIFact) => GraphQLFormat::JsonAIFact,
-            GenericStringObjectFormat::Json(JsonObjectType::MCPServer) => {
-                GraphQLFormat::JsonMCPServer
-            }
             GenericStringObjectFormat::Json(JsonObjectType::AIExecutionProfile) => {
                 GraphQLFormat::JsonAIExecutionProfile
-            }
-            GenericStringObjectFormat::Json(JsonObjectType::TemplatableMCPServer) => {
-                GraphQLFormat::JsonTemplatableMCPServer
             }
             GenericStringObjectFormat::Json(JsonObjectType::CloudEnvironment) => {
                 GraphQLFormat::JsonCloudEnvironment

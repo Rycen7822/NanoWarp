@@ -9,7 +9,6 @@ use super::*;
 use crate::LaunchMode;
 use crate::ai::aws_credentials::AwsCredentialRefresher;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -612,7 +611,6 @@ fn active_models_fall_back_to_usable_choice_or_custom_endpoint_when_default_disa
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -706,7 +704,6 @@ fn active_models_use_default_when_usable() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -760,7 +757,6 @@ fn reconcile_preserves_custom_models_saved_on_execution_profile() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let profiles_model = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -822,7 +818,6 @@ fn team_catalog_hydration_preserves_shared_profile_and_resolves_against_active_t
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(PrivacySettings::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let fable_id = LLMId::from("claude-5-1-fable");
         let mut enabled_fable = server_llm(fable_id.as_str(), None);
@@ -939,7 +934,6 @@ fn reconcile_clears_unavailable_base_model_preference() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let profiles_model = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -990,7 +984,6 @@ fn reconcile_clears_requires_upgrade_base_model_preference_without_byok() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let profiles_model = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -1054,7 +1047,6 @@ fn reconcile_preserves_custom_endpoint_models_not_configured_locally() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let profiles_model = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -1153,7 +1145,6 @@ fn reconcile_preserves_custom_router_models_not_configured_locally() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
 
         let profiles_model = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
@@ -1259,7 +1250,6 @@ fn with_profile_model_test_context(f: impl FnOnce(&mut App) + 'static) {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });
@@ -1315,7 +1305,6 @@ fn selecting_a_custom_profile_default_clears_the_session_override() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         let profiles = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });
@@ -1383,7 +1372,6 @@ fn explicit_child_model_pin_preserves_gui_behavior_and_only_emits_for_effective_
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         let profiles = app.add_singleton_model(|ctx| {
             AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
         });

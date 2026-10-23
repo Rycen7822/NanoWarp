@@ -12,7 +12,6 @@ use cloud_objects::ids::{
 };
 #[cfg(any(test, feature = "test-util"))]
 use mockall::automock;
-use warp_graphql::mcp_gallery_template::MCPGalleryTemplate;
 use warp_graphql::object_permissions::AccessLevel;
 
 /// Identifies a guest to remove from an object.
@@ -118,7 +117,6 @@ pub struct InitialLoadResponse {
     pub deleted_generic_string_objects: Vec<GenericStringObjectId>,
     pub user_profiles: Vec<UserProfileWithUID>,
     pub action_histories: Vec<ObjectActionHistory>,
-    pub mcp_gallery: Vec<MCPGalleryTemplate>,
 }
 
 pub struct GetCloudObjectResponse {

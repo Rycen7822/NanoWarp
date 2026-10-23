@@ -10,7 +10,6 @@ use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{
     AIExecutionProfile, ActionPermission, CloudAIExecutionProfileModel,
 };
-use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::{Revision, ServerAIExecutionProfile, ServerMetadata, ServerPermissions};
@@ -76,7 +75,6 @@ fn apply_onboarding_settings_preserves_existing_cloud_profile_on_existing_user_l
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);
         let profile_model = app.add_singleton_model(|ctx| {
@@ -97,7 +95,6 @@ fn apply_onboarding_settings_preserves_existing_cloud_profile_on_existing_user_l
             apply_code_diffs: ActionPermission::AlwaysAllow,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAllow,
-            mcp_permissions: ActionPermission::AlwaysAllow,
             ..Default::default()
         };
         let server_object = ServerAIExecutionProfile::new(
@@ -171,11 +168,6 @@ fn apply_onboarding_settings_preserves_existing_cloud_profile_on_existing_user_l
                 ActionPermission::AlwaysAllow,
                 "execute_commands should not be overwritten by onboarding for existing users"
             );
-            assert_eq!(
-                info.data().mcp_permissions,
-                ActionPermission::AlwaysAllow,
-                "mcp_permissions should not be overwritten by onboarding for existing users"
-            );
         });
     })
 }
@@ -191,7 +183,6 @@ fn account_first_settings_enable_agent_for_authenticated_users_and_apply_ui_choi
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);
         app.add_singleton_model(|ctx| {
@@ -253,7 +244,6 @@ fn apply_account_first_onboarding_settings_sets_dollars_for_new_accounts_only() 
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);
         app.add_singleton_model(|ctx| {
@@ -344,7 +334,6 @@ fn apply_onboarding_settings_pins_base_model_only_when_explicitly_selected() {
             app.add_singleton_model(TeamTesterStatus::mock);
             app.add_singleton_model(UpdateManager::mock);
             app.add_singleton_model(CloudModel::mock);
-            app.add_singleton_model(|_| TemplatableMCPServerManager::default());
             app.add_singleton_model(PrivacySettings::mock);
             app.add_singleton_model(UserWorkspaces::default_mock);
             let profile_model = app.add_singleton_model(|ctx| {
@@ -382,7 +371,6 @@ fn apply_onboarding_settings_gates_third_party_ai_on_account() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
-        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);
         app.add_singleton_model(|ctx| {

@@ -1,13 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use dirs::home_dir;
 use repo_metadata::{RepositoryUpdate, TargetFile};
 
-use super::{
-    filter_repository_update_by_prefix, warp_home_mcp_config_file_path, warp_home_skills_dir,
-    warp_managed_mcp_config_path, warp_managed_skill_dirs,
-};
+use super::{filter_repository_update_by_prefix, warp_home_skills_dir, warp_managed_skill_dirs};
 
 #[test]
 fn warp_managed_skill_dirs_contains_only_warp_home_path() {
@@ -15,22 +11,6 @@ fn warp_managed_skill_dirs_contains_only_warp_home_path() {
     match warp_home_skills_dir() {
         Some(warp_home_skills_dir) => assert_eq!(dirs, vec![warp_home_skills_dir]),
         None => assert!(dirs.is_empty()),
-    }
-}
-
-#[test]
-fn warp_managed_mcp_config_path_contains_only_warp_home_path() {
-    match (
-        home_dir(),
-        warp_home_mcp_config_file_path(),
-        warp_managed_mcp_config_path(),
-    ) {
-        (Some(home_dir), Some(warp_home_mcp_config_path), Some(path)) => {
-            assert_eq!(path.root_path, home_dir);
-            assert_eq!(path.config_path, warp_home_mcp_config_path);
-        }
-        (_, _, None) => {}
-        _ => panic!("Expected Warp MCP path when home directory is available"),
     }
 }
 

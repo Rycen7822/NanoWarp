@@ -129,10 +129,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::UseTantivySearch,
         #[cfg(feature = "grep_tool")]
         FeatureFlag::GrepTool,
-        #[cfg(feature = "mcp_server")]
-        FeatureFlag::McpServer,
-        #[cfg(feature = "mcp_debugging_ids")]
-        FeatureFlag::McpDebuggingIds,
         #[cfg(feature = "markdown_tables")]
         FeatureFlag::MarkdownTables,
         #[cfg(feature = "jupyter_notebook_rendering")]
@@ -165,8 +161,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CodebaseIndexPersistence,
         #[cfg(feature = "ai_resume_button")]
         FeatureFlag::AIResumeButton,
-        #[cfg(feature = "figma_detection")]
-        FeatureFlag::FigmaDetection,
         #[cfg(feature = "agent_decides_command_execution")]
         FeatureFlag::AgentDecidesCommandExecution,
         #[cfg(feature = "context_line_review_comments")]
@@ -239,8 +233,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CodeLaunchModal,
         #[cfg(feature = "api_key_management")]
         FeatureFlag::APIKeyManagement,
-        #[cfg(feature = "file_based_mcp")]
-        FeatureFlag::FileBasedMcp,
         #[cfg(feature = "diff_set_as_context")]
         FeatureFlag::DiffSetAsContext,
         #[cfg(feature = "discard_per_file_and_all_changes")]
@@ -257,14 +249,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::InlineCodeReview,
         #[cfg(feature = "summarize_conversation_command")]
         FeatureFlag::SummarizationConversationCommand,
-        #[cfg(feature = "mcp_grouped_server_context")]
-        FeatureFlag::MCPGroupedServerContext,
-        #[cfg(feature = "well_known_mcp_ids")]
-        FeatureFlag::WellKnownMcpIds,
-        #[cfg(feature = "factory_mcp")]
-        FeatureFlag::FactoryMcp,
-        #[cfg(feature = "preview_urls_mcp")]
-        FeatureFlag::PreviewUrlsMcp,
         #[cfg(feature = "web_search_ui")]
         FeatureFlag::WebSearchUI,
         #[cfg(feature = "web_fetch_ui")]

@@ -7,20 +7,12 @@ use super::*;
 use crate::settings::AISettings;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 
-fn bundled_skill(
-    id: &str,
-    path: &str,
-    content: &str,
-    requires_mcp: Option<&str>,
-) -> RemoteSkillProto {
+fn bundled_skill(id: &str, path: &str, content: &str) -> RemoteSkillProto {
     RemoteSkillProto {
         path: path.to_string(),
         content: content.to_string(),
         source: Some(remote_skill_proto::Source::Bundled(
-            remote_server::proto::BundledSkillMetadata {
-                id: id.to_string(),
-                requires_mcp: requires_mcp.map(str::to_string),
-            },
+            remote_server::proto::BundledSkillMetadata { id: id.to_string() },
         )),
     }
 }
@@ -51,13 +43,6 @@ fn snapshot() -> RemoteAgentContextSnapshot {
                 "bundled",
                 "/bundled/skills/bundled/SKILL.md",
                 "---\nname: bundled\ndescription: Bundled skill\n---\nbody",
-                None,
-            ),
-            bundled_skill(
-                "unknown-mcp",
-                "/bundled/skills/unknown/SKILL.md",
-                "# unknown",
-                Some("unknown"),
             ),
             home_skill(
                 "/home/user/.agents/skills/deploy/SKILL.md",
@@ -93,7 +78,6 @@ fn snapshot_decoding_keeps_valid_context_from_each_source() {
     let home = state.home_skills.unwrap();
 
     assert_eq!(bundled.skill("bundled").unwrap().name, "bundled");
-    assert!(bundled.skill("unknown-mcp").is_none());
     assert_eq!(home.home_dir, remote_path(&host_id, "/home/user").unwrap());
     assert_eq!(home.skills.len(), 1);
     assert_eq!(home.skills[0].name, "deploy");

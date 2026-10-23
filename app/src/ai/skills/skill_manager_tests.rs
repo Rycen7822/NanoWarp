@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
 
 use ai::skills::{ParsedSkill, SkillProvider, SkillReference, SkillScope};
 use repo_metadata::repositories::DetectedRepositories;
@@ -713,24 +712,22 @@ fn get_skills_for_working_directory_respects_location() {
         // filters that hide non-invokable bundled skills (e.g. the `/open-skill`
         // selector) key off the scope, not the reference variant.
         assert_eq!(remote_bundled_descriptor.scope, SkillScope::Bundled);
-        let resolved_content = handle.read(&app, |manager, ctx| {
+        let resolved_content = handle.read(&app, |manager, _ctx| {
             manager
                 .active_skill_by_reference_with_origin(
                     &remote_bundled_descriptor.reference,
                     &SkillPathOrigin::Remote {
                         host_id: same_host_id.clone(),
                     },
-                    ctx,
                 )
                 .map(|skill| skill.content.clone())
         });
         assert_eq!(resolved_content, Ok("# remote-bundled".to_string()));
-        let wrong_origin_content = handle.read(&app, |manager, ctx| {
+        let wrong_origin_content = handle.read(&app, |manager, _ctx| {
             manager
                 .active_skill_by_reference_with_origin(
                     &remote_bundled_descriptor.reference,
                     &SkillPathOrigin::Local,
-                    ctx,
                 )
                 .map(|skill| skill.content.clone())
         });
@@ -793,116 +790,6 @@ fn get_skills_for_working_directory_respects_location() {
 }
 
 #[test]
-fn feature_gated_bundled_skill_is_listed_only_when_enabled() {
-    App::test((), |mut app| async move {
-        app.add_singleton_model(DirectoryWatcher::new);
-        app.add_singleton_model(AISettings::new_with_defaults);
-        app.add_singleton_model(|_| DetectedRepositories::default());
-        app.add_singleton_model(RepoMetadataModel::new);
-        app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-        app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
-        let handle = app.add_singleton_model(SkillManager::new);
-        let bundled_skills_guard = FeatureFlag::BundledSkills.override_enabled(true);
-        let factory_mcp = FeatureFlag::FactoryMcp.override_enabled(false);
-
-        handle.update(&mut app, |manager, _| {
-            manager.add_bundled_skill_for_testing(
-                "factory-mcp",
-                bundled_test_skill("factory-mcp", "Factory MCP"),
-                BundledSkillActivation::RequiresFeature(FeatureFlag::FactoryMcp),
-            );
-            manager.add_bundled_skill_for_testing(
-                "always",
-                bundled_test_skill("always", "Always available"),
-                BundledSkillActivation::Always,
-            );
-        });
-
-        let disabled_names = handle.read(&app, |manager, ctx| {
-            manager
-                .get_skills_for_working_directory_with_origin(None, &SkillPathOrigin::Local, ctx)
-                .into_iter()
-                .map(|skill| skill.name)
-                .collect::<HashSet<_>>()
-        });
-        assert!(!disabled_names.contains("factory-mcp"));
-        assert!(disabled_names.contains("always"));
-
-        drop(factory_mcp);
-        let factory_mcp_enabled = FeatureFlag::FactoryMcp.override_enabled(true);
-        let enabled_names = handle.read(&app, |manager, ctx| {
-            manager
-                .get_skills_for_working_directory_with_origin(None, &SkillPathOrigin::Local, ctx)
-                .into_iter()
-                .map(|skill| skill.name)
-                .collect::<HashSet<_>>()
-        });
-        assert!(enabled_names.contains("factory-mcp"));
-        assert!(enabled_names.contains("always"));
-        drop(factory_mcp_enabled);
-        drop(bundled_skills_guard);
-    });
-}
-
-#[test]
-fn factory_mcp_bundled_skill_activation_tracks_factory_mcp_feature() {
-    assert!(matches!(
-        activation_for_bundled_skill("factory-mcp", Path::new("/resources")),
-        BundledSkillActivation::RequiresFeature(FeatureFlag::FactoryMcp)
-    ));
-
-    App::test((), |app| async move {
-        let settings = app.add_singleton_model(AISettings::new_with_defaults);
-        let activation = activation_for_bundled_skill("factory-mcp", Path::new("/resources"));
-
-        let factory_mcp_disabled = FeatureFlag::FactoryMcp.override_enabled(false);
-        assert!(!settings.read(&app, |_, ctx| activation.is_enabled(ctx)));
-        drop(factory_mcp_disabled);
-
-        let factory_mcp_enabled = FeatureFlag::FactoryMcp.override_enabled(true);
-        assert!(settings.read(&app, |_, ctx| activation.is_enabled(ctx)));
-        drop(factory_mcp_enabled);
-    });
-}
-
-#[test]
-fn factory_mcp_direct_read_respects_factory_mcp_feature() {
-    let reference = SkillReference::BundledSkillId("factory-mcp".to_owned());
-
-    App::test((), |mut app| async move {
-        app.add_singleton_model(DirectoryWatcher::new);
-        app.add_singleton_model(AISettings::new_with_defaults);
-        app.add_singleton_model(|_| DetectedRepositories::default());
-        app.add_singleton_model(RepoMetadataModel::new);
-        app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-        app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
-        let handle = app.add_singleton_model(SkillManager::new);
-        let factory_mcp = FeatureFlag::FactoryMcp.override_enabled(false);
-
-        handle.update(&mut app, |manager, _| {
-            manager.add_bundled_skill_for_testing(
-                "factory-mcp",
-                bundled_test_skill("factory-mcp", "Factory MCP"),
-                BundledSkillActivation::RequiresFeature(FeatureFlag::FactoryMcp),
-            );
-        });
-
-        assert!(handle.read(&app, |manager, _| {
-            manager.skill_by_reference(&reference).is_some()
-        }));
-        assert!(handle.read(&app, |manager, ctx| {
-            manager.active_skill_by_reference(&reference, ctx).is_none()
-        }));
-
-        drop(factory_mcp);
-        let factory_mcp_enabled = FeatureFlag::FactoryMcp.override_enabled(true);
-        assert!(handle.read(&app, |manager, ctx| {
-            manager.active_skill_by_reference(&reference, ctx).is_some()
-        }));
-        drop(factory_mcp_enabled);
-    });
-}
-#[test]
 fn active_skill_by_reference_resolves_exact_remote_identity() {
     let remote_skill = make_remote_skill(&HostId::new("remote-host".to_string()), "deploy");
     let reference = SkillReference::Path(remote_skill.path.clone());
@@ -920,9 +807,9 @@ fn active_skill_by_reference_resolves_exact_remote_identity() {
             manager.add_skill_for_testing(remote_skill.clone());
         });
 
-        let resolved = handle.read(&app, |manager, ctx| {
+        let resolved = handle.read(&app, |manager, _ctx| {
             manager
-                .active_skill_by_reference(&reference, ctx)
+                .active_skill_by_reference(&reference)
                 .map(|skill| skill.path.clone())
         });
 
@@ -953,13 +840,13 @@ fn active_skill_by_reference_distinguishes_remote_hosts_with_the_same_display_pa
             manager.add_skill_for_testing(second_skill);
         });
 
-        let resolved = handle.read(&app, |manager, ctx| {
+        let resolved = handle.read(&app, |manager, _ctx| {
             (
                 manager
-                    .active_skill_by_reference(&first_reference, ctx)
+                    .active_skill_by_reference(&first_reference)
                     .map(|skill| skill.path.clone()),
                 manager
-                    .active_skill_by_reference(&second_reference, ctx)
+                    .active_skill_by_reference(&second_reference)
                     .map(|skill| skill.path.clone()),
             )
         });
@@ -980,13 +867,9 @@ fn active_skill_by_reference_with_origin_returns_typed_lookup_errors() {
         let handle = app.add_singleton_model(SkillManager::new);
         let reference = SkillReference::BundledSkillId("missing".to_string());
 
-        let unavailable_error = handle.read(&app, |manager, ctx| {
+        let unavailable_error = handle.read(&app, |manager, _ctx| {
             manager
-                .active_skill_by_reference_with_origin(
-                    &reference,
-                    &SkillPathOrigin::Unavailable,
-                    ctx,
-                )
+                .active_skill_by_reference_with_origin(&reference, &SkillPathOrigin::Unavailable)
                 .unwrap_err()
         });
         assert_eq!(
@@ -994,9 +877,9 @@ fn active_skill_by_reference_with_origin_returns_typed_lookup_errors() {
             ActiveSkillLookupError::BundledSkillsUnavailable
         );
 
-        let not_found_error = handle.read(&app, |manager, ctx| {
+        let not_found_error = handle.read(&app, |manager, _ctx| {
             manager
-                .active_skill_by_reference_with_origin(&reference, &SkillPathOrigin::Local, ctx)
+                .active_skill_by_reference_with_origin(&reference, &SkillPathOrigin::Local)
                 .unwrap_err()
         });
         assert_eq!(
@@ -1080,14 +963,13 @@ fn remote_home_skills_are_host_scoped_replaceable_and_path_invokable() {
                 1
             );
             assert_eq!(
-                handle.read(&app, |manager, ctx| {
+                handle.read(&app, |manager, _ctx| {
                     manager
                         .active_skill_by_reference_with_origin(
                             reference,
                             &SkillPathOrigin::Remote {
                                 host_id: host_id.clone(),
                             },
-                            ctx,
                         )
                         .ok()
                         .map(|skill| skill.content.clone())
@@ -1138,25 +1020,23 @@ fn remote_home_skills_are_host_scoped_replaceable_and_path_invokable() {
                 Vec::new(),
             );
         });
-        assert!(handle.read(&app, |manager, ctx| {
+        assert!(handle.read(&app, |manager, _ctx| {
             manager
                 .active_skill_by_reference_with_origin(
                     &first_reference,
                     &SkillPathOrigin::Remote {
                         host_id: first_host.clone(),
                     },
-                    ctx,
                 )
                 .is_err()
         }));
-        assert!(handle.read(&app, |manager, ctx| {
+        assert!(handle.read(&app, |manager, _ctx| {
             manager
                 .active_skill_by_reference_with_origin(
                     &second_reference,
                     &SkillPathOrigin::Remote {
                         host_id: second_host.clone(),
                     },
-                    ctx,
                 )
                 .is_ok()
         }));

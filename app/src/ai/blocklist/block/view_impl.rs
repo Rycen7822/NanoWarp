@@ -1076,7 +1076,6 @@ impl View for AIBlock {
                 detected_links_state: &self.detected_links_state,
                 secret_redaction_state: &self.secret_redaction_state,
                 requested_commands: &self.requested_commands,
-                requested_mcp_tools: &self.requested_mcp_tools,
                 requested_edits: &self.requested_edits,
                 todo_list_states: &self.todo_list_states,
                 collapsible_block_states: &self.collapsible_block_states,
@@ -1179,9 +1178,9 @@ impl View for AIBlock {
         // We're assuming that the first element of the vector corresponds to the correct input.
         let renders_below_requested_command_view =
             self.model.inputs_to_render(app).iter().any(|input| {
-                input.action_result().is_some_and(|result| {
-                    result.result.is_requested_command() || result.result.is_call_mcp_tool()
-                })
+                input
+                    .action_result()
+                    .is_some_and(|result| result.result.is_requested_command())
             });
 
         // We don't always apply top padding to every block because we don't want a block's top

@@ -12,10 +12,7 @@ use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::bundled::{BundledSkill, BundledSkills};
 #[cfg(test)]
-use super::bundled::{
-    BundledSkillActivation, activation_for_bundled_skill, build_bundled_skill_context,
-    read_bundled_skills,
-};
+use super::bundled::{BundledSkillActivation, build_bundled_skill_context, read_bundled_skills};
 use super::{ActiveSkillLookupError, SkillDescriptor, SkillManagerEvent, SkillPathQuery};
 use crate::ai::skills::skill_utils::SkillDeduplicator;
 
@@ -142,7 +139,7 @@ impl SkillManager {
         // by their remote paths so invocation resolves back to the same host's
         // catalog, while direct `BundledSkillId` lookups use `path_origin`.
         if FeatureFlag::BundledSkills.is_enabled() {
-            skills.extend(self.bundled_skills.active_descriptors(path_origin, ctx));
+            skills.extend(self.bundled_skills.active_descriptors(path_origin));
         }
 
         skills
@@ -262,12 +259,8 @@ impl SkillManager {
     /// skills (the local catalog's ID-addressed entries and remote catalogs'
     /// path-addressed entries) additionally respect their runtime activation
     /// state so stale references cannot invoke disabled bundled skills.
-    pub fn active_skill_by_reference(
-        &self,
-        reference: &SkillReference,
-        ctx: &AppContext,
-    ) -> Option<&ParsedSkill> {
-        self.active_skill_by_reference_with_origin(reference, &SkillPathOrigin::Local, ctx)
+    pub fn active_skill_by_reference(&self, reference: &SkillReference) -> Option<&ParsedSkill> {
+        self.active_skill_by_reference_with_origin(reference, &SkillPathOrigin::Local)
             .ok()
     }
 
@@ -276,7 +269,6 @@ impl SkillManager {
         &self,
         reference: &SkillReference,
         path_origin: &SkillPathOrigin,
-        ctx: &AppContext,
     ) -> Result<&ParsedSkill, ActiveSkillLookupError> {
         let skill = match reference {
             SkillReference::Path(path) => self.skills_by_path.get(path).or_else(|| {
@@ -287,19 +279,17 @@ impl SkillManager {
                 if remote.host_id != *host_id {
                     return None;
                 }
-                self.bundled_skills.remote_active_skill_by_path(remote, ctx)
+                self.bundled_skills.remote_active_skill_by_path(remote)
             }),
-            SkillReference::BundledSkillId(id) => {
-                self.bundled_skills.active_skill(id, path_origin, ctx)
-            }
+            SkillReference::BundledSkillId(id) => self.bundled_skills.active_skill(id, path_origin),
         };
         skill.ok_or_else(|| ActiveSkillLookupError::for_reference(reference, path_origin))
     }
 
     /// Returns a local bundled skill by ID only if its activation condition is met.
-    pub fn active_local_bundled_skill(&self, id: &str, ctx: &AppContext) -> Option<&ParsedSkill> {
+    pub fn active_local_bundled_skill(&self, id: &str) -> Option<&ParsedSkill> {
         self.bundled_skills
-            .active_skill(id, &SkillPathOrigin::Local, ctx)
+            .active_skill(id, &SkillPathOrigin::Local)
     }
 
     pub(super) fn set_remote_bundled_skill(

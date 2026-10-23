@@ -43,11 +43,9 @@ impl ReadSkillExecutor {
         let path_origin =
             SessionContext::from_session(self.active_session.as_ref(ctx), ctx).skill_path_origin();
 
-        match SkillManager::as_ref(ctx).active_skill_by_reference_with_origin(
-            skill_ref,
-            &path_origin,
-            ctx,
-        ) {
+        match SkillManager::as_ref(ctx)
+            .active_skill_by_reference_with_origin(skill_ref, &path_origin)
+        {
             Ok(skill) => {
                 send_telemetry_from_ctx!(
                     SkillTelemetryEvent::Read {

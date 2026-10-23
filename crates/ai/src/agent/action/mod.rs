@@ -14,17 +14,16 @@ pub use review_comments::{
 };
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumDiscriminants;
-use uuid::Uuid;
 pub use warp_multi_agent_api::LifecycleEventType;
 use warp_terminal::model::BlockId;
 
 use crate::agent::action_result::{
-    AIAgentActionResultType, AskUserQuestionResult, CallMCPToolResult, CreateDocumentsResult,
-    EditDocumentsResult, FetchConversationResult, FileGlobResult, FileGlobV2Result, GrepResult,
-    InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadMCPResourceResult,
-    ReadShellCommandOutputResult, ReadSkillResult, RequestCommandOutputResult,
-    RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult, SendMessageToAgentResult,
-    SuggestNewConversationResult, TransferShellCommandControlToUserResult, WaitForEventsResult,
+    AIAgentActionResultType, AskUserQuestionResult, CreateDocumentsResult, EditDocumentsResult,
+    FetchConversationResult, FileGlobResult, FileGlobV2Result, GrepResult,
+    InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadShellCommandOutputResult,
+    ReadSkillResult, RequestCommandOutputResult, RequestFileEditsResult, RunAgentsResult,
+    SearchCodebaseResult, SendMessageToAgentResult, SuggestNewConversationResult,
+    TransferShellCommandControlToUserResult, WaitForEventsResult,
     WriteToLongRunningShellCommandResult,
 };
 use crate::agent::{AIAgentCitation, FileLocations};
@@ -92,22 +91,6 @@ pub enum AIAgentActionType {
         patterns: Vec<String>,
         search_dir: Option<String>,
         // TODO(matthew): Maybe implement client side depth and result limits.
-    },
-
-    ReadMCPResource {
-        server_id: Option<Uuid>,
-        name: String,
-        /// The unique URI for the resource. Prefer using this to identify
-        /// a resource over [`ReadMCPResource::name`], when available.
-        ///
-        /// We should phase out `name` eventually and make this non-optional.
-        uri: Option<String>,
-    },
-
-    CallMCPTool {
-        server_id: Option<Uuid>,
-        name: String,
-        input: serde_json::Value,
     },
 
     SuggestNewConversation {
@@ -309,12 +292,6 @@ impl AIAgentActionType {
                     WriteToLongRunningShellCommandResult::Cancelled,
                 )
             }
-            Self::CallMCPTool { .. } => {
-                AIAgentActionResultType::CallMCPTool(CallMCPToolResult::Cancelled)
-            }
-            Self::ReadMCPResource { .. } => {
-                AIAgentActionResultType::ReadMCPResource(ReadMCPResourceResult::Cancelled)
-            }
             Self::SuggestNewConversation { .. } => AIAgentActionResultType::SuggestNewConversation(
                 SuggestNewConversationResult::Cancelled,
             ),
@@ -372,8 +349,6 @@ impl AIAgentActionType {
             }
             Self::Grep { .. } => "Grep".to_string(),
             Self::FileGlob { .. } | Self::FileGlobV2 { .. } => "File glob".to_string(),
-            Self::ReadMCPResource { .. } => "Read mcp resource".to_string(),
-            Self::CallMCPTool { .. } => "Call mcp tool".to_string(),
             Self::SuggestNewConversation { .. } => "Suggest new conversation".to_string(),
             Self::OpenCodeReview => "Open code review".to_string(),
             Self::ReadDocuments(_) => "Read documents".to_string(),
@@ -455,24 +430,6 @@ impl Display for AIAgentActionType {
             } => {
                 let path_str = search_dir.as_deref().unwrap_or(".");
                 write!(f, "FileGlobV2: [{}] in {}", patterns.join(", "), path_str)
-            }
-            AIAgentActionType::ReadMCPResource {
-                server_id: _,
-                name,
-                uri,
-            } => {
-                if let Some(uri) = uri {
-                    write!(f, "ReadMCPResource: {name} ({uri})")
-                } else {
-                    write!(f, "ReadMCPResource: {name}")
-                }
-            }
-            AIAgentActionType::CallMCPTool {
-                server_id: _,
-                name,
-                input,
-            } => {
-                write!(f, "CallMCPTool: {name} with input {input:?}")
             }
             AIAgentActionType::SuggestNewConversation { message_id } => {
                 write!(f, "SuggestNewConversation: {message_id}")

@@ -29,7 +29,6 @@ use crate::ai::blocklist::{
     InputTypeAutoDetectionSource, QueuedQueryOrigin,
 };
 use crate::ai::execution_profiles::AskUserQuestionPermission;
-use crate::ai::mcp::TemplateVariable;
 use crate::auth::auth_manager::LoginGatedFeature;
 use crate::channel::Channel;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
@@ -239,84 +238,6 @@ pub struct EnvVarTelemetryMetadata {
     /// The team UID, only available for cloud env vars in a shared team.
     pub team_uid: Option<ServerId>,
     pub space: TelemetrySpace,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct MCPServerTelemetryMetadata {
-    pub object_id: GenericStringObjectId,
-    pub name: String,
-    pub transport_type: MCPServerTelemetryTransportType,
-    /// The MCP server string extracted from '@modelcontextprotocol/<...>'.
-    pub mcp_server: Option<String>,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub enum MCPTemplateCreationSource {
-    #[serde(rename = "json")]
-    Json,
-    #[serde(rename = "conversion")]
-    Conversion,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub enum MCPTemplateInstallationSource {
-    #[serde(rename = "local")]
-    Local,
-    #[serde(rename = "shared")]
-    Shared,
-    #[serde(rename = "gallery")]
-    Gallery,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub enum MCPServerModel {
-    #[serde(rename = "legacy")]
-    Legacy,
-    #[serde(rename = "templatable")]
-    Templatable,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub enum MCPServerTelemetryTransportType {
-    CLIServer,
-    ServerSentEvents,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub enum MCPServerTelemetryError {
-    Initialization(String),
-    RequestCancelled,
-    ResponseError(String),
-    SerializationError(String),
-    CapabilityUnsupported(String),
-    InternalError(String),
-    TransportError(String),
-}
-
-#[cfg(not(target_family = "wasm"))]
-impl From<rmcp::RmcpError> for MCPServerTelemetryError {
-    fn from(err: rmcp::RmcpError) -> Self {
-        match err {
-            rmcp::RmcpError::ClientInitialize(err) => Self::Initialization(err.to_string()),
-            rmcp::RmcpError::ServerInitialize(err) => Self::Initialization(err.to_string()),
-            rmcp::RmcpError::TransportCreation { error, .. } => {
-                Self::TransportError(error.to_string())
-            }
-            rmcp::RmcpError::Runtime(err) => Self::InternalError(err.to_string()),
-            rmcp::RmcpError::Service(err) => match err {
-                rmcp::ServiceError::McpError(_) => Self::ResponseError(err.to_string()),
-                rmcp::ServiceError::TransportSend(_) => Self::TransportError(err.to_string()),
-                rmcp::ServiceError::TransportClosed => Self::TransportError(err.to_string()),
-                rmcp::ServiceError::UnexpectedResponse => Self::ResponseError(err.to_string()),
-                rmcp::ServiceError::Cancelled { .. } => Self::InternalError(err.to_string()),
-                rmcp::ServiceError::Timeout { .. } => Self::TransportError(err.to_string()),
-                // The enum is marked as non-exhaustive, so we need a catch-all.
-                _ => Self::InternalError(err.to_string()),
-            },
-            // The enum is marked as non-exhaustive, so we need a catch-all.
-            _ => Self::InternalError(err.to_string()),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,25 +455,6 @@ pub enum KnowledgePaneEntrypoint {
 
     #[serde(rename = "slash_command")]
     SlashCommand,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub enum MCPServerCollectionPaneEntrypoint {
-    /// Triggered by either the command palette or the mac menus
-    #[serde(rename = "global")]
-    Global,
-
-    #[serde(rename = "settings")]
-    Settings,
-
-    #[serde(rename = "warp_drive")]
-    WarpDrive,
-
-    #[serde(rename = "slash_command")]
-    SlashCommand,
-
-    #[serde(rename = "mcp_settings_tab")]
-    MCPSettingsTab,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1807,31 +1709,6 @@ pub enum TelemetryEvent {
     FileGlobToolFailed {
         server_output_id: Option<ServerOutputId>,
     },
-    MCPServerCollectionPaneOpened {
-        entrypoint: MCPServerCollectionPaneEntrypoint,
-    },
-    MCPServerAdded {
-        metadata: MCPServerTelemetryMetadata,
-    },
-    MCPTemplateCreated {
-        source: MCPTemplateCreationSource,
-        variables: Vec<TemplateVariable>,
-        name: String,
-    },
-    MCPTemplateInstalled {
-        source: MCPTemplateInstallationSource,
-    },
-    MCPTemplateShared,
-    MCPServerSpawned {
-        transport_type: MCPServerTelemetryTransportType,
-        error: Option<MCPServerTelemetryError>,
-        server_model: MCPServerModel,
-    },
-    MCPToolCallAccepted {
-        server_output_id: Option<ServerOutputId>,
-        tool_call: String,
-        error: Option<MCPServerTelemetryError>,
-    },
     ShellTerminatedPrematurely {
         shell_type: Option<ShellType>,
         shell_path: Option<String>,
@@ -2391,44 +2268,6 @@ impl TelemetryEvent {
                 advanced_mode_enabled,
             } => Some(json!({ "advanced_mode_enabled": advanced_mode_enabled })),
             TelemetryEvent::OpenedWarpAI { source } => Some(json!({ "source": source })),
-            TelemetryEvent::MCPServerCollectionPaneOpened { entrypoint } => {
-                Some(json!({ "entrypoint": entrypoint }))
-            }
-            TelemetryEvent::MCPServerAdded { metadata } => Some(json!({
-                "object_id": metadata.object_id,
-                "name": metadata.name,
-                "transport_type": metadata.transport_type,
-                "mcp_server": metadata.mcp_server,
-            })),
-            TelemetryEvent::MCPTemplateCreated {
-                source,
-                variables,
-                name,
-            } => Some(json!({
-                "source": source,
-                "variables": variables,
-                "name": name,
-            })),
-            TelemetryEvent::MCPTemplateInstalled { source } => Some(json!({
-                "source": source,
-            })),
-            TelemetryEvent::MCPTemplateShared => None,
-            TelemetryEvent::MCPServerSpawned {
-                transport_type,
-                server_model,
-                error,
-            } => Some(
-                json!({"transport_type": transport_type, "server_model": server_model, "error": error}),
-            ),
-            TelemetryEvent::MCPToolCallAccepted {
-                server_output_id,
-                tool_call,
-                error,
-            } => Some(json!({
-                "server_output_id": server_output_id,
-                "tool_call": tool_call,
-                "error": error,
-            })),
             TelemetryEvent::KnowledgePaneOpened { entrypoint } => {
                 Some(json!({ "entrypoint": entrypoint }))
             }
@@ -3665,13 +3504,6 @@ impl TelemetryEvent {
             | TelemetryEvent::RepoOutlineConstructionFailed { .. }
             | TelemetryEvent::AutoexecutedAgentModeRequestedCommand { .. }
             | TelemetryEvent::KnowledgePaneOpened { .. }
-            | TelemetryEvent::MCPServerCollectionPaneOpened { .. }
-            | TelemetryEvent::MCPServerAdded { .. }
-            | TelemetryEvent::MCPTemplateCreated { .. }
-            | TelemetryEvent::MCPTemplateInstalled { .. }
-            | TelemetryEvent::MCPTemplateShared
-            | TelemetryEvent::MCPServerSpawned { .. }
-            | TelemetryEvent::MCPToolCallAccepted { .. }
             | TelemetryEvent::ExecutedWarpDrivePrompt { .. }
             | TelemetryEvent::ToggleSshWarpification { .. }
             | TelemetryEvent::SetSshExtensionInstallMode { .. }
@@ -3817,13 +3649,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::PtyThroughput => EnablementState::Flag(FeatureFlag::RecordPtyThroughput),
             Self::AgentModeCreatedAIBlock => EnablementState::Flag(FeatureFlag::AgentMode),
-            Self::MCPServerCollectionPaneOpened { .. }
-            | Self::MCPServerAdded { .. }
-            | Self::MCPServerSpawned { .. }
-            | Self::MCPToolCallAccepted { .. } => EnablementState::Flag(FeatureFlag::McpServer),
-            Self::MCPTemplateCreated { .. }
-            | Self::MCPTemplateInstalled { .. }
-            | Self::MCPTemplateShared { .. } => EnablementState::Always,
             Self::KnowledgePaneOpened { .. } => EnablementState::Flag(FeatureFlag::AIRules),
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => EnablementState::Always,
@@ -4212,13 +4037,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AnonymousUserAttemptLoginGatedFeature => {
                 "Anonymous User Attempted Login-Gated Feature"
             }
-            Self::MCPServerCollectionPaneOpened { .. } => "MCP Server Collection Pane Opened",
-            Self::MCPServerAdded { .. } => "MCP Server Added",
-            Self::MCPTemplateCreated { .. } => "MCP Template Created",
-            Self::MCPTemplateInstalled { .. } => "MCP Template Installed",
-            Self::MCPTemplateShared => "MCP Template Shared",
-            Self::MCPServerSpawned { .. } => "MCP Server Spawned",
-            Self::MCPToolCallAccepted { .. } => "MCP Tool Call Accepted",
             Self::KnowledgePaneOpened { .. } => "Knowledge Pane Opened",
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => "Code Pane Opened",
@@ -4594,13 +4412,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Warp created a background-output Block (whenever a processes has been backgrounded and yields some output)"
             }
             Self::SessionCreation => "Created a tab",
-            Self::MCPServerCollectionPaneOpened { .. } => "MCP Server Collection Pane Opened",
-            Self::MCPServerAdded { .. } => "MCP Server Added",
-            Self::MCPTemplateCreated { .. } => "MCP Template Created",
-            Self::MCPTemplateInstalled { .. } => "MCP Template Installed",
-            Self::MCPTemplateShared => "MCP Template Shared",
-            Self::MCPServerSpawned { .. } => "MCP Server Spawned",
-            Self::MCPToolCallAccepted { .. } => "MCP Tool Call Accepted",
             Self::KnowledgePaneOpened { .. } => "Knowledge Pane Opened",
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => "Opened the code editor pane from various sources",

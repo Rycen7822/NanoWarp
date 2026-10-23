@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,9 +18,7 @@ use rand::distributions::Alphanumeric;
 use rand::{Rng as _, thread_rng};
 use warp_core::platform::SessionPlatform;
 use warp_core::ui::appearance::Appearance;
-use warp_core::ui::color::CLAUDE_ORANGE;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::theme::color::internal_colors::{fg_overlay_6, neutral_1, neutral_4};
+use warp_core::ui::theme::color::internal_colors::{neutral_1, neutral_4};
 use warp_editor::content::buffer::InitialBufferState;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warp_errors::report_error;
@@ -67,8 +65,6 @@ use crate::ai::blocklist::inline_action::inline_action_icons::{
     cancelled_icon, green_check_icon, icon_size, reverted_icon,
 };
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
-use crate::ai::blocklist::view_util::render_provider_icon_button;
-use crate::ai::mcp::{MCPProvider, mcp_provider_from_file_path};
 use crate::ai::paths::host_native_absolute_path;
 use crate::ai::skills::{
     SkillManager, SkillOpenOrigin, SkillReference, SkillTelemetryEvent,
@@ -194,7 +190,6 @@ struct CodeDiffViewMouseStates {
     show_hide_button: MouseStateHandle,
     skill_button_handle: MouseStateHandle,
     stats_badge_button: MouseStateHandle,
-    mcp_config_button_handle: MouseStateHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -219,11 +214,6 @@ pub enum CodeDiffViewEvent {
     OpenSkill {
         reference: SkillReference,
         path: LocalOrRemotePath,
-    },
-    /// Emitted when the user opens an MCP config file from a code diff
-    OpenMCPConfig {
-        provider: MCPProvider,
-        path: PathBuf,
     },
 }
 
@@ -284,11 +274,6 @@ pub enum CodeDiffViewAction {
     OpenSkill {
         reference: SkillReference,
         path: LocalOrRemotePath,
-        mouse_state: MouseStateHandle,
-    },
-    OpenMCPConfig {
-        provider: MCPProvider,
-        path: PathBuf,
         mouse_state: MouseStateHandle,
     },
 }
@@ -1329,57 +1314,6 @@ impl CodeDiffView {
             );
         }
 
-        // Renders the 'open config' button only when every MCP config file in this diff
-        // belongs to the same provider. Mixed-provider diffs (e.g. editing both a Claude
-        // config and a Warp config at once) show no badge to avoid misleading attribution.
-        // MCP config actions currently operate on local paths only.
-        let local_file_paths: Vec<PathBuf> = file_locations
-            .iter()
-            .filter_map(|path| path.to_local_path().map(Path::to_path_buf))
-            .collect();
-        let mcp_configs: Vec<_> = local_file_paths
-            .iter()
-            .filter_map(|path| {
-                mcp_provider_from_file_path(path).map(|provider| (provider, path.to_path_buf()))
-            })
-            .collect();
-        let mcp_config = mcp_configs
-            .first()
-            .and_then(|(first_provider, first_path)| {
-                mcp_configs
-                    .iter()
-                    .all(|(p, _)| p == first_provider)
-                    .then(|| (*first_provider, first_path.clone()))
-            });
-        if let Some((provider, config_path)) = mcp_config {
-            let mcp_button_handle = self.button_mouse_states.mcp_config_button_handle.clone();
-            let icon = provider.icon();
-            let color = if provider == MCPProvider::Claude {
-                Fill::Solid(CLAUDE_ORANGE)
-            } else {
-                fg_overlay_6(appearance.theme())
-            };
-            let mcp_config_button = render_provider_icon_button(
-                "Open config",
-                mcp_button_handle.clone(),
-                appearance,
-                icon,
-                color,
-                move |ctx| {
-                    ctx.dispatch_typed_action(CodeDiffViewAction::OpenMCPConfig {
-                        provider,
-                        path: config_path.clone(),
-                        mouse_state: mcp_button_handle.clone(),
-                    });
-                },
-            );
-            right_side_row.add_child(
-                Container::new(mcp_config_button)
-                    .with_margin_right(HEADER_MARGIN)
-                    .finish(),
-            );
-        }
-
         if matches!(self.state, CodeDiffState::WaitingForUser) {
             right_side_row.add_child(action_buttons);
         } else {
@@ -2092,21 +2026,6 @@ impl TypedActionView for CodeDiffView {
 
                 ctx.emit(CodeDiffViewEvent::OpenSkill {
                     reference: reference.clone(),
-                    path: path.clone(),
-                });
-            }
-            CodeDiffViewAction::OpenMCPConfig {
-                provider,
-                path,
-                mouse_state,
-            } => {
-                // Resets the interaction state of the button to avoid an immediate re-hover
-                if let Ok(mut state) = mouse_state.lock() {
-                    state.reset_interaction_state();
-                }
-
-                ctx.emit(CodeDiffViewEvent::OpenMCPConfig {
-                    provider: *provider,
                     path: path.clone(),
                 });
             }

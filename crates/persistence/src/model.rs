@@ -9,15 +9,14 @@ use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api};
 
 use super::schema::{
-    active_mcp_servers, agent_conversations, agent_tasks, ai_document_panes, ai_memory_panes,
-    ambient_agent_panes, app, blocks, cloud_objects_refreshes, code_pane_tabs, code_panes,
-    code_review_panes, commands, current_user_information, env_var_collection_panes, folders,
-    generic_string_objects, ignored_suggestions, mcp_environment_variables,
-    mcp_server_installations, mcp_server_panes, notebook_panes, notebooks, object_actions,
-    object_metadata, object_permissions, pane_branches, pane_leaves, pane_nodes, panels,
-    project_rules, projects, server_experiments, settings_panes, tab_groups, tabs, team_members,
-    team_settings, teams, terminal_panes, user_profiles, windows, workflows,
-    workspace_language_server, workspace_metadata, workspace_teams, workspaces,
+    agent_conversations, agent_tasks, ai_document_panes, ai_memory_panes, ambient_agent_panes, app,
+    blocks, cloud_objects_refreshes, code_pane_tabs, code_panes, code_review_panes, commands,
+    current_user_information, env_var_collection_panes, folders, generic_string_objects,
+    ignored_suggestions, notebook_panes, notebooks, object_actions, object_metadata,
+    object_permissions, pane_branches, pane_leaves, pane_nodes, panels, project_rules, projects,
+    server_experiments, settings_panes, tab_groups, tabs, team_members, team_settings, teams,
+    terminal_panes, user_profiles, windows, workflows, workspace_language_server,
+    workspace_metadata, workspace_teams, workspaces,
 };
 
 #[derive(Insertable)]
@@ -560,9 +559,6 @@ pub const SETTINGS_PANE_KIND: &str = "settings";
 /// (where kind name is historical and not worth a migration to change).
 pub const AI_FACT_PANE_KIND: &str = "ai_memory";
 
-/// The [`pane_leaves::kind`] value for MCP server panes
-pub const MCP_SERVER_PANE_KIND: &str = "mcp_server";
-
 /// The [`pane_leaves::kind`] value for code review panes.
 pub const CODE_REVIEW_PANE_KIND: &str = "code_review";
 
@@ -643,12 +639,6 @@ pub struct NewSettingsPane {
 #[derive(Insertable)]
 #[diesel(table_name = ai_memory_panes)]
 pub struct NewAIFactPane {
-    pub id: i32,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = mcp_server_panes)]
-pub struct NewMCPServerPane {
     pub id: i32,
 }
 
@@ -853,26 +843,6 @@ pub struct NewServerExperiment {
 #[diesel(table_name = current_user_information)]
 pub struct CurrentUserInformation {
     pub email: String,
-}
-
-#[derive(Debug, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = mcp_environment_variables)]
-pub struct MCPEnvironmentVariables {
-    pub mcp_server_uuid: Vec<u8>,
-    pub environment_variables: String,
-}
-
-#[derive(Debug, Insertable, Queryable)]
-#[diesel(table_name = active_mcp_servers)]
-pub struct ActiveMCPServer {
-    pub id: i32,
-    pub mcp_server_uuid: String,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = active_mcp_servers)]
-pub struct NewActiveMCPServer {
-    pub mcp_server_uuid: String,
 }
 
 // Queryable structs for reading from the database
@@ -1412,8 +1382,6 @@ pub struct ToolUsageMetadata {
     pub file_glob_stats: ToolCallStats,
     pub apply_file_diff_stats: ApplyFileDiffStats,
     pub write_to_long_running_shell_command_stats: ToolCallStats,
-    pub read_mcp_resource_stats: ToolCallStats,
-    pub call_mcp_tool_stats: ToolCallStats,
     pub suggest_plan_stats: ToolCallStats,
     pub suggest_create_plan_stats: ToolCallStats,
     pub read_shell_command_output_stats: ToolCallStats,
@@ -1427,8 +1395,6 @@ impl ToolUsageMetadata {
             + self.grep_stats.count
             + self.file_glob_stats.count
             + self.write_to_long_running_shell_command_stats.count
-            + self.read_mcp_resource_stats.count
-            + self.call_mcp_tool_stats.count
             + self.suggest_plan_stats.count
             + self.suggest_create_plan_stats.count
             + self.apply_file_diff_stats.count
@@ -1448,8 +1414,6 @@ impl From<&ToolUsageMetadata> for stream_finished::ToolUsageMetadata {
             write_to_long_running_shell_command_stats: Some(
                 (&metadata.write_to_long_running_shell_command_stats).into(),
             ),
-            read_mcp_resource_stats: Some((&metadata.read_mcp_resource_stats).into()),
-            call_mcp_tool_stats: Some((&metadata.call_mcp_tool_stats).into()),
             suggest_plan_stats: Some((&metadata.suggest_plan_stats).into()),
             suggest_create_plan_stats: Some((&metadata.suggest_create_plan_stats).into()),
             read_shell_command_output_stats: Some(
@@ -1482,8 +1446,6 @@ impl From<&stream_finished::ToolUsageMetadata> for ToolUsageMetadata {
             write_to_long_running_shell_command_stats: convert(
                 &tool_usage_metadata.write_to_long_running_shell_command_stats,
             ),
-            read_mcp_resource_stats: convert(&tool_usage_metadata.read_mcp_resource_stats),
-            call_mcp_tool_stats: convert(&tool_usage_metadata.call_mcp_tool_stats),
             suggest_plan_stats: convert(&tool_usage_metadata.suggest_plan_stats),
             suggest_create_plan_stats: convert(&tool_usage_metadata.suggest_create_plan_stats),
             read_shell_command_output_stats: convert(
@@ -1807,19 +1769,6 @@ impl ConversationUsageMetadata {
 pub struct NewIgnoredSuggestion {
     pub suggestion: String,
     pub suggestion_type: String,
-}
-
-#[derive(Insertable, AsChangeset)]
-#[diesel(table_name = mcp_server_installations)]
-#[diesel(treat_none_as_null = true)]
-#[diesel(primary_key(id))]
-pub struct NewMCPServerInstallation {
-    pub id: String,
-    pub templatable_mcp_server: String,
-    pub template_version_ts: NaiveDateTime,
-    pub variable_values: String,
-    pub restore_running: bool,
-    pub last_modified_at: NaiveDateTime,
 }
 
 #[cfg(test)]

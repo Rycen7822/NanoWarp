@@ -51,10 +51,6 @@ fn factory_files_bundled_skill_is_always_active_and_scoped_to_authoring() {
         );
     }
     assert!(
-        description.contains("factory mcp"),
-        "trigger description should exclude Factory MCP operation: {description}"
-    );
-    assert!(
         description.contains("rooted at a factory.yaml"),
         "trigger description should anchor to a factory.yaml root: {description}"
     );

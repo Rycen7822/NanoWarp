@@ -786,14 +786,6 @@ define_settings_group!(AISettings, settings: [
         private: true,
     },
 
-    mcp_execution_path: MCPExecutionPath {
-        type: Option<String>,
-        default: None,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: true,
-    },
-
     // Whether or not the user has enabled fallback to Warp credits for user-provided models.
     can_use_warp_credits_for_fallback: CanUseWarpCreditsForFallback {
         type: bool,
@@ -825,19 +817,6 @@ define_settings_group!(AISettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
-    }
-
-    // Whether file-based MCP servers from third-party AI tools (e.g. Claude, Codex) should
-    // be automatically detected and spawned. Warp-native config files (.warp/.mcp.json) are
-    // always detected and spawned, regardless of this setting.
-    file_based_mcp_enabled: FileBasedMcpEnabled {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.mcp_servers.file_based_mcp_enabled",
-        description: "Whether third-party file-based MCP servers are automatically detected.",
     }
 
     // Controls how agent thinking/reasoning traces are displayed.
@@ -1002,21 +981,6 @@ impl AISettings {
 
     pub fn is_warp_drive_context_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_any_ai_enabled(app) && *self.warp_drive_context_enabled
-    }
-
-    pub fn is_file_based_mcp_enabled(&self, app: &warpui::AppContext) -> bool {
-        if !FeatureFlag::FileBasedMcp.is_enabled() || !self.is_any_ai_enabled(app) {
-            return false;
-        }
-        // NOTE: we intentionally do not force-enable this in Cloud Mode. Previously
-        // we auto-spawned file-based MCPs in autonomous execution, but that bypassed
-        // the user's explicit opt-in and let any MCP config checked into a repo run
-        // arbitrary commands as part of a cloud agent run. Respecting the toggle
-        // closes that attack surface; cloud agents that need project-scoped MCP
-        // servers should surface an explicit, auditable opt-in. A more robust
-        // solution (e.g. per-environment allowlisting, signed configs) should be
-        // explored in the future.
-        *self.file_based_mcp_enabled
     }
 
     pub fn is_orchestration_enabled(&self, app: &warpui::AppContext) -> bool {
@@ -1187,11 +1151,6 @@ impl AISettings {
     }
 
     pub fn is_ask_user_question_permissions_editable(&self, app: &AppContext) -> bool {
-        self.is_any_ai_enabled(app)
-    }
-
-    pub fn is_mcp_permission_editable(&self, app: &AppContext) -> bool {
-        // TODO: Allow workspace overrides on MCP permissions.
         self.is_any_ai_enabled(app)
     }
 

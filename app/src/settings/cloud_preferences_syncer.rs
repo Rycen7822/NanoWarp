@@ -309,7 +309,7 @@ impl CloudPreferencesSyncer {
         if let Some(server_id) = server_id {
             // Check whether this object is a cloud preference.
             // GenericStringObject is a superset that also includes
-            // env var collections, workflow enums, MCP servers, etc.
+            // env var collections, workflow enums, etc.
             // Only preference changes should update the stored hash.
             let sync_id = SyncId::ServerId(server_id);
             let is_preference = CloudModel::as_ref(ctx)

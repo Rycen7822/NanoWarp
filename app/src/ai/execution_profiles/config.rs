@@ -395,7 +395,7 @@ impl From<FileRunAgentsPermission> for RunAgentsPermission {
 }
 
 // `is_default_profile` is omitted because the containing map key owns that
-// invariant. String-backed regex and UUID fields are validated while converting
+// invariant. String-backed regex fields are validated while converting
 // back to [`AIExecutionProfile`].
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default)]
@@ -411,8 +411,6 @@ struct ExecutionProfileFile {
     execute_commands: FileActionPermission,
     #[schemars(description = "Permission to write to interactive terminal processes.")]
     write_to_pty: FileWriteToPtyPermission,
-    #[schemars(description = "Permission to call MCP servers.")]
-    mcp_permissions: FileActionPermission,
     #[schemars(description = "Permission to ask the user questions.")]
     ask_user_question: FileAskUserQuestionPermission,
     #[schemars(description = "Permission to launch child agents.")]
@@ -423,10 +421,6 @@ struct ExecutionProfileFile {
     command_allowlist: Vec<String>,
     #[schemars(description = "Directories that may be read without approval.")]
     directory_allowlist: Vec<std::path::PathBuf>,
-    #[schemars(description = "MCP server IDs that may be called without approval.")]
-    mcp_allowlist: Vec<String>,
-    #[schemars(description = "MCP server IDs that must require approval.")]
-    mcp_denylist: Vec<String>,
     #[schemars(description = "Optional base-model override.")]
     base_model: Option<String>,
     #[schemars(description = "Optional coding-model override.")]
@@ -457,7 +451,6 @@ impl From<&AIExecutionProfile> for ExecutionProfileFile {
             read_files: profile.read_files.into(),
             execute_commands: profile.execute_commands.into(),
             write_to_pty: profile.write_to_pty.into(),
-            mcp_permissions: profile.mcp_permissions.into(),
             ask_user_question: profile.ask_user_question.into(),
             run_agents: profile.run_agents.into(),
             command_denylist: profile
@@ -471,16 +464,6 @@ impl From<&AIExecutionProfile> for ExecutionProfileFile {
                 .map(ToString::to_string)
                 .collect(),
             directory_allowlist: profile.directory_allowlist.clone(),
-            mcp_allowlist: profile
-                .mcp_allowlist
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            mcp_denylist: profile
-                .mcp_denylist
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
             base_model: profile.base_model.clone().map(Into::into),
             coding_model: profile.coding_model.clone().map(Into::into),
             cli_agent_model: profile.cli_agent_model.clone().map(Into::into),
@@ -495,7 +478,7 @@ impl TryFrom<ExecutionProfileFile> for AIExecutionProfile {
     type Error = ();
 
     fn try_from(file: ExecutionProfileFile) -> Result<Self, Self::Error> {
-        // Regex and UUID validation happens at the file boundary. Returning an
+        // Regex validation happens at the file boundary. Returning an
         // error for any entry prevents partial recovery of a malformed profile.
         fn parse_commands(
             commands: Vec<String>,
@@ -508,12 +491,6 @@ impl TryFrom<ExecutionProfileFile> for AIExecutionProfile {
                 .collect()
         }
 
-        fn parse_uuids(ids: Vec<String>) -> Result<Vec<uuid::Uuid>, ()> {
-            ids.into_iter()
-                .map(|id| uuid::Uuid::parse_str(&id).map_err(|_| ()))
-                .collect()
-        }
-
         Ok(AIExecutionProfile {
             name: file.name,
             // The containing collection derives this from the stable map key.
@@ -522,14 +499,11 @@ impl TryFrom<ExecutionProfileFile> for AIExecutionProfile {
             read_files: file.read_files.into(),
             execute_commands: file.execute_commands.into(),
             write_to_pty: file.write_to_pty.into(),
-            mcp_permissions: file.mcp_permissions.into(),
             ask_user_question: file.ask_user_question.into(),
             run_agents: file.run_agents.into(),
             command_denylist: parse_commands(file.command_denylist)?,
             command_allowlist: parse_commands(file.command_allowlist)?,
             directory_allowlist: file.directory_allowlist,
-            mcp_allowlist: parse_uuids(file.mcp_allowlist)?,
-            mcp_denylist: parse_uuids(file.mcp_denylist)?,
             base_model: file.base_model.map(LLMId::from),
             coding_model: file.coding_model.map(LLMId::from),
             cli_agent_model: file.cli_agent_model.map(LLMId::from),

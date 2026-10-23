@@ -93,8 +93,6 @@ pub struct ToolUsageMetadata {
     pub search_codebase_stats: ToolCallStats,
     pub grep_stats: ToolCallStats,
     pub file_glob_stats: ToolCallStats,
-    pub call_mcp_tool_stats: ToolCallStats,
-    pub read_mcp_resource_stats: ToolCallStats,
     pub suggest_plan_stats: ToolCallStats,
     pub suggest_create_plan_stats: ToolCallStats,
     pub write_to_long_running_shell_command_stats: ToolCallStats,
@@ -129,12 +127,6 @@ impl From<&ToolUsageMetadata> for persistence::model::ToolUsageMetadata {
             },
             write_to_long_running_shell_command_stats: persistence::model::ToolCallStats {
                 count: gql.write_to_long_running_shell_command_stats.count,
-            },
-            read_mcp_resource_stats: persistence::model::ToolCallStats {
-                count: gql.read_mcp_resource_stats.count,
-            },
-            call_mcp_tool_stats: persistence::model::ToolCallStats {
-                count: gql.call_mcp_tool_stats.count,
             },
             suggest_plan_stats: persistence::model::ToolCallStats {
                 count: gql.suggest_plan_stats.count,

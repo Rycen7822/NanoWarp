@@ -39,18 +39,13 @@ impl SkillManager {
         None
     }
 
-    pub fn active_skill_by_reference(
-        &self,
-        _reference: &SkillReference,
-        _ctx: &AppContext,
-    ) -> Option<&ParsedSkill> {
+    pub fn active_skill_by_reference(&self, _reference: &SkillReference) -> Option<&ParsedSkill> {
         None
     }
     pub fn active_skill_by_reference_with_origin(
         &self,
         reference: &SkillReference,
         path_origin: &SkillPathOrigin,
-        _ctx: &AppContext,
     ) -> Result<&ParsedSkill, ActiveSkillLookupError> {
         Err(ActiveSkillLookupError::for_reference(
             reference,
@@ -58,7 +53,7 @@ impl SkillManager {
         ))
     }
 
-    pub fn active_local_bundled_skill(&self, _id: &str, _ctx: &AppContext) -> Option<&ParsedSkill> {
+    pub fn active_local_bundled_skill(&self, _id: &str) -> Option<&ParsedSkill> {
         None
     }
 }

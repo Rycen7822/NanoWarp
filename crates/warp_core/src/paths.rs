@@ -81,10 +81,6 @@ pub fn warp_home_skills_dir() -> Option<PathBuf> {
     warp_home_config_dir().map(|warp_config_dir| warp_config_dir.join("skills"))
 }
 
-pub fn warp_home_mcp_config_file_path() -> Option<PathBuf> {
-    warp_home_config_dir().map(|warp_config_dir| warp_config_dir.join(".mcp.json"))
-}
-
 /// Returns the macOS config directory name for the current channel and data
 /// profile.
 ///

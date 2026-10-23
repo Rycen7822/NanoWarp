@@ -1,7 +1,6 @@
 use crate::error::UserFacingError;
 use crate::folder::Folder;
 use crate::generic_string_object::GenericStringObject;
-use crate::mcp_gallery_template::MCPGalleryTemplate;
 use crate::notebook::Notebook;
 use crate::object_actions::ObjectActionHistory;
 use crate::request_context::RequestContext;
@@ -23,7 +22,6 @@ pub struct UpdatedCloudObjectsOutput {
     pub deleted_object_uids: DeletedObjectUids,
     pub folders: Option<Vec<Folder>>,
     pub generic_string_objects: Option<Vec<GenericStringObject>>,
-    pub mcp_gallery: Option<Vec<MCPGalleryTemplate>>,
     pub notebooks: Option<Vec<Notebook>>,
     pub response_context: ResponseContext,
     pub user_profiles: Option<Vec<PublicUserProfile>>,

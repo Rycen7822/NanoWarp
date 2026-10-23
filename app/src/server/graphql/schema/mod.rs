@@ -9,9 +9,8 @@ use warp_graphql::object::ObjectUpdateSuccess;
 
 use crate::cloud_object::{
     RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment,
-    ServerEnvVarCollection, ServerFolder, ServerMCPServer, ServerObject, ServerPreference,
-    ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflowEnum, TryFromGql,
-    UpdateCloudObjectResult,
+    ServerEnvVarCollection, ServerFolder, ServerObject, ServerPreference,
+    ServerScheduledAmbientAgent, ServerWorkflowEnum, TryFromGql, UpdateCloudObjectResult,
 };
 use crate::server::graphql::get_user_facing_error_message;
 
@@ -65,16 +64,6 @@ pub fn update_generic_string_object_result_to_update_result(
                         }
                         GenericStringObjectFormat::JsonAIExecutionProfile => {
                             boxed_rejected_generic_string_object::<ServerAIExecutionProfile>(
-                                rejected.conflicting_generic_string_object,
-                            )?
-                        }
-                        GenericStringObjectFormat::JsonMCPServer => {
-                            boxed_rejected_generic_string_object::<ServerMCPServer>(
-                                rejected.conflicting_generic_string_object,
-                            )?
-                        }
-                        GenericStringObjectFormat::JsonTemplatableMCPServer => {
-                            boxed_rejected_generic_string_object::<ServerTemplatableMCPServer>(
                                 rejected.conflicting_generic_string_object,
                             )?
                         }

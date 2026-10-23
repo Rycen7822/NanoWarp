@@ -50,7 +50,6 @@ async fn round_trip_remote_agent_context_snapshot() {
                             source: Some(remote_skill_proto::Source::Bundled(
                                 BundledSkillMetadata {
                                     id: "pr-comments".to_string(),
-                                    requires_mcp: Some("figma".to_string()),
                                 },
                             )),
                         },
@@ -83,7 +82,6 @@ async fn round_trip_remote_agent_context_snapshot() {
                 panic!("expected bundled skill source");
             };
             assert_eq!(bundled.id, "pr-comments");
-            assert_eq!(bundled.requires_mcp.as_deref(), Some("figma"));
             assert!(matches!(
                 snapshot.skills[1].source,
                 Some(remote_skill_proto::Source::Home(_))

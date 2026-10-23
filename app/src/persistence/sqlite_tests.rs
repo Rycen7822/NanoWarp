@@ -125,7 +125,6 @@ fn sqlite_read_restores_app_state_and_codebase_metadata() {
         windows: vec![test_terminal_window_snapshot(false)],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
     save_app_state(&mut conn, &app_state).expect("app state should save");
 
@@ -211,19 +210,16 @@ fn test_deduplicate_snapshots() {
         active_window_index: Some(1),
         block_lists: Default::default(),
         windows: Default::default(),
-        running_mcp_servers: Default::default(),
     };
     let snapshot_2 = AppState {
         active_window_index: Some(2),
         block_lists: Default::default(),
         windows: Default::default(),
-        running_mcp_servers: Default::default(),
     };
     let snapshot_3 = AppState {
         active_window_index: Some(3),
         block_lists: Default::default(),
         windows: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     let original_events = vec![
@@ -333,7 +329,6 @@ fn test_sqlite_round_trips_vertical_tabs_panel_open() {
         ],
         active_window_index: Some(1),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -367,7 +362,6 @@ fn test_sqlite_round_trips_window_team_uid() {
         windows: vec![assigned_window, test_terminal_window_snapshot(true)],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -433,7 +427,6 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -510,7 +503,6 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -633,7 +625,6 @@ fn test_sqlite_round_trips_tab_groups() {
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -792,7 +783,6 @@ fn test_sqlite_round_trips_pinned_state() {
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -925,7 +915,6 @@ fn test_sqlite_drops_too_small_bounds_on_save() {
         windows: vec![snapshot],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
 
     save_app_state(&mut conn, &app_state).expect("app state should save");
@@ -964,7 +953,6 @@ fn test_sqlite_drops_too_small_bounds_on_read() {
         windows: vec![test_terminal_window_snapshot(false)],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     };
     save_app_state(&mut conn, &app_state).expect("app state should save");
 

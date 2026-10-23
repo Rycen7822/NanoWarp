@@ -3,7 +3,6 @@ mod diff_application;
 mod telemetry;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use ai::diff_validation::AIRequestedCodeDiff;
 use apply_diff_model::ApplyDiffModel;
@@ -73,7 +72,7 @@ impl RequestFileEditsExecutor {
         let ExecuteActionInput {
             action:
                 AIAgentAction {
-                    action: AIAgentActionType::RequestFileEdits { file_edits, .. },
+                    action: AIAgentActionType::RequestFileEdits { .. },
                     ..
                 },
             conversation_id,
@@ -81,11 +80,6 @@ impl RequestFileEditsExecutor {
         else {
             return false;
         };
-
-        let paths: Vec<PathBuf> = file_edits
-            .iter()
-            .filter_map(|edit| edit.file().map(PathBuf::from))
-            .collect();
 
         // Allow "autoexecution" if the diff application failed so that we can continue execution.
         // This is a terrible hack--but allows us to continue execution and let the LLM potentially recover
@@ -100,13 +94,7 @@ impl RequestFileEditsExecutor {
         }
 
         BlocklistAIPermissions::as_ref(ctx)
-            .can_write_files(
-                &conversation_id,
-                &paths,
-                Some(self.terminal_view_id),
-                scope,
-                ctx,
-            )
+            .can_write_files(&conversation_id, Some(self.terminal_view_id), scope, ctx)
             .is_allowed()
     }
 

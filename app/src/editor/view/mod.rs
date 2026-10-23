@@ -1,5 +1,4 @@
 mod element;
-mod figma_utils;
 mod model;
 mod movement;
 mod snapshot;
@@ -20,7 +19,6 @@ use async_fs;
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use element::CommandXRayMouseStateHandle;
-use figma_utils::is_figma_png;
 use itertools::{Either, Itertools};
 use mime_guess::from_path;
 use model::{
@@ -5020,8 +5018,6 @@ impl EditorView {
                 let mut num_unprocessed_images: usize = 0;
 
                 for image in pending_images {
-                    let is_figma = is_figma_png(&image.data);
-
                     let resized_image_bytes = match resize_image(&image.data) {
                         Ok(resized_image_bytes) => resized_image_bytes,
                         Err(err) => {
@@ -5042,7 +5038,6 @@ impl EditorView {
                         data: base64_str,
                         mime_type: image.mime_type,
                         file_name: image.file_name,
-                        is_figma,
                     });
                 }
 

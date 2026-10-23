@@ -17,9 +17,6 @@ use warpui::{AppContext, SingletonEntity};
 
 use self::breadcrumbs::ContainingObject;
 use self::model::actions::ObjectActions;
-use self::model::generic_string_model::{
-    GenericStringModel, GenericStringObjectId, Serializer, StringModel,
-};
 use self::model::persistence::CloudModel;
 use crate::appearance::Appearance;
 use crate::auth::UserUid;
@@ -551,31 +548,6 @@ where
     }
 }
 
-/// Marks string model payloads that can be looked up by UUID.
-pub trait CloudObjectUuid {
-    fn uuid(&self) -> uuid::Uuid;
-}
-
-/// Provides app-local UUID lookups for cloud objects whose payload exposes a UUID.
-pub trait CloudObjectUuidLookup: Sized {
-    fn get_by_uuid<'a>(uuid: &'a uuid::Uuid, app: &'a AppContext) -> Option<&'a Self>;
-}
-
-impl<T, S> CloudObjectUuidLookup
-    for GenericCloudObject<GenericStringObjectId, GenericStringModel<T, S>>
-where
-    T: StringModel<
-            CloudObjectType = GenericCloudObject<GenericStringObjectId, GenericStringModel<T, S>>,
-        > + CloudObjectUuid,
-    S: Serializer<T>,
-{
-    fn get_by_uuid<'a>(uuid: &'a uuid::Uuid, app: &'a AppContext) -> Option<&'a Self> {
-        CloudModel::as_ref(app)
-            .get_all_objects_of_type::<GenericStringObjectId, GenericStringModel<T, S>>()
-            .find(|object| object.model().string_model.uuid() == *uuid)
-    }
-}
-
 lazy_static! {
     static ref SPACE_DETECT_RE: Regex = Regex::new(r"\s+").expect("Expect regex to be valid");
     static ref SAFE_URL_CHAR_RE: Regex =
@@ -840,10 +812,6 @@ pub trait CloudObjectMetadataExt {
     /// Returns None if the revision and last_editor are None.
     fn semantic_editing_history(&self, app: &AppContext) -> Option<String>;
 
-    /// Returns a semantic summary of the object's creator. For example, "Alice" or "joan@warp.dev".
-    #[cfg_attr(target_family = "wasm", expect(dead_code))]
-    fn semantic_creator(&self, app: &AppContext) -> Option<String>;
-
     /// Returns semantic summary of countdown of days until permadeletion.
     /// Ex: "27 days until permanent deletion"
     fn semantic_permadeletion_countdown(&self, app: &AppContext) -> Option<String>;
@@ -873,14 +841,6 @@ impl CloudObjectMetadataExt for CloudObjectMetadata {
         };
 
         Some(full_string)
-    }
-
-    fn semantic_creator(&self, app: &AppContext) -> Option<String> {
-        // Todo(Jack): add creation ts.
-        let user_profiles = UserProfiles::as_ref(app);
-        self.creator_uid
-            .as_ref()
-            .and_then(|uid| user_profiles.displayable_identifier_for_uid(UserUid::new(uid)))
     }
 
     fn semantic_permadeletion_countdown(&self, app: &AppContext) -> Option<String> {
@@ -931,9 +891,8 @@ pub use cloud_object_client::{
 };
 pub use cloud_object_models::{
     ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment, ServerCloudAgentConfig,
-    ServerCloudObject, ServerEnvVarCollection, ServerFolder, ServerMCPServer, ServerNotebook,
-    ServerPreference, ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflow,
-    ServerWorkflowEnum, TryFromGql,
+    ServerCloudObject, ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
+    ServerScheduledAmbientAgent, ServerWorkflow, ServerWorkflowEnum, TryFromGql,
 };
 use warp_errors::report_error;
 

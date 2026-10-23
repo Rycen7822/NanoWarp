@@ -58,7 +58,6 @@ pub struct PrewarmedSandboxSpec {
     pub repositories: Vec<ExecutionRepository>,
     pub deferred_repositories: Vec<SourceRepo>,
     pub setup_commands: Vec<String>,
-    pub mcp_servers_json: String,
     pub skills: Vec<String>,
     pub factory_skill_dirs: Vec<String>,
     pub providers: Option<CloudProviderClientConfigs>,

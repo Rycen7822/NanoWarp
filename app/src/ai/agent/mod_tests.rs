@@ -558,7 +558,6 @@ fn ai_agent_context_round_trips_tagged_variants() {
             data: "aGVsbG8=".to_string(),
             mime_type: "image/png".to_string(),
             file_name: "shot.png".to_string(),
-            is_figma: false,
         }),
         AIAgentContext::Codebase {
             path: "/tmp/project".to_string(),

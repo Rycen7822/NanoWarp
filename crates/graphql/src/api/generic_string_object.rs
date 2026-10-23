@@ -11,6 +11,7 @@ pub struct GenericStringObject {
 }
 
 #[derive(cynic::Enum, Clone, Copy, Debug)]
+#[cynic(non_exhaustive)]
 pub enum GenericStringObjectFormat {
     #[cynic(rename = "JsonEnvVarCollection")]
     JsonEnvVarCollection,
@@ -20,12 +21,8 @@ pub enum GenericStringObjectFormat {
     JsonWorkflowEnum,
     #[cynic(rename = "JsonAIFact")]
     JsonAIFact,
-    #[cynic(rename = "JsonMCPServer")]
-    JsonMCPServer,
     #[cynic(rename = "JsonAIExecutionProfile")]
     JsonAIExecutionProfile,
-    #[cynic(rename = "JsonTemplatableMCPServer")]
-    JsonTemplatableMCPServer,
     #[cynic(rename = "JsonCloudEnvironment")]
     JsonCloudEnvironment,
     #[cynic(rename = "JsonScheduledAmbientAgent")]
@@ -57,9 +54,7 @@ impl std::fmt::Display for GenericStringObjectFormat {
             GenericStringObjectFormat::JsonPreference => "JsonPreference",
             GenericStringObjectFormat::JsonWorkflowEnum => "JsonWorkflowEnum",
             GenericStringObjectFormat::JsonAIFact => "JsonAIFact",
-            GenericStringObjectFormat::JsonMCPServer => "JsonMCPServer",
             GenericStringObjectFormat::JsonAIExecutionProfile => "JsonAIExecutionProfile",
-            GenericStringObjectFormat::JsonTemplatableMCPServer => "JsonTemplatableMCPServer",
             GenericStringObjectFormat::JsonCloudEnvironment => "JsonCloudEnvironment",
             GenericStringObjectFormat::JsonScheduledAmbientAgent => "JsonScheduledAmbientAgent",
             GenericStringObjectFormat::Unknown => "Unknown",

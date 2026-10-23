@@ -6,7 +6,6 @@ use anyhow::Context as _;
 #[cfg(not(feature = "agent_mode_evals"))]
 use indexmap::IndexMap;
 use settings::Setting as _;
-use uuid::Uuid;
 use warp_core::channel::ChannelState;
 use warp_core::features::FeatureFlag;
 use warp_core::user_preferences::GetUserPreferences;
@@ -18,8 +17,6 @@ use super::{
     ExecutionProfilesConfig, WriteToPtyPermission,
 };
 use crate::ai::llms::{LLMId, LLMPreferences};
-use crate::ai::mcp::TemplatableMCPServerManager;
-use crate::ai::mcp::templatable_manager::TemplatableMCPServerManagerEvent;
 use crate::auth::AuthStateProvider;
 // The auth-completion trigger for the legacy import is compiled out for eval builds.
 #[cfg(not(feature = "agent_mode_evals"))]
@@ -405,13 +402,6 @@ impl AIExecutionProfilesModel {
                 });
             }
         }
-
-        ctx.subscribe_to_model(
-            &TemplatableMCPServerManager::handle(ctx),
-            |me, _, event, ctx| {
-                me.handle_templatable_mcp_server_manager_event(event, ctx);
-            },
-        );
 
         // In dev, it's possible the SQLite data read in for the default profile actually comes from a different environment
         // (say, we switch between local and staging servers). When that happens the default profile starts as synced but
@@ -1401,39 +1391,6 @@ impl AIExecutionProfilesModel {
         );
     }
 
-    pub fn set_mcp_permissions(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        mcp_permissions: &ActionPermission,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if profile.mcp_permissions == *mcp_permissions {
-                    return false;
-                }
-
-                if mcp_permissions == &ActionPermission::AlwaysAllow {
-                    profile.mcp_allowlist.clear();
-                } else if mcp_permissions == &ActionPermission::AlwaysAsk {
-                    profile.mcp_denylist.clear();
-                }
-                profile.mcp_permissions = *mcp_permissions;
-                true
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileSettingUpdated {
-                setting_type: "mcp_permissions".to_string(),
-                setting_value: format!("{mcp_permissions:?}"),
-            },
-            ctx
-        );
-    }
-
     pub fn set_ask_user_question(
         &mut self,
         profile_id: &ExecutionProfileId,
@@ -1737,110 +1694,6 @@ impl AIExecutionProfilesModel {
         );
     }
 
-    pub fn add_to_mcp_allowlist(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        id: &Uuid,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if !profile.mcp_allowlist.contains(id) {
-                    profile.mcp_allowlist.push(*id);
-                    return true;
-                }
-                false
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileAddedToAllowlist {
-                list_type: "mcp".to_string(),
-                value: id.to_string(),
-            },
-            ctx
-        );
-    }
-
-    pub fn remove_from_mcp_allowlist(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        id: &Uuid,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                let original_len = profile.mcp_allowlist.len();
-                profile.mcp_allowlist.retain(|p| p != id);
-                profile.mcp_allowlist.len() != original_len
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileRemovedFromAllowlist {
-                list_type: "mcp".to_string(),
-                value: id.to_string(),
-            },
-            ctx
-        );
-    }
-
-    pub fn add_to_mcp_denylist(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        id: &Uuid,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if !profile.mcp_denylist.contains(id) {
-                    profile.mcp_denylist.push(*id);
-                    return true;
-                }
-                false
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileAddedToDenylist {
-                list_type: "mcp".to_string(),
-                value: id.to_string(),
-            },
-            ctx
-        );
-    }
-
-    pub fn remove_from_mcp_denylist(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        id: &Uuid,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                let original_len = profile.mcp_denylist.len();
-                profile.mcp_denylist.retain(|p| p != id);
-                profile.mcp_denylist.len() != original_len
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileRemovedFromDenylist {
-                list_type: "mcp".to_string(),
-                value: id.to_string(),
-            },
-            ctx
-        );
-    }
-
     /// `edit_profile_internal` edits an AIExecutionProfile and upserts the changed profile to the cloud
     /// Parameters:
     /// * `profile_id`: The id of the profile to edit
@@ -1990,17 +1843,6 @@ impl AIExecutionProfilesModel {
             } => {
                 self.handle_ai_execution_profile_deleted(*id, ctx);
             }
-            CloudModelEvent::ObjectDeleted {
-                type_and_id:
-                    CloudObjectTypeAndId::GenericStringObject {
-                        object_type: GenericStringObjectFormat::Json(JsonObjectType::MCPServer),
-                        id: _,
-                    },
-                folder_id: _,
-            } => {
-                // Legacy MCP servers are converted to templatable on startup;
-                // no action needed when a legacy cloud object is deleted.
-            }
             CloudModelEvent::ObjectUpdated {
                 type_and_id:
                     CloudObjectTypeAndId::GenericStringObject {
@@ -2078,22 +1920,6 @@ impl AIExecutionProfilesModel {
         }
         if added_non_default {
             ctx.emit(AIExecutionProfilesModelEvent::ProfileCreated);
-        }
-    }
-
-    fn handle_templatable_mcp_server_manager_event(
-        &mut self,
-        event: &TemplatableMCPServerManagerEvent,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match event {
-            TemplatableMCPServerManagerEvent::TemplatableMCPServersUpdated => {
-                self.remove_deleted_mcp_servers(ctx);
-            }
-            TemplatableMCPServerManagerEvent::LegacyServerConverted
-            | TemplatableMCPServerManagerEvent::StateChanged { uuid: _ }
-            | TemplatableMCPServerManagerEvent::ServerInstallationAdded(_)
-            | TemplatableMCPServerManagerEvent::ServerInstallationDeleted(_) => {}
         }
     }
 
@@ -2207,29 +2033,6 @@ impl AIExecutionProfilesModel {
         if let Some(profile_id) = profile_id {
             log::info!("Execution profile updated from server: {sync_id:?}");
             ctx.emit(AIExecutionProfilesModelEvent::ProfileUpdated(profile_id));
-        }
-    }
-
-    /// Handle deleted MCP servers by deleting its uuid from all profiles.
-    fn remove_deleted_mcp_servers(&mut self, ctx: &mut ModelContext<Self>) {
-        let all_valid_uuids = TemplatableMCPServerManager::get_all_cloud_synced_mcp_servers(ctx);
-        for profile_id in self.get_all_profile_ids() {
-            self.edit_profile_internal(
-                &profile_id,
-                |profile| {
-                    let original_allowlist_len = profile.mcp_allowlist.len();
-                    let original_denylist_len = profile.mcp_denylist.len();
-                    profile
-                        .mcp_allowlist
-                        .retain(|uuid| all_valid_uuids.contains_key(uuid));
-                    profile
-                        .mcp_denylist
-                        .retain(|uuid| all_valid_uuids.contains_key(uuid));
-                    profile.mcp_allowlist.len() != original_allowlist_len
-                        || profile.mcp_denylist.len() != original_denylist_len
-                },
-                ctx,
-            );
         }
     }
 

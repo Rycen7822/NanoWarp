@@ -61,7 +61,6 @@ pub mod connected_self_hosted_workers;
 pub mod execution_profiles;
 pub mod facts;
 pub(crate) mod loading;
-pub mod mcp;
 pub mod outline;
 
 pub(crate) use ai::paths;

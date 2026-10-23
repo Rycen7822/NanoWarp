@@ -146,9 +146,7 @@ impl CloudObjectNamingDialog {
             DriveObjectType::Workflow
             | DriveObjectType::AgentModeWorkflow
             | DriveObjectType::AIFact
-            | DriveObjectType::AIFactCollection
-            | DriveObjectType::MCPServer
-            | DriveObjectType::MCPServerCollection => "",
+            | DriveObjectType::AIFactCollection => "",
         };
 
         Text::new_inline(

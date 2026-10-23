@@ -4,7 +4,6 @@ pub mod create_agent_task;
 pub mod create_anonymous_user;
 pub mod create_folder;
 pub mod create_generic_string_object;
-pub mod create_managed_mcp_client_config;
 pub mod create_managed_secret;
 pub mod create_notebook;
 pub mod create_simple_integration;

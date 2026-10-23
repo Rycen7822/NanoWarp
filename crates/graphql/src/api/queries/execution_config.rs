@@ -75,7 +75,6 @@ pub struct ExecutionConfiguration {
     pub model_id: Option<String>,
     pub reasoning_level: Option<String>,
     pub profile_id: Option<cynic::Id>,
-    pub mcp_servers_json: String,
     pub skills: Vec<ExecutionSkillSpec>,
     pub factory_skill_dirs: Vec<String>,
     pub inference_providers: Option<InferenceProviderClientConfigs>,

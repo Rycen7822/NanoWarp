@@ -35,7 +35,6 @@ fn file_collection_round_trips_multiple_profiles() {
         command_allowlist: vec![
             AgentModeCommandExecutionPredicate::new_regex("git status").unwrap(),
         ],
-        mcp_allowlist: vec![uuid::Uuid::new_v4()],
         base_model: Some(LLMId::from("model-id")),
         ..Default::default()
     };

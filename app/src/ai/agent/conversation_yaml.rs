@@ -325,18 +325,6 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
                 out.push_str(&format!("search_dir: {}\n", fg.search_dir));
             }
         }
-        Tool::CallMcpTool(mcp) => {
-            out.push_str(&format!("name: {}\n", mcp.name));
-            if let Some(args) = &mcp.args {
-                out.push_str("args: |\n");
-                let json =
-                    serde_json::to_string_pretty(&prost_struct_to_json(args)).unwrap_or_default();
-                write_block_scalar(out, &json);
-            }
-        }
-        Tool::ReadMcpResource(r) => {
-            out.push_str(&format!("uri: {}\n", r.uri));
-        }
         Tool::FetchConversation(fc) => {
             out.push_str(&format!("conversation_id: {}\n", fc.conversation_id));
         }
@@ -500,7 +488,9 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
             }
         }
         // No additional args worth serializing.
-        Tool::ReadShellCommandOutput(_)
+        Tool::ReadMcpResource(_)
+        | Tool::CallMcpTool(_)
+        | Tool::ReadShellCommandOutput(_)
         | Tool::UseComputer(_)
         | Tool::RequestComputerUse(_)
         | Tool::UploadFileArtifact(_)
@@ -803,69 +793,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
                 }
             }
         }
-        ToolCallResultType::CallMcpTool(r) => {
-            if let Some(res) = &r.result {
-                use api::call_mcp_tool_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("results:\n");
-                        for item in &s.results {
-                            use api::call_mcp_tool_result::success::result::Result as ItemResult;
-                            match &item.result {
-                                Some(ItemResult::Text(t)) => {
-                                    out.push_str("  - type: text\n");
-                                    out.push_str("    content: |\n");
-                                    for line in truncate_content(&t.text, 4096).lines() {
-                                        out.push_str("      ");
-                                        out.push_str(line);
-                                        out.push('\n');
-                                    }
-                                }
-                                Some(ItemResult::Image(_)) => {
-                                    out.push_str("  - type: image\n");
-                                }
-                                Some(ItemResult::Resource(r)) => {
-                                    out.push_str(&format!(
-                                        "  - type: resource\n    uri: {}\n",
-                                        r.uri
-                                    ));
-                                }
-                                None => {}
-                            }
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::ReadMcpResource(r) => {
-            if let Some(res) = &r.result {
-                use api::read_mcp_resource_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("contents:\n");
-                        for content in &s.contents {
-                            out.push_str(&format!("  - uri: {}\n", content.uri));
-                            if let Some(api::mcp_resource_content::ContentType::Text(t)) =
-                                &content.content_type
-                            {
-                                out.push_str("    text: |\n");
-                                for line in truncate_content(&t.content, 4096).lines() {
-                                    out.push_str("      ");
-                                    out.push_str(line);
-                                    out.push('\n');
-                                }
-                            }
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
         ToolCallResultType::ReadSkill(r) => {
             if let Some(res) = &r.result {
                 use api::read_skill_result::Result;
@@ -1048,7 +975,9 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
         }
         ToolCallResultType::InitProject(_) => {}
         // No structured content worth serializing.
-        ToolCallResultType::Server(_)
+        ToolCallResultType::ReadMcpResource(_)
+        | ToolCallResultType::CallMcpTool(_)
+        | ToolCallResultType::Server(_)
         | ToolCallResultType::Subagent(_)
         | ToolCallResultType::UseComputer(_)
         | ToolCallResultType::RequestComputerUseResult(_)
@@ -1104,30 +1033,5 @@ fn any_file_content_summary(content: &api::AnyFileContent) -> (String, String) {
             (b.file_path.clone(), "<binary>".to_string())
         }
         None => (String::new(), String::new()),
-    }
-}
-
-/// Converts a prost Struct to a serde_json Value for pretty-printing.
-fn prost_struct_to_json(s: &prost_types::Struct) -> serde_json::Value {
-    let map: serde_json::Map<String, serde_json::Value> = s
-        .fields
-        .iter()
-        .map(|(k, v)| (k.clone(), prost_value_to_json(v)))
-        .collect();
-    serde_json::Value::Object(map)
-}
-
-fn prost_value_to_json(v: &prost_types::Value) -> serde_json::Value {
-    use prost_types::value::Kind;
-    match &v.kind {
-        Some(Kind::NullValue(_)) => serde_json::Value::Null,
-        Some(Kind::NumberValue(n)) => serde_json::json!(*n),
-        Some(Kind::StringValue(s)) => serde_json::Value::String(s.clone()),
-        Some(Kind::BoolValue(b)) => serde_json::Value::Bool(*b),
-        Some(Kind::StructValue(s)) => prost_struct_to_json(s),
-        Some(Kind::ListValue(l)) => {
-            serde_json::Value::Array(l.values.iter().map(prost_value_to_json).collect())
-        }
-        None => serde_json::Value::Null,
     }
 }

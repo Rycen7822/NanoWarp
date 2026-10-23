@@ -7,7 +7,6 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use warpui::{AppContext, EntityId, SingletonEntity};
 
 use super::history_model::{
@@ -241,16 +240,6 @@ pub(crate) enum PersistedAIAgentActionType {
         patterns: Vec<String>,
         search_dir: Option<String>,
     },
-    ReadMCPResource {
-        server_id: Option<Uuid>,
-        name: String,
-        uri: Option<String>,
-    },
-    CallMCPTool {
-        server_id: Option<Uuid>,
-        name: String,
-        input: serde_json::Value,
-    },
     SuggestNewConversation {
         message_id: String,
     },
@@ -315,24 +304,6 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
             } => Self::FileGlobV2 {
                 patterns: patterns.clone(),
                 search_dir: search_dir.clone(),
-            },
-            AIAgentActionType::CallMCPTool {
-                server_id,
-                name,
-                input,
-            } => Self::CallMCPTool {
-                server_id: *server_id,
-                name: name.clone(),
-                input: input.clone(),
-            },
-            AIAgentActionType::ReadMCPResource {
-                server_id,
-                name,
-                uri,
-            } => Self::ReadMCPResource {
-                server_id: *server_id,
-                name: name.clone(),
-                uri: uri.clone(),
             },
             AIAgentActionType::SuggestNewConversation { message_id } => {
                 Self::SuggestNewConversation {
@@ -429,24 +400,6 @@ impl TryFrom<PersistedAIAgentActionType> for AIAgentActionType {
             } => Ok(Self::FileGlobV2 {
                 patterns,
                 search_dir,
-            }),
-            PersistedAIAgentActionType::CallMCPTool {
-                server_id,
-                name,
-                input,
-            } => Ok(Self::CallMCPTool {
-                server_id,
-                name,
-                input,
-            }),
-            PersistedAIAgentActionType::ReadMCPResource {
-                server_id,
-                name,
-                uri,
-            } => Ok(Self::ReadMCPResource {
-                server_id,
-                name,
-                uri,
             }),
             PersistedAIAgentActionType::SuggestNewConversation { message_id } => {
                 Ok(Self::SuggestNewConversation {

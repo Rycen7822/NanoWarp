@@ -127,7 +127,6 @@ use crate::ai::cloud_environments::AmbientAgentEnvironment;
 use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::ai::execution_profiles::AIExecutionProfile;
 use crate::ai::facts::AIFact;
-use crate::ai::mcp::{MCPServer, TemplatableMCPServer};
 use crate::channel::ChannelState;
 use crate::cloud_object::model::generic_string_model::{
     GenericStringModel, GenericStringObjectId, Serializer, StringModel,
@@ -791,24 +790,10 @@ impl ObjectClient for ServerApi {
                                     gso,
                                 );
                             }
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonMCPServer => {
-                                parse_server_gso::<MCPServer, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::MCPServer),
-                                    gso,
-                                );
-                            }
                             warp_graphql::generic_string_object::GenericStringObjectFormat::JsonAIExecutionProfile => {
                                 parse_server_gso::<AIExecutionProfile, JsonSerializer>(
                                     &mut updated_generic_string_objects,
                                     GenericStringObjectFormat::Json(JsonObjectType::AIExecutionProfile),
-                                    gso,
-                                );
-                            }
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonTemplatableMCPServer => {
-                                parse_server_gso::<TemplatableMCPServer, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::TemplatableMCPServer),
                                     gso,
                                 );
                             }
@@ -895,8 +880,6 @@ impl ObjectClient for ServerApi {
                     })
                     .unwrap_or_default();
 
-                let mcp_gallery = output.mcp_gallery.unwrap_or_default();
-
                 let response = InitialLoadResponse {
                     updated_notebooks,
                     deleted_notebooks,
@@ -908,7 +891,6 @@ impl ObjectClient for ServerApi {
                     deleted_generic_string_objects,
                     user_profiles,
                     action_histories,
-                    mcp_gallery,
                 };
                 Ok(response)
             }

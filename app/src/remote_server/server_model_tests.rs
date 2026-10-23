@@ -74,7 +74,6 @@ fn test_bundled_skill_proto(id: &str) -> RemoteSkillProto {
         content: format!("# {id}"),
         source: Some(remote_skill_proto::Source::Bundled(BundledSkillMetadata {
             id: id.to_string(),
-            requires_mcp: None,
         })),
     }
 }

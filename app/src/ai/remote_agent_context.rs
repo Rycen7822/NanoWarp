@@ -14,7 +14,6 @@ use warp_util::remote_path::RemotePath;
 use warp_util::standardized_path::StandardizedPath;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use super::mcp::McpIntegration;
 use super::skills::{BundledSkill, BundledSkillActivation, SkillManager};
 
 /// Home skills parsed from a remote agent context snapshot.
@@ -161,36 +160,12 @@ fn bundled_skill_from_protos(host_id: &HostId, skills: &[RemoteSkillProto]) -> B
         let remote_skill_proto::Source::Bundled(metadata) = proto.source.as_ref()? else {
             return None;
         };
-        let skill = parse_remote_skill(
-            host_id,
-            proto,
-            SkillScope::Bundled,
-            None,
-            |_| Some(SkillProvider::Warp),
-        )?;
-        let activation = match metadata.requires_mcp.as_deref() {
-            None => BundledSkillActivation::Always,
-            Some(wire_id) => match mcp_integration_from_wire_id(wire_id) {
-                Some(integration) => BundledSkillActivation::RequiresMcp(integration),
-                None => {
-                    safe_warn!(
-                        safe: ("Skipping bundled skill with an unknown MCP integration"),
-                        full: ("Skipping bundled skill {} with an unknown MCP integration: {wire_id}", metadata.id)
-                    );
-                    return None;
-                }
-            },
-        };
-        Some((metadata.id.clone(), skill, activation))
+        let skill = parse_remote_skill(host_id, proto, SkillScope::Bundled, None, |_| {
+            Some(SkillProvider::Warp)
+        })?;
+        Some((metadata.id.clone(), skill, BundledSkillActivation::Always))
     });
     BundledSkill::from_definitions(definitions)
-}
-
-fn mcp_integration_from_wire_id(wire_id: &str) -> Option<McpIntegration> {
-    match wire_id {
-        "figma" => Some(McpIntegration::Figma),
-        _ => None,
-    }
 }
 
 fn remote_path(host_id: &HostId, path: &str) -> Option<LocalOrRemotePath> {

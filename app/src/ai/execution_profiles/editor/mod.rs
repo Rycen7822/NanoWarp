@@ -51,7 +51,7 @@ use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::{
     ResolvedTeamScope, TeamContext, TeamScope, UserWorkspacesEvent,
 };
-use crate::{Appearance, TemplatableMCPServerManager, UserWorkspaces};
+use crate::{Appearance, UserWorkspaces};
 
 const MODEL_MENU_WIDTH: f32 = 250.;
 
@@ -130,12 +130,9 @@ struct TooltipMouseStateHandles {
     write_to_pty_tooltip_mouse_state: MouseStateHandle,
     ask_user_question_tooltip_mouse_state: MouseStateHandle,
     run_agents_tooltip_mouse_state: MouseStateHandle,
-    call_mcp_servers_tooltip_mouse_state: MouseStateHandle,
     // Separate mouse state handles for text input editors (for workspace override tooltips)
     command_allowlist_editor_tooltip_mouse_state: MouseStateHandle,
     directory_allowlist_editor_tooltip_mouse_state: MouseStateHandle,
-    mcp_allowlist_editor_tooltip_mouse_state: MouseStateHandle,
-    mcp_denylist_editor_tooltip_mouse_state: MouseStateHandle,
 }
 
 pub mod manager;
@@ -183,9 +180,6 @@ pub enum ExecutionProfileEditorViewAction {
     SetWriteToPty {
         permission: WriteToPtyPermission,
     },
-    SetCallMcpServers {
-        permission: ActionPermission,
-    },
     SetAskUserQuestion {
         permission: super::AskUserQuestionPermission,
     },
@@ -209,18 +203,6 @@ pub enum ExecutionProfileEditorViewAction {
     },
     RemoveFromDirectoryAllowlist {
         path: PathBuf,
-    },
-    AddToMCPAllowlist {
-        id: uuid::Uuid,
-    },
-    RemoveFromMCPAllowlist {
-        id: uuid::Uuid,
-    },
-    AddToMCPDenylist {
-        id: uuid::Uuid,
-    },
-    RemoveFromMCPDenylist {
-        id: uuid::Uuid,
     },
     DeleteProfile,
     SetPlanAutoSync {
@@ -249,7 +231,6 @@ pub struct ExecutionProfileEditorView {
     read_files_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     execute_commands_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     write_to_pty_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
-    call_mcp_servers_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     ask_user_question_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     run_agents_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     command_allowlist_editor: ViewHandle<SubmittableTextInput>,
@@ -259,10 +240,6 @@ pub struct ExecutionProfileEditorView {
     command_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_tooltip_mouse_state_handles: Vec<MouseStateHandle>,
     directory_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    mcp_allowlist_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
-    mcp_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    mcp_denylist_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
-    mcp_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     profile_name_editor: ViewHandle<EditorView>,
     delete_button: ViewHandle<ActionButton>,
     tooltip_mouse_state_handles: TooltipMouseStateHandles,
@@ -388,34 +365,6 @@ impl ExecutionProfileEditorView {
             dropdown
         });
 
-        let call_mcp_servers_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        ExecutionProfileEditorViewAction::SetCallMcpServers {
-                            permission: ActionPermission::AgentDecides,
-                        },
-                    ),
-                    DropdownItem::new(
-                        "Always allow",
-                        ExecutionProfileEditorViewAction::SetCallMcpServers {
-                            permission: ActionPermission::AlwaysAllow,
-                        },
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        ExecutionProfileEditorViewAction::SetCallMcpServers {
-                            permission: ActionPermission::AlwaysAsk,
-                        },
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-
         let ask_user_question_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
             dropdown.set_items(
@@ -472,33 +421,9 @@ impl ExecutionProfileEditorView {
             dropdown
         });
 
-        let mcp_allowlist_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = FilterableDropdown::new(ctx);
-            dropdown.set_menu_header_to_static("Select MCP servers");
-            dropdown
-        });
-
-        let mcp_denylist_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = FilterableDropdown::new(ctx);
-            dropdown.set_menu_header_to_static("Select MCP servers");
-            dropdown
-        });
-
         let permissions = BlocklistAIPermissions::as_ref(ctx);
         let team_context = UserWorkspaces::as_ref(ctx).team_context(&self_handle, ctx);
         let profile_data = permissions.permissions_profile_for_id(&profile_id, &team_context, ctx);
-
-        let mcp_allowlist_mouse_state_handles = profile_data
-            .mcp_allowlist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        let mcp_denylist_mouse_state_handles = profile_data
-            .mcp_denylist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
 
         let base_model_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
@@ -623,7 +548,6 @@ impl ExecutionProfileEditorView {
             read_files_dropdown,
             execute_commands_dropdown,
             write_to_pty_dropdown,
-            call_mcp_servers_dropdown,
             ask_user_question_dropdown,
             run_agents_dropdown,
             command_allowlist_editor,
@@ -637,10 +561,6 @@ impl ExecutionProfileEditorView {
                 .map(|_| Default::default())
                 .collect(),
             directory_allowlist_mouse_state_handles,
-            mcp_allowlist_dropdown,
-            mcp_allowlist_mouse_state_handles,
-            mcp_denylist_dropdown,
-            mcp_denylist_mouse_state_handles,
             profile_name_editor,
             delete_button,
             tooltip_mouse_state_handles: Default::default(),
@@ -879,18 +799,6 @@ impl ExecutionProfileEditorView {
             .iter()
             .map(|_| Default::default())
             .collect();
-
-        self.mcp_allowlist_mouse_state_handles = current_permissions
-            .mcp_allowlist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        self.mcp_denylist_mouse_state_handles = current_permissions
-            .mcp_denylist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
     }
 
     fn refresh_profile_state(&mut self, ctx: &mut ViewContext<Self>) {
@@ -909,7 +817,6 @@ impl ExecutionProfileEditorView {
         let ask_user_question_disabled =
             !ai_settings.is_ask_user_question_permissions_editable(ctx);
         let run_agents_disabled = !ai_settings.is_run_agents_permissions_editable(ctx);
-        let mcp_disabled = !ai_settings.is_mcp_permission_editable(ctx);
 
         Self::refresh_filterable_model_dropdown(
             &self.base_model_dropdown,
@@ -962,12 +869,6 @@ impl ExecutionProfileEditorView {
             write_to_pty_disabled,
             ctx,
         );
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.call_mcp_servers_dropdown,
-            current_permissions.mcp_permissions,
-            mcp_disabled,
-            ctx,
-        );
         Self::refresh_ask_user_question_dropdown_menu(
             &self.ask_user_question_dropdown,
             current_permissions.ask_user_question,
@@ -980,21 +881,6 @@ impl ExecutionProfileEditorView {
             run_agents_disabled,
             ctx,
         );
-        Self::refresh_mcp_dropdown(
-            &self.mcp_allowlist_dropdown,
-            |uuid| ExecutionProfileEditorViewAction::AddToMCPAllowlist { id: uuid },
-            &current_permissions.mcp_allowlist,
-            &current_permissions.mcp_denylist,
-            ctx,
-        );
-        Self::refresh_mcp_dropdown(
-            &self.mcp_denylist_dropdown,
-            |uuid| ExecutionProfileEditorViewAction::AddToMCPDenylist { id: uuid },
-            &current_permissions.mcp_allowlist,
-            &current_permissions.mcp_denylist,
-            ctx,
-        );
-
         Self::update_profile_name_editor(&self.profile_name_editor, &current_permissions, ctx);
         self.sync_context_window_editor(ctx, false);
     }
@@ -1215,38 +1101,6 @@ impl ExecutionProfileEditorView {
                 ctx,
             );
             ctx.notify();
-        });
-        ctx.notify();
-    }
-
-    fn refresh_mcp_dropdown<F>(
-        dropdown: &ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
-        action_creator: F,
-        profile_mcp_allowlist: &[uuid::Uuid],
-        profile_mcp_denylist: &[uuid::Uuid],
-        ctx: &mut ViewContext<Self>,
-    ) where
-        F: Fn(uuid::Uuid) -> ExecutionProfileEditorViewAction,
-    {
-        let all_mcp_servers = TemplatableMCPServerManager::get_all_cloud_synced_mcp_servers(ctx);
-        dropdown.update(ctx, |dropdown, ctx| {
-            let mcps_in_dropdown: Vec<(uuid::Uuid, String)> = all_mcp_servers
-                .into_iter()
-                .filter(|(uuid, _server_name)| {
-                    !profile_mcp_allowlist.contains(uuid) && !profile_mcp_denylist.contains(uuid)
-                })
-                .collect();
-
-            dropdown.set_items(
-                mcps_in_dropdown
-                    .iter()
-                    .map(|(uuid, server_name)| {
-                        DropdownItem::new(server_name, action_creator(*uuid))
-                    })
-                    .collect(),
-                ctx,
-            );
-            ctx.notify()
         });
         ctx.notify();
     }
@@ -1602,12 +1456,6 @@ impl TypedActionView for ExecutionProfileEditorView {
                 });
                 ctx.notify();
             }
-            ExecutionProfileEditorViewAction::SetCallMcpServers { permission } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    profiles_model.set_mcp_permissions(&self.profile_id, permission, ctx);
-                });
-                ctx.notify();
-            }
             ExecutionProfileEditorViewAction::SetAskUserQuestion { permission } => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
                     profiles_model.set_ask_user_question(&self.profile_id, *permission, ctx);
@@ -1653,30 +1501,6 @@ impl TypedActionView for ExecutionProfileEditorView {
             ExecutionProfileEditorViewAction::RemoveFromDirectoryAllowlist { path } => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
                     profiles_model.remove_from_directory_allowlist(&self.profile_id, path, ctx);
-                });
-                ctx.notify();
-            }
-            ExecutionProfileEditorViewAction::AddToMCPAllowlist { id } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    profiles_model.add_to_mcp_allowlist(&self.profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            ExecutionProfileEditorViewAction::RemoveFromMCPAllowlist { id } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    profiles_model.remove_from_mcp_allowlist(&self.profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            ExecutionProfileEditorViewAction::AddToMCPDenylist { id } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    profiles_model.add_to_mcp_denylist(&self.profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            ExecutionProfileEditorViewAction::RemoveFromMCPDenylist { id } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    profiles_model.remove_from_mcp_denylist(&self.profile_id, id, ctx);
                 });
                 ctx.notify();
             }

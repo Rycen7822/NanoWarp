@@ -43,7 +43,6 @@ pub struct ListedSimpleIntegrationConfig {
     pub environment_uid: String,
     pub base_prompt: String,
     pub model_id: String,
-    pub mcp_servers_json: String,
 }
 
 #[derive(cynic::Enum, Debug, Clone, Copy)]

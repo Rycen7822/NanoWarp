@@ -346,8 +346,6 @@ pub enum TerminalAction {
     SummarizeConversation,
     AddProjectAtCurrentDirectory,
     OpenProjectRulesPane,
-    OpenViewMCPPane,
-    OpenAddMCPPane,
     OpenAddRulePane,
     OpenRulesPane,
     OpenEditSkillPane {
@@ -639,8 +637,6 @@ impl fmt::Debug for TerminalAction {
             ToggleCodeReviewPane { .. } => write!(f, "ToggleCodeReviewPane"),
             AddProjectAtCurrentDirectory => write!(f, "AddProjectAtCurrentDirectory"),
             OpenProjectRulesPane => write!(f, "OpenProjectRulesPane"),
-            OpenViewMCPPane => write!(f, "OpenViewMCPPane"),
-            OpenAddMCPPane => write!(f, "OpenAddMCPPane"),
             OpenAddRulePane => write!(f, "OpenAddRulePane"),
             OpenRulesPane => write!(f, "OpenRulesPane"),
             OpenEditSkillPane { .. } => write!(f, "OpenEditSkillPane"),

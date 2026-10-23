@@ -284,7 +284,6 @@ integration_tests! {
     test_settings_search_subpage_still_renders_content,
     test_settings_search_clear_restores_umbrella_state,
     test_settings_search_preserved_on_sidebar_click,
-    test_settings_agent_mcp_servers_renders_standalone_page,
 
     test_copy_selection_within_ai_block,
     #[ignore = "Affected by agent_view feature flag UI changes"]

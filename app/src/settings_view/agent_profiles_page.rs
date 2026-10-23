@@ -19,8 +19,8 @@ use warp_core::features::FeatureFlag;
 use warp_errors::{report_error, report_if_error};
 use warpui::elements::{
     ChildView, ConstrainedBox, Container, CrossAxisAlignment, Dismiss, Element, Flex,
-    FormattedTextElement, HighlightedHyperlink, HyperlinkLens, HyperlinkUrl, MainAxisAlignment,
-    MainAxisSize, MouseStateHandle, ParentElement, Shrinkable, Text,
+    FormattedTextElement, HighlightedHyperlink, HyperlinkUrl, MainAxisAlignment, MainAxisSize,
+    MouseStateHandle, ParentElement, Shrinkable, Text,
 };
 use warpui::keymap::ContextPredicate;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -32,16 +32,15 @@ use warpui::{
 };
 
 use super::ai_shared::{
-    render_ai_setting_description, render_ai_setting_label, render_ai_setting_toggle,
-    should_show_mcp_servers, styles, update_editor_interaction_state,
+    render_ai_setting_description, render_ai_setting_label, render_ai_setting_toggle, styles,
+    update_editor_interaction_state,
 };
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
 use super::settings_page::{
     CONTENT_FONT_SIZE, HEADER_PADDING, InputListItem, LocalOnlyIconState, MatchData, PageType,
     SettingsPageMeta, SettingsPageViewHandle, SettingsWidget, ToggleState, build_sub_header,
     render_body_item_label, render_body_item_label_with_icon, render_custom_size_header,
-    render_dropdown_item, render_dropdown_item_label, render_input_list, render_separator,
-    render_settings_info_banner,
+    render_dropdown_item, render_input_list, render_separator, render_settings_info_banner,
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, flags};
 use crate::ai::blocklist::BlocklistAIPermissions;
@@ -57,16 +56,12 @@ use crate::ai::execution_profiles::{
     WriteToPtyPermission, long_context_pricing_warning_title,
 };
 use crate::ai::llms::{LLMContextWindow, LLMId, LLMPreferences, LLMPreferencesEvent};
-use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::paths::host_native_absolute_path;
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::{AuthManager, LoginGatedFeature};
 use crate::auth::auth_view_modal::AuthViewVariant;
-use crate::cloud_object::GenericStringObjectFormat::Json;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::{JsonObjectType, ObjectType};
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
 use crate::server::telemetry::AutonomySettingToggleSource;
 use crate::settings::{
@@ -79,8 +74,7 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, ButtonSize, SecondaryTheme};
 use crate::view_components::dropdown::DropdownAction;
 use crate::view_components::{
-    Dropdown, DropdownItem, FilterableDropdown, SubmittableTextInput, SubmittableTextInputEvent,
-    render_warning_box,
+    Dropdown, DropdownItem, SubmittableTextInput, SubmittableTextInputEvent, render_warning_box,
 };
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, TeamContext, UserWorkspacesEvent};
 use crate::{TelemetryEvent, UserWorkspaces, send_telemetry_from_ctx};
@@ -110,7 +104,6 @@ pub struct AgentProfilesPageView {
     read_files_dropdown_menu: ViewHandle<Dropdown<AgentProfilesPageAction>>,
     execute_commands_dropdown_menu: ViewHandle<Dropdown<AgentProfilesPageAction>>,
     write_to_pty_autonomy_dropdown_menu: ViewHandle<Dropdown<AgentProfilesPageAction>>,
-    mcp_permissions_dropdown_menu: ViewHandle<Dropdown<AgentProfilesPageAction>>,
 
     directory_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
     directory_allowlist_editor: ViewHandle<SubmittableTextInput>,
@@ -121,12 +114,6 @@ pub struct AgentProfilesPageView {
     command_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_tooltip_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
-
-    mcp_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    mcp_allowlist_dropdown: ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
-
-    mcp_denylist_mouse_state_handles: Vec<MouseStateHandle>,
-    mcp_denylist_dropdown: ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
 
     base_model_dropdown: ViewHandle<Dropdown<AgentProfilesPageAction>>,
     coding_model_dropdown: ViewHandle<Dropdown<AgentProfilesPageAction>>,
@@ -360,31 +347,6 @@ impl AgentProfilesPageView {
             },
         );
 
-        let cloud_model = CloudModel::handle(ctx);
-        ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| {
-            let added_or_deleted_mcp_servers = matches!(
-                event,
-                CloudModelEvent::ObjectCreated { type_and_id } | CloudModelEvent::ObjectDeleted { type_and_id, .. }
-                if matches!(
-                    type_and_id.object_type(),
-                    ObjectType::GenericStringObject(Json(JsonObjectType::MCPServer))
-                )
-            );
-
-            if added_or_deleted_mcp_servers {
-                Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
-                Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
-                ctx.notify();
-            }
-        });
-
-        let templatable_manager = TemplatableMCPServerManager::handle(ctx);
-        ctx.subscribe_to_model(&templatable_manager, |me, _, _event, ctx| {
-            Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
-            Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
-            ctx.notify();
-        });
-
         ctx.subscribe_to_model(
             &LLMPreferences::handle(ctx),
             |me, _, event, ctx| match event {
@@ -470,8 +432,6 @@ impl AgentProfilesPageView {
                     );
                     Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
                     Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
-                    Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
-                    Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
                     me.sync_context_window_editor(ctx, true);
                 }
                 AISettingsChangedEvent::AgentModeExecuteReadonlyCommands { .. } => {
@@ -660,64 +620,6 @@ impl AgentProfilesPageView {
             ctx,
         );
 
-        let mcp_permissions_dropdown_menu = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        AgentProfilesPageAction::SetMCPPermissions(ActionPermission::AgentDecides),
-                    ),
-                    DropdownItem::new(
-                        "Always allow",
-                        AgentProfilesPageAction::SetMCPPermissions(ActionPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AgentProfilesPageAction::SetMCPPermissions(ActionPermission::AlwaysAsk),
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-        Self::refresh_execution_profile_dropdown_menu(
-            &mcp_permissions_dropdown_menu,
-            current_permission.mcp_permissions,
-            !AISettings::as_ref(ctx).is_mcp_permission_editable(ctx),
-            ctx,
-        );
-
-        let mcp_allowlist_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = FilterableDropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_menu_header_to_static("Select MCP servers");
-            dropdown
-        });
-        Self::refresh_mcp_allowlist_dropdown(&mcp_allowlist_dropdown, ctx);
-        let mcp_allowlist_mouse_state_handles = BlocklistAIPermissions::as_ref(ctx)
-            .get_mcp_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        let mcp_denylist_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = FilterableDropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_menu_header_to_static("Select MCP servers");
-            dropdown
-        });
-        Self::refresh_mcp_denylist_dropdown(&mcp_denylist_dropdown, ctx);
-        let mcp_denylist_mouse_state_handles = BlocklistAIPermissions::as_ref(ctx)
-            .get_mcp_denylist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
         let command_execution_allowlist_mouse_state_handles = AISettings::as_ref(ctx)
             .agent_mode_command_execution_allowlist
             .value()
@@ -900,7 +802,6 @@ impl AgentProfilesPageView {
             read_files_dropdown_menu,
             execute_commands_dropdown_menu,
             write_to_pty_autonomy_dropdown_menu,
-            mcp_permissions_dropdown_menu,
             directory_allowlist_mouse_state_handles,
             directory_allowlist_editor,
             command_denylist_mouse_state_handles,
@@ -908,10 +809,6 @@ impl AgentProfilesPageView {
             command_denylist_editor,
             command_allowlist_mouse_state_handles,
             command_allowlist_editor,
-            mcp_allowlist_dropdown,
-            mcp_allowlist_mouse_state_handles,
-            mcp_denylist_dropdown,
-            mcp_denylist_mouse_state_handles,
             profile_views,
             add_profile_button,
         }
@@ -1216,18 +1113,6 @@ impl AgentProfilesPageView {
             ctx,
         );
 
-        let mcp_permissions_setting = permissions
-            .as_ref(ctx)
-            .get_mcp_permissions_setting(ctx, None);
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.mcp_permissions_dropdown_menu,
-            mcp_permissions_setting,
-            !AISettings::as_ref(ctx).is_mcp_permission_editable(ctx),
-            ctx,
-        );
-        Self::refresh_mcp_allowlist_dropdown(&self.mcp_allowlist_dropdown, ctx);
-        Self::refresh_mcp_denylist_dropdown(&self.mcp_denylist_dropdown, ctx);
-
         let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
         self.add_profile_button.update(ctx, |button, ctx| {
             button.set_disabled(!is_any_ai_enabled, ctx);
@@ -1256,18 +1141,6 @@ impl AgentProfilesPageView {
 
         self.command_allowlist_mouse_state_handles = blocklist_permissions
             .get_execute_commands_allowlist(None, &scope, ctx)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        self.mcp_allowlist_mouse_state_handles = blocklist_permissions
-            .get_mcp_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        self.mcp_denylist_mouse_state_handles = blocklist_permissions
-            .get_mcp_denylist(ctx, None)
             .iter()
             .map(|_| Default::default())
             .collect();
@@ -1364,58 +1237,6 @@ impl AgentProfilesPageView {
         ctx.notify();
     }
 
-    fn get_non_allowlisted_or_denylisted_mcp_servers(
-        ctx: &mut ViewContext<Self>,
-    ) -> Vec<(uuid::Uuid, String)> {
-        let all_mcp_servers = TemplatableMCPServerManager::get_all_cloud_synced_mcp_servers(ctx);
-        let already_allowlisted_mcp_servers =
-            BlocklistAIPermissions::as_ref(ctx).get_mcp_allowlist(ctx, None);
-        let already_denylisted_mcp_servers =
-            BlocklistAIPermissions::as_ref(ctx).get_mcp_denylist(ctx, None);
-
-        all_mcp_servers
-            .into_iter()
-            .filter(|(uuid, _)| {
-                let is_allowlisted = already_allowlisted_mcp_servers.contains(uuid);
-                let is_denylisted = already_denylisted_mcp_servers.contains(uuid);
-                !is_allowlisted && !is_denylisted
-            })
-            .collect()
-    }
-
-    fn refresh_menu_dropdown<F>(
-        menu: &ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
-        action_fn: F,
-        ctx: &mut ViewContext<Self>,
-    ) where
-        F: Fn(uuid::Uuid) -> AgentProfilesPageAction,
-    {
-        let mcps_in_dropdown = Self::get_non_allowlisted_or_denylisted_mcp_servers(ctx);
-        menu.update(ctx, |menu, ctx| {
-            if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                menu.set_enabled(ctx);
-            } else {
-                menu.set_disabled(ctx);
-            }
-
-            let items: Vec<DropdownItem<AgentProfilesPageAction>> = mcps_in_dropdown
-                .iter()
-                .map(|(uuid, server_name)| DropdownItem::new(server_name, action_fn(*uuid)))
-                .collect();
-
-            menu.set_items(items, ctx);
-            ctx.notify()
-        });
-        ctx.notify();
-    }
-
-    fn refresh_mcp_allowlist_dropdown(
-        menu: &ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        Self::refresh_menu_dropdown(menu, AgentProfilesPageAction::AddToMCPAllowlist, ctx);
-    }
-
     fn create_profile_views(ctx: &mut ViewContext<Self>) -> Vec<ViewHandle<ExecutionProfileView>> {
         let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
         let profile_ids = profiles_model.get_all_profile_ids();
@@ -1450,13 +1271,6 @@ impl AgentProfilesPageView {
         let new_profile_views = Self::create_profile_views(ctx);
         self.profile_views = new_profile_views;
     }
-
-    fn refresh_mcp_denylist_dropdown(
-        menu: &ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        Self::refresh_menu_dropdown(menu, AgentProfilesPageAction::AddToMCPDenylist, ctx);
-    }
 }
 
 impl View for AgentProfilesPageView {
@@ -1471,7 +1285,6 @@ impl View for AgentProfilesPageView {
 
 pub enum AgentProfilesPageEvent {
     FocusModal,
-    OpenMCPServerCollection,
     OpenExecutionProfileEditor(ExecutionProfileId),
 }
 
@@ -1486,7 +1299,6 @@ pub enum AgentProfilesPageAction {
     AttemptLoginGatedUpgrade,
     RemoveFromCommandExecutionAllowlist(AgentModeCommandExecutionPredicate),
     RemoveFromCommandExecutionDenylist(AgentModeCommandExecutionPredicate),
-    OpenMCPServerCollection,
     OpenExecutionProfileEditor(ExecutionProfileId),
     SetBaseModel(LLMId),
     SetCodingModel(LLMId),
@@ -1502,15 +1314,10 @@ pub enum AgentProfilesPageAction {
     SetReadFiles(ActionPermission),
     SetExecuteCommands(ActionPermission),
     SetWriteToPty(WriteToPtyPermission),
-    SetMCPPermissions(ActionPermission),
     RemoveDirectoryFromCodeReadAllowlist(PathBuf),
     RemoveFromProfileDirectoryAllowlist(PathBuf),
     RemoveFromProfileCommandDenylist(AgentModeCommandExecutionPredicate),
     RemoveFromProfileCommandAllowlist(AgentModeCommandExecutionPredicate),
-    AddToMCPAllowlist(uuid::Uuid),
-    RemoveFromMCPAllowlist(uuid::Uuid),
-    AddToMCPDenylist(uuid::Uuid),
-    RemoveFromMCPDenylist(uuid::Uuid),
     CreateProfile,
 }
 
@@ -1569,9 +1376,6 @@ impl TypedActionView for AgentProfilesPageView {
                 BlocklistAIPermissions::handle(ctx).update(ctx, |model, ctx| {
                     report_if_error!(model.remove_command_from_denylist(cmd, ctx));
                 })
-            }
-            AgentProfilesPageAction::OpenMCPServerCollection => {
-                ctx.emit(AgentProfilesPageEvent::OpenMCPServerCollection)
             }
             AgentProfilesPageAction::OpenExecutionProfileEditor(profile_id) => ctx.emit(
                 AgentProfilesPageEvent::OpenExecutionProfileEditor(profile_id.clone()),
@@ -1691,13 +1495,6 @@ impl TypedActionView for AgentProfilesPageView {
                 });
                 ctx.notify();
             }
-            AgentProfilesPageAction::SetMCPPermissions(permission) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_mcp_permissions(profile.id(), permission, ctx);
-                });
-                ctx.notify();
-            }
             AgentProfilesPageAction::RemoveDirectoryFromCodeReadAllowlist(dir) => {
                 BlocklistAIPermissions::handle(ctx).update(ctx, |model, ctx| {
                     report_if_error!(
@@ -1732,38 +1529,6 @@ impl TypedActionView for AgentProfilesPageView {
                     let profile_id = profile.id();
 
                     model.remove_from_command_allowlist(profile_id, command, ctx);
-                });
-                ctx.notify();
-            }
-            AgentProfilesPageAction::AddToMCPAllowlist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.add_to_mcp_allowlist(profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            AgentProfilesPageAction::RemoveFromMCPAllowlist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.remove_from_mcp_allowlist(profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            AgentProfilesPageAction::AddToMCPDenylist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.add_to_mcp_denylist(profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            AgentProfilesPageAction::RemoveFromMCPDenylist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.remove_from_mcp_denylist(profile_id, id, ctx);
                 });
                 ctx.notify();
             }
@@ -2228,11 +1993,7 @@ impl SettingsWidget for AgentsWidget {
     type View = AgentProfilesPageView;
 
     fn search_terms(&self) -> &str {
-        if should_show_mcp_servers() {
-            "ai a.i. agent autonomy profiles allowlist denylist autoexecute permissions models llms planning mcp server"
-        } else {
-            "ai a.i. agent autonomy profiles allowlist denylist autoexecute permissions models llms planning"
-        }
+        "ai a.i. agent autonomy profiles allowlist denylist autoexecute permissions models llms planning"
     }
 
     fn render(
@@ -2653,11 +2414,6 @@ impl AgentsWidget {
         );
         widget_children.push(write_to_pty);
 
-        if should_show_mcp_servers() {
-            let mcp_permissions = self.render_mcp_permissions(view, ai_settings, appearance, app);
-            widget_children.push(mcp_permissions);
-        }
-
         if !FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
             let codebase_context = Self::render_codebase_context_outline_generation_setting(
                 self.codebase_context_toggle.clone(),
@@ -2938,225 +2694,6 @@ impl AgentsWidget {
         Flex::column()
             .with_child(toggle)
             .with_child(description)
-            .finish()
-    }
-
-    fn render_mcp_permissions(
-        &self,
-        view: &AgentProfilesPageView,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let all_runnable_mcp_servers =
-            TemplatableMCPServerManager::get_all_cloud_synced_mcp_servers(app);
-        if all_runnable_mcp_servers.is_empty() {
-            self.render_mcp_permissions_zero_state(ai_settings, appearance, app)
-        } else {
-            self.render_mcp_permissions_with_servers(view, ai_settings, appearance, app)
-        }
-    }
-
-    fn render_mcp_permissions_zero_state(
-        &self,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let header = Container::new(render_body_item_label_with_icon::<AgentProfilesPageAction>(
-            "Call MCP servers".into(),
-            Icon::Dataflow,
-            Some(styles::header_font_color(
-                ai_settings.is_any_ai_enabled(app),
-                app,
-            )),
-            None,
-            LocalOnlyIconState::Hidden,
-            ToggleState::Enabled,
-            appearance,
-        ))
-        .with_margin_bottom(4.)
-        .finish();
-
-        let subtext = {
-            let subtext_fragments = vec![
-                FormattedTextFragment::plain_text(
-                    "You haven't added any MCP servers yet. Once you do, you'll be able to control how much autonomy the Warp Agent has when interacting with them. ",
-                ),
-                FormattedTextFragment::hyperlink_action(
-                    "Add a server",
-                    AgentProfilesPageAction::OpenMCPServerCollection,
-                ),
-                FormattedTextFragment::plain_text(" or "),
-                FormattedTextFragment::hyperlink(
-                    "learn more about MCPs.",
-                    "https://docs.warp.dev/agents/capabilities/mcp",
-                ),
-            ];
-
-            Container::new(
-                FormattedTextElement::new(
-                    FormattedText::new([FormattedTextLine::Line(subtext_fragments)]),
-                    CONTENT_FONT_SIZE,
-                    appearance.ui_font_family(),
-                    appearance.ui_font_family(),
-                    styles::description_font_color(ai_settings.is_any_ai_enabled(app), app).into(),
-                    HighlightedHyperlink::default(),
-                )
-                .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-                .register_default_click_handlers_with_action_support(|hyperlink_lens, ctx, _app| {
-                    match hyperlink_lens {
-                        HyperlinkLens::Url(url) => {
-                            ctx.dispatch_typed_action(AgentProfilesPageAction::HyperlinkClick(
-                                HyperlinkUrl {
-                                    url: url.to_owned(),
-                                },
-                            ));
-                        }
-                        HyperlinkLens::Action(action_ref) => {
-                            if let Some(action) = action_ref
-                                .as_any()
-                                .downcast_ref::<AgentProfilesPageAction>()
-                            {
-                                ctx.dispatch_typed_action(action.clone());
-                            }
-                        }
-                    }
-                })
-                .finish(),
-            )
-            .with_margin_bottom(4.0)
-            .finish()
-        };
-
-        Flex::column()
-            .with_child(header)
-            .with_child(subtext)
-            .finish()
-    }
-
-    fn render_mcp_permissions_with_servers(
-        &self,
-        view: &AgentProfilesPageView,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let mut column = Flex::column();
-
-        let current_mcp_setting =
-            BlocklistAIPermissions::as_ref(app).get_mcp_permissions_setting(app, None);
-
-        let permission_setting = self.render_execution_profile_dropdown(
-            "Call MCP servers",
-            Icon::Dataflow,
-            current_mcp_setting.description(),
-            &view.mcp_permissions_dropdown_menu,
-            ai_settings,
-            appearance,
-            app,
-        );
-        column.add_child(permission_setting);
-
-        if current_mcp_setting == ActionPermission::AlwaysAsk
-            || current_mcp_setting == ActionPermission::AgentDecides
-        {
-            let allowlist = self.render_mcp_list(
-                "MCP allowlist",
-                "Allow the Warp Agent to call these MCP servers.",
-                &view.mcp_allowlist_dropdown,
-                BlocklistAIPermissions::as_ref(app).get_mcp_allowlist(app, None),
-                view.mcp_allowlist_mouse_state_handles.clone(),
-                AgentProfilesPageAction::RemoveFromMCPAllowlist,
-                ai_settings,
-                appearance,
-                app,
-            );
-            column.add_child(allowlist);
-        }
-
-        if current_mcp_setting == ActionPermission::AlwaysAllow
-            || current_mcp_setting == ActionPermission::AgentDecides
-        {
-            let denylist = self.render_mcp_list(
-                "MCP denylist",
-                "The Warp Agent will always ask for permission before calling any MCP servers on this list.",
-                &view.mcp_denylist_dropdown,
-                BlocklistAIPermissions::as_ref(app).get_mcp_denylist(app, None),
-                view.mcp_denylist_mouse_state_handles.clone(),
-                AgentProfilesPageAction::RemoveFromMCPDenylist,
-                ai_settings,
-                appearance,
-                app,
-            );
-            column.add_child(denylist);
-        }
-
-        column.finish()
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_mcp_list(
-        &self,
-        title: &str,
-        description: &str,
-        dropdown: &ViewHandle<FilterableDropdown<AgentProfilesPageAction>>,
-        items: Vec<uuid::Uuid>,
-        mouse_state_handles: Vec<MouseStateHandle>,
-        action: impl Fn(uuid::Uuid) -> AgentProfilesPageAction,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let selector = Container::new(
-            Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_children(vec![
-                    Shrinkable::new(
-                        1.0,
-                        Container::new(render_dropdown_item_label(
-                            title.to_string(),
-                            Some(description.to_string()),
-                            LocalOnlyIconState::Hidden,
-                            (!ai_settings.is_any_ai_enabled(app))
-                                .then(|| appearance.theme().disabled_ui_text_color()),
-                            appearance,
-                        ))
-                        .with_margin_right(4.)
-                        .finish(),
-                    )
-                    .finish(),
-                    ChildView::new(dropdown).finish(),
-                ])
-                .finish(),
-        )
-        .with_margin_bottom(2.)
-        .finish();
-
-        let disabled = !ai_settings.is_any_ai_enabled(app);
-        let items = render_input_list(
-            None,
-            items
-                .into_iter()
-                .rev()
-                .zip(mouse_state_handles.clone())
-                .filter_map(move |(uuid, mouse_state_handle)| {
-                    let server_name = TemplatableMCPServerManager::get_mcp_name(&uuid, app);
-                    server_name.map(|server_name| InputListItem {
-                        item: server_name,
-                        mouse_state_handle,
-                        on_remove_action: action(uuid),
-                        is_disabled: disabled,
-                        tooltip_mouse_state: None,
-                    })
-                }),
-            None,
-            appearance,
-        );
-
-        Container::new(Flex::column().with_children(vec![selector, items]).finish())
-            .with_margin_bottom(8.)
             .finish()
     }
 }

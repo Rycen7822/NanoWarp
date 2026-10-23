@@ -334,7 +334,7 @@ fn resolve_runtime_skills(
     let mut runtime_skills = Vec::with_capacity(skill_references.len());
     let mut unresolved_references = Vec::new();
     for reference in skill_references {
-        if let Some(skill) = skill_manager.active_skill_by_reference(reference, ctx) {
+        if let Some(skill) = skill_manager.active_skill_by_reference(reference) {
             runtime_skills.push(
                 BASE64_STANDARD.encode(multi_agent_api::Skill::from(skill.clone()).encode_to_vec()),
             );

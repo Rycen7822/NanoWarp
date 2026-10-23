@@ -15,8 +15,6 @@ fn sample_tool_usage_metadata() -> ToolUsageMetadata {
         search_codebase_stats: tool_call_stats(0),
         grep_stats: tool_call_stats(2),
         file_glob_stats: tool_call_stats(0),
-        call_mcp_tool_stats: tool_call_stats(0),
-        read_mcp_resource_stats: tool_call_stats(0),
         suggest_plan_stats: tool_call_stats(0),
         suggest_create_plan_stats: tool_call_stats(0),
         write_to_long_running_shell_command_stats: tool_call_stats(0),

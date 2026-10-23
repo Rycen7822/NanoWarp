@@ -41,12 +41,6 @@ pub enum AIAgentActionResultType {
     /// The output of a file glob V2 action.
     FileGlobV2(FileGlobV2Result),
 
-    /// The output of reading an MCP resource.
-    ReadMCPResource(ReadMCPResourceResult),
-
-    /// The output of calling an MCP tool.
-    CallMCPTool(CallMCPToolResult),
-
     /// The output of reading a skill.
     ReadSkill(ReadSkillResult),
 
@@ -146,8 +140,6 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::Grep(result) => result.fmt(f),
             AIAgentActionResultType::FileGlob(result) => result.fmt(f),
             AIAgentActionResultType::FileGlobV2(result) => result.fmt(f),
-            AIAgentActionResultType::ReadMCPResource(result) => result.fmt(f),
-            AIAgentActionResultType::CallMCPTool(result) => result.fmt(f),
             AIAgentActionResultType::ReadSkill(result) => result.fmt(f),
             AIAgentActionResultType::SuggestNewConversation(result) => result.fmt(f),
             AIAgentActionResultType::ReadDocuments(result) => result.fmt(f),
@@ -797,9 +789,7 @@ impl AIAgentActionResultType {
             AIAgentActionResultType::Grep(_) => "The results of the grep operation",
             AIAgentActionResultType::FileGlob(_) => "The results of the file glob operation",
             AIAgentActionResultType::FileGlobV2(_) => "The results of the file glob operation",
-            AIAgentActionResultType::CallMCPTool(_) => "The MCP tool call",
             AIAgentActionResultType::ReadSkill(_) => "The results of reading a skill from file",
-            AIAgentActionResultType::ReadMCPResource(_) => "The MCP resource",
             AIAgentActionResultType::SuggestNewConversation(_) => {
                 "Your decision on whether to start a new conversation"
             }
@@ -835,8 +825,6 @@ impl AIAgentActionResultType {
             | Self::Grep(GrepResult::Success { .. })
             | Self::FileGlob(FileGlobResult::Success { .. })
             | Self::FileGlobV2(FileGlobV2Result::Success { .. })
-            | Self::ReadMCPResource(ReadMCPResourceResult::Success { .. })
-            | Self::CallMCPTool(CallMCPToolResult::Success { .. })
             | Self::SuggestNewConversation(SuggestNewConversationResult::Accepted { .. })
             | Self::ReadDocuments(ReadDocumentsResult::Success { .. })
             | Self::EditDocuments(EditDocumentsResult::Success { .. })
@@ -872,8 +860,6 @@ impl AIAgentActionResultType {
             | Self::Grep(GrepResult::Error(_))
             | Self::FileGlob(FileGlobResult::Error(_))
             | Self::FileGlobV2(FileGlobV2Result::Error(_))
-            | Self::ReadMCPResource(ReadMCPResourceResult::Error(_))
-            | Self::CallMCPTool(CallMCPToolResult::Error(_))
             | Self::ReadDocuments(ReadDocumentsResult::Error(_))
             | Self::EditDocuments(EditDocumentsResult::Error(_))
             | Self::CreateDocuments(CreateDocumentsResult::Error(_))
@@ -911,8 +897,6 @@ impl AIAgentActionResultType {
             | Self::Grep(GrepResult::Cancelled)
             | Self::FileGlob(FileGlobResult::Cancelled)
             | Self::FileGlobV2(FileGlobV2Result::Cancelled)
-            | Self::ReadMCPResource(ReadMCPResourceResult::Cancelled)
-            | Self::CallMCPTool(CallMCPToolResult::Cancelled)
             | Self::SuggestNewConversation(SuggestNewConversationResult::Cancelled)
             | Self::ReadDocuments(ReadDocumentsResult::Cancelled)
             | Self::EditDocuments(EditDocumentsResult::Cancelled)
@@ -949,10 +933,6 @@ impl AIAgentActionResultType {
 
     pub fn is_requested_command(&self) -> bool {
         matches!(self, AIAgentActionResultType::RequestCommandOutput(_))
-    }
-
-    pub fn is_call_mcp_tool(&self) -> bool {
-        matches!(self, AIAgentActionResultType::CallMCPTool(_))
     }
 
     /// Returns `true` if this result will cause the server to route the next
@@ -1091,50 +1071,6 @@ pub struct FileGlobV2Match {
 impl Display for FileGlobV2Match {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.file_path)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CallMCPToolResult {
-    Success { result: rmcp::model::CallToolResult },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for CallMCPToolResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CallMCPToolResult::Success { result } => {
-                write!(
-                    f,
-                    "MCP tool call completed: [{result:?}]",
-                    // results.iter().format(", ")
-                )
-            }
-            CallMCPToolResult::Error(error) => write!(f, "MCP tool call error: {error}"),
-            CallMCPToolResult::Cancelled => write!(f, "MCP tool call cancelled"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReadMCPResourceResult {
-    Success {
-        resource_contents: Vec<rmcp::model::ResourceContents>,
-    },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for ReadMCPResourceResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReadMCPResourceResult::Success { resource_contents } => {
-                write!(f, "MCP resource read completed: [{resource_contents:?}]",)
-            }
-            ReadMCPResourceResult::Error(error) => write!(f, "MCP resource error: {error}"),
-            ReadMCPResourceResult::Cancelled => write!(f, "MCP resource read cancelled"),
-        }
     }
 }
 

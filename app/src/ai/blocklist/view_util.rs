@@ -449,7 +449,7 @@ pub fn usage_label(
     format!("{base}{suffix}")
 }
 
-/// Renders a secondary button with an MCP/skill provider icon and a text label.
+/// Renders a secondary button with a skill provider icon and a text label.
 pub(crate) fn render_provider_icon_button<F>(
     button_label: &str,
     button_handle: MouseStateHandle,

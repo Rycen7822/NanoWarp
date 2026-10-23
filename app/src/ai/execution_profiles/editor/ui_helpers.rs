@@ -1,6 +1,5 @@
 use pathfinder_geometry::vector::vec2f;
 use thousands::Separable;
-use uuid::Uuid;
 use warp_core::features::FeatureFlag;
 use warpui::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Dismiss, Flex,
@@ -12,6 +11,7 @@ use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
 
 use super::{ExecutionProfileEditorView, ExecutionProfileEditorViewAction};
+use crate::Appearance;
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::execution_profiles::{
     AIExecutionProfile, AIExecutionProfileAppExt as _, ActionPermission,
@@ -23,7 +23,6 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::{
     Dropdown, DropdownItemAction, FilterableDropdown, SubmittableTextInput, render_warning_box,
 };
-use crate::{Appearance, TemplatableMCPServerManager};
 
 const CONTEXT_WINDOW_SLIDER_WIDTH: f32 = 220.;
 const CONTEXT_WINDOW_INPUT_BOX_WIDTH: f32 = 120.;
@@ -546,43 +545,6 @@ pub fn render_permissions_section(
             .clone(),
     ));
 
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::Dataflow,
-        "Call MCP servers",
-        &view.call_mcp_servers_dropdown,
-        profile_data.mcp_permissions.description(),
-        !ai_settings.is_mcp_permission_editable(app), // Use MCP override for this permission
-        view.tooltip_mouse_state_handles
-            .call_mcp_servers_tooltip_mouse_state
-            .clone(),
-    ));
-
-    match profile_data.mcp_permissions {
-        ActionPermission::AlwaysAllow => {
-            column.add_child(render_mcp_denylist_section(
-                view,
-                profile_data,
-                app,
-                appearance,
-            ));
-        }
-        ActionPermission::AlwaysAsk => {
-            column.add_child(render_mcp_allowlist_section(
-                view,
-                profile_data,
-                app,
-                appearance,
-            ));
-        }
-        ActionPermission::AgentDecides | ActionPermission::Unknown => {
-            column.add_children([
-                render_mcp_allowlist_section(view, profile_data, app, appearance),
-                render_mcp_denylist_section(view, profile_data, app, appearance),
-            ]);
-        }
-    }
-
     if FeatureFlag::WebSearchUI.is_enabled() {
         column.add_child(
             Container::new(render_web_search_toggle(appearance, view, profile_data))
@@ -637,7 +599,6 @@ fn render_list_section<T, F, D>(
     items: &[T],
     mouse_handles: &[MouseStateHandle],
     editor: Option<&ViewHandle<SubmittableTextInput>>,
-    dropdown: Option<&ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>>,
     on_remove_action: F,
     display_fn: D,
     appearance: &Appearance,
@@ -673,12 +634,6 @@ where
     let mut column =
         Flex::column().with_child(create_section_header(label, description, appearance));
 
-    // Add dropdown if provided (for MCP lists)
-    if let Some(dropdown) = dropdown {
-        let dropdown_row = Container::new(ChildView::new(dropdown).finish()).finish();
-        column = column.with_child(dropdown_row);
-    }
-
     column = column.with_child(list_element);
 
     Container::new(column.finish())
@@ -702,7 +657,6 @@ fn render_directory_allowlist_section(
         &profile_data.directory_allowlist,
         &view.directory_allowlist_mouse_state_handles,
         Some(&view.directory_allowlist_editor),
-        None,
         |path| ExecutionProfileEditorViewAction::RemoveFromDirectoryAllowlist { path },
         |path| path.display().to_string(),
         appearance,
@@ -728,7 +682,6 @@ fn render_command_allowlist_section(
         &profile_data.command_allowlist,
         &view.command_allowlist_mouse_state_handles,
         Some(&view.command_allowlist_editor),
-        None,
         |predicate| ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate },
         |item| item.to_string(),
         appearance,
@@ -801,64 +754,6 @@ fn render_command_denylist_section(
         .finish()
 }
 
-fn display_mcp_name(uuid: &Uuid, app: &AppContext) -> String {
-    TemplatableMCPServerManager::get_mcp_name(uuid, app).unwrap_or({
-        log::warn!("Expected a name for MCP server {uuid} but could not find one.");
-        format!("MCP Server {uuid}")
-    })
-}
-
-fn render_mcp_allowlist_section(
-    view: &ExecutionProfileEditorView,
-    profile_data: &AIExecutionProfile,
-    app: &warpui::AppContext,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_editable = ai_settings.is_mcp_permission_editable(app);
-
-    render_list_section(
-        "MCP allowlist",
-        "MCP servers that are allowed to be called by Oz.",
-        &profile_data.mcp_allowlist,
-        &view.mcp_allowlist_mouse_state_handles,
-        None,
-        Some(&view.mcp_allowlist_dropdown),
-        |id| ExecutionProfileEditorViewAction::RemoveFromMCPAllowlist { id },
-        |uuid| display_mcp_name(uuid, app),
-        appearance,
-        is_editable,
-        view.tooltip_mouse_state_handles
-            .mcp_allowlist_editor_tooltip_mouse_state
-            .clone(),
-    )
-}
-
-fn render_mcp_denylist_section(
-    view: &ExecutionProfileEditorView,
-    profile_data: &AIExecutionProfile,
-    app: &warpui::AppContext,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_editable = ai_settings.is_mcp_permission_editable(app);
-
-    render_list_section(
-        "MCP denylist",
-        "MCP servers that are not allowed to be called by Oz.",
-        &profile_data.mcp_denylist,
-        &view.mcp_denylist_mouse_state_handles,
-        None,
-        Some(&view.mcp_denylist_dropdown),
-        |id| ExecutionProfileEditorViewAction::RemoveFromMCPDenylist { id },
-        |uuid| display_mcp_name(uuid, app),
-        appearance,
-        is_editable,
-        view.tooltip_mouse_state_handles
-            .mcp_denylist_editor_tooltip_mouse_state
-            .clone(),
-    )
-}
 pub fn render_plan_auto_sync_toggle(
     appearance: &Appearance,
     view: &ExecutionProfileEditorView,

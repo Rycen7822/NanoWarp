@@ -46,7 +46,6 @@ use super::folders::CloudFolder;
 use super::items::WarpDriveItemId;
 use super::items::ai_fact_collection::WarpDriveAIFactCollection;
 use super::items::item::{ItemStates, WarpDriveRow, tools_panel_menu_direction};
-use super::items::mcp_server_collection::WarpDriveMCPServerCollection;
 use super::settings::WarpDriveSettings;
 use super::sharing::dialog::{SharingDialog, SharingDialogEvent};
 use super::sharing::{ContentEditability, ShareableObject};
@@ -229,7 +228,6 @@ pub enum SharedObjectLimitBannerKind {
 pub enum DriveIndexAction {
     OpenObject(CloudObjectTypeAndId),
     OpenAIFactCollection,
-    OpenMCPServerCollection,
     CreateObject {
         object_type: DriveObjectType,
         space: Space,
@@ -356,9 +354,7 @@ impl DriveIndexAction {
                 | DriveObjectType::Workflow
                 | DriveObjectType::AgentModeWorkflow
                 | DriveObjectType::AIFactCollection
-                | DriveObjectType::AIFact
-                | DriveObjectType::MCPServer
-                | DriveObjectType::MCPServerCollection,
+                | DriveObjectType::AIFact,
             ) => DriveIndexAction::CreateObject {
                 object_type,
                 space,
@@ -405,7 +401,6 @@ pub enum DriveIndexEvent {
         initial_folder_id: Option<SyncId>,
     },
     OpenAIFactCollection,
-    OpenMCPServerCollection,
     OpenObject(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
     RunObject(CloudObjectTypeAndId),
@@ -501,11 +496,6 @@ pub struct DriveIndex {
     /// Special-cased to always render at the top of the Personal space section.
     ai_fact_collection: WarpDriveAIFactCollection,
     ai_fact_collection_item_mouse_states: ItemStates,
-
-    /// Drive item to represent collection of MCP servers.
-    /// Special-cased to always render at the top of the Personal space section.
-    mcp_server_collection: WarpDriveMCPServerCollection,
-    mcp_server_collection_item_mouse_states: ItemStates,
 }
 
 pub fn init(app: &mut AppContext) {
@@ -696,9 +686,8 @@ impl DriveIndex {
         };
 
         let mut items = vec![];
-        // Add the AI fact collection object + MCP server collection object for personal space
+        // Add the AI fact collection object for personal space
         if matches!(location, CloudObjectLocation::Space(Space::Personal)) {
-            items.push(self.mcp_server_collection.id().to_string());
             items.push(self.ai_fact_collection.id().to_string());
         }
 
@@ -760,14 +749,8 @@ impl DriveIndex {
             if let Some(section_state) = self.section_states.get_mut(&space)
                 && !section_state.collapsed
             {
-                // Add AI fact collection object + MCP server collection object for personal space
+                // Add AI fact collection object for personal space
                 if matches!(space, Space::Personal) {
-                    if FeatureFlag::McpServer.is_enabled()
-                        && ContextFlag::ShowMCPServers.is_enabled()
-                    {
-                        self.ordered_items
-                            .push(WarpDriveItemId::MCPServerCollection);
-                    }
                     self.ordered_items.push(WarpDriveItemId::AIFactCollection);
                 }
                 // Sort and add the rest of the items in the space
@@ -915,7 +898,6 @@ impl DriveIndex {
         });
 
         let ai_fact_collection = WarpDriveAIFactCollection::new(ClientId::default());
-        let mcp_server_collection = WarpDriveMCPServerCollection::new(ClientId::default());
 
         Self {
             window_id: ctx.window_id(),
@@ -948,8 +930,6 @@ impl DriveIndex {
             workspace_dropdown,
             ai_fact_collection,
             ai_fact_collection_item_mouse_states: Default::default(),
-            mcp_server_collection,
-            mcp_server_collection_item_mouse_states: Default::default(),
         }
     }
 
@@ -1741,42 +1721,6 @@ impl DriveIndex {
         Some(row.build().finish())
     }
 
-    fn render_mcp_server_collection_item(
-        &self,
-        space: Space,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        let warp_drive_item_id = WarpDriveItemId::MCPServerCollection;
-        let is_selected = self.selected == Some(warp_drive_item_id);
-        let mut is_focused = false;
-        if let Some(focused_index) = self.focused_index
-            && let Some(&WarpDriveItemId::MCPServerCollection) =
-                self.ordered_items.get(focused_index)
-        {
-            is_focused = true;
-        }
-
-        let row = WarpDriveRow::new(
-            Box::new(self.mcp_server_collection.clone()),
-            self.mcp_server_collection_item_mouse_states.clone(),
-            space,
-            0,
-            self.menu.clone(),
-            false, /* can_move */
-            !self.menu_items(&space, &warp_drive_item_id, app).is_empty(),
-            false,
-            false, /* share_dialog_open */
-            is_selected,
-            is_focused,
-            false, /* sync_queue_is_dequeueing */
-            tools_panel_menu_direction(app),
-            appearance,
-        )?;
-
-        Some(row.build().finish())
-    }
-
     fn render_space_items(
         &self,
         space: Space,
@@ -1975,22 +1919,13 @@ impl DriveIndex {
                     })
                 });
 
-                // If the space is personal, always render the MCP Servers and Rules first
+                // If the space is personal, always render the Rules first
                 if matches!(space, Space::Personal)
                     && matches!(self.index_variant, DriveIndexVariant::MainIndex)
-                {
-                    if FeatureFlag::McpServer.is_enabled()
-                        && ContextFlag::ShowMCPServers.is_enabled()
-                        && let Some(mcp_server_collection_item) =
-                            self.render_mcp_server_collection_item(space, appearance, app)
-                    {
-                        rendered_space.push(mcp_server_collection_item);
-                    }
-                    if let Some(ai_fact_collection_item) =
+                    && let Some(ai_fact_collection_item) =
                         self.render_ai_fact_collection_item(space, appearance, app)
-                    {
-                        rendered_space.push(ai_fact_collection_item);
-                    }
+                {
+                    rendered_space.push(ai_fact_collection_item);
                 }
 
                 rendered_space.extend(
@@ -3037,10 +2972,7 @@ impl DriveIndex {
                     })
                 }
             }
-            DriveObjectType::MCPServer => {
-                todo!()
-            }
-            DriveObjectType::AIFactCollection | DriveObjectType::MCPServerCollection => {}
+            DriveObjectType::AIFactCollection => {}
         }
 
         self.cloud_object_naming_dialog.close(ctx);
@@ -3673,8 +3605,6 @@ impl DriveIndex {
             DriveObjectType::AgentModeWorkflow => "Agent Workflows",
             DriveObjectType::AIFact => "AI Fact",
             DriveObjectType::AIFactCollection => "Rules",
-            DriveObjectType::MCPServer => "MCP Server",
-            DriveObjectType::MCPServerCollection => "MCP Servers",
         };
         let name_styles = UiComponentStyles {
             font_family_id: Some(appearance.ui_font_family()),
@@ -4483,11 +4413,6 @@ impl DriveIndex {
                         ctx.emit(DriveIndexEvent::OpenAIFactCollection);
                     }
                 }
-                WarpDriveItemId::MCPServerCollection => {
-                    if let DriveIndexAction::EnterKey = key {
-                        ctx.emit(DriveIndexEvent::OpenMCPServerCollection);
-                    }
-                }
                 WarpDriveItemId::Object(cloud_id) => match cloud_id {
                     CloudObjectTypeAndId::Notebook(_) => {
                         if let DriveIndexAction::EnterKey = key {
@@ -4732,9 +4657,6 @@ impl TypedActionView for DriveIndex {
             DriveIndexAction::OpenAIFactCollection => {
                 ctx.emit(DriveIndexEvent::OpenAIFactCollection);
             }
-            DriveIndexAction::OpenMCPServerCollection => {
-                ctx.emit(DriveIndexEvent::OpenMCPServerCollection);
-            }
             DriveIndexAction::OpenObject(cloud_object_type_and_id) => {
                 if !matches!(self.index_variant, DriveIndexVariant::Trash) {
                     self.set_selected_object(
@@ -4857,11 +4779,6 @@ impl TypedActionView for DriveIndex {
                     DriveObjectType::AIFact | DriveObjectType::AIFactCollection => {
                         report_error!(
                             "Use DriveIndexAction::OpenAIFactCollection to open the pane view instead"
-                        );
-                    }
-                    DriveObjectType::MCPServer | DriveObjectType::MCPServerCollection => {
-                        report_error!(
-                            "Use DriveIndexAction::OpenMCPServerCollection to open the pane view instead"
                         );
                     }
                 }

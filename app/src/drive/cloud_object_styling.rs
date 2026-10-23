@@ -45,8 +45,6 @@ pub fn warp_drive_icon_color(
         }
         DriveObjectType::AIFactCollection
         | DriveObjectType::AIFact
-        | DriveObjectType::MCPServer
-        | DriveObjectType::MCPServerCollection
         | DriveObjectType::AgentModeWorkflow => appearance
             .theme()
             .main_text_color(appearance.theme().background())

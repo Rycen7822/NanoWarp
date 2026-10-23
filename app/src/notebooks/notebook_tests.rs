@@ -191,7 +191,6 @@ async fn initial_load(app: &mut App, updated_notebooks: impl Into<Vec<ServerNote
         updated_generic_string_objects: Default::default(),
         deleted_generic_string_objects: Default::default(),
         action_histories: Default::default(),
-        mcp_gallery: Default::default(),
     };
 
     let load_complete = UpdateManager::handle(app).update(app, |update_manager, ctx| {
