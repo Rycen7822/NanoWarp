@@ -15,8 +15,6 @@ const EMPTY_TRASH_BODY_TEXT: &str = "This action cannot be undone.";
 const EMPTY_TRASH_CONFIRM_TEXT: &str = "Yes, empty trash";
 
 // This follows our new design standard for confirmation dialogs (e.g. used in the session sharing dialog)
-// Design team has discouraged us from continuing to use CloudActionConfirmationDialog's current design
-// TODO: update CloudActionConfirmationDialog to use this design
 pub enum EmptyTrashConfirmationEvent {
     Confirm,
     Cancel,

@@ -31,10 +31,10 @@ pub use loading_screen::{render_cloud_mode_error_screen, render_cloud_mode_loadi
 pub use model::{AgentProgress, AmbientAgentViewModel, AmbientAgentViewModelEvent, Status};
 pub use progress::{ProgressProps, ProgressStep, ProgressStepState, render_progress};
 pub use progress_ui_state::AmbientAgentProgressUIState;
-pub use team_required::{CloudAgentTeamRequiredView, CloudAgentTeamRequiredViewEvent};
+pub use team_required::CloudAgentTeamRequiredView;
 pub(crate) use team_required::{
+    CLOUD_AGENT_TEAM_REQUIRED_MESSAGE,
     should_render as should_render_cloud_agent_team_required_view,
-    toast_message as cloud_agent_team_required_toast_message,
 };
 use warp_core::features::FeatureFlag;
 use warpui::geometry::vector::Vector2F;

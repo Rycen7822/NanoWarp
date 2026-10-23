@@ -128,7 +128,6 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Features,
     SettingsSection::Keybindings,
     SettingsSection::Privacy,
-    SettingsSection::Teams,
     SettingsSection::WarpDrive,
     SettingsSection::Warpify,
     SettingsSection::WarpAgent,
@@ -157,7 +156,6 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Features
             | SettingsSection::Keybindings
             | SettingsSection::Privacy
-            | SettingsSection::Teams
             | SettingsSection::WarpDrive
             | SettingsSection::Warpify
             | SettingsSection::WarpAgent
@@ -337,7 +335,7 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
                 SettingsSection::WarpCloudAgentAPIKeys,
             ],
         )),
-        SettingsNavItem::Page(SettingsSection::Teams),
+        SettingsNavItem::Page(SettingsSection::Appearance),
     ]
 }
 
@@ -357,7 +355,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Expect: Account, <Agents umbrella>, <Code umbrella>,
-    // <Cloud platform umbrella>, Teams.
+    // <Cloud platform umbrella>, Appearance.
     assert_eq!(stops.len(), 5);
     assert!(matches!(
         stops[0],
@@ -387,7 +385,10 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
             last_subpage: SettingsSection::WarpCloudAgentAPIKeys,
         }
     ));
-    assert!(matches!(stops[4], NavStop::Section(SettingsSection::Teams)));
+    assert!(matches!(
+        stops[4],
+        NavStop::Section(SettingsSection::Appearance)
+    ));
 }
 
 #[test]
@@ -400,7 +401,7 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
 
     // Expect: Account, WarpAgent, AgentProfiles, AgentMCPServers, Knowledge,
     // <Code umbrella>,
-    // <Cloud platform umbrella>, Teams.
+    // <Cloud platform umbrella>, Appearance.
     let sections: Vec<_> = stops
         .iter()
         .map(|s| match s {
@@ -418,7 +419,7 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
             "Knowledge",
             "Umbrella@2",
             "Umbrella@3",
-            "Teams",
+            "Appearance",
         ]
     );
 }
@@ -491,13 +492,13 @@ fn umbrella_with_no_visible_subpages_is_skipped_entirely() {
 fn filtered_out_top_level_page_is_skipped() {
     let nav_items = realistic_nav_items();
 
-    let stops = build_nav_stops(&nav_items, |section| section != SettingsSection::Teams);
+    let stops = build_nav_stops(&nav_items, |section| section != SettingsSection::Appearance);
 
     assert!(
         !stops
             .iter()
-            .any(|s| matches!(s, NavStop::Section(SettingsSection::Teams))),
-        "Teams should be filtered out entirely"
+            .any(|s| matches!(s, NavStop::Section(SettingsSection::Appearance))),
+        "Appearance should be filtered out entirely"
     );
     // But other pages remain.
     assert!(
@@ -514,7 +515,7 @@ fn current_stop_index_matches_section_stop() {
     let nav_items = realistic_nav_items();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    let idx = current_stop_index(&stops, &nav_items, SettingsSection::Teams);
+    let idx = current_stop_index(&stops, &nav_items, SettingsSection::Appearance);
     assert_eq!(idx, Some(4));
 }
 

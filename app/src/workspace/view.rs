@@ -545,20 +545,12 @@ const TEAM_SWITCHER_DOT_ALPHA: u8 = 204;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TeamNavigationMode {
     Hidden,
-    BrowseTeams,
     TeamSwitcher,
 }
 
-fn team_navigation_mode(
-    has_current_team: bool,
-    has_teams: bool,
-    can_switch_teams: bool,
-    has_joinable_teams: bool,
-) -> TeamNavigationMode {
-    if has_current_team && (can_switch_teams || has_joinable_teams) {
+fn team_navigation_mode(has_current_team: bool, can_switch_teams: bool) -> TeamNavigationMode {
+    if has_current_team && can_switch_teams {
         TeamNavigationMode::TeamSwitcher
-    } else if !has_teams && has_joinable_teams {
-        TeamNavigationMode::BrowseTeams
     } else {
         TeamNavigationMode::Hidden
     }
@@ -3025,12 +3017,6 @@ impl Workspace {
             &shared_objects_creation_denied_modal,
             |me, _, event, ctx| match event {
                 SharedObjectsCreationDeniedModalEvent::Close => {
-                    me.current_workspace_state
-                        .is_shared_objects_creation_denied_modal_open = false;
-                    ctx.notify();
-                }
-                SharedObjectsCreationDeniedModalEvent::TeamSettings => {
-                    me.show_settings_with_section(Some(SettingsSection::Teams), ctx);
                     me.current_workspace_state
                         .is_shared_objects_creation_denied_modal_open = false;
                     ctx.notify();
@@ -5785,32 +5771,14 @@ impl Workspace {
         let Some(workspace) = user_workspaces.current_workspace() else {
             return;
         };
-        let joinable_team_count = if workspace.is_native_workspaces_enabled() {
-            workspace.joinable_teams().count()
-        } else {
-            0
-        };
-        if !user_workspaces.can_switch_teams() && joinable_team_count == 0 {
+        if !user_workspaces.can_switch_teams() {
             return;
         }
         if user_workspaces.team_for_window(window_id).is_none() {
             return;
         }
         let current_team_uid = user_workspaces.team_uid_for_window(window_id);
-        let mut items = team_switcher_menu_items(&workspace.teams, current_team_uid);
-        if joinable_team_count > 0 {
-            items.push(MenuItem::Separator);
-            items.push(
-                MenuItemFields::new("Browse teams")
-                    .with_icon(icons::Icon::Search)
-                    .with_right_side_label(
-                        format!("{joinable_team_count} available"),
-                        Properties::default(),
-                    )
-                    .with_on_select_action(WorkspaceAction::BrowseTeams)
-                    .into_item(),
-            );
-        }
+        let items = team_switcher_menu_items(&workspace.teams, current_team_uid);
         self.team_switcher_menu
             .update(ctx, |menu, ctx| menu.set_items(items, ctx));
         self.show_team_switcher_menu = true;
@@ -5825,29 +5793,13 @@ impl Workspace {
     ) -> Option<Box<dyn Element>> {
         let user_workspaces = UserWorkspaces::as_ref(ctx);
         let current_team = user_workspaces.team_for_window(self.window_id);
-        let has_joinable_teams = user_workspaces
-            .current_workspace()
-            .is_some_and(|workspace| {
-                workspace.is_native_workspaces_enabled()
-                    && workspace.joinable_teams().next().is_some()
-            });
-        let mode = team_navigation_mode(
-            current_team.is_some(),
-            user_workspaces.has_teams(),
-            user_workspaces.can_switch_teams(),
-            has_joinable_teams,
-        );
+        let mode = team_navigation_mode(current_team.is_some(), user_workspaces.can_switch_teams());
         let theme = appearance.theme();
         let text_color = theme.foreground();
         let pill_bg_normal = internal_colors::fg_overlay_1(theme);
         let pill_bg_hover = internal_colors::fg_overlay_2(theme);
         let (label, dot_color, action) = match mode {
             TeamNavigationMode::Hidden => return None,
-            TeamNavigationMode::BrowseTeams => (
-                "Browse teams".to_string(),
-                None,
-                WorkspaceAction::BrowseTeams,
-            ),
             TeamNavigationMode::TeamSwitcher => {
                 let current_team = current_team?;
                 let mut dot_color = current_team
@@ -5860,7 +5812,7 @@ impl Workspace {
                 dot_color.a = TEAM_SWITCHER_DOT_ALPHA;
                 (
                     current_team.name.clone(),
-                    Some(dot_color),
+                    dot_color,
                     WorkspaceAction::ShowTeamSwitcherMenu,
                 )
             }
@@ -5879,19 +5831,17 @@ impl Workspace {
             let mut row = Flex::row()
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_spacing(4.);
-            if let Some(dot_color) = dot_color {
-                row.add_child(
-                    ConstrainedBox::new(
-                        Rect::new()
-                            .with_background(Fill::Solid(dot_color))
-                            .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
-                            .finish(),
-                    )
-                    .with_width(8.)
-                    .with_height(8.)
-                    .finish(),
-                );
-            }
+            row.add_child(
+                ConstrainedBox::new(
+                    Rect::new()
+                        .with_background(Fill::Solid(dot_color))
+                        .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
+                        .finish(),
+                )
+                .with_width(8.)
+                .with_height(8.)
+                .finish(),
+            );
             row.add_child(ConstrainedBox::new(name_text).with_max_width(120.).finish());
 
             Container::new(row.finish())
@@ -14483,25 +14433,10 @@ impl Workspace {
             SettingsViewEvent::LaunchNetworkLogging => {
                 self.open_network_log_pane(ctx);
             }
-            SettingsViewEvent::OpenWarpDrive => {
-                self.close_all_overlays(ctx);
-                self.open_or_toggle_warp_drive(
-                    false, /* toggle */
-                    false, /* explicit_user_action */
-                    ctx,
-                );
-                ctx.notify();
-            }
             SettingsViewEvent::SignupAnonymousUser => {
                 self.initiate_user_signup(AnonymousUserSignupEntrypoint::SignUpButton, ctx);
             }
             SettingsViewEvent::Pane(_) | SettingsViewEvent::StartResize => {}
-            SettingsViewEvent::ShowToast { message, flavor } => {
-                self.toast_stack.update(ctx, |toast_stack, ctx| {
-                    toast_stack
-                        .add_ephemeral_toast(DismissibleToast::new(message.clone(), *flavor), ctx);
-                });
-            }
             SettingsViewEvent::OpenAIFactCollection => {
                 self.open_ai_fact_collection_pane(Some(Direction::Right), None, ctx);
                 send_telemetry_from_ctx!(
@@ -16924,9 +16859,6 @@ impl Workspace {
                     ctx,
                 );
             }
-            DrivePanelEvent::OpenTeamSettingsPage => {
-                self.show_settings_with_section(Some(SettingsSection::Teams), ctx);
-            }
             DrivePanelEvent::OpenImportModal {
                 owner,
                 initial_folder_id,
@@ -17829,31 +17761,6 @@ impl Workspace {
         self.close_all_overlays(ctx);
         self.open_settings_pane(section, Some(search_query), ctx);
     }
-    fn browse_teams(&mut self, ctx: &mut ViewContext<Self>) {
-        let show_join_modal = UserWorkspaces::as_ref(ctx)
-            .team_for_window(self.window_id)
-            .is_some();
-        self.show_settings_with_section(Some(SettingsSection::Teams), ctx);
-        if show_join_modal {
-            self.settings_pane.update(ctx, |view, ctx| {
-                view.open_teams_page_join_modal(ctx);
-            });
-        }
-    }
-
-    /// Opens the team settings page and fills the invite field with the given email. This is used when linking directing to
-    /// settings with the intent of inviting a user.
-    pub fn show_team_settings_page_with_email_invite(
-        &mut self,
-        email_invite: Option<&String>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.show_settings_with_section(Some(SettingsSection::Teams), ctx);
-
-        self.settings_pane.update(ctx, |view, ctx| {
-            view.open_teams_page_email_invite(email_invite, ctx);
-        });
-    }
 
     /// Opens the MCP servers settings page, optionally triggering auto-install of a gallery MCP.
     pub fn open_mcp_servers_page(
@@ -18429,7 +18336,6 @@ impl Workspace {
         if let Some(team) = team {
             let current_user_email = self.auth_state.user_email().unwrap_or_default();
             let has_admin_permissions = team.has_admin_permissions(&current_user_email);
-            let team_uid = team.uid;
             let is_delinquent_due_to_payment_issue =
                 team.billing_metadata.is_delinquent_due_to_payment_issue();
             let customer_type = team.billing_metadata.customer_type;
@@ -18452,7 +18358,6 @@ impl Workspace {
             self.shared_objects_creation_denied_modal
                 .update(ctx, |modal, ctx| {
                     modal.update_modal_state(
-                        team_uid,
                         object_type,
                         has_admin_permissions,
                         is_delinquent_due_to_payment_issue,
@@ -24486,9 +24391,6 @@ impl TypedActionView for Workspace {
                         );
                     }
                 }
-            }
-            BrowseTeams => {
-                self.browse_teams(ctx);
             }
             ShowTeamSwitcherMenu => {
                 self.show_team_switcher_dropdown(ctx);

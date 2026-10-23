@@ -10,7 +10,7 @@ use warp_graphql::billing::{
 };
 
 use super::gql_convert::{ToAgentModeCommandExecutionPredicates, ToPathBufs};
-use super::team::{DiscoverableTeam, MembershipRole, Team};
+use super::team::{MembershipRole, Team};
 use crate::ai::execution_profiles::{
     ActionPermission, ComputerUsePermission, WriteToPtyPermission,
 };
@@ -43,7 +43,6 @@ pub struct Workspace {
     pub name: String,
     pub stripe_customer_id: Option<String>,
     pub teams: Vec<Team>,
-    pub open_teams: Vec<DiscoverableTeam>,
     pub billing_metadata: BillingMetadata,
     pub bonus_grants_purchased_this_month: BonusGrantsPurchased,
     pub settings: WorkspaceSettings,
@@ -77,7 +76,6 @@ impl Workspace {
             name,
             stripe_customer_id: Default::default(),
             teams: teams.unwrap_or_default(),
-            open_teams: Default::default(),
             billing_metadata,
             bonus_grants_purchased_this_month: Default::default(),
             settings: Default::default(), // TODO: persistence wrapper instead of default
@@ -106,25 +104,8 @@ impl Workspace {
             .is_some_and(|policy| policy.enabled)
     }
 
-    pub fn joinable_teams(&self) -> impl Iterator<Item = &DiscoverableTeam> {
-        self.open_teams.iter().filter(|open_team| {
-            let open_team_uid = ServerId::from_string_lossy(&open_team.team_uid);
-            self.teams.iter().all(|team| team.uid != open_team_uid)
-        })
-    }
-
     pub fn is_native_workspaces_admin(&self, user_email: &str) -> bool {
         self.is_workspace_admin(user_email) && self.is_native_workspaces_enabled()
-    }
-
-    pub fn can_be_deleted(&self, current_user_email: &str) -> bool {
-        // Current user needs to be an admin and be the only user remaining
-        self.is_workspace_admin(current_user_email)
-            && self.members.len() == 1
-            && self
-                .members
-                .first()
-                .is_some_and(|m| m.email == current_user_email)
     }
 
     pub fn is_custom_llm_enabled(&self) -> bool {

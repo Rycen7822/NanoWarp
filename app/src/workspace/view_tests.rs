@@ -60,7 +60,6 @@ use crate::server::cloud_objects::listener::Listener;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::experiments::ServerExperiments;
 use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::team::{MockTeamClient, TeamClient};
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
@@ -93,10 +92,6 @@ use crate::{
     AgentNotificationsModel, GlobalResourceHandlesProvider, ObjectActions, experiments, workspace,
 };
 pub(crate) fn initialize_app(app: &mut App) {
-    initialize_app_with_team_client(app, Arc::new(MockTeamClient::new()));
-}
-
-pub(crate) fn initialize_app_with_team_client(app: &mut App, team_client: Arc<dyn TeamClient>) {
     initialize_settings_for_tests(app);
 
     // Add the necessary singleton models to the App
@@ -114,12 +109,7 @@ pub(crate) fn initialize_app_with_team_client(app: &mut App, team_client: Arc<dy
     app.add_singleton_model(CloudModel::mock);
     app.add_singleton_model(CloudEnvironmentCatalog::new);
     app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(
-            team_client,
-            Arc::new(MockWorkspaceClient::new()),
-            vec![],
-            ctx,
-        )
+        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), vec![], ctx)
     });
     app.add_singleton_model(|_ctx| UserProfiles::new(Vec::new()));
     app.add_singleton_model(TeamTesterStatus::mock);
@@ -270,23 +260,15 @@ pub(crate) fn mock_workspace(app: &mut App) -> ViewHandle<Workspace> {
 #[test]
 fn test_team_navigation_mode() {
     assert_eq!(
-        team_navigation_mode(true, true, true, false),
+        team_navigation_mode(true, true),
         TeamNavigationMode::TeamSwitcher
     );
     assert_eq!(
-        team_navigation_mode(true, true, false, true),
-        TeamNavigationMode::TeamSwitcher
-    );
-    assert_eq!(
-        team_navigation_mode(true, true, false, false),
+        team_navigation_mode(true, false),
         TeamNavigationMode::Hidden
     );
     assert_eq!(
-        team_navigation_mode(false, false, false, true),
-        TeamNavigationMode::BrowseTeams
-    );
-    assert_eq!(
-        team_navigation_mode(false, false, false, false),
+        team_navigation_mode(false, false),
         TeamNavigationMode::Hidden
     );
 }

@@ -727,16 +727,6 @@ impl AIRequestUsageModel {
             .sum()
     }
 
-    pub fn total_current_workspace_and_team_bonus_credits_remaining(
-        &self,
-        ctx: &AppContext,
-    ) -> i32 {
-        UserWorkspaces::as_ref(ctx)
-            .current_workspace()
-            .map(|workspace| self.total_workspace_and_team_bonus_credits_remaining(workspace.uid))
-            .unwrap_or(0)
-    }
-
     fn user_interactive_bonus_grants(&self) -> impl Iterator<Item = &BonusGrant> {
         let now = Utc::now();
         self.bonus_grants

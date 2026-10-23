@@ -7,7 +7,6 @@ use warpui::App;
 
 use super::{CLIAgent, UBER_TEAM_UID};
 use crate::server::ids::ServerId;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::ui_components::icons::Icon;
 use crate::workspaces::team::Team;
@@ -255,7 +254,6 @@ fn test_detect_aifx_agent_run_claude_on_uber_team() {
         let uber_workspace = workspace_with_team_uid(UBER_TEAM_UID);
         app.add_singleton_model(|ctx| {
             UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
                 Arc::new(MockWorkspaceClient::new()),
                 vec![uber_workspace],
                 ctx,
@@ -282,7 +280,6 @@ fn test_detect_aifx_agent_run_claude_via_alias_on_uber_team() {
         let uber_workspace = workspace_with_team_uid(UBER_TEAM_UID);
         app.add_singleton_model(|ctx| {
             UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
                 Arc::new(MockWorkspaceClient::new()),
                 vec![uber_workspace],
                 ctx,
@@ -324,7 +321,6 @@ fn test_detect_aifx_agent_run_claude_wrong_team() {
         let other_workspace = workspace_with_team_uid("some-other-team-uid-01");
         app.add_singleton_model(|ctx| {
             UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
                 Arc::new(MockWorkspaceClient::new()),
                 vec![other_workspace],
                 ctx,

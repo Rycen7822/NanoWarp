@@ -47,6 +47,7 @@ pub struct AICreditAvailability {
 }
 
 impl AICreditAvailability {
+    #[cfg(any(test, feature = "agent_mode_evals"))]
     pub fn available_with_source(credit_source: Option<AICreditSource>) -> Self {
         Self {
             available: true,
@@ -55,6 +56,7 @@ impl AICreditAvailability {
         }
     }
 
+    #[cfg(test)]
     pub fn unavailable(denial_reason: AICreditDenialReason) -> Self {
         Self {
             available: false,

@@ -1,21 +1,10 @@
-use warpui::elements::{
-    Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisSize, MouseStateHandle,
-    ParentElement, Radius, Shrinkable, Text,
-};
-use warpui::fonts::Weight;
-use warpui::platform::Cursor;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use warpui::elements::{Container, CrossAxisAlignment, Flex, ParentElement, Text};
+use warpui::{AppContext, Element, Entity, SingletonEntity, View, ViewContext};
 
 use crate::appearance::Appearance;
 use crate::drive::DriveObjectType;
 use crate::ui_components::blended_colors;
 use crate::workspaces::workspace::{BillingMetadata, CustomerType};
-
-const BUTTON_PADDING: f32 = 12.;
-const BUTTON_FONT_SIZE: f32 = 14.;
-const BUTTON_BORDER_RADIUS: f32 = 4.;
 
 const DEFAULT_DELINQUENT_ADMIN_MODAL_SUBHEADER: &str = "Shared drive objects have been restricted due to a subscription payment issue.\n\nPlease update your payment information to restore access.";
 const DEFAULT_DELINQUENT_ADMIN_ENTERPRISE_MODAL_SUBHEADER: &str = "Shared drive objects have been restricted due to a subscription payment issue.\n\nPlease contact support@warp.dev to restore access.";
@@ -24,28 +13,11 @@ const DEFAULT_ADMIN_PROSUMER_MODAL_SUBHEADER: &str = "Warp's Pro plan comes with
 const DEFAULT_PROSUMER_MODAL_SUBHEADER: &str = "Warp's Pro plan comes with a limited number of shared drive objects.\n\nFor access to unlimited shared drive objects, contact a team admin to upgrade to the Turbo plan.";
 const DEFAULT_ADMIN_MODAL_SUBHEADER: &str = "Warp's free plan comes with a limited number of shared drive objects.\n\nFor access to unlimited shared drive objects, upgrade to a paid plan.";
 const DEFAULT_MODAL_SUBHEADER: &str = "Warp's free plan comes with a limited number of shared drive objects.\n\nFor access to unlimited shared drive objects, contact a team admin to upgrade to a paid plan.";
-const VIEW_PLANS_TEXT: &str = "Compare plans";
-
-#[derive(Default)]
-struct MouseStateHandles {
-    button_mouse_state: MouseStateHandle,
-}
-
 pub struct SharedObjectsCreationDeniedBody {
     object_type: Option<DriveObjectType>,
     has_admin_permissions: bool,
     is_delinquent_due_to_payment_issue: bool,
     customer_type: CustomerType,
-    button_mouse_states: MouseStateHandles,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SharedObjectsCreationDeniedBodyAction {
-    Upgrade,
-}
-
-pub enum SharedObjectsCreationDeniedBodyEvent {
-    Upgrade,
 }
 
 impl SharedObjectsCreationDeniedBody {
@@ -55,7 +27,6 @@ impl SharedObjectsCreationDeniedBody {
             has_admin_permissions: false,
             is_delinquent_due_to_payment_issue: false,
             customer_type: Default::default(),
-            button_mouse_states: Default::default(),
         }
     }
 
@@ -76,7 +47,7 @@ impl SharedObjectsCreationDeniedBody {
 }
 
 impl Entity for SharedObjectsCreationDeniedBody {
-    type Event = SharedObjectsCreationDeniedBodyEvent;
+    type Event = ();
 }
 
 impl View for SharedObjectsCreationDeniedBody {
@@ -149,7 +120,7 @@ impl View for SharedObjectsCreationDeniedBody {
             },
         };
 
-        let mut body = Flex::column()
+        let body = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(
                 Container::new(
@@ -163,68 +134,6 @@ impl View for SharedObjectsCreationDeniedBody {
                 .finish(),
             );
 
-        if !self.is_delinquent_due_to_payment_issue {
-            body.add_child(
-                Container::new(
-                    Flex::row()
-                        .with_child(
-                            Shrinkable::new(
-                                0.5,
-                                self.render_button(
-                                    appearance,
-                                    VIEW_PLANS_TEXT.into(),
-                                    self.button_mouse_states.button_mouse_state.clone(),
-                                    SharedObjectsCreationDeniedBodyAction::Upgrade,
-                                ),
-                            )
-                            .finish(),
-                        )
-                        .with_main_axis_size(MainAxisSize::Max)
-                        .finish(),
-                )
-                .with_margin_top(24.)
-                .finish(),
-            )
-        }
-
         body.finish()
-    }
-}
-
-impl SharedObjectsCreationDeniedBody {
-    fn render_button(
-        &self,
-        appearance: &Appearance,
-        label: String,
-        mouse_state: MouseStateHandle,
-        action: SharedObjectsCreationDeniedBodyAction,
-    ) -> Box<dyn Element> {
-        appearance
-            .ui_builder()
-            .button(ButtonVariant::Accent, mouse_state)
-            .with_centered_text_label(label)
-            .with_style(UiComponentStyles {
-                font_size: Some(BUTTON_FONT_SIZE),
-                font_weight: Some(Weight::Semibold),
-                border_radius: Some(CornerRadius::with_all(Radius::Pixels(BUTTON_BORDER_RADIUS))),
-                padding: Some(Coords::uniform(BUTTON_PADDING)),
-                ..Default::default()
-            })
-            .build()
-            .with_cursor(Cursor::PointingHand)
-            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(action))
-            .finish()
-    }
-}
-
-impl TypedActionView for SharedObjectsCreationDeniedBody {
-    type Action = SharedObjectsCreationDeniedBodyAction;
-
-    fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
-        match action {
-            SharedObjectsCreationDeniedBodyAction::Upgrade => {
-                ctx.emit(SharedObjectsCreationDeniedBodyEvent::Upgrade)
-            }
-        }
     }
 }

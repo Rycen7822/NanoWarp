@@ -16,7 +16,6 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::{AISettings, PrivacySettings};
@@ -872,12 +871,7 @@ fn team_catalog_hydration_preserves_shared_profile_and_resolves_against_active_t
         );
         let refreshed_workspace = workspace.clone();
         app.add_singleton_model(|ctx| {
-            UserWorkspaces::mock(
-                Arc::new(MockTeamClient::new()),
-                Arc::new(MockWorkspaceClient::new()),
-                vec![workspace],
-                ctx,
-            )
+            UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), vec![workspace], ctx)
         });
         ApiKeyManager::handle(&app).update(&mut app, |manager, ctx| {
             manager.subscribe_to_settings_changes(ctx);

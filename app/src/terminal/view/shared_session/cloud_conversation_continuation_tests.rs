@@ -25,7 +25,6 @@ use crate::cloud_object::{
     Owner, Revision, ServerGuestSubject, ServerMetadata, ServerObjectGuest, ServerPermissions,
 };
 use crate::server::ids::ServerId;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::terminal::TerminalModel;
 use crate::terminal::shared_session::{SharedSessionSource, SharedSessionStatus};
@@ -110,12 +109,7 @@ fn setup_app_with_creator(
     }
     let workspaces = workspaces_for_permission_fixture(permissions_fixture);
     app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-            workspaces,
-            ctx,
-        )
+        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), workspaces, ctx)
     });
     app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
     app.add_singleton_model(AgentConversationsModel::new);

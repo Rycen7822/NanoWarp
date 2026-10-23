@@ -15,7 +15,6 @@ use crate::auth::AuthStateProvider;
 use crate::pricing::PricingInfoModel;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::MockAIClient;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::user_workspaces::{
@@ -54,12 +53,7 @@ fn create_test_team(uid: i64) -> Team {
 
 fn add_user_workspaces_with_workspace(app: &mut App, workspace: Workspace) {
     app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-            vec![workspace],
-            ctx,
-        )
+        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), vec![workspace], ctx)
     });
 }
 

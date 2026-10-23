@@ -10,7 +10,6 @@ use super::*;
 use crate::features::FeatureFlag;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::managed_secrets::AppManagedSecretManager as ManagedSecretManager;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::workspace::{HostEnablementSetting, LlmHostSettings, Workspace};
@@ -174,7 +173,6 @@ fn workspace_with_geap_host(enabled: bool) -> Workspace {
         name: "test".to_string(),
         stripe_customer_id: None,
         teams: vec![team],
-        open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),
@@ -203,12 +201,7 @@ fn initialize_app(app: &mut App, workspaces: Vec<Workspace>) {
     app.add_singleton_model(|_| auth_state_provider);
     app.add_singleton_model(crate::settings::AISettings::new_with_defaults);
     app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-            workspaces,
-            ctx,
-        )
+        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), workspaces, ctx)
     });
     app.add_singleton_model(|ctx| {
         ManagedSecretManager::new(
@@ -340,7 +333,6 @@ fn workspace_with_teams(teams: Vec<Team>) -> Workspace {
         name: "test".to_string(),
         stripe_customer_id: None,
         teams,
-        open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),

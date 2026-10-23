@@ -9,23 +9,18 @@ use warpui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use super::shared_objects_creation_denied_body::{
-    SharedObjectsCreationDeniedBody, SharedObjectsCreationDeniedBodyEvent,
-};
+use super::shared_objects_creation_denied_body::SharedObjectsCreationDeniedBody;
 use crate::drive::DriveObjectType;
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
 use crate::modal::{Modal, ModalEvent};
-use crate::server::ids::ServerId;
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
 
 const DEFAULT_LIMIT_REACHED_MODAL_HEADER: &str = "Shared object limit reached";
 
 pub struct SharedObjectsCreationDeniedModal {
     shared_objects_creation_denied_modal: ViewHandle<Modal<SharedObjectsCreationDeniedBody>>,
-    team_uid: Option<ServerId>,
 }
 
 #[derive(Debug)]
@@ -35,7 +30,6 @@ pub enum SharedObjectsCreationDeniedModalAction {
 
 pub enum SharedObjectsCreationDeniedModalEvent {
     Close,
-    TeamSettings,
 }
 
 pub fn init(app: &mut AppContext) {
@@ -50,16 +44,9 @@ pub fn init(app: &mut AppContext) {
 
 impl SharedObjectsCreationDeniedModal {
     pub fn new(object_type: Option<DriveObjectType>, ctx: &mut ViewContext<Self>) -> Self {
-        let shared_objects_creation_denied_body = ctx.add_typed_action_view(
+        let shared_objects_creation_denied_body = ctx.add_view(
             |_ctx: &mut ViewContext<'_, SharedObjectsCreationDeniedBody>| {
                 SharedObjectsCreationDeniedBody::new(object_type)
-            },
-        );
-
-        ctx.subscribe_to_view(
-            &shared_objects_creation_denied_body,
-            move |me, _, event, ctx| {
-                me.handle_shared_objects_creation_denied_body_event(event, ctx);
             },
         );
 
@@ -105,7 +92,6 @@ impl SharedObjectsCreationDeniedModal {
 
         Self {
             shared_objects_creation_denied_modal,
-            team_uid: None,
         }
     }
 
@@ -115,7 +101,6 @@ impl SharedObjectsCreationDeniedModal {
 
     pub fn update_modal_state(
         &mut self,
-        team_uid: ServerId,
         object_type: DriveObjectType,
         has_admin_permissions: bool,
         is_delinquent_due_to_payment_issue: bool,
@@ -123,7 +108,6 @@ impl SharedObjectsCreationDeniedModal {
         ctx: &mut ViewContext<Self>,
     ) {
         let appearance = Appearance::as_ref(ctx);
-        self.team_uid = Some(team_uid);
         let title: Option<String> = if is_delinquent_due_to_payment_issue {
             Some(format!("Shared {object_type}s restricted"))
         } else {
@@ -164,24 +148,6 @@ impl SharedObjectsCreationDeniedModal {
                     });
                 ctx.notify();
             });
-    }
-
-    fn handle_shared_objects_creation_denied_body_event(
-        &mut self,
-        event: &SharedObjectsCreationDeniedBodyEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SharedObjectsCreationDeniedBodyEvent::Upgrade => match self.team_uid {
-                // If team_uid is set, then open up the upgrade page for the team
-                // directly.
-                Some(team_uid) => {
-                    ctx.open_url(UserWorkspaces::upgrade_link_for_team(team_uid).as_str());
-                }
-                // Otherwise redirect them to the team settings page.
-                None => ctx.emit(SharedObjectsCreationDeniedModalEvent::TeamSettings),
-            },
-        }
     }
 }
 

@@ -67,7 +67,6 @@ pub fn join_a_workspace() -> TestStep {
                     name: "My Workspace".to_string(),
                     stripe_customer_id: None,
                     teams: teams.clone(),
-                    open_teams: Default::default(),
                     billing_metadata: Default::default(),
                     bonus_grants_purchased_this_month: Default::default(),
                     settings: Default::default(),

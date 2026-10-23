@@ -22,7 +22,7 @@ mod denied_body;
 mod style;
 
 use body::Body;
-use denied_body::{DeniedBody, DeniedBodyEvent};
+use denied_body::DeniedBody;
 
 use self::body::BodyEvent;
 use super::{SharedSessionActionSource, SharedSessionScrollbackType};
@@ -51,7 +51,6 @@ pub enum ShareSessionModalEvent {
         scrollback_type: SharedSessionScrollbackType,
         source: SharedSessionActionSource,
     },
-    Upgrade,
 }
 
 pub fn init(app: &mut AppContext) {
@@ -85,10 +84,7 @@ impl ShareSessionModal {
                 .close_modal_button_disabled()
         });
 
-        let denied_body = ctx.add_typed_action_view(DeniedBody::new);
-        ctx.subscribe_to_view(&denied_body, move |me, _, event, ctx| {
-            me.handle_denied_body_event(event, ctx)
-        });
+        let denied_body = ctx.add_view(|_| DeniedBody);
         let denied_modal = ctx.add_typed_action_view(|ctx| {
             let mut denied_modal = Modal::new(
                 Some(SESSION_LIMIT_REACHED_HEADER.to_string()),
@@ -180,15 +176,6 @@ impl ShareSessionModal {
             BodyEvent::Close => self.close(ctx),
             BodyEvent::StartSharing { scrollback_type } => {
                 self.start_sharing(*scrollback_type, ctx)
-            }
-        }
-    }
-
-    fn handle_denied_body_event(&mut self, event: &DeniedBodyEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            DeniedBodyEvent::Upgrade => {
-                self.close(ctx);
-                ctx.emit(ShareSessionModalEvent::Upgrade)
             }
         }
     }

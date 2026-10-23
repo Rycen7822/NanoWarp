@@ -48,7 +48,6 @@ use crate::server::ids::{ObjectUid, ServerId};
 use crate::settings::AgentModeCodingPermissionsType;
 use crate::settings::import::config::ParsedTerminalSetting;
 use crate::settings::import::model::TerminalType;
-use crate::settings_view::TeamsInviteOption;
 use crate::tab::TabTelemetryAction;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::TelemetryInputSuggestionsMode;
@@ -1211,7 +1210,6 @@ pub enum TelemetryEvent {
         source: LoginEventSource,
     },
     OpenNewSessionFromFilePath,
-    OpenTeamFromURI,
     AuthCommonQuestionClicked {
         question: &'static str,
     },
@@ -1268,13 +1266,10 @@ pub enum TelemetryEvent {
     ToggleSettingsSync {
         is_settings_sync_enabled: bool,
     },
-    TeamLinkCopied,
     RemovedUserFromTeam,
     DeletedWorkflow,
     DeletedNotebook,
     ToggleApprovalsModal,
-    ChangedInviteViewOption(TeamsInviteOption),
-    SendEmailInvites,
     SetLineHeight {
         new_value: f32,
     },
@@ -1484,7 +1479,6 @@ pub enum TelemetryEvent {
         session_id: SharedSessionId,
         source_type: SessionSourceType,
     },
-    SharedSessionModalUpgradePressed,
     /// Emitted when a shared session sharer cancels granting a role
     /// (currently only applies when granting executor mode).
     SharerCancelledGrantRole {
@@ -3174,7 +3168,6 @@ impl TelemetryEvent {
             | TelemetryEvent::NotificationClicked
             | TelemetryEvent::SignUpButtonClicked
             | TelemetryEvent::OpenNewSessionFromFilePath
-            | TelemetryEvent::OpenTeamFromURI
             | TelemetryEvent::DragAndDropTab
             | TelemetryEvent::DragAndDropTabGroup
             | TelemetryEvent::TriedToExecuteBeforePrecmd
@@ -3187,13 +3180,10 @@ impl TelemetryEvent {
             | TelemetryEvent::TeamCreated
             | TelemetryEvent::TeamJoined
             | TelemetryEvent::TeamLeft
-            | TelemetryEvent::TeamLinkCopied
             | TelemetryEvent::RemovedUserFromTeam
             | TelemetryEvent::DeletedWorkflow
             | TelemetryEvent::DeletedNotebook
             | TelemetryEvent::ToggleApprovalsModal
-            | TelemetryEvent::ChangedInviteViewOption(_)
-            | TelemetryEvent::SendEmailInvites
             | TelemetryEvent::ResourceCenterOpened
             | TelemetryEvent::ResourceCenterTipsCompleted
             | TelemetryEvent::ResourceCenterTipsSkipped
@@ -3237,7 +3227,6 @@ impl TelemetryEvent {
             | TelemetryEvent::BlockFilterToolbeltButtonClicked
             | TelemetryEvent::PaneDragInitiated
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
-            | TelemetryEvent::SharedSessionModalUpgradePressed
             | TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
                 AgentModeAutoDetectionFalsePositivePayload::ExternalUsers,
             )
@@ -3812,7 +3801,6 @@ impl TelemetryEvent {
             | TelemetryEvent::LoginLaterButtonClicked { .. }
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { .. }
             | TelemetryEvent::OpenNewSessionFromFilePath
-            | TelemetryEvent::OpenTeamFromURI
             | TelemetryEvent::AuthCommonQuestionClicked { .. }
             | TelemetryEvent::AuthToggleFAQ { .. }
             | TelemetryEvent::OpenAuthPrivacySettings { .. }
@@ -3840,13 +3828,10 @@ impl TelemetryEvent {
             | TelemetryEvent::TeamJoined
             | TelemetryEvent::TeamLeft
             | TelemetryEvent::ToggleSettingsSync { .. }
-            | TelemetryEvent::TeamLinkCopied
             | TelemetryEvent::RemovedUserFromTeam
             | TelemetryEvent::DeletedWorkflow
             | TelemetryEvent::DeletedNotebook
             | TelemetryEvent::ToggleApprovalsModal
-            | TelemetryEvent::ChangedInviteViewOption(_)
-            | TelemetryEvent::SendEmailInvites
             | TelemetryEvent::SetLineHeight { .. }
             | TelemetryEvent::ResourceCenterOpened
             | TelemetryEvent::ResourceCenterTipsCompleted
@@ -3931,7 +3916,6 @@ impl TelemetryEvent {
             | TelemetryEvent::StartedSharingCurrentSession { .. }
             | TelemetryEvent::StoppedSharingCurrentSession { .. }
             | TelemetryEvent::JoinedSharedSession { .. }
-            | TelemetryEvent::SharedSessionModalUpgradePressed
             | TelemetryEvent::SharerCancelledGrantRole { .. }
             | TelemetryEvent::SharerGrantModalDontShowAgain
             | TelemetryEvent::JumpToSharedSessionParticipant { .. }
@@ -4197,9 +4181,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::AnonymousUserHitCloudObjectLimit => EnablementState::Always,
 
             Self::AgentModeChangedInputType => EnablementState::Always,
-            Self::StartedSharingCurrentSession
-            | Self::StoppedSharingCurrentSession
-            | Self::SharedSessionModalUpgradePressed => {
+            Self::StartedSharingCurrentSession | Self::StoppedSharingCurrentSession => {
                 EnablementState::Flag(FeatureFlag::CreatingSharedSessions)
             }
             Self::JoinedSharedSession => EnablementState::Flag(FeatureFlag::ViewingSharedSessions),
@@ -4270,7 +4252,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SignUpButtonClicked => EnablementState::Always,
             Self::LoginButtonClicked => EnablementState::Always,
             Self::OpenNewSessionFromFilePath => EnablementState::Always,
-            Self::OpenTeamFromURI => EnablementState::Always,
             Self::AuthCommonQuestionClicked => EnablementState::Always,
             Self::AuthToggleFAQ => EnablementState::Always,
             Self::OpenAuthPrivacySettings => EnablementState::Always,
@@ -4296,13 +4277,10 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamCreated => EnablementState::Always,
             Self::TeamJoined => EnablementState::Always,
             Self::TeamLeft => EnablementState::Always,
-            Self::TeamLinkCopied => EnablementState::Always,
             Self::RemovedUserFromTeam => EnablementState::Always,
             Self::DeletedWorkflow => EnablementState::Always,
             Self::DeletedNotebook => EnablementState::Always,
             Self::ToggleApprovalsModal => EnablementState::Always,
-            Self::ChangedInviteViewOption => EnablementState::Always,
-            Self::SendEmailInvites => EnablementState::Always,
             Self::SetLineHeight => EnablementState::Always,
             Self::ResourceCenterOpened => EnablementState::Always,
             Self::ResourceCenterTipsCompleted => EnablementState::Always,
@@ -4681,7 +4659,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SignUpButtonClicked => "Sign Up Button Clicked in App",
             Self::LoginButtonClicked => "Log In Button Clicked in App",
             Self::OpenNewSessionFromFilePath => "New Session From Directory",
-            Self::OpenTeamFromURI => "Open Team from URI",
             Self::AuthCommonQuestionClicked => "Auth Common Question Clicked in App",
             Self::AuthToggleFAQ => "Auth: Toggle Common Questions",
             Self::OpenAuthPrivacySettings => "Auth: Open Privacy Settings Overlay",
@@ -4787,7 +4764,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::StartedSharingCurrentSession => "Started Sharing Current Session",
             Self::StoppedSharingCurrentSession => "Stopped Sharing Current Session",
             Self::JoinedSharedSession => "Joined Shared Session",
-            Self::SharedSessionModalUpgradePressed => "Shared Session Modal Upgrade Pressed",
             Self::SharerCancelledGrantRole => "Sharer Cancelled Grant Role",
             Self::SharerGrantModalDontShowAgain => "Don't Show Sharer Grant Modal Again",
             Self::JumpToSharedSessionParticipant { .. } => "Jumped to Shared Session Participant",
@@ -4819,13 +4795,10 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamCreated => "Team Created",
             Self::TeamJoined => "Team Joined",
             Self::TeamLeft => "Team Left",
-            Self::TeamLinkCopied => "Team Link Copied",
             Self::RemovedUserFromTeam => "Removed user from team",
             Self::DeletedWorkflow => "Deleted Workflow",
             Self::DeletedNotebook => "Deleted Notebook",
             Self::ToggleApprovalsModal => "Toggle Approvals Modal",
-            Self::ChangedInviteViewOption => "Changed invite view option",
-            Self::SendEmailInvites => "Sent email invites",
             Self::TierLimitHit => "Tier Limit Hit",
             Self::SharedObjectLimitHitBannerViewPlansButtonClicked => {
                 "Shared Object Limit Hit Banner View Plans Button Clicked"
@@ -5158,9 +5131,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::OpenNewSessionFromFilePath => {
                 "Dragged a file, folder, etc. into Warp to start a session"
             }
-            Self::OpenTeamFromURI => {
-                "Showed settings view of their newly joined team within the app"
-            }
             Self::AuthCommonQuestionClicked => "Clicked on \"Common Question\" when logging in",
             Self::AuthToggleFAQ => "Toggled FAQ Page when logging in",
             Self::OpenAuthPrivacySettings => "Privacy settings are open during sign-in",
@@ -5201,13 +5171,10 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamCreated => "Created a Warp Drive team",
             Self::TeamJoined => "Joined a Warp Drive team",
             Self::TeamLeft => "Left a Warp Drive team",
-            Self::TeamLinkCopied => "Copied a Warp Drive team link",
             Self::RemovedUserFromTeam => "Remove user from Warp Drive team",
             Self::DeletedWorkflow => "Deleted workflow from Warp Drive team",
             Self::DeletedNotebook => "Deleted notebook from Warp Drive team",
             Self::ToggleApprovalsModal => "Opened or closed teams modal",
-            Self::ChangedInviteViewOption => "Toggled between link and invite for invite",
-            Self::SendEmailInvites => "Sent email invites for Warp Drive team",
             Self::SetLineHeight => "Set line height through Settings -> Appearance",
             Self::ResourceCenterOpened => "Opened Resource Center pane",
             Self::ResourceCenterTipsCompleted => "Completed resource center tips",
@@ -5372,9 +5339,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::StoppedSharingCurrentSession => "Halted sharing the current session",
             Self::JoinedSharedSession => {
                 "When you join another instance of Warp using shared sessions"
-            }
-            Self::SharedSessionModalUpgradePressed => {
-                "Pressed upgrade after reaching max session sharing limit"
             }
             Self::SharerCancelledGrantRole => {
                 "When you cancel granting a role to a shared session participant"

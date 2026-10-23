@@ -237,8 +237,8 @@ use crate::terminal::model::session::shell_quote_arg;
 use crate::terminal::prompt_render_helper::should_render_ps1_prompt;
 use crate::terminal::view::ambient_agent::{
     AuthSecretFtuxView, AuthSecretFtuxViewEvent, AuthSecretSelector, AuthSecretSelectorEvent,
-    HarnessSelector, HarnessSelectorEvent, HostSelector, HostSelectorEvent, NakedHeaderButtonTheme,
-    cloud_agent_team_required_toast_message,
+    CLOUD_AGENT_TEAM_REQUIRED_MESSAGE, HarnessSelector, HarnessSelectorEvent, HostSelector,
+    HostSelectorEvent, NakedHeaderButtonTheme,
 };
 use crate::terminal::view::init::CAN_ATTACH_FILE_KEY;
 use crate::terminal::view::{
@@ -9881,7 +9881,7 @@ impl Input {
                 let blocker_message =
                     match cloud_agent_start_blocker(team_required, has_enabled_harness) {
                         Some(CloudAgentStartBlocker::TeamRequired) => {
-                            Some(cloud_agent_team_required_toast_message(ctx).to_string())
+                            Some(CLOUD_AGENT_TEAM_REQUIRED_MESSAGE.to_string())
                         }
                         Some(CloudAgentStartBlocker::NoEnabledHarnesses) => Some(
                             "No agent harnesses are available. Contact your team admin."

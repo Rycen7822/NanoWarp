@@ -691,7 +691,6 @@ fn workspace_for_test(teams: Vec<Team>) -> Workspace {
         name: "test".to_owned(),
         stripe_customer_id: None,
         teams,
-        open_teams: vec![],
         billing_metadata: Default::default(),
         bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),

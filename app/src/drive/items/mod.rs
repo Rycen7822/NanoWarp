@@ -2,7 +2,7 @@ use warpui::elements::MouseStateHandle;
 use warpui::{AppContext, Element};
 
 use super::cloud_object_styling::warp_drive_icon_color;
-use super::index::{DriveIndexAction, DriveIndexSection, warp_drive_section_header_position_id};
+use super::index::{DriveIndexAction, warp_drive_section_header_position_id};
 use super::{CloudObjectTypeAndId, DriveObjectType};
 use crate::appearance::Appearance;
 use crate::cloud_object::{CloudObjectMetadata, Space};
@@ -60,9 +60,7 @@ impl WarpDriveItemId {
             Self::AIFactCollection => "AI_fact_collection".to_string(),
             Self::MCPServerCollection => "MCP_server_collection".to_string(),
             Self::Object(object_id) => object_id.drive_row_position_id(),
-            Self::Space(space) => {
-                warp_drive_section_header_position_id(&DriveIndexSection::Space(*space))
-            }
+            Self::Space(space) => warp_drive_section_header_position_id(space),
             Self::Trash => "Trash".to_string(),
         }
     }

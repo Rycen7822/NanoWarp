@@ -15,7 +15,6 @@ use crate::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::notebooks::editor::keys::NotebookKeybindings;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -36,12 +35,7 @@ fn add_diff(app: &mut App, path: &Path, base: &str, diff: DiffType) -> ViewHandl
     app.add_singleton_model(NotebookKeybindings::new);
     app.add_singleton_model(FileModel::new);
     app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-            vec![],
-            ctx,
-        )
+        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), vec![], ctx)
     });
     let (_, view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
         let editor = ctx.add_typed_action_view(|ctx| {

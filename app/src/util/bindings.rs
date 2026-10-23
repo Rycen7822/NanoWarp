@@ -105,7 +105,6 @@ pub enum CustomAction {
     NewTeamWorkflow,
     NewTeamNotebook,
     NewTeamEnvVars,
-    OpenTeamSettings,
     ShareCurrentSession,
     SharePaneContents,
     #[cfg(windows)]
@@ -449,7 +448,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::NewTeamWorkflow
         | CustomAction::NewTeamNotebook
         | CustomAction::NewTeamEnvVars
-        | CustomAction::OpenTeamSettings
         | CustomAction::ShareCurrentSession
         | CustomAction::SharePaneContents
         | CustomAction::OpenAIFactCollection

@@ -15,7 +15,6 @@ use warpui::{App, ModelHandle, SingletonEntity};
 
 use super::FileTreeView;
 use crate::auth::AuthStateProvider;
-use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::settings::CodeSettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -44,11 +43,8 @@ fn initialize_app(
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
-    let team_client = Arc::new(MockTeamClient::new());
     let workspace_client = Arc::new(MockWorkspaceClient::new());
-    app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(team_client.clone(), workspace_client.clone(), vec![], ctx)
-    });
+    app.add_singleton_model(|ctx| UserWorkspaces::mock(workspace_client.clone(), vec![], ctx));
 
     let detected_repositories = app.add_singleton_model(|_| DetectedRepositories::default());
     let repository_metadata_model = app.add_singleton_model(RepoMetadataModel::new);
