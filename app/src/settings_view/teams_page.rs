@@ -1418,19 +1418,10 @@ impl TeamsPageView {
                     ctx,
                 );
             }
-            UserWorkspacesEvent::UpdateWorkspaceSettingsSuccess => {
-                // as of right now, this is only emitted on the billing & usage page
-            }
-            UserWorkspacesEvent::UpdateWorkspaceSettingsRejected(_) => {
-                // as of right now, this is only emitted on the billing & usage page
-            }
             UserWorkspacesEvent::AiOveragesUpdated => {
                 // AI overages update doesn't affect teams page display
             }
             UserWorkspacesEvent::CodebaseContextEnablementChanged => {}
-            UserWorkspacesEvent::SunsettedToBuildDataUpdated => {
-                // Build plan migration modal is handled by OneTimeModalModel
-            }
         }
     }
 

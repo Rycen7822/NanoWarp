@@ -68,7 +68,6 @@ const clientMutations = [
   'updateObjectGuests',
   'updateUserSettings',
   'updateWorkflow',
-  'updateWorkspaceSettings',
   'updateOnboardingSurveyStatus',
   'createSimpleIntegration',
 ];

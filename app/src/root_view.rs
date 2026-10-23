@@ -2224,19 +2224,11 @@ impl RootView {
             },
         );
 
-        // Subscribe to workspace changes to update autonomy enforcement state and auth/billing
-        // state (e.g. a free→paid upgrade reflected by the workspace/billing metadata poll).
+        // Refresh onboarding auth state when workspace data changes.
         let onboarding_view_for_workspaces = onboarding_view.clone();
         ctx.subscribe_to_model(
             &UserWorkspaces::handle(ctx),
-            move |_, _user_workspaces, event, ctx| {
-                if matches!(event, UserWorkspacesEvent::UpdateWorkspaceSettingsSuccess) {
-                    let workspace_enforces_autonomy = team_enforces_autonomy(ctx);
-                    onboarding_view_for_workspaces.update(ctx, |onboarding_view, ctx| {
-                        onboarding_view
-                            .set_workspace_enforces_autonomy(workspace_enforces_autonomy, ctx);
-                    });
-                }
+            move |_, _user_workspaces, _event, ctx| {
                 let auth_state = current_onboarding_auth_state(ctx);
                 onboarding_view_for_workspaces.update(ctx, |onboarding_view, ctx| {
                     onboarding_view.set_auth_state(auth_state, ctx);

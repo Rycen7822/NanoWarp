@@ -150,11 +150,7 @@ impl WorkspaceState {
             || self.is_session_config_modal_open
             || self.is_new_worktree_modal_open
             || self.is_remove_tab_config_dialog_open
-            || {
-                let one_time_modal = OneTimeModalModel::as_ref(app);
-                one_time_modal.is_oz_launch_modal_open()
-                    || one_time_modal.is_build_plan_migration_modal_open()
-            }
+            || OneTimeModalModel::as_ref(app).is_oz_launch_modal_open()
     }
 
     /// Returns whether any modal (sitting over terminal views) is open.

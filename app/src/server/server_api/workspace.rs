@@ -11,10 +11,6 @@ use warp_graphql::mutations::stripe_billing_portal::{
     StripeBillingPortal, StripeBillingPortalInput, StripeBillingPortalResult,
     StripeBillingPortalVariables,
 };
-use warp_graphql::mutations::update_workspace_settings::{
-    AddonCreditsSettingsInput, UpdateWorkspaceSettings, UpdateWorkspaceSettingsInput,
-    UpdateWorkspaceSettingsResult, UpdateWorkspaceSettingsVariables,
-};
 use warp_graphql::queries::get_ai_overages_for_workspace::{
     GetAiOveragesForWorkspace, GetAiOveragesForWorkspaceVariables, UserResult,
 };
@@ -25,9 +21,7 @@ use crate::auth::UserUid;
 use crate::cloud_object::CloudObjectEventEntrypoint;
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 use crate::server::ids::ServerId;
-use crate::workspaces::user_workspaces::{
-    WorkspacesMetadataResponse, WorkspacesMetadataWithPricing,
-};
+use crate::workspaces::user_workspaces::WorkspacesMetadataWithPricing;
 use crate::workspaces::workspace::{AiOverages, WorkspaceUid};
 
 #[cfg_attr(test, automock)]
@@ -43,14 +37,6 @@ pub trait WorkspaceClient: 'static + Send + Sync {
     ) -> Result<WorkspacesMetadataWithPricing>;
 
     async fn refresh_ai_overages(&self) -> Result<AiOverages>;
-
-    async fn update_addon_credits_settings(
-        &self,
-        team_uid: ServerId,
-        auto_reload_enabled: Option<bool>,
-        max_monthly_spend_cents: Option<i32>,
-        selected_auto_reload_credit_denomination: Option<i32>,
-    ) -> Result<WorkspacesMetadataResponse>;
 }
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -136,40 +122,6 @@ impl WorkspaceClient for ServerApi {
                     current_period_end: overages.current_period_end.utc(),
                 }),
             UserResult::Unknown => Err(anyhow!("Unknown error")),
-        }
-    }
-
-    async fn update_addon_credits_settings(
-        &self,
-        team_uid: ServerId,
-        auto_reload_enabled: Option<bool>,
-        max_monthly_spend_cents: Option<i32>,
-        selected_auto_reload_credit_denomination: Option<i32>,
-    ) -> Result<WorkspacesMetadataResponse> {
-        let variables = UpdateWorkspaceSettingsVariables {
-            input: UpdateWorkspaceSettingsInput {
-                workspace_uid: team_uid.to_string(),
-                set_addon_credits_settings: Some(AddonCreditsSettingsInput {
-                    auto_reload_enabled,
-                    max_monthly_spend_cents,
-                    selected_auto_reload_credit_denomination,
-                }),
-            },
-            request_context: get_request_context(),
-        };
-        let operation = UpdateWorkspaceSettings::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.update_workspace_settings {
-            UpdateWorkspaceSettingsResult::UpdateWorkspaceSettingsOutput(_) => {
-                TeamClient::workspaces_metadata(self)
-                    .await
-                    .map(|w| w.metadata)
-            }
-            UpdateWorkspaceSettingsResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            UpdateWorkspaceSettingsResult::Unknown => Err(anyhow!("Unknown error")),
         }
     }
 }

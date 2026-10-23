@@ -67,5 +67,4 @@ pub mod update_object_guests;
 pub mod update_onboarding_survey_status;
 pub mod update_user_settings;
 pub mod update_workflow;
-pub mod update_workspace_settings;
 pub mod upsert_runner;

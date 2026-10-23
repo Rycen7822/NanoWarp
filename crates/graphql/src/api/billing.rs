@@ -75,7 +75,6 @@ pub struct ServiceAgreement {
     pub stripe_subscription_id: Option<String>,
     #[cynic(rename = "type")]
     pub type_: ServiceAgreementType,
-    pub sunsetted_to_build_ts: Option<Time>,
 }
 
 #[derive(cynic::Enum, Clone, Debug)]
