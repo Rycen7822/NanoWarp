@@ -169,16 +169,6 @@ impl TerminalView {
                             self.insert_cloud_mode_queued_user_query_block(prompt, ctx);
                         }
                     }
-                } else {
-                    // Reset tip cooldown so the first tip shows for 60 seconds
-                    let tip_model = ambient_agent_view_model
-                        .as_ref(ctx)
-                        .ui_state
-                        .tip_model
-                        .clone();
-                    tip_model.update(ctx, |model, model_ctx| {
-                        model.reset_cooldown(model_ctx);
-                    });
                 }
                 // Re-render to show loading state.
                 ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
@@ -235,15 +225,6 @@ impl TerminalView {
             }
             AmbientAgentViewModelEvent::EnvironmentSelected => {}
             AmbientAgentViewModelEvent::ProgressUpdated => {
-                // Refresh the tip (respects 60s cooldown internally)
-                let tip_model = ambient_agent_view_model
-                    .as_ref(ctx)
-                    .ui_state
-                    .tip_model
-                    .clone();
-                tip_model.update(ctx, |model, model_ctx| {
-                    model.maybe_refresh_tip(model_ctx);
-                });
                 // Update pane header to reflect any changes (e.g., task_id being set)
                 self.update_pane_configuration(ctx);
                 ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
@@ -906,7 +887,6 @@ impl TerminalView {
                 message,
                 appearance,
                 &ui_state.loading_shimmer_handle,
-                &ui_state.tip_model,
                 &self.view_handle,
                 app,
             )

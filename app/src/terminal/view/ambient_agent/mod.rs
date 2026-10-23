@@ -12,7 +12,6 @@ mod model;
 mod progress;
 mod progress_ui_state;
 mod team_required;
-mod tips;
 mod view_impl;
 
 pub use auth_secret_ftux_view::{
@@ -37,7 +36,6 @@ pub(crate) use team_required::{
     should_render as should_render_cloud_agent_team_required_view,
     toast_message as cloud_agent_team_required_toast_message,
 };
-pub use tips::{CloudModeTip, get_cloud_mode_tips};
 use warp_core::features::FeatureFlag;
 use warpui::geometry::vector::Vector2F;
 use warpui::{AppContext, ModelHandle, ViewHandle, WindowId};

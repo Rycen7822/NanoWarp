@@ -228,7 +228,7 @@ impl AmbientAgentViewModel {
             me.validate_environment_after_initial_load(ctx);
         });
 
-        let ui_state = AmbientAgentProgressUIState::new(ctx);
+        let ui_state = AmbientAgentProgressUIState::default();
 
         let harness = Harness::default();
         let availability = HarnessAvailabilityModel::as_ref(ctx);

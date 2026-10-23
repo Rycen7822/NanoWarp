@@ -15,74 +15,30 @@ use warpui::prelude::{CornerRadius, Radius};
 use warpui::text_layout::TextAlignment;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::UiComponent;
-use warpui::{AppContext, Entity, ModelHandle, SingletonEntity, WeakViewHandle};
+use warpui::{AppContext, Entity, SingletonEntity, WeakViewHandle};
 
-use crate::ai::agent_tips::{AITip, AITipModel};
 use crate::ai::loading::shimmering_warp_loading_text;
 use crate::ai::orchestration::CloudAgentStartupPresentation;
-use crate::terminal::view::ambient_agent::CloudModeTip;
 use crate::ui_components::blended_colors;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 /// Icon size for the error icon
 const ERROR_ICON_SIZE: f32 = 24.;
 
-/// Renders the cloud mode loading screen with shimmering warp logo and tips.
+/// Renders the cloud mode loading screen with shimmering warp logo.
 pub fn render_cloud_mode_loading_screen<T: Entity>(
     message: &str,
     appearance: &Appearance,
     shimmer_handle: &ShimmeringTextStateHandle,
-    tip_model: &ModelHandle<AITipModel<CloudModeTip>>,
     view_handle: &WeakViewHandle<T>,
     app: &AppContext,
 ) -> Box<dyn Element> {
-    let theme = appearance.theme();
     // Larger font size for the main loading text
     let loading_font_size = appearance.monospace_font_size() + 2.;
 
     // Create the shimmering warp loading text element
     let shimmer_element =
         shimmering_warp_loading_text(message, loading_font_size, shimmer_handle.clone(), app);
-
-    // Get current tip from the model and render with link
-    let tip_element = if let Some(tip) = tip_model.as_ref(app).current_tip() {
-        let mut fragments = tip.to_formatted_text(app);
-
-        // Add link at the end if it exists
-        if let Some(link_target) = tip.link() {
-            fragments.push(FormattedTextFragment::plain_text(" "));
-            fragments.push(FormattedTextFragment::hyperlink("Learn more", link_target));
-        }
-
-        let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(fragments)]);
-        let tip_font_size = appearance.monospace_font_size() - 2.;
-        FormattedTextElement::new(
-            formatted_text,
-            tip_font_size,
-            appearance.ui_font_family(),
-            appearance.monospace_font_family(),
-            blended_colors::text_sub(theme, theme.surface_1()),
-            Default::default(),
-        )
-        .with_alignment(TextAlignment::Center)
-        .with_hyperlink_font_color(theme.accent().into())
-        .set_selectable(true)
-        .register_default_click_handlers_with_action_support(|link, _evt, app| {
-            use warpui::elements::HyperlinkLens;
-            if let HyperlinkLens::Url(url) = link {
-                app.open_url(url);
-            }
-        })
-        .finish()
-    } else {
-        // Fallback if no tip is available
-        Text::new(
-            "",
-            appearance.ui_font_family(),
-            appearance.monospace_font_size() - 2.,
-        )
-        .finish()
-    };
 
     // Get tier info for the concurrency limits footer
     let tier_footer_element = render_tier_limits_footer(appearance, view_handle, app);
@@ -101,12 +57,6 @@ pub fn render_cloud_mode_loading_screen<T: Entity>(
                         .with_child(
                             Container::new(shimmer_element)
                                 .with_horizontal_padding(4.)
-                                .finish(),
-                        )
-                        .with_child(
-                            Container::new(tip_element)
-                                .with_horizontal_padding(4.)
-                                .with_margin_top(8.)
                                 .finish(),
                         )
                         .finish(),

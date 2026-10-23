@@ -98,9 +98,8 @@ use crate::settings::{
     IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, NLDInTerminalEnabled,
     NaturalLanguageAutosuggestionsEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
     SharedBlockTitleGenerationEnabled, ShouldRenderUseAgentToolbarForUserCommands,
-    ShouldShowOzUpdatesInZeroState, ShowAgentTips, ShowConversationHistory, ShowHintText,
-    ThinkingDisplayMode, VOICE_INPUT_LANGUAGES, VoiceInputEnabled, VoiceInputLanguage,
-    VoiceInputToggleKey,
+    ShouldShowOzUpdatesInZeroState, ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
+    VOICE_INPUT_LANGUAGES, VoiceInputEnabled, VoiceInputLanguage, VoiceInputToggleKey,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -241,28 +240,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 flags::CODE_SUGGESTIONS_FLAG,
             )
             .with_group(bindings::BindingGroup::WarpAi),
-        ],
-        app,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::custom(
-                SettingActionPairDescriptions::new("Show agent tips", "Hide agent tips"),
-                builder(SettingsAction::WarpAgent(
-                    WarpAgentPageAction::ToggleShowAgentTips,
-                )),
-                SettingActionPairContexts::new(
-                    context.clone()
-                        & id!(flags::IS_ANY_AI_ENABLED)
-                        & !id!(flags::SHOW_AGENT_TIPS_FLAG),
-                    context.clone()
-                        & id!(flags::IS_ANY_AI_ENABLED)
-                        & id!(flags::SHOW_AGENT_TIPS_FLAG),
-                ),
-                None,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .with_enabled(|| FeatureFlag::AgentTips.is_enabled()),
         ],
         app,
     );
@@ -2313,7 +2290,6 @@ impl WarpAgentPageView {
             vec![
                 Box::new(NaturalLanguageDetectionWidget::default()),
                 Box::new(ShowInputHintTextWidget::default()),
-                Box::new(ShowAgentTipsWidget::default()),
                 Box::new(IncludeAgentCommandsInHistoryWidget::default()),
                 Box::new(AutoApproveBypassesCommandDenylistWidget::default()),
                 Box::new(PromptSubmissionModeWidget),
@@ -2538,7 +2514,6 @@ pub enum WarpAgentPageAction {
     ToggleCanUseWarpCreditsForFallback,
     HyperlinkClick(HyperlinkUrl),
     ToggleShowInputHintText,
-    ToggleShowAgentTips,
     ToggleShowOzUpdatesInZeroState,
     SetThinkingDisplayMode(ThinkingDisplayMode),
     SetOrchestrationMessageDisplayMode(OrchestrationMessageDisplayMode),
@@ -2873,25 +2848,6 @@ impl TypedActionView for WarpAgentPageView {
                         ctx
                     );
                 });
-            }
-            WarpAgentPageAction::ToggleShowAgentTips => {
-                InputSettings::handle(ctx).update(ctx, |input_settings, ctx| match input_settings
-                    .show_agent_tips
-                    .toggle_and_save_value(ctx)
-                {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleShowAgentTips {
-                                is_enabled: new_value,
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Show Agent Tips setting: {e:?}");
-                    }
-                });
-                ctx.notify();
             }
             WarpAgentPageAction::ToggleShowOzUpdatesInZeroState => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3686,41 +3642,6 @@ impl SettingsWidget for ShowInputHintTextWidget {
             "Show input hint text",
             WarpAgentPageAction::ToggleShowInputHintText,
             *InputSettings::as_ref(app).show_hint_text,
-            is_any_ai_enabled,
-            self.toggle.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        )
-    }
-}
-
-#[derive(Default)]
-struct ShowAgentTipsWidget {
-    toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for ShowAgentTipsWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "oz agent ai show agent tips"
-    }
-
-    fn should_render(&self, _app: &AppContext) -> bool {
-        FeatureFlag::AgentTips.is_enabled()
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        _appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_any_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
-        render_ai_setting_toggle::<ShowAgentTips>(
-            "Show agent tips",
-            WarpAgentPageAction::ToggleShowAgentTips,
-            *InputSettings::as_ref(app).show_agent_tips,
             is_any_ai_enabled,
             self.toggle.clone(),
             &view.local_only_icon_tooltip_states,

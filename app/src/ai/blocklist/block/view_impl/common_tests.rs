@@ -142,21 +142,21 @@ fn render_scrollable_collapsible_content_returns_none_when_collapsed() {
 #[test]
 fn warping_footer_height_reserves_a_line_for_the_secondary_element() {
     // Regression: the warping indicator's footer is a fixed-height, clipped
-    // container. When an agent tip (or fallback-model explanation) is present it
+    // container. When a fallback-model explanation is present it
     // renders on a second line, so the footer must be taller than the
     // single-line case — otherwise the clip (added to keep action chips from
-    // overflowing narrow panes) hides the tip entirely.
+    // overflowing narrow panes) hides the explanation entirely.
     let font_size = 13.;
-    let without_tip = warping_footer_height(font_size, false);
-    let with_tip = warping_footer_height(font_size, true);
+    let without_secondary = warping_footer_height(font_size, false);
+    let with_secondary = warping_footer_height(font_size, true);
 
     assert!(
-        with_tip > without_tip,
-        "footer with a secondary element ({with_tip}) should be taller than without ({without_tip})",
+        with_secondary > without_secondary,
+        "footer with a secondary element ({with_secondary}) should be taller than without ({without_secondary})",
     );
     // The extra room must cover the secondary line: its font size
-    // (monospace_font_size - 3) plus the 1px top margin on the tip container.
-    assert_eq!(with_tip - without_tip, (font_size - 3.) + 1.);
+    // (monospace_font_size - 3) plus the 1px top margin on the secondary container.
+    assert_eq!(with_secondary - without_secondary, (font_size - 3.) + 1.);
 }
 
 #[test]
