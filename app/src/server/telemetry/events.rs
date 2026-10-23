@@ -634,28 +634,6 @@ pub enum AgentModeRewindEntrypoint {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeSetupProjectScopedRulesActionType {
-    #[serde(rename = "link_from_existing")]
-    LinkFromExisting(String),
-    #[serde(rename = "generate_warp_md")]
-    GenerateWarpMd,
-    #[serde(rename = "skip_rules")]
-    SkipRules,
-    #[serde(rename = "regenerate_warp_md")]
-    RegenerateWarpMd,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeSetupCodebaseContextActionType {
-    #[serde(rename = "index_codebase")]
-    IndexCodebase,
-    #[serde(rename = "skip_indexing")]
-    SkipIndexing,
-    #[serde(rename = "view_index_status")]
-    ViewIndexStatus,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CpuUsageStats {
     /// The number of logical CPUs on the system.
     pub num_cpus: usize,
@@ -775,7 +753,6 @@ pub enum InputUXChangeOrigin {
 pub enum AIAgentInput {
     UserQuery { query: String },
     ResumeConversation,
-    InitProjectRules { display_query: Option<String> },
     ActionResult { action_id: AIAgentActionId },
     CreateNewProject { query: String },
     CloneRepository { url: String },
@@ -794,9 +771,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
         match input {
             FullAIAgentInput::UserQuery { query, .. } => Self::UserQuery { query },
             FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
-            FullAIAgentInput::InitProjectRules { display_query, .. } => {
-                Self::InitProjectRules { display_query }
-            }
             FullAIAgentInput::ActionResult { result, .. } => Self::ActionResult {
                 action_id: result.id,
             },
@@ -851,7 +825,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     ConversationListView,
     Onboarding,
     Keybinding,
-    SlashInit,
     ProjectEntry,
     ClearBuffer,
     ChildAgent,
@@ -894,7 +867,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
             AgentViewEntryOrigin::Keybinding(_) => Self::Keybinding,
-            AgentViewEntryOrigin::SlashInit => Self::SlashInit,
             AgentViewEntryOrigin::ProjectEntry => Self::ProjectEntry,
             AgentViewEntryOrigin::ClearBuffer => Self::ClearBuffer,
             AgentViewEntryOrigin::ChildAgent => Self::ChildAgent,
@@ -1931,15 +1903,6 @@ pub enum TelemetryEvent {
         inputs: Vec<AIAgentInput>,
         active_server_conversation_id: Option<ServerConversationToken>,
         active_client_conversation_id: Option<AIConversationId>,
-    },
-    AgentModeSetupBannerAccepted,
-    AgentModeSetupBannerDismissed,
-    AgentModeSetupProjectScopedRulesAction {
-        action: AgentModeSetupProjectScopedRulesActionType,
-    },
-
-    AgentModeSetupCodebaseContextAction {
-        action: AgentModeSetupCodebaseContextActionType,
     },
     InputBufferSubmitted {
         input_type: input_classifier::InputType,
@@ -3353,14 +3316,6 @@ impl TelemetryEvent {
                 "active_server_conversation_id": active_server_conversation_id,
                 "active_client_conversation_id": active_client_conversation_id,
             })),
-            TelemetryEvent::AgentModeSetupBannerAccepted => None,
-            TelemetryEvent::AgentModeSetupBannerDismissed => None,
-            TelemetryEvent::AgentModeSetupProjectScopedRulesAction { action } => Some(json!({
-                "action": action,
-            })),
-            TelemetryEvent::AgentModeSetupCodebaseContextAction { action } => Some(json!({
-                "action": action,
-            })),
             #[cfg(windows)]
             TelemetryEvent::WSLRegistryError => None,
             TelemetryEvent::InputBufferSubmitted {
@@ -3853,10 +3808,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AIExecutionProfileRemovedFromDenylist { .. }
             | TelemetryEvent::AIExecutionProfileModelSelected { .. }
             | TelemetryEvent::AIExecutionProfileContextWindowSelected { .. }
-            | TelemetryEvent::AgentModeSetupBannerAccepted
-            | TelemetryEvent::AgentModeSetupBannerDismissed
-            | TelemetryEvent::AgentModeSetupProjectScopedRulesAction { .. }
-            | TelemetryEvent::AgentModeSetupCodebaseContextAction { .. }
             | TelemetryEvent::CloneRepoPromptSubmitted { .. }
             | TelemetryEvent::GetStartedSkipToTerminal
             | TelemetryEvent::FileTreeItemAttachedAsContext { .. }
@@ -4276,10 +4227,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 EnablementState::Flag(FeatureFlag::MultiProfile)
             }
             Self::AIInputNotSent { .. } => EnablementState::Always,
-            Self::AgentModeSetupBannerAccepted { .. } => EnablementState::Always,
-            Self::AgentModeSetupBannerDismissed => EnablementState::Always,
-            Self::AgentModeSetupProjectScopedRulesAction { .. } => EnablementState::Always,
-            Self::AgentModeSetupCodebaseContextAction { .. } => EnablementState::Always,
             Self::InputBufferSubmitted => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
@@ -4713,14 +4660,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "AI Execution Profile: Context Window Selected"
             }
             Self::AIInputNotSent { .. } => "AI Input Not Sent",
-            Self::AgentModeSetupBannerAccepted => "Agent Mode Setup Banner Accepted",
-            Self::AgentModeSetupBannerDismissed => "Agent Mode Setup Banner Dismissed",
-            Self::AgentModeSetupProjectScopedRulesAction { .. } => {
-                "Agent Mode Setup Project Scoped Rules Action"
-            }
-            Self::AgentModeSetupCodebaseContextAction { .. } => {
-                "Agent Mode.Setup Codebase Context Action"
-            }
             Self::InputBufferSubmitted => "AgentMode.NaturalLanguageDetection.InputBufferSubmitted",
             Self::RecentMenuItemSelected { .. } => "Recent Menu Item Selected",
             Self::OpenRepoFolderSubmitted { .. } => "Open Repo Folder Submitted",
@@ -5315,14 +5254,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "An AI model was selected for an AI execution profile"
             }
             Self::AIInputNotSent { .. } => "The AI input was not sent",
-            Self::AgentModeSetupBannerAccepted { .. } => "Agent Mode setup banner accepted",
-            Self::AgentModeSetupBannerDismissed => "Agent Mode setup banner dismissed",
-            Self::AgentModeSetupProjectScopedRulesAction { .. } => {
-                "User clicked a button in the Agent Mode setup project scoped rules step"
-            }
-            Self::AgentModeSetupCodebaseContextAction { .. } => {
-                "User clicked a button in the Agent Mode setup codebase context step"
-            }
             Self::InputBufferSubmitted => "Input buffer submitted",
             Self::RecentMenuItemSelected { .. } => {
                 "User selected an item from the recents list on the new tab zero state"

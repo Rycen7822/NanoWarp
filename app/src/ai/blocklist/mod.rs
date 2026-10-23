@@ -29,7 +29,6 @@ pub mod summarization_cancel_dialog;
 pub(crate) mod telemetry;
 pub mod usage;
 
-pub(crate) mod codebase_index_speedbump_banner;
 pub(crate) mod telemetry_banner;
 pub(crate) mod view_util;
 
@@ -45,10 +44,10 @@ pub use action_model::{
     StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
     TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR,
 };
+pub use block::keyboard_navigable_buttons;
 #[cfg(any(test, feature = "integration_tests"))]
 pub(crate) use block::model::testing::FakeAIBlockModel;
 pub(crate) use block::{AIBlock, AIBlockEvent, RequestedEditResolution, init, model};
-pub use block::{keyboard_navigable_buttons, toggleable_items};
 pub use child_agent_launch::inherit_child_agent_settings;
 #[cfg(not(target_family = "wasm"))]
 pub use child_agent_launch::{

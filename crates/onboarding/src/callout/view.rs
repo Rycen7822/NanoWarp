@@ -100,7 +100,6 @@ fn get_universal_input_callout_options(
 fn get_agent_modality_callout_options(
     state: AgentModalityCalloutState,
     intention: OnboardingIntention,
-    has_project: bool,
     initial_natural_language_detection_enabled: bool,
     natural_language_detection_enabled: bool,
     keybindings: &OnboardingKeybindings,
@@ -153,46 +152,25 @@ fn get_agent_modality_callout_options(
                 })
             }
         }
-        AgentModalityCalloutState::AgentMode => {
-            if has_project {
-                Some(CalloutOptions {
-                    title: "You're in agent mode",
-                    text: "Agent mode gives your questions and tasks their own conversation, so you can ask follow-ups without leaving your terminal workflow.\n\nSubmit the query below to have the agent initialize this project, or ⊗ to clear the input and start your own!".to_string(),
-                    step: StepStatus::new(1, total_steps),
-                    left_button: Some(ButtonOptions {
-                        text: "Skip initialization",
-                        action: OnboardingCalloutViewAction::SkipClicked,
-                        keystroke: Some(Keystroke::parse("delete").unwrap_or_default()),
-                    }),
-                    right_button: ButtonOptions {
-                        text: "Initialize",
-                        action: OnboardingCalloutViewAction::NextClicked,
-                        keystroke: Some(Keystroke::parse("enter").unwrap_or_default()),
-                    },
-                    checkbox: None,
-                })
-            } else {
-                Some(CalloutOptions {
-                    title: "You're in agent mode",
-                    text: format!(
-                        "Agent mode gives your questions and tasks their own conversation, so you can ask follow-ups without leaving your terminal workflow. Press {} to return to terminal mode at any point.",
-                        keybindings.return_to_terminal_mode
-                    ),
-                    step: StepStatus::new(1, total_steps),
-                    left_button: Some(ButtonOptions {
-                        text: "Back to terminal",
-                        action: OnboardingCalloutViewAction::BackToTerminalClicked,
-                        keystroke: Some(Keystroke::parse("escape").unwrap_or_default()),
-                    }),
-                    right_button: ButtonOptions {
-                        text: "Finish",
-                        action: OnboardingCalloutViewAction::NextClicked,
-                        keystroke: Some(Keystroke::parse("enter").unwrap_or_default()),
-                    },
-                    checkbox: None,
-                })
-            }
-        }
+        AgentModalityCalloutState::AgentMode => Some(CalloutOptions {
+            title: "You're in agent mode",
+            text: format!(
+                "Agent mode gives your questions and tasks their own conversation, so you can ask follow-ups without leaving your terminal workflow. Press {} to return to terminal mode at any point.",
+                keybindings.return_to_terminal_mode
+            ),
+            step: StepStatus::new(1, total_steps),
+            left_button: Some(ButtonOptions {
+                text: "Back to terminal",
+                action: OnboardingCalloutViewAction::BackToTerminalClicked,
+                keystroke: Some(Keystroke::parse("escape").unwrap_or_default()),
+            }),
+            right_button: ButtonOptions {
+                text: "Finish",
+                action: OnboardingCalloutViewAction::NextClicked,
+                keystroke: Some(Keystroke::parse("enter").unwrap_or_default()),
+            },
+            checkbox: None,
+        }),
         AgentModalityCalloutState::Off | AgentModalityCalloutState::Complete(_) => None,
     }
 }
@@ -323,10 +301,6 @@ impl OnboardingCalloutView {
         }
     }
 
-    pub fn has_project(&self, app: &AppContext) -> bool {
-        self.model.as_ref(app).has_project()
-    }
-
     pub fn start_onboarding(&mut self, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             model.start_onboarding(ctx);
@@ -364,7 +338,6 @@ impl OnboardingCalloutView {
             OnboardingCalloutState::AgentModality(state) => get_agent_modality_callout_options(
                 state,
                 model.intention(),
-                model.has_project(),
                 model.initial_natural_language_detection_enabled(),
                 model.natural_language_detection_enabled(),
                 &self.keybindings,

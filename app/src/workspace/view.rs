@@ -1941,11 +1941,6 @@ impl Workspace {
                     } else {
                         // No worktree: tab is ready. Start the tutorial after
                         // the tab-config chip is dismissed.
-                        // TODO(roland): We do have a directory in this case so we could consider passing has_project = true
-                        // which has an optional /init flow. But the behavior of /init needs to be revisited:
-                        // 1. Sends /init as a query which differs in behavior from /init slash command
-                        // 2. Sends /init even if not in a git repo - unclear if this should happen (depends on desired behavior from 1)
-                        // 3. With no free AI, /init will not work.
                         self.queue_onboarding_tutorial_after_session_config_tab_config_chip(
                             PendingSessionConfigTabConfigChipTutorial::WhenBootstrapped {
                                 has_project: false,
@@ -5619,22 +5614,6 @@ impl Workspace {
                             );
                         }
                     }
-                }
-            }
-            AIFactViewEvent::InitializeProject(path) => {
-                let active_terminal_view = self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .active_session_view(ctx);
-
-                if let Some(terminal_view) = active_terminal_view {
-                    terminal_view.update(ctx, |terminal_view, ctx| {
-                        terminal_view.open_repo_folder(
-                            path.to_string_lossy().to_string(),
-                            true,
-                            ctx,
-                        );
-                    });
                 }
             }
             _ => {}
@@ -11811,13 +11790,6 @@ impl Workspace {
             None,
             ctx,
         );
-        self.active_tab_pane_group().update(ctx, |tab, ctx| {
-            if let Some(active_terminal) = tab.active_session_view(ctx) {
-                active_terminal.update(ctx, |terminal, _| {
-                    terminal.maybe_set_pending_repo_init_path(path_buf);
-                });
-            }
-        });
     }
 
     /// Navigate to an existing AI conversation, focusing on its terminal view, if it's open anywhere.
@@ -13446,7 +13418,7 @@ impl Workspace {
 
                 if let Some(terminal_view) = active_terminal_view {
                     terminal_view.update(ctx, |terminal_view, ctx| {
-                        terminal_view.open_repo_folder(path.to_string(), false, ctx);
+                        terminal_view.open_repo_folder(path.to_string(), ctx);
                     });
                 }
             }

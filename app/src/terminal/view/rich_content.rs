@@ -1,7 +1,6 @@
 use warpui::prelude::ChildView;
 use warpui::{Element, EntityId, View, ViewContext, ViewHandle};
 
-use super::{InitStepBlock, InitStepKind};
 use crate::ai::agent::AIAgentExchangeId;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::AIBlock;
@@ -181,24 +180,6 @@ impl RichContent {
         )
     }
 
-    pub fn is_init_step(&self) -> bool {
-        matches!(self.metadata, Some(RichContentMetadata::InitStep { .. }))
-    }
-
-    pub fn init_step_kind(&self) -> Option<InitStepKind> {
-        match &self.metadata {
-            Some(RichContentMetadata::InitStep { step_kind, .. }) => Some(*step_kind),
-            _ => None,
-        }
-    }
-
-    pub fn init_step_block_handle(&self) -> Option<&ViewHandle<InitStepBlock>> {
-        match &self.metadata {
-            Some(RichContentMetadata::InitStep { block_handle, .. }) => Some(block_handle),
-            _ => None,
-        }
-    }
-
     pub fn ai_block_metadata(&self) -> Option<&AIBlockMetadata> {
         match &self.metadata {
             Some(RichContentMetadata::AIBlock(metadata)) => Some(metadata),
@@ -229,10 +210,6 @@ pub enum RichContentMetadata {
         exchange_id: AIAgentExchangeId,
     },
     UsageFooter,
-    InitStep {
-        step_kind: InitStepKind,
-        block_handle: ViewHandle<InitStepBlock>,
-    },
     EnvVarCollectionBlock {
         env_var_collection_block_handle: ViewHandle<EnvVarCollectionBlock>,
     },

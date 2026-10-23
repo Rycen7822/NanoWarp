@@ -1082,14 +1082,6 @@ pub(crate) fn convert_tool_call_result_to_input(
             },
             context,
         }),
-        Some(ToolCallResultType::InitProject(_)) => Some(AIAgentInput::ActionResult {
-            result: AIAgentActionResult {
-                id: tool_call_id.into(),
-                task_id: task_id.clone(),
-                result: AIAgentActionResultType::InitProject,
-            },
-            context,
-        }),
         Some(ToolCallResultType::ReadDocuments(result)) => {
             let read_result = match &result.result {
                 Some(api::read_documents_result::Result::Success(success)) => {
@@ -1703,6 +1695,7 @@ pub(crate) fn convert_tool_call_result_to_input(
         // Deprecated/unused result types or absent result.
         Some(ToolCallResultType::SuggestCreatePlan(..))
         | Some(ToolCallResultType::SuggestPlan(..))
+        | Some(ToolCallResultType::InitProject(_))
         | None => {
             log::warn!("No result present for tool call ID: {tool_call_id}");
             None
@@ -1802,7 +1795,7 @@ fn create_cancelled_result_for_tool_call(
         ToolType::InsertReviewComments(_) => {
             AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
         }
-        ToolType::InitProject(_) => AIAgentActionResultType::InitProject,
+        ToolType::InitProject(_) => return None,
         ToolType::ReadDocuments(_) => {
             AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Cancelled)
         }

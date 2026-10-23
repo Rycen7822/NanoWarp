@@ -9,7 +9,7 @@ fn make_action_result(id: &str) -> Arc<AIAgentActionResult> {
     Arc::new(AIAgentActionResult {
         id: AIAgentActionId::from(id.to_owned()),
         task_id: TaskId::new("task".to_owned()),
-        result: AIAgentActionResultType::InitProject,
+        result: AIAgentActionResultType::OpenCodeReview,
     })
 }
 

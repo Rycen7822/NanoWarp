@@ -92,14 +92,6 @@ pub(super) fn convert_input(
                     )),
                 });
             }
-            AIAgentInput::InitProjectRules { context, .. } => {
-                return Ok(api::request::Input {
-                    context: Some(convert_context(context.as_ref())),
-                    r#type: Some(api::request::input::Type::InitProjectRules(
-                        api::request::input::InitProjectRules {},
-                    )),
-                });
-            }
             AIAgentInput::CreateNewProject { query, context } => {
                 return Ok(api::request::Input {
                     context: Some(convert_context(context.as_ref())),
@@ -406,7 +398,6 @@ fn convert_input_to_user_input(
             ),
         ),
         AIAgentInput::ResumeConversation { .. } => Err(ConvertToAPITypeError::Ignore),
-        AIAgentInput::InitProjectRules { .. } => Err(ConvertToAPITypeError::Ignore),
         AIAgentInput::CodeReview { .. } => Err(ConvertToAPITypeError::Ignore),
         AIAgentInput::InvokeSkill { .. } => Err(ConvertToAPITypeError::Ignore),
         invalid_input => Err(anyhow!(
@@ -587,11 +578,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             AIAgentActionResultType::InsertReviewComments(insert_review_comments_result) => {
                 Some(insert_review_comments_result.try_into()?)
             }
-            AIAgentActionResultType::InitProject => Some(
-                warp_multi_agent_api::request::input::tool_call_result::Result::InitProject(
-                    warp_multi_agent_api::InitProjectResult {},
-                ),
-            ),
             AIAgentActionResultType::ReadDocuments(read_documents_result) => {
                 Some(read_documents_result.try_into()?)
             }

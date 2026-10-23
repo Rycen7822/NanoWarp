@@ -26,7 +26,6 @@ use super::{
 use crate::ai::agent::AIAgentExchangeId;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::codebase_index_speedbump_banner::CodebaseIndexSpeedbumpBannerAction;
 use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
 use crate::server::telemetry::{AgentModeRewindEntrypoint, PaletteSource, ToggleBlockFilterSource};
 use crate::terminal::available_shells::AvailableShell;
@@ -42,7 +41,6 @@ use crate::terminal::model::selection::{SelectAction, SelectionDirection};
 use crate::terminal::model::terminal_model::{BlockIndex, WithinModel};
 use crate::terminal::shared_session::SharedSessionActionSource;
 use crate::terminal::view::RichContentSecretTooltipInfo;
-use crate::terminal::view::inline_banner::AgentModeSetupSpeedbumpBannerAction;
 
 /// Version of the agent onboarding flow (non-legacy).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -338,8 +336,6 @@ pub enum TerminalAction {
     AttachFile,
     ToggleAutoexecuteMode,
     ToggleQueueNextPrompt,
-    CodebaseIndexSpeedbumpBanner(CodebaseIndexSpeedbumpBannerAction),
-    AgentModeSetupSpeedbumpBanner(AgentModeSetupSpeedbumpBannerAction),
     ResumeConversation,
     ForkConversationFromLastKnownGoodState,
     ToggleTodoPopup,
@@ -347,9 +343,7 @@ pub enum TerminalAction {
     ToggleCodeReviewPane {
         entrypoint: CodeReviewPaneEntrypoint,
     },
-    InitProject,
     SummarizeConversation,
-    IndexProjectSpeedbump,
     AddProjectAtCurrentDirectory,
     OpenProjectRulesPane,
     OpenViewMCPPane,
@@ -636,12 +630,6 @@ impl fmt::Debug for TerminalAction {
             AttachFile => write!(f, "AttachFile"),
             ToggleAutoexecuteMode => write!(f, "ToggleAutoexecuteMode"),
             ToggleQueueNextPrompt => write!(f, "ToggleQueueNextPrompt"),
-            CodebaseIndexSpeedbumpBanner(action) => {
-                write!(f, "CodebaseIndexSpeedbumpBanner({action:?})")
-            }
-            AgentModeSetupSpeedbumpBanner(action) => {
-                write!(f, "AgentModeSetupSpeedbumpBanner({action:?})")
-            }
             ResumeConversation => write!(f, "ResumeConversation"),
             ForkConversationFromLastKnownGoodState => {
                 write!(f, "ForkConversationFromLastKnownGoodState")
@@ -649,8 +637,6 @@ impl fmt::Debug for TerminalAction {
             ToggleTodoPopup => write!(f, "ToggleTodoPopup"),
             CloseTodoPopup => write!(f, "CloseTodoPopup"),
             ToggleCodeReviewPane { .. } => write!(f, "ToggleCodeReviewPane"),
-            InitProject => write!(f, "InitProject"),
-            IndexProjectSpeedbump => write!(f, "IndexProject"),
             AddProjectAtCurrentDirectory => write!(f, "AddProjectAtCurrentDirectory"),
             OpenProjectRulesPane => write!(f, "OpenProjectRulesPane"),
             OpenViewMCPPane => write!(f, "OpenViewMCPPane"),

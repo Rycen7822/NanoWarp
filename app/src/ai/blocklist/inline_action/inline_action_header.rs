@@ -118,7 +118,6 @@ pub struct HeaderConfig {
     pub is_text_selectable: bool,
     pub font_color_override: Option<ColorU>,
     pub corner_radius_override: Option<CornerRadius>,
-    pub soft_wrap_title: bool,
 }
 
 impl HeaderConfig {
@@ -133,13 +132,7 @@ impl HeaderConfig {
             is_text_selectable: false,
             font_color_override: None,
             corner_radius_override: None,
-            soft_wrap_title: false,
         }
-    }
-
-    pub fn with_soft_wrap_title(mut self) -> Self {
-        self.soft_wrap_title = true;
-        self
     }
 
     pub fn with_font_family(mut self, font: FamilyId) -> Self {
@@ -223,7 +216,7 @@ impl HeaderConfig {
             self.font_family,
             appearance.monospace_font_size(),
         )
-        .soft_wrap(self.soft_wrap_title)
+        .soft_wrap(false)
         .with_selectable(self.is_text_selectable)
         .with_color(text_color)
         .finish();
@@ -231,7 +224,7 @@ impl HeaderConfig {
         if self.use_markdown
             && let Ok(formatted_text) = markdown_parser::parse_markdown(&self.title)
         {
-            let mut element = FormattedTextElement::new(
+            let element = FormattedTextElement::new(
                 formatted_text,
                 appearance.monospace_font_size(),
                 self.font_family,
@@ -239,10 +232,8 @@ impl HeaderConfig {
                 text_color,
                 Default::default(),
             )
-            .set_selectable(self.is_text_selectable);
-            if !self.soft_wrap_title {
-                element = element.with_no_text_wrapping();
-            }
+            .set_selectable(self.is_text_selectable)
+            .with_no_text_wrapping();
             title_element = element.finish();
         }
 

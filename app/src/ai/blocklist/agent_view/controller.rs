@@ -134,7 +134,6 @@ pub enum AgentViewEntryOrigin {
     ImageAdded,
     /// Entered agent view by executing a slash command that requires agent mode.
     SlashCommand,
-    SlashInit,
     /// Entered agent view from the new-conversation keybinding.
     Keybinding(Keystroke),
     /// Entered agent view by attaching context from the code review panel.

@@ -28,7 +28,6 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
             AIAgentInput::CreateNewProject { context, .. }
             | AIAgentInput::CloneRepository { context, .. }
             | AIAgentInput::ResumeConversation { context }
-            | AIAgentInput::InitProjectRules { context, .. }
             | AIAgentInput::StartFromAmbientRunPrompt { context, .. } => {
                 redact_context(Arc::make_mut(context));
             }
@@ -186,8 +185,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
 
                     // These are effectively flow control and don't contain secrets
                     AIAgentActionResultType::SuggestNewConversation { .. }
-                    | AIAgentActionResultType::OpenCodeReview
-                    | AIAgentActionResultType::InitProject => {}
+                    | AIAgentActionResultType::OpenCodeReview => {}
 
                     // Contains only file path/line number information
                     AIAgentActionResultType::Grep(_)

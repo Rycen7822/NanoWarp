@@ -900,13 +900,6 @@ pub fn init(app: &mut AppContext) {
     .with_context_predicate(id!("Terminal"))]);
 
     app.register_editable_bindings([EditableBinding::new(
-        "workspace:init_project_rules",
-        BindingDescription::new("Initiate project for warp"),
-        TerminalAction::InitProject,
-    )
-    .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))]);
-
-    app.register_editable_bindings([EditableBinding::new(
         "workspace:add_current_dir_as_project",
         BindingDescription::new("Add current folder as project"),
         TerminalAction::AddProjectAtCurrentDirectory,

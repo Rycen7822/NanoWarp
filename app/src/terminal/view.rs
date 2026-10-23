@@ -15,12 +15,6 @@ pub(crate) mod queued_prompts_panel;
 mod queued_prompts_tests;
 use ai::agent::action::InsertReviewComment;
 pub use load_ai_conversation::ConversationRestorationInNewPaneType;
-// TODO(advait): if we align on prompt suggestions banner in Input, move code out of inline_banner mod.
-mod init_project;
-pub use init_project::{
-    InitActionResult, InitProjectModel, InitProjectModelEvent, InitStepBlock, InitStepKind,
-    ProjectScopedRulesResult,
-};
 use onboarding::callout::{FinalState, OnboardingCalloutViewEvent, OnboardingQuery};
 use onboarding::{OnboardingCalloutView, OnboardingKeybindings};
 use repo_metadata::CanonicalizedPath;
@@ -235,9 +229,6 @@ use crate::ai::blocklist::block::cli_controller::{
 };
 use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarEvent;
 use crate::ai::blocklist::block::{AIBlockAction, FinishReason};
-use crate::ai::blocklist::codebase_index_speedbump_banner::{
-    CodebaseIndexSpeedbumpBannerAction, CodebaseIndexSpeedbumpBannerState, VisibilityState,
-};
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelImpl};
 use crate::ai::blocklist::orchestration_topology::OrchestrationNavigationDirection;
@@ -432,9 +423,8 @@ use crate::terminal::shell_recovery::{
 };
 use crate::terminal::view::block_onboarding::onboarding_prompt_block::OnboardingPromptBlock;
 use crate::terminal::view::inline_banner::{
-    AgentModeSetupSpeedbumpBannerAction, AgentModeSetupSpeedbumpBannerState,
     AliasExpansionBannerState, NotificationsDiscoveryBannerState, NotificationsErrorBannerState,
-    VimModeBannerState, render_agent_mode_setup_banner,
+    VimModeBannerState,
 };
 pub use crate::terminal::view::rich_content::{
     AIBlockMetadata, AgentViewEntryMetadata, RichContent, RichContentInsertionPosition,
@@ -952,8 +942,6 @@ pub enum InlineBannerType {
     ShellProcessTerminated,
     OpenInWarp,
     VimMode,
-    CodebaseIndexSpeedbump,
-    AgentModeSetup,
     AwsBedrockLogin,
     AwsCliNotInstalled,
 }
@@ -964,10 +952,7 @@ impl InlineBannerType {
     pub fn is_visible_in_agent_view(&self) -> bool {
         match self {
             // Agent-related banners: visible in agent view
-            Self::CodebaseIndexSpeedbump
-            | Self::AgentModeSetup
-            | Self::AwsBedrockLogin
-            | Self::AwsCliNotInstalled => true,
+            Self::AwsBedrockLogin | Self::AwsCliNotInstalled => true,
             // Terminal-context banners: hidden in agent view
             Self::NotificationsDiscovery
             | Self::NotificationsError
@@ -1018,10 +1003,6 @@ struct InlineBannersState {
     open_in_warp_banner: Option<OpenInWarpBannerState>,
 
     vim_banner_state: Option<VimModeBannerState>,
-
-    codebase_index_speedbump_banner: Option<CodebaseIndexSpeedbumpBannerState>,
-
-    agent_setup_speedbump_banner: Option<AgentModeSetupSpeedbumpBannerState>,
 
     aws_bedrock_login_banner: Option<AwsBedrockLoginBannerState>,
 
@@ -2718,9 +2699,6 @@ pub struct TerminalView {
     pending_cloud_mode_start_callback: Option<TerminalViewCallback>,
     pending_cloud_mode_start_abort_handle: Option<SpawnedFutureHandle>,
 
-    /// Active /init flow model, if any. Cleared when cancelled or completed.
-    active_init_project_model: Option<ModelHandle<InitProjectModel>>,
-
     /// Whether we're waiting for the result of an AWS CLI login command.
     /// Used to detect "command not found" errors when AWS CLI isn't installed.
     /// TODO: In the future, when we support GCP/Azure cloud CLIs, this should be
@@ -3023,11 +3001,7 @@ impl TerminalView {
                                 .is_empty();
                             let should_insert_zero_state_block = *is_new
                                 && !has_pending_blocks
-                                && !matches!(
-                                    origin,
-                                    AgentViewEntryOrigin::SlashInit
-                                        | AgentViewEntryOrigin::ThirdPartyCloudAgent
-                                );
+                                && !matches!(origin, AgentViewEntryOrigin::ThirdPartyCloudAgent);
                             if should_insert_zero_state_block {
                                 let agent_view_zero_state = ctx.add_typed_action_view(|ctx| {
                                     AgentViewZeroStateBlock::new(
@@ -3140,15 +3114,6 @@ impl TerminalView {
                         );
                     }
 
-                    let has_init_steps = me.has_init_steps_for_conversation(*conversation_id);
-
-                    // Exiting agent view should cancel setup flows that hide the input box.
-                    if me.has_active_init_project(ctx)
-                        && has_init_steps
-                        && let Some(model) = me.active_init_project_model.clone()
-                    {
-                        model.update(ctx, |model, ctx| model.cancel(ctx));
-                    }
                     for rich_content in me.rich_content_views.iter().rev() {
                         if rich_content.agent_view_conversation_id() != Some(*conversation_id) {
                             continue;
@@ -3182,9 +3147,8 @@ impl TerminalView {
                         .conversation(conversation_id)
                         .is_some_and(|c| c.is_child_agent_conversation());
 
-                    // Delete the conversation if it's unmodified, new, has no init steps,
-                    // and isn't a child agent in an orchestration tree.
-                    if !was_modified && was_new && !has_init_steps && !is_child_agent {
+                    // Delete unmodified new root conversations.
+                    if !was_modified && was_new && !is_child_agent {
                         conversation_utils::remove_conversation(
                             *conversation_id,
                             me.view_id,
@@ -3208,7 +3172,7 @@ impl TerminalView {
 
                     let should_insert = (!me
                         .last_visible_item_is_agent_view_block_for_conversation(*conversation_id)
-                        && (has_init_steps || was_modified)
+                        && was_modified
                         && !is_exit_due_to_user_takeover_of_lrc
                         && !has_existing_lrc_block)
                         // If the agent view was entered via accepting a 'new conversation
@@ -3935,25 +3899,6 @@ impl TerminalView {
         let cloud_agent_team_required_view =
             ctx.add_view(|_| ambient_agent::CloudAgentTeamRequiredView);
 
-        if FeatureFlag::CodebaseIndexSpeedbump.is_enabled() {
-            // Check whether or not to show the codebase index speedbump when the codebase indexing settings change.
-            ctx.subscribe_to_model(&CodeSettings::handle(ctx), |me, _, _, ctx| {
-                me.check_codebase_index_speedbump_on_settings_changed(ctx);
-            });
-
-            // Check whether or not to show the codebase index speedbump when AI settings change.
-            ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, ai_settings_event, ctx| {
-                match ai_settings_event {
-                    AISettingsChangedEvent::IsAnyAIEnabled { .. }
-                    | AISettingsChangedEvent::AgentModeCodingPermissions { .. }
-                    | AISettingsChangedEvent::AgentModeCodingFileReadAllowlist { .. } => {
-                        me.check_codebase_index_speedbump_on_settings_changed(ctx);
-                    }
-                    _ => {}
-                }
-            });
-        }
-
         ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, ai_settings_event, ctx| {
             let user_workspaces = UserWorkspaces::as_ref(ctx);
             let scope = user_workspaces.team_context_for_view(ctx);
@@ -4176,7 +4121,6 @@ impl TerminalView {
             orchestration_child_live_unavailable: false,
             conversation_details_panel_toggle_mouse_state: Default::default(),
             ambient_agent_cancel_mouse_state: Default::default(),
-            active_init_project_model: None,
             is_pending_aws_login: false,
             manual_pty_shutdown_requested: false,
             pending_cloud_shell_recovery: None,
@@ -7131,21 +7075,6 @@ impl TerminalView {
                     }
                 }
             }
-            BlocklistAIActionEvent::InitProject(_) => {
-                self.on_next_conversation_finished(|me, _reason, ctx| {
-                    if let Some(path) = me.pwd() {
-                        CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-                            manager.index_directory(PathBuf::from(path), ctx);
-                        });
-                        me.ai_controller.update(ctx, |controller, ctx| {
-                            controller.send_slash_command_request(
-                                SlashCommandRequest::InitProjectRules,
-                                ctx,
-                            );
-                        });
-                    }
-                });
-            }
             BlocklistAIActionEvent::ToggleCodeReview(_) => {
                 self.toggle_code_review_pane(
                     GitDeltaPreference::Always,
@@ -8183,10 +8112,6 @@ impl TerminalView {
             return false;
         }
 
-        if self.has_active_init_project(app) && self.is_last_block_init_step(app) {
-            return false;
-        }
-
         if self.active_env_var_collection_block(app).is_some() {
             return false;
         }
@@ -8818,10 +8743,6 @@ impl TerminalView {
             // is running — the parent AI block is already finished but the response
             // stream is still active. Route Ctrl+C to the status bar to cancel it.
             self.cancel_active_conversation_via_status_bar(ctx);
-        } else if self.has_active_init_project(ctx) {
-            if let Some(model) = &self.active_init_project_model {
-                model.update(ctx, |m, ctx| m.cancel(ctx));
-            }
         } else if let Some(active_env_var_block) = self.active_env_var_collection_block(ctx) {
             active_env_var_block.update(ctx, |env_var_block, ctx| {
                 env_var_block.handle_ctrl_c(ctx);
@@ -10062,212 +9983,6 @@ impl TerminalView {
         });
     }
 
-    fn agent_mode_setup_speedbump_banner_action(
-        &mut self,
-        action: AgentModeSetupSpeedbumpBannerAction,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match action {
-            AgentModeSetupSpeedbumpBannerAction::Close => {
-                send_telemetry_from_ctx!(TelemetryEvent::AgentModeSetupBannerDismissed, ctx);
-                self.remove_agent_setup_speedbump_banner(ctx)
-            }
-            AgentModeSetupSpeedbumpBannerAction::SetupAgentMode => {
-                send_telemetry_from_ctx!(TelemetryEvent::AgentModeSetupBannerAccepted, ctx);
-                #[cfg(feature = "local_fs")]
-                if let Some(repo_path) = self.current_local_repo_path() {
-                    self.mark_agent_init_callout_as_shown_for_directory(repo_path, ctx);
-                }
-                self.remove_agent_setup_speedbump_banner(ctx);
-                self.init_project(false, ctx)
-            }
-        }
-    }
-
-    fn codebase_index_speedbump_banner_action(
-        &mut self,
-        action: CodebaseIndexSpeedbumpBannerAction,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match action {
-            CodebaseIndexSpeedbumpBannerAction::ToggleAlwaysAllow => {
-                if let Some(banner_state) =
-                    &mut self.inline_banners_state.codebase_index_speedbump_banner
-                {
-                    banner_state.toggle_always_allow_checked();
-                }
-                ctx.notify();
-            }
-            CodebaseIndexSpeedbumpBannerAction::AllowIndexing => {
-                if let Some(banner_state) =
-                    &mut self.inline_banners_state.codebase_index_speedbump_banner
-                {
-                    // Set "Read files" setting to true if the checkbox was checked
-                    if banner_state.always_allow_checked {
-                        CodeSettings::handle(ctx).update(ctx, |model, ctx| {
-                            report_if_error!(model.auto_indexing_enabled.set_value(true, ctx));
-                        });
-                    }
-
-                    // Index the codebase
-                    CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-                        manager.index_directory(banner_state.repo_path.clone(), ctx);
-                    });
-
-                    // Change state to indexing
-                    banner_state.show_indexing_banner();
-                }
-                ctx.notify();
-            }
-            CodebaseIndexSpeedbumpBannerAction::Close => {
-                if let Some(banner_state) = self
-                    .inline_banners_state
-                    .codebase_index_speedbump_banner
-                    .take()
-                {
-                    // If user dismissed the banner, we want to persist the dismissal (only if it's a speedbump banner).
-                    if banner_state.visibility_state == VisibilityState::Speedbump {
-                        let mut dismissed_repo_paths = AISettings::as_ref(ctx)
-                            .codebase_index_speedbump_banner_dismissed_for_repo_paths
-                            .clone();
-                        dismissed_repo_paths.push(banner_state.repo_path.clone());
-                        AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                            if let Err(e) = ai_settings
-                                .codebase_index_speedbump_banner_dismissed_for_repo_paths
-                                .set_value(dismissed_repo_paths, ctx) {
-                                    log::warn!("Failed to persist 'Codebase indexing speedbump banner dismissed' setting: {e:#}");
-                                }
-                        });
-                    }
-
-                    // Remove banner
-                    self.model
-                        .lock()
-                        .block_list_mut()
-                        .remove_inline_banner(banner_state.id);
-                }
-                ctx.notify();
-            }
-            CodebaseIndexSpeedbumpBannerAction::ViewStatus => {
-                ctx.emit(Event::OpenSettings(SettingsSection::CodeIndexing));
-            }
-            CodebaseIndexSpeedbumpBannerAction::DismissForever => {
-                AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-                    if let Err(e) = ai_settings
-                        .codebase_index_speedbump_banner_globally_dismissed
-                        .set_value(true, ctx)
-                    {
-                        log::warn!("Failed to persist 'Codebase indexing speedbump banner globally dismissed' setting: {e:#}");
-                    }
-                });
-                if let Some(banner_state) = self
-                    .inline_banners_state
-                    .codebase_index_speedbump_banner
-                    .take()
-                {
-                    self.model
-                        .lock()
-                        .block_list_mut()
-                        .remove_inline_banner(banner_state.id);
-                }
-                ctx.notify();
-            }
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn insert_agent_mode_setup_speedbump_banner(
-        &mut self,
-        repo_path: PathBuf,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Create new inline banner
-        let banner_id = self.inline_banners_state.next_banner_id();
-        let banner_state = AgentModeSetupSpeedbumpBannerState::new(banner_id, repo_path.clone());
-
-        // Insert the banner into the block list
-        self.model
-            .lock()
-            .block_list_mut()
-            .append_inline_banner_with_custom_height(
-                InlineBannerItem::new(banner_id, InlineBannerType::AgentModeSetup),
-                4.0,
-            );
-
-        // Store the banner state
-        self.inline_banners_state.agent_setup_speedbump_banner = Some(banner_state);
-
-        // Track that this banner has been shown for this repo
-        // so it won't be shown again
-        self.mark_agent_init_callout_as_shown_for_directory(&repo_path, ctx);
-
-        ctx.notify();
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn insert_codebase_index_speedbump_banner(
-        &mut self,
-        repo_path: PathBuf,
-        show_is_indexing: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Create new inline banner
-        let banner_id = self.inline_banners_state.next_banner_id();
-        let mut banner_state = CodebaseIndexSpeedbumpBannerState::new(banner_id, repo_path);
-        if show_is_indexing {
-            banner_state.show_indexing_banner(); // Set to indexing state
-        }
-
-        // Insert the banner into the block list
-        self.model
-            .lock()
-            .block_list_mut()
-            .append_inline_banner_with_custom_height(
-                InlineBannerItem::new(banner_id, InlineBannerType::CodebaseIndexSpeedbump),
-                4.0,
-            );
-
-        // Store the banner state
-        self.inline_banners_state.codebase_index_speedbump_banner = Some(banner_state);
-
-        ctx.notify();
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn remove_codebase_index_speedbump_banner(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(banner_state) = self
-            .inline_banners_state
-            .codebase_index_speedbump_banner
-            .take()
-        {
-            self.model
-                .lock()
-                .block_list_mut()
-                .remove_inline_banner(banner_state.id);
-            ctx.notify();
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn remove_agent_setup_speedbump_banner(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(banner_state) = self
-            .inline_banners_state
-            .agent_setup_speedbump_banner
-            .take()
-        {
-            self.model
-                .lock()
-                .block_list_mut()
-                .remove_inline_banner(banner_state.id);
-            ctx.notify();
-        }
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn remove_agent_setup_speedbump_banner(&mut self, _ctx: &mut ViewContext<Self>) {
-        // No-op when local filesystem is unavailable.
-    }
-
     fn remove_aws_bedrock_login_banner(&mut self, ctx: &mut ViewContext<Self>) {
         if let Some(banner_state) = self.inline_banners_state.aws_bedrock_login_banner.take() {
             self.model
@@ -11324,10 +11039,8 @@ impl TerminalView {
                             // `block_completed_callbacks` are scheduled via
                             // `on_next_block_completed` and expect the block
                             // to have finished. OSC 7 fires mid-block, so
-                            // draining them here would run callbacks like
-                            // `maybe_set_pending_repo_init_path`'s project
-                            // init before the actual command (e.g. `git
-                            // clone`) finishes.
+                            // draining them here would run completion callbacks
+                            // before the actual command finishes.
                             if source == BlockMetadataUpdateSource::Precmd {
                                 let callbacks =
                                     me.block_completed_callbacks.drain(..).collect_vec();
@@ -11409,8 +11122,6 @@ impl TerminalView {
                                         });
 
                                         me.start_lsp_server_in_active_pwd(ctx);
-
-                                        me.update_repo_banner_state(repo_path.clone(), ctx);
                                     }
                                     #[cfg(not(feature = "local_fs"))]
                                     let _ = repo_path;
@@ -13264,18 +12975,7 @@ impl TerminalView {
     }
 
     /// Opens a folder that the user may or may not have opened in the past
-    pub fn open_repo_folder(
-        &mut self,
-        path: String,
-        should_init_repo: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let path_buf = PathBuf::from(&path);
-
-        if should_init_repo {
-            self.maybe_set_pending_repo_init_path(path_buf);
-        }
-
+    pub fn open_repo_folder(&mut self, path: String, ctx: &mut ViewContext<Self>) {
         let escaped = self.shell_family(ctx).shell_escape(&path);
         self.input.update(ctx, |input, ctx| {
             input.try_execute_command(&format!("cd {escaped}"), ctx);
@@ -13296,346 +12996,10 @@ impl TerminalView {
         });
     }
 
-    pub fn maybe_set_pending_repo_init_path(&mut self, path: PathBuf) {
-        self.on_next_block_completed(move |me, ctx| {
-            if me
-                .current_local_repo_path()
-                .is_some_and(|repo_path| repo_path == path)
-            {
-                me.init_project_and_suppress_banners(path, ctx);
-            }
-        });
-    }
-
-    // Initialize project for a path and suppress the agent mode setup banner for that path. This also auto-opens
-    // the code-review pane after the initialization step completes.
-    fn init_project_and_suppress_banners(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        log::info!("Indexing and running /init for new repo at {path:?}");
-
-        // Ensure we don't hit speedumps - Mark this as "already shown and dismissed"
-        // This method is used when opening a new repo that the user has selected directly.
-        self.mark_agent_init_callout_as_shown_for_directory(&path, ctx);
-        AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-            let mut dismissed_paths = ai_settings
-                .codebase_index_speedbump_banner_dismissed_for_repo_paths
-                .clone();
-            if !dismissed_paths.contains(&path) {
-                dismissed_paths.push(path.clone());
-                let _ = ai_settings
-                    .codebase_index_speedbump_banner_dismissed_for_repo_paths
-                    .set_value(dismissed_paths, ctx);
-            }
-        });
-
-        self.init_project(true, ctx);
-    }
-
-    /// Show or hide codebase index speedbump depending when a settings change happens.
-    fn check_codebase_index_speedbump_on_settings_changed(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(working_directory) = self.active_session_path_if_local(ctx) {
-            self.update_repo_banner_state(working_directory, ctx);
-        }
-    }
-
     fn summarize_conversation(&mut self, ctx: &mut ViewContext<Self>) {
         self.ai_controller.update(ctx, |controller, ctx| {
             controller
                 .send_slash_command_request(SlashCommandRequest::Summarize { prompt: None }, ctx);
-        });
-    }
-
-    fn init_project(
-        &mut self,
-        open_code_review_pane_after_rule_generation: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.has_active_init_project(ctx) {
-            return;
-        }
-
-        let Some(pwd_path) = self
-            .pwd()
-            .and_then(|pwd| Path::new(&pwd).canonicalize().ok())
-        else {
-            return;
-        };
-
-        let path_env_var = self
-            .active_block_session_id()
-            .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id))
-            .and_then(|session| session.path().clone());
-
-        // Create new conversation for init flow (this ensures we enter the agent view)
-        let Some(conversation_id) = (if FeatureFlag::AgentView.is_enabled() {
-            self.enter_agent_view_for_new_conversation(None, AgentViewEntryOrigin::SlashInit, ctx);
-            self.agent_view_controller()
-                .as_ref(ctx)
-                .agent_view_state()
-                .active_conversation_id()
-        } else {
-            Some(
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.start_new_conversation(self.view_id, false, false, false, ctx)
-                }),
-            )
-        }) else {
-            return;
-        };
-
-        // Set fallback title since /init may have no initial query
-        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _ctx| {
-            if let Some(conversation) = history.conversation_mut(&conversation_id) {
-                conversation.set_fallback_display_title("Project setup".to_string());
-            }
-        });
-
-        let init_model = ctx.add_model(|ctx| InitProjectModel::new(pwd_path, path_env_var, ctx));
-        self.active_init_project_model = Some(init_model.clone());
-
-        ctx.subscribe_to_model(&init_model, move |me, model, event, ctx| {
-            match event {
-                InitProjectModelEvent::InsertStep(kind) => {
-                    me.insert_init_step_block(*kind, model.clone(), ctx);
-                    me.redetermine_terminal_focus(ctx);
-                }
-                InitProjectModelEvent::StepCompleted(_) => {}
-                InitProjectModelEvent::Cancelled => {
-                    me.active_init_project_model = None;
-                    // Mark conversation as cancelled
-                    //
-                    // We have to do this to handle the case where an init flow is just made up
-                    // of `InitProjectBlock`s (no actual conversation steps were triggered) -
-                    // the controller doesn't update the conversation status in those cases, so
-                    // without this we'd see an "in progress" conversation.
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                        history.update_conversation_status(
-                            me.view_id,
-                            conversation_id,
-                            ConversationStatus::Cancelled,
-                            ctx,
-                        );
-                    });
-                    me.redetermine_terminal_focus(ctx);
-                }
-                InitProjectModelEvent::InitCompleted => {
-                    me.active_init_project_model = None;
-                    // Mark conversation as success
-                    //
-                    // We have to do this to handle the case where an init flow is just made up
-                    // of `InitProjectBlock`s (no actual conversation steps were triggered) -
-                    // the controller doesn't update the conversation status in those cases, so
-                    // without this we'd see an "in progress" conversation.
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                        history.update_conversation_status(
-                            me.view_id,
-                            conversation_id,
-                            ConversationStatus::Success,
-                            ctx,
-                        );
-                    });
-                    #[cfg(feature = "local_fs")]
-                    me.start_lsp_server_in_active_pwd(ctx);
-                    me.redetermine_terminal_focus(ctx);
-                }
-                InitProjectModelEvent::GenerateProjectRules => {
-                    me.ai_controller.update(ctx, |controller, ctx| {
-                        controller.send_ai_input_with_context(
-                            |context| AIAgentInput::InitProjectRules {
-                                context,
-                                display_query: None,
-                            },
-                            ctx,
-                        );
-                    });
-
-                    // Mark step completed when conversation finishes
-                    let model = model.clone();
-                    me.on_next_conversation_finished(move |me, _reason, ctx| {
-                        model.update(ctx, |m, ctx| {
-                            m.mark_step_completed(
-                                InitStepKind::ProjectScopedRules,
-                                InitActionResult::ProjectScopedRules(
-                                    ProjectScopedRulesResult::GenerateNew {
-                                        mouse_state: Default::default(),
-                                        button_disabled: false,
-                                    },
-                                ),
-                                ctx,
-                            );
-                        });
-
-                        if open_code_review_pane_after_rule_generation {
-                            me.toggle_code_review_pane(
-                                GitDeltaPreference::Always,
-                                CodeReviewPaneEntrypoint::AgentModeCompleted,
-                                false, /* focus_new_pane */
-                                ctx,
-                            );
-                        }
-                    });
-                }
-                InitProjectModelEvent::RegenerateProjectRules => {
-                    me.ai_controller.update(ctx, |controller, ctx| {
-                        controller.send_ai_input_with_context(
-                            |context| AIAgentInput::InitProjectRules {
-                                context,
-                                display_query: None,
-                            },
-                            ctx,
-                        );
-                    });
-                    // Clicking this button doesn't mark the step as running, so we don't need to
-                    // register anything to mark the step as complete.
-                }
-                InitProjectModelEvent::ViewCodebaseContextStatus => {
-                    ctx.emit(Event::OpenSettings(SettingsSection::CodeIndexing));
-                }
-                InitProjectModelEvent::LanguageServerInstalledAndEnabled => {
-                    #[cfg(feature = "local_fs")]
-                    me.start_lsp_server_in_active_pwd(ctx);
-                }
-            }
-        });
-        // After subscribing, start the /init flow
-        init_model.update(ctx, |model, ctx| {
-            model.start(ctx);
-        });
-    }
-
-    /// Insert an InitStepBlock for the given step kind
-    fn insert_init_step_block(
-        &mut self,
-        kind: InitStepKind,
-        model: ModelHandle<InitProjectModel>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let step_block = ctx.add_typed_action_view(move |ctx| InitStepBlock::new(kind, model, ctx));
-
-        self.insert_rich_content(
-            None,
-            step_block.clone(),
-            Some(RichContentMetadata::InitStep {
-                step_kind: kind,
-                block_handle: step_block,
-            }),
-            RichContentInsertionPosition::Append {
-                insert_below_long_running_block: true,
-            },
-            ctx,
-        );
-    }
-
-    /// Try to focus the most recent init step block that's awaiting user input
-    fn try_focus_active_init_step(&mut self, ctx: &mut ViewContext<Self>) {
-        for rc in self.rich_content_views.iter().rev() {
-            if let Some(block_handle) = rc.init_step_block_handle() {
-                block_handle.update(ctx, |block, ctx| block.try_steal_focus(ctx));
-                return;
-            }
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn update_repo_banner_state(&mut self, directory: PathBuf, ctx: &mut ViewContext<Self>) {
-        self.update_agent_mode_setup_speedbump_banner(directory, ctx);
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn update_repo_banner_state(&mut self, _directory: PathBuf, _ctx: &mut ViewContext<Self>) {
-        // Repo setup is not supported without a local filesystem.
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn update_agent_mode_setup_speedbump_banner(
-        &mut self,
-        directory: PathBuf,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let should_insert_banner = self.should_show_agent_mode_setup_for_directory(&directory, ctx)
-            && !FeatureFlag::AgentView.is_enabled();
-
-        if !should_insert_banner {
-            self.remove_agent_setup_speedbump_banner(ctx);
-            return;
-        }
-
-        if let Some(banner_state) = &self.inline_banners_state.agent_setup_speedbump_banner {
-            if banner_state.repo_path != directory {
-                // If the banner is showing for a different repo, remove it, and insert it for the new repo.
-                self.remove_agent_setup_speedbump_banner(ctx);
-                self.insert_agent_mode_setup_speedbump_banner(directory, ctx);
-            }
-        } else {
-            // If no banner exists, insert it.
-            self.insert_agent_mode_setup_speedbump_banner(directory, ctx);
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn should_show_agent_mode_setup_for_directory(
-        &self,
-        directory: &Path,
-        ctx: &AppContext,
-    ) -> bool {
-        let already_shown = AISettings::as_ref(ctx)
-            .agent_mode_setup_banner_shown_for_repo_paths
-            .value()
-            .iter()
-            .any(|shown_path| shown_path == directory);
-        let is_repo = DetectedRepositories::as_ref(ctx)
-            .get_root_for_path(&LocalOrRemotePath::Local(directory.to_path_buf()))
-            .is_some();
-        let is_any_ai_enabled =
-            FeatureFlag::AgentMode.is_enabled() && AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-        // Check if the current session is remote - don't show setup in remote sessions.
-        let is_remote_session = !self.active_session_is_local(ctx).unwrap_or(false);
-
-        // Condition for showing setup:
-        // 1) Has not already shown
-        // 2) AI is enabled
-        // 3) Directory is in an active repo
-        // 4) There is no in-progress AI conversation (we don't want setup to show up mid conversation flow)
-        // 5) Session is not remote
-        // 6) There are available steps to show
-        !already_shown
-            && is_any_ai_enabled
-            && is_repo
-            && self.active_ai_block(ctx).is_none()
-            && !is_remote_session
-            && InitProjectModel::should_have_available_steps(directory, ctx)
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn should_show_agent_mode_setup_for_directory(
-        &self,
-        _directory: &Path,
-        _ctx: &AppContext,
-    ) -> bool {
-        false
-    }
-
-    fn mark_agent_init_callout_as_shown_for_directory(
-        &self,
-        directory: &Path,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let mut shown_repo_paths = AISettings::as_ref(ctx)
-            .agent_mode_setup_banner_shown_for_repo_paths
-            .clone();
-        if shown_repo_paths
-            .iter()
-            .any(|shown_path| shown_path == directory)
-        {
-            return;
-        }
-        shown_repo_paths.push(directory.to_path_buf());
-        AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-            if let Err(e) = ai_settings
-                .agent_mode_setup_banner_shown_for_repo_paths
-                .set_value(shown_repo_paths, ctx)
-            {
-                log::warn!("Failed to persist 'Agent Mode setup banner shown' setting: {e:#}");
-            }
         });
     }
 
@@ -13854,22 +13218,6 @@ impl TerminalView {
                         .update(ctx, |input, ctx| input.input_enter(ctx));
                 }
 
-                self.onboarding_callout_view = None;
-                ctx.emit(Event::OnboardingTutorialCompleted);
-                ctx.notify();
-            }
-            OnboardingCalloutViewEvent::Completed {
-                final_state: FinalState::Initialize,
-            } => {
-                // Clear the input first, then submit the initialization query
-                self.input
-                    .update(ctx, |input, ctx| input.replace_buffer_content("", ctx));
-                // Submit /init as an Agent Mode query
-                self.enter_agent_view_for_new_conversation(
-                    Some("/init".to_string()),
-                    AgentViewEntryOrigin::Onboarding,
-                    ctx,
-                );
                 self.onboarding_callout_view = None;
                 ctx.emit(Event::OnboardingTutorialCompleted);
                 ctx.notify();
@@ -19160,39 +18508,6 @@ impl TerminalView {
             .and_then(|ai_metadata| ai_metadata.ai_block_handle.as_ref(ctx).finish_reason())
     }
 
-    /// Check if there's an active (non-completed, non-cancelled) /init in progress
-    fn has_active_init_project(&self, ctx: &AppContext) -> bool {
-        self.active_init_project_model
-            .as_ref()
-            .is_some_and(|model| model.as_ref(ctx).is_active())
-    }
-
-    /// Check if there are any init step blocks for the given conversation
-    fn has_init_steps_for_conversation(&self, conversation_id: AIConversationId) -> bool {
-        self.rich_content_views
-            .iter()
-            .any(|rc| rc.is_init_step() && rc.agent_view_conversation_id() == Some(conversation_id))
-    }
-
-    /// Returns whether the last block in the currently visible conversation is an `InitStepBlock`.
-    fn is_last_block_init_step(&self, ctx: &AppContext) -> bool {
-        let last_visible_block = if FeatureFlag::AgentView.is_enabled() {
-            let visible_conversation_id = self
-                .agent_view_controller
-                .as_ref(ctx)
-                .agent_view_state()
-                .active_conversation_id();
-            self.rich_content_views
-                .iter()
-                .rev()
-                .find(|rc| rc.agent_view_conversation_id() == visible_conversation_id)
-        } else {
-            self.rich_content_views.last()
-        };
-
-        last_visible_block.is_some_and(|rc| rc.is_init_step())
-    }
-
     fn ai_block_for_exchange(
         &self,
         exchange_id: &AIAgentExchangeId,
@@ -19371,9 +18686,6 @@ impl TerminalView {
                         (self.active_ai_block(ctx), is_input_visible)
                     {
                         ctx.focus(active_ai_block_view_handle);
-                    } else if self.has_active_init_project(ctx) && self.is_last_block_init_step(ctx)
-                    {
-                        self.try_focus_active_init_step(ctx);
                     } else if let Some(env_var_collection_block_handle) =
                         self.active_env_var_collection_block(ctx)
                     {
@@ -22219,20 +21531,6 @@ impl TerminalView {
             );
         }
 
-        if let Some(banner_state) = &self.inline_banners_state.codebase_index_speedbump_banner {
-            inline_banners.insert(
-                banner_state.id,
-                banner_state.render_codebase_index_speedbump_banner(appearance),
-            );
-        }
-
-        if let Some(banner_state) = &self.inline_banners_state.agent_setup_speedbump_banner {
-            inline_banners.insert(
-                banner_state.id,
-                render_agent_mode_setup_banner(banner_state, appearance),
-            );
-        }
-
         if let Some(banner_state) = &self.inline_banners_state.aws_bedrock_login_banner {
             inline_banners.insert(
                 banner_state.id,
@@ -24704,16 +24002,12 @@ impl TypedActionView for TerminalView {
             | CloseTodoPopup
             | ToggleCodeReviewPane { .. }
             | OpenProjectRulesPane
-            | InitProject
-            | IndexProjectSpeedbump
             | OpenViewMCPPane
             | OpenAddMCPPane
             | OpenAddRulePane
             | OpenRulesPane
             | OpenEditSkillPane { .. }
             | AddProjectAtCurrentDirectory
-            | CodebaseIndexSpeedbumpBanner(_)
-            | AgentModeSetupSpeedbumpBanner(_)
             | DismissCodeToolbeltTooltip
             | SummarizeConversation
             | ToggleLongRunningCommandControl
@@ -25376,12 +24670,6 @@ impl TypedActionView for TerminalView {
                 });
                 ctx.notify();
             }
-            CodebaseIndexSpeedbumpBanner(action) => {
-                self.codebase_index_speedbump_banner_action(*action, ctx);
-            }
-            AgentModeSetupSpeedbumpBanner(action) => {
-                self.agent_mode_setup_speedbump_banner_action(*action, ctx)
-            }
             ResumeConversation => {
                 // With Agent View, we want to resume the conversation the user is currently viewing,
                 // not necessarily the most recently created one.
@@ -25452,32 +24740,7 @@ impl TypedActionView for TerminalView {
                     focus_new_pane: true,
                 }));
             }
-            InitProject => self.init_project(false, ctx),
             SummarizeConversation => self.summarize_conversation(ctx),
-            IndexProjectSpeedbump => {
-                let codebase_context_enabled =
-                    UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx);
-
-                if FeatureFlag::FullSourceCodeEmbedding.is_enabled() && codebase_context_enabled {
-                    #[cfg(feature = "local_fs")]
-                    if let Some(current_dir) = self.pwd() {
-                        let directory = PathBuf::from(&current_dir);
-
-                        if let Ok(repo_path) = directory.canonicalize() {
-                            // Start indexing the codebase
-                            CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-                                manager.index_directory(repo_path.clone(), ctx);
-                            });
-
-                            self.remove_codebase_index_speedbump_banner(ctx);
-                            self.insert_codebase_index_speedbump_banner(
-                                repo_path, true, /* show_is_indexing */
-                                ctx,
-                            );
-                        }
-                    }
-                }
-            }
             AddProjectAtCurrentDirectory => {
                 // Get the current working directory and add it as a project
                 if let Some(current_dir) = self.pwd() {

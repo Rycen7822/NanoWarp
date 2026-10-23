@@ -91,7 +91,6 @@ impl Display for TaskId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum EntrypointType {
-    InitProjectRules,
     UserInitiated,
     AgentInitiated,
     SharedSession,
@@ -102,7 +101,6 @@ pub enum EntrypointType {
 impl EntrypointType {
     pub fn entrypoint(&self) -> String {
         match self {
-            Self::InitProjectRules => "INIT_PROJECT_RULES".to_string(),
             Self::UserInitiated => "USER_INITIATED".to_string(),
             Self::AgentInitiated => "AGENT_INITIATED".to_string(),
             Self::CloneRepository => "CLONE_REPOSITORY".to_string(),

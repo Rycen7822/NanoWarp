@@ -2910,11 +2910,6 @@ pub enum AIAgentInput {
         context: Arc<[AIAgentContext]>,
     },
 
-    InitProjectRules {
-        context: Arc<[AIAgentContext]>,
-        display_query: Option<String>,
-    },
-
     CreateNewProject {
         query: String,
         context: Arc<[AIAgentContext]>,
@@ -3046,7 +3041,6 @@ impl Display for AIAgentInput {
             }
             Self::ActionResult { result, .. } => write!(f, "ActionResult: {result}"),
             Self::ResumeConversation { .. } => write!(f, "ResumeConversation"),
-            Self::InitProjectRules { .. } => write!(f, "InitProjectRules"),
             Self::CreateNewProject { .. } => write!(f, "CreateNewProject"),
             Self::CloneRepository { .. } => write!(f, "CloneRepository"),
             Self::CodeReview { .. } => write!(f, "CodeReview"),
@@ -3090,7 +3084,6 @@ impl AIAgentInput {
                 clone_repo_url: url,
                 ..
             } => Some(url.query.clone()),
-            Self::InitProjectRules { display_query, .. } => display_query.clone(),
             Self::CodeReview { .. } => Some("Address these comments".to_string()),
             Self::InvokeSkill {
                 skill, user_query, ..
@@ -3140,7 +3133,6 @@ impl AIAgentInput {
             Self::UserQuery { context, .. }
             | Self::ActionResult { context, .. }
             | Self::ResumeConversation { context, .. }
-            | Self::InitProjectRules { context, .. }
             | Self::CreateNewProject { context, .. }
             | Self::CloneRepository { context, .. }
             | Self::CodeReview { context, .. }
@@ -3168,7 +3160,6 @@ impl AIAgentInput {
             }
             Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
-            | Self::InitProjectRules { .. }
             | Self::CreateNewProject { .. }
             | Self::CloneRepository { .. }
             | Self::CodeReview { .. }

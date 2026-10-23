@@ -123,7 +123,7 @@ use crate::server::telemetry::CodePanelsFileOpenEntrypoint;
 use crate::settings::{AISettings, CodeSettings};
 use crate::settings_view::SettingsSection;
 use crate::terminal::input::MenuPositioning;
-use crate::terminal::view::{InitProjectModel, TerminalAction, TerminalView};
+use crate::terminal::view::{TerminalAction, TerminalView};
 use crate::themes::theme::WarpTheme;
 use crate::ui_components::blended_colors::{neutral_2, neutral_3};
 use crate::ui_components::buttons::icon_button_with_color;
@@ -338,7 +338,6 @@ pub enum CodeReviewAction {
     OpenCommentComposerFromHeader,
     ShowFindBar,
     FocusView,
-    InitProjectForCurrentDirectory,
     OpenRepository,
     OpenCommitDialog,
     ToggleGitOperationsMenu,
@@ -649,7 +648,6 @@ pub struct CodeReviewView {
 
     active_comment_model: Option<ModelHandle<ReviewCommentBatch>>,
 
-    init_project_button: ViewHandle<ActionButton>,
     #[cfg(not(target_family = "wasm"))]
     open_repository_button: ViewHandle<ActionButton>,
 
@@ -1291,21 +1289,11 @@ impl CodeReviewView {
         let ui_state_handles = UiStateHandles::default();
         let header = CodeReviewHeader::new();
 
-        let init_project_button = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("Initialize codebase", NakedTheme)
-                .with_size(ButtonSize::Small)
-                .with_tooltip("Enables codebase indexing and WARP.md")
-                .with_tooltip_alignment(TooltipAlignment::Center)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(CodeReviewAction::InitProjectForCurrentDirectory)
-                })
-        });
-
         #[cfg(not(target_family = "wasm"))]
         let open_repository_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Open repository", NakedTheme)
                 .with_size(ButtonSize::Small)
-                .with_tooltip("Navigate to a repo and initialize it for coding")
+                .with_tooltip("Navigate to a repository")
                 .with_tooltip_alignment(TooltipAlignment::Center)
                 .on_click(|ctx| ctx.dispatch_typed_action(CodeReviewAction::OpenRepository))
         });
@@ -1350,7 +1338,6 @@ impl CodeReviewView {
             pending_precise_scroll: None,
             pending_jump_to_comment: None,
             active_comment_model: None,
-            init_project_button,
             #[cfg(not(target_family = "wasm"))]
             open_repository_button,
             is_open: false,
@@ -4101,29 +4088,8 @@ impl CodeReviewView {
                 .finish(),
             );
 
-        let should_show_init = self
-            .repo_path()
-            .and_then(LocalOrRemotePath::to_local_path)
-            .map(|path| {
-                let has_steps = InitProjectModel::should_have_available_steps(path, app);
-                let is_terminal_in_correct_dir = self
-                    .focused_terminal(app)
-                    .and_then(|view| {
-                        view.read(app, |t, _| t.pwd().map(|pwd| pwd == path.to_string_lossy()))
-                    })
-                    .unwrap_or(false);
-                has_steps && is_terminal_in_correct_dir
-            })
-            .unwrap_or(false);
-
-        if should_show_init {
-            zero_state_column.add_child(
-                Container::new(ChildView::new(&self.init_project_button).finish())
-                    .with_margin_top(16.)
-                    .finish(),
-            );
-        } else if let Some(repo_path) = self.repo_path() {
-            // Check for initialized project-scoped rules.
+        if let Some(repo_path) = self.repo_path() {
+            // Show existing project-scoped rules.
             if let Some(rules) =
                 ProjectContextModel::as_ref(app).find_applicable_project_rules(repo_path)
                 && let Some(first_rule) = rules.active_rules.first()
@@ -4132,7 +4098,7 @@ impl CodeReviewView {
                 zero_state_column.add_child(
                     Container::new(
                         Text::new(
-                            format!("Repo is initialized with a {file_name} file."),
+                            format!("Project rules: {file_name}."),
                             appearance.ui_font_family(),
                             12.,
                         )
@@ -7399,13 +7365,6 @@ impl TypedActionView for CodeReviewView {
                 if let Some(terminal_view) = self.focused_terminal(ctx) {
                     terminal_view.update(ctx, |terminal, ctx| {
                         terminal.handle_action(&TerminalAction::PickRepoToOpen, ctx);
-                    });
-                }
-            }
-            CodeReviewAction::InitProjectForCurrentDirectory => {
-                if let Some(terminal_view) = self.focused_terminal(ctx) {
-                    terminal_view.update(ctx, |terminal, ctx| {
-                        terminal.handle_action(&TerminalAction::InitProject, ctx);
                     });
                 }
             }

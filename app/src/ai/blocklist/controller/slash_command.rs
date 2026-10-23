@@ -29,7 +29,6 @@ pub enum SlashCommandRequest {
     CloneRepository {
         url: String,
     },
-    InitProjectRules,
     Summarize {
         prompt: Option<String>,
     },
@@ -219,10 +218,6 @@ impl SlashCommandRequest {
                     context,
                 }]
             }
-            SlashCommandRequest::InitProjectRules => vec![AIAgentInput::InitProjectRules {
-                context,
-                display_query: Some("/init".to_string()),
-            }],
             SlashCommandRequest::Summarize { prompt, .. } => {
                 vec![AIAgentInput::SummarizeConversation { prompt, context }]
             }
@@ -256,7 +251,6 @@ impl SlashCommandRequest {
     fn entrypoint(&self) -> EntrypointType {
         match self {
             SlashCommandRequest::CloneRepository { .. } => EntrypointType::CloneRepository,
-            SlashCommandRequest::InitProjectRules => EntrypointType::InitProjectRules,
             SlashCommandRequest::CreateNewProject { .. }
             | SlashCommandRequest::Summarize { .. }
             | SlashCommandRequest::InvokeSkill { .. } => EntrypointType::UserInitiated,

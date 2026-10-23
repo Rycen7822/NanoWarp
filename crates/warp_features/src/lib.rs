@@ -271,9 +271,6 @@ pub enum FeatureFlag {
     /// Enables the agent to decide whether to execute a command.
     AgentDecidesCommandExecution,
 
-    /// Show speed bump when enabling codebase indexing.
-    CodebaseIndexSpeedbump,
-
     /// Enables inline review comments on specific lines of code.
     ContextLineReviewComments,
 
@@ -908,7 +905,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::CrossRepoContext,
     FeatureFlag::CodebaseIndexPersistence,
     FeatureFlag::FullSourceCodeEmbedding,
-    FeatureFlag::CodebaseIndexSpeedbump,
     // End manually enabled Code features.
     FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::CodeReviewScrollPreservation,

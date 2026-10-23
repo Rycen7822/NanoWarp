@@ -136,8 +136,8 @@ fn write_task_messages(
             Message::ToolCall(tc) => {
                 let tool_call_id = &tc.tool_call_id;
                 match &tc.tool {
-                    Some(Tool::Server(_)) => {
-                        // Skip opaque server tool calls.
+                    Some(Tool::Server(_)) | Some(Tool::InitProject(_)) => {
+                        // Skip opaque server and retired project initialization tool calls.
                     }
                     Some(Tool::Subagent(sub)) => {
                         let subtask_id = &sub.task_id;
@@ -190,8 +190,9 @@ fn write_task_messages(
             Message::ToolCallResult(tcr) => {
                 let tool_call_id = &tcr.tool_call_id;
                 match &tcr.result {
-                    Some(ToolCallResultType::Server(_)) => {
-                        // Skip opaque server results.
+                    Some(ToolCallResultType::Server(_))
+                    | Some(ToolCallResultType::InitProject(_)) => {
+                        // Skip opaque server and retired project initialization results.
                     }
                     Some(ToolCallResultType::Subagent(_)) => {
                         let subtask_id = find_subtask_id_for_tool_call(task, tool_call_id);
@@ -1069,6 +1070,7 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
         ToolCallResultType::Cancel(_) => {
             out.push_str("status: cancelled\n");
         }
+        ToolCallResultType::InitProject(_) => {}
         // No structured content worth serializing.
         ToolCallResultType::Server(_)
         | ToolCallResultType::Subagent(_)
@@ -1077,7 +1079,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
         | ToolCallResultType::SuggestNewConversation(_)
         | ToolCallResultType::SuggestPrompt(_)
         | ToolCallResultType::OpenCodeReview(_)
-        | ToolCallResultType::InitProject(_)
         | ToolCallResultType::TransferShellCommandControlToUser(_)
         | ToolCallResultType::SuggestCreatePlan(_)
         | ToolCallResultType::SuggestPlan(_) => {

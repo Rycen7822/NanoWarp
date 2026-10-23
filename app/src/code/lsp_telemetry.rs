@@ -6,8 +6,6 @@ use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 /// The source from which the user enabled an LSP server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LspEnablementSource {
-    #[serde(rename = "init_flow")]
-    InitFlow,
     #[serde(rename = "footer_button")]
     FooterButton,
     #[serde(rename = "settings")]
@@ -41,10 +39,6 @@ pub enum LspTelemetryEvent {
         source: LspEnablementSource,
         needed_install: bool,
     },
-    /// User skipped LSP enablement during /init.
-    ServerEnablementSkipped,
-    /// An LSP server installation finished (success or failure).
-    ServerInstallCompleted { server_type: String, success: bool },
     /// User removed an LSP server.
     ServerRemoved {
         server_type: String,
@@ -92,14 +86,6 @@ impl TelemetryEvent for LspTelemetryEvent {
                 "server_type": server_type,
                 "source": source,
                 "needed_install": needed_install,
-            })),
-            LspTelemetryEvent::ServerEnablementSkipped => None,
-            LspTelemetryEvent::ServerInstallCompleted {
-                server_type,
-                success,
-            } => Some(json!({
-                "server_type": server_type,
-                "success": success,
             })),
             LspTelemetryEvent::ServerRemoved {
                 server_type,
@@ -168,8 +154,6 @@ impl TelemetryEventDesc for LspTelemetryEventDiscriminants {
     fn name(&self) -> &'static str {
         match self {
             Self::ServerEnabled => "Lsp.ServerEnabled",
-            Self::ServerEnablementSkipped => "Lsp.ServerEnablementSkipped",
-            Self::ServerInstallCompleted => "Lsp.ServerInstallCompleted",
             Self::ServerRemoved => "Lsp.ServerRemoved",
             Self::HoverShown => "Lsp.HoverShown",
             Self::GotoDefinition => "Lsp.GotoDefinition",
@@ -183,8 +167,6 @@ impl TelemetryEventDesc for LspTelemetryEventDiscriminants {
     fn description(&self) -> &'static str {
         match self {
             Self::ServerEnabled => "User enabled an LSP server for a workspace",
-            Self::ServerEnablementSkipped => "User skipped LSP enablement during /init",
-            Self::ServerInstallCompleted => "An LSP server installation finished",
             Self::ServerRemoved => "User removed an LSP server",
             Self::HoverShown => "Hover tooltip displayed with LSP content or diagnostics",
             Self::GotoDefinition => "User triggered goto definition via LSP",

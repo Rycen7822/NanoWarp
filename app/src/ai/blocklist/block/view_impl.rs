@@ -1360,7 +1360,6 @@ impl AIAgentInput {
             )),
             AIAgentInput::UserQuery { .. }
             | AIAgentInput::ResumeConversation { .. }
-            | AIAgentInput::InitProjectRules { .. }
             | AIAgentInput::CreateNewProject { .. }
             | AIAgentInput::CloneRepository { .. }
             | AIAgentInput::SummarizeConversation { .. }

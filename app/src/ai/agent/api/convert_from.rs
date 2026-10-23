@@ -689,9 +689,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::OpenCodeReview(_) => {
                 create_standard_action(AIAgentActionType::OpenCodeReview)
             }
-            api::message::tool_call::Tool::InitProject(_) => {
-                create_standard_action(AIAgentActionType::InitProject)
-            }
             api::message::tool_call::Tool::ReadDocuments(read_documents) => {
                 create_standard_action(read_documents.into())
             }

@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::path::PathBuf;
 
 use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
 use markdown_parser::weight::CustomWeight;
@@ -12,7 +11,7 @@ use warpui::elements::{
     Expanded, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, ParentElement, Shrinkable,
 };
-use warpui::platform::{Cursor, FilePickerConfiguration};
+use warpui::platform::Cursor;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{
@@ -40,9 +39,7 @@ use crate::server::sync_queue::SyncQueue;
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::ui_components::icons::Icon;
 use crate::util::path::display_path_with_host;
-use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{ActionButton, NakedTheme};
-use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub const HEADER_TEXT: &str = "Rules";
@@ -51,8 +48,7 @@ const DESCRIPTION_TEXT: &str = "Rules enhance the agent by providing structured 
 const SEARCH_PLACEHOLDER_TEXT: &str = "Search rules";
 const ZERO_STATE_TEXT: &str =
     "Add a rule above, or drop one at ~/.agents/AGENTS.md to apply it across every project.";
-const ZERO_STATE_TEXT_PROJECT: &str =
-    "Once you generate a WARP.md rules file for a project, it will appear here.";
+const ZERO_STATE_TEXT_PROJECT: &str = "Project rule files will appear here when available.";
 
 const DISABLED_BANNER_TEXT: &str =
     "Your rules are disabled and won't be used as context in sessions. You can ";
@@ -71,13 +67,11 @@ pub enum RuleViewEvent {
     Edit(SyncId),
     OpenSettings,
     OpenFile(LocalOrRemotePath),
-    InitializeProject(PathBuf),
 }
 
 #[derive(Debug, Clone)]
 pub enum RuleViewAction {
     AddRule,
-    InitializeProject,
     Edit(SyncId),
     OpenSettings,
     SelectScope(RuleScope),
@@ -158,7 +152,6 @@ pub struct RuleView {
     search_editor: ViewHandle<EditorView>,
     search_bar: ViewHandle<SearchBar>,
     add_button: ViewHandle<ActionButton>,
-    initialize_button: ViewHandle<ActionButton>,
     disabled_banner_highlight_index: HighlightedHyperlink,
     current_scope: RuleScope,
     global_tab_mouse_state: MouseStateHandle,
@@ -298,12 +291,6 @@ impl RuleView {
                 .on_click(|ctx| ctx.dispatch_typed_action(RuleViewAction::AddRule))
         });
 
-        let initialize_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Initialize Project", NakedTheme)
-                .with_icon(Icon::Plus)
-                .on_click(|ctx| ctx.dispatch_typed_action(RuleViewAction::InitializeProject))
-        });
-
         Self {
             owner,
             cloud_global_rules: ai_rules,
@@ -312,7 +299,6 @@ impl RuleView {
             search_editor,
             search_bar,
             add_button,
-            initialize_button,
             disabled_banner_highlight_index: Default::default(),
             current_scope: RuleScope::Global,
             global_tab_mouse_state: Default::default(),
@@ -582,16 +568,9 @@ impl RuleView {
     }
 
     fn render_add_button(&self) -> Box<dyn Element> {
-        Container::new(
-            ChildView::new(if self.current_scope == RuleScope::ProjectBased {
-                &self.initialize_button
-            } else {
-                &self.add_button
-            })
-            .finish(),
-        )
-        .with_margin_left(style::SECTION_MARGIN)
-        .finish()
+        Container::new(ChildView::new(&self.add_button).finish())
+            .with_margin_left(style::SECTION_MARGIN)
+            .finish()
     }
 
     fn render_disabled_banner(&self, appearance: &Appearance) -> Box<dyn Element> {
@@ -654,7 +633,7 @@ impl RuleView {
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_child(Expanded::new(1., ChildView::new(&self.search_bar).finish()).finish());
 
-        if !filtered_rules.is_empty() {
+        if !filtered_rules.is_empty() && self.current_scope == RuleScope::Global {
             row.add_child(self.render_add_button());
         }
         Container::new(row.finish())
@@ -892,25 +871,23 @@ impl RuleView {
             .build()
             .finish();
 
+        let mut column = Flex::column()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::Center)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Container::new(Align::new(centered_text).top_center().finish())
+                    .with_horizontal_padding(style::ROW_HORIZONTAL_PADDING)
+                    .finish(),
+            );
+        if self.current_scope == RuleScope::Global {
+            column.add_child(self.render_add_button());
+        }
+
         Container::new(
-            ConstrainedBox::new(
-                Align::new(
-                    Flex::column()
-                        .with_main_axis_size(MainAxisSize::Max)
-                        .with_main_axis_alignment(MainAxisAlignment::Center)
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_child(
-                            Container::new(Align::new(centered_text).top_center().finish())
-                                .with_horizontal_padding(style::ROW_HORIZONTAL_PADDING)
-                                .finish(),
-                        )
-                        .with_child(self.render_add_button())
-                        .finish(),
-                )
+            ConstrainedBox::new(Align::new(column.finish()).finish())
+                .with_height(style::ZERO_STATE_HEIGHT)
                 .finish(),
-            )
-            .with_height(style::ZERO_STATE_HEIGHT)
-            .finish(),
         )
         .with_horizontal_padding(style::ROW_HORIZONTAL_PADDING)
         .with_border(
@@ -990,31 +967,6 @@ impl TypedActionView for RuleView {
             }
             RuleViewAction::OpenFile(path) => {
                 ctx.emit(RuleViewEvent::OpenFile(path.clone()));
-            }
-            RuleViewAction::InitializeProject => {
-                let file_picker_config = FilePickerConfiguration::new().folders_only();
-                let window_id = ctx.window_id();
-
-                ctx.open_file_picker(
-                    move |result, ctx| match result {
-                        Ok(paths) => {
-                            if let Some(directory_path) = paths.first() {
-                                let path = PathBuf::from(directory_path);
-                                ctx.emit(RuleViewEvent::InitializeProject(path));
-                            }
-                        }
-                        Err(err) => {
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_ephemeral_toast(
-                                    DismissibleToast::error(format!("{err}")),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                        }
-                    },
-                    file_picker_config,
-                );
             }
         }
     }

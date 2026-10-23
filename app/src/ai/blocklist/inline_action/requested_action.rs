@@ -72,7 +72,6 @@ pub struct RenderableAction {
     pub footer: Option<Box<dyn Element>>,
     pub background_color: ColorU,
     pub should_highlight_border: bool,
-    should_override_with_content_item_spacing: bool,
 }
 
 impl RenderableAction {
@@ -89,7 +88,6 @@ impl RenderableAction {
             action_button: None,
             background_color: neutral_2(theme),
             should_highlight_border: false,
-            should_override_with_content_item_spacing: false,
         }
     }
 
@@ -104,7 +102,6 @@ impl RenderableAction {
             action_button: None,
             background_color: neutral_2(theme),
             should_highlight_border: false,
-            should_override_with_content_item_spacing: false,
         }
     }
 
@@ -119,7 +116,6 @@ impl RenderableAction {
             action_button: None,
             background_color: neutral_2(theme),
             should_highlight_border: false,
-            should_override_with_content_item_spacing: false,
         }
     }
 
@@ -158,11 +154,6 @@ impl RenderableAction {
 
     pub fn with_action_button(mut self, button: Box<dyn Element>) -> Self {
         self.action_button = Some(button);
-        self
-    }
-
-    pub fn with_content_item_spacing(mut self) -> Self {
-        self.should_override_with_content_item_spacing = true;
         self
     }
 
@@ -211,7 +202,7 @@ impl RenderableAction {
                 }),
             );
 
-        if has_header || self.should_override_with_content_item_spacing {
+        if has_header {
             container.finish().with_content_item_spacing()
         } else {
             container.finish().with_agent_output_item_spacing(app)

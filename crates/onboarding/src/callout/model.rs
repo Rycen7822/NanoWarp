@@ -9,13 +9,11 @@ use crate::telemetry::OnboardingEvent;
 pub enum FinalState {
     /// User submitted the agent query (legacy flow)
     Submit,
-    /// User skipped the callout (legacy flow or skip initialization)
+    /// User skipped the callout (legacy flow)
     Skip,
     /// User finished the callout without submitting
     Finish,
-    /// User chose to initialize the project (AgentModality with project)
-    Initialize,
-    /// User chose to go back to terminal (AgentModality without project)
+    /// User chose to go back to terminal (AgentModality)
     BackToTerminal,
 }
 
@@ -25,7 +23,6 @@ impl std::fmt::Display for FinalState {
             FinalState::Submit => write!(f, "submitted"),
             FinalState::Skip => write!(f, "skipped"),
             FinalState::Finish => write!(f, "finished"),
-            FinalState::Initialize => write!(f, "initialize"),
             FinalState::BackToTerminal => write!(f, "back_to_terminal"),
         }
     }
@@ -201,19 +198,10 @@ impl OnboardingCalloutModel {
                     }
                 }
             }
-            AgentModalityCalloutState::AgentMode => {
-                // For Agent with project: Initialize
-                // For Agent without project: Finish
-                let final_state = if self.has_project {
-                    FinalState::Initialize
-                } else {
-                    FinalState::Finish
-                };
-                (
-                    Some(AgentModalityCalloutState::Complete(final_state)),
-                    false,
-                )
-            }
+            AgentModalityCalloutState::AgentMode => (
+                Some(AgentModalityCalloutState::Complete(FinalState::Finish)),
+                false,
+            ),
             AgentModalityCalloutState::Complete(_) => (None, false),
         };
         if let Some(next_state) = next_state {
@@ -229,17 +217,6 @@ impl OnboardingCalloutModel {
             OnboardingCalloutState::UniversalInput(UniversalInputCalloutState::TalkToAgent) => {
                 self.set_state(
                     OnboardingCalloutState::UniversalInput(UniversalInputCalloutState::Complete(
-                        FinalState::Skip,
-                    )),
-                    ctx,
-                );
-            }
-            OnboardingCalloutState::AgentModality(AgentModalityCalloutState::AgentMode)
-                if self.has_project =>
-            {
-                // Skip initialization
-                self.set_state(
-                    OnboardingCalloutState::AgentModality(AgentModalityCalloutState::Complete(
                         FinalState::Skip,
                     )),
                     ctx,
@@ -271,10 +248,8 @@ impl OnboardingCalloutModel {
                     ctx,
                 );
             }
-            OnboardingCalloutState::AgentModality(AgentModalityCalloutState::AgentMode)
-                if !self.has_project =>
-            {
-                // Agent without project finishes here
+            OnboardingCalloutState::AgentModality(AgentModalityCalloutState::AgentMode) => {
+                // Agent mode finishes here
                 self.set_state(
                     OnboardingCalloutState::AgentModality(AgentModalityCalloutState::Complete(
                         FinalState::Finish,
@@ -426,11 +401,7 @@ impl OnboardingCalloutModel {
                 OnboardingQuery::TerminalCommand("Run a command...".to_string())
             }
             AgentModalityCalloutState::AgentMode => {
-                if self.has_project {
-                    OnboardingQuery::AgentPrompt("/init".to_string())
-                } else {
-                    OnboardingQuery::AgentPrompt("Tell the agent what to build...".to_string())
-                }
+                OnboardingQuery::AgentPrompt("Tell the agent what to build...".to_string())
             }
             // All completion states should return None so the input gets cleared
             AgentModalityCalloutState::Complete(_) => OnboardingQuery::None,

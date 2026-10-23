@@ -59,8 +59,6 @@ pub enum AIAgentActionResultType {
 
     OpenCodeReview,
 
-    InitProject,
-
     /// The output of a read documents action.
     ReadDocuments(ReadDocumentsResult),
 
@@ -184,9 +182,7 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::AskUserQuestion(result) => result.fmt(f),
             AIAgentActionResultType::RunAgents(result) => result.fmt(f),
             AIAgentActionResultType::WaitForEvents(result) => result.fmt(f),
-            AIAgentActionResultType::OpenCodeReview | AIAgentActionResultType::InitProject => {
-                Ok(())
-            }
+            AIAgentActionResultType::OpenCodeReview => Ok(()),
         }
     }
 }
@@ -861,7 +857,6 @@ impl AIAgentActionResultType {
             }
             AIAgentActionResultType::OpenCodeReview => "Open code review",
             AIAgentActionResultType::InsertReviewComments(_) => "Insert code review comments",
-            AIAgentActionResultType::InitProject => "Initialize project",
             AIAgentActionResultType::ReadDocuments(_) => "The requested document content",
             AIAgentActionResultType::EditDocuments(_) => "The edited document content",
             AIAgentActionResultType::CreateDocuments(_) => "The newly created documents",

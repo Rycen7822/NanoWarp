@@ -110,7 +110,6 @@ impl DocumentActionPresentation {
                 | AIAgentActionType::ReadMCPResource { .. }
                 | AIAgentActionType::CallMCPTool { .. }
                 | AIAgentActionType::SuggestNewConversation { .. }
-                | AIAgentActionType::InitProject
                 | AIAgentActionType::OpenCodeReview
                 | AIAgentActionType::ReadDocuments(_)
                 | AIAgentActionType::ReadShellCommandOutput { .. }

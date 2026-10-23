@@ -118,7 +118,6 @@ pub enum AIAgentActionType {
         message_id: String,
     },
 
-    InitProject,
     OpenCodeReview,
 
     ReadDocuments(ReadDocumentsRequest),
@@ -365,7 +364,6 @@ impl AIAgentActionType {
                 SuggestNewConversationResult::Cancelled,
             ),
             Self::OpenCodeReview => AIAgentActionResultType::OpenCodeReview,
-            Self::InitProject => AIAgentActionResultType::InitProject,
             Self::ReadDocuments(_) => {
                 AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Cancelled)
             }
@@ -435,7 +433,6 @@ impl AIAgentActionType {
             Self::ReadMCPResource { .. } => "Read mcp resource".to_string(),
             Self::CallMCPTool { .. } => "Call mcp tool".to_string(),
             Self::SuggestNewConversation { .. } => "Suggest new conversation".to_string(),
-            Self::InitProject => "Init project".to_string(),
             Self::OpenCodeReview => "Open code review".to_string(),
             Self::ReadDocuments(_) => "Read documents".to_string(),
             Self::EditDocuments(_) => "Edit documents".to_string(),
@@ -544,9 +541,6 @@ impl Display for AIAgentActionType {
             }
             AIAgentActionType::SuggestNewConversation { message_id } => {
                 write!(f, "SuggestNewConversation: {message_id}")
-            }
-            AIAgentActionType::InitProject => {
-                write!(f, "InitProject")
             }
             AIAgentActionType::OpenCodeReview => {
                 write!(f, "OpenCodeReview")

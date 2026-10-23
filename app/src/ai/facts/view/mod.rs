@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use warp_core::ui::appearance::Appearance;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::elements::{
@@ -57,7 +55,6 @@ pub enum AIFactViewEvent {
     Pane(PaneEvent),
     OpenSettings,
     OpenFile(LocalOrRemotePath),
-    InitializeProject(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -132,9 +129,6 @@ impl AIFactView {
             }
             RuleViewEvent::OpenFile(path) => {
                 ctx.emit(AIFactViewEvent::OpenFile(path.clone()));
-            }
-            RuleViewEvent::InitializeProject(path) => {
-                ctx.emit(AIFactViewEvent::InitializeProject(path.clone()));
             }
         }
     }

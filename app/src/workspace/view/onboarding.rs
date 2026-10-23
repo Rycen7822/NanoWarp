@@ -181,11 +181,6 @@ impl Workspace {
             move |me, terminal_view, event, ctx| {
                 if let terminal::Event::PendingCommandCompleted = event {
                     // Start the onboarding tutorial now that setup is done.
-                    // TODO(roland): We do have a directory in this case so we could consider passing has_project = true
-                    // which has an optional /init flow. But the behavior of /init needs to be revisited:
-                    // 1. Sends /init as a query which differs in behavior from /init slash command
-                    // 2. Sends /init even if not in a git repo - unclear if this should happen (depends on desired behavior from 1)
-                    // 3. With no free AI, /init will not work.
                     me.dispatch_agent_onboarding_tutorial(false, intention, ctx);
                     ctx.unsubscribe_to_view(&terminal_view);
                 }

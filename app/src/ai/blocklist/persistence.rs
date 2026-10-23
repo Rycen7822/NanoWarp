@@ -70,7 +70,6 @@ impl TryFrom<&AIAgentInput> for PersistedAIInputType {
             }),
             AIAgentInput::ActionResult { .. }
             | AIAgentInput::ResumeConversation { .. }
-            | AIAgentInput::InitProjectRules { .. }
             | AIAgentInput::CreateNewProject { .. }
             | AIAgentInput::CloneRepository { .. }
             | AIAgentInput::CodeReview { .. }
@@ -258,7 +257,6 @@ pub(crate) enum PersistedAIAgentActionType {
         message_id: String,
     },
     OpenCodeReview,
-    InitProject,
     UseComputer {
         action_summary: String,
         #[serde(deserialize_with = "deserialize_targeted_actions")]
@@ -394,7 +392,6 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
             }
             AIAgentActionType::OpenCodeReview => Self::OpenCodeReview,
             AIAgentActionType::InsertCodeReviewComments { .. } => Self::NotPersisted,
-            AIAgentActionType::InitProject => Self::InitProject,
             AIAgentActionType::ReadDocuments(_)
             | AIAgentActionType::EditDocuments(_)
             | AIAgentActionType::CreateDocuments(_)
@@ -523,7 +520,6 @@ impl TryFrom<PersistedAIAgentActionType> for AIAgentActionType {
                 })
             }
             PersistedAIAgentActionType::OpenCodeReview => Ok(Self::OpenCodeReview),
-            PersistedAIAgentActionType::InitProject => Ok(Self::InitProject),
             PersistedAIAgentActionType::UseComputer {
                 action_summary,
                 actions,
