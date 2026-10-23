@@ -50,9 +50,9 @@ use crate::ai::blocklist::{
 use crate::ai::llms::LLMPreferences;
 use crate::settings::{InputModeSettings, InputSettings};
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
+use crate::terminal::input::SET_INPUT_MODE_TERMINAL_ACTION_NAME;
 use crate::terminal::input::buffer_model::{InputBufferModel, InputBufferUpdateEvent};
 use crate::terminal::input::message_bar::common::render_wrapping_standard_message_bar;
-use crate::terminal::input::{HandoffComposeState, SET_INPUT_MODE_TERMINAL_ACTION_NAME};
 use crate::terminal::model::block::LONG_RUNNING_COMMAND_DURATION_MS;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::view::ambient_agent::{
@@ -132,7 +132,6 @@ impl BlocklistAIStatusBar {
         shortcut_view_model: ModelHandle<AgentShortcutViewModel>,
         ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
         ephemeral_message_model: ModelHandle<EphemeralMessageModel>,
-        handoff_compose_state: ModelHandle<HandoffComposeState>,
         terminal_view_id: EntityId,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
@@ -325,7 +324,6 @@ impl BlocklistAIStatusBar {
                 input_buffer_model,
                 input_model.clone(),
                 context_model.clone(),
-                handoff_compose_state,
                 terminal_model.clone(),
                 ctx,
             )

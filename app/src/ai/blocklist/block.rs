@@ -41,7 +41,6 @@ use rustc_hash::FxHashSet;
 use serde::Serialize;
 use settings::Setting as _;
 use string_offset::StringRange;
-use warp_core::channel::ChannelState;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
@@ -1030,15 +1029,6 @@ pub struct AIBlock {
     /// Per-action button components for "View screenshot" buttons on UseComputer actions.
     view_screenshot_buttons: HashMap<AIAgentActionId, ui_components::button::Button>,
 
-    /// Per-action button components for "Open recording" buttons on StopRecording actions.
-    open_recording_buttons: HashMap<AIAgentActionId, ui_components::button::Button>,
-
-    /// Whether this block's output contains recording-related actions
-    /// (StartRecording/StopRecording/UseComputer). Computed on output updates so
-    /// rendering can skip the conversation-wide recording span derivation for
-    /// unrelated blocks.
-    has_recording_related_actions: bool,
-
     /// Stores the last command that was right-clicked by a child component.
     /// When set, CopyCommand will copy this specific command instead of all commands.
     last_right_clicked_command: Option<String>,
@@ -1091,24 +1081,6 @@ struct EmbeddedCodeEditorView {
     language: Option<ProgrammingLanguage>,
     length: usize,
 }
-/// Builds the authenticated Oz run-page URL for a recording artifact.
-///
-/// The task ID is assigned to the conversation by the server when the run
-/// starts, while the artifact UID comes directly from the StopRecording action.
-/// When either value is unavailable, callers should fall back to the signed
-/// artifact download URL.
-fn recording_artifact_view_url(
-    task_id: Option<AmbientAgentTaskId>,
-    artifact_uid: &str,
-) -> Option<String> {
-    let task_id = task_id?;
-    Some(format!(
-        "{}/runs/{task_id}?artifact={}",
-        ChannelState::oz_root_url(),
-        urlencoding::encode(artifact_uid),
-    ))
-}
-
 impl AIBlock {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -1483,8 +1455,6 @@ impl AIBlock {
             open_all_comments_button,
             rewind_button,
             view_screenshot_buttons: Default::default(),
-            open_recording_buttons: Default::default(),
-            has_recording_related_actions: false,
             last_right_clicked_command: None,
             is_usage_footer_expanded: false,
             is_turn_panel_expanded: false,
@@ -1839,7 +1809,6 @@ impl AIBlock {
         match status {
             AIBlockOutputStatus::Pending => {
                 self.requested_action_ids.clear();
-                self.has_recording_related_actions = false;
                 self.secret_redaction_state.reset();
             }
             AIBlockOutputStatus::PartiallyReceived { output } => {
@@ -1929,22 +1898,6 @@ impl AIBlock {
             }
         }
 
-        let has_recording_related_actions = output.actions().any(|action| {
-            matches!(
-                &action.action,
-                AIAgentActionType::StartRecording { .. }
-                    | AIAgentActionType::StopRecording { .. }
-                    | AIAgentActionType::UseComputer(_)
-            )
-        });
-        if self.has_recording_related_actions || has_recording_related_actions {
-            let conversation_id = self.client_ids.conversation_id;
-            self.action_model.update(ctx, |action_model, _ctx| {
-                action_model.invalidate_recording_spans(conversation_id);
-            });
-        }
-        self.has_recording_related_actions = has_recording_related_actions;
-
         if FeatureFlag::WebSearchUI.is_enabled() {
             // Handle WebSearch messages
             self.handle_web_search_messages(&output.messages, ctx);
@@ -2030,12 +1983,6 @@ impl AIBlock {
             // Ensure a button component exists for UseComputer actions.
             if matches!(&action.action, AIAgentActionType::UseComputer(_)) {
                 self.view_screenshot_buttons
-                    .entry(action.id.clone())
-                    .or_default();
-            }
-
-            if matches!(&action.action, AIAgentActionType::StopRecording { .. }) {
-                self.open_recording_buttons
                     .entry(action.id.clone())
                     .or_default();
             }
@@ -5832,9 +5779,6 @@ pub enum AIBlockAction {
     OpenCommentInGitHub {
         url: String,
     },
-    OpenRecordingArtifact {
-        artifact_uid: String,
-    },
 }
 
 #[cfg(feature = "local_fs")]
@@ -6430,42 +6374,7 @@ impl TypedActionView for AIBlock {
             AIBlockAction::OpenCommentInGitHub { url } => {
                 ctx.open_url(url);
             }
-            AIBlockAction::OpenRecordingArtifact { artifact_uid } => {
-                let conversation_id = self.client_ids.conversation_id;
-                let task_id = BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation(&conversation_id)
-                    .and_then(|conversation| conversation.task_id());
-                if let Some(url) = recording_artifact_view_url(task_id, artifact_uid) {
-                    ctx.open_url(&url);
-                    return;
-                }
-                let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-                let artifact_uid = artifact_uid.clone();
-                let artifact_uid_for_error = artifact_uid.clone();
-                ctx.spawn(
-                    async move { ai_client.get_artifact_download(&artifact_uid).await },
-                    move |_, result, ctx| match result {
-                        Ok(artifact) => {
-                            ctx.open_url(artifact.download_url());
-                        }
-                        Err(error) => {
-                            log::warn!(
-                                "Failed to prepare recording artifact {artifact_uid_for_error}: {error:#}"
-                            );
-                            let window_id = ctx.window_id();
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_ephemeral_toast(
-                                    DismissibleToast::error(
-                                        "Failed to open recording.".to_string(),
-                                    ),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                        }
-                    },
-                );
-            }
+
             AIBlockAction::ViewScreenshot { action_id } => {
                 // Collect all UseComputer action IDs across the entire conversation
                 // so the lightbox can navigate between their screenshots.

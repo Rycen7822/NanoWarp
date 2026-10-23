@@ -12,13 +12,13 @@ use super::{
     ArtifactDownloadResponse, CONNECTED_SELF_HOSTED_WORKERS_PATH, ConnectedSelfHostedWorker,
     ExecutionLocation, ForkConversationResponse, ListConnectedSelfHostedWorkersResponse,
     ListRunsResponse, PrepareAttachmentUploadsResponse, ReadAgentMessageResponse,
-    RunFollowupRequest, SpawnAgentRequest, TaskListFilter, TaskStatusUpdate, UploadFieldValue,
-    UserQueryMode, agent_task_status_message_input, build_fork_conversation_url,
-    build_list_agent_runs_url, build_run_followup_url,
+    RunFollowupRequest, SpawnAgentRequest, TaskListFilter, TaskStatusUpdate, UserQueryMode,
+    agent_task_status_message_input, build_fork_conversation_url, build_list_agent_runs_url,
+    build_run_followup_url,
 };
 use crate::notebooks::NotebookId;
 use crate::server::ids::ServerId;
-use crate::server::server_api::presigned_upload::upload_to_target;
+use crate::server::server_api::presigned_upload::{UploadFieldValue, upload_to_target};
 use crate::server::team_scope::RequestTeamScope;
 use crate::workspaces::user_workspaces::{TeamContextForOperation, TeamlessScopeForTest};
 
@@ -160,10 +160,7 @@ fn spawn_agent_request_serializes_explicit_personal_ownership() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
     let value = serde_json::to_value(request).unwrap();
     assert_eq!(
@@ -188,10 +185,7 @@ fn spawn_agent_request_serializes_agent_uid_as_agent_identity_uid() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let value = serde_json::to_value(&request).unwrap();
@@ -288,10 +282,7 @@ fn spawn_agent_request_omits_prompt_when_none() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let value = serde_json::to_value(&request).unwrap();
@@ -1436,4 +1427,90 @@ fn upload_url_fallback_is_uploaded_as_a_put_with_its_content_type() {
     );
 
     storage.assert();
+}
+
+/// Assert that shared `Artifact`s serialize to the expected server wire format.
+/// If `Artifact` serialization changes, this test will catch it.
+#[test]
+fn pull_request_artifact_serializes_to_expected_wire_format() {
+    let artifact = Artifact::PullRequest {
+        url: "https://github.com/org/repo/pull/42".to_string(),
+        branch: "feature-branch".to_string(),
+        repo: Some("repo".to_string()),
+        number: Some(42),
+    };
+    let json = serde_json::to_value(&artifact).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "artifact_type": "PULL_REQUEST",
+            "data": {
+                "url": "https://github.com/org/repo/pull/42",
+                "branch": "feature-branch"
+            }
+        })
+    );
+}
+
+/// An `EXTERNAL_REFERENCE` artifact with only the required fields omits `title`
+/// and `metadata` from the wire format, matching the server's
+/// `ExternalReferenceArtifactData` schema.
+#[test]
+fn external_reference_artifact_serializes_to_expected_wire_format() {
+    let artifact = Artifact::ExternalReference {
+        reference_type: "LINEAR_ISSUE".to_string(),
+        url: "https://linear.app/warpdotdev/issue/REMOTE-2253".to_string(),
+        title: None,
+        metadata: None,
+    };
+    let json = serde_json::to_value(&artifact).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "artifact_type": "EXTERNAL_REFERENCE",
+            "data": {
+                "reference_type": "LINEAR_ISSUE",
+                "url": "https://linear.app/warpdotdev/issue/REMOTE-2253"
+            }
+        })
+    );
+}
+
+/// An `EXTERNAL_REFERENCE` artifact includes `title` and `metadata` when present.
+#[test]
+fn external_reference_artifact_includes_optional_title_and_metadata() {
+    let artifact = Artifact::ExternalReference {
+        reference_type: "GITHUB_PR".to_string(),
+        url: "https://github.com/warpdotdev/warp/pull/1".to_string(),
+        title: Some("My pull request".to_string()),
+        metadata: Some(serde_json::json!({"key": "val"})),
+    };
+    let json = serde_json::to_value(&artifact).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "artifact_type": "EXTERNAL_REFERENCE",
+            "data": {
+                "reference_type": "GITHUB_PR",
+                "url": "https://github.com/warpdotdev/warp/pull/1",
+                "title": "My pull request",
+                "metadata": {"key": "val"}
+            }
+        })
+    );
+}
+
+/// An `EXTERNAL_REFERENCE` artifact round-trips through deserialize, so run
+/// responses carrying it no longer fall through to the unknown/skip path.
+#[test]
+fn external_reference_artifact_round_trips() {
+    let artifact = Artifact::ExternalReference {
+        reference_type: "LINEAR_ISSUE".to_string(),
+        url: "https://linear.app/warpdotdev/issue/REMOTE-2253".to_string(),
+        title: Some("Add report-external-reference CLI subcommand".to_string()),
+        metadata: Some(serde_json::json!({"estimate": "S"})),
+    };
+    let json = serde_json::to_value(&artifact).unwrap();
+    let deserialized: Artifact = serde_json::from_value(json).unwrap();
+    assert_eq!(artifact, deserialized);
 }

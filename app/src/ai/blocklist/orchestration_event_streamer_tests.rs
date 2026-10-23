@@ -10,8 +10,8 @@ use crate::ai::agent::{
     FinishedAIAgentOutput, MessageId, ReceivedMessageDisplay, Shared,
 };
 use crate::ai::agent_events::{
-    AgentEventConsumerControlFlow, DEFAULT_AGENT_EVENT_RECONNECT_BACKOFF_STEPS,
-    agent_event_backoff, agent_event_failures_exceeded_threshold,
+    DEFAULT_AGENT_EVENT_RECONNECT_BACKOFF_STEPS, agent_event_backoff,
+    agent_event_failures_exceeded_threshold,
 };
 use crate::ai::llms::LLMId;
 use crate::persistence::ModelEvent;
@@ -582,54 +582,8 @@ fn make_ambient_task_with_task_id(
     task
 }
 
-fn make_server_metadata_with_harness(
-    harness: AIAgentHarness,
-) -> crate::ai::agent::conversation::ServerAIConversationMetadata {
-    use chrono::Utc;
-
-    use crate::ai::agent::api::ServerConversationToken;
-    use crate::cloud_object::{Revision, ServerMetadata, ServerPermissions};
-    use crate::persistence::model::ConversationUsageMetadata;
-    use crate::server::ids::ServerId;
-
-    crate::ai::agent::conversation::ServerAIConversationMetadata {
-        title: "test".to_string(),
-        working_directory: None,
-        harness,
-        usage: ConversationUsageMetadata {
-            was_summarized: false,
-            context_window_usage: 0.0,
-            credits_spent: 0.0,
-            platform_credits_spent: 0.0,
-            total_billed_cost_in_cents: None,
-            credits_spent_for_last_block: None,
-            charged_usage_for_last_block: None,
-            total_charged_usage: None,
-            token_usage: vec![],
-            tool_usage_metadata: Default::default(),
-            context_window_segments: Vec::new(),
-        },
-        metadata: ServerMetadata {
-            uid: ServerId::default(),
-            revision: Revision::now(),
-            metadata_last_updated_ts: Utc::now().into(),
-            trashed_ts: None,
-            folder_id: None,
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-            current_editor_uid: None,
-        },
-        permissions: ServerPermissions::mock_personal(),
-        creator: None,
-        ambient_agent_task_id: None,
-        server_conversation_token: ServerConversationToken::new("server-token".to_string()),
-        artifacts: vec![],
-    }
-}
-
 #[test]
-fn repeated_harness_fetch_attempts_share_one_in_flight_request() {
+fn repeated_task_cursor_fetch_attempts_share_one_in_flight_request() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
@@ -652,73 +606,12 @@ fn repeated_harness_fetch_attempts_share_one_in_flight_request() {
         });
 
         streamer.update(&mut app, |streamer, ctx| {
-            streamer.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
-            streamer.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
+            streamer.spawn_task_cursor_fetch_if_needed(conversation_id, ctx);
+            streamer.spawn_task_cursor_fetch_if_needed(conversation_id, ctx);
         });
         for _ in 0..3 {
             futures_lite::future::yield_now().await;
         }
-    });
-}
-
-#[test]
-fn dormant_local_claude_child_skips_generic_sse_but_allows_wake_listener() {
-    use std::sync::Arc;
-
-    use warpui::App;
-
-    use crate::ai::agent::conversation::{AIConversation, ConversationStatus};
-    use crate::server::server_api::ServerApiProvider;
-    use crate::server::server_api::ai::MockAIClient;
-
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let parent_id = AIConversation::new(false, false).id();
-        let mut conversation = AIConversation::new(false, false);
-        let run_id = "550e8400-e29b-41d4-a716-446655440610".to_string();
-        conversation.set_run_id(run_id.clone());
-        conversation.set_parent_conversation_id(parent_id);
-        conversation.set_server_metadata(make_server_metadata_with_harness(
-            AIAgentHarness::ClaudeCode,
-        ));
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-            model.update_conversation_status(
-                terminal_view_id,
-                conversation_id,
-                ConversationStatus::Success,
-                ctx,
-            );
-        });
-
-        let mock = MockAIClient::new();
-        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
-        let server_api = ServerApiProvider::new_for_test().get();
-
-        let streamer = app.add_singleton_model(|ctx| {
-            OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
-        });
-
-        streamer.update(&mut app, |me, _| {
-            let stream = me.streams.entry(conversation_id).or_default();
-            stream.consumers.insert(warpui::EntityId::new());
-            stream.watched_run_ids.insert(run_id);
-        });
-
-        streamer.read(&app, |me, ctx| {
-            assert!(
-                !me.is_eligible(conversation_id, ctx),
-                "generic SSE must stay closed for dormant local Claude children"
-            );
-            assert!(
-                me.is_dormant_claude_wake_listener_eligible(conversation_id, ctx),
-                "wake-only listener should open for dormant local Claude children"
-            );
-        });
     });
 }
 
@@ -790,200 +683,6 @@ fn persist_event_cursor_keeps_the_max_sequence_and_updates_history_model() {
 
         let _ = receiver.recv_timeout(std::time::Duration::from_secs(1));
     });
-}
-
-#[test]
-fn wake_ready_does_not_advance_cursor_before_wake_preparation() {
-    use std::sync::Arc;
-
-    use warpui::App;
-
-    use crate::ai::agent::conversation::AIConversation;
-    use crate::ai::agent_events::AgentMessageEventMetadata;
-    use crate::server::server_api::ServerApiProvider;
-    use crate::server::server_api::ai::{AIClient, MockAIClient};
-
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut conversation = AIConversation::new(false, false);
-        conversation.set_last_event_sequence(17);
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        let mock = MockAIClient::new();
-        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
-        let server_api = ServerApiProvider::new_for_test().get();
-
-        let streamer = app.add_singleton_model(|ctx| {
-            OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
-        });
-
-        streamer.update(&mut app, |me, ctx| {
-            me.streams.entry(conversation_id).or_default().event_cursor = 17;
-            me.finish_dormant_claude_wake_listener(
-                conversation_id,
-                1,
-                Ok(Some(AgentMessageEventMetadata {
-                    sequence: 42,
-                    message_id: "message-123".to_string(),
-                    occurred_at: "2026-01-01T00:00:01Z".to_string(),
-                })),
-                ctx,
-            );
-        });
-
-        streamer.read(&app, |me, _| {
-            assert_eq!(
-                me.streams
-                    .get(&conversation_id)
-                    .map(|stream| stream.event_cursor),
-                Some(17)
-            );
-        });
-        history_model.read(&app, |model, _| {
-            assert_eq!(
-                model
-                    .conversation(&conversation_id)
-                    .and_then(|conversation| conversation.last_event_sequence()),
-                Some(17)
-            );
-        });
-    });
-}
-
-#[test]
-fn dormant_local_claude_child_uses_task_harness_when_server_metadata_missing() {
-    use std::sync::Arc;
-
-    use warp_cli::agent::Harness;
-    use warpui::App;
-
-    use crate::ai::agent::conversation::{AIConversation, ConversationStatus};
-    use crate::server::server_api::ServerApiProvider;
-    use crate::server::server_api::ai::MockAIClient;
-
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let parent_id = AIConversation::new(false, false).id();
-        let mut conversation = AIConversation::new(false, false);
-        let run_id = "550e8400-e29b-41d4-a716-446655440611".to_string();
-        conversation.set_run_id(run_id.clone());
-        conversation.set_parent_conversation_id(parent_id);
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-            model.update_conversation_status(
-                terminal_view_id,
-                conversation_id,
-                ConversationStatus::Success,
-                ctx,
-            );
-        });
-
-        let mock = MockAIClient::new();
-        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
-        let server_api = ServerApiProvider::new_for_test().get();
-
-        let streamer = app.add_singleton_model(|ctx| {
-            OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
-        });
-
-        streamer.update(&mut app, |me, _| {
-            let stream = me.streams.entry(conversation_id).or_default();
-            stream.consumers.insert(warpui::EntityId::new());
-            stream.watched_run_ids.insert(run_id);
-        });
-
-        streamer.read(&app, |me, ctx| {
-            assert!(
-                me.is_eligible(conversation_id, ctx),
-                "generic SSE should remain eligible before the task harness is known"
-            );
-            assert!(
-                !me.is_dormant_claude_wake_listener_eligible(conversation_id, ctx),
-                "wake-only listener should wait until the task harness identifies Claude"
-            );
-        });
-
-        streamer.update(&mut app, |me, _| {
-            me.streams
-                .get_mut(&conversation_id)
-                .expect("stream exists")
-                .harness = Some(Harness::Claude);
-        });
-
-        streamer.read(&app, |me, ctx| {
-            assert!(
-                !me.is_eligible(conversation_id, ctx),
-                "generic SSE must close after task metadata identifies a dormant local Claude child"
-            );
-            assert!(
-                me.is_dormant_claude_wake_listener_eligible(conversation_id, ctx),
-                "wake-only listener should open based on cached task harness even without server metadata"
-            );
-        });
-    });
-}
-#[tokio::test]
-async fn dormant_claude_wake_consumer_stops_on_first_target_event() {
-    let mut consumer = DormantClaudeWakeConsumer::new("target-run".to_string());
-
-    let ignored_event = AgentRunEvent {
-        event_type: "new_message".to_string(),
-        run_id: "other-run".to_string(),
-        ref_id: Some("message-1".to_string()),
-        execution_id: None,
-        occurred_at: "2026-01-01T00:00:00Z".to_string(),
-        sequence: 7,
-    };
-    assert_eq!(
-        consumer.on_event(ignored_event).await.unwrap(),
-        AgentEventConsumerControlFlow::Continue
-    );
-    assert_eq!(consumer.wake_message, None);
-
-    let ignored_same_run_lifecycle = AgentRunEvent {
-        event_type: "run_restarted".to_string(),
-        run_id: "target-run".to_string(),
-        ref_id: None,
-        execution_id: None,
-        occurred_at: "2026-01-01T00:00:00Z".to_string(),
-        sequence: 7,
-    };
-    assert_eq!(
-        consumer.on_event(ignored_same_run_lifecycle).await.unwrap(),
-        AgentEventConsumerControlFlow::Continue
-    );
-    assert_eq!(consumer.wake_message, None);
-
-    // The wake consumer uses the default no-op cursor persistence hook; it
-    // should not persist SQLite or server cursors while waiting to wake Claude.
-    consumer.persist_cursor(7).await.unwrap();
-
-    let target_event = AgentRunEvent {
-        event_type: "new_message".to_string(),
-        run_id: "target-run".to_string(),
-        ref_id: Some("message-2".to_string()),
-        execution_id: None,
-        occurred_at: "2026-01-01T00:00:01Z".to_string(),
-        sequence: 8,
-    };
-    assert_eq!(
-        consumer.on_event(target_event).await.unwrap(),
-        AgentEventConsumerControlFlow::Stop
-    );
-    let wake_message = consumer.wake_message.expect("wake message");
-    assert_eq!(wake_message.sequence, 8);
-    assert_eq!(wake_message.message_id, "message-2");
-    assert_eq!(wake_message.occurred_at, "2026-01-01T00:00:01Z");
 }
 
 #[test]

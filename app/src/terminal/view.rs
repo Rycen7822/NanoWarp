@@ -23,7 +23,6 @@ use warp_util::standardized_path::StandardizedPath;
 
 use crate::ai::block_context::BlockContext;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
-pub(crate) mod docker_sandbox;
 mod link_detection;
 mod open_in_warp;
 mod pane_impl;
@@ -4982,9 +4981,6 @@ impl TerminalView {
         if let BlocklistAIControllerEvent::SentRequest { model_id, .. } = event {
             self.maybe_insert_aws_bedrock_login_banner(model_id, ctx);
         }
-        if let BlocklistAIControllerEvent::ExecuteLocalHarnessCommand { command } = event {
-            self.execute_command_or_set_pending(command, ctx);
-        }
         if let BlocklistAIControllerEvent::FinishedReceivingOutput {
             conversation_id, ..
         } = event
@@ -5890,18 +5886,6 @@ impl TerminalView {
                         .lock()
                         .block_list_mut()
                         .set_is_executing_oz_environment_startup_commands(false);
-                }
-
-                // For an oz local-to-cloud handoff, the first `AppendedExchange` is the
-                // analogue of `HarnessCommandStarted` for non-oz harnesses: the moment we
-                // tear down the queued-prompt block in favor of the live agent UI.
-                if self
-                    .ambient_agent_view_model
-                    .as_ref()
-                    .is_some_and(|model| model.as_ref(ctx).is_local_to_cloud_handoff())
-                {
-                    self.remove_pending_user_query_block(ctx);
-                    self.remove_cloud_mode_queue_row(ctx);
                 }
 
                 let should_add_ai_block = history_model
@@ -7603,9 +7587,6 @@ impl TerminalView {
         &self.ai_input_model
     }
 
-    /// Used by [`crate::ai::agent_sdk::driver::checkpoint_coordinator`] to check whether the
-    /// terminal's conversation has any pending or running actions before starting a periodic
-    /// checkpoint attempt.
     pub fn ai_action_model(&self) -> &ModelHandle<BlocklistAIActionModel> {
         &self.ai_action_model
     }
@@ -19225,13 +19206,6 @@ impl TerminalView {
             InputEvent::EnterCloudAgentView { initial_prompt } => {
                 self.enter_cloud_agent_view(initial_prompt.clone(), ctx);
             }
-            InputEvent::CreateDockerSandbox => {
-                if !FeatureFlag::LocalDockerSandbox.is_enabled() {
-                    log::warn!("Local docker sandbox feature flag is disabled");
-                    return;
-                }
-                self.create_and_push_docker_sandbox(ctx);
-            }
             InputEvent::ExitCloudModeAndStartLocalAgent { initial_prompt } => {
                 let origin = AgentViewEntryOrigin::Input {
                     was_prompt_autodetected: false,
@@ -22996,11 +22970,6 @@ impl TerminalView {
             let shell_path = match &shell_starter {
                 ShellStarter::Direct(direct_shell_starter)
                 | ShellStarter::MSYS2(direct_shell_starter) => direct_shell_starter
-                    .shell_path()
-                    .to_string_lossy()
-                    .to_string(),
-                ShellStarter::DockerSandbox(docker_shell_starter) => docker_shell_starter
-                    .direct
                     .shell_path()
                     .to_string_lossy()
                     .to_string(),

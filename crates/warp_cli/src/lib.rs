@@ -13,7 +13,6 @@ mod process_handle;
 pub mod skill;
 
 pub mod agent;
-pub mod environment_checkout;
 // Each of these variables is injected under both its `OZ_` and its `WARP_` name, carrying the
 // identical value. Read sites still use the `OZ_` names.
 pub const OZ_RUN_ID_ENV: &str = "OZ_RUN_ID";
@@ -215,11 +214,6 @@ pub enum WorkerCommand {
     #[clap(hide = true)]
     RemoteServerDaemon(RemoteServerIdentityArgs),
 
-    /// Prepare repositories for an existing terminal environment.
-    #[cfg(not(target_family = "wasm"))]
-    #[command(hide = true)]
-    EnvironmentCheckout(crate::environment_checkout::EnvironmentCheckoutArgs),
-
     /// Run a headless ripgrep search worker.
     #[cfg(not(target_family = "wasm"))]
     #[clap(hide = true)]
@@ -263,8 +257,6 @@ impl Command {
     /// Whether or not the Command should print to stdout.
     pub fn prints_to_stdout(&self) -> bool {
         match self {
-            #[cfg(not(target_family = "wasm"))]
-            Command::Worker(WorkerCommand::EnvironmentCheckout(_)) => true,
             Command::Worker(_) => false,
             Command::DumpDebugInfo => true,
             #[cfg(not(target_family = "wasm"))]

@@ -17,8 +17,7 @@ fn download_path(attachment_id: &str) -> Matcher {
 }
 
 /// A plain HTTP client with no proxy/TLS-cert config and a disabled connection pool, so tests
-/// don't hold sockets open past their return (see the identical helper in
-/// `ai::agent_sdk::test_support`, not reusable here across module boundaries).
+/// don't hold sockets open past their return.
 fn test_http_client() -> Arc<http_client::Client> {
     let builder = reqwest::ClientBuilder::new()
         .tls_certs_only([])

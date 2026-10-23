@@ -6,7 +6,7 @@ mod message_hydrator;
 
 pub(crate) use driver::{
     AgentEventConsumer, AgentEventConsumerControlFlow, AgentEventDriverConfig, AgentEventFilter,
-    AgentMessageEventMetadata, ServerApiAgentEventSource, run_agent_event_driver,
+    ServerApiAgentEventSource, run_agent_event_driver,
 };
 #[cfg(test)]
 pub(crate) use driver::{

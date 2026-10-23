@@ -97,12 +97,6 @@ impl AgentEventDriverConfig {
             failures_before_error_log: DEFAULT_AGENT_EVENT_FAILURES_BEFORE_ERROR_LOG,
         }
     }
-
-    /// Convenience: build a `retry_forever` config from a concrete list of
-    /// run IDs. Lets existing call sites keep their current ergonomics.
-    pub(crate) fn retry_forever_run_ids(run_ids: Vec<String>, since_sequence: i64) -> Self {
-        Self::retry_forever(AgentEventFilter::RunIds(run_ids), since_sequence)
-    }
 }
 
 /// Tells the shared driver whether to continue or stop after a handled event.
@@ -129,27 +123,6 @@ pub(crate) enum AgentEventDriverState {
     /// A healthy stream was intentionally recycled after
     /// `proactive_reconnect_after`.
     ProactiveReconnect,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AgentMessageEventMetadata {
-    pub sequence: i64,
-    pub message_id: String,
-    pub occurred_at: String,
-}
-
-impl AgentMessageEventMetadata {
-    pub(crate) fn from_event(event: &AgentRunEvent) -> Option<Self> {
-        if event.event_type != "new_message" {
-            return None;
-        }
-
-        Some(Self {
-            sequence: event.sequence,
-            message_id: event.ref_id.clone()?,
-            occurred_at: event.occurred_at.clone(),
-        })
-    }
 }
 
 /// Parsed items emitted by an [`AgentEventSource`].

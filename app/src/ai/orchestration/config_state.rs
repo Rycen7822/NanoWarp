@@ -3,11 +3,9 @@
 
 use ai::agent::action::RunAgentsExecutionMode;
 use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationExecutionMode};
-use warp_cli::agent::Harness;
 
 use super::providers::ORCHESTRATION_WARP_WORKER_HOST;
 use super::validation::should_show_auth_secret_picker;
-use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 
 /// The user's current selection in the auth secret picker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,16 +75,6 @@ impl OrchestrationConfigState {
 }
 
 impl OrchestrationConfigState {
-    pub(crate) fn sanitize_for_local_execution(&mut self) {
-        let Some(harness) = Harness::parse_local_child_harness(&self.harness_type) else {
-            return;
-        };
-        if local_harness_product_disabled_message(harness).is_some() {
-            self.harness_type = "oz".to_string();
-            self.model_id.clear();
-        }
-    }
-
     /// `None` (or an empty string wrapped in `Some`) leaves the field
     /// unset, matching the wire encoding where absence is emptiness.
     pub fn from_run_agents_fields(
@@ -125,17 +113,13 @@ impl OrchestrationConfigState {
                 runner_id: runner_id.clone(),
             },
         };
-        let mut state = Self {
+        Self {
             model_id: config.model_id.clone(),
             harness_type: config.harness_type.clone(),
             execution_mode,
             remote_computer_use_enabled: false,
             auth_secret_selection: AuthSecretSelection::Unset,
-        };
-        if matches!(state.execution_mode, RunAgentsExecutionMode::Local) {
-            state.sanitize_for_local_execution();
         }
-        state
     }
 
     /// Toggle Local ↔ Cloud. Resets OpenCode to Oz when switching
@@ -162,7 +146,6 @@ impl OrchestrationConfigState {
                 self.remote_computer_use_enabled = *computer_use_enabled;
             }
             self.execution_mode = RunAgentsExecutionMode::Local;
-            self.sanitize_for_local_execution();
         }
     }
 
@@ -191,17 +174,20 @@ impl OrchestrationConfigState {
     }
 
     /// Returns `Some(reason)` if Accept / Apply must be disabled.
-    /// Hard blocks: OpenCode + Cloud, and product-disabled local harnesses.
+    /// Blocks unsupported harness and execution-mode combinations.
     pub fn accept_disabled_reason(&self) -> Option<&'static str> {
         match &self.execution_mode {
-            RunAgentsExecutionMode::Local => Harness::parse_local_child_harness(&self.harness_type)
-                .and_then(local_harness_product_disabled_message),
+            RunAgentsExecutionMode::Local
+                if !self.harness_type.trim().is_empty()
+                    && !self.harness_type.trim().eq_ignore_ascii_case("oz") =>
+            {
+                Some("Local child agents only support the Warp harness.")
+            }
+            RunAgentsExecutionMode::Local => None,
             RunAgentsExecutionMode::Remote { .. }
                 if self.harness_type.eq_ignore_ascii_case("opencode") =>
             {
-                Some(
-                    "OpenCode is not supported on Cloud yet. Switch to Local or pick a different harness.",
-                )
+                Some("OpenCode is not supported on Cloud yet. Pick a different harness.")
             }
             RunAgentsExecutionMode::Remote { .. } => None,
         }
@@ -221,9 +207,6 @@ impl OrchestrationConfigState {
         }
         if !self.execution_mode.is_remote() && config.execution_mode.is_remote() {
             self.execution_mode = Self::from_orchestration_config(config).execution_mode;
-        }
-        if matches!(self.execution_mode, RunAgentsExecutionMode::Local) {
-            self.sanitize_for_local_execution();
         }
     }
 

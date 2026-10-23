@@ -29,9 +29,7 @@ use warpui::{
     ViewHandle,
 };
 
-pub(crate) use self::environment_selector::{
-    EnvironmentSelector, EnvironmentSelectorEvent, EnvironmentSelectorTarget,
-};
+pub(crate) use self::environment_selector::{EnvironmentSelector, EnvironmentSelectorEvent};
 use crate::ai::AIRequestUsageModel;
 use crate::ai::blocklist::agent_view::is_in_cloud_context;
 use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
@@ -55,7 +53,7 @@ use crate::settings::{
 };
 use crate::settings_view::SettingsSection;
 use crate::terminal::TerminalModel;
-use crate::terminal::input::{HandoffComposeState, MenuPositioning, MenuPositioningProvider};
+use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
 use crate::terminal::session_settings::{
     SessionSettings, SessionSettingsChangedEvent, ToolbarChipSelection,
 };
@@ -116,10 +114,8 @@ pub struct AgentInputFooter {
     live_session_indicator: ViewHandle<ActionButton>,
     new_cloud_vm_indicator: ViewHandle<ActionButton>,
     environment_selector: Option<ViewHandle<EnvironmentSelector>>,
-    handoff_environment_selector: ViewHandle<EnvironmentSelector>,
     prompt_alert: ViewHandle<PromptAlertView>,
     ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
-    handoff_compose_state: ModelHandle<HandoffComposeState>,
     left_display_chips: Vec<ViewHandle<DisplayChip>>,
     right_display_chips: Vec<ViewHandle<DisplayChip>>,
     display_chip_config: DisplayChipConfig,
@@ -131,11 +127,6 @@ pub struct AgentInputFooter {
 
     // Fast-forward (auto-approve) toggle button shown in the agent view footer.
     fast_forward_button: ViewHandle<ActionButton>,
-
-    // "Hand off to cloud" chip. Visibility is gated on native/local handoff
-    // availability. Per-conversation eligibility is enforced by
-    // `Workspace::start_local_to_cloud_handoff`.
-    handoff_to_cloud_button: ViewHandle<ActionButton>,
 
     /// Pending one-shot timer that refreshes the context-window button at the
     /// prompt-cache expiry instant so the notification dot appears while idle.
@@ -177,7 +168,7 @@ impl AgentInputFooter {
         let environment_selector = ctx.add_typed_action_view(|ctx| {
             EnvironmentSelector::new(
                 menu_positioning_provider.clone(),
-                EnvironmentSelectorTarget::CloudPane(ambient_agent_view_model.clone()),
+                ambient_agent_view_model.clone(),
                 ctx,
             )
         });
@@ -204,7 +195,6 @@ impl AgentInputFooter {
         terminal_view_id: EntityId,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
-        handoff_compose_state: ModelHandle<HandoffComposeState>,
         prompt: ModelHandle<PromptType>,
         display_chip_config: DisplayChipConfig,
         ctx: &mut ViewContext<Self>,
@@ -273,20 +263,6 @@ impl AgentInputFooter {
                 .with_disabled_theme(FastForwardLockedTheme)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(TerminalAction::ToggleAutoexecuteMode);
-                })
-        });
-
-        // "Hand off to cloud" chip. On click dispatches the workspace action that
-        // splits a new cloud-mode pane next to the local pane; that pane handles
-        // the rest of the handoff flow when native/local handoff is available.
-        let handoff_to_cloud_button = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", AgentInputButtonTheme)
-                .with_icon(Icon::UploadCloud)
-                .with_tooltip("Hand off to cloud (or type &)")
-                .with_size(button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AgentInputFooterAction::HandoffChipClicked);
                 })
         });
 
@@ -375,39 +351,6 @@ impl AgentInputFooter {
         // Built by the ambient setter (construction + lazy viewer path share that single point).
         let environment_selector: Option<ViewHandle<EnvironmentSelector>> = None;
 
-        let handoff_environment_selector = ctx.add_typed_action_view(|ctx| {
-            EnvironmentSelector::new(
-                menu_positioning_provider.clone(),
-                EnvironmentSelectorTarget::Handoff(handoff_compose_state.clone()),
-                ctx,
-            )
-        });
-
-        ctx.subscribe_to_view(
-            &handoff_environment_selector,
-            |_, _, event, ctx| match event {
-                EnvironmentSelectorEvent::MenuVisibilityChanged { open } => {
-                    ctx.emit(AgentInputFooterEvent::ToggledChipMenu { open: *open });
-                    if !*open {
-                        ctx.emit(AgentInputFooterEvent::EnvironmentSelectorClosed);
-                    }
-                }
-            },
-        );
-
-        ctx.subscribe_to_model(
-            &handoff_compose_state,
-            |me, handoff_compose_state, _, ctx| {
-                if !handoff_compose_state.as_ref(ctx).is_active() {
-                    me.handoff_environment_selector
-                        .update(ctx, |selector, ctx| {
-                            selector.set_menu_visibility(false, ctx)
-                        });
-                }
-                ctx.notify();
-            },
-        );
-
         let prompt_alert = ctx.add_typed_action_view(PromptAlertView::new);
         ctx.subscribe_to_view(&prompt_alert, |_, _, event, ctx| {
             ctx.emit(AgentInputFooterEvent::PromptAlert(event.clone()));
@@ -433,11 +376,7 @@ impl AgentInputFooter {
             if matches!(event, AISettingsChangedEvent::UsageDisplayUnit { .. }) {
                 me.update_usage_button(ctx);
                 ctx.notify()
-            } else if matches!(
-                event,
-                AISettingsChangedEvent::AIAutoDetectionEnabled { .. }
-                    | AISettingsChangedEvent::ShouldForceDisableCloudHandoff { .. }
-            ) {
+            } else if matches!(event, AISettingsChangedEvent::AIAutoDetectionEnabled { .. }) {
                 ctx.notify()
             }
         });
@@ -559,15 +498,12 @@ impl AgentInputFooter {
             live_session_indicator,
             new_cloud_vm_indicator,
             environment_selector,
-            handoff_environment_selector,
             prompt_alert,
             terminal_model,
-            handoff_compose_state,
             left_display_chips: vec![],
             right_display_chips: vec![],
             display_chip_config,
             fast_forward_button,
-            handoff_to_cloud_button,
             prompt_cache_expiry_timer_handle: None,
             prompt_cache_expired: false,
             menu_positioning_provider: menu_positioning_provider.clone(),
@@ -710,10 +646,7 @@ impl AgentInputFooter {
             .environment_selector
             .as_ref()
             .is_some_and(|selector| selector.as_ref(app).is_menu_open());
-        let has_open_handoff_env_selector =
-            self.handoff_environment_selector.as_ref(app).is_menu_open();
-
-        has_open_display_chip || has_open_env_selector || has_open_handoff_env_selector
+        has_open_display_chip || has_open_env_selector
     }
 
     fn sync_fast_forward_button(&self, ctx: &mut ViewContext<Self>) {
@@ -878,7 +811,6 @@ impl AgentInputFooter {
         &self,
         item: &AgentToolbarItemKind,
         shared_status: &SharedSessionStatus,
-        is_cloud_context: bool,
         is_conversation_transcript_context: bool,
         app: &AppContext,
     ) -> Option<Box<dyn Element>> {
@@ -890,12 +822,6 @@ impl AgentInputFooter {
                     ambient_agent_model.as_ref(app).is_ambient_agent()
                 });
         if !item.available_to_session_viewer(shared_status, is_cloud_mode) {
-            return None;
-        }
-
-        if self.handoff_compose_state.as_ref(app).is_active()
-            && !item.is_available_during_handoff_compose()
-        {
             return None;
         }
 
@@ -1025,13 +951,7 @@ impl AgentInputFooter {
             AgentToolbarItemKind::FastForwardToggle => FeatureFlag::FastForwardAutoexecuteButton
                 .is_enabled()
                 .then(|| ChildView::new(&self.fast_forward_button).finish()),
-            AgentToolbarItemKind::HandoffToCloud => {
-                if !AISettings::as_ref(app).is_cloud_handoff_enabled(app) || is_cloud_context {
-                    return None;
-                }
 
-                Some(ChildView::new(&self.handoff_to_cloud_button).finish())
-            }
             AgentToolbarItemKind::FileExplorer => item
                 .is_available(app)
                 .then(|| ChildView::new(&self.file_explorer_button).finish()),
@@ -1105,28 +1025,16 @@ impl View for AgentInputFooter {
                 .is_some_and(|ambient_agent_model| {
                     ambient_agent_model.as_ref(app).is_ambient_agent()
                 });
-        if is_ambient_agent {
-            if let Some(environment_selector) = self.environment_selector.as_ref() {
-                left_buttons =
-                    left_buttons.with_child(ChildView::new(environment_selector).finish());
-            }
-        } else if self.handoff_compose_state.as_ref(app).is_active() {
-            left_buttons = left_buttons
-                .with_child(ChildView::new(&self.handoff_environment_selector).finish());
+        if is_ambient_agent && let Some(environment_selector) = self.environment_selector.as_ref() {
+            left_buttons = left_buttons.with_child(ChildView::new(environment_selector).finish());
         }
 
         // The lock is released before rendering toolbar items: the usage popover's menu
         // positioning provider re-locks the same non-reentrant model.
-        let (
-            shared_status,
-            is_cloud_context,
-            is_conversation_transcript_context,
-            cloud_routing_indicator,
-        ) = {
+        let (shared_status, is_conversation_transcript_context, cloud_routing_indicator) = {
             let terminal_model = self.terminal_model.lock();
             (
                 terminal_model.shared_session_status().clone(),
-                super::is_in_cloud_context(&terminal_model),
                 is_conversation_transcript_context(self.terminal_view_id, &terminal_model, app),
                 self.cloud_routing_indicator_view(&terminal_model, app),
             )
@@ -1140,7 +1048,6 @@ impl View for AgentInputFooter {
             if let Some(element) = self.render_toolbar_item(
                 item,
                 &shared_status,
-                is_cloud_context,
                 is_conversation_transcript_context,
                 app,
             ) {
@@ -1167,7 +1074,6 @@ impl View for AgentInputFooter {
                 if let Some(element) = self.render_toolbar_item(
                     item,
                     &shared_status,
-                    is_cloud_context,
                     is_conversation_transcript_context,
                     app,
                 ) {
@@ -1207,13 +1113,7 @@ pub enum AgentInputFooterAction {
     ToggleAutodetectionSetting,
     StartRemoteControl,
     StopRemoteControl,
-    /// User clicked the "Hand off to cloud" footer chip. The terminal `Input`
-    /// subscriber decides whether to dispatch the immediate empty-prompt
-    /// handoff or enter `&` compose mode based on the current input state.
-    HandoffChipClicked,
-    ShowContextMenu {
-        position: Vector2F,
-    },
+    ShowContextMenu { position: Vector2F },
     ToggleUsagePopover,
 }
 
@@ -1243,18 +1143,6 @@ impl TypedActionView for AgentInputFooter {
             }
             AgentInputFooterAction::StopRemoteControl => {
                 ctx.emit(AgentInputFooterEvent::StopRemoteControl);
-            }
-            AgentInputFooterAction::HandoffChipClicked => {
-                if FeatureFlag::OzHandoff.is_enabled()
-                    && FeatureFlag::HandoffLocalCloud.is_enabled()
-                    && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
-                {
-                    // The terminal `Input` subscriber decides what to do with
-                    // the chip click — auto-handoff when the input buffer is
-                    // empty and the source conversation has content, or `&`
-                    // compose mode otherwise (preserving any in-flight prompt).
-                    ctx.emit(AgentInputFooterEvent::HandoffChipClicked);
-                }
             }
             AgentInputFooterAction::ShowContextMenu { position } => {
                 ctx.emit(AgentInputFooterEvent::ShowContextMenu {
@@ -1302,11 +1190,6 @@ pub enum AgentInputFooterEvent {
     ShowContextMenu {
         position: Vector2F,
     },
-    /// Local-to-cloud handoff chip clicked. The terminal `Input` subscriber
-    /// either dispatches the immediate empty-prompt handoff (empty buffer +
-    /// source conversation with content) or activates `&` compose mode
-    /// (preserving any in-flight prompt).
-    HandoffChipClicked,
 }
 
 impl Entity for AgentInputFooter {

@@ -9,7 +9,6 @@ mod controller;
 pub(crate) mod conversation_selection;
 pub(crate) mod diff_storage;
 pub(crate) mod diff_types;
-pub(crate) mod handoff;
 
 pub(crate) mod local_agent_task_sync_model;
 pub(crate) mod orchestration_child_tracker;
@@ -32,7 +31,6 @@ pub mod usage;
 pub(crate) mod telemetry_banner;
 pub(crate) mod view_util;
 
-pub(crate) use action_model::recording_controller::{RecordingController, video_recording_enabled};
 pub use action_model::{
     BlocklistAIActionEvent, BlocklistAIActionModel, ShellCommandExecutor,
     ShellCommandExecutorEvent, ShellRecoveryResult,

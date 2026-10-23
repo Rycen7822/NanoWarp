@@ -30,10 +30,7 @@ fn pi_remote_child_forwards_auth_and_model_without_computer_use() {
             id: Default::default(),
             name: "child".to_string(),
             prompt: "Inspect the code".to_string(),
-            execution_mode: StartAgentExecutionMode::Local {
-                harness_type: None,
-                model_id: None,
-            },
+            execution_mode: StartAgentExecutionMode::Local { model_id: None },
             lifecycle_subscription: None,
             parent_conversation_id: crate::ai::agent::conversation::AIConversationId::new(),
             parent_run_id: Some("parent-run".to_string()),

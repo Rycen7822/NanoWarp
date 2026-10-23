@@ -22,8 +22,6 @@ use super::{AmbientAgentEntryBlock, AmbientAgentViewModel, AmbientAgentViewModel
 use crate::ai::AIRequestUsageModel;
 use crate::ai::agent::RenderableAIError;
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::driver::harness::auth_check_command_for;
 use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
@@ -36,6 +34,19 @@ use crate::terminal::view::{
 };
 use crate::workspace::view::cloud_agent_capacity_modal::CloudAgentCapacityModalVariant;
 use crate::workspaces::user_workspaces::UserWorkspaces;
+
+/// Recognizes cloud-harness preflight commands before their interactive session starts.
+#[cfg(not(target_family = "wasm"))]
+fn auth_check_command_for(harness: Harness) -> Option<String> {
+    match harness {
+        Harness::Claude => Some(format!(
+            "{} auth status --json",
+            CLIAgent::Claude.command_prefix()
+        )),
+        Harness::Codex => Some(format!("{} login status", CLIAgent::Codex.command_prefix())),
+        Harness::Oz | Harness::OpenCode | Harness::Gemini | Harness::Pi | Harness::Unknown => None,
+    }
+}
 
 const CHILD_AGENT_GITHUB_AUTH_REQUIRED_BLOCKED_ACTION: &str =
     "GitHub authentication required before starting the child agent.";
@@ -117,7 +128,6 @@ impl TerminalView {
             AmbientAgentViewModelEvent::NeedsGithubAuth
             | AmbientAgentViewModelEvent::Cancelled
             | AmbientAgentViewModelEvent::HarnessCommandStarted { .. }
-            | AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed { .. }
             | AmbientAgentViewModelEvent::FollowupSubmissionFailed { .. } => true,
             _ => false,
         };
@@ -389,14 +399,6 @@ impl TerminalView {
                 ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
                 ctx.notify();
             }
-            AmbientAgentViewModelEvent::PendingHandoffChanged => {
-                ctx.notify();
-            }
-            AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed { .. } => {
-                // The toast is surfaced by `Input`'s subscription; this just
-                // triggers a re-render of pane chrome.
-                ctx.notify();
-            }
             AmbientAgentViewModelEvent::UpdatedSetupCommandVisibility
             | AmbientAgentViewModelEvent::AuthSecretSelected
             | AmbientAgentViewModelEvent::RunLifecycleChanged => (),
@@ -596,8 +598,7 @@ impl TerminalView {
         // --json`, `codex login status`) shares the harness CLI prefix
         // but is NOT the harness session start. Treat it as a setup
         // command instead so it stays in the existing setup-commands
-        // group. The driver's harness impls are the single source of
-        // truth for what an auth check command looks like.
+        // group.
         #[cfg(not(target_family = "wasm"))]
         {
             let command_trimmed = command.trim();

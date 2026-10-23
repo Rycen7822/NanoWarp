@@ -542,7 +542,6 @@ default = [
     "web_search_ui",
     "agent_shared_sessions",
     "integration_command",
-    "artifact_command",
     "conversation_api",
     "code_review_find",
     "async_find",
@@ -617,8 +616,6 @@ default = [
     "settings_file",
     "directory_tab_colors",
     "git_credential_refresh",
-    "oz_handoff",
-    "handoff_local_cloud",
     "pending_user_query_indicator",
     "queue_slash_command",
     "queued_prompts_v2",
@@ -721,7 +718,6 @@ list_skills = []
 # include dependencies that should only exist in such environments.
 local_tty = ["warp_terminal/local_tty"]
 local_computer_use = []
-local_claude_codex_child_harnesses = []
 # This feature is enabled in build.rs when compiling for platforms which
 # have APIs for interacting with a local filesystem.  It can be used to
 # conditionally include dependencies that should only exist in such
@@ -855,7 +851,6 @@ code_review_find = []
 auto_open_code_review_pane = []
 inline_code_review = []
 integration_command = []
-artifact_command = []
 cloud_runners = []
 cloud_agent_runners = []
 cloud_agent_execution_config = []
@@ -906,8 +901,6 @@ tab_configs = []
 grouped_tabs = []
 pinned_tabs = []
 agent_harness = []
-oz_handoff = []
-handoff_local_cloud = []
 hoa_notifications = []
 transfer_control_tool = []
 skip_firebase_anonymous_user = []
@@ -924,7 +917,6 @@ cloud_mode_setup_v2 = ["cloud_mode"]
 cloud_mode_input_v2 = ["cloud_mode"]
 handoff_cloud_cloud = ["cloud_mode_setup_v2"]
 git_credential_refresh = []
-factory_deferred_repositories = []
 prompt_cache_expiry_warning = []
 osc_hyperlinks = []
 shell_widget_handoff = []

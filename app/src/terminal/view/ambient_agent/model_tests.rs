@@ -155,118 +155,6 @@ fn spawn_config_honors_pane_model_override() {
 }
 
 #[test]
-fn spawn_agent_omits_orchestration_handoff_for_fresh_launches() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let model = add_model(&mut app);
-
-        model.update(&mut app, |model, ctx| {
-            model.spawn_agent("new run".to_owned(), vec![], &TeamlessScopeForTest, ctx);
-        });
-
-        model.read(&app, |model, _| {
-            let request = model.request().expect("request should be populated");
-            assert!(request.orchestration_handoff.is_none());
-            let json = serde_json::to_value(request).expect("request should serialize to JSON");
-            assert!(json.get("orchestration_handoff").is_none());
-        });
-    });
-}
-
-#[test]
-fn duplicate_handoff_completion_is_ignored() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let model = add_model(&mut app);
-
-        model.update(&mut app, |model, ctx| {
-            let (cancel, _) = oneshot::channel();
-            model.begin_local_to_cloud_handoff(retry_request("initial request"), cancel, ctx);
-            model.handle_handoff_commit_failure(
-                HandoffCommitFailure {
-                    issue: CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Other {
-                        message: "first failure".to_owned(),
-                    }),
-                    request: Some(retry_request("first request")),
-                    restoration: None,
-                    derived_workspace_had_content: None,
-                    snapshot_failed: false,
-                },
-                ctx,
-            );
-            model.handle_handoff_commit_failure(
-                HandoffCommitFailure {
-                    issue: CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Other {
-                        message: "stale failure".to_owned(),
-                    }),
-                    request: Some(retry_request("stale request")),
-                    restoration: None,
-                    derived_workspace_had_content: None,
-                    snapshot_failed: false,
-                },
-                ctx,
-            );
-        });
-
-        model.read(&app, |model, _| {
-            assert_eq!(
-                model
-                    .request()
-                    .and_then(|request| request.prompt.as_deref()),
-                Some("first request")
-            );
-            assert_eq!(model.error_message(), Some("first failure"));
-        });
-    });
-}
-
-#[test]
-fn handoff_cancellation_is_signalled_and_late_failure_is_ignored() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let model = add_model(&mut app);
-        let (cancel, mut cancellation) = oneshot::channel();
-
-        model.update(&mut app, |model, ctx| {
-            model.begin_local_to_cloud_handoff(retry_request("queued prompt"), cancel, ctx);
-            assert_eq!(
-                model
-                    .request()
-                    .and_then(|request| request.prompt.as_deref()),
-                Some("queued prompt")
-            );
-
-            model.handle_cancellation(ctx);
-            model.handle_handoff_commit_failure(
-                HandoffCommitFailure {
-                    issue: CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Other {
-                        message: "late failure".to_owned(),
-                    }),
-                    request: Some(retry_request("late request")),
-                    restoration: None,
-                    derived_workspace_had_content: None,
-                    snapshot_failed: false,
-                },
-                ctx,
-            );
-        });
-        assert_eq!(
-            cancellation.try_recv().expect("cancellation sender"),
-            Some(())
-        );
-        model.read(&app, |model, _| {
-            assert!(matches!(model.status(), Status::Cancelled { .. }));
-            assert_eq!(
-                model
-                    .request()
-                    .and_then(|request| request.prompt.as_deref()),
-                Some("queued prompt")
-            );
-        });
-    });
-}
-
-#[test]
 fn record_ambient_execution_ended_keeps_active_session_when_id_differs() {
     // A teardown signal for a different (stale) session must not clear the live
     // session for the one currently attached.
@@ -357,12 +245,7 @@ fn retry_request(prompt: impl Into<String>) -> SpawnAgentRequest {
         parent_run_id: Some("parent-run-123".to_string()),
         runtime_skills: vec!["runtime-skill".to_string()],
         referenced_attachments: vec!["referenced-attachment".to_string()],
-        conversation_id: Some("conversation-123".to_string()),
-        initial_snapshot_token: Some(
-            serde_json::from_str("\"snapshot-token-123\"").expect("snapshot token should parse"),
-        ),
         snapshot_disabled: Some(true),
-        orchestration_handoff: None,
     }
 }
 

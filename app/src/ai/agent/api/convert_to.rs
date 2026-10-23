@@ -520,9 +520,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             AIAgentActionResultType::ReadFiles(read_files_result) => {
                 Some(read_files_result.try_into()?)
             }
-            AIAgentActionResultType::UploadArtifact(upload_artifact_result) => {
-                Some(upload_artifact_result.try_into()?)
-            }
             AIAgentActionResultType::SearchCodebase(search_codebase_result) => {
                 Some(search_codebase_result.try_into()?)
             }
@@ -573,12 +570,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             }
             AIAgentActionResultType::RequestComputerUse(request_computer_use_result) => {
                 Some(request_computer_use_result.try_into()?)
-            }
-            AIAgentActionResultType::StartRecording(start_recording_result) => {
-                Some(start_recording_result.try_into()?)
-            }
-            AIAgentActionResultType::StopRecording(stop_recording_result) => {
-                Some(stop_recording_result.try_into()?)
             }
             AIAgentActionResultType::FetchConversation(fetch_conversation_result) => {
                 Some(fetch_conversation_result.try_into()?)

@@ -15,7 +15,6 @@ mod validation;
 
 pub use config_state::{AuthSecretSelection, OrchestrationConfigState};
 pub use edit_state::OrchestrationEditState;
-pub use providers::resolve_default_environment_id;
 pub use providers::{
     ORCHESTRATION_WARP_WORKER_HOST, persist_environment_selection, persist_host_selection,
     resolve_auth_secret_selection_for_harness, resolve_default_host_slug,

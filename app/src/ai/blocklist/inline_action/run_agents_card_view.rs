@@ -132,9 +132,6 @@ impl RunAgentsEditState {
         // becomes `Unset`; the picker re-resolves from persisted settings.
         orchestration_config_state.auth_secret_selection =
             AuthSecretSelection::from_optional_name(req.harness_auth_secret_name.clone());
-        if matches!(req.execution_mode, RunAgentsExecutionMode::Local) {
-            orchestration_config_state.sanitize_for_local_execution();
-        }
         Self {
             orchestration_config_state,
             card: RunAgentsCardFields {

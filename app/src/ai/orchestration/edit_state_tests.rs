@@ -19,7 +19,7 @@ fn model_valid_among<'a>(valid: &'a [&'a str]) -> impl Fn(&str, &str, bool) -> b
 }
 
 #[test]
-fn execution_mode_change_to_local_forces_oz_and_strips_cloud_fields() {
+fn execution_mode_change_to_local_preserves_harness_and_strips_cloud_fields() {
     let mut state = OrchestrationConfigState::from_run_agents_fields(
         Some("gpt-5"),
         Some("codex"),
@@ -30,7 +30,7 @@ fn execution_mode_change_to_local_forces_oz_and_strips_cloud_fields() {
         Some(String::new())
     });
 
-    assert_eq!(state.harness_type, "oz");
+    assert_eq!(state.harness_type, "codex");
     assert_eq!(state.model_id, "");
     assert!(matches!(
         state.execution_mode,

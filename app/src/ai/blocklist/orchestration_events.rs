@@ -239,7 +239,7 @@ impl OrchestrationEventService {
         ctx.emit(OrchestrationEventServiceEvent::EventsReady { conversation_id });
     }
 
-    #[cfg(any(test, not(target_family = "wasm")))]
+    #[cfg(test)]
     pub fn has_pending_events(&self, conversation_id: AIConversationId) -> bool {
         self.pending_events
             .get(&conversation_id)

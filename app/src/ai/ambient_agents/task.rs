@@ -1,8 +1,6 @@
 //! Ambient agent task types and utilities.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-#[cfg(not(target_family = "wasm"))]
-pub use cloud_object_models::HarnessModelConfig;
 pub use cloud_object_models::{AgentConfigSnapshot, HarnessAuthSecretsConfig, HarnessConfig};
 use iso8601_duration::Duration as Iso8601Duration;
 use serde::{Deserialize, Serialize};

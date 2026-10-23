@@ -8,7 +8,6 @@ use warp_multi_agent_api as api;
 use super::convert_to::convert_input;
 use super::{ConvertToAPITypeError, RequestParams, ResponseStream};
 use crate::ai::agent::redaction;
-use crate::ai::blocklist::video_recording_enabled;
 use crate::server::server_api::{AIApiError, ServerApi};
 use crate::server::team_scope::RequestTeamScope;
 use crate::terminal::model::session::SessionType;
@@ -246,10 +245,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
                 api::ToolType::ApplyFileDiffs,
                 api::ToolType::SearchCodebase,
             ]);
-
-            if FeatureFlag::ArtifactCommand.is_enabled() {
-                supported_tools.push(api::ToolType::UploadFileArtifact);
-            }
         }
         Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
             // Remote session with a known host — enable tools that route
@@ -269,10 +264,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
     if FeatureFlag::AgentModeComputerUse.is_enabled() && params.computer_use_enabled {
         supported_tools.extend(&[api::ToolType::UseComputer]);
         supported_tools.extend(&[api::ToolType::RequestComputerUse]);
-
-        if video_recording_enabled() {
-            supported_tools.extend(&[api::ToolType::StartRecording, api::ToolType::StopRecording]);
-        }
     }
 
     supported_tools.push(api::ToolType::InsertReviewComments);

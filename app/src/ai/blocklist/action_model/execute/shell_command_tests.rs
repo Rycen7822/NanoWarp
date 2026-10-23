@@ -21,7 +21,6 @@ use crate::ai::agent::{
     ReadShellCommandOutputResult, RequestCommandOutputResult, ShellCommandDelay, ShellCommandError,
     TransferShellCommandControlToUserResult,
 };
-use crate::ai::blocklist::action_model::recording_controller::RecordingController;
 use crate::terminal::event::{BlockMetadataReceivedEvent, BlockWorkingDirectoryUpdatedEvent};
 use crate::terminal::model::block::{BlockId, BlockMetadata, BlockState, CURSOR_MARKER};
 use crate::terminal::model::session::Sessions;
@@ -176,9 +175,6 @@ fn control_handback_snapshot_exposes_continuation_prompt_and_cursor() {
 fn terminal_busy_does_not_write_or_cancel_the_running_command() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
-        app.update(|ctx| {
-            ctx.add_singleton_model(|_| RecordingController::new());
-        });
         let sessions = app.add_model(|_| Sessions::new_for_test());
         let (_tx, rx) = unbounded();
         let dispatcher = app.add_model(|ctx| ModelEventDispatcher::new(rx, sessions.clone(), ctx));

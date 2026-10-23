@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use chrono::Utc;
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use futures::channel::oneshot;
 use pathfinder_geometry::vector::vec2f;
 use persistence::model::ConversationUsageMetadata;
 use session_sharing_protocol::sharer::SessionSourceType;
@@ -13,11 +11,11 @@ use warpui::platform::WindowStyle;
 use warpui::{App, EntityId, TypedActionView, ViewHandle};
 
 use super::*;
+use crate::ai::agent::AIAgentInput;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{
     AIAgentHarness, AIConversation, ConversationStatus, ServerAIConversationMetadata,
 };
-use crate::ai::agent::{AIAgentInput, UserQueryMode};
 use crate::ai::agent_conversations_model::{
     AgentConversationsModel, AgentConversationsModelEvent, AgentRunDisplayStatus,
 };
@@ -32,8 +30,6 @@ use crate::context_chips::prompt_type::PromptType;
 use crate::editor::InteractionState;
 use crate::pane_group::{BackingView, PaneConfigurationEvent};
 use crate::server::ids::ServerId;
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use crate::server::server_api::ai::SpawnAgentRequest;
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use crate::terminal::TerminalView;
 use crate::terminal::model::blocks::{INLINE_BANNER_HEIGHT, ToTotalIndex as _};
@@ -936,29 +932,6 @@ fn cloud_mode_terminal_for_test(app: &mut App) -> ViewHandle<TerminalView> {
     terminal
 }
 
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-fn handoff_request_for_test() -> SpawnAgentRequest {
-    SpawnAgentRequest {
-        metadata: Default::default(),
-        prompt: Some("Continue".to_owned()),
-        mode: UserQueryMode::Normal,
-        config: None,
-        title: None,
-        team: Some(false),
-        agent_identity_uid: None,
-        skill: None,
-        attachments: Vec::new(),
-        interactive: Some(true),
-        parent_run_id: None,
-        runtime_skills: Vec::new(),
-        referenced_attachments: Vec::new(),
-        conversation_id: None,
-        initial_snapshot_token: None,
-        snapshot_disabled: None,
-        orchestration_handoff: None,
-    }
-}
-
 #[test]
 fn test_ambient_session_join_auto_opens_details_panel() {
     let _cloud_mode_flag = FeatureFlag::CloudMode.override_enabled(true);
@@ -985,46 +958,6 @@ fn test_ambient_session_join_auto_opens_details_panel() {
         terminal.read(&app, |view, _| {
             assert!(view.is_conversation_details_panel_open);
             assert!(view.has_auto_opened_conversation_details_panel);
-        });
-    });
-}
-
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-#[test]
-fn test_local_to_cloud_handoff_session_join_keeps_details_panel_hidden() {
-    let _cloud_mode_flag = FeatureFlag::CloudMode.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        let terminal = cloud_mode_terminal_for_test(&mut app);
-        let firebase_uid = UserUid::new("mock_firebase_uid");
-
-        terminal.update(&mut app, |view, ctx| {
-            view.model
-                .lock()
-                .set_shared_session_status(SharedSessionStatus::ViewPending);
-            let ambient_agent_view_model = view
-                .ambient_agent_view_model()
-                .expect("cloud mode terminal should have an ambient agent view model")
-                .clone();
-            ambient_agent_view_model.update(ctx, |model, ctx| {
-                let (cancel, _) = oneshot::channel();
-                model.begin_local_to_cloud_handoff(handoff_request_for_test(), cancel, ctx);
-            });
-
-            view.on_session_share_joined(
-                ParticipantId::new(),
-                firebase_uid,
-                ReplicaId::random(),
-                Box::new(ParticipantList::default()),
-                SessionId::new(),
-                SessionSourceType::AmbientAgent { task_id: None },
-                ctx,
-            );
-        });
-
-        terminal.read(&app, |view, _| {
-            assert!(!view.is_conversation_details_panel_open);
-            assert!(!view.has_auto_opened_conversation_details_panel);
         });
     });
 }

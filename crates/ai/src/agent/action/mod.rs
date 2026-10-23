@@ -24,9 +24,9 @@ use crate::agent::action_result::{
     InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadMCPResourceResult,
     ReadShellCommandOutputResult, ReadSkillResult, RequestCommandOutputResult,
     RequestComputerUseResult, RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult,
-    SendMessageToAgentResult, StartRecordingResult, StopRecordingResult,
-    SuggestNewConversationResult, TransferShellCommandControlToUserResult, UploadArtifactResult,
-    UseComputerResult, WaitForEventsResult, WriteToLongRunningShellCommandResult,
+    SendMessageToAgentResult, SuggestNewConversationResult,
+    TransferShellCommandControlToUserResult, UseComputerResult, WaitForEventsResult,
+    WriteToLongRunningShellCommandResult,
 };
 use crate::agent::{AIAgentCitation, FileLocations};
 use crate::diff_validation::ParsedDiff;
@@ -70,9 +70,6 @@ pub enum AIAgentActionType {
 
     /// AI requested getting the content of some files.
     ReadFiles(ReadFilesRequest),
-
-    /// AI requested uploading a local file as a conversation artifact.
-    UploadArtifact(UploadArtifactRequest),
 
     SearchCodebase(SearchCodebaseRequest),
 
@@ -138,35 +135,6 @@ pub enum AIAgentActionType {
     },
 
     RequestComputerUse(RequestComputerUseRequest),
-
-    /// AI requested to start recording a video of the computer-use session.
-    /// Capture configuration (frame rate, limits, speed) is server-owned and
-    /// arrives on the tool call; the client applies it. `frame_rate` of 0 means
-    /// unset. `summary` is a short agent-authored title shown in badges.
-    /// `description` is an optional longer description shown in detail views.
-    /// `playback_speed_multiplier` is the integer speed factor from the proto
-    /// (e.g. 4 = 4×). `None` or a value ≤ 1 means real-time (use client default).
-    StartRecording {
-        frame_rate: u32,
-        max_duration: Option<Duration>,
-        max_size_bytes: Option<u64>,
-        summary: Option<String>,
-        description: Option<String>,
-        playback_speed_multiplier: Option<u32>,
-        /// The surface to record. `None` records the whole screen; a `Window`
-        /// target records just that window via native ffmpeg `x11grab
-        /// -window_id` on the foreground-visible window. Applied by the client
-        /// only when background computer use is enabled.
-        window: Option<computer_use::Target>,
-    },
-
-    /// AI requested to stop an in-progress recording. When `should_persist` is
-    /// false the recording is discarded instead of uploaded; an unset proto
-    /// field defaults to `true` (persist).
-    StopRecording {
-        recording_id: String,
-        should_persist: bool,
-    },
 
     // AI requested to read a skill.
     ReadSkill(ReadSkillRequest),
@@ -272,9 +240,6 @@ pub struct RunAgentsAgentRunConfig {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum StartAgentExecutionMode {
     Local {
-        /// `None` selects the legacy embedded local child-agent flow.
-        /// `Some(...)` selects a third-party CLI harness to launch locally.
-        harness_type: Option<String>,
         /// `None` inherits the parent agent's preferred LLM (legacy behavior).
         /// `Some(_)` overrides the child's preferred LLM with the supplied
         /// model id (used by the orchestrate confirmation card so the user's
@@ -338,9 +303,6 @@ impl AIAgentActionType {
                 AIAgentActionResultType::RequestFileEdits(RequestFileEditsResult::Cancelled)
             }
             Self::ReadFiles(..) => AIAgentActionResultType::ReadFiles(ReadFilesResult::Cancelled),
-            Self::UploadArtifact(..) => {
-                AIAgentActionResultType::UploadArtifact(UploadArtifactResult::Cancelled)
-            }
             Self::SearchCodebase(..) => {
                 AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Cancelled)
             }
@@ -385,12 +347,6 @@ impl AIAgentActionType {
             Self::RequestComputerUse(_) => {
                 AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Cancelled)
             }
-            Self::StartRecording { .. } => {
-                AIAgentActionResultType::StartRecording(StartRecordingResult::Cancelled)
-            }
-            Self::StopRecording { .. } => {
-                AIAgentActionResultType::StopRecording(StopRecordingResult::Cancelled)
-            }
             Self::ReadSkill(_) => AIAgentActionResultType::ReadSkill(ReadSkillResult::Cancelled),
             Self::FetchConversation { .. } => {
                 AIAgentActionResultType::FetchConversation(FetchConversationResult::Cancelled)
@@ -422,7 +378,6 @@ impl AIAgentActionType {
                 "Write to long running shell command".to_string()
             }
             Self::ReadFiles(_) => "Read files".to_string(),
-            Self::UploadArtifact(_) => "Upload artifact".to_string(),
             Self::SearchCodebase(_) => "Search codebase".to_string(),
             Self::RequestFileEdits { file_edits, .. } => {
                 let file_names = file_edits.iter().filter_map(|edit| edit.file()).join(", ");
@@ -443,8 +398,6 @@ impl AIAgentActionType {
                 format!("Insert {} code review comments", comments.len())
             }
             Self::RequestComputerUse(_) => "Request computer use".to_string(),
-            Self::StartRecording { .. } => "Start recording".to_string(),
-            Self::StopRecording { .. } => "Stop recording".to_string(),
             Self::ReadSkill(_) => "Read skill".to_string(),
             Self::FetchConversation { .. } => "Fetch conversation".to_string(),
             Self::SendMessageToAgent { subject, .. } => format!("Send message: {subject}"),
@@ -487,9 +440,6 @@ impl Display for AIAgentActionType {
                 )
             }
             AIAgentActionType::ReadFiles(request) => {
-                write!(f, "{request}")
-            }
-            AIAgentActionType::UploadArtifact(request) => {
                 write!(f, "{request}")
             }
             AIAgentActionType::SearchCodebase(request) => {
@@ -600,18 +550,6 @@ impl Display for AIAgentActionType {
             AIAgentActionType::RequestComputerUse(req) => {
                 write!(f, "RequestComputerUse: {}", req.task_summary)
             }
-            AIAgentActionType::StartRecording { .. } => {
-                write!(f, "StartRecording")
-            }
-            AIAgentActionType::StopRecording {
-                recording_id,
-                should_persist,
-            } => {
-                write!(
-                    f,
-                    "StopRecording: {recording_id} (persist: {should_persist})"
-                )
-            }
             AIAgentActionType::ReadSkill(req) => {
                 write!(f, "ReadSkill: {}", req.skill)
             }
@@ -717,18 +655,6 @@ impl Display for ReadFilesRequest {
             .collect::<Vec<_>>()
             .join(", ");
         write!(f, "ReadFiles: [{file_names}]")
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct UploadArtifactRequest {
-    pub file_path: String,
-    pub description: Option<String>,
-}
-
-impl Display for UploadArtifactRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UploadArtifact: {}", self.file_path)
     }
 }
 

@@ -12,7 +12,6 @@ use super::{
 use crate::ai::cloud_environments::{
     AmbientAgentEnvironment, CloudAmbientAgentEnvironment, CloudAmbientAgentEnvironmentModel,
 };
-use crate::ai::local_harness_setup::LocalHarnessSetupState;
 use crate::ai::orchestration::config_state::{AuthSecretSelection, OrchestrationConfigState};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObjectMetadata, CloudObjectPermissions, Owner};
@@ -39,15 +38,10 @@ fn pi_harness_snapshot_requires_enabled_cloud_entry() {
             "pi",
             None,
             is_local,
-            &all_ready,
         );
         assert_eq!(snapshot.rows.iter().any(|row| row.id == "pi"), visible);
         assert_eq!(snapshot.selected_id.as_deref(), visible.then_some("pi"));
     }
-}
-
-fn all_ready(_harness: Harness) -> LocalHarnessSetupState {
-    LocalHarnessSetupState::Ready
 }
 
 fn environment(id: SyncId, name: &str, owner: Owner) -> CloudAmbientAgentEnvironment {
@@ -78,7 +72,7 @@ fn harness_snapshot_excludes_gemini_and_selects_initial() {
         entry(Harness::Gemini, "Gemini", true),
     ];
 
-    let snapshot = build_harness_snapshot(entries, "claude", None, false, &all_ready);
+    let snapshot = build_harness_snapshot(entries, "claude", None, false);
 
     let ids: Vec<&str> = snapshot.rows.iter().map(|r| r.id.as_str()).collect();
     assert!(!ids.contains(&"gemini"));
@@ -88,14 +82,14 @@ fn harness_snapshot_excludes_gemini_and_selects_initial() {
 }
 
 #[test]
-fn harness_snapshot_filters_product_disabled_local_harness() {
+fn harness_snapshot_only_exposes_warp_locally() {
     let entries = vec![
         entry(Harness::Oz, "Warp", true),
         entry(Harness::Codex, "Codex", true),
     ];
 
-    // Local Codex is product-disabled (feature flag off in tests).
-    let snapshot = build_harness_snapshot(entries, "oz", None, true, &all_ready);
+    // Third-party harnesses are available only for cloud execution.
+    let snapshot = build_harness_snapshot(entries, "oz", None, true);
 
     let ids: Vec<&str> = snapshot.rows.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(ids, vec!["oz"]);
@@ -108,7 +102,7 @@ fn harness_snapshot_keeps_cloud_opencode_selectable() {
         entry(Harness::OpenCode, "OpenCode", true),
     ];
 
-    let snapshot = build_harness_snapshot(entries, "oz", None, false, &all_ready);
+    let snapshot = build_harness_snapshot(entries, "oz", None, false);
 
     let opencode = snapshot
         .rows
@@ -120,41 +114,13 @@ fn harness_snapshot_keeps_cloud_opencode_selectable() {
 }
 
 #[test]
-fn harness_snapshot_marks_missing_local_cli_disabled_and_sorts_last() {
-    let entries = vec![
-        entry(Harness::Claude, "Claude Code", true),
-        entry(Harness::Oz, "Warp", true),
-    ];
-    let setup = |harness: Harness| match harness {
-        Harness::Claude => LocalHarnessSetupState::MissingHarness {
-            tooltip: "Install Claude Code to use this local harness.",
-        },
-        Harness::Oz
-        | Harness::OpenCode
-        | Harness::Gemini
-        | Harness::Pi
-        | Harness::Codex
-        | Harness::Unknown => LocalHarnessSetupState::Ready,
-    };
-
-    let snapshot = build_harness_snapshot(entries, "oz", None, true, &setup);
-
-    let ids: Vec<&str> = snapshot.rows.iter().map(|r| r.id.as_str()).collect();
-    assert_eq!(ids, vec!["oz", "claude"]);
-    assert_eq!(
-        snapshot.rows[1].disabled_reason.as_deref(),
-        Some("Install Claude Code to use this local harness.")
-    );
-}
-
-#[test]
 fn harness_snapshot_marks_server_disabled_entries() {
     let entries = vec![
         entry(Harness::Oz, "Warp", true),
         entry(Harness::Claude, "Claude Code", false),
     ];
 
-    let snapshot = build_harness_snapshot(entries, "oz", None, false, &all_ready);
+    let snapshot = build_harness_snapshot(entries, "oz", None, false);
 
     assert_eq!(
         snapshot.rows[1].disabled_reason.as_deref(),
@@ -167,13 +133,8 @@ fn harness_snapshot_matches_selection_by_display_name_for_stale_cache() {
     // Stale cache: harness deserialized as Unknown but display_name intact.
     let entries = vec![entry(Harness::Unknown, "Claude Code", true)];
 
-    let snapshot = build_harness_snapshot(
-        entries,
-        "claude",
-        Some("Claude Code".to_string()),
-        false,
-        &all_ready,
-    );
+    let snapshot =
+        build_harness_snapshot(entries, "claude", Some("Claude Code".to_string()), false);
 
     assert_eq!(snapshot.selected_id.as_deref(), Some("claude"));
 }

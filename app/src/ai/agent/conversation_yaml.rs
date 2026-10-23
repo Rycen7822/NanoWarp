@@ -309,18 +309,6 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
                 }
             }
         }
-        Tool::UploadFileArtifact(upload) => {
-            if let Some(file) = &upload.file {
-                out.push_str("file:\n");
-                out.push_str(&format!("  file_path: {}\n", file.file_path));
-            }
-            if !upload.description.is_empty() {
-                out.push_str(&format!(
-                    "description: \"{}\"\n",
-                    escape_yaml_string(&upload.description)
-                ));
-            }
-        }
         Tool::Grep(g) => {
             out.push_str("queries:\n");
             for q in &g.queries {
@@ -515,6 +503,7 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
         Tool::ReadShellCommandOutput(_)
         | Tool::UseComputer(_)
         | Tool::RequestComputerUse(_)
+        | Tool::UploadFileArtifact(_)
         | Tool::StartRecording(_)
         | Tool::StopRecording(_)
         | Tool::SuggestPlan(_)
@@ -585,7 +574,9 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
             None => {}
         },
         ToolCallResultType::WaitForEvents(_) => {}
-        ToolCallResultType::StartRecording(_) | ToolCallResultType::StopRecording(_) => {}
+        ToolCallResultType::UploadFileArtifact(_)
+        | ToolCallResultType::StartRecording(_)
+        | ToolCallResultType::StopRecording(_) => {}
         ToolCallResultType::RunShellCommand(r) => {
             if let Some(res) = &r.result {
                 use api::run_shell_command_result::Result;
@@ -671,21 +662,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
                                 }
                             }
                         }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::UploadFileArtifact(r) => {
-            if let Some(res) = &r.result {
-                use api::upload_file_artifact_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str(&format!("artifact_uid: {}\n", s.artifact_uid));
-                        out.push_str(&format!("mime_type: {}\n", s.mime_type));
-                        out.push_str(&format!("size_bytes: {}\n", s.size_bytes));
                     }
                     Result::Error(e) => {
                         out.push_str(&format!("error: {}\n", e.message));

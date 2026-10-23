@@ -583,10 +583,7 @@ impl<S> TerminalManager<S> {
             .recovery_resources
             .clone()
             .context("shell has not started")?;
-        let starter = resources
-            .starter
-            .replacement()
-            .context("this shell cannot be replaced")?;
+        let starter = resources.starter.replacement();
         anyhow::ensure!(
             request.working_directory.is_absolute() && request.working_directory.is_dir(),
             "shell replacement requires an accessible absolute working directory"
@@ -633,9 +630,7 @@ impl<S> TerminalManager<S> {
         let Some(resources) = self.recovery_resources.clone() else {
             return false;
         };
-        let Some(replacement_starter) = resources.starter.replacement() else {
-            return false;
-        };
+        let replacement_starter = resources.starter.replacement();
 
         let session = request
             .session_id

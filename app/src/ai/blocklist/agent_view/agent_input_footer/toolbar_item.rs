@@ -3,7 +3,7 @@ use warpui::SingletonEntity;
 
 use crate::context_chips::{ContextChipKind, agent_footer_available_chips};
 use crate::features::FeatureFlag;
-use crate::settings::{AISettings, CodeSettings};
+use crate::settings::CodeSettings;
 use crate::terminal::shared_session::SharedSessionStatus;
 use crate::ui_components::icons::Icon;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -46,9 +46,6 @@ pub enum AgentToolbarItemKind {
 
     // Agent view only – shows fast-forward (auto-approve) toggle in the footer
     FastForwardToggle,
-
-    // Agent view only – "Hand off to cloud" chip.
-    HandoffToCloud,
 }
 
 impl AgentToolbarItemKind {
@@ -64,8 +61,6 @@ impl AgentToolbarItemKind {
             Self::ShareSession | Self::FileExplorer => !status.is_viewer(),
             Self::FileAttach => !status.is_viewer() || is_cloud_mode,
             Self::FastForwardToggle => !status.is_viewer() || status.is_executor(),
-            // Handoff is host-initiated; viewers cannot hand off another user's conversation.
-            Self::HandoffToCloud => !status.is_viewer(),
             Self::ContextChip(_)
             | Self::NLDToggle
             | Self::ContextWindowUsage
@@ -83,7 +78,6 @@ impl AgentToolbarItemKind {
             Self::FileExplorer => "File Explorer",
             Self::ShareSession => "/remote-control",
             Self::FastForwardToggle => "Fast Forward",
-            Self::HandoffToCloud => "Hand off to cloud",
         }
     }
 
@@ -97,28 +91,6 @@ impl AgentToolbarItemKind {
             Self::FileExplorer => Some(Icon::FileCopy),
             Self::ShareSession => Some(Icon::Phone01),
             Self::FastForwardToggle => Some(Icon::FastForward),
-            // The bundled `upload-cloud-01.svg` (cloud-with-upward-arrow) is the
-            // closest fit among the existing icons for V0; design may swap it later.
-            Self::HandoffToCloud => Some(Icon::UploadCloud),
-        }
-    }
-
-    /// Whether this item should remain visible during `&` handoff-compose mode.
-    /// Only items relevant to composing a cloud run are shown.
-    pub(super) fn is_available_during_handoff_compose(&self) -> bool {
-        match self {
-            Self::ContextChip(
-                ContextChipKind::ShellGitBranch | ContextChipKind::GitBranchStatus,
-            ) => true,
-            Self::FileAttach => true,
-            Self::ContextChip(_)
-            | Self::NLDToggle
-            | Self::ContextWindowUsage
-            | Self::UsageSummary
-            | Self::FastForwardToggle
-            | Self::HandoffToCloud
-            | Self::ShareSession
-            | Self::FileExplorer => false,
         }
     }
 
@@ -127,7 +99,6 @@ impl AgentToolbarItemKind {
     /// handles runtime conditions that depend on user settings or workspace state.
     pub fn is_available(&self, app: &warpui::AppContext) -> bool {
         match self {
-            Self::HandoffToCloud => AISettings::as_ref(app).is_cloud_handoff_enabled(app),
             // Drops the item from the toolbar editor for tiers charged in credits. The render
             // path does not consult this method, so it repeats the check itself.
             Self::UsageSummary => match UserWorkspaces::as_ref(app).charge_unit() {
@@ -185,12 +156,6 @@ impl AgentToolbarItemKind {
         {
             items.push(Self::ShareSession);
         }
-        if FeatureFlag::OzHandoff.is_enabled()
-            && FeatureFlag::HandoffLocalCloud.is_enabled()
-            && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
-        {
-            items.push(Self::HandoffToCloud);
-        }
         items.push(Self::FileAttach);
         items
     }
@@ -216,12 +181,6 @@ impl AgentToolbarItemKind {
             && FeatureFlag::HOARemoteControl.is_enabled()
         {
             items.push(Self::ShareSession);
-        }
-        if FeatureFlag::OzHandoff.is_enabled()
-            && FeatureFlag::HandoffLocalCloud.is_enabled()
-            && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
-        {
-            items.push(Self::HandoffToCloud);
         }
         items
     }

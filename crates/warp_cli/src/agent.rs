@@ -141,15 +141,6 @@ impl Harness {
         <Self as ValueEnum>::from_str(&normalized, true).ok()
     }
 
-    pub fn parse_local_child_harness(value: &str) -> Option<Self> {
-        match Self::parse_orchestration_harness(value) {
-            Some(harness @ (Self::Claude | Self::OpenCode | Self::Codex)) => Some(harness),
-            Some(Self::Oz) | Some(Self::Gemini) | Some(Self::Pi) | Some(Self::Unknown) | None => {
-                None
-            }
-        }
-    }
-
     /// Whether this harness is surfaced to users in CLI `--help` for cloud runs
     /// (`oz agent run-cloud --harness`). Only the harnesses that are generally
     /// available for cloud runs are shown; gemini and opencode aren't available

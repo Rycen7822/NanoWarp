@@ -216,7 +216,6 @@ use crate::ai::AIRequestUsageModel;
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::RecordingController;
 use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::facts::manager::AIFactManager;
@@ -599,16 +598,6 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             // Daemon handles its own full initialization (including
             // initialize_app and crash reporting) inside run_daemon_app.
             crate::remote_server::run_daemon(args.identity_key.clone())
-        }
-        #[cfg(not(target_family = "wasm"))]
-        warp_cli::WorkerCommand::EnvironmentCheckout(args) => {
-            ::tracing::subscriber::set_global_default(::tracing::subscriber::NoSubscriber::new())?;
-            warp_logging::init(warp_logging::LogConfig {
-                frontend: LogFrontend::Cli,
-                log_destination: Some(LogDestination::Stderr),
-                ..Default::default()
-            })?;
-            ai::agent_sdk::run_environment_checkout(args)
         }
         #[cfg(not(target_family = "wasm"))]
         warp_cli::WorkerCommand::RipgrepSearch {
@@ -1276,7 +1265,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(|_| SettingsPaneManager::new());
     ctx.add_singleton_model(|_| AIFactManager::new());
-    ctx.add_singleton_model(|_| RecordingController::new());
     ctx.add_singleton_model(|_| ExecutionProfileEditorManager::default());
     ctx.add_singleton_model(|_| NetworkLogPaneManager::default());
     ctx.add_singleton_model(|_| pricing::PricingInfoModel::new());
@@ -1545,7 +1533,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(|_| NetworkStatus::new());
     ctx.add_singleton_model(|_| SystemStats::new());
-    workspace::auto_handoff::init(ctx);
     ctx.add_singleton_model(|_| KeybindingChangedNotifier::new());
     ctx.add_singleton_model(|_| TabShortcutModifierState::new());
     ctx.add_singleton_model(|_| search::command_palette::SelectedItems::new());

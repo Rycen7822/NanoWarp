@@ -661,9 +661,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::ReadFiles(read_files) => {
                 create_standard_action(read_files.into())
             }
-            api::message::tool_call::Tool::UploadFileArtifact(upload_file_artifact) => {
-                create_standard_action(upload_file_artifact.try_into()?)
-            }
             api::message::tool_call::Tool::SearchCodebase(search_codebase) => {
                 create_standard_action(search_codebase.into())
             }
@@ -709,12 +706,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             }
             api::message::tool_call::Tool::RequestComputerUse(request_computer_use) => {
                 create_standard_action(request_computer_use.into())
-            }
-            api::message::tool_call::Tool::StartRecording(start_recording) => {
-                create_standard_action(start_recording.try_into()?)
-            }
-            api::message::tool_call::Tool::StopRecording(stop_recording) => {
-                create_standard_action(stop_recording.into())
             }
             api::message::tool_call::Tool::Subagent(subagent) => {
                 use api::message::tool_call::subagent::Metadata;

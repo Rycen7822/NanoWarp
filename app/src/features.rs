@@ -71,8 +71,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellSelector,
         #[cfg(feature = "integration_command")]
         FeatureFlag::IntegrationCommand,
-        #[cfg(feature = "artifact_command")]
-        FeatureFlag::ArtifactCommand,
         #[cfg(feature = "cloud_runners")]
         FeatureFlag::CloudRunners,
         #[cfg(feature = "cloud_agent_runners")]
@@ -303,8 +301,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::LocalComputerUse,
         #[cfg(feature = "background_computer_use")]
         FeatureFlag::BackgroundComputerUse,
-        #[cfg(feature = "local_claude_codex_child_harnesses")]
-        FeatureFlag::LocalClaudeCodexChildHarnesses,
         #[cfg(feature = "team_api_keys")]
         FeatureFlag::TeamApiKeys,
         #[cfg(feature = "named_agents")]
@@ -385,10 +381,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::PinnedTabs,
         #[cfg(feature = "agent_harness")]
         FeatureFlag::AgentHarness,
-        #[cfg(feature = "oz_handoff")]
-        FeatureFlag::OzHandoff,
-        #[cfg(feature = "handoff_local_cloud")]
-        FeatureFlag::HandoffLocalCloud,
         #[cfg(feature = "hoa_notifications")]
         FeatureFlag::HOANotifications,
         #[cfg(feature = "transfer_control_tool")]
@@ -417,8 +409,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::HandoffCloudCloud,
         #[cfg(feature = "git_credential_refresh")]
         FeatureFlag::GitCredentialRefresh,
-        #[cfg(feature = "factory_deferred_repositories")]
-        FeatureFlag::FactoryDeferredRepositories,
         #[cfg(feature = "remote_code_review")]
         FeatureFlag::RemoteCodeReview,
         #[cfg(feature = "custom_model_routers")]

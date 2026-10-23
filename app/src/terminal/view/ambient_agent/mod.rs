@@ -103,7 +103,7 @@ pub fn wire_ambient_agent_session_events(
 ) {
     let view_model = view_model.clone();
     terminal_manager.update(ctx, |_, ctx| {
-        ctx.subscribe_to_model(&view_model, move |manager, view_model, event, ctx| {
+        ctx.subscribe_to_model(&view_model, move |manager, _view_model, event, ctx| {
             let Some(manager) = manager
                 .as_any_mut()
                 .downcast_mut::<shared_session::viewer::TerminalManager>()
@@ -112,13 +112,7 @@ pub fn wire_ambient_agent_session_events(
             };
             match event {
                 AmbientAgentViewModelEvent::SessionReady { session_id } => {
-                    // Local-to-cloud handoff panes pre-populate the forked
-                    // conversation on chip click. Use append-mode scrollback
-                    // + replay suppression so the cloud agent's replay doesn't
-                    // duplicate the blocks we already have.
-                    let append_followup_scrollback =
-                        view_model.as_ref(ctx).is_local_to_cloud_handoff();
-                    if manager.connect_to_session(*session_id, append_followup_scrollback, ctx) {
+                    if manager.connect_to_session(*session_id, false, ctx) {
                         manager.start_cloud_mode_setup_command_tracking();
                     }
                 }
@@ -146,8 +140,6 @@ pub fn wire_ambient_agent_session_events(
                 | AmbientAgentViewModelEvent::HostSelected
                 | AmbientAgentViewModelEvent::HarnessModelSelected
                 | AmbientAgentViewModelEvent::HarnessCommandStarted { .. }
-                | AmbientAgentViewModelEvent::PendingHandoffChanged
-                | AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed { .. }
                 | AmbientAgentViewModelEvent::UpdatedSetupCommandVisibility
                 | AmbientAgentViewModelEvent::AuthSecretSelected
                 | AmbientAgentViewModelEvent::RunLifecycleChanged
@@ -189,17 +181,9 @@ pub fn is_cloud_agent_pre_first_exchange(
         return false;
     };
 
-    // Handoff panes enter agent view with `RestoreExistingConversation` because they restore the
-    // forked conversation, not `CloudAgent`. The `is_local_to_cloud_handoff` flag is the
-    // authoritative "this is a cloud agent pane" signal for that path. Shared-session viewers of
-    // an ambient run (raw link join / attach-to-running) enter agent view via
-    // `SharedSessionSelection` / `ThirdPartyCloudAgent`, so `is_shared_ambient_agent_session()` is
-    // the authoritative signal for that path — e.g. a post-death cloud follow-up spinning up a new
-    // VM must still count as pre-first-exchange so the setup progress + prompt-queuing UI render.
-    if !origin.is_cloud_agent()
-        && !view_model.is_local_to_cloud_handoff()
-        && !terminal_model.is_shared_ambient_agent_session()
-    {
+    // Shared-session viewers enter through SharedSessionSelection / ThirdPartyCloudAgent.
+    // Keep cloud follow-up setup progress and prompt queuing active for these viewers.
+    if !origin.is_cloud_agent() && !terminal_model.is_shared_ambient_agent_session() {
         return false;
     }
 

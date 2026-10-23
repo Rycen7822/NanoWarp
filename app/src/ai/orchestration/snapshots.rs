@@ -20,9 +20,6 @@ use crate::ai::cloud_environments::{CloudAmbientAgentEnvironment, environment_ma
 use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::harness_availability::{AuthSecretFetchState, HarnessAvailabilityModel};
 use crate::ai::harness_display;
-use crate::ai::local_harness_setup::{
-    LocalHarnessSetupState, local_harness_is_product_enabled, local_harness_setup_state,
-};
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::workspaces::user_workspaces::TeamScope;
 
@@ -140,23 +137,15 @@ pub fn harness_snapshot(state: &OrchestrationConfigState, ctx: &AppContext) -> O
         .collect();
     let target_display = Harness::parse_orchestration_harness(&state.harness_type)
         .map(|harness| availability.display_name_for(harness).to_string());
-    build_harness_snapshot(
-        entries,
-        &state.harness_type,
-        target_display,
-        is_local,
-        &local_harness_setup_state,
-    )
+    build_harness_snapshot(entries, &state.harness_type, target_display, is_local)
 }
 
-/// Pure core of [`harness_snapshot`]. `setup_state_for` is injected so
-/// tests don't depend on locally installed CLIs.
+/// Pure core of [`harness_snapshot`].
 fn build_harness_snapshot(
     entries: Vec<HarnessEntryInput>,
     initial_harness: &str,
     target_display: Option<String>,
     is_local: bool,
-    setup_state_for: &dyn Fn(Harness) -> LocalHarnessSetupState,
 ) -> OptionSnapshot {
     let resolve_entry_harness = |harness: Harness, display_name: &str| match harness {
         Harness::Unknown => [
@@ -172,7 +161,6 @@ fn build_harness_snapshot(
         .unwrap_or(Harness::Unknown),
         harness => harness,
     };
-    let setup_is_ready = |harness: Harness| !is_local || setup_state_for(harness).is_selectable();
 
     // Sort selectable harnesses before disabled ones, preserving
     // relative order within each group.
@@ -183,36 +171,21 @@ fn build_harness_snapshot(
             let harness = resolve_entry_harness(entry.harness, &entry.display_name);
             harness != Harness::Gemini
                 && (harness != Harness::Pi || (!is_local && entry.enabled))
-                && (!is_local || local_harness_is_product_enabled(harness))
+                && (!is_local || harness == Harness::Oz)
         })
         .collect();
-    sorted.sort_by_key(|entry| {
-        let harness = resolve_entry_harness(entry.harness, &entry.display_name);
-        !(entry.enabled && setup_is_ready(harness))
-    });
+    sorted.sort_by_key(|entry| !entry.enabled);
 
     let mut rows: Vec<OptionRow> = Vec::new();
     let mut selected_id: Option<String> = None;
     for entry in sorted {
         let harness = resolve_entry_harness(entry.harness, &entry.display_name);
         let harness_str = harness.to_string();
-        let selectable = entry.enabled && setup_is_ready(harness);
+        let selectable = entry.enabled;
         let disabled_reason = if selectable {
             None
         } else {
-            let local_setup_state = if is_local {
-                Some(setup_state_for(harness))
-            } else {
-                None
-            };
-            Some(
-                match local_setup_state {
-                    Some(LocalHarnessSetupState::MissingHarness { tooltip }) => tooltip,
-                    Some(LocalHarnessSetupState::ProductDisabled { message }) => message,
-                    Some(LocalHarnessSetupState::Ready) | None => "Disabled by your administrator",
-                }
-                .to_string(),
-            )
+            Some("Disabled by your administrator".to_string())
         };
         // Match by harness string first, then fall back to matching
         // the display_name against the client-side name for the target
@@ -261,10 +234,9 @@ struct ModelChoiceInput {
 }
 
 /// Builds the model options for the active harness, mirroring the GUI's
-/// `populate_model_picker_for_harness` three catalog branches:
+/// `populate_model_picker_for_harness` catalog branches:
 /// - **Oz / empty**: the Warp LLM catalog (auto, then custom, then other
 ///   models; custom models excluded for Cloud runs).
-/// - **Local Codex**: only a "Default model" entry.
 /// - **Other non-Oz harnesses**: "Default model" plus the server-provided
 ///   harness model catalog.
 pub fn model_snapshot(state: &OrchestrationConfigState, ctx: &AppContext) -> OptionSnapshot {
@@ -272,13 +244,6 @@ pub fn model_snapshot(state: &OrchestrationConfigState, ctx: &AppContext) -> Opt
     let harness = Harness::parse_orchestration_harness(&state.harness_type);
     match harness {
         Some(Harness::Oz) | None => oz_model_snapshot(&state.model_id, is_local, ctx),
-        Some(Harness::Codex) if is_local => {
-            // Local Codex: only "Default model" entry.
-            OptionSnapshot::ready(
-                vec![OptionRow::new(String::new(), DEFAULT_MODEL_LABEL)],
-                Some(String::new()),
-            )
-        }
         Some(harness) => {
             let models = HarnessAvailabilityModel::as_ref(ctx)
                 .models_for(harness)

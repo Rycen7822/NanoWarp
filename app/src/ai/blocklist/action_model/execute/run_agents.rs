@@ -14,7 +14,6 @@ use ai::agent::orchestration_config::OrchestrationConfig;
 use ai::skills::SkillReference;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use warp_cli::agent::Harness;
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::telemetry::TelemetryEvent as _;
 use warp_core::{send_telemetry_from_app_ctx, send_telemetry_from_ctx};
@@ -34,7 +33,6 @@ use crate::ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::document::plan_publication::{
     prepare_plan_publications, wait_for_plan_publications,
 };
-use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 use crate::ai::orchestration::{
     OrchestrationConfigState, can_execute_with_auth_secret,
     populate_default_auth_secret_for_execution,
@@ -720,10 +718,10 @@ fn validate_request(request: &RunAgentsRequest) -> Result<(), String> {
         return Err("orchestrate: empty agent_run_configs".to_string());
     }
     if matches!(request.execution_mode, RunAgentsExecutionMode::Local)
-        && let Some(harness) = Harness::parse_local_child_harness(&request.harness_type)
-        && let Some(message) = local_harness_product_disabled_message(harness)
+        && !request.harness_type.trim().is_empty()
+        && !request.harness_type.trim().eq_ignore_ascii_case("oz")
     {
-        return Err(message.to_string());
+        return Err("Local child agents only support the Warp harness.".to_string());
     }
     if matches!(
         request.execution_mode,
@@ -782,22 +780,10 @@ pub fn run_agents_to_start_agent_mode(
                 run_model_id.trim()
             };
             let model_id = (!effective_model_id.is_empty()).then(|| effective_model_id.to_string());
-            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("oz") {
-                Ok(StartAgentExecutionMode::Local {
-                    harness_type: None,
-                    model_id,
-                })
-            } else {
-                if let Some(harness) = Harness::parse_local_child_harness(trimmed)
-                    && let Some(message) = local_harness_product_disabled_message(harness)
-                {
-                    return Err(message.to_string());
-                }
-                Ok(StartAgentExecutionMode::Local {
-                    harness_type: Some(trimmed.to_string()),
-                    model_id,
-                })
+            if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("oz") {
+                return Err("Local child agents only support the Warp harness.".to_string());
             }
+            Ok(StartAgentExecutionMode::Local { model_id })
         }
         RunAgentsExecutionMode::Remote {
             environment_id,

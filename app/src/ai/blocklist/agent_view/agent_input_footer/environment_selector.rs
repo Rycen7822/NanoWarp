@@ -25,90 +25,11 @@ use crate::context_chips::display_menu::{
     ChipMenuType, DisplayChipMenu, GenericMenuItem, PromptDisplayMenuEvent,
 };
 use crate::server::ids::SyncId;
-use crate::terminal::input::{
-    HandoffComposeState, HandoffComposeStateEvent, MenuPositioning, MenuPositioningProvider,
-};
+use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
 use crate::terminal::view::ambient_agent::AmbientAgentViewModelEvent;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, ActionButtonTheme, ButtonSize};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
-
-/// Normalizes ambient-agent and handoff environment selection state behind one API.
-#[derive(Clone)]
-pub(crate) enum EnvironmentSelectorTarget {
-    CloudPane(ModelHandle<AmbientAgentViewModel>),
-    Handoff(ModelHandle<HandoffComposeState>),
-}
-
-impl EnvironmentSelectorTarget {
-    fn selected_environment_id(&self, ctx: &AppContext) -> Option<SyncId> {
-        match self {
-            Self::CloudPane(model) => model.as_ref(ctx).selected_environment_id().cloned(),
-            Self::Handoff(state) => state.as_ref(ctx).selected_environment_id().cloned(),
-        }
-    }
-
-    fn set_environment_id(
-        &self,
-        environment_id: Option<SyncId>,
-        is_explicit: bool,
-        ctx: &mut ViewContext<EnvironmentSelector>,
-    ) {
-        match self {
-            Self::CloudPane(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.set_environment_id(environment_id, ctx);
-                });
-            }
-            Self::Handoff(state) => {
-                state.update(ctx, |state, ctx| {
-                    state.set_environment_id(environment_id, is_explicit, ctx);
-                });
-            }
-        }
-    }
-
-    fn clear_environment_for_scope_change(&self, ctx: &mut ViewContext<EnvironmentSelector>) {
-        match self {
-            Self::CloudPane(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.set_environment_id(None, ctx);
-                });
-            }
-            Self::Handoff(state) => {
-                state.update(ctx, |state, ctx| {
-                    state.clear_environment_for_scope_change(ctx);
-                });
-            }
-        }
-    }
-
-    fn ensure_default_environment_id(
-        &self,
-        environment_id: SyncId,
-        ctx: &mut ViewContext<EnvironmentSelector>,
-    ) {
-        match self {
-            Self::CloudPane(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.set_environment_id(Some(environment_id), ctx);
-                });
-            }
-            Self::Handoff(state) => {
-                state.update(ctx, |state, ctx| {
-                    state.ensure_default_environment_id(environment_id, ctx);
-                });
-            }
-        }
-    }
-
-    fn is_configuring(&self, ctx: &AppContext) -> bool {
-        match self {
-            Self::CloudPane(model) => model.as_ref(ctx).is_configuring_ambient_agent(),
-            Self::Handoff(state) => state.as_ref(ctx).is_active(),
-        }
-    }
-}
 
 /// A selector component for choosing an ambient agent environment.
 pub struct EnvironmentSelector {
@@ -117,7 +38,7 @@ pub struct EnvironmentSelector {
     environments: ModelHandle<CloudEnvironmentCatalog>,
     is_menu_open: bool,
     menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
-    target: EnvironmentSelectorTarget,
+    ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
 }
 
 pub enum EnvironmentSelectorEvent {
@@ -174,7 +95,7 @@ impl GenericMenuItem for EnvironmentMenuItem {
 impl EnvironmentSelector {
     pub fn new(
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
-        target: EnvironmentSelectorTarget,
+        ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let button = ctx.add_typed_action_view(|_ctx| {
@@ -215,7 +136,9 @@ impl EnvironmentSelector {
                         ctx
                     );
                     if me.is_configuring(ctx) {
-                        me.target.set_environment_id(Some(env_item.id), true, ctx);
+                        me.ambient_agent_view_model.update(ctx, |model, ctx| {
+                            model.set_environment_id(Some(env_item.id), ctx);
+                        });
                         me.environments.update(ctx, |catalog, ctx| {
                             catalog.persist_selection(env_item.id, ctx);
                         });
@@ -245,39 +168,20 @@ impl EnvironmentSelector {
             }
         });
 
-        match &target {
-            EnvironmentSelectorTarget::CloudPane(model) => {
-                ctx.subscribe_to_model(model, |me, _, event, ctx| {
-                    if let AmbientAgentViewModelEvent::EnvironmentSelected = event {
-                        me.reconcile_selection_and_refresh(ctx);
-                    } else {
-                        me.refresh_button(ctx);
-                    }
-                });
+        ctx.subscribe_to_model(&ambient_agent_view_model, |me, _, event, ctx| {
+            if let AmbientAgentViewModelEvent::EnvironmentSelected = event {
+                me.reconcile_selection_and_refresh(ctx);
+            } else {
+                me.refresh_button(ctx);
             }
-            EnvironmentSelectorTarget::Handoff(state) => {
-                ctx.subscribe_to_model(state, |me, _, event, ctx| {
-                    if matches!(event, HandoffComposeStateEvent::ActiveChanged)
-                        && !me.is_configuring(ctx)
-                    {
-                        me.set_menu_visibility(false, ctx);
-                    }
-                    match event {
-                        HandoffComposeStateEvent::ActiveChanged
-                        | HandoffComposeStateEvent::EnvironmentSelected => {
-                            me.reconcile_selection_and_refresh(ctx);
-                        }
-                    }
-                });
-            }
-        }
+        });
         let mut me = Self {
             button,
             dropdown,
             environments,
             is_menu_open: false,
             menu_positioning_provider,
-            target,
+            ambient_agent_view_model,
         };
         me.reconcile_selection_and_refresh(ctx);
         me
@@ -295,11 +199,18 @@ impl EnvironmentSelector {
     }
 
     fn is_configuring(&self, ctx: &AppContext) -> bool {
-        self.target.is_configuring(ctx)
+        self.ambient_agent_view_model
+            .as_ref(ctx)
+            .is_configuring_ambient_agent()
     }
 
     fn highlight_selected_environment(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(selected_id) = self.target.selected_environment_id(ctx) else {
+        let Some(selected_id) = self
+            .ambient_agent_view_model
+            .as_ref(ctx)
+            .selected_environment_id()
+            .cloned()
+        else {
             return;
         };
 
@@ -335,7 +246,7 @@ impl EnvironmentSelector {
     }
 
     fn auto_select_default_environment_if_new_session(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.should_auto_select_default_environment(ctx) {
+        if self.is_configuring(ctx) {
             self.ensure_default_selection(ctx);
         }
     }
@@ -347,28 +258,26 @@ impl EnvironmentSelector {
         ctx.notify();
     }
 
-    fn should_auto_select_default_environment(&self, ctx: &AppContext) -> bool {
-        match &self.target {
-            EnvironmentSelectorTarget::CloudPane(model) => {
-                model.as_ref(ctx).is_configuring_ambient_agent()
-            }
-            EnvironmentSelectorTarget::Handoff(state) => state.as_ref(ctx).is_active(),
-        }
-    }
-
     /// Ensures a default environment is selected if none is currently selected.
     fn ensure_default_selection(&mut self, ctx: &mut ViewContext<Self>) {
-        let current_selection = self.target.selected_environment_id(ctx);
+        let current_selection = self
+            .ambient_agent_view_model
+            .as_ref(ctx)
+            .selected_environment_id()
+            .cloned();
         if let Some(environment_id) = current_selection {
             if self.is_environment_visible(environment_id, ctx) {
                 return;
             }
-            self.target.clear_environment_for_scope_change(ctx);
+            self.ambient_agent_view_model.update(ctx, |model, ctx| {
+                model.set_environment_id(None, ctx);
+            });
         }
 
         if let Some(environment_id) = self.default_environment_id(ctx) {
-            self.target
-                .ensure_default_environment_id(environment_id, ctx);
+            self.ambient_agent_view_model.update(ctx, |model, ctx| {
+                model.set_environment_id(Some(environment_id), ctx);
+            });
         }
     }
 
@@ -402,7 +311,11 @@ impl EnvironmentSelector {
     }
 
     fn refresh_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        let selected_id = self.target.selected_environment_id(ctx);
+        let selected_id = self
+            .ambient_agent_view_model
+            .as_ref(ctx)
+            .selected_environment_id()
+            .cloned();
         let visible_environment_ids = self.visible_environment_ids(ctx);
         let menu_items = self
             .environments
@@ -433,8 +346,10 @@ impl EnvironmentSelector {
         let is_configuring = self.is_configuring(ctx);
 
         let label = if let Some(id) = self
-            .target
-            .selected_environment_id(ctx)
+            .ambient_agent_view_model
+            .as_ref(ctx)
+            .selected_environment_id()
+            .cloned()
             .filter(|id| self.is_environment_visible(*id, ctx))
         {
             self.environments

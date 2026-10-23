@@ -39,7 +39,6 @@ pub(crate) mod get_relevant_files;
 pub mod harness_availability;
 pub(crate) mod harness_display;
 pub(crate) mod llms;
-pub(crate) mod local_harness_setup;
 pub(crate) mod metadata_project_rules;
 pub mod onboarding;
 pub(crate) mod orchestration;
@@ -56,8 +55,6 @@ pub(crate) mod stored_screenshots;
 pub use credit_availability::*;
 pub use request_usage_model::*;
 use warpui::AppContext;
-#[cfg(not(target_family = "wasm"))]
-pub mod agent_sdk;
 pub mod cloud_agent_config;
 pub mod cloud_agent_settings;
 pub mod cloud_environments;

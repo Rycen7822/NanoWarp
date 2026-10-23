@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode};
 use ai::skills::SkillReference;
 use settings::Setting;
-use warp_core::channel::ChannelState;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use warp_util::path::LineAndColumnArg;
@@ -15,10 +14,9 @@ use super::{
     CollapsibleElementState, CollapsibleExpansionState, UserAvatarInfo,
     default_collapsible_state_for_orchestration_action,
     default_collapsible_state_for_orchestration_message, received_message_collapsible_id,
-    recording_artifact_view_url, user_avatar_info_for_conversation_creator,
+    user_avatar_info_for_conversation_creator,
 };
 use crate::ai::agent::{AIAgentActionType, StartAgentExecutionMode};
-use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::action_model::{
     compose_run_agents_child_prompt, run_agents_to_start_agent_mode,
 };
@@ -113,24 +111,6 @@ fn non_orchestration_actions_do_not_get_collapsible_state_defaults() {
         )
         .is_none()
     );
-}
-
-#[test]
-fn recording_artifact_view_url_uses_configured_oz_origin() {
-    let task_id: AmbientAgentTaskId = "00000000-0000-0000-0000-000000000123".parse().unwrap();
-
-    assert_eq!(
-        recording_artifact_view_url(Some(task_id), "recording-123"),
-        Some(format!(
-            "{}/runs/{task_id}?artifact=recording-123",
-            ChannelState::oz_root_url()
-        ))
-    );
-}
-
-#[test]
-fn recording_artifact_view_url_requires_task_id() {
-    assert_eq!(recording_artifact_view_url(None, "recording-123"), None);
 }
 
 #[cfg(feature = "local_fs")]
@@ -562,7 +542,7 @@ fn remote_arm_rejects_opencode() {
 }
 
 #[test]
-fn local_arm_rejects_disabled_codex() {
+fn local_arm_rejects_third_party_harness() {
     let err = run_agents_to_start_agent_mode(
         &RunAgentsExecutionMode::Local,
         "codex",
@@ -571,28 +551,8 @@ fn local_arm_rejects_disabled_codex() {
         None,
         &agent_cfg(),
     )
-    .expect_err("Local+codex must be rejected while disabled");
-    assert_eq!(err, "Local Codex child agents are temporarily disabled.");
-}
-
-#[test]
-fn local_arm_allows_claude() {
-    let mode = run_agents_to_start_agent_mode(
-        &RunAgentsExecutionMode::Local,
-        "claude",
-        "auto",
-        &[],
-        None,
-        &agent_cfg(),
-    )
-    .expect("Local+claude should convert");
-    assert!(matches!(
-        mode,
-        StartAgentExecutionMode::Local {
-            harness_type: Some(ref harness_type),
-            model_id: Some(ref model_id),
-        } if harness_type == "claude" && model_id == "auto"
-    ));
+    .expect_err("Local+codex must be rejected");
+    assert_eq!(err, "Local child agents only support the Warp harness.");
 }
 
 #[test]

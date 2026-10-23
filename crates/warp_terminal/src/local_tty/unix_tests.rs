@@ -62,36 +62,3 @@ fn host_non_bash_command_does_not_set_history_size_sentinels() {
     assert_eq!(env_value(&command, "WARP_INITIAL_HISTFILESIZE"), None);
     assert_eq!(env_value(&command, "WARP_INITIAL_HISTSIZE"), None);
 }
-
-#[test]
-fn docker_sandbox_command_sets_history_size_sentinels() {
-    let docker_starter =
-        DockerSandboxShellStarter::new(shell_starter(ShellType::Bash, "sbx"), None);
-    let command = build_docker_sandbox_command(
-        &docker_starter,
-        None,
-        HashMap::new(),
-        false,
-        false,
-        false,
-        false,
-        true,
-    );
-
-    assert_eq!(
-        env_value(&command, "HISTFILESIZE"),
-        Some(Some(BASH_HISTORY_SIZE_SENTINEL.to_owned()))
-    );
-    assert_eq!(
-        env_value(&command, "HISTSIZE"),
-        Some(Some(BASH_HISTORY_SIZE_SENTINEL.to_owned()))
-    );
-    assert_eq!(
-        env_value(&command, "WARP_INITIAL_HISTFILESIZE"),
-        Some(Some(BASH_HISTORY_SIZE_SENTINEL.to_owned()))
-    );
-    assert_eq!(
-        env_value(&command, "WARP_INITIAL_HISTSIZE"),
-        Some(Some(BASH_HISTORY_SIZE_SENTINEL.to_owned()))
-    );
-}

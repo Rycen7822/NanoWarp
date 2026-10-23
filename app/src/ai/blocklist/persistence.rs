@@ -395,7 +395,6 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
             | AIAgentActionType::CreateDocuments(_)
             | AIAgentActionType::ReadShellCommandOutput { .. }
             | AIAgentActionType::ReadSkill(_)
-            | AIAgentActionType::UploadArtifact(_)
             | AIAgentActionType::TransferShellCommandControlToUser { .. } => Self::NotPersisted,
             AIAgentActionType::UseComputer(req) => Self::UseComputer {
                 action_summary: req.action_summary.clone(),
@@ -420,11 +419,6 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
             // stays in the transcript as an orphan until the next
             // outbound request triggers the server's supersede.
             AIAgentActionType::WaitForEvents { .. } => Self::NotPersisted,
-            // Recordings are tied to a live capture process that cannot survive
-            // a restart, so there is nothing useful to persist.
-            AIAgentActionType::StartRecording { .. } | AIAgentActionType::StopRecording { .. } => {
-                Self::NotPersisted
-            }
         }
     }
 }

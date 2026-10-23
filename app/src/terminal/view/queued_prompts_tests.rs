@@ -111,10 +111,7 @@ fn cloud_spawn_request(prompt: &str) -> SpawnAgentRequest {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     }
 }
 
@@ -135,10 +132,7 @@ fn promptless_cloud_spawn_request() -> SpawnAgentRequest {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     }
 }
 
@@ -301,9 +295,6 @@ fn cloud_setup_cleanup_events_remove_the_locked_queue_row() {
                 },
                 AmbientAgentViewModelEvent::Cancelled,
                 AmbientAgentViewModelEvent::NeedsGithubAuth,
-                AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed {
-                    error_message: "upload failed".to_owned(),
-                },
             ];
 
             for event in cleanup_events {

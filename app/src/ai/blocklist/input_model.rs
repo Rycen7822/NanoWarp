@@ -64,10 +64,6 @@ pub enum InputTypeAutoDetectionSource {
     /// Detected/composing slash or skill command forced AI mode.
     /// Entering inline agent view force-locked AI without an explicit user toggle.
     InlineAgentViewEntry,
-    /// Activating cloud handoff compose (`&` prefix or programmatic) force-locked AI.
-    CloudHandoffEnter,
-    /// Exiting cloud handoff compose restored AI / unlocked-if-autodetect.
-    CloudHandoffExit,
     /// Legacy non-AgentView `?` AI prefix path force-locked AI.
     AgentModePrefix,
     /// Inline code review send overrode the input mode to AI.

@@ -180,41 +180,11 @@ fn cloud_with_opencode_disables_accept() {
 }
 
 #[test]
-fn local_with_any_harness_does_not_disable_accept() {
-    for harness in ["oz", "claude", "gemini", "opencode"] {
-        let state =
-            RunAgentsEditState::from_request(&make_request(harness, RunAgentsExecutionMode::Local));
-        assert!(
-            state
-                .orchestration_config_state
-                .accept_disabled_reason()
-                .is_none(),
-            "Local + {harness} should allow Accept"
-        );
-    }
-}
-
-#[test]
-fn local_with_disabled_codex_disables_accept() {
+fn local_with_third_party_harness_disables_accept() {
     let state = make_config_state_with_orch_fields("codex", RunAgentsExecutionMode::Local);
     assert_eq!(
         state.orchestration_config_state.accept_disabled_reason(),
-        Some("Local Codex child agents are temporarily disabled.")
-    );
-}
-
-#[test]
-fn from_request_sanitizes_disabled_local_harness_to_oz() {
-    let state =
-        RunAgentsEditState::from_request(&make_request("codex", RunAgentsExecutionMode::Local));
-
-    assert_eq!(state.orchestration_config_state.harness_type, "oz");
-    assert_eq!(state.orchestration_config_state.model_id, "");
-    assert!(
-        state
-            .orchestration_config_state
-            .accept_disabled_reason()
-            .is_none()
+        Some("Local child agents only support the Warp harness.")
     );
 }
 
@@ -635,7 +605,7 @@ mod override_from_approved_config_tests {
             .override_from_approved_config(&local_config("auto", "codex"));
         assert_eq!(
             state.orchestration_config_state.accept_disabled_reason(),
-            Some("Local Codex child agents are temporarily disabled.")
+            Some("Local child agents only support the Warp harness.")
         );
     }
 }

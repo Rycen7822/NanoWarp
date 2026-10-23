@@ -11,7 +11,7 @@ fn direct_replacement_refreshes_embedded_bootstrap_session() {
         session_id: 123.into(),
     });
 
-    let replacement = starter.replacement().unwrap();
+    let replacement = starter.replacement();
 
     assert_ne!(replacement.session_id(), starter.session_id());
     assert_eq!(replacement.launch_data(), starter.launch_data());
@@ -42,7 +42,7 @@ fn wsl_replacement_preserves_distribution_and_refreshes_bootstrap_session() {
         session_id: 123.into(),
     });
 
-    let replacement = starter.replacement().unwrap();
+    let replacement = starter.replacement();
 
     assert_ne!(replacement.session_id(), starter.session_id());
     assert_eq!(replacement.launch_data(), starter.launch_data());
@@ -72,7 +72,7 @@ fn msys2_replacement_preserves_launch_mode_for_injected_bootstrap() {
         session_id: 123.into(),
     });
 
-    let replacement = starter.replacement().unwrap();
+    let replacement = starter.replacement();
 
     assert_ne!(replacement.session_id(), starter.session_id());
     assert_eq!(replacement.launch_data(), starter.launch_data());

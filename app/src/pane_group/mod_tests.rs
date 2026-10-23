@@ -399,10 +399,7 @@ fn local_child_dispatch_fails_after_window_team_change() {
                         id: Default::default(),
                         name: "local-child".to_string(),
                         prompt: "work".to_string(),
-                        execution_mode: StartAgentExecutionMode::Local {
-                            harness_type: None,
-                            model_id: None,
-                        },
+                        execution_mode: StartAgentExecutionMode::Local { model_id: None },
                         lifecycle_subscription: None,
                         parent_conversation_id,
                         parent_run_id: Some("parent-run".to_string()),

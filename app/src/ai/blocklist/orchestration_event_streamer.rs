@@ -8,7 +8,7 @@ use futures::channel::mpsc;
 use uuid::Uuid;
 use warp_cli::agent::Harness;
 use warp_multi_agent_api as api;
-use warpui::r#async::{SpawnedFutureHandle, Timer};
+use warpui::r#async::Timer;
 use warpui::{
     Entity, EntityId, GetSingletonModelHandle, ModelContext, SingletonEntity, UpdateModel,
 };
@@ -19,12 +19,12 @@ use super::orchestration_events::{
     LifecycleEventDetailPayload, LifecycleEventDetailStage, OrchestrationEventService,
     PendingEvent, PendingEventDetail, build_lifecycle_event,
 };
-use crate::ai::agent::conversation::{AIAgentHarness, AIConversationId, ConversationStatus};
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::{AIAgentExchangeId, AIAgentOutputMessageType, ReceivedMessageInput};
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::agent_events::{
     AgentEventConsumer, AgentEventConsumerControlFlow, AgentEventDriverConfig, AgentEventFilter,
-    AgentMessageEventMetadata, MessageHydrator, ServerApiAgentEventSource, run_agent_event_driver,
+    MessageHydrator, ServerApiAgentEventSource, run_agent_event_driver,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::server::retry_strategies::is_transient_http_error;
@@ -114,48 +114,6 @@ impl AgentEventConsumer for AncestorForwardingConsumer {
     }
 }
 
-/// State for a wake-only listener. Unlike `SseConnectionState`, this listener
-/// observes the first wake-triggering message event, then asks the controller
-/// to cold-start the dormant Claude run so the parent bridge can take over
-/// delivery.
-struct WakeConnectionState {
-    generation: u64,
-    task: SpawnedFutureHandle,
-}
-
-struct DormantClaudeWakeConsumer {
-    run_id: String,
-    wake_message: Option<AgentMessageEventMetadata>,
-}
-
-impl DormantClaudeWakeConsumer {
-    fn new(run_id: String) -> Self {
-        Self {
-            run_id,
-            wake_message: None,
-        }
-    }
-}
-
-#[cfg_attr(target_family = "wasm", async_trait(?Send))]
-#[cfg_attr(not(target_family = "wasm"), async_trait)]
-impl AgentEventConsumer for DormantClaudeWakeConsumer {
-    async fn on_event(
-        &mut self,
-        event: AgentRunEvent,
-    ) -> anyhow::Result<AgentEventConsumerControlFlow> {
-        if event.run_id != self.run_id {
-            return Ok(AgentEventConsumerControlFlow::Continue);
-        }
-        let Some(wake_message) = AgentMessageEventMetadata::from_event(&event) else {
-            return Ok(AgentEventConsumerControlFlow::Continue);
-        };
-
-        self.wake_message = Some(wake_message);
-        Ok(AgentEventConsumerControlFlow::Stop)
-    }
-}
-
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl AgentEventConsumer for SseForwardingConsumer {
@@ -199,24 +157,15 @@ struct ConversationStreamState {
     /// Message IDs already confirmed delivered, so repeated updates of a streaming exchange do
     /// not reissue the same confirmation.
     confirmed_message_ids: HashSet<String>,
-    /// Local consumers (terminal pane id for an open agent view, driver
-    /// model id for `agent_sdk`) that need events delivered to this
-    /// conversation.
+    /// Local consumers (terminal pane id for an open agent view) that need events
+    /// delivered to this conversation.
     consumers: HashSet<EntityId>,
-    /// Execution harness from the task row, when available. Local harness
-    /// child conversations are created before they have server conversation
-    /// metadata, so this lets us recognize dormant local Claude children
-    /// without relying on `ServerAIConversationMetadata`.
-    harness: Option<Harness>,
-    /// Whether a task request to resolve the execution harness is in progress.
-    harness_fetch_in_flight: bool,
+    /// Last server cursor fetched for this task. Present after a successful metadata fetch.
+    task_cursor: Option<i64>,
+    /// Whether a request to synchronize the task cursor is in progress.
+    task_cursor_fetch_in_flight: bool,
     /// Active SSE connection, if one is open.
     sse_connection: Option<SseConnectionState>,
-    /// Active wake-only listener for dormant local Claude children, if one is
-    /// open. This is separate from generic SSE because generic delivery would
-    /// hydrate messages and advance the shared cursor before Claude's parent
-    /// bridge can consume them.
-    wake_connection: Option<WakeConnectionState>,
     /// Consecutive `get_ambient_agent_task` failure count for the
     /// post-restore retry loop; resets on success.
     restore_fetch_failures: usize,
@@ -273,8 +222,7 @@ struct OrchestratorStreamState {
 ///
 /// Holds at most one long-lived SSE connection per conversation. The
 /// streamer opens a connection only when a conversation has both an
-/// active local consumer (an open agent view, or an `agent_sdk` driver
-/// in CLI / cloud worker processes) and at least one orchestration role
+/// active local consumer (an open agent view) and at least one orchestration role
 /// in this process — being a child, or having registered child run_ids.
 /// Without a local consumer the events would have nowhere to go, so the
 /// connection stays closed and the cursor is used to backfill once a
@@ -290,20 +238,12 @@ pub struct OrchestrationEventStreamer {
     /// Monotonic counter for SSE connection generations. Ensures stale
     /// callbacks from replaced connections are discarded.
     next_sse_generation: u64,
-    /// Monotonic counter for wake-only listener generations. Ensures stale
-    /// callbacks from replaced listeners are discarded.
-    next_wake_generation: u64,
     /// Run IDs killed locally; kept briefly to drop late server events.
     killed_run_ids: HashSet<String>,
     killed_run_id_order: VecDeque<String>,
 }
 
-#[allow(private_interfaces)]
 pub enum OrchestrationEventStreamerEvent {
-    DormantClaudeWakeReady {
-        conversation_id: AIConversationId,
-        wake_message: AgentMessageEventMetadata,
-    },
     /// First time the streamer has seen a particular `run_id` under
     /// `parent_task_id`. Emitted exactly once per child.
     ChildSpawned {
@@ -947,15 +887,6 @@ impl OrchestrationEventStreamer {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    pub(crate) fn persist_dormant_claude_wake_cursor(
-        &mut self,
-        conversation_id: AIConversationId,
-        wake_message: &AgentMessageEventMetadata,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.persist_event_cursor(conversation_id, wake_message.sequence, ctx);
-    }
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         let provider = ServerApiProvider::as_ref(ctx);
         let ai_client = provider.get_ai_client();
@@ -970,7 +901,6 @@ impl OrchestrationEventStreamer {
             streams: HashMap::new(),
             viewer_mode_orchestrators: HashMap::new(),
             next_sse_generation: 0,
-            next_wake_generation: 0,
             killed_run_ids: HashSet::new(),
             killed_run_id_order: VecDeque::new(),
         }
@@ -995,7 +925,6 @@ impl OrchestrationEventStreamer {
             streams: HashMap::new(),
             viewer_mode_orchestrators: HashMap::new(),
             next_sse_generation: 0,
-            next_wake_generation: 0,
             killed_run_ids: HashSet::new(),
             killed_run_id_order: VecDeque::new(),
         }
@@ -1047,7 +976,7 @@ impl OrchestrationEventStreamer {
         // If the server-token event fired before this registration, pick
         // up the now-available child role here.
         self.ensure_self_run_id_watched(conversation_id, ctx);
-        self.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
+        self.spawn_task_cursor_fetch_if_needed(conversation_id, ctx);
         self.reevaluate_eligibility(conversation_id, ctx);
     }
 
@@ -1613,22 +1542,20 @@ impl OrchestrationEventStreamer {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
+        self.spawn_task_cursor_fetch_if_needed(conversation_id, ctx);
         if self.ensure_self_run_id_watched(conversation_id, ctx) {
             self.reevaluate_eligibility(conversation_id, ctx);
         }
     }
 
-    fn spawn_task_harness_fetch_if_needed(
+    fn spawn_task_cursor_fetch_if_needed(
         &mut self,
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if self
-            .streams
-            .get(&conversation_id)
-            .is_some_and(|stream| stream.harness.is_some() || stream.harness_fetch_in_flight)
-        {
+        if self.streams.get(&conversation_id).is_some_and(|stream| {
+            stream.task_cursor.is_some() || stream.task_cursor_fetch_in_flight
+        }) {
             return;
         }
         let Some(run_id) = self.self_run_id(conversation_id, ctx) else {
@@ -1645,27 +1572,27 @@ impl OrchestrationEventStreamer {
         self.streams
             .entry(conversation_id)
             .or_default()
-            .harness_fetch_in_flight = true;
+            .task_cursor_fetch_in_flight = true;
         let ai_client = self.ai_client.clone();
         ctx.spawn(
             async move { ai_client.get_ambient_agent_task(&task_id).await },
             move |me, result, ctx| {
                 if let Some(stream) = me.streams.get_mut(&conversation_id) {
-                    stream.harness_fetch_in_flight = false;
+                    stream.task_cursor_fetch_in_flight = false;
                 }
                 let task = match result {
                     Ok(task) => task,
                     Err(err) => {
                         log::warn!(
-                            "Failed to fetch task harness for {conversation_id:?} task_id={task_id}: {err:#}"
+                            "Failed to fetch task cursor for {conversation_id:?} task_id={task_id}: {err:#}"
                         );
                         return;
                     }
                 };
                 if let Some(stream) = me.streams.get_mut(&conversation_id) {
-                    stream.harness = agent_task_harness(&task).or(stream.harness);
-                    stream.event_cursor =
-                        local_cursor.max(task.last_event_sequence.unwrap_or(0));
+                    let task_cursor = task.last_event_sequence.unwrap_or(0);
+                    stream.task_cursor = Some(task_cursor);
+                    stream.event_cursor = stream.event_cursor.max(local_cursor).max(task_cursor);
                 }
                 me.reevaluate_eligibility(conversation_id, ctx);
             },
@@ -1806,13 +1733,10 @@ impl OrchestrationEventStreamer {
         // Dropping the SSE receiver causes the driver task's next send
         // to fail and exit; the drain timer's `is_current` check then
         // no-ops on its next tick.
-        if let Some(mut stream) = self.streams.remove(&conversation_id) {
-            if let Some(connection) = stream.sse_connection.take() {
-                connection.abort_handle.abort();
-            }
-            if let Some(connection) = stream.wake_connection.take() {
-                connection.task.abort();
-            }
+        if let Some(mut stream) = self.streams.remove(&conversation_id)
+            && let Some(connection) = stream.sse_connection.take()
+        {
+            connection.abort_handle.abort();
         }
 
         if let Some(run_id) = removed_run_id.as_deref() {
@@ -1942,7 +1866,7 @@ impl OrchestrationEventStreamer {
 
                     // Reset the retry counter on success.
                     stream.restore_fetch_failures = 0;
-                    stream.harness = agent_task_harness(&task).or(stream.harness);
+                    stream.task_cursor = Some(task.last_event_sequence.unwrap_or(0));
                 }
                 // Install server-reported children (which may be absent from
                 // local history) and merge the server cursor against the
@@ -2098,32 +2022,9 @@ impl OrchestrationEventStreamer {
             .is_none_or(|conversation| conversation.driver().owns_turn_lifecycle())
     }
 
-    fn should_skip_sse_for_dormant_local_claude_child(
-        &self,
-        conversation_id: AIConversationId,
-        ctx: &warpui::AppContext,
-    ) -> bool {
-        let Some(conversation) =
-            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
-        else {
-            return false;
-        };
-        conversation.is_child_agent_conversation()
-            && !conversation.is_remote_child()
-            && matches!(conversation.status(), ConversationStatus::Success)
-            && (conversation
-                .server_metadata()
-                .is_some_and(|metadata| metadata.harness == AIAgentHarness::ClaudeCode)
-                || self
-                    .streams
-                    .get(&conversation_id)
-                    .and_then(|stream| stream.harness)
-                    .is_some_and(|harness| harness == Harness::Claude))
-    }
-
     /// True iff this conversation should currently hold an SSE connection.
     /// A subscription is needed only when there is an active consumer in
-    /// this process (an open agent view or an agent_sdk driver) AND the
+    /// this process (an open agent view) AND the
     /// conversation has a real role to consume events for. Passive views
     /// of agent runs hosted elsewhere are excluded regardless of state.
     fn is_eligible(&self, conversation_id: AIConversationId, ctx: &warpui::AppContext) -> bool {
@@ -2133,31 +2034,10 @@ impl OrchestrationEventStreamer {
         if self.is_remote_run_view(conversation_id, ctx) {
             return false;
         }
-        if self.should_skip_sse_for_dormant_local_claude_child(conversation_id, ctx) {
-            log::info!(
-                "Skipping generic SSE delivery for dormant local Claude child {conversation_id:?}; parent bridge will deliver wake events"
-            );
-            return false;
-        }
         let has_parent = BlocklistAIHistoryModel::as_ref(ctx)
             .conversation(&conversation_id)
             .is_some_and(|c| c.is_child_agent_conversation());
         has_parent || self.is_parent_agent_conversation(conversation_id, ctx)
-    }
-
-    /// True iff this conversation should hold the wake-only listener used for
-    /// dormant local Claude children. Generic SSE intentionally stays closed
-    /// for these conversations so it cannot hydrate messages or advance the
-    /// server cursor before Claude's parent bridge starts.
-    fn is_dormant_claude_wake_listener_eligible(
-        &self,
-        conversation_id: AIConversationId,
-        ctx: &warpui::AppContext,
-    ) -> bool {
-        self.has_active_consumer(conversation_id)
-            && !self.is_remote_run_view(conversation_id, ctx)
-            && self.should_skip_sse_for_dormant_local_claude_child(conversation_id, ctx)
-            && self.self_run_id(conversation_id, ctx).is_some()
     }
 
     /// Returns the list of run_ids to subscribe to for `conversation_id`.
@@ -2232,147 +2112,6 @@ impl OrchestrationEventStreamer {
             }
             (false, true) => self.teardown_sse(conversation_id, ctx),
             (false, false) => {}
-        }
-
-        let wake_eligible = self.is_dormant_claude_wake_listener_eligible(conversation_id, ctx);
-        let wake_connected = self
-            .streams
-            .get(&conversation_id)
-            .is_some_and(|s| s.wake_connection.is_some());
-
-        match (wake_eligible, wake_connected) {
-            (true, false) => self.start_dormant_claude_wake_listener(conversation_id, ctx),
-            (true, true) => {}
-            (false, true) => self.teardown_dormant_claude_wake_listener(conversation_id),
-            (false, false) => {}
-        }
-    }
-
-    /// Opens a wake-only listener for a dormant local Claude child. The
-    /// listener observes the child's run_id, stops on the first event, and
-    /// emits the triggering message metadata so the controller can prime the
-    /// Claude parent bridge before the CLI resumes.
-    fn start_dormant_claude_wake_listener(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let Some(run_id) = self.self_run_id(conversation_id, ctx) else {
-            return;
-        };
-
-        let local_cursor = self
-            .streams
-            .get(&conversation_id)
-            .map(|s| s.event_cursor)
-            .unwrap_or(0);
-        let generation = self.next_wake_generation;
-        self.next_wake_generation += 1;
-
-        log::info!(
-            "Opening dormant Claude wake listener for {conversation_id:?} \
-             (gen={generation}, run_id={run_id:?}, since={local_cursor})"
-        );
-
-        let ai_client = self.ai_client.clone();
-        let source = ServerApiAgentEventSource::new(self.server_api.clone());
-        let task_run_id = run_id.clone();
-        let handle = ctx.spawn(
-            async move {
-                let since_sequence = resolve_dormant_claude_wake_cursor(
-                    ai_client,
-                    task_run_id.clone(),
-                    local_cursor,
-                )
-                .await;
-                let config = AgentEventDriverConfig::retry_forever_run_ids(
-                    vec![task_run_id.clone()],
-                    since_sequence,
-                );
-                let mut consumer = DormantClaudeWakeConsumer::new(task_run_id);
-                run_agent_event_driver(source, config, &mut consumer).await?;
-                Ok::<_, anyhow::Error>(consumer.wake_message)
-            },
-            move |me, result, ctx| {
-                let is_current = me
-                    .streams
-                    .get(&conversation_id)
-                    .and_then(|s| s.wake_connection.as_ref())
-                    .is_some_and(|c| c.generation == generation);
-                if !is_current {
-                    return;
-                }
-
-                me.finish_dormant_claude_wake_listener(conversation_id, generation, result, ctx);
-            },
-        );
-
-        let stream = self.streams.entry(conversation_id).or_default();
-        stream.wake_connection = Some(WakeConnectionState {
-            generation,
-            task: handle,
-        });
-    }
-
-    fn finish_dormant_claude_wake_listener(
-        &mut self,
-        conversation_id: AIConversationId,
-        generation: u64,
-        result: anyhow::Result<Option<AgentMessageEventMetadata>>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let Some(stream) = self.streams.get_mut(&conversation_id) {
-            stream.wake_connection = None;
-        }
-
-        match result {
-            Ok(Some(wake_message)) => {
-                log::info!(
-                    "Dormant Claude wake listener observed wake message for \
-                     {conversation_id:?} at sequence {} message_id={}",
-                    wake_message.sequence,
-                    wake_message.message_id
-                );
-                // Leave the durable cursor untouched here. The controller only
-                // persists the wake sequence after Claude wake preparation
-                // successfully stages/surfaces the message into the parent
-                // bridge, so failed prepares can still replay the event.
-                ctx.emit(OrchestrationEventStreamerEvent::DormantClaudeWakeReady {
-                    conversation_id,
-                    wake_message,
-                });
-            }
-            Ok(None) => {
-                log::warn!(
-                    "Dormant Claude wake listener stopped for {conversation_id:?} \
-                     without observing an event"
-                );
-                if self.is_dormant_claude_wake_listener_eligible(conversation_id, ctx) {
-                    self.start_dormant_claude_wake_listener(conversation_id, ctx);
-                }
-            }
-            Err(err) => {
-                log::warn!(
-                    "Dormant Claude wake listener failed for {conversation_id:?} \
-                     (gen={generation}): {err:#}"
-                );
-                if self.is_dormant_claude_wake_listener_eligible(conversation_id, ctx) {
-                    self.start_dormant_claude_wake_listener(conversation_id, ctx);
-                }
-            }
-        }
-    }
-
-    fn teardown_dormant_claude_wake_listener(&mut self, conversation_id: AIConversationId) {
-        if let Some(stream) = self.streams.get_mut(&conversation_id)
-            && let Some(connection) = stream.wake_connection.take()
-        {
-            log::info!(
-                "Tearing down dormant Claude wake listener for {conversation_id:?} \
-                     (gen={})",
-                connection.generation
-            );
-            connection.task.abort();
         }
     }
 
@@ -2647,27 +2386,6 @@ impl Entity for OrchestrationEventStreamer {
 
 impl SingletonEntity for OrchestrationEventStreamer {}
 
-async fn resolve_dormant_claude_wake_cursor(
-    ai_client: Arc<dyn AIClient>,
-    run_id: String,
-    local_cursor: i64,
-) -> i64 {
-    let Ok(task_id) = run_id.parse::<AmbientAgentTaskId>() else {
-        return local_cursor;
-    };
-
-    match ai_client.get_ambient_agent_task(&task_id).await {
-        Ok(task) => local_cursor.max(task.last_event_sequence.unwrap_or(0)),
-        Err(err) => {
-            log::warn!(
-                "Failed to read server cursor for dormant Claude wake listener \
-                 run {run_id}: {err:#}; using local cursor {local_cursor}"
-            );
-            local_cursor
-        }
-    }
-}
-
 fn agent_event_filters_equivalent(a: &AgentEventFilter, b: &AgentEventFilter) -> bool {
     match (a, b) {
         (AgentEventFilter::RunIds(a), AgentEventFilter::RunIds(b)) => {
@@ -2849,15 +2567,10 @@ fn build_pending_events(
 
 // ---- Free-function consumer registration helpers ---------------------
 //
-// Wrap the singleton handle update so call sites in `ActiveAgentViewsModel`
-// and the agent_sdk driver don't have to repeat the boilerplate.
-// The generic bound covers both
-// `&mut AppContext` and `&mut ModelContext<T>` / `&mut ViewContext<T>`.
-//
-// Consumers are identified by an `EntityId` — the terminal pane's id
-// for an agent view, the driver model's id for `agent_sdk`. The
-// streamer never branches on consumer kind, so a single pair of helpers
-// covers both call sites.
+// Wrap the singleton handle update for call sites in `ActiveAgentViewsModel`.
+// The generic bound covers both `&mut AppContext` and
+// `&mut ModelContext<T>` / `&mut ViewContext<T>`.
+// Consumers are identified by the terminal pane's `EntityId`.
 
 /// Registers a consumer of orchestration agent events for `conversation_id`.
 pub fn register_agent_event_consumer<C>(

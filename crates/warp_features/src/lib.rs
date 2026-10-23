@@ -398,9 +398,6 @@ pub enum FeatureFlag {
     /// Enables inline code review functionality
     InlineCodeReview,
 
-    /// Enables the local docker sandbox entrypoints in the client.
-    LocalDockerSandbox,
-
     /// Enables the /compact slash command.
     SummarizationConversationCommand,
 
@@ -409,9 +406,6 @@ pub enum FeatureFlag {
 
     /// Enables the integration command for managing agent integrations.
     IntegrationCommand,
-
-    /// Enables the artifact command for uploading and downloading CLI artifacts.
-    ArtifactCommand,
 
     /// Groups MCP tools and resources by their originating server when sending context to the AI backend.
     MCPGroupedServerContext,
@@ -502,14 +496,6 @@ pub enum FeatureFlag {
     /// raising it or moving the cursor.  Currently only supported on macOS.
     BackgroundComputerUse,
 
-    /// Enables video recording of computer-use sessions for cloud agents.
-    VideoRecording,
-
-    /// Gates the Windows `gdigrab` recorder behind its own switch, on top of
-    /// [`FeatureFlag::VideoRecording`]. Windows capture is newer and less proven than the
-    /// macOS/Linux ffmpeg paths, so it rolls out and can be killed independently of them.
-    WindowsVideoRecording,
-
     /// Enables team API key creation in the API key management UI.
     TeamApiKeys,
 
@@ -595,10 +581,6 @@ pub enum FeatureFlag {
     /// content changes via auto-reload.
     CodeReviewScrollPreservation,
 
-    /// Re-enables local Claude Code and Codex child harnesses in orchestration
-    /// flows while the default behavior temporarily keeps them disabled.
-    LocalClaudeCodexChildHarnesses,
-
     /// Gates the client-side multi-level orchestration surfaces: child
     /// conversations auto-executing their own `run_agents` calls and the
     /// confirmation-card disclosure that launched agents may start
@@ -646,16 +628,6 @@ pub enum FeatureFlag {
     /// harness over the Agent Client Protocol instead of as an interactive CLI in the terminal
     /// session.
     AcpHarness,
-
-    /// Enables workspace- and block-snapshot handoff between cloud agent runs
-    /// and the local Warp client.
-    /// When enabled:
-    /// - The `AgentDriver` uploads a workspace snapshot (repo diffs + files) at the end of every
-    ///   cloud agent run, regardless of harness.
-    /// - Subsequent executions download the prior execution's handoff snapshot attachments.
-    /// - Third-party harness conversations hydrate their terminal output inline by fetching a
-    ///   block snapshot from the server.
-    OzHandoff,
 
     /// Enables Native Agent mailbox notifications and notification toasts.
     HOANotifications,
@@ -707,12 +679,6 @@ pub enum FeatureFlag {
     /// Enables continuing cloud mode conversations in the cloud after an execution ends.
     HandoffCloudCloud,
 
-    /// Enables the local-to-cloud Oz handoff entry points (footer chip and
-    /// `/move-to-cloud` slash command) that fork the active local Oz
-    /// conversation into a fresh cloud agent run with the current workspace
-    /// snapshot attached. Requires `OzHandoff` to also be enabled.
-    HandoffLocalCloud,
-
     /// Enables creating API keys scoped to named agents in the API key
     /// management UI. When enabled the "Team" option in the key-type
     /// selector is replaced with "Agent" and users can pick which agent
@@ -720,8 +686,6 @@ pub enum FeatureFlag {
     NamedAgents,
     /// Loads server-owned execution settings for paired cloud agent launches.
     CloudAgentExecutionConfig,
-    /// Enables on-demand Factory repository checkouts and their credential scope.
-    FactoryDeferredRepositories,
     /// Gates the driver behavior that writes GitHub credentials to disk
     /// (`~/.git-credentials`, `~/.config/gh/hosts.yaml`) and runs the
     /// background refresh loop that keeps them fresh during a task run.
@@ -818,12 +782,6 @@ pub enum FeatureFlag {
     /// to agent runs, so a cloud run can expose a sandbox port as a preview URL.
     PreviewUrlsMcp,
 
-    /// Enables periodic workspace-handoff checkpoints during a cloud agent run,
-    /// rather than only uploading a workspace snapshot once at end-of-run.
-    /// Requires `OzHandoff` to also be enabled; a no-op for local runs and when
-    /// `--no-snapshot` is set.
-    PeriodicHandoffCheckpoints,
-
     /// Uses fzf or atuin for history search instead of Warp's command search.
     ShellWidgetHandoff,
 
@@ -842,11 +800,6 @@ pub enum FeatureFlag {
     /// replace inline computer-use screenshot bytes with references to
     /// Warp-managed object storage.
     StoredScreenshots,
-
-    /// Lets cloud agent environment checkouts build repositories from bare git
-    /// mirrors kept in the persistent build cache instead of cloning each one
-    /// from the remote. Disabling it restores direct, network-only checkouts.
-    GitMirrorCache,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =
@@ -866,7 +819,7 @@ static FEATURES_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Features used in debugging.
 pub const DEBUG_FLAGS: &[FeatureFlag] = &[FeatureFlag::DebugMode, FeatureFlag::RuntimeFeatureFlags];
 /// Features enabled only for the WarpLocal developer build.
-pub const LOCAL_FLAGS: &[FeatureFlag] = &[FeatureFlag::LocalClaudeCodexChildHarnesses];
+pub const LOCAL_FLAGS: &[FeatureFlag] = &[];
 
 /// Features enabled for the development team.  The expectation is that, over
 /// time, these will move on to PREVIEW_FLAGS before being launched.
@@ -892,8 +845,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::FileGlobV2Warnings,
     FeatureFlag::SummarizationViaMessageReplacement,
     FeatureFlag::LocalComputerUse,
-    FeatureFlag::VideoRecording,
-    FeatureFlag::WindowsVideoRecording,
     // These are enabled via 100% experiment on prod warp-server,
     // but we need to enable here for dogfood builds.
     FeatureFlag::CrossRepoContext,
@@ -903,7 +854,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::CodeReviewScrollPreservation,
     FeatureFlag::RememberFastForwardState,
-    FeatureFlag::LocalDockerSandbox,
     #[cfg(not(windows))]
     FeatureFlag::SshRemoteServer,
     FeatureFlag::RemoteCodebaseIndexing,
@@ -918,8 +868,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::LrcActivitySignal,
     FeatureFlag::StoredScreenshots,
     FeatureFlag::PreviewUrlsMcp,
-    FeatureFlag::GitMirrorCache,
-    FeatureFlag::FactoryDeferredRepositories,
 ];
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
@@ -930,9 +878,6 @@ pub const PREVIEW_FLAGS: &[FeatureFlag] = &[];
 /// NOTE: if you are promoting a feature from Preview to launch, you'll likely
 /// want to enable the feature by default in app/Cargo.toml, rather than add it to RELEASE_FLAGS.
 pub const RELEASE_FLAGS: &[FeatureFlag] = &[
-    FeatureFlag::PeriodicHandoffCheckpoints,
-    FeatureFlag::VideoRecording,
-    FeatureFlag::WindowsVideoRecording,
     FeatureFlag::ImeMarkedText,
     // Remote server binary is not yet supported on Windows.
     #[cfg(not(windows))]
@@ -942,7 +887,7 @@ pub const RELEASE_FLAGS: &[FeatureFlag] = &[
 ];
 
 /// Flags that we want to allow to switch at runtime (assuming RuntimeFeatureFlags is set)
-pub const RUNTIME_FEATURE_FLAGS: &[FeatureFlag] = &[FeatureFlag::LocalClaudeCodexChildHarnesses];
+pub const RUNTIME_FEATURE_FLAGS: &[FeatureFlag] = &[];
 
 impl FeatureFlag {
     pub fn is_enabled(&self) -> bool {
@@ -1144,7 +1089,3 @@ impl From<TriState> for Option<bool> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "features_tests.rs"]
-mod tests;

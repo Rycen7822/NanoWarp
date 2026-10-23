@@ -399,37 +399,6 @@ fn with_agent_name(mut action: AIAgentAction, name: &str) -> AIAgentAction {
     action
 }
 
-#[test]
-fn local_codex_run_agents_maps_to_local_harness_mode_when_flag_enabled() {
-    let _local_codex = FeatureFlag::LocalClaudeCodexChildHarnesses.override_enabled(true);
-    let cfg = RunAgentsAgentRunConfig {
-        metadata: Default::default(),
-        name: "child".to_string(),
-        prompt: "Investigate the failure".to_string(),
-        title: String::new(),
-        agent_identity_uid: String::new(),
-        model_id: String::new(),
-    };
-
-    let mode = run_agents_to_start_agent_mode(
-        &RunAgentsExecutionMode::Local,
-        "codex",
-        "",
-        &[],
-        None,
-        &cfg,
-    )
-    .expect("local Codex should be accepted when the feature flag is enabled");
-
-    assert_eq!(
-        mode,
-        StartAgentExecutionMode::Local {
-            harness_type: Some("codex".to_string()),
-            model_id: None,
-        }
-    );
-}
-
 fn persist_default_auth_secret(app: &mut App, harness_config_name: &str, secret_name: &str) {
     CloudAgentSettings::handle(app).update(app, |settings, ctx| {
         let mut secrets = settings.last_selected_auth_secret.value().clone();

@@ -141,9 +141,6 @@ impl OrchestrationConfigState {
         default_model_id: &dyn Fn(&str) -> Option<String>,
     ) {
         let is_local = !self.execution_mode.is_remote();
-        if is_local {
-            self.sanitize_for_local_execution();
-        }
         // Reset model if it disappeared from the harness's catalog.
         if !model_is_valid(&self.model_id, &self.harness_type, is_local)
             && let Some(first_id) = default_model_id(&self.harness_type)
@@ -249,10 +246,6 @@ impl OrchestrationEditState {
         self.orchestration_config_state.harness_type = new_harness_type.to_string();
 
         let is_local = !self.orchestration_config_state.execution_mode.is_remote();
-        if is_local {
-            self.orchestration_config_state
-                .sanitize_for_local_execution();
-        }
         // Try to restore a previously saved model for this harness.
         let new_key = harness_save_key(&self.orchestration_config_state.harness_type);
         let restored = self

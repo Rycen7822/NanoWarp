@@ -1,9 +1,7 @@
 pub mod ai;
 pub mod auth;
 #[cfg(not(target_family = "wasm"))]
-pub(crate) mod download;
 pub mod factory;
-pub mod harness_support;
 pub mod managed_secrets;
 pub mod object;
 pub(crate) mod presigned_upload;

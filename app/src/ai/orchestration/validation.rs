@@ -7,12 +7,10 @@ use warpui::{AppContext, SingletonEntity as _};
 use super::config_state::{AuthSecretSelection, OrchestrationConfigState};
 use crate::ai::auth_secret_types::auth_secret_types_for_harness;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::local_harness_setup::{LocalHarnessSetupState, local_harness_setup_state};
 use crate::ai::orchestration::providers::ORCHESTRATION_WARP_WORKER_HOST;
 
 /// Returns `true` when the auth secret picker should be visible: Cloud +
-/// non-Oz + a harness with at least one supported auth-secret type. Local
-/// non-Oz children inherit auth from the user's shell environment.
+/// non-Oz + a harness with at least one supported auth-secret type.
 pub fn should_show_auth_secret_picker(state: &OrchestrationConfigState) -> bool {
     if !state.execution_mode.is_remote() {
         return false;
@@ -65,19 +63,6 @@ pub fn accept_disabled_reason_with_auth(
     }
     if let Some(reason) = state.accept_disabled_reason() {
         return Some(reason.to_string());
-    }
-    if matches!(state.execution_mode, RunAgentsExecutionMode::Local)
-        && let Some(harness) = Harness::parse_local_child_harness(&state.harness_type)
-    {
-        match local_harness_setup_state(harness) {
-            LocalHarnessSetupState::MissingHarness { tooltip } => {
-                return Some(tooltip.to_string());
-            }
-            LocalHarnessSetupState::ProductDisabled { message } => {
-                return Some(message.to_string());
-            }
-            LocalHarnessSetupState::Ready => {}
-        }
     }
     if auth_secret_selection_required(state, ctx) {
         return Some("Select an API key for this harness to continue.".to_string());

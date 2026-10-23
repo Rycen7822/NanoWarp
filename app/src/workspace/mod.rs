@@ -1,6 +1,5 @@
 mod action;
 mod active_session;
-pub(crate) mod auto_handoff;
 pub mod bonus_grant_notification_model;
 mod close_session_confirmation_dialog;
 pub(crate) mod cross_window_tab_drag;
@@ -23,8 +22,8 @@ pub mod util;
 pub mod view;
 
 pub use action::{
-    AutoCloudHandoffTrigger, CommandSearchOptions, InitContent, RestoreConversationLayout,
-    TabContextMenuAnchor, VerticalTabsPaneContextMenuTarget, WorkspaceAction,
+    CommandSearchOptions, InitContent, RestoreConversationLayout, TabContextMenuAnchor,
+    VerticalTabsPaneContextMenuTarget, WorkspaceAction,
 };
 pub use active_session::ActiveSession;
 pub use global_actions::{
@@ -86,7 +85,6 @@ pub fn init(app: &mut AppContext) {
     crate::tab_configs::remove_confirmation_dialog::init(app);
     hoa_onboarding::init(app);
     tab_configs::session_config_modal::init(app);
-    view::auto_handoff_sleep_modal::init(app);
     view::cloud_agent_capacity_modal::init(app);
     view::global_search::view::GlobalSearchView::init(app);
     view::right_panel::RightPanelView::init(app);
@@ -149,24 +147,6 @@ pub fn init(app: &mut AppContext) {
                     "workspace:debug_reset_aws_bedrock_login_banner_dismissed",
                     "[Debug] Un-dismiss AWS login banner",
                     WorkspaceAction::DebugResetAwsBedrockLoginBannerDismissed,
-                )
-                .with_context_predicate(id!("Workspace")),
-                EditableBinding::new(
-                    "workspace:open_auto_handoff_sleep_modal",
-                    "[Debug] Open Auto-Handoff Sleep Modal",
-                    WorkspaceAction::OpenAutoHandoffSleepModal,
-                )
-                .with_context_predicate(id!("Workspace")),
-                EditableBinding::new(
-                    "workspace:reset_auto_handoff_sleep_modal_state",
-                    "[Debug] Reset Auto-Handoff Sleep Modal State",
-                    WorkspaceAction::ResetAutoHandoffSleepModalState,
-                )
-                .with_context_predicate(id!("Workspace")),
-                EditableBinding::new(
-                    "workspace:trigger_auto_handoff_to_cloud",
-                    "[Debug] Trigger Auto-Handoff to Cloud",
-                    WorkspaceAction::TriggerAutoHandoffToCloud,
                 )
                 .with_context_predicate(id!("Workspace")),
                 EditableBinding::new(

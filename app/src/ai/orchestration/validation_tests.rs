@@ -98,7 +98,7 @@ fn empty_environment_recommendation_uses_visible_environment_availability() {
 }
 
 #[test]
-fn accept_blocked_for_product_disabled_local_codex() {
+fn accept_blocked_for_unsupported_local_harness() {
     with_app_ctx(|ctx| {
         let state = state(
             "codex",
@@ -107,7 +107,7 @@ fn accept_blocked_for_product_disabled_local_codex() {
         );
         assert_eq!(
             accept_disabled_reason_with_auth(&state, ctx),
-            Some("Local Codex child agents are temporarily disabled.".to_string())
+            Some("Local child agents only support the Warp harness.".to_string())
         );
     });
 }

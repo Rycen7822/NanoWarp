@@ -47,7 +47,6 @@ impl TryFrom<&ShellLaunchData> for ShellIndicatorType {
                 _ => Ok(Self::Linux),
             },
             // Docker sandbox containers are Linux regardless of host.
-            ShellLaunchData::DockerSandbox { .. } => Ok(Self::Linux),
         }
     }
 }

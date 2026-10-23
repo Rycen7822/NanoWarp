@@ -12,7 +12,7 @@ fn local_config(harness_type: &str, model_id: &str) -> OrchestrationConfig {
 }
 
 #[test]
-fn toggle_to_local_sanitizes_disabled_codex() {
+fn toggle_to_local_preserves_unsupported_harness_for_validation() {
     let mut state = OrchestrationConfigState::from_run_agents_fields(
         Some("gpt-5"),
         Some("codex"),
@@ -26,8 +26,9 @@ fn toggle_to_local_sanitizes_disabled_codex() {
 
     state.toggle_execution_mode_to_remote(false);
 
-    assert_eq!(state.harness_type, "oz");
-    assert_eq!(state.model_id, "");
+    assert_eq!(state.harness_type, "codex");
+    assert_eq!(state.model_id, "gpt-5");
+    assert!(state.accept_disabled_reason().is_some());
     assert!(matches!(
         state.execution_mode,
         RunAgentsExecutionMode::Local
@@ -112,22 +113,4 @@ fn runner_id_round_trips_through_config() {
     };
     let state = OrchestrationConfigState::from_orchestration_config(&config);
     assert_eq!(state.to_orchestration_config(), config);
-}
-
-#[test]
-fn resolve_from_config_sanitizes_disabled_local_codex() {
-    let mut state = OrchestrationConfigState::from_run_agents_fields(
-        None,
-        None,
-        &RunAgentsExecutionMode::Local,
-    );
-
-    state.resolve_from_config(&local_config("codex", "gpt-5"));
-
-    assert_eq!(state.harness_type, "oz");
-    assert_eq!(state.model_id, "");
-    assert!(matches!(
-        state.execution_mode,
-        RunAgentsExecutionMode::Local
-    ));
 }

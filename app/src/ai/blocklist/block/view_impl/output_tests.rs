@@ -1,8 +1,4 @@
-use std::time::{Duration, SystemTime};
-
-use ai::agent::action::{UploadArtifactRequest, UseComputerRequest};
 use ai::skills::{ParsedSkill, SkillProvider, SkillReference, SkillScope};
-use computer_use::{Action, ScreenshotParams, Target, TargetedAction};
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::{DirectoryWatcher, RepoMetadataModel};
 use warp_util::host_id::HostId;
@@ -12,15 +8,7 @@ use warp_util::standardized_path::StandardizedPath;
 use warpui::App;
 use watcher::HomeDirectoryWatcher;
 
-use super::{
-    RecordingCardText, format_upload_artifact_text, parsed_skill_for_common_locations,
-    read_skill_display_text, should_decorate_recorded_use_computer, start_recording_card_text,
-    stop_recording_card_text, usage_pill_text,
-};
-use crate::ai::agent::{
-    RecordingStarted, RecordingStopped, StartRecordingResult, StopRecordingResult,
-    UploadArtifactResult,
-};
+use super::{parsed_skill_for_common_locations, read_skill_display_text, usage_pill_text};
 use crate::ai::skills::SkillManager;
 use crate::settings::{AISettings, UsageDisplayUnit};
 use crate::test_util::billing_unit::{set_charge_unit, set_usage_display_unit};
@@ -47,167 +35,6 @@ fn usage_pill_text_follows_the_display_unit() {
             assert_eq!(usage_pill_text(20.0, None, ctx), "20 credits");
         });
     });
-}
-
-#[test]
-fn format_upload_artifact_text_includes_request_details() {
-    let request = UploadArtifactRequest {
-        file_path: "reports/daily.txt".to_string(),
-        description: Some("Daily summary".to_string()),
-    };
-
-    let text = format_upload_artifact_text(&request, None);
-
-    assert_eq!(
-        text,
-        "Upload artifact: reports/daily.txt\nDescription: Daily summary"
-    );
-}
-
-#[test]
-fn format_upload_artifact_text_includes_success_summary() {
-    let request = UploadArtifactRequest {
-        file_path: "reports/daily.txt".to_string(),
-        description: Some("Daily summary".to_string()),
-    };
-    let result = UploadArtifactResult::Success {
-        artifact_uid: "artifact-123".to_string(),
-        filepath: Some("reports/daily.txt".to_string()),
-        mime_type: "text/plain".to_string(),
-        description: Some("Daily summary".to_string()),
-        size_bytes: 128,
-    };
-
-    let text = format_upload_artifact_text(&request, Some(&result));
-
-    assert_eq!(
-        text,
-        "Upload artifact: reports/daily.txt\nDescription: Daily summary\nStatus: uploaded artifact artifact-123\nUploaded file: reports/daily.txt"
-    );
-}
-
-#[test]
-fn format_upload_artifact_text_includes_terminal_status() {
-    let request = UploadArtifactRequest {
-        file_path: "reports/daily.txt".to_string(),
-        description: None,
-    };
-
-    let error_text = format_upload_artifact_text(
-        &request,
-        Some(&UploadArtifactResult::Error(
-            "permission denied".to_string(),
-        )),
-    );
-    assert_eq!(
-        error_text,
-        "Upload artifact: reports/daily.txt\nStatus: upload failed: permission denied"
-    );
-
-    let cancelled_text =
-        format_upload_artifact_text(&request, Some(&UploadArtifactResult::Cancelled));
-    assert_eq!(cancelled_text, "Upload artifact: reports/daily.txt");
-}
-
-#[test]
-fn start_recording_card_text_uses_static_title_and_description_subtext() {
-    let result = StartRecordingResult::Success(RecordingStarted {
-        recording_id: "rec-1".to_string(),
-        started_at: SystemTime::UNIX_EPOCH,
-        width_px: 1280,
-        height_px: 720,
-    });
-
-    let text = start_recording_card_text("Demo checkout flow", Some(&result));
-
-    assert_eq!(
-        text,
-        RecordingCardText {
-            primary: "Recording started".to_string(),
-            subtext: Some("Demo checkout flow".to_string()),
-        }
-    );
-}
-
-#[test]
-fn start_recording_card_text_includes_failure_copy() {
-    let result = StartRecordingResult::Error("unsupported platform".to_string());
-
-    let text = start_recording_card_text("Demo checkout flow", Some(&result));
-
-    assert_eq!(
-        text,
-        RecordingCardText {
-            primary: "Recording failed to start".to_string(),
-            subtext: Some("unsupported platform".to_string()),
-        }
-    );
-}
-
-#[test]
-fn stop_recording_card_text_includes_complete_duration() {
-    let result = StopRecordingResult::Success(RecordingStopped {
-        artifact_uid: "artifact-1".to_string(),
-        duration: Duration::from_secs(2),
-        width_px: 1280,
-        height_px: 720,
-        size_bytes: 42,
-        completion_status: computer_use::RecordingCompletionStatus::Completed,
-        termination_reason: "Stopped by agent".to_string(),
-    });
-
-    let text = stop_recording_card_text(Some(&result));
-
-    assert_eq!(
-        text,
-        RecordingCardText {
-            primary: "Recording saved".to_string(),
-            subtext: Some("0:02".to_string()),
-        }
-    );
-}
-
-#[test]
-fn stop_recording_card_text_includes_partial_duration_without_raw_reason() {
-    let result = StopRecordingResult::Success(RecordingStopped {
-        artifact_uid: "artifact-1".to_string(),
-        duration: Duration::from_secs(12),
-        width_px: 1280,
-        height_px: 720,
-        size_bytes: 42,
-        completion_status: computer_use::RecordingCompletionStatus::StoppedEarly,
-        termination_reason: "internal raw reason".to_string(),
-    });
-
-    let text = stop_recording_card_text(Some(&result));
-
-    assert_eq!(
-        text,
-        RecordingCardText {
-            primary: "Recording saved".to_string(),
-            subtext: Some("Partial recording • 0:12".to_string()),
-        }
-    );
-}
-
-#[test]
-fn use_computer_decoration_skips_screenshot_only_rows() {
-    // Agents that only want a screenshot emit a zero-duration wait plus
-    // screenshot params; a real wait is a captured interaction.
-    let mut request = UseComputerRequest {
-        action_summary: "Screenshot".to_string(),
-        actions: vec![TargetedAction::screen(Action::Wait(Duration::ZERO))],
-        screenshot_params: Some(ScreenshotParams {
-            max_long_edge_px: None,
-            max_total_px: None,
-            region: None,
-            target: Target::Screen,
-        }),
-    };
-    assert!(!should_decorate_recorded_use_computer(&request));
-
-    request.actions = vec![TargetedAction::screen(Action::Wait(Duration::from_secs(1)))];
-    assert!(should_decorate_recorded_use_computer(&request));
 }
 
 fn make_skill(name: &str) -> ParsedSkill {

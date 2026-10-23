@@ -1,6 +1,4 @@
-use std::future::Future;
-#[cfg(feature = "local_fs")]
-use std::path::PathBuf;
+use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow};
 #[cfg(not(target_family = "wasm"))]
@@ -9,15 +7,49 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use crc::{CRC_32_ISCSI, Crc};
 pub use warp_server_client::HttpStatusError;
 
-#[cfg(feature = "local_fs")]
-use super::ai::FileArtifactUploadTargetInfo;
-use super::harness_support::{UploadFieldValue, UploadTarget};
+/// A presigned upload target returned by the server.
+#[serde_with::serde_as]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UploadTarget {
+    pub url: String,
+    pub method: String,
+    #[serde(default)]
+    #[serde_as(deserialize_as = "serde_with::DefaultOnNull")]
+    pub headers: HashMap<String, String>,
+    /// Ordered multipart form fields for POST uploads.
+    #[serde(default)]
+    #[serde_as(deserialize_as = "serde_with::DefaultOnNull")]
+    pub fields: Vec<UploadField>,
+}
+
+/// A single multipart form field on a POST upload target.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UploadField {
+    pub name: String,
+    pub value: UploadFieldValue,
+}
+
+/// Descriptor for a field value when uploading to an [`UploadTarget`].
+/// This is currently only used for `POST` requests, but may be supported
+/// for HTTP headers in the future.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UploadFieldValue {
+    /// Literal string value known at URL-generation time.
+    Static { value: String },
+    /// Client should compute CRC32C of the upload, base64-encode the 4-byte
+    /// big-endian result, and send it as this field's value.
+    // `snake_case` would derive `content_crc32_c`, which does not match the
+    // `ContentCRC32CFieldValue` discriminator in warp-server's OpenAPI schema.
+    #[serde(rename = "content_crc32c")]
+    ContentCrc32C,
+    /// Client should use the raw upload bytes as this field's value.
+    ContentData,
+}
 
 #[cfg(not(target_family = "wasm"))]
 pub(crate) static CRC32C: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 const CONTENT_LENGTH_HEADER_NAME: &str = "content-length";
-#[cfg(feature = "local_fs")]
-const FILE_UPLOAD_CHUNK_SIZE: usize = 64 * 1024;
 
 struct NormalizedUploadTarget<'a> {
     url: &'a str,
@@ -69,142 +101,6 @@ impl<'a> From<&'a UploadTarget> for NormalizedUploadTarget<'a> {
     }
 }
 
-#[cfg(feature = "local_fs")]
-impl<'a> From<&'a FileArtifactUploadTargetInfo> for NormalizedUploadTarget<'a> {
-    fn from(target: &'a FileArtifactUploadTargetInfo) -> Self {
-        Self {
-            url: &target.url,
-            method: &target.method,
-            headers: target
-                .headers
-                .iter()
-                .map(|header| (header.name.as_str(), header.value.as_str()))
-                .collect(),
-            fields: target
-                .fields
-                .iter()
-                .map(|field| NormalizedField {
-                    name: field.name.as_str(),
-                    value: match &field.value {
-                        UploadFieldValue::Static { value } => {
-                            NormalizedFieldValue::Static(value.as_str())
-                        }
-                        UploadFieldValue::ContentCrc32C => NormalizedFieldValue::ContentCrc32C,
-                        UploadFieldValue::ContentData => NormalizedFieldValue::ContentData,
-                    },
-                })
-                .collect(),
-        }
-    }
-}
-
-/// A source of bytes to upload to a presigned upload target.
-///
-/// This abstracts over the requirements for file uploads, such as knowing
-/// the payload size, so that we can avoid loading entire files into memory
-/// wherever possible.
-///
-/// It also allows the upload target implementation to skip work that's
-/// not needed for a particular target. For example, AWS S3 requires that
-/// the client provide a checksum ahead of time, while GCS does not.
-pub trait UploadBody {
-    /// Total length of the body in bytes. Used for the `Content-Length`
-    /// header on PUT uploads and for the multipart `ContentData` part length.
-    fn length(&self) -> u64;
-
-    /// Base64-encoded big-endian CRC32C of the body content.
-    #[cfg(not(target_family = "wasm"))]
-    fn compute_crc32c_base64(&self) -> impl Future<Output = Result<String>> + Send;
-
-    /// Consume this body and produce a `reqwest::Body` for the upload
-    /// request.
-    fn into_reqwest_body(self) -> impl Future<Output = Result<reqwest::Body>> + Send;
-}
-
-/// In-memory implementation of [`UploadBody`].
-impl UploadBody for Vec<u8> {
-    fn length(&self) -> u64 {
-        self.len() as u64
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    async fn compute_crc32c_base64(&self) -> Result<String> {
-        Ok(encode_crc32c_base64(CRC32C.checksum(self)))
-    }
-
-    async fn into_reqwest_body(self) -> Result<reqwest::Body> {
-        Ok(reqwest::Body::from(self))
-    }
-}
-
-/// `UploadBody` implementation backed by a file on disk. Used for streaming
-/// artifact uploads without buffering the file content in memory.
-#[cfg(feature = "local_fs")]
-#[derive(Debug, Clone)]
-pub struct FileUploadBody {
-    path: PathBuf,
-}
-
-#[cfg(feature = "local_fs")]
-impl FileUploadBody {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-}
-
-#[cfg(feature = "local_fs")]
-impl UploadBody for FileUploadBody {
-    fn length(&self) -> u64 {
-        // Read metadata on demand so callers don't have to keep a pre-computed
-        // size in sync with the file on disk. Returning 0 on a stat failure is
-        // safe: reqwest will still stream the actual bytes, and any PUT paths
-        // that use this for `Content-Length` already tolerate unknown lengths.
-        std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0)
-    }
-
-    async fn compute_crc32c_base64(&self) -> Result<String> {
-        use std::io::Read as _;
-        let path = self.path.clone();
-
-        // Compute the checksum as a blocking task for 2 reasons:
-        // - Filesystem operations generally aren't natively async to begin with
-        // - Checksum calculation is CPU-bound, and shouldn't tie up an async worker thread
-        tokio::task::spawn_blocking(move || -> Result<String> {
-            let mut file = std::fs::File::open(&path)
-                .with_context(|| format!("Failed to open artifact file '{}'", path.display()))?;
-            let mut digest = CRC32C.digest();
-            let mut buf = vec![0u8; FILE_UPLOAD_CHUNK_SIZE];
-            loop {
-                let n = file.read(&mut buf).with_context(|| {
-                    format!("Failed to read artifact file '{}'", path.display())
-                })?;
-                if n == 0 {
-                    break;
-                }
-                digest.update(&buf[..n]);
-            }
-            Ok(encode_crc32c_base64(digest.finalize()))
-        })
-        .await
-        .context("CRC32C computation task failed to join")?
-    }
-
-    async fn into_reqwest_body(self) -> Result<reqwest::Body> {
-        let file = tokio::fs::File::open(&self.path)
-            .await
-            .with_context(|| format!("Failed to open artifact file '{}'", self.path.display()))?;
-        Ok(reqwest::Body::wrap_stream(
-            tokio_util::io::ReaderStream::new(file),
-        ))
-    }
-}
-
-#[derive(Copy, Clone)]
-struct UploadErrorContext {
-    transport: &'static str,
-    failure: &'static str,
-}
-
 fn build_upload_request<'a>(
     http_client: &'a http_client::Client,
     target: &NormalizedUploadTarget<'_>,
@@ -235,10 +131,7 @@ fn build_upload_request<'a>(
     Ok(request)
 }
 
-async fn ensure_upload_succeeded(
-    response: http_client::Response,
-    error_context: UploadErrorContext,
-) -> Result<()> {
+async fn ensure_upload_succeeded(response: http_client::Response) -> Result<()> {
     if response.status().is_success() {
         return Ok(());
     }
@@ -246,10 +139,8 @@ async fn ensure_upload_succeeded(
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     let status_err = HttpStatusError::new(status.as_u16(), body.clone());
-    Err(anyhow::Error::new(status_err).context(format!(
-        "{} failed with status {status}: {body}",
-        error_context.failure
-    )))
+    Err(anyhow::Error::new(status_err)
+        .context(format!("Upload failed with status {status}: {body}")))
 }
 
 async fn send_upload_request(
@@ -257,54 +148,45 @@ async fn send_upload_request(
     target: &NormalizedUploadTarget<'_>,
     body: impl Into<reqwest::Body>,
     content_length: u64,
-    error_context: UploadErrorContext,
 ) -> Result<()> {
     let response = build_upload_request(http_client, target, Some(content_length))?
         .body(body)
         .send()
         .await
         .map_err(reqwest::Error::without_url)
-        .context(error_context.transport)?;
+        .context("Failed to upload to presigned URL")?;
 
-    ensure_upload_succeeded(response, error_context).await
+    ensure_upload_succeeded(response).await
 }
 
 pub(crate) async fn upload_to_target(
     http_client: &http_client::Client,
     target: &UploadTarget,
-    body: impl UploadBody,
+    body: Vec<u8>,
 ) -> Result<()> {
     let normalized = NormalizedUploadTarget::from(target);
-    let error_context = UploadErrorContext {
-        transport: "Failed to upload to presigned URL",
-        failure: "Upload",
-    };
-    send_upload(http_client, &normalized, body, None, error_context).await
+    send_upload(http_client, &normalized, body).await
 }
 
-/// Internal dispatcher shared between [`upload_to_target`] and
-/// [`upload_file_to_target`]. Routes the request to either a plain body upload
-/// or a multipart form upload based on whether the target has form fields.
+/// Routes the request to either a plain body upload or a multipart form upload
+/// based on whether the target has form fields.
 async fn send_upload(
     http_client: &http_client::Client,
     target: &NormalizedUploadTarget<'_>,
-    body: impl UploadBody,
-    precomputed_crc32c: Option<String>,
-    error_context: UploadErrorContext,
+    body: Vec<u8>,
 ) -> Result<()> {
     if target.fields.is_empty() {
-        let length = body.length();
-        let reqwest_body = body.into_reqwest_body().await?;
-        send_upload_request(http_client, target, reqwest_body, length, error_context).await
+        let length = body.len() as u64;
+        let reqwest_body = reqwest::Body::from(body);
+        send_upload_request(http_client, target, reqwest_body, length).await
     } else {
         #[cfg(not(target_family = "wasm"))]
         {
-            send_multipart_upload(http_client, target, body, precomputed_crc32c, error_context)
-                .await
+            send_multipart_upload(http_client, target, body).await
         }
         #[cfg(target_family = "wasm")]
         {
-            let _ = (http_client, body, precomputed_crc32c, error_context);
+            let _ = (http_client, body);
             Err(anyhow!(
                 "Multipart upload targets are not supported on wasm"
             ))
@@ -314,34 +196,28 @@ async fn send_upload(
 
 /// Send a `multipart/form-data` request.
 ///
-/// Callers that already computed the CRC32C (for example `upload_file_to_target`,
-/// which needs it for `confirmFileArtifactUpload`) pass it through via
-/// `precomputed_crc32c` so we don't hash the body twice. Otherwise we only
-/// compute the checksum when requested by the upload target.
+/// Computes a checksum only when requested by the upload target.
 #[cfg(not(target_family = "wasm"))]
 async fn send_multipart_upload(
     http_client: &http_client::Client,
     target: &NormalizedUploadTarget<'_>,
-    body: impl UploadBody,
-    precomputed_crc32c: Option<String>,
-    error_context: UploadErrorContext,
+    body: Vec<u8>,
 ) -> Result<()> {
-    let form = build_multipart_form(target, body, precomputed_crc32c).await?;
+    let form = build_multipart_form(target, body).await?;
     let request = build_upload_request(http_client, target, None)?;
     let response = request
         .multipart(form)
         .send()
         .await
         .map_err(reqwest::Error::without_url)
-        .context(error_context.transport)?;
-    ensure_upload_succeeded(response, error_context).await
+        .context("Failed to upload to presigned URL")?;
+    ensure_upload_succeeded(response).await
 }
 
 #[cfg(not(target_family = "wasm"))]
 async fn build_multipart_form(
     target: &NormalizedUploadTarget<'_>,
-    body: impl UploadBody,
-    precomputed_crc32c: Option<String>,
+    body: Vec<u8>,
 ) -> Result<reqwest::multipart::Form> {
     use reqwest::multipart::{Form, Part};
 
@@ -349,13 +225,13 @@ async fn build_multipart_form(
         .fields
         .iter()
         .any(|field| matches!(field.value, NormalizedFieldValue::ContentCrc32C));
-    let crc32c_base64 = match (precomputed_crc32c, needs_crc32c) {
-        (Some(crc), _) => Some(crc),
-        (None, true) => Some(body.compute_crc32c_base64().await?),
-        (None, false) => None,
+    let crc32c_base64 = if needs_crc32c {
+        Some(encode_crc32c_base64(CRC32C.checksum(&body)))
+    } else {
+        None
     };
-    let content_length = body.length();
-    let content_body = body.into_reqwest_body().await?;
+    let content_length = body.len() as u64;
+    let content_body = reqwest::Body::from(body);
 
     let mut form = Form::new();
     let mut content_body_cell = Some((content_body, content_length));
@@ -395,35 +271,6 @@ fn encode_crc32c_base64(crc32c: u32) -> String {
     // Storage providers expect the checksum as base64 of the raw big-endian CRC32C bytes,
     // not the more human-readable hex string we typically log.
     STANDARD.encode(crc32c.to_be_bytes())
-}
-
-/// Upload a file artifact. Always computes the base64 CRC32C so callers can
-/// pass it to `confirmFileArtifactUpload`.
-#[cfg(feature = "local_fs")]
-pub(crate) async fn upload_file_to_target(
-    http_client: &http_client::Client,
-    target: &FileArtifactUploadTargetInfo,
-    body: impl UploadBody,
-) -> Result<String> {
-    let normalized = NormalizedUploadTarget::from(target);
-    let error_context = UploadErrorContext {
-        transport: "Failed to upload artifact bytes",
-        failure: "Artifact upload",
-    };
-
-    // `confirmFileArtifactUpload` always needs the CRC32C, so we always compute
-    // it up front and then hand it to the dispatcher so the multipart path
-    // doesn't recompute it.
-    let crc32c_base64 = body.compute_crc32c_base64().await?;
-    send_upload(
-        http_client,
-        &normalized,
-        body,
-        Some(crc32c_base64.clone()),
-        error_context,
-    )
-    .await?;
-    Ok(crc32c_base64)
 }
 
 #[cfg(test)]

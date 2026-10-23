@@ -800,18 +800,6 @@ pub enum ShellLaunchData {
         executable_path: PathBuf,
         shell_type: ShellType,
     },
-    /// A shell running inside a `sbx`-managed Docker sandbox container.
-    ///
-    /// A dedicated variant ensures callers can't accidentally execute the
-    /// sandbox as if it were a regular local shell: the `sbx` binary at
-    /// `sbx_path` is not a shell, it's the CLI we use to enter the container.
-    DockerSandbox {
-        sbx_path: PathBuf,
-        /// Base Docker image to use when creating the sandbox (passed as
-        /// `sbx run --template <image>`). `None` means "use sbx's default
-        /// image".
-        base_image: Option<String>,
-    },
 }
 
 impl ShellLaunchData {
@@ -835,8 +823,6 @@ impl ShellLaunchData {
                 )
                 .ok()
             }
-            // Paths inside the sandbox container are plain Unix paths.
-            ShellLaunchData::DockerSandbox { .. } => Some(PathBuf::from(path_str)),
         }
     }
 
@@ -846,9 +832,7 @@ impl ShellLaunchData {
         shell_encoded_path: TypedPathBuf,
     ) -> Option<PathBuf> {
         match self {
-            ShellLaunchData::Executable { .. } | ShellLaunchData::DockerSandbox { .. } => {
-                PathBuf::try_from(shell_encoded_path).ok()
-            }
+            ShellLaunchData::Executable { .. } => PathBuf::try_from(shell_encoded_path).ok(),
             ShellLaunchData::WSL { distro } => {
                 convert_wsl_to_windows_host_path(&shell_encoded_path.to_path(), distro).ok()
             }
@@ -872,9 +856,6 @@ impl ShellLaunchData {
                 let windows_encoding = TypedPath::unix(path_str).with_windows_encoding();
                 PathBuf::try_from(windows_encoding).ok()
             }
-            // The container is Unix; Warp runs on the host, so paths are
-            // already in the host's native encoding. Pass through unchanged.
-            ShellLaunchData::DockerSandbox { .. } => Some(PathBuf::from(path_str)),
         }
     }
 
@@ -888,9 +869,9 @@ impl ShellLaunchData {
                     TypedPath::windows(path_str)
                 }
             }
-            ShellLaunchData::WSL { .. }
-            | ShellLaunchData::MSYS2 { .. }
-            | ShellLaunchData::DockerSandbox { .. } => TypedPath::unix(path_str),
+            ShellLaunchData::WSL { .. } | ShellLaunchData::MSYS2 { .. } => {
+                TypedPath::unix(path_str)
+            }
         }
     }
 
@@ -923,10 +904,6 @@ impl ShellLaunchData {
                 executable_path, ..
             } => executable_path.to_string_lossy().into_owned(),
             Self::WSL { distro } => distro.to_owned(),
-            Self::DockerSandbox { base_image, .. } => match base_image {
-                Some(image) => format!("Docker sandbox ({image})"),
-                None => "Docker sandbox".to_owned(),
-            },
         }
     }
 }
@@ -937,7 +914,6 @@ impl From<ShellLaunchData> for SessionPlatform {
             ShellLaunchData::Executable { .. } => SessionPlatform::Native,
             ShellLaunchData::WSL { .. } => SessionPlatform::WSL,
             ShellLaunchData::MSYS2 { .. } => SessionPlatform::MSYS2,
-            ShellLaunchData::DockerSandbox { .. } => SessionPlatform::DockerSandbox,
         }
     }
 }

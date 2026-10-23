@@ -9,8 +9,6 @@ pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
 use std::collections::HashMap;
-#[cfg(not(target_family = "wasm"))]
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,9 +34,6 @@ use super::action_model::{BlocklistAIActionEvent, BlocklistAIActionModel};
 use super::context_model::{BlocklistAIContextModel, PendingAttachment, PendingFile};
 use super::conversation_selection::{ConversationSelectionEvent, ConversationSelectionHandle};
 use super::history_model::BlocklistAIHistoryModel;
-use super::orchestration_event_streamer::{
-    OrchestrationEventStreamer, OrchestrationEventStreamerEvent,
-};
 use super::orchestration_events::{OrchestrationEventService, OrchestrationEventServiceEvent};
 use super::queued_query::{QueuedQueryId, QueuedQueryModel};
 use super::{BlocklistAIInputModel, ResponseStreamId};
@@ -53,9 +48,6 @@ use crate::ai::agent::{
     RenderableAIError, RequestCost, RequestMetadata, RunningCommand, StaticQueryType,
     TransientNetworkErrorKind, UserQueryMode,
 };
-use crate::ai::agent_events::AgentMessageEventMetadata;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::ClaudeHarness;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::document::ai_document_model::{
     AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
@@ -70,8 +62,6 @@ use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::persistence::ModelEvent;
 use crate::send_telemetry_from_ctx;
 use crate::server::server_api::AIApiError;
-#[cfg(not(target_family = "wasm"))]
-use crate::server::server_api::ServerApiProvider;
 use crate::server::team_scope::RequestTeamScope;
 use crate::server::telemetry::TelemetryEvent;
 use crate::terminal::ShellLaunchData;
@@ -79,7 +69,6 @@ use crate::terminal::model::block::{CURSOR_MARKER, formatted_terminal_contents_f
 use crate::terminal::model::session::SessionType;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::terminal_model::TerminalModel;
-use crate::workspace::OneTimeModalModel;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::{
     ResolvedTeamScope, TeamContext, TeamContextResolver, TeamScope, UserWorkspaces,
@@ -184,13 +173,7 @@ pub enum BlocklistAIControllerEvent {
     },
 
     /// Emitted when the export-to-file slash command is executed.
-    ExportConversationToFile {
-        filename: Option<String>,
-    },
-
-    ExecuteLocalHarnessCommand {
-        command: String,
-    },
+    ExportConversationToFile { filename: Option<String> },
 }
 
 #[derive(Debug)]
@@ -342,9 +325,6 @@ pub struct BlocklistAIController {
     /// Pending auto-resume tasks that are waiting for network connectivity.
     /// These should be cancelled when a new request is sent for the same conversation.
     pending_auto_resume_handles: HashMap<AIConversationId, SpawnedFutureHandle>,
-    /// Pending dormant Claude wake preparations for success-idle child conversations.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pending_local_claude_wakes: HashMap<AIConversationId, SpawnedFutureHandle>,
 }
 
 enum InputQueryType {
@@ -369,24 +349,6 @@ enum WhichTask {
         conversation_id: AIConversationId,
         task_id: TaskId,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LocalClaudeWakeTrigger {
-    PendingEvents,
-    WakeOnlyStream {
-        wake_message: AgentMessageEventMetadata,
-    },
-}
-
-impl LocalClaudeWakeTrigger {
-    #[cfg(not(target_family = "wasm"))]
-    fn requires_pending_events(&self) -> bool {
-        match self {
-            Self::PendingEvents => true,
-            Self::WakeOnlyStream { .. } => false,
-        }
-    }
 }
 
 struct InputQuery {
@@ -580,18 +542,6 @@ impl BlocklistAIController {
             let OrchestrationEventServiceEvent::EventsReady { conversation_id } = event;
             me.handle_pending_events_ready(*conversation_id, ctx);
         });
-        let streamer = OrchestrationEventStreamer::handle(ctx);
-        ctx.subscribe_to_model(&streamer, move |me, _, event, ctx| match event {
-            OrchestrationEventStreamerEvent::DormantClaudeWakeReady {
-                conversation_id,
-                wake_message,
-            } => {
-                me.handle_dormant_claude_wake_ready(*conversation_id, wake_message.clone(), ctx);
-            }
-            // Viewer-mode events are handled by `OrchestrationViewerModel`.
-            OrchestrationEventStreamerEvent::ChildSpawned { .. }
-            | OrchestrationEventStreamerEvent::ChildStatusChanged { .. } => {}
-        });
         Self {
             input_model,
             context_model,
@@ -606,7 +556,6 @@ impl BlocklistAIController {
             ambient_agent_task_id: None,
             attachments_download_dir: None,
             pending_auto_resume_handles: HashMap::new(),
-            pending_local_claude_wakes: HashMap::new(),
         }
     }
 
@@ -1546,191 +1495,6 @@ impl BlocklistAIController {
         true
     }
 
-    #[cfg(target_family = "wasm")]
-    fn maybe_prepare_local_claude_wake(
-        &mut self,
-        _conversation_id: AIConversationId,
-        _trigger: LocalClaudeWakeTrigger,
-        _ctx: &mut ModelContext<Self>,
-    ) -> bool {
-        false
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn maybe_prepare_local_claude_wake(
-        &mut self,
-        conversation_id: AIConversationId,
-        trigger: LocalClaudeWakeTrigger,
-        ctx: &mut ModelContext<Self>,
-    ) -> bool {
-        if self
-            .pending_local_claude_wakes
-            .contains_key(&conversation_id)
-        {
-            log::info!("Dormant Claude wake already pending: conversation_id={conversation_id:?}");
-            return true;
-        }
-        if trigger.requires_pending_events() {
-            let has_pending_events = OrchestrationEventService::handle(ctx)
-                .update(ctx, |svc, _| svc.has_pending_events(conversation_id));
-            if !has_pending_events {
-                return false;
-            }
-        }
-
-        if !self.conversation_ready_for_pending_events(conversation_id, ctx) {
-            return false;
-        }
-
-        let history_model = BlocklistAIHistoryModel::as_ref(ctx);
-        let Some(conversation) = history_model.conversation(&conversation_id).cloned() else {
-            log::info!(
-                "Skipping dormant Claude wake preparation: conversation_id={conversation_id:?} reason=conversation_missing"
-            );
-            return false;
-        };
-        let parent_conversation = conversation
-            .parent_conversation_id()
-            .and_then(|parent_conversation_id| history_model.conversation(&parent_conversation_id))
-            .cloned();
-        let working_dir = self
-            .active_session
-            .as_ref(ctx)
-            .current_working_directory()
-            .cloned()
-            .map(PathBuf::from);
-        let task_id = conversation.task_id();
-        let wake_message_for_prepare = match &trigger {
-            LocalClaudeWakeTrigger::PendingEvents => None,
-            LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => Some(wake_message.clone()),
-        };
-        let trigger_for_callback = trigger.clone();
-
-        let server_api = ServerApiProvider::as_ref(ctx).get();
-        let handle = ctx.spawn(
-            async move {
-                log::info!(
-                    "Preparing dormant Claude wake command: conversation_id={conversation_id:?} task_id={task_id:?}"
-                );
-                ClaudeHarness::wake_dormant_session(
-                    server_api.clone(),
-                    conversation,
-                    parent_conversation,
-                    working_dir,
-                    wake_message_for_prepare,
-                )
-                .await
-            },
-            move |me, result, ctx| {
-                me.pending_local_claude_wakes.remove(&conversation_id);
-                match result {
-                    Ok(Some(command)) => {
-                        if let LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } =
-                            &trigger_for_callback
-                        {
-                            OrchestrationEventStreamer::handle(ctx).update(
-                                ctx,
-                                |streamer, ctx| {
-                                    streamer.persist_dormant_claude_wake_cursor(
-                                        conversation_id,
-                                        wake_message,
-                                        ctx,
-                                    );
-                                },
-                            );
-                        }
-                        log::info!(
-                            "Executing dormant Claude wake command: conversation_id={conversation_id:?} task_id={task_id:?}"
-                        );
-                        BlocklistAIHistoryModel::handle(ctx).update(
-                            ctx,
-                            |history_model, ctx| {
-                                history_model.update_conversation_status(
-                                    me.terminal_surface_id,
-                                    conversation_id,
-                                    ConversationStatus::InProgress,
-                                    ctx,
-                                );
-                            },
-                        );
-                        ctx.emit(BlocklistAIControllerEvent::ExecuteLocalHarnessCommand {
-                            command,
-                        });
-                    }
-                    Ok(None) => {
-                        match &trigger_for_callback {
-                            LocalClaudeWakeTrigger::PendingEvents => {
-                                log::info!(
-                                    "Falling back to generic pending-event injection after dormant Claude wake eligibility check: conversation_id={conversation_id:?} task_id={task_id:?}"
-                                );
-                                me.inject_pending_events_for_request(conversation_id, ctx);
-                            }
-                            LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => {
-                                log::info!(
-                                    "Retrying wake-only dormant Claude eligibility check: conversation_id={conversation_id:?} task_id={task_id:?}"
-                                );
-                                me.schedule_dormant_claude_wake_ready_retry(
-                                    conversation_id,
-                                    wake_message.clone(),
-                                    ctx,
-                                );
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!(
-                            "Failed to prepare dormant Claude wake command for {conversation_id:?} task_id={task_id:?}: {err:#}"
-                        );
-                        match &trigger_for_callback {
-                            LocalClaudeWakeTrigger::PendingEvents => {
-                                me.schedule_pending_events_ready_retry(conversation_id, ctx);
-                            }
-                            LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => {
-                                me.schedule_dormant_claude_wake_ready_retry(
-                                    conversation_id,
-                                    wake_message.clone(),
-                                    ctx,
-                                );
-                            }
-                        }
-                    }
-                }
-            },
-        );
-        self.pending_local_claude_wakes
-            .insert(conversation_id, handle);
-        true
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn schedule_pending_events_ready_retry(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        ctx.spawn(
-            async move { Timer::after(Duration::from_secs(2)).await },
-            move |me, _, ctx| {
-                me.handle_pending_events_ready(conversation_id, ctx);
-            },
-        );
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn schedule_dormant_claude_wake_ready_retry(
-        &mut self,
-        conversation_id: AIConversationId,
-        wake_message: AgentMessageEventMetadata,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        ctx.spawn(
-            async move { Timer::after(Duration::from_secs(2)).await },
-            move |me, _, ctx| {
-                me.handle_dormant_claude_wake_ready(conversation_id, wake_message.clone(), ctx);
-            },
-        );
-    }
-
     fn inject_pending_events_for_request(
         &mut self,
         conversation_id: AIConversationId,
@@ -1793,32 +1557,7 @@ impl BlocklistAIController {
             return;
         }
 
-        if self.maybe_prepare_local_claude_wake(
-            conversation_id,
-            LocalClaudeWakeTrigger::PendingEvents,
-            ctx,
-        ) {
-            return;
-        }
-
         self.inject_pending_events_for_request(conversation_id, ctx);
-    }
-
-    fn handle_dormant_claude_wake_ready(
-        &mut self,
-        conversation_id: AIConversationId,
-        wake_message: AgentMessageEventMetadata,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if !self.maybe_prepare_local_claude_wake(
-            conversation_id,
-            LocalClaudeWakeTrigger::WakeOnlyStream { wake_message },
-            ctx,
-        ) {
-            log::info!(
-                "Ignoring dormant Claude wake-ready signal: conversation_id={conversation_id:?}"
-            );
-        }
     }
 
     /// Resumes the conversation with a request that is not itself recovering another, so it
@@ -1918,9 +1657,7 @@ impl BlocklistAIController {
     }
 
     /// Schedules an auto-resume-after-error for the conversation, once the recovery backoff
-    /// carried by `resume` has elapsed, the network is online, and the auto-handoff sleep
-    /// modal is closed, so the resume doesn't race the user's enable/dismiss decision on
-    /// wake.
+    /// carried by `resume` has elapsed and the network is online.
     ///
     /// `resume` carries the failed request's budget with this resume already charged against
     /// it, so the resumed request continues the same bounded chain instead of getting a
@@ -1936,15 +1673,9 @@ impl BlocklistAIController {
         let backoff = resume.backoff();
         let recovery = resume.recovery();
         let wait_for_online = NetworkStatus::as_ref(ctx).wait_until_online();
-        let wait_for_modal_closed =
-            OneTimeModalModel::as_ref(ctx).wait_until_auto_handoff_sleep_modal_closed();
         let wait = async move {
             Timer::after(backoff).await;
             wait_for_online.await;
-            // Await the modal second: the future reads live modal state at
-            // poll time, so a modal surfaced on wake (after connectivity
-            // returns) is still observed.
-            wait_for_modal_closed.await;
         };
         let handle = ctx.spawn(wait, move |me, _, ctx| {
             // Clean up the pending handle now that the resume is executing.

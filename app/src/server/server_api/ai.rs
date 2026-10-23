@@ -1,13 +1,11 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_family = "wasm"))]
-use std::path::Path;
 use std::time::Duration;
 
 use ai::index::full_source_code_embedding::store_client::{IntermediateNode, StoreClient};
 use ai::index::full_source_code_embedding::{
     self, CodebaseContextConfig, ContentHash, EmbeddingConfig, NodeHash, RepoMetadata,
 };
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
@@ -21,16 +19,8 @@ use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warp_graphql::ai::{AgentTaskState, PlatformErrorCode};
 use warp_graphql::client::Operation;
-use warp_graphql::mutations::confirm_file_artifact_upload::{
-    ConfirmFileArtifactUpload, ConfirmFileArtifactUploadInput, ConfirmFileArtifactUploadResult,
-    ConfirmFileArtifactUploadVariables,
-};
 use warp_graphql::mutations::create_agent_task::{
     CreateAgentTask, CreateAgentTaskInput, CreateAgentTaskResult, CreateAgentTaskVariables,
-};
-use warp_graphql::mutations::create_file_artifact_upload_target::{
-    CreateFileArtifactUploadTarget, CreateFileArtifactUploadTargetInput,
-    CreateFileArtifactUploadTargetResult, CreateFileArtifactUploadTargetVariables,
 };
 use warp_graphql::mutations::delete_ai_conversation::{
     DeleteAIConversation, DeleteAIConversationVariables, DeleteConversationInput,
@@ -94,9 +84,7 @@ use warp_graphql::queries::sync_merkle_tree::{
 use warp_multi_agent_api::ConversationData;
 
 use super::ServerApi;
-#[cfg(not(target_family = "wasm"))]
-use super::download::write_response_body_to_path;
-use super::harness_support::{UploadField, UploadFieldValue, UploadTarget};
+use super::presigned_upload::UploadTarget;
 #[cfg(not(feature = "agent_mode_evals"))]
 use crate::ai::BonusGrant;
 pub use crate::ai::agent::UserQueryMode;
@@ -184,7 +172,7 @@ impl TaskStatusUpdate {
 pub struct SpawnAgentRequest {
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
-    /// None for skill-only or conversation-only invocations; omitted on the wire.
+    /// None for skill-only invocations; omitted on the wire.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     /// The public API accepts lowercase mode strings (`normal`, `plan`, or `orchestrate`).
@@ -218,66 +206,10 @@ pub struct SpawnAgentRequest {
     /// Base64-encoded `warp.multi_agent.v1.Attachment` payloads to restore as referenced attachments.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub referenced_attachments: Vec<String>,
-    /// Server-side conversation id to resume against (sets `task.AgentConversationID`).
-    /// For local-to-cloud handoff this is the forked conversation id returned by
-    /// `POST /agent/conversations/{conversation_id}/fork` at chip-click time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub conversation_id: Option<String>,
-    /// References a batch of files previously uploaded to handoff/{token}/
-    /// via `POST /agent/handoff/upload-snapshot`. The server stores the token on the new run's
-    /// queued execution input and resolves the prefix in place at rehydration time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_snapshot_token: Option<InitialSnapshotToken>,
     /// When `Some(true)`, the cloud agent skips the end-of-run snapshot upload.
     /// Set by the client when cloud conversation storage is disabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot_disabled: Option<bool>,
-    /// True when the source conversation was part of an orchestration tree at
-    /// handoff time. Only set on local-to-cloud handoff spawns from an
-    /// orchestrated source; absent otherwise. The server uses it to inject the
-    /// universal hidden first-turn orchestration handoff message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub orchestration_handoff: Option<bool>,
-}
-
-/// Server-minted token returned by `POST /agent/handoff/upload-snapshot` that scopes a batch
-/// of presigned upload URLs to `handoff/{token}/`. The client passes it
-/// back via `SpawnAgentRequest.initial_snapshot_token`; the server stores it on the new run's
-/// queued execution input so rehydration discovery can read the same prefix.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct InitialSnapshotToken(String);
-
-impl InitialSnapshotToken {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Request body for `POST /agent/handoff/upload-snapshot`. Used by the local-to-cloud
-/// handoff flow to allocate a token and presigned upload URLs scoped to
-/// `handoff/{token}/` before any task exists.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct UploadLocalHandoffSnapshotRequest {
-    pub files: Vec<SnapshotUploadFileInfo>,
-}
-
-/// Describes a single file the client wants to upload as part of a handoff snapshot.
-/// Wire-compatible with the server's `SnapshotUploadFileInfo` schema (also used by the
-/// existing harness-side `/harness-support/upload-snapshot` endpoint).
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SnapshotUploadFileInfo {
-    pub filename: String,
-    pub mime_type: String,
-}
-
-/// Response body for `POST /agent/handoff/upload-snapshot`. The `uploads` array is aligned
-/// by index with the request `files` array; the client matches each `UploadTarget` back
-/// to the requested filename by index.
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct UploadLocalHandoffSnapshotResponse {
-    pub initial_snapshot_token: InitialSnapshotToken,
-    pub expires_at: String,
-    pub uploads: Vec<UploadTarget>,
 }
 
 /// Request body for `POST /agent/conversations/{conversation_id}/fork`.
@@ -489,47 +421,6 @@ impl AttachmentUploadInfo {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PrepareAttachmentUploadsResponse {
     pub attachments: Vec<AttachmentUploadInfo>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateFileArtifactUploadRequest {
-    pub conversation_id: Option<String>,
-    pub run_id: Option<String>,
-    pub filepath: String,
-    /// Short badge-visible title for the artifact (e.g. a recording title).
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub mime_type: Option<String>,
-    pub size_bytes: Option<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileArtifactRecord {
-    pub artifact_uid: String,
-    pub filepath: String,
-    pub description: Option<String>,
-    pub mime_type: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileArtifactUploadHeaderInfo {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileArtifactUploadTargetInfo {
-    pub url: String,
-    pub method: String,
-    pub headers: Vec<FileArtifactUploadHeaderInfo>,
-    /// Ordered multipart form fields for presigned POST uploads.
-    pub fields: Vec<UploadField>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateFileArtifactUploadResponse {
-    pub artifact: FileArtifactRecord,
-    pub upload_target: FileArtifactUploadTargetInfo,
 }
 
 /// Filter parameters for listing ambient agent tasks.
@@ -761,13 +652,6 @@ pub trait AIClient: 'static + Send + Sync {
         team_scope: RequestTeamScope,
     ) -> anyhow::Result<SpawnAgentResponse, anyhow::Error>;
 
-    /// Allocate an initial snapshot token and presigned upload URLs for staging local-to-cloud
-    /// handoff snapshot files before the corresponding cloud task exists.
-    async fn upload_local_handoff_snapshot(
-        &self,
-        request: UploadLocalHandoffSnapshotRequest,
-    ) -> anyhow::Result<UploadLocalHandoffSnapshotResponse, anyhow::Error>;
-
     /// Materialize a server-side fork of a conversation.
     async fn fork_conversation(
         &self,
@@ -793,13 +677,6 @@ pub trait AIClient: 'static + Send + Sync {
         &self,
         task_id: &AmbientAgentTaskId,
     ) -> anyhow::Result<AmbientAgentTask, anyhow::Error>;
-
-    #[cfg(not(target_family = "wasm"))]
-    async fn download_run_transcript_to_path(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        destination: &Path,
-    ) -> anyhow::Result<(), anyhow::Error>;
 
     async fn submit_run_followup(
         &self,
@@ -836,17 +713,6 @@ pub trait AIClient: 'static + Send + Sync {
         workload_token: String,
         participant_firebase_uid: String,
     ) -> anyhow::Result<bool, anyhow::Error>;
-
-    async fn create_file_artifact_upload_target(
-        &self,
-        request: CreateFileArtifactUploadRequest,
-    ) -> anyhow::Result<CreateFileArtifactUploadResponse, anyhow::Error>;
-
-    async fn confirm_file_artifact_upload(
-        &self,
-        artifact_uid: String,
-        checksum: String,
-    ) -> anyhow::Result<FileArtifactRecord, anyhow::Error>;
 
     async fn get_artifact_download(
         &self,
@@ -898,17 +764,6 @@ pub trait AIClient: 'static + Send + Sync {
     ) -> anyhow::Result<ReadAgentMessageResponse, anyhow::Error>;
 }
 
-fn into_file_artifact_record(
-    artifact: warp_graphql::mutations::create_file_artifact_upload_target::FileArtifact,
-) -> FileArtifactRecord {
-    FileArtifactRecord {
-        artifact_uid: artifact.artifact_uid.into_inner(),
-        filepath: artifact.filepath,
-        description: artifact.description,
-        mime_type: artifact.mime_type,
-    }
-}
-
 impl ServerApi {
     async fn get_public_api_with_team_scope<R>(
         &self,
@@ -924,6 +779,43 @@ impl ServerApi {
                 request_team_scope.and_then(RequestTeamScope::team_uid),
             )
             .await
+    }
+
+    pub(crate) async fn post_public_api_response_for_task<B>(
+        &self,
+        task_id: &AmbientAgentTaskId,
+        path: &str,
+        body: &B,
+    ) -> anyhow::Result<http_client::Response>
+    where
+        B: serde::Serialize,
+    {
+        let auth_token = self
+            .get_or_refresh_access_token()
+            .await
+            .context("Failed to get access token for API request")?;
+
+        let url = format!("{}/api/v1/{}", crate::ChannelState::server_root_url(), path);
+
+        let mut request = self.base_client.http_client().post(&url).json(body);
+        if let Some(token) = auth_token.as_bearer_token() {
+            request = request.bearer_auth(token);
+        }
+
+        for (name, value) in self.ambient_agent_headers_for_task(task_id).await? {
+            request = request.header(name, value);
+        }
+
+        let response = request
+            .send()
+            .await
+            .with_context(|| format!("Failed to send API request to {url}"))?;
+
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(Self::error_from_response(response).await)
+        }
     }
 
     pub(crate) async fn send_agent_message_for_task(
@@ -967,34 +859,6 @@ impl ServerApi {
         let response = response.json::<ReadAgentMessageResponse>().await?;
         Ok(response)
     }
-}
-
-/// Convert a cynic `FileArtifactUploadField` into the shared [`UploadField`]
-/// domain type. Unknown variants bubble as an error rather than being silently
-/// dropped, because a server-provided field we can't represent will almost certainly
-/// cause the upload to fail.
-fn convert_upload_field(
-    field: warp_graphql::mutations::create_file_artifact_upload_target::FileArtifactUploadField,
-) -> anyhow::Result<UploadField> {
-    use warp_graphql::mutations::create_file_artifact_upload_target::FileArtifactUploadFieldValue;
-
-    let value = match field.value {
-        FileArtifactUploadFieldValue::StaticUploadFieldValue(v) => {
-            UploadFieldValue::Static { value: v.value }
-        }
-        FileArtifactUploadFieldValue::ContentCRC32CFieldValue(_) => UploadFieldValue::ContentCrc32C,
-        FileArtifactUploadFieldValue::ContentDataFieldValue(_) => UploadFieldValue::ContentData,
-        FileArtifactUploadFieldValue::Unknown => {
-            return Err(anyhow!(
-                "Unknown UploadFieldValue variant for field '{}'; update client GraphQL types",
-                field.name
-            ));
-        }
-    };
-    Ok(UploadField {
-        name: field.name,
-        value,
-    })
 }
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -1417,16 +1281,6 @@ impl AIClient for ServerApi {
             .await
     }
 
-    async fn upload_local_handoff_snapshot(
-        &self,
-        request: UploadLocalHandoffSnapshotRequest,
-    ) -> anyhow::Result<UploadLocalHandoffSnapshotResponse, anyhow::Error> {
-        let response: UploadLocalHandoffSnapshotResponse = self
-            .post_public_api("agent/handoff/upload-snapshot", &request)
-            .await?;
-        Ok(response)
-    }
-
     async fn fork_conversation(
         &self,
         conversation_id: String,
@@ -1637,89 +1491,6 @@ impl AIClient for ServerApi {
         }
     }
 
-    async fn create_file_artifact_upload_target(
-        &self,
-        request: CreateFileArtifactUploadRequest,
-    ) -> anyhow::Result<CreateFileArtifactUploadResponse, anyhow::Error> {
-        let variables = CreateFileArtifactUploadTargetVariables {
-            input: CreateFileArtifactUploadTargetInput {
-                conversation_id: request.conversation_id.map(cynic::Id::new),
-                run_id: request.run_id.map(cynic::Id::new),
-                filepath: request.filepath,
-                title: request.title,
-                description: request.description,
-                mime_type: request.mime_type,
-                size_bytes: request.size_bytes,
-            },
-            request_context: get_request_context(),
-        };
-        let operation = CreateFileArtifactUploadTarget::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.create_file_artifact_upload_target {
-            CreateFileArtifactUploadTargetResult::CreateFileArtifactUploadTargetOutput(output) => {
-                let headers = output
-                    .upload_target
-                    .headers
-                    .into_iter()
-                    .map(|header| FileArtifactUploadHeaderInfo {
-                        name: header.name,
-                        value: header.value,
-                    })
-                    .collect();
-                let fields = output
-                    .upload_target
-                    .fields
-                    .into_iter()
-                    .map(convert_upload_field)
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                Ok(CreateFileArtifactUploadResponse {
-                    artifact: into_file_artifact_record(output.artifact),
-                    upload_target: FileArtifactUploadTargetInfo {
-                        url: output.upload_target.url,
-                        method: output.upload_target.method,
-                        headers,
-                        fields,
-                    },
-                })
-            }
-            CreateFileArtifactUploadTargetResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            CreateFileArtifactUploadTargetResult::Unknown => {
-                Err(anyhow!("Failed to create file artifact upload target"))
-            }
-        }
-    }
-
-    async fn confirm_file_artifact_upload(
-        &self,
-        artifact_uid: String,
-        checksum: String,
-    ) -> anyhow::Result<FileArtifactRecord, anyhow::Error> {
-        let variables = ConfirmFileArtifactUploadVariables {
-            input: ConfirmFileArtifactUploadInput {
-                artifact_uid: cynic::Id::new(artifact_uid),
-                checksum,
-            },
-            request_context: get_request_context(),
-        };
-        let operation = ConfirmFileArtifactUpload::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.confirm_file_artifact_upload {
-            ConfirmFileArtifactUploadResult::ConfirmFileArtifactUploadOutput(output) => {
-                Ok(into_file_artifact_record(output.artifact))
-            }
-            ConfirmFileArtifactUploadResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            ConfirmFileArtifactUploadResult::Unknown => {
-                Err(anyhow!("Failed to confirm file artifact upload"))
-            }
-        }
-    }
-
     async fn get_artifact_download(
         &self,
         artifact_uid: &str,
@@ -1783,18 +1554,6 @@ impl AIClient for ServerApi {
             )
             .await?;
         Ok(response)
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    async fn download_run_transcript_to_path(
-        &self,
-        run_id: &AmbientAgentTaskId,
-        destination: &Path,
-    ) -> anyhow::Result<(), anyhow::Error> {
-        let response = self
-            .get_public_api_response(&format!("agent/runs/{run_id}/transcript"))
-            .await?;
-        write_response_body_to_path(response, destination).await
     }
 
     // --- Orchestrations V2 messaging ---

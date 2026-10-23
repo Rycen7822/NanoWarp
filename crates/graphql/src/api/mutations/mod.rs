@@ -1,9 +1,7 @@
 pub mod add_object_guests;
 pub mod bulk_create_objects;
-pub mod confirm_file_artifact_upload;
 pub mod create_agent_task;
 pub mod create_anonymous_user;
-pub mod create_file_artifact_upload_target;
 pub mod create_folder;
 pub mod create_generic_string_object;
 pub mod create_managed_mcp_client_config;

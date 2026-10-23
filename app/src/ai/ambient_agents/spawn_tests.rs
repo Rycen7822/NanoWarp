@@ -732,10 +732,7 @@ async fn spawn_uses_resolved_team_scope() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
     let team_scope = RequestTeamScope::from_scope(&TeamContextForOperation::new_for_test(team_uid));
     let mut stream = Box::pin(spawn_task(request, team_scope, Arc::new(mock), None));
@@ -811,10 +808,7 @@ async fn poll_retries_transient_429_errors() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let mut stream = Box::pin(spawn_task(request, request_team_scope(), ai_client, None));
@@ -881,10 +875,7 @@ async fn poll_fails_on_permanent_http_error() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let mut stream = Box::pin(spawn_task(request, request_team_scope(), ai_client, None));
@@ -952,10 +943,7 @@ async fn poll_gives_up_after_max_transient_retries() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let mut stream = Box::pin(spawn_task(request, request_team_scope(), ai_client, None));
@@ -1017,10 +1005,7 @@ async fn poll_stops_on_terminal_failure_like_state() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let mut stream = Box::pin(spawn_task(request, request_team_scope(), ai_client, None));
@@ -1165,10 +1150,7 @@ async fn poll_for_session_join_info_waits_until_link_is_available() {
         parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
-        conversation_id: None,
-        initial_snapshot_token: None,
         snapshot_disabled: None,
-        orchestration_handoff: None,
     };
 
     let mut stream = Box::pin(spawn_task(request, request_team_scope(), ai_client, None));

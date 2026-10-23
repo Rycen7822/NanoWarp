@@ -30,9 +30,6 @@ pub enum AIAgentActionResultType {
     /// The output of a read files action.
     ReadFiles(ReadFilesResult),
 
-    /// The output of an upload artifact action.
-    UploadArtifact(UploadArtifactResult),
-
     /// The output of a search codebase action.
     SearchCodebase(SearchCodebaseResult),
 
@@ -79,12 +76,6 @@ pub enum AIAgentActionResultType {
 
     /// The output of requesting computer use.
     RequestComputerUse(RequestComputerUseResult),
-
-    /// The result of starting a video recording.
-    StartRecording(StartRecordingResult),
-
-    /// The result of stopping a video recording.
-    StopRecording(StopRecordingResult),
 
     /// The result of fetching a conversation's tasks.
     FetchConversation(FetchConversationResult),
@@ -158,7 +149,6 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::WriteToLongRunningShellCommand(result) => result.fmt(f),
             AIAgentActionResultType::RequestFileEdits(result) => result.fmt(f),
             AIAgentActionResultType::ReadFiles(result) => result.fmt(f),
-            AIAgentActionResultType::UploadArtifact(result) => result.fmt(f),
             AIAgentActionResultType::SearchCodebase(result) => result.fmt(f),
             AIAgentActionResultType::Grep(result) => result.fmt(f),
             AIAgentActionResultType::FileGlob(result) => result.fmt(f),
@@ -174,8 +164,6 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::UseComputer(result) => result.fmt(f),
             AIAgentActionResultType::InsertReviewComments(result) => result.fmt(f),
             AIAgentActionResultType::RequestComputerUse(result) => result.fmt(f),
-            AIAgentActionResultType::StartRecording(result) => result.fmt(f),
-            AIAgentActionResultType::StopRecording(result) => result.fmt(f),
             AIAgentActionResultType::FetchConversation(result) => result.fmt(f),
             AIAgentActionResultType::SendMessageToAgent(result) => result.fmt(f),
             AIAgentActionResultType::TransferShellCommandControlToUser(result) => result.fmt(f),
@@ -533,36 +521,6 @@ impl Display for ReadFilesResult {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum UploadArtifactResult {
-    Success {
-        artifact_uid: String,
-        filepath: Option<String>,
-        mime_type: String,
-        description: Option<String>,
-        size_bytes: i64,
-    },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for UploadArtifactResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UploadArtifactResult::Success {
-                artifact_uid,
-                filepath,
-                ..
-            } => match filepath {
-                Some(filepath) => write!(f, "Uploaded artifact {artifact_uid} from {filepath}"),
-                None => write!(f, "Uploaded artifact {artifact_uid}"),
-            },
-            UploadArtifactResult::Error(error) => write!(f, "Upload artifact error: {error}"),
-            UploadArtifactResult::Cancelled => write!(f, "Upload artifact cancelled"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DocumentContext {
     pub document_id: AIDocumentId,
     pub document_version: AIDocumentVersion,
@@ -844,7 +802,6 @@ impl AIAgentActionResultType {
                 "The diff from editing the last file in Agent Mode"
             }
             AIAgentActionResultType::ReadFiles(_) => "The requested file content",
-            AIAgentActionResultType::UploadArtifact(_) => "The uploaded artifact metadata",
             AIAgentActionResultType::SearchCodebase(_) => "The codebase search results",
             AIAgentActionResultType::Grep(_) => "The results of the grep operation",
             AIAgentActionResultType::FileGlob(_) => "The results of the file glob operation",
@@ -863,8 +820,6 @@ impl AIAgentActionResultType {
             AIAgentActionResultType::ReadShellCommandOutput(_) => "The shell command output",
             AIAgentActionResultType::UseComputer(_) => "The computer use result",
             AIAgentActionResultType::RequestComputerUse(_) => "The computer use request result",
-            AIAgentActionResultType::StartRecording(_) => "The result of starting a recording",
-            AIAgentActionResultType::StopRecording(_) => "The result of stopping a recording",
             AIAgentActionResultType::FetchConversation(_) => "The fetched conversation tasks",
             AIAgentActionResultType::SendMessageToAgent(_) => "The result of sending a message",
             AIAgentActionResultType::TransferShellCommandControlToUser(_) => {
@@ -887,7 +842,6 @@ impl AIAgentActionResultType {
             Self::RequestCommandOutput(r) => r.is_successful(),
             Self::RequestFileEdits(RequestFileEditsResult::Success { .. })
             | Self::ReadFiles(ReadFilesResult::Success { .. })
-            | Self::UploadArtifact(UploadArtifactResult::Success { .. })
             | Self::SearchCodebase(SearchCodebaseResult::Success { .. })
             | Self::Grep(GrepResult::Success { .. })
             | Self::FileGlob(FileGlobResult::Success { .. })
@@ -905,10 +859,6 @@ impl AIAgentActionResultType {
             | Self::UseComputer(UseComputerResult::Success { .. })
             | Self::InsertReviewComments(InsertReviewCommentsResult::Success { .. })
             | Self::RequestComputerUse(RequestComputerUseResult::Approved { .. })
-            | Self::StartRecording(StartRecordingResult::Success(_))
-            | Self::StopRecording(
-                StopRecordingResult::Success(_) | StopRecordingResult::Discarded,
-            )
             | Self::OpenCodeReview
             | Self::ReadSkill(ReadSkillResult::Success { .. })
             | Self::FetchConversation(FetchConversationResult::Success { .. })
@@ -931,7 +881,6 @@ impl AIAgentActionResultType {
             Self::RequestCommandOutput(r) => r.failed(),
             Self::RequestFileEdits(RequestFileEditsResult::DiffApplicationFailed { .. })
             | Self::ReadFiles(ReadFilesResult::Error(_))
-            | Self::UploadArtifact(UploadArtifactResult::Error(_))
             | Self::SearchCodebase(SearchCodebaseResult::Failed { .. })
             | Self::Grep(GrepResult::Error(_))
             | Self::FileGlob(FileGlobResult::Error(_))
@@ -947,8 +896,6 @@ impl AIAgentActionResultType {
             | Self::UseComputer(UseComputerResult::Error(_))
             | Self::InsertReviewComments(InsertReviewCommentsResult::Error { .. })
             | Self::RequestComputerUse(RequestComputerUseResult::Error(_))
-            | Self::StartRecording(StartRecordingResult::Error(_))
-            | Self::StopRecording(StopRecordingResult::Error(_))
             | Self::FetchConversation(FetchConversationResult::Error(_))
             | Self::SendMessageToAgent(SendMessageToAgentResult::Error(_))
             | Self::AskUserQuestion(AskUserQuestionResult::Error(_))
@@ -975,7 +922,6 @@ impl AIAgentActionResultType {
             }) if exit_code.value() == 130 => true,
             Self::RequestFileEdits(RequestFileEditsResult::Cancelled)
             | Self::ReadFiles(ReadFilesResult::Cancelled)
-            | Self::UploadArtifact(UploadArtifactResult::Cancelled)
             | Self::SearchCodebase(SearchCodebaseResult::Cancelled)
             | Self::Grep(GrepResult::Cancelled)
             | Self::FileGlob(FileGlobResult::Cancelled)
@@ -990,8 +936,6 @@ impl AIAgentActionResultType {
             | Self::UseComputer(UseComputerResult::Cancelled)
             | Self::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
             | Self::RequestComputerUse(RequestComputerUseResult::Cancelled)
-            | Self::StartRecording(StartRecordingResult::Cancelled)
-            | Self::StopRecording(StopRecordingResult::Cancelled)
             | Self::TransferShellCommandControlToUser(
                 TransferShellCommandControlToUserResult::Cancelled,
             )
@@ -1350,76 +1294,6 @@ impl Display for RequestComputerUseResult {
                 write!(f, "Request computer use error: {error}")
             }
             RequestComputerUseResult::Cancelled => write!(f, "Request computer use cancelled"),
-        }
-    }
-}
-
-/// The result of a `StartRecording` tool call. Carries the resolved capture
-/// dimensions; frame rate and limits are server-owned and not echoed back.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StartRecordingResult {
-    Success(RecordingStarted),
-    Error(String),
-    Cancelled,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordingStarted {
-    pub recording_id: String,
-    pub started_at: SystemTime,
-    pub width_px: i32,
-    pub height_px: i32,
-}
-
-impl Display for StartRecordingResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StartRecordingResult::Success(started) => write!(
-                f,
-                "Recording started ({}x{})",
-                started.width_px, started.height_px
-            ),
-            StartRecordingResult::Error(error) => write!(f, "Start recording error: {error}"),
-            StartRecordingResult::Cancelled => write!(f, "Start recording cancelled"),
-        }
-    }
-}
-
-/// The result of a `StopRecording` tool call. Carries the published artifact
-/// reference and video metadata; never the file path or bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StopRecordingResult {
-    Success(RecordingStopped),
-    Error(String),
-    Cancelled,
-    /// The agent opted not to persist the recording (`should_persist=false`), so
-    /// it was discarded without uploading. Distinct from `Cancelled` so the
-    /// agent's turn continues.
-    Discarded,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordingStopped {
-    pub artifact_uid: String,
-    pub duration: Duration,
-    pub width_px: i32,
-    pub height_px: i32,
-    pub size_bytes: i64,
-    pub completion_status: computer_use::RecordingCompletionStatus,
-    pub termination_reason: String,
-}
-
-impl Display for StopRecordingResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StopRecordingResult::Success(stopped) => write!(
-                f,
-                "Recording stopped (artifact {}, {} bytes)",
-                stopped.artifact_uid, stopped.size_bytes
-            ),
-            StopRecordingResult::Error(error) => write!(f, "Stop recording error: {error}"),
-            StopRecordingResult::Cancelled => write!(f, "Stop recording cancelled"),
-            StopRecordingResult::Discarded => write!(f, "Recording discarded"),
         }
     }
 }
