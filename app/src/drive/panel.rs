@@ -17,7 +17,6 @@ use super::drive_helpers::{
 use super::index::{DriveIndex, DriveIndexAction, DriveIndexEvent};
 use super::items::WarpDriveItemId;
 use super::{CloudObjectTypeAndId, DriveObjectType};
-use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::ai::facts::CloudAIFactModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
@@ -71,7 +70,6 @@ pub enum DrivePanelEvent {
     OpenNotebook(NotebookSource),
     OpenEnvVarCollection(EnvVarCollectionSource),
     FocusWarpDrive,
-    AttachPlanAsContext(AIDocumentId),
 }
 
 impl DrivePanel {
@@ -269,9 +267,6 @@ impl DrivePanel {
                     );
                 }
             },
-            DriveIndexEvent::AttachPlanAsContext(id) => {
-                ctx.emit(DrivePanelEvent::AttachPlanAsContext(*id))
-            }
         }
     }
 
@@ -298,9 +293,7 @@ impl DrivePanel {
                         // If team has reached the limit for notebooks, show the modal
                         // and return early.
                         ctx.emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
-                            DriveObjectType::Notebook {
-                                is_ai_document: false,
-                            },
+                            DriveObjectType::Notebook,
                             team_uid,
                         ));
                         return;

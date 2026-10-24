@@ -116,8 +116,6 @@ pub const STATUS_MESSAGE_ELLIPSIS: &str = "...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_ADJUSTING: &str = "Adjusting tasks...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF: &str = "Creating diff...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_PREPARING_QUESTION: &str = "Preparing question...";
-pub const LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN: &str = "Generating plan...";
-pub const LOAD_OUTPUT_MESSAGE_FOR_UPDATING_PLAN: &str = "Updating plan...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_SUMMARIZING_CONVERSATION: &str = "Summarizing conversation...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_SUMMARIZING_TOOL_CALL_RESULT: &str =
     "Summarizing command output...";
@@ -324,10 +322,6 @@ pub fn render_warping_indicator<V: View>(
         } else {
             base_message.to_string()
         }
-    } else if props.model.contains_update_document_action(app) {
-        naming_model(LOAD_OUTPUT_MESSAGE_FOR_UPDATING_PLAN)
-    } else if props.model.contains_create_document_action(app) {
-        naming_model(LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN)
     } else if is_last_message_requesting_file_edits {
         naming_model(LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF)
     } else if is_last_message_asking_user_question {

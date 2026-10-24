@@ -139,7 +139,7 @@ impl CloudObjectNamingDialog {
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         let title = match object_type {
-            DriveObjectType::Notebook { .. } => NOTEBOOK_TITLE,
+            DriveObjectType::Notebook => NOTEBOOK_TITLE,
             DriveObjectType::Folder => FOLDER_TITLE,
             DriveObjectType::EnvVarCollection => ENV_VAR_COLLECTION_TITLE,
             // workflows and ai facts aren't a part of this dialog

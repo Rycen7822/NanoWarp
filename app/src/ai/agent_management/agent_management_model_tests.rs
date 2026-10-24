@@ -40,14 +40,6 @@ fn make_pr_artifact(url: &str, branch: &str) -> Artifact {
     }
 }
 
-fn make_plan_artifact(doc_uid: &str, title: &str) -> Artifact {
-    Artifact::Plan {
-        document_uid: doc_uid.to_string(),
-        notebook_uid: None,
-        title: Some(title.to_string()),
-    }
-}
-
 #[test]
 fn artifact_event_accumulates_into_pending() {
     App::test((), |mut app| async move {
@@ -86,7 +78,7 @@ fn multiple_artifacts_accumulated_across_turns() {
             ctx.emit(BlocklistAIHistoryEvent::UpdatedConversationArtifacts {
                 terminal_surface_id: terminal_view_id,
                 conversation_id,
-                artifact: make_plan_artifact("doc-1", "My Plan"),
+                artifact: make_pr_artifact("https://github.com/org/repo/pull/2", "feature"),
             });
         });
         history.update(&mut app, |_: &mut BlocklistAIHistoryModel, ctx| {
@@ -100,7 +92,9 @@ fn multiple_artifacts_accumulated_across_turns() {
         notifications.read(&app, |model, _| {
             let pending = model.pending_artifacts.get(&conversation_id).unwrap();
             assert_eq!(pending.len(), 2);
-            assert!(matches!(&pending[0], Artifact::Plan { title: Some(t), .. } if t == "My Plan"));
+            assert!(
+                matches!(&pending[0], Artifact::PullRequest { branch, .. } if branch == "feature")
+            );
             assert!(matches!(&pending[1], Artifact::PullRequest { .. }));
         });
     });
@@ -245,7 +239,7 @@ fn separate_conversations_have_independent_pending_artifacts() {
             ctx.emit(BlocklistAIHistoryEvent::UpdatedConversationArtifacts {
                 terminal_surface_id: terminal_view_id,
                 conversation_id: conv_b,
-                artifact: make_plan_artifact("doc-b", "Plan B"),
+                artifact: make_pr_artifact("https://github.com/org/repo/pull/2", "branch-b"),
             });
         });
 
@@ -256,7 +250,7 @@ fn separate_conversations_have_independent_pending_artifacts() {
 
             let b = model.flush_pending_artifacts(conv_b);
             assert_eq!(b.len(), 1);
-            assert!(matches!(&b[0], Artifact::Plan { title: Some(t), .. } if t == "Plan B"));
+            assert!(matches!(&b[0], Artifact::PullRequest { branch, .. } if branch == "branch-b"));
         });
     });
 }

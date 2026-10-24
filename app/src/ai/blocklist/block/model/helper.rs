@@ -4,7 +4,7 @@ use super::AIBlockModel;
 use crate::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversation;
 use crate::ai::agent::{
-    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentOutputMessageType, SummarizationType,
+    AIAgentAction, AIAgentActionId, AIAgentOutputMessageType, SummarizationType,
 };
 use crate::ai::blocklist::BlocklistAIActionModel;
 
@@ -15,10 +15,6 @@ use crate::ai::blocklist::BlocklistAIActionModel;
 pub trait AIBlockModelHelper {
     fn is_first_action_in_output(&self, action_id: &AIAgentActionId, app: &AppContext) -> bool;
     fn conversation<'a>(&self, app: &'a AppContext) -> Option<&'a AIConversation>;
-
-    fn contains_create_document_action(&self, app: &AppContext) -> bool;
-
-    fn contains_update_document_action(&self, app: &AppContext) -> bool;
 
     fn is_latest_visible_exchange_in_root_task(&self, app: &AppContext) -> bool;
 
@@ -51,42 +47,6 @@ impl<T: ?Sized + AIBlockModel> AIBlockModelHelper for T {
     fn conversation<'a>(&self, app: &'a AppContext) -> Option<&'a AIConversation> {
         self.conversation_id(app)
             .and_then(|id| BlocklistAIHistoryModel::as_ref(app).conversation(&id))
-    }
-
-    fn contains_create_document_action(&self, app: &AppContext) -> bool {
-        match self.status(app).output_to_render() {
-            Some(output) => {
-                let output = output.get();
-                output.messages.iter().any(|m| {
-                    matches!(
-                        m.message,
-                        AIAgentOutputMessageType::Action(AIAgentAction {
-                            action: AIAgentActionType::CreateDocuments { .. },
-                            ..
-                        })
-                    )
-                })
-            }
-            _ => false,
-        }
-    }
-
-    fn contains_update_document_action(&self, app: &AppContext) -> bool {
-        match self.status(app).output_to_render() {
-            Some(output) => {
-                let output = output.get();
-                output.messages.iter().any(|m| {
-                    matches!(
-                        m.message,
-                        AIAgentOutputMessageType::Action(AIAgentAction {
-                            action: AIAgentActionType::EditDocuments { .. },
-                            ..
-                        })
-                    )
-                })
-            }
-            _ => false,
-        }
     }
 
     fn is_latest_visible_exchange_in_root_task(&self, app: &AppContext) -> bool {

@@ -781,7 +781,6 @@ impl AIExecutionProfilesModel {
             let mut new_profile = self.default_profile(ctx).data().clone();
             new_profile.name = String::new();
             new_profile.is_default_profile = false;
-            new_profile.autosync_plans_to_warp_drive = true;
             profiles.insert(profile_id.clone(), new_profile);
             if !self.activate_pending_settings_collection(profiles, ctx) {
                 return None;
@@ -795,7 +794,6 @@ impl AIExecutionProfilesModel {
             let mut new_profile = self.default_profile(ctx).data().clone();
             new_profile.name = String::new();
             new_profile.is_default_profile = false;
-            new_profile.autosync_plans_to_warp_drive = true;
             profiles.insert(profile_id.clone(), new_profile);
             if let Err(error) = AISettings::handle(ctx).update(ctx, |settings, ctx| {
                 settings.execution_profiles.set_value(profiles, ctx)
@@ -815,7 +813,6 @@ impl AIExecutionProfilesModel {
         let mut new_profile = self.default_profile(ctx).data().clone();
         new_profile.name = "".to_string();
         new_profile.is_default_profile = false;
-        new_profile.autosync_plans_to_warp_drive = true;
 
         let update_manager = UpdateManager::handle(ctx);
         let client_id = ClientId::default();
@@ -1445,33 +1442,6 @@ impl AIExecutionProfilesModel {
         send_telemetry_from_ctx!(
             TelemetryEvent::AIExecutionProfileSettingUpdated {
                 setting_type: "web_search_enabled".to_string(),
-                setting_value: format!("{enabled}"),
-            },
-            ctx
-        );
-    }
-
-    pub fn set_autosync_plans_to_warp_drive(
-        &mut self,
-        profile_id: &ExecutionProfileId,
-        enabled: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.edit_profile_internal(
-            profile_id,
-            |profile| {
-                if profile.autosync_plans_to_warp_drive != enabled {
-                    profile.autosync_plans_to_warp_drive = enabled;
-                    return true;
-                }
-                false
-            },
-            ctx,
-        );
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AIExecutionProfileSettingUpdated {
-                setting_type: "plan_auto_sync".to_string(),
                 setting_value: format!("{enabled}"),
             },
             ctx

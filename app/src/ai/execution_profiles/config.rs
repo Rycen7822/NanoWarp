@@ -391,8 +391,6 @@ struct ExecutionProfileFile {
         description = "Optional context window limit in tokens. The valid range is model-dependent and determined server-side; the value is automatically clamped to the selected model's supported context window. Consult the selected model's documentation for its actual supported range."
     )]
     context_window_limit: Option<u32>,
-    #[schemars(description = "Whether plans are automatically synced to Warp Drive.")]
-    autosync_plans_to_warp_drive: bool,
     #[schemars(description = "Whether the web-search tool is available.")]
     web_search_enabled: bool,
 }
@@ -427,7 +425,6 @@ impl From<&AIExecutionProfile> for ExecutionProfileFile {
             coding_model: profile.coding_model.clone().map(Into::into),
             cli_agent_model: profile.cli_agent_model.clone().map(Into::into),
             context_window_limit: profile.context_window_limit,
-            autosync_plans_to_warp_drive: profile.autosync_plans_to_warp_drive,
             web_search_enabled: profile.web_search_enabled,
         }
     }
@@ -466,7 +463,6 @@ impl TryFrom<ExecutionProfileFile> for AIExecutionProfile {
             coding_model: file.coding_model.map(LLMId::from),
             cli_agent_model: file.cli_agent_model.map(LLMId::from),
             context_window_limit: file.context_window_limit,
-            autosync_plans_to_warp_drive: file.autosync_plans_to_warp_drive,
             web_search_enabled: file.web_search_enabled,
         })
     }

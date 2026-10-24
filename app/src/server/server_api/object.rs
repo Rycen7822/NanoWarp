@@ -119,7 +119,6 @@ use warp_graphql::queries::get_updated_cloud_objects::{
 use warp_graphql::subscriptions::get_warp_drive_updates::GetWarpDriveUpdates;
 use warp_graphql::subscriptions::start_graphql_streaming_operation;
 
-use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::ai::execution_profiles::AIExecutionProfile;
 use crate::ai::facts::AIFact;
 use crate::channel::ChannelState;
@@ -401,9 +400,11 @@ impl ObjectClient for ServerApi {
         let notebook: SerializedNotebook = serde_json::from_str(serialized.model_as_str())
             .context("Failed to deserialize notebook model")?;
 
-        let ai_document_id = notebook
-            .ai_document_id
-            .and_then(|id| AIDocumentId::try_from(id).ok());
+        if notebook.ai_document_id.is_some() || notebook.conversation_id.is_some() {
+            return Ok(CreateCloudObjectResult::UserFacingError(
+                "AI documents are no longer supported".to_owned(),
+            ));
+        }
 
         let variables = CreateNotebookVariables {
             input: CreateNotebookInput {
@@ -412,8 +413,6 @@ impl ObjectClient for ServerApi {
                 initial_folder_id: request.initial_folder_id.map(|folder_id| folder_id.into()),
                 owner: request.owner.into(),
                 title: request.title,
-                ai_document_id: ai_document_id.map(|id| id.to_string()),
-                conversation_id: notebook.conversation_id,
             },
             request_context: get_request_context(),
         };

@@ -114,11 +114,11 @@ impl SharedObjectsCreationDeniedModal {
             Some(format!("Shared {object_type}s limit reached"))
         };
         let (icon, icon_color) = match object_type {
-            DriveObjectType::Notebook { is_ai_document } => (
+            DriveObjectType::Notebook => (
                 Some(Icon::Notebook),
                 Some(Fill::Solid(warp_drive_icon_color(
                     appearance,
-                    DriveObjectType::Notebook { is_ai_document },
+                    DriveObjectType::Notebook,
                 ))),
             ),
             DriveObjectType::Workflow => (

@@ -64,7 +64,6 @@ use crate::editor::{
     PropagateHorizontalNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
 use crate::menu::{MenuItem, MenuItemFields};
-use crate::notebooks::NotebookId;
 use crate::server::team_scope::RequestTeamScope;
 use crate::settings::UsageDisplayUnit;
 use crate::settings::ai::{AISettings, AISettingsChangedEvent};
@@ -597,11 +596,6 @@ impl AgentManagementView {
                     AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::PullRequest),
                 ),
             )),
-            MenuItem::Item(MenuItemFields::new("Plan").with_on_select_action(
-                DropdownAction::select_action_and_close(
-                    AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::Plan),
-                ),
-            )),
             MenuItem::Item(MenuItemFields::new("File").with_on_select_action(
                 DropdownAction::select_action_and_close(
                     AgentManagementViewAction::SetArtifactFilter(ArtifactFilter::File),
@@ -1018,17 +1012,6 @@ impl AgentManagementView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            ArtifactButtonsRowEvent::OpenPlan { notebook_uid } => {
-                send_telemetry_from_ctx!(
-                    AgentManagementTelemetryEvent::ArtifactClicked {
-                        artifact_type: ArtifactType::Plan
-                    },
-                    ctx
-                );
-                ctx.emit(AgentManagementViewEvent::OpenPlanNotebook {
-                    notebook_uid: *notebook_uid,
-                });
-            }
             ArtifactButtonsRowEvent::CopyBranch { branch } => {
                 send_telemetry_from_ctx!(
                     AgentManagementTelemetryEvent::ArtifactClicked {
@@ -1211,11 +1194,6 @@ impl AgentManagementView {
             ConversationDetailsPanelEvent::Close => {
                 self.selected_item_id = None;
                 ctx.notify();
-            }
-            ConversationDetailsPanelEvent::OpenPlanNotebook { notebook_uid } => {
-                ctx.emit(AgentManagementViewEvent::OpenPlanNotebook {
-                    notebook_uid: *notebook_uid,
-                });
             }
         }
     }
@@ -1893,7 +1871,7 @@ impl AgentManagementView {
 }
 
 impl Entity for AgentManagementView {
-    type Event = AgentManagementViewEvent;
+    type Event = ();
 }
 
 impl View for AgentManagementView {
@@ -1958,10 +1936,6 @@ pub enum AgentManagementViewAction {
     SpawnNewLocalAgent,
     OpenSession { item_id: ManagementCardItemId },
     FocusSearch,
-}
-
-pub enum AgentManagementViewEvent {
-    OpenPlanNotebook { notebook_uid: NotebookId },
 }
 
 impl TypedActionView for AgentManagementView {

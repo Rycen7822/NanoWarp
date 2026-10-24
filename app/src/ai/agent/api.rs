@@ -143,7 +143,6 @@ pub struct RequestParams {
     pub is_memory_enabled: bool,
     pub warp_drive_context_enabled: bool,
     pub context_window_limit: Option<u32>,
-    pub planning_enabled: bool,
     should_redact_secrets: bool,
 
     /// Whether `scope`'s team allows members to use their own provider credentials.
@@ -209,7 +208,6 @@ impl RequestParams {
             is_memory_enabled: false,
             warp_drive_context_enabled: false,
             context_window_limit: None,
-            planning_enabled: false,
             should_redact_secrets: false,
             member_byo_credentials_allowed: false,
             api_keys: None,
@@ -320,7 +318,6 @@ impl RequestParams {
             cli_agent_model: request_input.cli_agent_model_id.clone(),
             is_memory_enabled,
             warp_drive_context_enabled,
-            planning_enabled: true,
             should_redact_secrets,
             member_byo_credentials_allowed,
             api_keys,

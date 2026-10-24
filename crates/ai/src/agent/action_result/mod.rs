@@ -12,7 +12,6 @@ use warp_multi_agent_api::apply_file_diffs_result::success::UpdatedFileContent;
 use warp_terminal::model::BlockId;
 
 use crate::agent::FileLocations;
-use crate::document::{AIDocumentId, AIDocumentVersion};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AIAgentActionResultType {
@@ -46,15 +45,6 @@ pub enum AIAgentActionResultType {
     SuggestNewConversation(SuggestNewConversationResult),
 
     OpenCodeReview,
-
-    /// The output of a read documents action.
-    ReadDocuments(ReadDocumentsResult),
-
-    /// The output of an edit documents action.
-    EditDocuments(EditDocumentsResult),
-
-    /// The output of a create documents action.
-    CreateDocuments(CreateDocumentsResult),
 
     /// The output of reading shell command output.
     ReadShellCommandOutput(ReadShellCommandOutputResult),
@@ -122,9 +112,6 @@ impl Display for AIAgentActionResultType {
             AIAgentActionResultType::FileGlobV2(result) => result.fmt(f),
             AIAgentActionResultType::ReadSkill(result) => result.fmt(f),
             AIAgentActionResultType::SuggestNewConversation(result) => result.fmt(f),
-            AIAgentActionResultType::ReadDocuments(result) => result.fmt(f),
-            AIAgentActionResultType::EditDocuments(result) => result.fmt(f),
-            AIAgentActionResultType::CreateDocuments(result) => result.fmt(f),
             AIAgentActionResultType::ReadShellCommandOutput(result) => result.fmt(f),
             AIAgentActionResultType::InsertReviewComments(result) => result.fmt(f),
             AIAgentActionResultType::FetchConversation(result) => result.fmt(f),
@@ -462,103 +449,6 @@ impl Display for ReadFilesResult {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DocumentContext {
-    pub document_id: AIDocumentId,
-    pub document_version: AIDocumentVersion,
-    pub content: String,
-    pub line_ranges: Vec<Range<usize>>,
-}
-
-impl Display for DocumentContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.line_ranges.is_empty() {
-            return write!(f, "Document {}", self.document_id);
-        }
-
-        let line_ranges = self
-            .line_ranges
-            .iter()
-            .map(|range| format!("{}-{}", range.start, range.end))
-            .collect_vec();
-        write!(
-            f,
-            "Document {} ({})",
-            self.document_id,
-            line_ranges.join(", ")
-        )
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ReadDocumentsResult {
-    Success { documents: Vec<DocumentContext> },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for ReadDocumentsResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReadDocumentsResult::Success { documents } => {
-                write!(f, "Read documents: {}", documents.iter().format(", "))
-            }
-            ReadDocumentsResult::Error(error) => write!(f, "Read documents error: {error}"),
-            ReadDocumentsResult::Cancelled => write!(f, "Read documents cancelled"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum EditDocumentsResult {
-    Success {
-        updated_documents: Vec<DocumentContext>,
-    },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for EditDocumentsResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EditDocumentsResult::Success { updated_documents } => {
-                write!(
-                    f,
-                    "Edited documents: {}",
-                    updated_documents.iter().format(", ")
-                )
-            }
-            EditDocumentsResult::Error(error) => write!(f, "Edit documents error: {error}"),
-            EditDocumentsResult::Cancelled => write!(f, "Edit documents cancelled"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum CreateDocumentsResult {
-    Success {
-        created_documents: Vec<DocumentContext>,
-    },
-    Error(String),
-    Cancelled,
-}
-
-impl Display for CreateDocumentsResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CreateDocumentsResult::Success { created_documents } => {
-                write!(
-                    f,
-                    "Created documents: {}",
-                    created_documents.iter().format(", ")
-                )
-            }
-            CreateDocumentsResult::Error(error) => write!(f, "Create documents error: {error}"),
-            CreateDocumentsResult::Cancelled => write!(f, "Create documents cancelled"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ReadShellCommandOutputResult {
     CommandFinished {
         command: String,
@@ -701,9 +591,6 @@ impl AIAgentActionResultType {
             }
             AIAgentActionResultType::OpenCodeReview => "Open code review",
             AIAgentActionResultType::InsertReviewComments(_) => "Insert code review comments",
-            AIAgentActionResultType::ReadDocuments(_) => "The requested document content",
-            AIAgentActionResultType::EditDocuments(_) => "The edited document content",
-            AIAgentActionResultType::CreateDocuments(_) => "The newly created documents",
             AIAgentActionResultType::ReadShellCommandOutput(_) => "The shell command output",
             AIAgentActionResultType::FetchConversation(_) => "The fetched conversation tasks",
             AIAgentActionResultType::TransferShellCommandControlToUser(_) => {
@@ -724,9 +611,6 @@ impl AIAgentActionResultType {
             | Self::FileGlob(FileGlobResult::Success { .. })
             | Self::FileGlobV2(FileGlobV2Result::Success { .. })
             | Self::SuggestNewConversation(SuggestNewConversationResult::Accepted { .. })
-            | Self::ReadDocuments(ReadDocumentsResult::Success { .. })
-            | Self::EditDocuments(EditDocumentsResult::Success { .. })
-            | Self::CreateDocuments(CreateDocumentsResult::Success { .. })
             | Self::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::CommandFinished { .. }
                 | ReadShellCommandOutputResult::LongRunningCommandSnapshot { .. },
@@ -752,9 +636,6 @@ impl AIAgentActionResultType {
             | Self::Grep(GrepResult::Error(_))
             | Self::FileGlob(FileGlobResult::Error(_))
             | Self::FileGlobV2(FileGlobV2Result::Error(_))
-            | Self::ReadDocuments(ReadDocumentsResult::Error(_))
-            | Self::EditDocuments(EditDocumentsResult::Error(_))
-            | Self::CreateDocuments(CreateDocumentsResult::Error(_))
             | Self::InsertReviewComments(InsertReviewCommentsResult::Error { .. })
             | Self::FetchConversation(FetchConversationResult::Error(_))
             | Self::AskUserQuestion(AskUserQuestionResult::Error(_))
@@ -779,9 +660,6 @@ impl AIAgentActionResultType {
             | Self::FileGlob(FileGlobResult::Cancelled)
             | Self::FileGlobV2(FileGlobV2Result::Cancelled)
             | Self::SuggestNewConversation(SuggestNewConversationResult::Cancelled)
-            | Self::ReadDocuments(ReadDocumentsResult::Cancelled)
-            | Self::EditDocuments(EditDocumentsResult::Cancelled)
-            | Self::CreateDocuments(CreateDocumentsResult::Cancelled)
             | Self::ReadShellCommandOutput(ReadShellCommandOutputResult::Cancelled)
             | Self::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
             | Self::TransferShellCommandControlToUser(

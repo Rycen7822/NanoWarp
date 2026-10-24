@@ -52,7 +52,6 @@ use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::harness_display;
 use crate::appearance::Appearance;
 use crate::auth::UserUid;
-use crate::notebooks::NotebookId;
 use crate::send_telemetry_from_ctx;
 use crate::server::server_api::ai::AmbientAgentTask;
 use crate::settings::ai::{AISettings, AISettingsChangedEvent};
@@ -597,7 +596,6 @@ impl ConversationDetailsData {
 #[derive(Debug, Clone)]
 pub enum ConversationDetailsPanelEvent {
     Close,
-    OpenPlanNotebook { notebook_uid: NotebookId },
 }
 
 /// Actions for the ConversationDetailsPanel.
@@ -784,11 +782,6 @@ impl ConversationDetailsPanel {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            ArtifactButtonsRowEvent::OpenPlan { notebook_uid } => {
-                ctx.emit(ConversationDetailsPanelEvent::OpenPlanNotebook {
-                    notebook_uid: *notebook_uid,
-                });
-            }
             ArtifactButtonsRowEvent::CopyBranch { branch } => {
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(branch.clone()));

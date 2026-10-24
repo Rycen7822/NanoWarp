@@ -1355,54 +1355,6 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 }
                 GrepResult::Cancelled => write!(f, "\n_Grep cancelled_"),
             },
-            AIAgentActionResultType::ReadDocuments(result) => match result {
-                ReadDocumentsResult::Success { documents } => {
-                    write!(f, "\n\n**Documents Read:**\n\n")?;
-                    for document in documents {
-                        writeln!(f, "**Document {}**", document.document_id)?;
-                        if !document.content.trim().is_empty() {
-                            writeln!(f, "```\n{}\n```\n", document.content)?;
-                        }
-                    }
-                    Ok(())
-                }
-                ReadDocumentsResult::Error(error) => {
-                    write!(f, "\n_Read documents error: {error} _")
-                }
-                ReadDocumentsResult::Cancelled => write!(f, "\n_Read documents cancelled_"),
-            },
-            AIAgentActionResultType::EditDocuments(result) => match result {
-                EditDocumentsResult::Success { updated_documents } => {
-                    write!(f, "\n\n**Documents Edited:**\n\n")?;
-                    for document in updated_documents {
-                        writeln!(f, "**Document {}**", document.document_id)?;
-                        if !document.content.trim().is_empty() {
-                            writeln!(f, "```\n{}\n```\n", document.content)?;
-                        }
-                    }
-                    Ok(())
-                }
-                EditDocumentsResult::Error(error) => {
-                    write!(f, "\n_Edit documents error: {error} _")
-                }
-                EditDocumentsResult::Cancelled => write!(f, "\n_Edit documents cancelled_"),
-            },
-            AIAgentActionResultType::CreateDocuments(result) => match result {
-                CreateDocumentsResult::Success { created_documents } => {
-                    write!(f, "\n\n**Documents Created:**\n\n")?;
-                    for document in created_documents {
-                        writeln!(f, "**Document {}**", document.document_id)?;
-                        if !document.content.trim().is_empty() {
-                            writeln!(f, "```\n{}\n```\n", document.content)?;
-                        }
-                    }
-                    Ok(())
-                }
-                CreateDocumentsResult::Error(error) => {
-                    write!(f, "\n_Create documents error: {error} _")
-                }
-                CreateDocumentsResult::Cancelled => write!(f, "\n_Create documents cancelled_"),
-            },
             AIAgentActionResultType::ReadShellCommandOutput(result) => match result {
                 ReadShellCommandOutputResult::CommandFinished { output, .. } => {
                     write!(f, "\n```\n{output}\n```")
@@ -2384,14 +2336,6 @@ impl std::fmt::Debug for ImageContext {
     }
 }
 
-/// Source of a document content attachment.
-/// Used to identify user-attached plans to track in the UI.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DocumentContentAttachmentSource {
-    UserAttached,
-    PlanEdited,
-}
-
 /// Serialization derives the externally tagged form for the named variants,
 /// with `Block` serialized untagged as a bare [`BlockContext`] object.
 /// Deserialization is hand-written below and must accept exactly those
@@ -2400,12 +2344,6 @@ pub enum DocumentContentAttachmentSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum AIAgentAttachment {
     PlainText(String),
-    DocumentContent {
-        document_id: String,
-        content: String,
-        source: DocumentContentAttachmentSource,
-        line_range: Option<Range<LineCount>>,
-    },
     DriveObject {
         /// The UID of the drive object.
         uid: String,
@@ -2448,12 +2386,6 @@ pub enum AIAgentAttachment {
 #[derive(Deserialize)]
 enum AIAgentAttachmentTagged {
     PlainText(String),
-    DocumentContent {
-        document_id: String,
-        content: String,
-        source: DocumentContentAttachmentSource,
-        line_range: Option<Range<LineCount>>,
-    },
     DriveObject {
         uid: String,
         payload: Option<DriveObjectPayload>,
@@ -2483,17 +2415,6 @@ impl From<AIAgentAttachmentTagged> for AIAgentAttachment {
     fn from(tagged: AIAgentAttachmentTagged) -> Self {
         match tagged {
             AIAgentAttachmentTagged::PlainText(text) => AIAgentAttachment::PlainText(text),
-            AIAgentAttachmentTagged::DocumentContent {
-                document_id,
-                content,
-                source,
-                line_range,
-            } => AIAgentAttachment::DocumentContent {
-                document_id,
-                content,
-                source,
-                line_range,
-            },
             AIAgentAttachmentTagged::DriveObject { uid, payload } => {
                 AIAgentAttachment::DriveObject { uid, payload }
             }

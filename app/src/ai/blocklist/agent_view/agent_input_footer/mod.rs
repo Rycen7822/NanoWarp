@@ -4,7 +4,6 @@ pub mod toolbar_item;
 
 use std::sync::Arc;
 
-use ai::document::{AIDocumentId, AIDocumentVersion};
 use chrono::{DateTime, Local};
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
@@ -948,20 +947,12 @@ pub enum AgentInputFooterEvent {
     ToggleFileExplorer,
     StartRemoteControl,
     StopRemoteControl,
-    ToggledChipMenu {
-        open: bool,
-    },
+    ToggledChipMenu { open: bool },
     TryExecuteChipCommand(PromptChipShellCommand),
     PromptAlert(PromptAlertEvent),
     OpenSettings(SettingsSection),
     OpenCodeReview,
-    OpenAIDocument {
-        document_id: AIDocumentId,
-        document_version: AIDocumentVersion,
-    },
-    ShowContextMenu {
-        position: Vector2F,
-    },
+    ShowContextMenu { position: Vector2F },
 }
 
 impl Entity for AgentInputFooter {

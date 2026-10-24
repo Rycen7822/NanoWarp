@@ -75,7 +75,6 @@ pub async fn generate_multi_agent_output(
             web_context_retrieval_enabled: true,
             supports_parallel_tool_calls: true,
             use_anthropic_text_editor_tools: false,
-            planning_enabled: params.planning_enabled,
             supports_create_files: true,
             supports_create_file_overwrite: true,
             supported_tools: supported_tools.into_iter().map(Into::into).collect(),
@@ -211,9 +210,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::Subagent,
         api::ToolType::WriteToLongRunningShellCommand,
         api::ToolType::ReadShellCommandOutput,
-        api::ToolType::ReadDocuments,
-        api::ToolType::CreateDocuments,
-        api::ToolType::EditDocuments,
     ];
 
     if FeatureFlag::ConversationsAsContext.is_enabled() {

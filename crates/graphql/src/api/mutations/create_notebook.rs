@@ -15,8 +15,6 @@ pub struct CreateNotebookVariables {
 
 #[derive(cynic::InputObject, Debug)]
 pub struct CreateNotebookInput {
-    pub ai_document_id: Option<String>,
-    pub conversation_id: Option<String>,
     pub data: Option<String>,
     pub entrypoint: CloudObjectEventEntrypoint,
     pub initial_folder_id: Option<cynic::Id>,

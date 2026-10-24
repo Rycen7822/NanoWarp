@@ -1,7 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 pub mod persistence;
 
-use ai::document::AIDocumentId;
 use cloud_objects::cloud_object::{
     GenericCloudObject, GenericServerObject, ObjectType, ServerObjectModel,
 };
@@ -9,12 +8,13 @@ use cloud_objects::ids::{ServerId, SyncId};
 use serde::{Deserialize, Serialize};
 
 /// Serialized representation of a notebook for sync queue
-/// The AIDocumentID and ConversationID are stored here to avoid polluting the
-/// generic CreateObjectRequest type.
+/// Retired document markers are accepted only to reject old create inputs.
 #[derive(Serialize, Deserialize)]
 pub struct SerializedNotebook {
     pub data: String,
+    #[serde(default, skip_serializing)]
     pub ai_document_id: Option<String>,
+    #[serde(default, skip_serializing)]
     pub conversation_id: Option<String>,
 }
 
@@ -22,9 +22,6 @@ pub struct SerializedNotebook {
 pub struct CloudNotebookModel {
     pub title: String,
     pub data: String,
-    pub ai_document_id: Option<AIDocumentId>,
-    /// This is the server-generated conversation token, not the client-side AIConversationId.
-    pub conversation_id: Option<String>,
 }
 
 impl ServerObjectModel for CloudNotebookModel {

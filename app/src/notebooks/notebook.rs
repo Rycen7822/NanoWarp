@@ -43,7 +43,6 @@ use super::link::{NotebookLinks, SessionSource};
 use super::manager::NotebookManager;
 use super::telemetry::NotebookTelemetryAction;
 use super::{CloudNotebookModel, NotebookId, NotebookLocation, styles};
-use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::appearance::Appearance;
 use crate::cloud_object::grab_edit_access_modal::{GrabEditAccessModal, GrabEditAccessModalEvent};
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent, UpdateSource};
@@ -257,7 +256,6 @@ pub enum NotebookEvent {
         invitee_email: Option<String>,
         source: SharingDialogSource,
     },
-    AttachPlanAsContext(AIDocumentId),
 }
 
 impl From<PaneEvent> for NotebookEvent {
@@ -289,7 +287,6 @@ pub enum NotebookAction {
     CopyToClipboard,
     CopyLink(String),
     OpenLinkOnDesktop(Url),
-    AttachPlanAsContext(AIDocumentId),
 }
 
 impl From<ContextMenuAction> for NotebookAction {
@@ -827,8 +824,6 @@ impl NotebookView {
                             CloudNotebookModel {
                                 title: notebook.model().title.clone(),
                                 data: content.to_string(),
-                                ai_document_id: notebook.model().ai_document_id,
-                                conversation_id: notebook.model().conversation_id.clone(),
                             },
                             CloudObjectEventEntrypoint::Unknown,
                             true,
@@ -991,7 +986,6 @@ impl NotebookView {
             ),
             EditorViewEvent::OpenFile { .. } => {
                 // We don't support opening files from the notebook view.
-                // File paths rely on a Session to be present, and this is only set from the AI document view today.
             }
             EditorViewEvent::CmdEnter
             | EditorViewEvent::EscapePressed
@@ -1009,13 +1003,6 @@ impl NotebookView {
         });
         self.set_editor_interaction_state(InteractionState::Selectable, ctx);
         ctx.notify();
-    }
-
-    pub fn is_plan(&self, ctx: &AppContext) -> bool {
-        self.active_notebook_data
-            .as_ref(ctx)
-            .ai_document_id(ctx)
-            .is_some()
     }
 
     fn mode<C: ModelAsRef>(&self, ctx: &C) -> Mode {
@@ -1258,16 +1245,6 @@ impl NotebookView {
         // local edits.
         let content = self.content(ctx);
         let title = self.title.as_ref(ctx).buffer_text(ctx);
-        let active_notebook = self.active_notebook_data.as_ref(ctx).active_notebook();
-
-        let ai_document_id = match active_notebook {
-            ActiveNotebook::CommittedNotebook(id) => CloudModel::as_ref(ctx)
-                .get_notebook(&id)
-                .and_then(|n| n.model().ai_document_id),
-            ActiveNotebook::NewNotebook(notebook) => notebook.model().ai_document_id,
-            ActiveNotebook::None => None,
-        };
-
         let copy_client_id = ClientId::new();
         let copy_sync_id = SyncId::ClientId(copy_client_id);
 
@@ -1284,8 +1261,6 @@ impl NotebookView {
                 CloudNotebookModel {
                     title: title.clone(),
                     data: content,
-                    ai_document_id,
-                    conversation_id: None,
                 },
                 CloudObjectEventEntrypoint::Unknown,
                 true,
@@ -1381,15 +1356,6 @@ impl NotebookView {
                     Space::Team { .. } => {} // TODO: When we do team -> personal sharing
                 }
             }
-        }
-
-        if let Some(ai_document_id) = self.active_notebook_data.as_ref(ctx).ai_document_id(ctx) {
-            menu_items.push(
-                MenuItemFields::new("Attach to active session")
-                    .with_on_select_action(NotebookAction::AttachPlanAsContext(ai_document_id))
-                    .with_icon(icons::Icon::Paperclip)
-                    .into_item(),
-            );
         }
 
         // Add "Copy Link" to menu
@@ -1684,8 +1650,6 @@ impl NotebookView {
                             CloudNotebookModel {
                                 title: title.to_string(),
                                 data: notebook.model().data.to_owned(),
-                                ai_document_id: notebook.model().ai_document_id,
-                                conversation_id: notebook.model().conversation_id.clone(),
                             },
                             CloudObjectEventEntrypoint::Unknown,
                             true,
@@ -2256,9 +2220,6 @@ impl TypedActionView for NotebookView {
             #[cfg(not(target_family = "wasm"))]
             NotebookAction::OpenLinkOnDesktop(_) => {
                 // No-op when not on wasm
-            }
-            NotebookAction::AttachPlanAsContext(id) => {
-                ctx.emit(NotebookEvent::AttachPlanAsContext(*id))
             }
         };
     }

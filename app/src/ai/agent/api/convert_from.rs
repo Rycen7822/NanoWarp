@@ -25,7 +25,6 @@ use crate::ai::agent::{
     UserQueryMode, WebFetchStatus, WebSearchStatus,
 };
 use crate::ai::artifact_download::sanitized_basename;
-use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 
 impl TryFrom<api::Attachment> for AIAgentAttachment {
     type Error = anyhow::Error;
@@ -544,15 +543,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::OpenCodeReview(_) => {
                 create_standard_action(AIAgentActionType::OpenCodeReview)
             }
-            api::message::tool_call::Tool::ReadDocuments(read_documents) => {
-                create_standard_action(read_documents.into())
-            }
-            api::message::tool_call::Tool::EditDocuments(edit_documents) => {
-                create_standard_action(edit_documents.into())
-            }
-            api::message::tool_call::Tool::CreateDocuments(create_documents) => {
-                create_standard_action(create_documents.into())
-            }
             api::message::tool_call::Tool::ReadShellCommandOutput(read_shell_command_output) => {
                 create_standard_action(read_shell_command_output.into())
             }
@@ -647,7 +637,6 @@ impl From<api::TodoItem> for AIAgentTodo {
 /// (for use in shared agent exchanges where the input was not provided in this session)
 pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput> {
     let mut inputs = Vec::new();
-    let mut document_versions: HashMap<AIDocumentId, AIDocumentVersion> = HashMap::new();
     for m in messages {
         let Some(inner) = &m.message else { continue };
         match inner {
@@ -706,12 +695,9 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
             }
             api::message::Message::ToolCallResult(tcr) => {
                 let task_id = TaskId::new(m.task_id.clone());
-                if let Some(input) = convert_tool_call_result_to_input(
-                    &task_id,
-                    tcr,
-                    &HashMap::new(),
-                    &mut document_versions,
-                ) {
+                if let Some(input) =
+                    convert_tool_call_result_to_input(&task_id, tcr, &HashMap::new())
+                {
                     inputs.push(input);
                 }
             }

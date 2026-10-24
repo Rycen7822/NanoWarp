@@ -1,4 +1,3 @@
-use ai::document::AIDocumentId;
 use cloud_object_persistence::{
     CloudObjectReadContext, id_from_metadata, to_cloud_object_metadata, upsert_cloud_object,
 };
@@ -21,11 +20,6 @@ pub fn upsert_notebooks(
             let notebook_clone = cloud_notebook.clone();
             let title_clone = cloud_notebook.model().title.clone();
             let data_clone = cloud_notebook.model().data.clone();
-            let ai_document_id_clone = cloud_notebook
-                .model()
-                .ai_document_id
-                .as_ref()
-                .map(|doc_id| doc_id.to_string());
             upsert_cloud_object(
                 conn,
                 ObjectType::Notebook,
@@ -36,7 +30,7 @@ pub fn upsert_notebooks(
                     let new_notebook = NewNotebook {
                         title: Some(title_clone),
                         data: Some(data_clone),
-                        ai_document_id: ai_document_id_clone,
+                        ai_document_id: None,
                     };
                     diesel::insert_into(schema::notebooks::dsl::notebooks)
                         .values(new_notebook)
@@ -52,11 +46,7 @@ pub fn upsert_notebooks(
                         .set((
                             title.eq(notebook_clone.model().title.clone()),
                             data.eq(notebook_clone.model().data.clone()),
-                            ai_document_id.eq(notebook_clone
-                                .model()
-                                .ai_document_id
-                                .as_ref()
-                                .map(|doc_id| doc_id.to_string())),
+                            ai_document_id.eq(None::<String>),
                         ))
                         .execute(conn)?;
                     Ok(())
@@ -74,21 +64,16 @@ pub fn read_notebooks(
     Ok(schema::notebooks::dsl::notebooks
         .load::<Notebook>(conn)?
         .into_iter()
+        .filter(|notebook| notebook.ai_document_id.is_none())
         .filter_map(|notebook| {
             let metadata = read_context.metadata_for_object(notebook.id, ObjectType::Notebook)?;
             let notebook_id = id_from_metadata::<NotebookId>(metadata)?;
             let cloud_object_permissions = read_context.permissions_for_metadata(metadata)?;
-            let ai_document_id = notebook
-                .ai_document_id
-                .as_ref()
-                .and_then(|doc_id_str| AIDocumentId::try_from(doc_id_str.as_str()).ok());
             Some(CloudNotebook::new(
                 notebook_id,
                 CloudNotebookModel {
                     title: notebook.title.unwrap_or_default(),
                     data: notebook.data.unwrap_or_default(),
-                    ai_document_id,
-                    conversation_id: None,
                 },
                 to_cloud_object_metadata(metadata),
                 cloud_object_permissions,

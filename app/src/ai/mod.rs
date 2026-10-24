@@ -6,7 +6,6 @@ pub(crate) mod active_agent_views_model;
 pub(crate) mod agent;
 pub(crate) mod agent_conversations_model;
 pub(crate) mod agent_management;
-pub(crate) mod ai_document_view;
 pub mod ambient_agents;
 pub(crate) mod artifact_download;
 pub mod artifacts;
@@ -28,7 +27,6 @@ pub mod credit_availability;
 pub(crate) mod custom_endpoints;
 pub(crate) mod custom_model_router_editor;
 pub(crate) mod custom_model_routers;
-pub(crate) mod document;
 #[cfg(not(target_family = "wasm"))]
 pub mod geap_credentials;
 pub mod harness_availability;
@@ -56,7 +54,6 @@ pub(crate) use ai::paths;
 pub fn init(app: &mut AppContext) {
     blocklist::keyboard_navigable_buttons::init(app);
     blocklist::block::number_shortcut_buttons::init(app);
-    ai_document_view::init(app);
     conversation_details_panel::init(app);
     agent_management::init(app);
 }

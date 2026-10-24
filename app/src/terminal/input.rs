@@ -137,7 +137,6 @@ use crate::ai::blocklist::{
 };
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::conversation_export::export_conversation_markdown;
-use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::appearance::{Appearance, AppearanceEvent};
 use crate::channel::ChannelState;
@@ -763,14 +762,6 @@ pub enum Event {
     OpenProjectRulesPane,
     OpenFilesPalette {
         source: PaletteSource,
-    },
-    ToggleAIDocumentPane {
-        document_id: AIDocumentId,
-        document_version: AIDocumentVersion,
-    },
-    OpenAIDocumentPane {
-        document_id: AIDocumentId,
-        document_version: AIDocumentVersion,
     },
 
     ShowToast {
@@ -1825,15 +1816,6 @@ impl Input {
                 }
                 AgentInputFooterEvent::OpenCodeReview => {
                     ctx.emit(Event::OpenCodeReviewPane);
-                }
-                AgentInputFooterEvent::OpenAIDocument {
-                    document_id,
-                    document_version,
-                } => {
-                    ctx.emit(Event::ToggleAIDocumentPane {
-                        document_id: *document_id,
-                        document_version: *document_version,
-                    });
                 }
                 AgentInputFooterEvent::ShowContextMenu { position } => {
                     let position_id = format!("prompt_area_{}", me.view_id);
@@ -2900,15 +2882,6 @@ impl Input {
                         self.input_contents_before_prompt_chip_command = Some(current_input);
                     }
                 }
-            }
-            PromptDisplayEvent::OpenAIDocument {
-                document_id,
-                document_version,
-            } => {
-                ctx.emit(Event::ToggleAIDocumentPane {
-                    document_id: *document_id,
-                    document_version: *document_version,
-                });
             }
         }
     }

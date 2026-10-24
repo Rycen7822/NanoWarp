@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use ai::document::AIDocumentId;
 use ai::skills::SkillPathOrigin;
 use anyhow::Context as _;
 use chrono::{DateTime, Local, TimeZone};
@@ -62,7 +61,6 @@ use crate::ai::blocklist::{
 use crate::ai::llms::LLMPreferences;
 use crate::ai::skills::SkillDescriptor;
 use crate::code_review::CodeReviewTelemetryEvent;
-use crate::notebooks::NotebookId;
 use crate::persistence::ModelEvent;
 use crate::persistence::model::{
     AgentConversationData, ChargedUsageTotals, ContextWindowSegment, ConversationUsageMetadata,
@@ -365,7 +363,7 @@ pub(crate) fn artifact_from_fork_proto(
     match &proto_artifact.artifact {
         Some(ProtoArtifact::PullRequest(pr)) => Some(Artifact::from(pr.clone())),
         Some(ProtoArtifact::Screenshot(_)) => None,
-        Some(ProtoArtifact::Plan(plan)) => Some(Artifact::from(plan.clone())),
+        Some(ProtoArtifact::Plan(_)) => None,
         Some(ProtoArtifact::File(file)) => Some(Artifact::from(file.clone())),
         None => None,
     }
@@ -1200,39 +1198,6 @@ impl AIConversation {
             .collect()
     }
 
-    /// Returns the titles from the CreateDocuments request corresponding to the given action ID (if any).
-    /// This is used by shared-session viewers to use the correct document titles from the original CreateDocuments action.
-    pub fn get_document_titles_for_action(
-        &self,
-        action_id: &AIAgentActionId,
-    ) -> Option<Vec<String>> {
-        for exchange in self.all_exchanges() {
-            let Some(output) = exchange.output_status.output() else {
-                continue;
-            };
-
-            for message in &output.get().messages {
-                if let AIAgentOutputMessage {
-                    message: AIAgentOutputMessageType::Action(action),
-                    ..
-                } = message
-                    && &action.id == action_id
-                    && let super::AIAgentActionType::CreateDocuments(
-                        super::CreateDocumentsRequest { documents },
-                    ) = &action.action
-                {
-                    let titles = documents
-                        .iter()
-                        .map(|doc| doc.title.clone())
-                        .collect::<Vec<_>>();
-                    return Some(titles);
-                }
-            }
-        }
-
-        None
-    }
-
     /// Returns the start timestamp of the earliest [`AIAgentExchange`] in the conversation, if
     /// any.
     pub fn start_ts(&self) -> Option<DateTime<Local>> {
@@ -1453,38 +1418,6 @@ impl AIConversation {
             conversation_id: self.id,
             artifact,
         });
-    }
-
-    /// Updates the notebook_uid for a plan artifact when it's synced to Warp Drive.
-    pub fn update_plan_notebook_uid(
-        &mut self,
-        document_uid: AIDocumentId,
-        notebook_uid: NotebookId,
-        terminal_surface_id: Option<EntityId>,
-        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
-    ) {
-        let document_uid = document_uid.to_string();
-        for artifact in &mut self.artifacts {
-            if let Artifact::Plan {
-                document_uid: doc_uid,
-                notebook_uid: nb_uid,
-                ..
-            } = artifact
-                && doc_uid == &document_uid
-            {
-                *nb_uid = Some(notebook_uid);
-                let updated_artifact = artifact.clone();
-                self.write_updated_conversation_state(ctx);
-                if let Some(terminal_surface_id) = terminal_surface_id {
-                    ctx.emit(BlocklistAIHistoryEvent::UpdatedConversationArtifacts {
-                        terminal_surface_id,
-                        conversation_id: self.id,
-                        artifact: updated_artifact,
-                    });
-                }
-                return;
-            }
-        }
     }
 
     pub fn initial_query(&self) -> Option<String> {

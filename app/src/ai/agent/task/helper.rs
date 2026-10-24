@@ -111,9 +111,6 @@ impl ToolExt for api::message::tool_call::Tool {
             Tool::FileGlob(_) => "file_glob",
             Tool::FileGlobV2(_) => "file_glob_v2",
             Tool::WriteToLongRunningShellCommand(_) => "write_to_lrc",
-            Tool::ReadDocuments(_) => "read_documents",
-            Tool::EditDocuments(_) => "edit_documents",
-            Tool::CreateDocuments(_) => "create_documents",
             Tool::ReadShellCommandOutput(_) => "read_shell_command_output",
             Tool::UseComputer(_) => "use_computer",
             Tool::RequestComputerUse(_) => "request_computer_use",
@@ -127,6 +124,9 @@ impl ToolExt for api::message::tool_call::Tool {
             Tool::OpenCodeReview(_) => "open_code_review",
             Tool::InitProject(_) => "init_project",
             Tool::SearchCodebase(_)
+            | Tool::ReadDocuments(_)
+            | Tool::EditDocuments(_)
+            | Tool::CreateDocuments(_)
             | Tool::ReadMcpResource(_)
             | Tool::CallMcpTool(_)
             | Tool::RunAgents(_)

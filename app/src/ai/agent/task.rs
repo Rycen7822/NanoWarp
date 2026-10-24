@@ -28,7 +28,6 @@ use super::{
     Shared,
 };
 use crate::AIAgentTodoList;
-use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::terminal::model::block::BlockId;
 
 #[derive(Debug, thiserror::Error)]
@@ -702,30 +701,23 @@ impl Task {
         // so we need to convert any tool call results and update the exchange accordingly
         // (this is necessary for session sharing, where the tool call input has not already been
         // optimistically inserted into the exchange)
-        if should_convert_input_messages && let Some(tool_call_result) = message.tool_call_result()
+        if should_convert_input_messages
+            && let Some(tool_call_result) = message.tool_call_result()
+            && let Some(input) =
+                convert_tool_call_result_to_input(&id, tool_call_result, &HashMap::new())
         {
-            let mut document_versions: HashMap<AIDocumentId, AIDocumentVersion> = HashMap::new();
-            if let Some(input) = convert_tool_call_result_to_input(
-                &id,
-                tool_call_result,
-                &HashMap::new(),
-                &mut document_versions,
-            ) {
-                if let Some(action_result) = input.action_result() {
-                    if let Some(existing_result) =
-                        exchange_to_update.input.iter_mut().find(|existing_input| {
-                            existing_input
-                                .action_result()
-                                .is_some_and(|existing_result| {
-                                    existing_result.id == action_result.id
-                                })
-                        })
-                    {
-                        *existing_result = input;
-                    }
-                } else {
-                    exchange_to_update.input.push(input)
+            if let Some(action_result) = input.action_result() {
+                if let Some(existing_result) =
+                    exchange_to_update.input.iter_mut().find(|existing_input| {
+                        existing_input
+                            .action_result()
+                            .is_some_and(|existing_result| existing_result.id == action_result.id)
+                    })
+                {
+                    *existing_result = input;
                 }
+            } else {
+                exchange_to_update.input.push(input)
             }
         }
 

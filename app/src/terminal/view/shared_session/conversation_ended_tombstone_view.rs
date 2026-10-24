@@ -23,13 +23,11 @@ use crate::ai::ambient_agents::{
 use crate::ai::artifacts::{Artifact, ArtifactButtonsRow, ArtifactButtonsRowEvent};
 use crate::ai::blocklist::{BlocklistAIHistoryModel, format_credits};
 use crate::appearance::Appearance;
-use crate::server::ids::SyncId;
 use crate::server::server_api::ServerApiProvider;
 use crate::ui_components::blended_colors;
 use crate::util::time_format::human_readable_precise_duration;
 #[cfg(target_family = "wasm")]
 use crate::view_components::action_button::{ActionButton, PrimaryTheme};
-use crate::workspace::WorkspaceAction;
 
 /// Metadata collected for display in the tombstone.
 #[derive(Default)]
@@ -214,17 +212,6 @@ impl ConversationEndedTombstoneView {
         ctx.subscribe_to_view(
             &view.artifact_buttons_view,
             |_, _, event, ctx| match event {
-                ArtifactButtonsRowEvent::OpenPlan { notebook_uid } => {
-                    send_telemetry_from_ctx!(
-                        AgentManagementTelemetryEvent::TombstoneArtifactClicked {
-                            artifact_type: ArtifactType::Plan
-                        },
-                        ctx
-                    );
-                    ctx.dispatch_typed_action(&WorkspaceAction::OpenNotebook {
-                        id: SyncId::ServerId((*notebook_uid).into()),
-                    });
-                }
                 ArtifactButtonsRowEvent::CopyBranch { branch } => {
                     send_telemetry_from_ctx!(
                         AgentManagementTelemetryEvent::TombstoneArtifactClicked {

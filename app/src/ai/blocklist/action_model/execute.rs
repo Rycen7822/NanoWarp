@@ -1,11 +1,8 @@
 pub(super) mod ask_user_question;
-pub(super) mod create_documents;
-pub(super) mod edit_documents;
 pub(super) mod fetch_conversation;
 pub(super) mod file_glob;
 pub(super) mod grep;
 pub(super) mod lrc_activity;
-pub(super) mod read_documents;
 pub(super) mod read_files;
 pub(super) mod read_skill;
 pub(super) mod request_file_edits;
@@ -19,8 +16,6 @@ use std::sync::Arc;
 
 use ai::agent::action_result::{InsertReviewCommentsResult, RequestCommandOutputResult};
 pub use ask_user_question::AskUserQuestionExecutor;
-use create_documents::CreateDocumentsExecutor;
-use edit_documents::EditDocumentsExecutor;
 use fetch_conversation::FetchConversationExecutor;
 use file_glob::FileGlobExecutor;
 #[cfg(feature = "local_fs")]
@@ -31,7 +26,6 @@ use grep::GrepExecutor;
 #[cfg(feature = "local_fs")]
 use mime_guess::from_path;
 use parking_lot::FairMutex;
-use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
 use read_skill::ReadSkillExecutor;
 pub(crate) use request_file_edits::MalformedFinalLineProxyEvent;
@@ -222,9 +216,6 @@ pub struct BlocklistAIActionExecutor {
     grep_executor: ModelHandle<GrepExecutor>,
     file_glob_executor: ModelHandle<FileGlobExecutor>,
     suggest_new_conversation_executor: ModelHandle<SuggestNewConversationExecutor>,
-    read_documents_executor: ModelHandle<ReadDocumentsExecutor>,
-    edit_documents_executor: ModelHandle<EditDocumentsExecutor>,
-    create_documents_executor: ModelHandle<CreateDocumentsExecutor>,
     read_skill_executor: ModelHandle<ReadSkillExecutor>,
     fetch_conversation_executor: ModelHandle<FetchConversationExecutor>,
     ask_user_question_executor: ModelHandle<AskUserQuestionExecutor>,
@@ -267,10 +258,6 @@ impl BlocklistAIActionExecutor {
             ctx.add_model(|_| FileGlobExecutor::new(active_session.clone(), terminal_view_id));
         let suggest_new_conversation_executor =
             ctx.add_model(|_| SuggestNewConversationExecutor::new());
-        let read_documents_executor = ctx.add_model(|_| ReadDocumentsExecutor::new());
-        let edit_documents_executor = ctx.add_model(|_| EditDocumentsExecutor::new());
-        let create_documents_executor = ctx
-            .add_model(|_| CreateDocumentsExecutor::new(active_session.clone(), terminal_view_id));
         let read_skill_executor = ctx.add_model(|_| ReadSkillExecutor::new(active_session.clone()));
         let fetch_conversation_executor = ctx.add_model(|_| FetchConversationExecutor::new());
         let ask_user_question_executor =
@@ -282,9 +269,6 @@ impl BlocklistAIActionExecutor {
             grep_executor,
             file_glob_executor,
             suggest_new_conversation_executor,
-            read_documents_executor,
-            edit_documents_executor,
-            create_documents_executor,
             async_executing_actions: Default::default(),
             terminal_model,
             team_context_resolver,
@@ -383,15 +367,6 @@ impl BlocklistAIActionExecutor {
             }
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor
@@ -520,20 +495,6 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
                 .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
-                .update(ctx, |executor, ctx| {
-                    executor.execute(input, conversation_id, ctx)
-                })
                 .into(),
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor
@@ -734,15 +695,6 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::InsertCodeReviewComments { .. } => true,
             AIAgentActionType::SuggestNewConversation { .. } => self
                 .suggest_new_conversation_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
             AIAgentActionType::ReadSkill(_) => self
                 .read_skill_executor

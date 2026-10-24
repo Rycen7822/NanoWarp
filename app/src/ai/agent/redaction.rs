@@ -151,10 +151,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                     | AIAgentActionResultType::FileGlob(_)
                     | AIAgentActionResultType::FileGlobV2(_) => {}
 
-                    AIAgentActionResultType::ReadSkill { .. }
-                    | AIAgentActionResultType::ReadDocuments(_)
-                    | AIAgentActionResultType::EditDocuments(_)
-                    | AIAgentActionResultType::CreateDocuments(_) => {}
+                    AIAgentActionResultType::ReadSkill { .. } => {}
 
                     // FetchConversation results contain tasks returned from the server,
                     // which were already redacted before being sent as client inputs.
@@ -287,9 +284,6 @@ fn redact_attachment(attachment: &mut AIAgentAttachment) {
                     redact_secrets(&mut hunk.diff_content);
                 }
             }
-        }
-        AIAgentAttachment::DocumentContent { content, .. } => {
-            redact_secrets(content);
         }
         // FilePathReference only contains a file ID and filename, no user secrets.
         AIAgentAttachment::FilePathReference { .. } => {}

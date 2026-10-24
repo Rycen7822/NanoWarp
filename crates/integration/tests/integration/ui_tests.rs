@@ -353,9 +353,6 @@ integration_tests! {
     test_code_editor_line_numbers_default_to_absolute,
     test_code_editor_relative_line_numbers_follow_cursor,
 
-    // AI document tests
-    test_copy_ai_document_as_markdown_from_overflow_menu,
-    test_restored_ai_document_populates_code_block_after_first_layout,
 
     // Keyboard protocol tests
     test_keyboard_protocol_disabled_shift_enter,

@@ -291,10 +291,7 @@ impl From<&AIAgentActionType> for PersistedAIAgentActionType {
             }
             AIAgentActionType::OpenCodeReview => Self::OpenCodeReview,
             AIAgentActionType::InsertCodeReviewComments { .. } => Self::NotPersisted,
-            AIAgentActionType::ReadDocuments(_)
-            | AIAgentActionType::EditDocuments(_)
-            | AIAgentActionType::CreateDocuments(_)
-            | AIAgentActionType::ReadShellCommandOutput { .. }
+            AIAgentActionType::ReadShellCommandOutput { .. }
             | AIAgentActionType::ReadSkill(_)
             | AIAgentActionType::TransferShellCommandControlToUser { .. } => Self::NotPersisted,
             AIAgentActionType::AskUserQuestion { questions } => Self::AskUserQuestion {

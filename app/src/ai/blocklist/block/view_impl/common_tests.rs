@@ -13,9 +13,9 @@ use warpui::{App, Element};
 
 use super::{
     CollapsibleElementState, CollapsibleExpansionState, LOAD_OUTPUT_MESSAGE,
-    LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF, LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN,
-    VisualMarkdownLightboxCollection, collect_visual_markdown_lightbox_collection,
-    compute_visual_section_width, image_tooltip_handles_for_group, inline_image_source_label,
+    LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF, VisualMarkdownLightboxCollection,
+    collect_visual_markdown_lightbox_collection, compute_visual_section_width,
+    image_tooltip_handles_for_group, inline_image_source_label,
     is_supported_blocklist_image_source, lightbox_trigger_for_section, query_prefix_highlight_len,
     render_scrollable_collapsible_content, status_message_naming_model, text_sections_with_indices,
     warping_footer_height,
@@ -349,10 +349,6 @@ fn is_supported_blocklist_image_source_covers_common_local_formats() {
 
 #[test]
 fn names_the_model_before_a_status_message_ellipsis() {
-    assert_eq!(
-        status_message_naming_model(LOAD_OUTPUT_MESSAGE_FOR_GENERATING_PLAN, "Claude Sonnet 4.5"),
-        "Generating plan with Claude Sonnet 4.5..."
-    );
     assert_eq!(
         status_message_naming_model(LOAD_OUTPUT_MESSAGE, "Claude Sonnet 4.5"),
         "Warping with Claude Sonnet 4.5..."

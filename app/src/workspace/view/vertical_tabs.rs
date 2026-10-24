@@ -48,9 +48,7 @@ use crate::drive::DriveObjectType;
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
 use crate::editor::EditorView;
 use crate::pane_group::pane::IPaneType;
-use crate::pane_group::{
-    CodePane, NotebookPane, PaneGroup, PaneId, TabBarHoverIndex, TerminalPane,
-};
+use crate::pane_group::{CodePane, PaneGroup, PaneId, TabBarHoverIndex, TerminalPane};
 use crate::safe_triangle::SafeTriangle;
 use crate::tab::{
     SelectedTabColor, TAB_INDICATOR_SYNCED_COLOR, TabData, reveals_tab_shortcut_hints,
@@ -235,7 +233,6 @@ where
 fn pane_ids_for_detail_target(
     pane_group: &PaneGroup,
     target: VerticalTabsDetailTarget,
-    app: &AppContext,
 ) -> Option<Vec<PaneId>> {
     let visible_pane_ids = pane_group.visible_pane_ids();
     visible_pane_ids_for_detail_target(
@@ -246,9 +243,7 @@ fn pane_ids_for_detail_target(
             pane_group
                 .pane_by_id(pane_id)
                 .map(|_| {
-                    supports_vertical_tabs_detail_sidecar(
-                        &pane_group.resolve_pane_type(pane_id, app),
-                    )
+                    supports_vertical_tabs_detail_sidecar(&pane_group.resolve_pane_type(pane_id))
                 })
                 .unwrap_or(false)
         },
@@ -895,11 +890,10 @@ pub(super) enum SummaryPaneKind {
     Code { title: String },
     CodeDiff,
     File,
-    Notebook { is_plan: bool },
+    Notebook,
     Settings,
     EnvVarCollection,
     AIFact,
-    AIDocument,
     ExecutionProfileEditor,
     Other,
 }
@@ -3338,11 +3332,9 @@ fn resolve_icon_with_status_variant(
             icon_color: main_text,
         },
         // Warp Drive object types use their established index colors
-        TypedPane::Notebook { is_plan } => IconWithStatusVariant::Neutral {
+        TypedPane::Notebook => IconWithStatusVariant::Neutral {
             icon: typed.icon(),
-            icon_color: drive_color(DriveObjectType::Notebook {
-                is_ai_document: *is_plan,
-            }),
+            icon_color: drive_color(DriveObjectType::Notebook),
         },
         TypedPane::EnvVarCollection => IconWithStatusVariant::Neutral {
             icon: typed.icon(),
@@ -3588,11 +3580,10 @@ enum TypedPane<'a> {
     Code(&'a CodePane),
     CodeDiff,
     File,
-    Notebook { is_plan: bool },
+    Notebook,
     Settings,
     EnvVarCollection,
     AIFact,
-    AIDocument,
     ExecutionProfileEditor,
     Other,
 }
@@ -3618,11 +3609,10 @@ impl TypedPane<'_> {
             },
             TypedPane::CodeDiff => SummaryPaneKind::CodeDiff,
             TypedPane::File => SummaryPaneKind::File,
-            TypedPane::Notebook { is_plan } => SummaryPaneKind::Notebook { is_plan: *is_plan },
+            TypedPane::Notebook => SummaryPaneKind::Notebook,
             TypedPane::Settings => SummaryPaneKind::Settings,
             TypedPane::EnvVarCollection => SummaryPaneKind::EnvVarCollection,
             TypedPane::AIFact => SummaryPaneKind::AIFact,
-            TypedPane::AIDocument => SummaryPaneKind::AIDocument,
             TypedPane::ExecutionProfileEditor => SummaryPaneKind::ExecutionProfileEditor,
             TypedPane::Other => SummaryPaneKind::Other,
         }
@@ -3642,11 +3632,10 @@ impl TypedPane<'_> {
             TypedPane::Code(_) => "Code",
             TypedPane::CodeDiff => "Code Diff",
             TypedPane::File => "File",
-            TypedPane::Notebook { .. } => "Notebook",
+            TypedPane::Notebook => "Notebook",
             TypedPane::Settings => "Settings",
             TypedPane::EnvVarCollection => "Environment Variables",
             TypedPane::AIFact => "Rules",
-            TypedPane::AIDocument => "Plan",
             TypedPane::ExecutionProfileEditor => "Execution Profile",
             TypedPane::Other => "Other",
         }
@@ -3662,11 +3651,10 @@ impl TypedPane<'_> {
             TypedPane::Terminal(_)
             | TypedPane::CodeDiff
             | TypedPane::File
-            | TypedPane::Notebook { .. }
+            | TypedPane::Notebook
             | TypedPane::Settings
             | TypedPane::EnvVarCollection
             | TypedPane::AIFact
-            | TypedPane::AIDocument
             | TypedPane::ExecutionProfileEditor
             | TypedPane::Other => None,
         }
@@ -3678,12 +3666,10 @@ impl TypedPane<'_> {
             TypedPane::Code(_) => WarpIcon::Code2,
             TypedPane::CodeDiff => WarpIcon::Diff,
             TypedPane::File => WarpIcon::File,
-            TypedPane::Notebook { is_plan: true } => WarpIcon::Compass,
-            TypedPane::Notebook { is_plan: false } => WarpIcon::Notebook,
+            TypedPane::Notebook => WarpIcon::Notebook,
             TypedPane::Settings => WarpIcon::Gear,
             TypedPane::EnvVarCollection => WarpIcon::EnvVarCollection,
             TypedPane::AIFact => WarpIcon::BookOpen,
-            TypedPane::AIDocument => WarpIcon::Compass,
             TypedPane::ExecutionProfileEditor => WarpIcon::Lightning,
             TypedPane::Other => WarpIcon::File,
         }
@@ -3739,7 +3725,7 @@ fn build_vertical_tabs_summary_data(
         };
         let pane_configuration = pane.pane_configuration();
         let pane_configuration = pane_configuration.as_ref(app);
-        let typed = pane_group.resolve_pane_type(*pane_id, app);
+        let typed = pane_group.resolve_pane_type(*pane_id);
         let (pane_title, pane_subtitle) = pane_display_title_and_subtitle(
             &typed,
             pane_configuration.title().trim(),
@@ -3822,11 +3808,10 @@ fn build_vertical_tabs_summary_data(
             }
             TypedPane::CodeDiff
             | TypedPane::File
-            | TypedPane::Notebook { .. }
+            | TypedPane::Notebook
             | TypedPane::Settings
             | TypedPane::EnvVarCollection
             | TypedPane::AIFact
-            | TypedPane::AIDocument
             | TypedPane::ExecutionProfileEditor
             | TypedPane::Other => {
                 push_normalized_unique_summary_label(
@@ -3885,7 +3870,7 @@ impl<'a> PaneProps<'a> {
         let display_pane = pane_group.pane_by_id(display_pane_id)?;
         let pane_configuration = display_pane.pane_configuration();
         let pane_configuration = pane_configuration.as_ref(app);
-        let typed = pane_group.resolve_pane_type(display_pane_id, app);
+        let typed = pane_group.resolve_pane_type(display_pane_id);
         let (display_title, display_subtitle) = pane_display_title_and_subtitle(
             &typed,
             pane_configuration.title().trim(),
@@ -3964,11 +3949,10 @@ impl<'a> PaneProps<'a> {
             TypedPane::Code(_)
             | TypedPane::CodeDiff
             | TypedPane::File
-            | TypedPane::Notebook { .. }
+            | TypedPane::Notebook
             | TypedPane::Settings
             | TypedPane::EnvVarCollection
             | TypedPane::AIFact
-            | TypedPane::AIDocument
             | TypedPane::ExecutionProfileEditor
             | TypedPane::Other => {
                 non_terminal_search_text_fragments(self.generated_or_tab_title(), &self.subtitle)
@@ -4326,7 +4310,7 @@ fn vtab_diff_stats_text(line_changes: &GitLineChanges) -> String {
 }
 
 impl PaneGroup {
-    fn resolve_pane_type(&self, pane_id: PaneId, app: &AppContext) -> TypedPane<'_> {
+    fn resolve_pane_type(&self, pane_id: PaneId) -> TypedPane<'_> {
         match pane_id.pane_type() {
             IPaneType::Terminal => TypedPane::Terminal(
                 self.downcast_pane_by_id::<TerminalPane>(pane_id)
@@ -4338,21 +4322,12 @@ impl PaneGroup {
             ),
             IPaneType::CodeDiff => TypedPane::CodeDiff,
             IPaneType::File => TypedPane::File,
-            IPaneType::Notebook => {
-                let is_plan = self
-                    .downcast_pane_by_id::<NotebookPane>(pane_id)
-                    .map(|np| np.notebook_view(app).as_ref(app).is_plan(app))
-                    .unwrap_or(false);
-                TypedPane::Notebook { is_plan }
-            }
+            IPaneType::Notebook => TypedPane::Notebook,
             IPaneType::Settings => TypedPane::Settings,
             IPaneType::EnvVarCollection => TypedPane::EnvVarCollection,
             IPaneType::AIFact => TypedPane::AIFact,
-            IPaneType::AIDocument => TypedPane::AIDocument,
             IPaneType::ExecutionProfileEditor => TypedPane::ExecutionProfileEditor,
-            IPaneType::CustomRouterEditor
-            | IPaneType::NetworkLog
-            | IPaneType::DeferredPlaceholder => TypedPane::Other,
+            IPaneType::CustomRouterEditor | IPaneType::NetworkLog => TypedPane::Other,
             #[cfg(test)]
             IPaneType::Dummy => TypedPane::Other,
         }
@@ -4377,7 +4352,7 @@ pub(super) fn pane_summary_kind(
     let pane_configuration = pane.pane_configuration();
     let pane_configuration = pane_configuration.as_ref(app);
     let title = pane_configuration.title().trim();
-    let typed = pane_group.resolve_pane_type(pane_id, app);
+    let typed = pane_group.resolve_pane_type(pane_id);
     Some(typed.summary_pane_kind(title, app))
 }
 
@@ -5055,11 +5030,10 @@ pub(super) fn render_summary_pane_kind_icon_circle(
         SummaryPaneKind::Terminal
         | SummaryPaneKind::CodeDiff
         | SummaryPaneKind::File
-        | SummaryPaneKind::Notebook { .. }
+        | SummaryPaneKind::Notebook
         | SummaryPaneKind::Settings
         | SummaryPaneKind::EnvVarCollection
         | SummaryPaneKind::AIFact
-        | SummaryPaneKind::AIDocument
         | SummaryPaneKind::ExecutionProfileEditor
         | SummaryPaneKind::Other => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
@@ -5117,23 +5091,13 @@ fn summary_pane_kind_icon(
         SummaryPaneKind::Code { .. } => (WarpIcon::Code2, sub_text),
         SummaryPaneKind::CodeDiff => (WarpIcon::Diff, sub_text),
         SummaryPaneKind::File => (WarpIcon::File, sub_text),
-        SummaryPaneKind::Notebook { is_plan } => (
-            if is_plan {
-                WarpIcon::Compass
-            } else {
-                WarpIcon::Notebook
-            },
-            drive_color(DriveObjectType::Notebook {
-                is_ai_document: is_plan,
-            }),
-        ),
+        SummaryPaneKind::Notebook => (WarpIcon::Notebook, drive_color(DriveObjectType::Notebook)),
         SummaryPaneKind::Settings => (WarpIcon::Gear, main_text),
         SummaryPaneKind::EnvVarCollection => (
             WarpIcon::EnvVarCollection,
             drive_color(DriveObjectType::EnvVarCollection),
         ),
         SummaryPaneKind::AIFact => (WarpIcon::BookOpen, drive_color(DriveObjectType::AIFact)),
-        SummaryPaneKind::AIDocument => (WarpIcon::Compass, sub_text),
         SummaryPaneKind::ExecutionProfileEditor => (WarpIcon::Lightning, sub_text),
         SummaryPaneKind::Other => (WarpIcon::File, sub_text),
     }
@@ -6967,14 +6931,9 @@ fn code_detail_kind_label(file_name: &str) -> Option<String> {
 
 fn typed_pane_warp_drive_object_type(typed: &TypedPane<'_>) -> Option<DriveObjectType> {
     match typed {
-        TypedPane::Notebook { is_plan } => Some(DriveObjectType::Notebook {
-            is_ai_document: *is_plan,
-        }),
+        TypedPane::Notebook => Some(DriveObjectType::Notebook),
         TypedPane::EnvVarCollection => Some(DriveObjectType::EnvVarCollection),
         TypedPane::AIFact => Some(DriveObjectType::AIFact),
-        TypedPane::AIDocument => Some(DriveObjectType::Notebook {
-            is_ai_document: true,
-        }),
         TypedPane::Terminal(_)
         | TypedPane::Code(_)
         | TypedPane::CodeDiff
@@ -6998,10 +6957,9 @@ fn render_detail_section(
             app,
         ),
         TypedPane::Code(_) => render_code_detail_section(props, appearance, app),
-        TypedPane::Notebook { .. }
-        | TypedPane::EnvVarCollection
-        | TypedPane::AIFact
-        | TypedPane::AIDocument => render_warp_drive_object_detail_section(props, appearance, app),
+        TypedPane::Notebook | TypedPane::EnvVarCollection | TypedPane::AIFact => {
+            render_warp_drive_object_detail_section(props, appearance, app)
+        }
         TypedPane::CodeDiff
         | TypedPane::File
         | TypedPane::Settings
@@ -7059,7 +7017,7 @@ pub(super) fn render_detail_sidecar(
         return None;
     }
     let pane_group = tab.pane_group.as_ref(app);
-    let Some(pane_ids) = pane_ids_for_detail_target(pane_group, active_target, app) else {
+    let Some(pane_ids) = pane_ids_for_detail_target(pane_group, active_target) else {
         state.clear_detail_sidecar();
         return None;
     };

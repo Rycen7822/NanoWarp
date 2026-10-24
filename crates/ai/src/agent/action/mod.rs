@@ -16,16 +16,14 @@ use strum_macros::EnumDiscriminants;
 use warp_terminal::model::BlockId;
 
 use crate::agent::action_result::{
-    AIAgentActionResultType, AskUserQuestionResult, CreateDocumentsResult, EditDocumentsResult,
-    FetchConversationResult, FileGlobResult, FileGlobV2Result, GrepResult,
-    InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadShellCommandOutputResult,
-    ReadSkillResult, RequestCommandOutputResult, RequestFileEditsResult,
-    SuggestNewConversationResult, TransferShellCommandControlToUserResult,
+    AIAgentActionResultType, AskUserQuestionResult, FetchConversationResult, FileGlobResult,
+    FileGlobV2Result, GrepResult, InsertReviewCommentsResult, ReadFilesResult,
+    ReadShellCommandOutputResult, ReadSkillResult, RequestCommandOutputResult,
+    RequestFileEditsResult, SuggestNewConversationResult, TransferShellCommandControlToUserResult,
     WriteToLongRunningShellCommandResult,
 };
 use crate::agent::{AIAgentCitation, FileLocations};
 use crate::diff_validation::ParsedDiff;
-use crate::document::AIDocumentId;
 use crate::skills::SkillReference;
 
 #[derive(Debug, Clone, Eq, PartialEq, EnumDiscriminants)]
@@ -93,10 +91,6 @@ pub enum AIAgentActionType {
     },
 
     OpenCodeReview,
-
-    ReadDocuments(ReadDocumentsRequest),
-    EditDocuments(EditDocumentsRequest),
-    CreateDocuments(CreateDocumentsRequest),
 
     ReadShellCommandOutput {
         block_id: BlockId,
@@ -171,15 +165,6 @@ impl AIAgentActionType {
                 SuggestNewConversationResult::Cancelled,
             ),
             Self::OpenCodeReview => AIAgentActionResultType::OpenCodeReview,
-            Self::ReadDocuments(_) => {
-                AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Cancelled)
-            }
-            Self::EditDocuments(_) => {
-                AIAgentActionResultType::EditDocuments(EditDocumentsResult::Cancelled)
-            }
-            Self::CreateDocuments(_) => {
-                AIAgentActionResultType::CreateDocuments(CreateDocumentsResult::Cancelled)
-            }
             Self::ReadShellCommandOutput { .. } => AIAgentActionResultType::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::Cancelled,
             ),
@@ -218,9 +203,6 @@ impl AIAgentActionType {
             Self::FileGlob { .. } | Self::FileGlobV2 { .. } => "File glob".to_string(),
             Self::SuggestNewConversation { .. } => "Suggest new conversation".to_string(),
             Self::OpenCodeReview => "Open code review".to_string(),
-            Self::ReadDocuments(_) => "Read documents".to_string(),
-            Self::EditDocuments(_) => "Edit documents".to_string(),
-            Self::CreateDocuments(_) => "Create documents".to_string(),
             Self::ReadShellCommandOutput { .. } => "Read shell command output".to_string(),
             Self::InsertCodeReviewComments { comments, .. } => {
                 format!("Insert {} code review comments", comments.len())
@@ -295,20 +277,6 @@ impl Display for AIAgentActionType {
             }
             AIAgentActionType::OpenCodeReview => {
                 write!(f, "OpenCodeReview")
-            }
-            AIAgentActionType::ReadDocuments(request) => {
-                let ids: Vec<String> = request
-                    .document_ids
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect();
-                write!(f, "ReadDocuments: [{}]", ids.join(", "))
-            }
-            AIAgentActionType::EditDocuments(request) => {
-                write!(f, "EditDocuments: {} diffs", request.diffs.len())
-            }
-            AIAgentActionType::CreateDocuments(request) => {
-                write!(f, "CreateDocuments: {} documents", request.documents.len())
             }
             AIAgentActionType::ReadShellCommandOutput { delay, block_id } => {
                 let delay = match delay {
@@ -419,34 +387,6 @@ impl Display for ReadFilesRequest {
             .join(", ");
         write!(f, "ReadFiles: [{file_names}]")
     }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadDocumentsRequest {
-    pub document_ids: Vec<AIDocumentId>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DocumentDiff {
-    pub document_id: AIDocumentId,
-    pub search: String,
-    pub replace: String,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct EditDocumentsRequest {
-    pub diffs: Vec<DocumentDiff>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DocumentToCreate {
-    pub content: String,
-    pub title: String,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct CreateDocumentsRequest {
-    pub documents: Vec<DocumentToCreate>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

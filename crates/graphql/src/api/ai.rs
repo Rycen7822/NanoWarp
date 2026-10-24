@@ -140,13 +140,6 @@ impl FromStr for PlatformErrorCode {
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct PlanArtifact {
-    pub document_uid: cynic::Id,
-    pub notebook_uid: Option<cynic::Id>,
-    pub title: Option<String>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct PullRequestArtifact {
     pub url: String,
     pub branch: String,
@@ -163,7 +156,6 @@ pub struct FileArtifact {
 
 #[derive(cynic::InlineFragments, Debug, Clone)]
 pub enum AIConversationArtifact {
-    PlanArtifact(PlanArtifact),
     PullRequestArtifact(PullRequestArtifact),
     FileArtifact(FileArtifact),
     #[cynic(fallback)]

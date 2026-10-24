@@ -50,7 +50,6 @@ use super::settings::WarpDriveSettings;
 use super::sharing::dialog::{SharingDialog, SharingDialogEvent};
 use super::sharing::{ContentEditability, ShareableObject};
 use super::{CloudObjectTypeAndId, DriveObjectType, DriveSortOrder};
-use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::ai::facts::{AIFact, AIMemory};
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
@@ -62,15 +61,13 @@ use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::model::view::{CloudViewModel, CloudViewModelEvent, UpdateTimestamp};
 use crate::cloud_object::{
     CloudObject, CloudObjectEventEntrypoint, CloudObjectLocation, CloudObjectSyncStatus,
-    GenericCloudObject, GenericStringObjectFormat, JsonObjectType, NumInFlightRequests, ObjectType,
-    Space,
+    GenericStringObjectFormat, JsonObjectType, NumInFlightRequests, ObjectType, Space,
 };
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
 use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 use crate::network::NetworkStatus;
-use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::{
     FetchSingleObjectOption, InitiatedBy, UpdateManager,
 };
@@ -330,7 +327,6 @@ pub enum DriveIndexAction {
         banner_kind: SharedObjectLimitBannerKind,
     },
     SetCurrentWorkspace(WorkspaceUid),
-    AttachPlanAsContext(AIDocumentId),
 }
 
 impl DriveIndexAction {
@@ -349,7 +345,7 @@ impl DriveIndexAction {
             },
             (
                 _,
-                DriveObjectType::Notebook { .. }
+                DriveObjectType::Notebook
                 | DriveObjectType::EnvVarCollection
                 | DriveObjectType::Workflow
                 | DriveObjectType::AgentModeWorkflow
@@ -407,7 +403,6 @@ pub enum DriveIndexEvent {
     InvokeEnvVarCollectionInSubshell(CloudObjectTypeAndId),
     FocusWarpDrive,
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
-    AttachPlanAsContext(AIDocumentId),
 }
 
 #[derive(Clone, Default)]
@@ -2805,9 +2800,7 @@ impl DriveIndex {
                         // If team has reached the limit for notebooks, show the modal
                         // and return early.
                         ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                            DriveObjectType::Notebook {
-                                is_ai_document: false,
-                            },
+                            DriveObjectType::Notebook,
                             team_uid,
                         ));
                         return;
@@ -2903,7 +2896,7 @@ impl DriveIndex {
             // it's not inherently wrong to get into this function with an empty title,
             // but if we do, we'll bail unless it's a personal notebook being created
             if title.is_empty()
-                && !(matches!(object_type, DriveObjectType::Notebook { .. })
+                && !(matches!(object_type, DriveObjectType::Notebook)
                     && matches!(space, Space::Personal))
             {
                 return;
@@ -2911,7 +2904,7 @@ impl DriveIndex {
         }
 
         match object_type {
-            DriveObjectType::Notebook { .. } => {
+            DriveObjectType::Notebook => {
                 if has_feature_gated_anonymous_user_reached_notebook_limit(ctx) {
                     return;
                 }
@@ -3024,9 +3017,7 @@ impl DriveIndex {
                                 // If team has reached the limit for notebooks, show the modal
                                 // and return early.
                                 ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Notebook {
-                                        is_ai_document: false,
-                                    },
+                                    DriveObjectType::Notebook,
                                     team_uid,
                                 ));
                                 return;
@@ -3070,9 +3061,7 @@ impl DriveIndex {
                                 // If team has reached the limit for notebooks, show the modal
                                 // and return early.
                                 ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Notebook {
-                                        is_ai_document: false,
-                                    },
+                                    DriveObjectType::Notebook,
                                     team_uid,
                                 ));
                                 return;
@@ -3192,9 +3181,7 @@ impl DriveIndex {
             menu_items.push(
                 MenuItemFields::new(NOTEBOOK_LABEL)
                     .with_on_select_action(DriveIndexAction::create_object(
-                        DriveObjectType::Notebook {
-                            is_ai_document: false,
-                        },
+                        DriveObjectType::Notebook,
                         *space,
                         None,
                     ))
@@ -3475,9 +3462,7 @@ impl DriveIndex {
 
         let notebook_usage = Container::new(self.render_personal_object_limit_row(
             appearance,
-            DriveObjectType::Notebook {
-                is_ai_document: false,
-            },
+            DriveObjectType::Notebook,
             num_notebooks,
             personal_object_limits.notebook_limit,
         ))
@@ -3597,7 +3582,7 @@ impl DriveIndex {
         };
 
         let name = match object_type {
-            DriveObjectType::Notebook { .. } => "Notebooks",
+            DriveObjectType::Notebook => "Notebooks",
             DriveObjectType::Workflow => "Workflows",
             DriveObjectType::EnvVarCollection => "Environment Variables",
             DriveObjectType::Folder => "Folders",
@@ -3877,9 +3862,7 @@ impl DriveIndex {
                         menu_items.push(
                             MenuItemFields::new(INDEX_NOTEBOOK_LABEL)
                                 .with_on_select_action(DriveIndexAction::create_object(
-                                    DriveObjectType::Notebook {
-                                        is_ai_document: false,
-                                    },
+                                    DriveObjectType::Notebook,
                                     *space,
                                     Some(*folder_id),
                                 ))
@@ -3989,32 +3972,16 @@ impl DriveIndex {
 
                 let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
 
-                if self.edit_object_enabled(cloud_object_type_and_id, app) {
-                    if let Some(notebook) =
-                        <GenericCloudObject<_, CloudNotebookModel> as CloudObject>::as_model_type::<
-                            _,
-                            CloudNotebookModel,
-                        >(object)
-                        && let Some(ai_document_id) = notebook.model().ai_document_id
-                    {
-                        menu_items.push(
-                            MenuItemFields::new("Attach to active session")
-                                .with_on_select_action(DriveIndexAction::AttachPlanAsContext(
-                                    ai_document_id,
-                                ))
-                                .with_icon(Icon::Paperclip)
-                                .into_item(),
-                        );
-                    }
-                    if env_var_collection.is_some() {
-                        menu_items.push(
-                            Self::pane_menu_item(editability, false)
-                                .with_on_select_action(DriveIndexAction::OpenObject(
-                                    object.cloud_object_type_and_id(),
-                                ))
-                                .into_item(),
-                        )
-                    }
+                if self.edit_object_enabled(cloud_object_type_and_id, app)
+                    && env_var_collection.is_some()
+                {
+                    menu_items.push(
+                        Self::pane_menu_item(editability, false)
+                            .with_on_select_action(DriveIndexAction::OpenObject(
+                                object.cloud_object_type_and_id(),
+                            ))
+                            .into_item(),
+                    )
                 }
             }
 
@@ -4758,7 +4725,7 @@ impl TypedActionView for DriveIndex {
 
                 let is_rename = cloud_object_type_and_id.is_some();
                 match *object_type {
-                    DriveObjectType::Notebook { .. } | DriveObjectType::Folder => {
+                    DriveObjectType::Notebook | DriveObjectType::Folder => {
                         self.cloud_object_naming_dialog.open(
                             *object_type,
                             *space,
@@ -4986,9 +4953,6 @@ impl TypedActionView for DriveIndex {
                 TeamUpdateManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.set_current_workspace_uid(*workspace_uid, ctx)
                 });
-            }
-            DriveIndexAction::AttachPlanAsContext(id) => {
-                ctx.emit(DriveIndexEvent::AttachPlanAsContext(*id))
             }
         }
     }

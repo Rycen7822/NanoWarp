@@ -39,7 +39,6 @@ use crate::ai::agent::{
     RequestCost,
 };
 use crate::ai::artifacts::Artifact;
-use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::persistence::ModelEvent;
 use crate::persistence::model::{AgentConversation, AgentConversationData};
 #[cfg(feature = "local_fs")]
@@ -1744,9 +1743,6 @@ impl BlocklistAIHistoryModel {
                 log::warn!("Failed to mark exchange as cancelled: {e}");
             }
         }
-        AIDocumentModel::handle(ctx).update(ctx, |model, ctx| {
-            model.clear_streaming_documents_for_conversation(&conversation_id, ctx);
-        });
     }
 
     /// Marks the stream's exchanges as finished with `error`.

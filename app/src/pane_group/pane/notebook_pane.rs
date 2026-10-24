@@ -228,11 +228,6 @@ fn handle_notebook_event(
             cloud_object_type_and_id: *cloud_object_type_and_id,
             invitee_email: invitee_email.clone(),
         }),
-        NotebookEvent::AttachPlanAsContext(ai_document_id) => {
-            ctx.emit(crate::pane_group::Event::AttachPlanAsContext {
-                ai_document_id: *ai_document_id,
-            })
-        }
     }
 }
 

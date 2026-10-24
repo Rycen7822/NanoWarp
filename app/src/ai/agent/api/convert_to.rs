@@ -395,24 +395,6 @@ impl From<AIAgentAttachment> for api::Attachment {
                     base: Some(base.into()),
                 })),
             },
-            AIAgentAttachment::DocumentContent {
-                document_id,
-                content,
-                line_range,
-                // TODO: Add attachment source to API
-                ..
-            } => api::Attachment {
-                value: Some(api::attachment::Value::DocumentContent(
-                    api::DocumentContent {
-                        document_id,
-                        content,
-                        line_range: line_range.map(|range| api::FileContentLineRange {
-                            start: range.start.as_usize() as u32,
-                            end: range.end.as_usize() as u32,
-                        }),
-                    },
-                )),
-            },
             AIAgentAttachment::DiffSet {
                 file_diffs,
                 current,
@@ -477,15 +459,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             ),
             AIAgentActionResultType::InsertReviewComments(insert_review_comments_result) => {
                 Some(insert_review_comments_result.try_into()?)
-            }
-            AIAgentActionResultType::ReadDocuments(read_documents_result) => {
-                Some(read_documents_result.try_into()?)
-            }
-            AIAgentActionResultType::EditDocuments(edit_documents_result) => {
-                Some(edit_documents_result.try_into()?)
-            }
-            AIAgentActionResultType::CreateDocuments(create_documents_result) => {
-                Some(create_documents_result.try_into()?)
             }
             AIAgentActionResultType::ReadShellCommandOutput(read_shell_command_output_result) => {
                 Some(read_shell_command_output_result.try_into()?)

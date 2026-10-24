@@ -305,9 +305,6 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(|ctx| {
         AIExecutionProfilesModel::new(&crate::LaunchMode::new_for_unit_test(), ctx)
     });
-    app.add_singleton_model(|_| {
-        crate::ai::document::ai_document_model::AIDocumentModel::new_for_test()
-    });
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(SkillManager::new);
@@ -4593,46 +4590,6 @@ fn test_new_conversation_keybinding_does_not_require_confirmation_in_empty_agent
                 .active_conversation_id()
                 .expect("agent view should still be active");
             assert_ne!(active_conversation_id, conversation_id);
-        });
-    });
-}
-
-#[test]
-fn test_agent_mode_set_when_block_attached() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let terminal = add_window_with_bootstrapped_terminal(
-            &mut app, None, /* history_file_commands */
-            None,
-        )
-        .await;
-        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
-
-        // Start with natural language detection
-        input.update(&mut app, |input, ctx| {
-            input.set_input_mode_natural_language_detection(ctx);
-            assert!(!input.ai_input_model.as_ref(ctx).is_ai_input_enabled());
-        });
-
-        // Attach a block
-        input.update(&mut app, |input, ctx| {
-            input.user_insert("<plan:398bf127-b3ca-47ab-b15c-f569dd982651>", ctx);
-        });
-
-        // Should be in agent mode now
-        input.read(&app, |input, ctx| {
-            assert!(input.ai_input_model.as_ref(ctx).is_ai_input_enabled());
-        });
-
-        // Add a prompt
-        input.update(&mut app, |input, ctx| {
-            input.user_insert(" implement this plan", ctx);
-        });
-
-        // Verify we're still in agent mode
-        input.read(&app, |input, ctx| {
-            assert!(input.ai_input_model.as_ref(ctx).is_ai_input_enabled());
         });
     });
 }

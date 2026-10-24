@@ -168,6 +168,23 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
         PaneNodeSnapshot::Leaf(LeafSnapshot { contents: LeafContents::Terminal(pane), .. })
             if pane.uuid == vec![1]
     ));
+
+    conn.batch_execute(&format!(
+        "DELETE FROM ambient_agent_panes;
+         UPDATE pane_leaves SET kind = '{}' WHERE pane_node_id = (SELECT MAX(pane_node_id) FROM pane_leaves);
+         INSERT INTO ai_document_panes (id, document_id, version)
+         SELECT MAX(pane_node_id), 'retired-document', 1 FROM pane_leaves;",
+        crate::persistence::model::AI_DOCUMENT_PANE_KIND,
+    ))
+    .expect("legacy AI document kind should replace the retired pane");
+    let restored = read_sqlite_data(&mut conn, None).expect("supported sibling should restore");
+    let state = restored.app_state.expect("ordinary tab should remain");
+    assert!(matches!(
+        &state.windows[0].tabs[0].root,
+        PaneNodeSnapshot::Leaf(LeafSnapshot { contents: LeafContents::Terminal(pane), .. })
+            if pane.uuid == vec![1]
+    ));
+    save_app_state(&mut conn, &state).expect("retired document rows should not block saving");
 }
 
 #[test]
@@ -201,8 +218,6 @@ fn test_deduplicate_snapshots() {
         CloudNotebookModel {
             title: "Hello".to_string(),
             data: "World".to_string(),
-            ai_document_id: None,
-            conversation_id: None,
         },
         Owner::mock_current_user(),
         None,

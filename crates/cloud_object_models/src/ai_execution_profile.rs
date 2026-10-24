@@ -9,7 +9,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use warp_cli::agent::Harness;
-use warp_core::features::FeatureFlag;
 
 use crate::{JsonModel, JsonSerializer};
 
@@ -299,9 +298,6 @@ pub struct AIExecutionProfile {
 
     pub context_window_limit: Option<u32>,
 
-    /// Whether plans created by the agent should be automatically synced to Warp Drive
-    pub autosync_plans_to_warp_drive: bool,
-
     /// Whether the agent may use web search when helpful for completing tasks
     pub web_search_enabled: bool,
 }
@@ -323,7 +319,6 @@ impl Default for AIExecutionProfile {
             coding_model: None,
             cli_agent_model: None,
             context_window_limit: None,
-            autosync_plans_to_warp_drive: true,
             web_search_enabled: true,
         }
     }
@@ -356,7 +351,6 @@ impl AIExecutionProfile {
             coding_model: None,
             cli_agent_model: None,
             context_window_limit: None,
-            autosync_plans_to_warp_drive: false,
             web_search_enabled: true,
         }
     }
@@ -385,7 +379,6 @@ impl AIExecutionProfile {
             coding_model: None,
             cli_agent_model: None,
             context_window_limit: None,
-            autosync_plans_to_warp_drive: FeatureFlag::SyncAmbientPlans.is_enabled(),
             web_search_enabled: true,
         }
     }

@@ -14,7 +14,6 @@ use crate::ai::artifact_download::default_download_filename;
 use crate::ai::artifact_download::sanitized_basename;
 #[cfg(feature = "local_fs")]
 use crate::ai::artifact_download::{default_download_directory, download_artifact_bytes};
-use crate::notebooks::NotebookId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::ArtifactDownloadResponse;
 use crate::view_components::DismissibleToast;
@@ -28,13 +27,6 @@ pub use buttons::{ArtifactButtonsRow, ArtifactButtonsRowEvent};
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(tag = "artifact_type", content = "data")]
 pub enum Artifact {
-    #[serde(rename = "PLAN")]
-    Plan {
-        document_uid: String,
-        /// None until the plan is synced to Warp Drive.
-        notebook_uid: Option<NotebookId>,
-        title: Option<String>,
-    },
     #[serde(rename = "PULL_REQUEST")]
     PullRequest {
         url: String,
@@ -65,7 +57,7 @@ pub enum Artifact {
 }
 
 /// The tag names of [`Artifact`], used for unknown-variant errors.
-const ARTIFACT_TYPES: &[&str] = &["PLAN", "PULL_REQUEST", "EXTERNAL_REFERENCE", "FILE"];
+const ARTIFACT_TYPES: &[&str] = &["PULL_REQUEST", "EXTERNAL_REFERENCE", "FILE"];
 
 /// The adjacently tagged envelope shape of a serialized [`Artifact`]. The
 /// `data` payload is parsed once the tag is known.
@@ -73,13 +65,6 @@ const ARTIFACT_TYPES: &[&str] = &["PLAN", "PULL_REQUEST", "EXTERNAL_REFERENCE", 
 struct ArtifactEnvelope {
     artifact_type: String,
     data: serde_json::Value,
-}
-
-#[derive(serde::Deserialize)]
-struct PlanData {
-    document_uid: String,
-    notebook_uid: Option<NotebookId>,
-    title: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -120,18 +105,6 @@ impl<'de> serde::Deserialize<'de> for Artifact {
     {
         let envelope = ArtifactEnvelope::deserialize(deserializer)?;
         Ok(match envelope.artifact_type.as_str() {
-            "PLAN" => {
-                let PlanData {
-                    document_uid,
-                    notebook_uid,
-                    title,
-                } = parse_artifact_data::<_, D::Error>(envelope.data)?;
-                Artifact::Plan {
-                    document_uid,
-                    notebook_uid,
-                    title,
-                }
-            }
             "PULL_REQUEST" => {
                 let PullRequestData { url, branch } =
                     parse_artifact_data::<_, D::Error>(envelope.data)?;
@@ -216,36 +189,11 @@ impl From<api::message::artifact_event::FileArtifact> for Artifact {
     }
 }
 
-impl From<api::message::artifact_event::PlanArtifact> for Artifact {
-    fn from(plan: api::message::artifact_event::PlanArtifact) -> Self {
-        Artifact::Plan {
-            document_uid: plan.document_id,
-            notebook_uid: if plan.notebook_uid.is_empty() {
-                None
-            } else {
-                Some(NotebookId::from(plan.notebook_uid))
-            },
-            title: if plan.title.is_empty() {
-                None
-            } else {
-                Some(plan.title)
-            },
-        }
-    }
-}
-
 impl TryFrom<warp_graphql::ai::AIConversationArtifact> for Artifact {
     type Error = ();
 
     fn try_from(value: warp_graphql::ai::AIConversationArtifact) -> Result<Self, Self::Error> {
         match value {
-            warp_graphql::ai::AIConversationArtifact::PlanArtifact(plan) => Ok(Artifact::Plan {
-                document_uid: plan.document_uid.into_inner(),
-                notebook_uid: plan
-                    .notebook_uid
-                    .map(|id| NotebookId::from(id.into_inner())),
-                title: plan.title,
-            }),
             warp_graphql::ai::AIConversationArtifact::PullRequestArtifact(pr) => {
                 let (repo, number) = parse_github_pr_url(&pr.url).unzip();
                 Ok(Artifact::PullRequest {

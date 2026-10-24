@@ -43,20 +43,14 @@ use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentActionResult, AIAgentAttachment, AIAgentContext, AIAgentExchange, AIAgentExchangeId,
     AIAgentInput, AIAgentOutputStatus, AIIdentifiers, BaseUserQuery, CancellationOutcome,
-    CancellationReason, DocumentContentAttachmentSource, EntrypointType, FinishedAIAgentOutput,
-    RenderableAIError, RequestCost, RequestMetadata, RunningCommand, StaticQueryType,
-    TransientNetworkErrorKind, UserQueryMode,
-};
-use crate::ai::document::ai_document_model::{
-    AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
+    CancellationReason, EntrypointType, FinishedAIAgentOutput, RenderableAIError, RequestCost,
+    RequestMetadata, RunningCommand, StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
 };
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::skills::{ActiveSkillLookupError, SkillManager};
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::features::FeatureFlag;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
 use crate::network::NetworkStatus;
-use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::persistence::ModelEvent;
 use crate::send_telemetry_from_ctx;
 use crate::server::server_api::AIApiError;
@@ -692,81 +686,6 @@ impl BlocklistAIController {
 
         if let Err(e) = &send_result {
             report_error!(e);
-        }
-    }
-
-    /// Populates plan documents from user query to AIDocumentModel if not already present.
-    /// Parses attachments from query and creates AI documents for any user-attached plans.
-    /// This is split from parse_context_attachments to run later in the pipeline when new conversations are created.
-    fn maybe_populate_plans_for_ai_document_model(
-        &self,
-        referenced_attachments: &HashMap<String, AIAgentAttachment>,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // Get file link resolution context from active session
-        let session = self.active_session.as_ref(ctx);
-        let file_link_resolution_context =
-            session
-                .current_working_directory()
-                .cloned()
-                .map(|working_directory| FileLinkResolutionContext {
-                    working_directory,
-                    shell_launch_data: session.shell_launch_data(ctx),
-                });
-
-        for attachment in referenced_attachments.values() {
-            let AIAgentAttachment::DocumentContent {
-                document_id,
-                content,
-                source,
-                ..
-            } = attachment
-            else {
-                continue;
-            };
-            if !matches!(*source, DocumentContentAttachmentSource::UserAttached) {
-                continue;
-            }
-            let document_id = match AIDocumentId::try_from(document_id.as_str()) {
-                Ok(id) => id,
-                Err(_) => {
-                    log::warn!("Invalid ai_document_id in document content: {document_id}");
-                    continue;
-                }
-            };
-
-            // Skip if document already exists in the model
-            let ai_document_model = AIDocumentModel::as_ref(ctx);
-            if ai_document_model
-                .get_current_document(&document_id)
-                .is_some()
-            {
-                continue;
-            }
-
-            // Look up notebook to get title and sync_id
-            let cloud_model = CloudModel::as_ref(ctx);
-            let notebook_data = cloud_model
-                .get_all_active_notebooks()
-                .find(|nb| nb.model().ai_document_id.as_ref() == Some(&document_id))
-                .map(|nb| (nb.model().title.clone(), nb.id));
-
-            if let Some((title, sync_id)) = notebook_data {
-                AIDocumentModel::handle(ctx).update(ctx, |model, model_ctx| {
-                    model.create_document_from_notebook(
-                        document_id,
-                        sync_id,
-                        title,
-                        content,
-                        conversation_id,
-                        file_link_resolution_context.clone(),
-                        model_ctx,
-                    );
-                });
-            } else {
-                log::warn!("Notebook not found for ai_document_id: {document_id}");
-            }
         }
     }
 
@@ -1645,20 +1564,6 @@ impl BlocklistAIController {
             );
         });
 
-        for input in request_input.all_inputs() {
-            if let AIAgentInput::UserQuery {
-                referenced_attachments,
-                ..
-            } = input
-            {
-                self.maybe_populate_plans_for_ai_document_model(
-                    referenced_attachments,
-                    conversation_data.id,
-                    ctx,
-                );
-            }
-        }
-
         history_model.update(ctx, |history_model, ctx| {
             match history_model.update_conversation_for_new_request_input(
                 request_input,
@@ -1694,20 +1599,10 @@ impl BlocklistAIController {
         // attachments came from the row, not the live staging, so the live `pending_attachments`
         // belong to the user's next prompt and must be preserved.
         if input_contains_user_query && !is_queued_prompt {
-            // Get the pending document ID before clearing context
-            let pending_document_id = self.context_model.as_ref(ctx).pending_document_id();
-
             // Reset the context state to the default.
             self.context_model.update(ctx, |context_model, ctx| {
                 context_model.reset_context_to_default(ctx);
             });
-
-            // Update the document status to UpToDate after query submission
-            if let Some(doc_id) = pending_document_id {
-                AIDocumentModel::handle(ctx).update(ctx, |model, mctx| {
-                    model.set_user_edit_status(&doc_id, AIDocumentUserEditStatus::UpToDate, mctx);
-                });
-            }
         }
 
         ctx.emit(BlocklistAIControllerEvent::SentRequest {

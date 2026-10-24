@@ -136,7 +136,10 @@ fn write_task_messages(
             Message::ToolCall(tc) => {
                 let tool_call_id = &tc.tool_call_id;
                 match &tc.tool {
-                    Some(Tool::SearchCodebase(_))
+                    Some(Tool::ReadDocuments(_))
+                    | Some(Tool::EditDocuments(_))
+                    | Some(Tool::CreateDocuments(_))
+                    | Some(Tool::SearchCodebase(_))
                     | Some(Tool::Server(_))
                     | Some(Tool::InitProject(_))
                     | Some(Tool::RunAgents(_))
@@ -195,7 +198,10 @@ fn write_task_messages(
             Message::ToolCallResult(tcr) => {
                 let tool_call_id = &tcr.tool_call_id;
                 match &tcr.result {
-                    Some(ToolCallResultType::SearchCodebase(_))
+                    Some(ToolCallResultType::ReadDocuments(_))
+                    | Some(ToolCallResultType::EditDocuments(_))
+                    | Some(ToolCallResultType::CreateDocuments(_))
+                    | Some(ToolCallResultType::SearchCodebase(_))
                     | Some(ToolCallResultType::Server(_))
                     | Some(ToolCallResultType::InitProject(_))
                     | Some(ToolCallResultType::RunAgentsResult(_))
@@ -325,44 +331,6 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
         Tool::FetchConversation(fc) => {
             out.push_str(&format!("conversation_id: {}\n", fc.conversation_id));
         }
-        Tool::CreateDocuments(cd) => {
-            out.push_str("documents:\n");
-            for doc in &cd.new_documents {
-                out.push_str(&format!(
-                    "  - title: \"{}\"\n",
-                    escape_yaml_string(&doc.title)
-                ));
-                let preview = truncate_content(&doc.content, 2048);
-                if !preview.is_empty() {
-                    out.push_str("    content: |\n");
-                    for line in preview.lines() {
-                        out.push_str("      ");
-                        out.push_str(line);
-                        out.push('\n');
-                    }
-                }
-            }
-        }
-        Tool::ReadDocuments(rd) => {
-            out.push_str("documents:\n");
-            for doc in &rd.documents {
-                out.push_str(&format!("  - document_id: {}\n", doc.document_id));
-            }
-        }
-        Tool::EditDocuments(ed) => {
-            out.push_str(&format!("diff_count: {}\n", ed.diffs.len()));
-            for diff in &ed.diffs {
-                out.push_str(&format!("  - document_id: {}\n", diff.document_id));
-                if !diff.search.is_empty() {
-                    out.push_str("    search: |\n");
-                    write_block_scalar(out, truncate_content(&diff.search, 1024));
-                }
-                if !diff.replace.is_empty() {
-                    out.push_str("    replace: |\n");
-                    write_block_scalar(out, truncate_content(&diff.replace, 1024));
-                }
-            }
-        }
         #[allow(deprecated)]
         Tool::FileGlob(fg) => {
             out.push_str("patterns:\n");
@@ -484,6 +452,9 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
         | Tool::Server(_)
         | Tool::Subagent(_)
         | Tool::TransferShellCommandControlToUser(_)
+        | Tool::ReadDocuments(_)
+        | Tool::EditDocuments(_)
+        | Tool::CreateDocuments(_)
         | Tool::WaitForEvents(_) => {}
     }
 }
@@ -491,6 +462,9 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
 /// Writes content from structured tool call results.
 fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType) {
     match result {
+        ToolCallResultType::ReadDocuments(_)
+        | ToolCallResultType::EditDocuments(_)
+        | ToolCallResultType::CreateDocuments(_) => {}
         ToolCallResultType::RunAgentsResult(_)
         | ToolCallResultType::SendMessageToAgent(_)
         | ToolCallResultType::WaitForEvents(_) => {}
@@ -707,81 +681,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
                             out.push_str(&format!("file_path: {}\n", content.file_path));
                             out.push_str("content: |\n");
                             write_block_scalar(out, truncate_content(&content.content, 4096));
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::ReadDocuments(r) => {
-            if let Some(res) = &r.result {
-                use api::read_documents_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("documents:\n");
-                        for doc in &s.documents {
-                            out.push_str(&format!("  - document_id: {}\n", doc.document_id));
-                            let preview = truncate_content(&doc.content, 4096);
-                            if !preview.is_empty() {
-                                out.push_str("    content: |\n");
-                                for line in preview.lines() {
-                                    out.push_str("      ");
-                                    out.push_str(line);
-                                    out.push('\n');
-                                }
-                            }
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::EditDocuments(r) => {
-            if let Some(res) = &r.result {
-                use api::edit_documents_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("updated_documents:\n");
-                        for doc in &s.updated_documents {
-                            out.push_str(&format!("  - document_id: {}\n", doc.document_id));
-                            let preview = truncate_content(&doc.content, 4096);
-                            if !preview.is_empty() {
-                                out.push_str("    content: |\n");
-                                for line in preview.lines() {
-                                    out.push_str("      ");
-                                    out.push_str(line);
-                                    out.push('\n');
-                                }
-                            }
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::CreateDocuments(r) => {
-            if let Some(res) = &r.result {
-                use api::create_documents_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("created_documents:\n");
-                        for doc in &s.created_documents {
-                            out.push_str(&format!("  - document_id: {}\n", doc.document_id));
-                            let preview = truncate_content(&doc.content, 4096);
-                            if !preview.is_empty() {
-                                out.push_str("    content: |\n");
-                                for line in preview.lines() {
-                                    out.push_str("      ");
-                                    out.push_str(line);
-                                    out.push('\n');
-                                }
-                            }
                         }
                     }
                     Result::Error(e) => {

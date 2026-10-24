@@ -9,8 +9,8 @@ use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api};
 
 use super::schema::{
-    agent_conversations, agent_tasks, ai_document_panes, ai_memory_panes, ambient_agent_panes, app,
-    blocks, cloud_objects_refreshes, code_pane_tabs, code_panes, code_review_panes, commands,
+    agent_conversations, agent_tasks, ai_memory_panes, ambient_agent_panes, app, blocks,
+    cloud_objects_refreshes, code_pane_tabs, code_panes, code_review_panes, commands,
     current_user_information, env_var_collection_panes, folders, generic_string_objects,
     ignored_suggestions, notebook_panes, notebooks, object_actions, object_metadata,
     object_permissions, pane_branches, pane_leaves, pane_nodes, panels, project_rules, projects,
@@ -872,28 +872,6 @@ pub struct AgentTaskRecord {
     pub task_id: String,
     pub task: Vec<u8>,
     pub last_modified_at: NaiveDateTime,
-}
-
-#[derive(Debug, PartialEq, Queryable, Selectable, Clone)]
-#[diesel(table_name = ai_document_panes)]
-#[diesel(primary_key(id))]
-pub struct AIDocumentPane {
-    pub id: i32,
-    pub kind: String,
-    pub document_id: String,
-    pub version: i32,
-    pub content: Option<String>,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = ai_document_panes)]
-pub struct NewAIDocumentPane {
-    pub id: i32,
-    pub document_id: String,
-    pub version: i32,
-    pub content: Option<String>,
-    pub title: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]

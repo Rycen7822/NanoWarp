@@ -47,13 +47,7 @@ impl SearchItem for NotebookSearchItem {
             ConstrainedBox::new(
                 Icon::Notebook
                     .to_warpui_icon(
-                        warp_drive_icon_color(
-                            appearance,
-                            DriveObjectType::Notebook {
-                                is_ai_document: false,
-                            },
-                        )
-                        .into(),
+                        warp_drive_icon_color(appearance, DriveObjectType::Notebook).into(),
                     )
                     .finish(),
             )

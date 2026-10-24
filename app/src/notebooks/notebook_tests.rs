@@ -138,8 +138,6 @@ fn cloud_notebook(title: impl Into<String>, data: impl Into<String>) -> CloudNot
         CloudNotebookModel {
             title: title.into(),
             data: data.into(),
-            ai_document_id: None,
-            conversation_id: None,
         },
         Owner::mock_current_user(),
         None,
@@ -155,8 +153,6 @@ fn mock_server_notebook(title: impl Into<String>, data: impl Into<String>) -> Se
         CloudNotebookModel {
             title: title.into(),
             data: data.into(),
-            ai_document_id: None,
-            conversation_id: None,
         },
         ServerMetadata {
             uid: 123.into(),

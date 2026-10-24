@@ -10,7 +10,6 @@ pub mod llm_provider;
 pub use llm_id::LLMId;
 pub use llm_provider::LLMProvider;
 pub mod diff_validation;
-pub mod document;
 pub mod gfm_table;
 pub mod paths;
 pub mod project_context;

@@ -13,9 +13,8 @@ use crate::ai::agent::{
     AIAgentOutputMessageType, AIAgentText, AIAgentTextSection, AgentOutputImage,
     AgentOutputImageLayout, AgentOutputMermaidDiagram, AnyFileContent,
     ChatGPTSubscriptionErrorAction, ChatGPTSubscriptionErrorActionKind, CurrentHead, DiffBase,
-    DiffSetHunk, DocumentContentAttachmentSource, DriveObjectPayload, FileContext,
-    FormattedTextWrapper, ImageContext, MessageId, ProgrammingLanguage, RenderableAIError,
-    TransientNetworkErrorKind,
+    DiffSetHunk, DriveObjectPayload, FileContext, FormattedTextWrapper, ImageContext, MessageId,
+    ProgrammingLanguage, RenderableAIError, TransientNetworkErrorKind,
 };
 use crate::ai::block_context::BlockContext;
 use crate::ai_assistant::execution_context::{WarpAiExecutionContext, WarpAiOsContext};
@@ -622,12 +621,6 @@ fn ai_agent_context_rejects_unknown_variants() {
 fn ai_agent_attachment_round_trips_tagged_variants() {
     let attachments = vec![
         AIAgentAttachment::PlainText("hello".to_string()),
-        AIAgentAttachment::DocumentContent {
-            document_id: "doc-1".to_string(),
-            content: "# Plan".to_string(),
-            source: DocumentContentAttachmentSource::UserAttached,
-            line_range: Some(LineCount::range(1..5)),
-        },
         AIAgentAttachment::DriveObject {
             uid: "drive-1".to_string(),
             payload: Some(DriveObjectPayload::Workflow {

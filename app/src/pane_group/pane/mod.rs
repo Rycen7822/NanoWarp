@@ -8,7 +8,6 @@
 //! The [`PaneContent`] interface requires implementers to maintain a [`PaneId`] for their pane.
 //! The [`PaneId`] must be created via a [`PaneView<BackingView>`]. The [`PaneId`] is consequently
 //! used to render a [`PaneView`] which internally renders the pane, including the [`BackingView`].
-pub(super) mod ai_document_pane;
 pub(super) mod ai_fact_pane;
 pub(super) mod code_diff_pane;
 pub(super) mod code_diff_pane_model;
@@ -38,7 +37,6 @@ use warpui::{
 
 pub use self::view::{PaneHeaderAction, PaneHeaderCustomAction, PaneView, PaneViewEvent};
 use super::{ActivationReason, LeafContents, PaneGroup, PaneGroupAction};
-use crate::ai::ai_document_view::AIDocumentView;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
 use crate::ai::execution_profiles::editor::ExecutionProfileEditorView;
 use crate::ai::facts::AIFactView;
@@ -129,11 +127,9 @@ pub(crate) enum IPaneType {
     EnvVarCollection,
     Settings,
     AIFact,
-    AIDocument,
     CustomRouterEditor,
     ExecutionProfileEditor,
     NetworkLog,
-    DeferredPlaceholder,
     /// A pane type only for tests.
     #[cfg(test)]
     Dummy,
@@ -150,11 +146,9 @@ impl Display for IPaneType {
             IPaneType::EnvVarCollection => write!(f, "Environment Variable Collection"),
             IPaneType::Settings => write!(f, "Settings"),
             IPaneType::AIFact => write!(f, "AI Fact"),
-            IPaneType::AIDocument => write!(f, "AI Document"),
             IPaneType::CustomRouterEditor => write!(f, "Custom Router Editor"),
             IPaneType::ExecutionProfileEditor => write!(f, "Execution Profile Editor"),
             IPaneType::NetworkLog => write!(f, "Network Log"),
-            IPaneType::DeferredPlaceholder => write!(f, "Placeholder"),
             #[cfg(test)]
             IPaneType::Dummy => write!(f, "Dummy"),
         }
@@ -216,11 +210,6 @@ impl PaneId {
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<AIFactView>>`]
     pub fn from_ai_fact_pane_ctx(ctx: &ViewContext<PaneView<AIFactView>>) -> Self {
         Self::new_from_ctx(IPaneType::AIFact, ctx)
-    }
-
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<AIDocumentView>>`]
-    pub fn from_ai_document_pane_ctx(ctx: &ViewContext<PaneView<AIDocumentView>>) -> Self {
-        Self::new_from_ctx(IPaneType::AIDocument, ctx)
     }
 
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<CustomRouterEditorView>>`]
@@ -292,13 +281,6 @@ impl PaneId {
         Self::new(IPaneType::AIFact, ai_fact_pane_view)
     }
 
-    /// Creates a [`PaneId`] from a [`PaneView<AIDocumentView>`] entity ID.
-    pub fn from_ai_document_pane_view(
-        ai_document_pane_view: &ViewHandle<PaneView<AIDocumentView>>,
-    ) -> Self {
-        Self::new(IPaneType::AIDocument, ai_document_pane_view)
-    }
-
     /// Creates a [`PaneId`] from a [`PaneView<CustomRouterEditorView>`] entity ID.
     pub fn from_custom_router_editor_pane_view(
         view: &ViewHandle<PaneView<crate::ai::custom_model_router_editor::CustomRouterEditorView>>,
@@ -321,14 +303,6 @@ impl PaneId {
         network_log_pane_view: &ViewHandle<PaneView<NetworkLogView>>,
     ) -> Self {
         Self::new(IPaneType::NetworkLog, network_log_pane_view)
-    }
-
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    pub(super) fn deferred_placeholder_pane_id() -> Self {
-        Self(IPaneId {
-            pane_type: IPaneType::DeferredPlaceholder,
-            pane_view_id: warpui::EntityId::new(),
-        })
     }
 
     /// Creates a [`PaneId`] for a dummy pane.
@@ -412,9 +386,6 @@ impl PaneId {
             IPaneType::AIFact => {
                 ChildView::<PaneView<AIFactView>>::with_id(self.0.pane_view_id).finish()
             }
-            IPaneType::AIDocument => {
-                ChildView::<PaneView<AIDocumentView>>::with_id(self.0.pane_view_id).finish()
-            }
             IPaneType::CustomRouterEditor => ChildView::<
                 PaneView<crate::ai::custom_model_router_editor::CustomRouterEditorView>,
             >::with_id(self.0.pane_view_id)
@@ -426,7 +397,6 @@ impl PaneId {
             IPaneType::NetworkLog => {
                 ChildView::<PaneView<NetworkLogView>>::with_id(self.0.pane_view_id).finish()
             }
-            IPaneType::DeferredPlaceholder => warpui::elements::Empty::new().finish(),
             #[cfg(test)]
             IPaneType::Dummy => warpui::elements::Empty::new().finish(),
         };

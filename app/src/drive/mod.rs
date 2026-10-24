@@ -32,10 +32,7 @@ pub enum DriveObjectType {
     AgentModeWorkflow,
     AIFact,
     AIFactCollection,
-    Notebook {
-        /// Whether the notebook was created as an AI Document (plan)
-        is_ai_document: bool,
-    },
+    Notebook,
     Folder,
     EnvVarCollection,
 }
@@ -47,13 +44,7 @@ impl From<DriveObjectType> for Icon {
             DriveObjectType::AgentModeWorkflow => Icon::Prompt,
             DriveObjectType::AIFact => Icon::BookOpen,
             DriveObjectType::AIFactCollection => Icon::BookOpen,
-            DriveObjectType::Notebook { is_ai_document } => {
-                if is_ai_document {
-                    Icon::Compass
-                } else {
-                    Icon::Notebook
-                }
-            }
+            DriveObjectType::Notebook => Icon::Notebook,
             DriveObjectType::Folder => Icon::Folder,
             DriveObjectType::EnvVarCollection => Icon::EnvVarCollection,
         }
@@ -63,7 +54,7 @@ impl From<DriveObjectType> for Icon {
 impl fmt::Display for DriveObjectType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DriveObjectType::Notebook { .. } => write!(f, "notebook"),
+            DriveObjectType::Notebook => write!(f, "notebook"),
             DriveObjectType::Workflow => write!(f, "workflow"),
             DriveObjectType::Folder => write!(f, "folder"),
             DriveObjectType::EnvVarCollection => write!(f, "env var collection"),

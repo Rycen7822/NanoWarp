@@ -29,17 +29,15 @@ use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{
     AIAgentActionResult, AIAgentActionResultType, AIAgentContext, AIAgentExchange,
     AIAgentExchangeId, AIAgentInput, AIAgentOutput, AIAgentOutputMessage, AIAgentOutputStatus,
-    BaseUserQuery, CancellationReason, CreateDocumentsResult, DocumentContext, EditDocumentsResult,
-    FileContext, FileGlobResult, FileGlobV2Match, FileGlobV2Result, FinishedAIAgentOutput,
-    GrepFileMatch, GrepLineMatch, GrepResult, ImageContext, InsertReviewCommentsResult,
-    OutputModelInfo, ReadDocumentsResult, ReadFilesFailedFile, ReadFilesResult,
-    ReadShellCommandOutputResult, RequestCommandOutputResult, RequestFileEditsResult,
-    ServerOutputId, Shared, ShellCommandError, SuggestNewConversationResult,
-    TransferShellCommandControlToUserResult, UpdatedFileContext,
+    BaseUserQuery, CancellationReason, FileContext, FileGlobResult, FileGlobV2Match,
+    FileGlobV2Result, FinishedAIAgentOutput, GrepFileMatch, GrepLineMatch, GrepResult,
+    ImageContext, InsertReviewCommentsResult, OutputModelInfo, ReadFilesFailedFile,
+    ReadFilesResult, ReadShellCommandOutputResult, RequestCommandOutputResult,
+    RequestFileEditsResult, ServerOutputId, Shared, ShellCommandError,
+    SuggestNewConversationResult, TransferShellCommandControlToUserResult, UpdatedFileContext,
     WriteToLongRunningShellCommandResult,
 };
 use crate::ai::block_context::BlockContext;
-use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::ai::llms::LLMId;
 use crate::ai_assistant::execution_context::{WarpAiExecutionContext, WarpAiOsContext};
 use crate::terminal::model::block::BlockId;
@@ -296,7 +294,6 @@ impl ConvertToExchanges for &api::Task {
         let mut current_inputs = Vec::new();
         let mut current_outputs = Vec::new();
         let mut current_message_ids = HashSet::new();
-        let mut document_versions: HashMap<AIDocumentId, AIDocumentVersion> = HashMap::new();
         let mut current_request_id: Option<String> = None;
 
         // Almost all messages should be ingested as outputs, except for some special cases:
@@ -397,7 +394,6 @@ impl ConvertToExchanges for &api::Task {
                         &task_id,
                         tool_call_result,
                         &tool_call_map,
-                        &mut document_versions,
                     ) {
                         // Add tool call result as input
                         current_inputs.push(input);
@@ -500,14 +496,11 @@ impl ConvertToExchanges for &api::Task {
 
 /// Convert a ToolCallResult to an AIAgentInput::ActionResult
 /// Returns None if the tool call result is a ServerToolCallResult
-/// `document_versions` tracks the latest version per document for CreateDocuments and EditDocuments results.
-/// Each new document (CreateDocuments) starts at the default version; edits increment the specific document's version.
 #[allow(clippy::single_range_in_vec_init)]
 pub(crate) fn convert_tool_call_result_to_input(
     task_id: &TaskId,
     tool_call_result: &api::message::ToolCallResult,
     tool_call_map: &HashMap<String, &api::message::ToolCall>,
-    document_versions: &mut HashMap<AIDocumentId, AIDocumentVersion>,
 ) -> Option<AIAgentInput> {
     use warp_multi_agent_api::message::tool_call_result::Result as ToolCallResultType;
 
@@ -851,129 +844,6 @@ pub(crate) fn convert_tool_call_result_to_input(
             },
             context,
         }),
-        Some(ToolCallResultType::ReadDocuments(result)) => {
-            let read_result = match &result.result {
-                Some(api::read_documents_result::Result::Success(success)) => {
-                    let documents = success
-                        .documents
-                        .iter()
-                        .filter_map(|doc| {
-                            AIDocumentId::try_from(doc.document_id.clone())
-                                .ok()
-                                .map(|id| {
-                                    DocumentContext {
-                                        document_id: id,
-                                        // Version is a placeholder here - the actual current version
-                                        // will be determined when the document is accessed from AIDocumentModel
-                                        document_version: AIDocumentVersion(1),
-                                        content: doc.content.clone(),
-                                        line_ranges: vec![],
-                                    }
-                                })
-                        })
-                        .collect();
-
-                    ReadDocumentsResult::Success { documents }
-                }
-                Some(api::read_documents_result::Result::Error(error)) => {
-                    ReadDocumentsResult::Error(error.message.clone())
-                }
-                None => ReadDocumentsResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::ReadDocuments(read_result),
-                },
-                context,
-            })
-        }
-        Some(ToolCallResultType::EditDocuments(result)) => {
-            let edit_result = match &result.result {
-                Some(api::edit_documents_result::Result::Success(success)) => {
-                    let updated_documents = success
-                        .updated_documents
-                        .iter()
-                        .map(|doc| {
-                            AIDocumentId::try_from(doc.document_id.clone())
-                                .ok()
-                                .map(|id| {
-                                    // Each edit produces a new version. Increment the
-                                    // tracked version for this document and use the result.
-                                    let entry = document_versions.entry(id).or_default();
-                                    let version = entry.next();
-                                    *entry = version;
-                                    DocumentContext {
-                                        document_id: id,
-                                        document_version: version,
-                                        content: doc.content.clone(),
-                                        line_ranges: vec![],
-                                    }
-                                })
-                        })
-                        .collect::<Option<Vec<_>>>()
-                        .unwrap_or_default();
-
-                    EditDocumentsResult::Success { updated_documents }
-                }
-                Some(api::edit_documents_result::Result::Error(error)) => {
-                    EditDocumentsResult::Error(error.message.clone())
-                }
-                None => EditDocumentsResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::EditDocuments(edit_result),
-                },
-                context,
-            })
-        }
-        Some(ToolCallResultType::CreateDocuments(result)) => {
-            let create_result = match &result.result {
-                Some(api::create_documents_result::Result::Success(success)) => {
-                    let created_documents = success
-                        .created_documents
-                        .iter()
-                        .map(|doc| {
-                            AIDocumentId::try_from(doc.document_id.clone())
-                                .ok()
-                                .map(|id| {
-                                    // New documents always start at the default version.
-                                    let version = AIDocumentVersion::default();
-                                    document_versions.insert(id, version);
-                                    DocumentContext {
-                                        document_id: id,
-                                        document_version: version,
-                                        content: doc.content.clone(),
-                                        line_ranges: vec![],
-                                    }
-                                })
-                        })
-                        .collect::<Option<Vec<_>>>()
-                        .unwrap_or_default();
-
-                    CreateDocumentsResult::Success { created_documents }
-                }
-                Some(api::create_documents_result::Result::Error(error)) => {
-                    CreateDocumentsResult::Error(error.message.clone())
-                }
-                None => CreateDocumentsResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::CreateDocuments(create_result),
-                },
-                context,
-            })
-        }
         Some(ToolCallResultType::ReadShellCommandOutput(result)) => {
             let read_result = match &result.result {
                 Some(api::read_shell_command_output_result::Result::CommandFinished(finished)) => {
@@ -1173,6 +1043,9 @@ pub(crate) fn convert_tool_call_result_to_input(
             None
         }
         Some(ToolCallResultType::SendMessageToAgent(_))
+        | Some(ToolCallResultType::ReadDocuments(_))
+        | Some(ToolCallResultType::EditDocuments(_))
+        | Some(ToolCallResultType::CreateDocuments(_))
         | Some(ToolCallResultType::RunAgentsResult(_))
         | Some(ToolCallResultType::ReadMcpResource(_))
         | Some(ToolCallResultType::CallMcpTool(_))
@@ -1247,15 +1120,6 @@ fn create_cancelled_result_for_tool_call(
             AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Cancelled)
         }
         ToolType::InitProject(_) => return None,
-        ToolType::ReadDocuments(_) => {
-            AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Cancelled)
-        }
-        ToolType::EditDocuments(_) => {
-            AIAgentActionResultType::EditDocuments(EditDocumentsResult::Cancelled)
-        }
-        ToolType::CreateDocuments(_) => {
-            AIAgentActionResultType::CreateDocuments(CreateDocumentsResult::Cancelled)
-        }
         ToolType::ReadShellCommandOutput(_) => {
             AIAgentActionResultType::ReadShellCommandOutput(ReadShellCommandOutputResult::Cancelled)
         }
@@ -1278,7 +1142,10 @@ fn create_cancelled_result_for_tool_call(
         | ToolType::StopRecording(_) => {
             return None;
         }
-        ToolType::Subagent(_) => return None,
+        ToolType::ReadDocuments(_)
+        | ToolType::EditDocuments(_)
+        | ToolType::CreateDocuments(_)
+        | ToolType::Subagent(_) => return None,
         ToolType::AskUserQuestion(_) => {
             AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Cancelled)
         }

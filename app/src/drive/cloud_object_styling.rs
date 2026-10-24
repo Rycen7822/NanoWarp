@@ -21,7 +21,7 @@ pub fn warp_drive_icon_color(
                 )
                 .into()
         }
-        DriveObjectType::Notebook { .. } => {
+        DriveObjectType::Notebook => {
             let color: Fill = appearance.theme().terminal_colors().normal.blue.into();
             color
                 .on_background(
