@@ -5,10 +5,9 @@ use warp_core::ui::theme::color::internal_colors;
 use warp_editor::editor::NavigationKey;
 use warp_managed_secrets::client::SecretOwner;
 use warpui::elements::{
-    Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize,
-    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement as _, ParentOffsetBounds,
-    Radius, Stack, Text, Wrap,
+    Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
+    Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement as _, Radius, Text, Wrap,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -27,11 +26,9 @@ use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpEscapeKey, PropagateAndNoOpNavigationKeys,
     SingleLineEditorOptions, TextOptions,
 };
-use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::terminal::view::ambient_agent::auth_secret_ftux_dropdown::{
     AuthSecretFtuxDropdown, FtuxDropdownEvent,
 };
-use crate::ui_components::icons::Icon as UiIcon;
 use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
@@ -71,18 +68,11 @@ pub enum AuthSecretFtuxAction {
     LearnMore(&'static str),
     /// Toggle the "Share with team" checkbox on the creation form.
     ToggleTeamScope,
-    /// Toggle the compact-mode harness picker. Ignored when compact mode
-    /// is disabled (cloud mode).
-    ToggleHarnessMenu,
-    /// Picks a harness in compact mode. The view forwards to
-    /// `set_harness`, which clears in-progress creation state and
-    /// re-enters creation for the new harness's first type.
-    SelectHarness(Harness),
 }
 
 /// Lifecycle events the view emits to its host. Side effects (persist
 /// selection, mark FTUX complete, etc.) are the host's responsibility so the
-/// same view can be embedded in cloud mode or in a workspace-level modal.
+/// view can manage creation and selection in cloud mode.
 #[derive(Debug, Clone)]
 pub enum AuthSecretFtuxViewEvent {
     /// User picked an existing secret from the in-view dropdown.
@@ -130,17 +120,6 @@ pub struct AuthSecretFtuxView {
     continue_mouse_state: MouseStateHandle,
     learn_more_mouse_state: MouseStateHandle,
     team_checkbox_mouse_state: MouseStateHandle,
-    /// Suppresses the in-dropdown "Skip" item; default `false` (cloud mode
-    /// keeps Skip, orchestration modal hides it).
-    skip_hidden: bool,
-    /// Compact (orchestration-modal) presentation: no description, dropdown
-    /// hides existing secrets and Skip, auto-enters creation for the first
-    /// secret type, and renders a harness picker above the form.
-    compact_mode: bool,
-    harness_picker_mouse_state: MouseStateHandle,
-    is_harness_menu_open: bool,
-    /// Lazily built; only in compact mode.
-    harness_menu: Option<ViewHandle<Menu<AuthSecretFtuxAction>>>,
 }
 
 impl AuthSecretFtuxView {
@@ -266,225 +245,20 @@ impl AuthSecretFtuxView {
             continue_mouse_state: MouseStateHandle::default(),
             learn_more_mouse_state: MouseStateHandle::default(),
             team_checkbox_mouse_state: MouseStateHandle::default(),
-            skip_hidden: false,
-            compact_mode: false,
-            harness_picker_mouse_state: MouseStateHandle::default(),
-            is_harness_menu_open: false,
-            harness_menu: None,
         }
     }
 
-    /// Switch to the orchestration modal's compact presentation. See the
-    /// `compact_mode` field for what changes.
-    pub fn with_compact_mode(mut self, ctx: &mut ViewContext<Self>) -> Self {
-        self.compact_mode = true;
-        let dropdown = self.ftux_dropdown.clone();
-        dropdown.update(ctx, |dropdown, ctx| {
-            dropdown.set_compact_mode(true, ctx);
-        });
-        // Auto-enter creation state for the harness's first secret type.
-        let harness = self.harness;
-        self.enter_creation_state(harness, 0, ctx);
-        // Build the harness picker menu lazily.
-        let menu = ctx.add_typed_action_view(|_ctx| {
-            Menu::new()
-                .with_width(220.)
-                .with_drop_shadow()
-                .prevent_interaction_with_other_elements()
-        });
-        ctx.subscribe_to_view(&menu, |me, _, event, ctx| match event {
-            MenuEvent::Close { .. } => {
-                if me.is_harness_menu_open {
-                    me.is_harness_menu_open = false;
-                    ctx.notify();
-                }
-            }
-            MenuEvent::ItemSelected | MenuEvent::ItemHovered => {}
-        });
-        self.harness_menu = Some(menu);
-        self.refresh_harness_menu(ctx);
-        self
-    }
-
-    /// Returns true when the view is rendering in the compact (modal)
-    /// presentation.
-    pub fn is_compact_mode(&self) -> bool {
-        self.compact_mode
-    }
-
-    /// Hide the in-dropdown "Skip" affordance. Used by modal hosts.
-    pub fn with_skip_hidden(mut self) -> Self {
-        self.skip_hidden = true;
-        self
-    }
-
-    /// Returns the harness this view is currently targeting.
-    pub fn harness(&self) -> Harness {
-        self.harness
-    }
-
-    /// Retarget at a new harness: clear in-progress creation state and
-    /// propagate the harness change to the embedded dropdown.
+    /// Retarget the form and its dropdown when the pane's harness changes.
     pub fn set_harness(&mut self, harness: Harness, ctx: &mut ViewContext<Self>) {
         if self.harness == harness {
             return;
         }
         self.harness = harness;
         self.clear_creation_state(ctx);
-        let dropdown = self.ftux_dropdown.clone();
-        dropdown.update(ctx, |dropdown, ctx| {
+        self.ftux_dropdown.update(ctx, |dropdown, ctx| {
             dropdown.set_harness(harness, ctx);
         });
-        if self.compact_mode {
-            // Compact mode keeps the form always-visible, so re-enter
-            // creation state for the new harness's first secret type.
-            self.enter_creation_state(harness, 0, ctx);
-            self.refresh_harness_menu(ctx);
-        }
         ctx.notify();
-    }
-
-    /// Rebuilds the compact harness picker's menu items. Only invoked in
-    /// compact mode; a no-op when the harness menu hasn't been built.
-    fn refresh_harness_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(menu) = self.harness_menu.clone() else {
-            return;
-        };
-        let current = self.harness;
-        let availability = HarnessAvailabilityModel::handle(ctx);
-        let entries: Vec<(Harness, String, bool)> = availability
-            .as_ref(ctx)
-            .available_harnesses()
-            .iter()
-            .filter(|entry| {
-                // Only show harnesses that support managed auth secrets,
-                // since this modal exists to create one.
-                !auth_secret_types_for_harness(entry.harness).is_empty()
-            })
-            .map(|entry| (entry.harness, entry.display_name.clone(), entry.enabled))
-            .collect();
-        let current_display = entries
-            .iter()
-            .find(|(h, _, _)| *h == current)
-            .map(|(_, name, _)| name.clone());
-        menu.update(ctx, |menu, menu_ctx| {
-            let mut items: Vec<MenuItem<AuthSecretFtuxAction>> = Vec::new();
-            for (harness, display_name, enabled) in &entries {
-                let mut fields = MenuItemFields::new(display_name)
-                    .with_icon(harness_display::icon_for(*harness));
-                if let Some(color) = harness_display::brand_color(*harness) {
-                    fields = fields.with_override_icon_color(Fill::from(color));
-                }
-                if *enabled {
-                    fields =
-                        fields.with_on_select_action(AuthSecretFtuxAction::SelectHarness(*harness));
-                } else {
-                    fields = fields.with_disabled(true);
-                }
-                items.push(MenuItem::Item(fields));
-            }
-            menu.set_items(items, menu_ctx);
-            if let Some(name) = &current_display {
-                menu.set_selected_by_name(name, menu_ctx);
-            }
-        });
-    }
-
-    fn handle_toggle_harness_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.compact_mode || self.harness_menu.is_none() {
-            return;
-        }
-        self.is_harness_menu_open = !self.is_harness_menu_open;
-        if self.is_harness_menu_open {
-            // Refresh in case the available-harnesses list changed since
-            // the last open.
-            self.refresh_harness_menu(ctx);
-            if let Some(menu) = &self.harness_menu {
-                ctx.focus(menu);
-            }
-        }
-        ctx.notify();
-    }
-
-    fn render_compact_harness_picker(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let harness = self.harness;
-        let display_name = harness_display::display_name(harness).to_string();
-        let icon_color: Fill = harness_display::brand_color(harness)
-            .map(Fill::from)
-            .unwrap_or_else(|| internal_colors::text_sub(theme, theme.surface_1()).into());
-
-        let leading_icon = ConstrainedBox::new(
-            harness_display::icon_for(harness)
-                .to_warpui_icon(icon_color)
-                .finish(),
-        )
-        .with_width(16.)
-        .with_height(16.)
-        .finish();
-
-        let label = Text::new_inline(
-            display_name,
-            appearance.ui_font_family(),
-            DESCRIPTION_FONT_SIZE,
-        )
-        .with_color(theme.foreground().into())
-        .with_style(Properties::default().weight(Weight::Semibold))
-        .finish();
-
-        let chevron = ConstrainedBox::new(
-            UiIcon::ChevronDown
-                .to_warpui_icon(internal_colors::text_sub(theme, theme.surface_1()).into())
-                .finish(),
-        )
-        .with_width(12.)
-        .with_height(12.)
-        .finish();
-
-        let row = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_size(MainAxisSize::Min)
-            .with_spacing(6.)
-            .with_child(leading_icon)
-            .with_child(label)
-            .with_child(chevron)
-            .finish();
-
-        let trigger = Hoverable::new(self.harness_picker_mouse_state.clone(), move |hover| {
-            let mut container = Container::new(row)
-                .with_padding_left(8.)
-                .with_padding_right(8.)
-                .with_padding_top(4.)
-                .with_padding_bottom(4.)
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CORNER_RADIUS)));
-            if hover.is_hovered() {
-                container = container.with_background(internal_colors::fg_overlay_1(theme));
-            }
-            container.finish()
-        })
-        .with_cursor(warpui::platform::Cursor::PointingHand)
-        .on_click(|ctx, _, _| {
-            ctx.dispatch_typed_action(AuthSecretFtuxAction::ToggleHarnessMenu);
-        })
-        .finish();
-
-        let mut stack = Stack::new();
-        stack.add_child(trigger);
-        if self.is_harness_menu_open
-            && let Some(menu) = &self.harness_menu
-        {
-            stack.add_positioned_overlay_child(
-                ChildView::new(menu).finish(),
-                OffsetPositioning::offset_from_parent(
-                    warpui::geometry::vector::vec2f(0., 4.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::BottomLeft,
-                    ChildAnchor::TopLeft,
-                ),
-            );
-        }
-        stack.finish()
     }
 
     pub fn has_creation_state(&self) -> bool {
@@ -641,9 +415,6 @@ impl AuthSecretFtuxView {
     }
 
     fn handle_skip(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.skip_hidden {
-            return;
-        }
         let harness = self.harness;
         self.clear_all_editor_buffers(ctx);
         self.creation_state = None;
@@ -1079,11 +850,6 @@ impl TypedActionView for AuthSecretFtuxView {
                 self.share_with_team = !self.share_with_team;
                 ctx.notify();
             }
-            AuthSecretFtuxAction::ToggleHarnessMenu => self.handle_toggle_harness_menu(ctx),
-            AuthSecretFtuxAction::SelectHarness(harness) => {
-                self.is_harness_menu_open = false;
-                self.set_harness(*harness, ctx);
-            }
         }
     }
 }
@@ -1102,18 +868,9 @@ impl View for AuthSecretFtuxView {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_main_axis_size(MainAxisSize::Min)
             .with_spacing(CONTENT_SECTION_SPACING);
-        if self.compact_mode {
-            // Compact mode: render the harness picker at the top, skip the
-            // descriptive header (the modal title supplies context), and
-            // keep the existing-secrets dropdown trimmed to "+ New …"
-            // entries so the user can still switch secret types.
-            content_section.add_child(self.render_compact_harness_picker(app));
+        content_section.add_child(self.render_description(app));
+        if self.creation_state.is_none() {
             content_section.add_child(ChildView::new(&self.ftux_dropdown).finish());
-        } else {
-            content_section.add_child(self.render_description(app));
-            if self.creation_state.is_none() {
-                content_section.add_child(ChildView::new(&self.ftux_dropdown).finish());
-            }
         }
         column.add_child(content_section.finish());
 

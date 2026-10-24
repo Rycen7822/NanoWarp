@@ -25,7 +25,6 @@ pub struct CloudEnvironmentCatalogEvent;
 /// Canonical, recency-ordered cloud-environment projection shared by frontends.
 pub struct CloudEnvironmentCatalog {
     environments: Vec<CloudEnvironment>,
-    orchestration_default_environment_id: Option<SyncId>,
 }
 
 impl CloudEnvironmentCatalog {
@@ -50,10 +49,8 @@ impl CloudEnvironmentCatalog {
                 | CloudModelEvent::ObjectSynced { .. } => catalog.refresh(ctx),
             }
         });
-        let (environments, orchestration_default_environment_id) = Self::current_environments(ctx);
         Self {
-            environments,
-            orchestration_default_environment_id,
+            environments: Self::current_environments(ctx),
         }
     }
 
@@ -76,31 +73,6 @@ impl CloudEnvironmentCatalog {
             .or_else(|| self.environments.first().map(|environment| environment.id))
     }
 
-    /// Returns the saved environment when it still exists, otherwise the
-    /// orchestration GUI's case-sensitive name fallback.
-    pub fn orchestration_default_environment_id(&self, ctx: &AppContext) -> Option<SyncId> {
-        self.saved_environment_id(ctx)
-            .or(self.orchestration_default_environment_id)
-    }
-
-    /// Returns the saved environment or first orchestration fallback accepted by `matches`.
-    pub(crate) fn orchestration_default_environment_id_matching(
-        &self,
-        ctx: &AppContext,
-        mut matches: impl FnMut(&CloudAmbientAgentEnvironment) -> bool,
-    ) -> Option<SyncId> {
-        self.saved_environment_id(ctx)
-            .filter(|id| CloudAmbientAgentEnvironment::get_by_id(id, ctx).is_some_and(&mut matches))
-            .or_else(|| {
-                let mut environments = CloudAmbientAgentEnvironment::get_all(ctx);
-                sort_environments_for_orchestration_default(&mut environments);
-                environments
-                    .into_iter()
-                    .find(|environment| matches(environment))
-                    .map(|environment| environment.id)
-            })
-    }
-
     /// Persists a valid environment selection for future default resolution.
     pub fn persist_selection(&self, environment_id: SyncId, ctx: &mut ModelContext<Self>) {
         if self.environment(environment_id).is_none() {
@@ -116,12 +88,9 @@ impl CloudEnvironmentCatalog {
     }
 
     fn refresh(&mut self, ctx: &mut ModelContext<Self>) {
-        let (environments, orchestration_default_environment_id) = Self::current_environments(ctx);
-        if environments != self.environments
-            || orchestration_default_environment_id != self.orchestration_default_environment_id
-        {
+        let environments = Self::current_environments(ctx);
+        if environments != self.environments {
             self.environments = environments;
-            self.orchestration_default_environment_id = orchestration_default_environment_id;
             ctx.emit(CloudEnvironmentCatalogEvent);
             ctx.notify();
         }
@@ -134,24 +103,16 @@ impl CloudEnvironmentCatalog {
         .filter(|id| self.environment(*id).is_some())
     }
 
-    fn current_environments(ctx: &AppContext) -> (Vec<CloudEnvironment>, Option<SyncId>) {
+    fn current_environments(ctx: &AppContext) -> Vec<CloudEnvironment> {
         let mut environments = CloudAmbientAgentEnvironment::get_all(ctx);
-        let orchestration_default_environment_id = {
-            let mut orchestration_environments = environments.clone();
-            sort_environments_for_orchestration_default(&mut orchestration_environments);
-            orchestration_environments
-                .first()
-                .map(|environment| environment.id)
-        };
         sort_environments_by_recency(&mut environments);
-        let environments = environments
+        environments
             .into_iter()
             .map(|environment| CloudEnvironment {
                 id: environment.id,
                 name: environment.model().string_model.display_name(),
             })
-            .collect();
-        (environments, orchestration_default_environment_id)
+            .collect()
     }
 }
 
@@ -172,20 +133,6 @@ pub(crate) fn sort_environments_by_recency(environments: &mut [CloudAmbientAgent
                     .name
                     .to_lowercase()
                     .cmp(&b.model().string_model.name.to_lowercase())
-            })
-    });
-}
-
-fn sort_environments_for_orchestration_default(environments: &mut [CloudAmbientAgentEnvironment]) {
-    environments.sort_by(|a, b| {
-        b.metadata
-            .last_task_run_ts
-            .cmp(&a.metadata.last_task_run_ts)
-            .then_with(|| {
-                a.model()
-                    .string_model
-                    .name
-                    .cmp(&b.model().string_model.name)
             })
     });
 }

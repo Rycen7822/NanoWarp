@@ -80,11 +80,6 @@ impl SkillPathQuery for PathBuf {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-mod resolve_skill_spec;
-#[cfg(not(target_family = "wasm"))]
-pub use resolve_skill_spec::resolve_skill_spec;
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
         mod skill_manager;

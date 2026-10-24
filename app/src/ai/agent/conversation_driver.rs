@@ -10,8 +10,6 @@ pub enum ConversationDriver {
     SharedSessionViewer,
     /// A restored 3p CLI transcript rendered through a vehicle conversation; view-only here.
     CliAgentTranscript,
-    /// Placeholder for a child agent executing on a remote worker, whose own client drives it.
-    RemoteChild,
 }
 
 impl ConversationDriver {
@@ -19,7 +17,7 @@ impl ConversationDriver {
     pub fn owns_turn_lifecycle(self) -> bool {
         match self {
             Self::Native => true,
-            Self::SharedSessionViewer | Self::CliAgentTranscript | Self::RemoteChild => false,
+            Self::SharedSessionViewer | Self::CliAgentTranscript => false,
         }
     }
 
@@ -27,7 +25,7 @@ impl ConversationDriver {
     pub fn executes_tool_calls_locally(self) -> bool {
         match self {
             Self::Native => true,
-            Self::SharedSessionViewer | Self::CliAgentTranscript | Self::RemoteChild => false,
+            Self::SharedSessionViewer | Self::CliAgentTranscript => false,
         }
     }
 
@@ -36,7 +34,7 @@ impl ConversationDriver {
     pub fn reconstructs_inputs_from_messages(self) -> bool {
         match self {
             Self::SharedSessionViewer => true,
-            Self::Native | Self::CliAgentTranscript | Self::RemoteChild => false,
+            Self::Native | Self::CliAgentTranscript => false,
         }
     }
 
@@ -44,7 +42,7 @@ impl ConversationDriver {
     pub fn reports_task_status(self) -> bool {
         match self {
             Self::Native | Self::CliAgentTranscript => true,
-            Self::SharedSessionViewer | Self::RemoteChild => false,
+            Self::SharedSessionViewer => false,
         }
     }
 
@@ -53,7 +51,7 @@ impl ConversationDriver {
     pub fn is_read_only_ui(self) -> bool {
         match self {
             Self::SharedSessionViewer | Self::CliAgentTranscript => true,
-            Self::Native | Self::RemoteChild => false,
+            Self::Native => false,
         }
     }
 
@@ -61,7 +59,7 @@ impl ConversationDriver {
     pub fn is_persisted_locally(self) -> bool {
         match self {
             Self::Native | Self::CliAgentTranscript => true,
-            Self::SharedSessionViewer | Self::RemoteChild => false,
+            Self::SharedSessionViewer => false,
         }
     }
 }

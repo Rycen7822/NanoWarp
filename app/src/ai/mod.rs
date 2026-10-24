@@ -5,7 +5,6 @@
 pub(crate) mod active_agent_views_model;
 pub(crate) mod agent;
 pub(crate) mod agent_conversations_model;
-pub(crate) mod agent_events;
 pub(crate) mod agent_management;
 pub(crate) mod ai_document_view;
 pub mod ambient_agents;
@@ -41,7 +40,6 @@ pub(crate) mod harness_display;
 pub(crate) mod llms;
 pub(crate) mod metadata_project_rules;
 pub mod onboarding;
-pub(crate) mod orchestration;
 pub(crate) mod persisted_workspace;
 pub(crate) mod pricing_promotion;
 #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]

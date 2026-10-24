@@ -659,10 +659,6 @@ pub enum AIAgentInput {
     SummarizeConversation,
     InvokeSkill { skill_name: String },
     StartFromAmbientRunPrompt,
-    MessagesReceivedFromAgents { message_count: usize },
-    EventsFromAgents { event_count: usize },
-    OrchestrationConfigUpdate,
-    AgentWake,
 }
 
 impl From<FullAIAgentInput> for AIAgentInput {
@@ -679,16 +675,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
                 skill_name: skill.name.clone(),
             },
             FullAIAgentInput::StartFromAmbientRunPrompt { .. } => Self::StartFromAmbientRunPrompt,
-            FullAIAgentInput::MessagesReceivedFromAgents { messages } => {
-                Self::MessagesReceivedFromAgents {
-                    message_count: messages.len(),
-                }
-            }
-            FullAIAgentInput::EventsFromAgents { events } => Self::EventsFromAgents {
-                event_count: events.len(),
-            },
-            FullAIAgentInput::OrchestrationConfigUpdate { .. } => Self::OrchestrationConfigUpdate,
-            FullAIAgentInput::AgentWake => Self::AgentWake,
         }
     }
 }
@@ -721,10 +707,8 @@ pub enum TelemetryAgentViewEntryOrigin {
     Onboarding,
     Keybinding,
     ClearBuffer,
-    ChildAgent,
     LinearDeepLink,
     ThirdPartyCloudAgent,
-    OrchestrationPillBar,
     JumpToLatestAgentMessage,
 }
 
@@ -762,9 +746,7 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
             AgentViewEntryOrigin::Onboarding => Self::Onboarding,
             AgentViewEntryOrigin::Keybinding(_) => Self::Keybinding,
             AgentViewEntryOrigin::ClearBuffer => Self::ClearBuffer,
-            AgentViewEntryOrigin::ChildAgent => Self::ChildAgent,
             AgentViewEntryOrigin::LinearDeepLink => Self::LinearDeepLink,
-            AgentViewEntryOrigin::OrchestrationPillBar => Self::OrchestrationPillBar,
             AgentViewEntryOrigin::JumpToLatestAgentMessage => Self::JumpToLatestAgentMessage,
         }
     }

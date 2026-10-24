@@ -14,7 +14,7 @@ use super::*;
 use crate::ai::agent::AIAgentInput;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{
-    AIAgentHarness, AIConversation, ConversationStatus, ServerAIConversationMetadata,
+    AIAgentHarness, ConversationStatus, ServerAIConversationMetadata,
 };
 use crate::ai::agent_conversations_model::{
     AgentConversationsModel, AgentConversationsModelEvent, AgentRunDisplayStatus,
@@ -680,7 +680,6 @@ fn create_cloud_mode_task_for_user(creator_uid: &str) -> AmbientAgentTask {
     let now = chrono::Utc::now();
     AmbientAgentTask {
         task_id: uuid::Uuid::new_v4().to_string().parse().unwrap(),
-        parent_run_id: None,
         title: "Owned task".to_string(),
         state: AmbientAgentTaskState::Succeeded,
         prompt: "test".to_string(),
@@ -704,8 +703,6 @@ fn create_cloud_mode_task_for_user(creator_uid: &str) -> AmbientAgentTask {
         is_sandbox_running: false,
         agent_config_snapshot: None,
         artifacts: vec![],
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }
@@ -881,43 +878,6 @@ fn test_suppressed_conversation_details_auto_open_consumes_initial_open_but_manu
                     .task_display_status_for_test()
                     .is_some(),
                 "manual toggle should fetch details after suppressed auto-open"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_child_shared_session_link_keeps_default_conversation_details_auto_open() {
-    App::test((), |mut app| async move {
-        let terminal = terminal_view_for_viewer(&mut app);
-        let task_id = configure_ambient_details_panel_test(
-            &mut app,
-            &terminal,
-            create_cloud_mode_task_for_user(TEST_USER_UID),
-        );
-
-        terminal.update(&mut app, |view, ctx| {
-            let parent_conversation_id =
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.start_new_conversation(view.id(), false, false, false, ctx)
-                });
-            let mut child_conversation = AIConversation::new(true, false);
-            child_conversation.set_parent_conversation_id(parent_conversation_id);
-            child_conversation.set_task_id(task_id);
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                history_model.restore_conversations(view.id(), vec![child_conversation], ctx);
-            });
-
-            view.maybe_auto_open_conversation_details_panel(ctx);
-
-            assert!(view.is_conversation_details_panel_open);
-            assert!(view.has_auto_opened_conversation_details_panel);
-            assert!(
-                view.conversation_details_panel
-                    .as_ref(ctx)
-                    .task_display_status_for_test()
-                    .is_some(),
-                "child task metadata alone should not suppress direct-link auto-open"
             );
         });
     });
@@ -2337,13 +2297,10 @@ fn test_on_ambient_agent_execution_ended_refreshes_open_details_panel_to_termina
         BlocklistAIHistoryModel::handle(&app).update(&mut app, |model, ctx| {
             let conversation_id =
                 model.start_new_conversation(terminal.id(), false, false, false, ctx);
-            model.assign_run_id_for_conversation(
-                conversation_id,
-                task_id.to_string(),
-                Some(task_id),
-                terminal.id(),
-                ctx,
-            );
+            model
+                .conversation_mut(&conversation_id)
+                .expect("new conversation should be available")
+                .set_task_id(task_id);
             model.update_conversation_status(
                 terminal.id(),
                 conversation_id,

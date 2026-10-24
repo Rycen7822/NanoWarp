@@ -34,7 +34,6 @@ use super::action_model::{BlocklistAIActionEvent, BlocklistAIActionModel};
 use super::context_model::{BlocklistAIContextModel, PendingAttachment, PendingFile};
 use super::conversation_selection::{ConversationSelectionEvent, ConversationSelectionHandle};
 use super::history_model::BlocklistAIHistoryModel;
-use super::orchestration_events::{OrchestrationEventService, OrchestrationEventServiceEvent};
 use super::queued_query::{QueuedQueryId, QueuedQueryModel};
 use super::{BlocklistAIInputModel, ResponseStreamId};
 use crate::ai::AIRequestUsageModel;
@@ -48,7 +47,6 @@ use crate::ai::agent::{
     RenderableAIError, RequestCost, RequestMetadata, RunningCommand, StaticQueryType,
     TransientNetworkErrorKind, UserQueryMode,
 };
-use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::document::ai_document_model::{
     AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
 };
@@ -307,15 +305,6 @@ pub struct BlocklistAIController {
     should_refresh_available_llms_on_stream_finish: bool,
 
     shared_session_state: shared_session::SharedSessionState,
-    /// Ambient agent task ID attached to this controller. This is a property of the controller, and not an individual
-    /// conversation, because the ambient agent task driver owns the entire Warp window working on a task, and any
-    /// sessions within it. In the future, one task may span several sessions with background processes.
-    ambient_agent_task_id: Option<AmbientAgentTaskId>,
-
-    /// Per-session directory for downloading file attachments.
-    /// Set by the agent driver based on the workspace directory (e.g. `{working_dir}/.warp/attachments`).
-    attachments_download_dir: Option<std::path::PathBuf>,
-
     /// Pending auto-resume tasks that are waiting for network connectivity.
     /// These should be cancelled when a new request is sent for the same conversation.
     pending_auto_resume_handles: HashMap<AIConversationId, SpawnedFutureHandle>,
@@ -529,13 +518,6 @@ impl BlocklistAIController {
                 );
             }
         });
-        // Subscribe to the orchestration event service to inject events
-        // (e.g. MessagesReceivedFromAgents) into conversations that receive inter-agent messages.
-        let svc = OrchestrationEventService::handle(ctx);
-        ctx.subscribe_to_model(&svc, move |me, _, event, ctx| {
-            let OrchestrationEventServiceEvent::EventsReady { conversation_id } = event;
-            me.handle_pending_events_ready(*conversation_id, ctx);
-        });
         Self {
             input_model,
             context_model,
@@ -547,8 +529,6 @@ impl BlocklistAIController {
             team_context_resolver,
             should_refresh_available_llms_on_stream_finish: false,
             shared_session_state: shared_session::SharedSessionState::default(),
-            ambient_agent_task_id: None,
-            attachments_download_dir: None,
             pending_auto_resume_handles: HashMap::new(),
         }
     }
@@ -688,18 +668,6 @@ impl BlocklistAIController {
         };
         inputs.push(ai_input);
 
-        // Piggyback any pending orchestration config updates for this conversation.
-        let taken_dirty_events = AIDocumentModel::handle(ctx).update(ctx, |model, _| {
-            model.take_dirty_orchestration_events(&conversation_id)
-        });
-        for dirty_event in &taken_dirty_events {
-            inputs.push(AIAgentInput::OrchestrationConfigUpdate {
-                plan_id: dirty_event.plan_id.clone(),
-                config: dirty_event.config.clone(),
-                status: dirty_event.status,
-            });
-        }
-
         let scope = ResolvedTeamScope::from_scope(&self.team_context(ctx));
         let send_result = self.send_request_input(
             RequestInput::for_task(
@@ -722,15 +690,8 @@ impl BlocklistAIController {
             ctx,
         );
 
-        // If the request failed, re-insert the dirty events so they aren't
-        // silently lost.
         if let Err(e) = &send_result {
             report_error!(e);
-            if !taken_dirty_events.is_empty() {
-                AIDocumentModel::handle(ctx).update(ctx, |model, _| {
-                    model.set_dirty_orchestration_events(conversation_id, taken_dirty_events);
-                });
-            }
         }
     }
 
@@ -1078,13 +1039,17 @@ impl BlocklistAIController {
             report_error!("Viewers should never attempt to send queries directly");
         }
 
-        // A wake's text is only a fallback for clients that cannot read its origin, so it must
-        // not be sent as a typed follow-up.
-        if base
-            .as_ref()
-            .is_some_and(BaseUserQuery::is_agent_message_wake)
-        {
-            return self.send_agent_wake(conversation_id, participant_id, ctx);
+        if base.as_ref().is_some_and(|base| {
+            let query = base.to_proto();
+            matches!(
+                query.mode.and_then(|mode| mode.r#type),
+                Some(warp_multi_agent_api::user_query_mode::Type::Orchestrate(_))
+            ) || matches!(
+                query.origin.and_then(|origin| origin.variant),
+                Some(warp_multi_agent_api::user_query_origin::Variant::AgentMessageWake(_))
+            )
+        }) {
+            return false;
         }
 
         // Ensure we capture all pending context blocks before promoting and attaching them to the conversation.
@@ -1195,43 +1160,6 @@ impl BlocklistAIController {
             entrypoint_type,
             participant_id,
             is_queued_prompt,
-            ctx,
-        );
-        true
-    }
-
-    /// Sends an agent wake on the conversation's root task.
-    fn send_agent_wake(
-        &mut self,
-        conversation_id: AIConversationId,
-        participant_id: Option<ParticipantId>,
-        ctx: &mut ModelContext<Self>,
-    ) -> bool {
-        let Some(conversation) =
-            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
-        else {
-            report_error!(
-                "Tried to send an agent wake for a non-existent conversation",
-                extra: { "conversation_id" => ?conversation_id }
-            );
-            return false;
-        };
-        let task_id = conversation.get_root_task_id().clone();
-        self.send_query(
-            InputQuery {
-                which_task: WhichTask::Task {
-                    conversation_id,
-                    task_id,
-                },
-                input_query: InputQueryType::AIInputType {
-                    ai_input: AIAgentInput::AgentWake,
-                },
-                additional_attachments: HashMap::new(),
-                queued_query_id: None,
-            },
-            EntrypointType::UserInitiated,
-            participant_id,
-            /*is_queued_prompt*/ false,
             ctx,
         );
         true
@@ -1377,18 +1305,6 @@ impl BlocklistAIController {
             return;
         }
 
-        // Check whether any result will trigger a server-side subagent (e.g. CLI
-        // subagent for LRC), or if one is already active. If so, we must not
-        // piggyback orchestration events because the subagent cannot interpret
-        // them and inserting events breaks tool_use/tool_result ordering.
-        let will_trigger_server_subagent = finished_results
-            .iter()
-            .any(|r| r.result.triggers_server_subagent());
-        let (has_active_subagent, owns_turn_lifecycle) = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .map(|c| (c.has_active_subagent(), c.driver().owns_turn_lifecycle()))
-            .unwrap_or((false, true));
-
         let context = input_context_for_request(
             false,
             self.context_model.as_ref(ctx),
@@ -1398,7 +1314,7 @@ impl BlocklistAIController {
             ctx,
         );
         let scope = ResolvedTeamScope::from_scope(&self.team_context(ctx));
-        let mut request_input = RequestInput::for_actions_results(
+        let request_input = RequestInput::for_actions_results(
             finished_results,
             context,
             &self.active_session,
@@ -1409,149 +1325,7 @@ impl BlocklistAIController {
             ctx,
         );
 
-        // Include any pending orchestration events in this follow-up rather
-        // than waiting for a separate idle injection turn. Skip when a server
-        // subagent is or will be active — events will be delivered via the idle
-        // path once the subagent session ends — and when this client does not
-        // author the conversation's turns at all, since the MAA server has no
-        // task of its own to attach the events to.
-        let mut has_piggybacked_events = false;
-        if will_trigger_server_subagent || has_active_subagent || !owns_turn_lifecycle {
-            log::debug!(
-                "Skipping event piggyback for conversation {conversation_id:?}: \
-                 {}",
-                if will_trigger_server_subagent {
-                    "results will trigger a server-side subagent"
-                } else if has_active_subagent {
-                    "a subagent is currently active"
-                } else {
-                    "the conversation driver does not own the turn lifecycle"
-                }
-            );
-        } else if let Some((event_inputs, task_id)) = OrchestrationEventService::handle(ctx)
-            .update(ctx, |svc, ctx| {
-                svc.drain_events_for_request(conversation_id, ctx)
-            })
-        {
-            has_piggybacked_events = true;
-            request_input.input_messages.push((task_id, event_inputs));
-        }
-
-        let result =
-            self.send_request_input(request_input, None, RecoveryBudget::fresh(), false, ctx);
-
-        if has_piggybacked_events && result.is_err() {
-            OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
-                svc.requeue_awaiting_events(conversation_id, ctx);
-            });
-        }
-    }
-
-    fn conversation_ready_for_pending_events(
-        &self,
-        conversation_id: AIConversationId,
-        ctx: &ModelContext<Self>,
-    ) -> bool {
-        let owns = BlocklistAIHistoryModel::as_ref(ctx)
-            .all_live_conversations_for_terminal_surface(self.terminal_surface_id)
-            .any(|conversation| conversation.id() == conversation_id);
-        let has_active_stream = self
-            .in_flight_response_streams
-            .has_active_stream_for_conversation(conversation_id, ctx);
-        let Some(conversation) =
-            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
-        else {
-            log::info!(
-                "Pending events are not ready: conversation_id={conversation_id:?} reason=conversation_missing owns_conversation={owns} has_active_stream={has_active_stream}"
-            );
-            return false;
-        };
-        // WaitingForEvents is treated as Success here: pending events
-        // drain via the next outbound request and the server-side
-        // supersede emits the resume signal.
-        let is_ready_status = matches!(
-            conversation.status(),
-            ConversationStatus::Success | ConversationStatus::WaitingForEvents,
-        );
-        // Injection is a native MAA request against the conversation's root task. When another
-        // driver authors the turns (e.g. an ACP harness whose client-side mapper owns the task
-        // tree), the server has no task to attach the events to and fails the run instead;
-        // such runs are woken by the server when new messages arrive.
-        let owns_turn_lifecycle = conversation.driver().owns_turn_lifecycle();
-        if !owns || has_active_stream || !is_ready_status || !owns_turn_lifecycle {
-            log::info!(
-                "Pending events are not ready: conversation_id={conversation_id:?} owns_conversation={owns} has_active_stream={has_active_stream} status={:?} owns_turn_lifecycle={owns_turn_lifecycle}",
-                conversation.status()
-            );
-            return false;
-        }
-
-        true
-    }
-
-    fn inject_pending_events_for_request(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if !self.conversation_ready_for_pending_events(conversation_id, ctx) {
-            return;
-        }
-
-        let Some((inputs, task_id)) = OrchestrationEventService::handle(ctx)
-            .update(ctx, |svc, ctx| {
-                svc.drain_events_for_request(conversation_id, ctx)
-            })
-        else {
-            return;
-        };
-
-        // The resume request supersedes any in-flight wait_for_events.
-        self.action_model.update(ctx, |action_model, ctx| {
-            action_model.cancel_wait_for_events_for_conversation(conversation_id, ctx);
-        });
-
-        let scope = ResolvedTeamScope::from_scope(&self.team_context(ctx));
-        let request_input = RequestInput::for_task(
-            inputs,
-            task_id,
-            &self.active_session,
-            self.get_current_response_initiator(),
-            conversation_id,
-            self.terminal_surface_id,
-            &scope,
-            ctx,
-        );
-        if self
-            .send_request_input(request_input, None, RecoveryBudget::fresh(), false, ctx)
-            .is_err()
-        {
-            // TODO: surface retry exhaustion. The existing requeue
-            // re-emits `EventsReady` until `MAX_RETRY_ATTEMPTS` is hit,
-            // after which events are dropped silently and the wait has
-            // already been cancelled — the conversation can end up stuck
-            // with no executor pending entry, no watchdog, and no
-            // in-flight stream. Follow-up: park-on-exhaust the events
-            // and transition the conversation to `Error` so the next
-            // user resume can carry them along.
-            OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
-                svc.requeue_awaiting_events(conversation_id, ctx);
-            });
-        }
-    }
-
-    /// Handles the EventsReady signal. Checks readiness, drains
-    /// pending events from the service, and injects them into the conversation.
-    fn handle_pending_events_ready(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if !self.conversation_ready_for_pending_events(conversation_id, ctx) {
-            return;
-        }
-
-        self.inject_pending_events_for_request(conversation_id, ctx);
+        let _ = self.send_request_input(request_input, None, RecoveryBudget::fresh(), false, ctx);
     }
 
     /// Resumes the conversation with a request that is not itself recovering another, so it
@@ -1686,28 +1460,6 @@ impl BlocklistAIController {
             .insert(conversation_id, handle);
     }
 
-    /// Set the ID of the ambient agent task which owns this controller and its backing session.
-    pub fn set_ambient_agent_task_id(
-        &mut self,
-        id: Option<AmbientAgentTaskId>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.ambient_agent_task_id = id;
-        self.action_model.update(ctx, |action_model, ctx| {
-            action_model.set_ambient_agent_task_id(id, ctx);
-        });
-    }
-
-    #[cfg(test)]
-    pub fn get_ambient_agent_task_id(&self) -> Option<AmbientAgentTaskId> {
-        self.ambient_agent_task_id
-    }
-
-    /// Set the per-session directory for downloading file attachments.
-    pub fn set_attachments_download_dir(&mut self, dir: std::path::PathBuf) {
-        self.attachments_download_dir = Some(dir);
-    }
-
     fn start_new_conversation_for_request<'a>(
         &self,
         ctx: &'a mut ModelContext<Self>,
@@ -1758,8 +1510,6 @@ impl BlocklistAIController {
             conversation_server_token,
             conversation_forked_from_token,
             active_tasks,
-            parent_agent_id,
-            agent_name,
             use_warp_credits_instead_of_chatgpt,
         ) = {
             let Some(conversation) = history_model
@@ -1781,8 +1531,6 @@ impl BlocklistAIController {
                     .forked_from_server_conversation_token()
                     .cloned(),
                 active_tasks,
-                conversation.parent_agent_id().map(str::to_string),
-                conversation.agent_name().map(str::to_string),
                 conversation.use_warp_credits_instead_of_chatgpt(),
             )
         };
@@ -1826,7 +1574,7 @@ impl BlocklistAIController {
             tasks: active_tasks,
             server_conversation_token: conversation_server_token,
             forked_from_conversation_token: conversation_forked_from_token,
-            ambient_agent_task_id: self.ambient_agent_task_id,
+            ambient_agent_task_id: self.terminal_model.lock().ambient_agent_task_id(),
             use_warp_credits_instead_of_chatgpt,
         };
 
@@ -1854,7 +1602,7 @@ impl BlocklistAIController {
         let scope = self.team_context(ctx);
         // Pinned at send, so the request keeps the team the surface was on when the user sent it.
         let team_scope = RequestTeamScope::from_scope(&scope);
-        let mut request_params = api::RequestParams::new(
+        let request_params = api::RequestParams::new(
             Some(self.terminal_surface_id),
             SessionContext::from_session(self.active_session.as_ref(ctx), ctx),
             &request_input,
@@ -1863,8 +1611,6 @@ impl BlocklistAIController {
             &scope,
             ctx,
         );
-        request_params.parent_agent_id = parent_agent_id;
-        request_params.agent_name = agent_name;
 
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
@@ -2577,10 +2323,6 @@ impl BlocklistAIController {
                 // Cancelled streams will handle pending_response_stream updates synchronously.
                 if cancellation.is_none() {
                     self.in_flight_response_streams.cleanup_stream(&stream_id);
-
-                    // Now that the stream is cleaned up, re-check for pending
-                    // orchestration events that couldn't be drained earlier.
-                    self.handle_pending_events_ready(conversation_id, ctx);
                 }
 
                 // Before cleaning up the response stream, check if we should attempt to resume.

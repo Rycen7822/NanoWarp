@@ -1,32 +1,7 @@
-//! Click-handler regression tests for [`ConversationUsageView`].
-//!
-//! The original bug was that clicks on the "View details" / "Show N more"
-//! affordances did nothing because the view was created via `add_view`
-//! instead of `add_typed_action_view`, so the framework had no handler
-//! registered for `ConversationUsageViewAction::*` and silently logged
-//! `Dispatched action has no handlers: ToggleDetailsExpanded`.
-//!
-//! The fix lives at the view-creation site in `terminal/view.rs`. These
-//! tests are a defense-in-depth layer that exercises the view's
-//! `handle_action` implementation directly, so:
-//!
-//! * If the `TypedActionView` impl is removed or broken, the test won't
-//!   compile (compile-time guard).
-//! * If the handler logic for toggling `details_expanded` / resetting
-//!   `show_all_clicked` regresses, the assertions below will fail
-//!   (runtime guard).
-//!
-//! The tests use the same `view.update(&mut app, |view, ctx|
-//! view.handle_action(...))` pattern as the existing
-//! `number_shortcut_buttons_tests.rs` so they stay decoupled from the
-//! framework's render path (which needs `Appearance` / theme singletons
-//! that aren't relevant to the handler's correctness).
-
 use std::collections::HashMap;
 
 use warp_core::ui::appearance::Appearance;
 use warpui::App;
-use warpui::platform::WindowStyle;
 
 use super::*;
 use crate::persistence::model::{ModelTokenUsage, PRIMARY_AGENT_CATEGORY};
@@ -69,77 +44,10 @@ fn build_view() -> ConversationUsageView {
         usage_info: placeholder_usage_info(),
         timing_info: None,
         full_terminal_use_tooltip_mouse_state: MouseStateHandle::default(),
-        parent_conversation_id: None,
-        details_expanded: false,
-        show_all_clicked: false,
-        details_toggle_mouse_state: MouseStateHandle::default(),
-        show_more_mouse_state: MouseStateHandle::default(),
         context_window_expanded: false,
         context_window_toggle_mouse_state: MouseStateHandle::default(),
         context_window_other_tooltip_mouse_state: MouseStateHandle::default(),
     }
-}
-
-#[test]
-fn toggle_details_expanded_flips_state_and_resets_show_all_on_collapse() {
-    App::test((), |mut app| async move {
-        initialize_test_app(&mut app);
-        // `add_window` registers the root view via `add_typed_action_view`
-        // internally, so simply standing up the window proves
-        // `ConversationUsageView: TypedActionView` is wired correctly.
-        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, |_| build_view());
-
-        view.read(&app, |view, _| {
-            assert!(
-                !view.details_expanded,
-                "view starts collapsed before any action is dispatched"
-            );
-            assert!(
-                !view.show_all_clicked,
-                "show_all_clicked starts false before any action is dispatched"
-            );
-        });
-
-        // Expand the breakdown.
-        view.update(&mut app, |view, ctx| {
-            view.handle_action(&ConversationUsageViewAction::ToggleDetailsExpanded, ctx);
-        });
-        view.read(&app, |view, _| {
-            assert!(
-                view.details_expanded,
-                "ToggleDetailsExpanded should expand the breakdown"
-            );
-        });
-
-        // Reveal-more should set the flag while keeping the view expanded.
-        view.update(&mut app, |view, ctx| {
-            view.handle_action(&ConversationUsageViewAction::ShowAllAgentRows, ctx);
-        });
-        view.read(&app, |view, _| {
-            assert!(view.details_expanded, "still expanded after Show N more");
-            assert!(
-                view.show_all_clicked,
-                "Show N more should set show_all_clicked"
-            );
-        });
-
-        // Toggling collapse should both flip the expanded flag and reset
-        // the show-all state so the next expand lands on the truncated
-        // list.
-        view.update(&mut app, |view, ctx| {
-            view.handle_action(&ConversationUsageViewAction::ToggleDetailsExpanded, ctx);
-        });
-        view.read(&app, |view, _| {
-            assert!(
-                !view.details_expanded,
-                "collapsing should toggle details_expanded back off"
-            );
-            assert!(
-                !view.show_all_clicked,
-                "collapsing should reset show_all_clicked"
-            );
-        });
-    });
 }
 
 #[test]
@@ -199,32 +107,6 @@ fn usage_summary_follows_the_display_unit_per_figure() {
                 "got {text:?}"
             );
             assert!(text.contains("5 credits"), "got {text:?}");
-        });
-    });
-}
-
-#[test]
-fn show_all_agent_rows_is_independent_of_details_expanded() {
-    App::test((), |mut app| async move {
-        initialize_test_app(&mut app);
-        let (_window_id, view) = app.add_window(WindowStyle::NotStealFocus, |_| build_view());
-
-        // `ShowAllAgentRows` on its own should flip `show_all_clicked`
-        // even when the user hasn't expanded the breakdown yet (the
-        // render path won't show rows until expanded, but the handler
-        // itself shouldn't care about ordering).
-        view.update(&mut app, |view, ctx| {
-            view.handle_action(&ConversationUsageViewAction::ShowAllAgentRows, ctx);
-        });
-        view.read(&app, |view, _| {
-            assert!(
-                view.show_all_clicked,
-                "ShowAllAgentRows should flip show_all_clicked regardless of expanded state"
-            );
-            assert!(
-                !view.details_expanded,
-                "ShowAllAgentRows must not implicitly expand details"
-            );
         });
     });
 }

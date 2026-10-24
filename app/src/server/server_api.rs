@@ -17,7 +17,6 @@ use ::http::header::CONTENT_LENGTH;
 use ai::AIClient;
 use anyhow::{Context, Result, anyhow};
 use auth::AuthClient;
-use chrono::{DateTime, Utc};
 use factory::FactoryClient;
 use managed_secrets::AppManagedSecretsClient;
 use object::ObjectClient;
@@ -31,7 +30,7 @@ use warp_server_client::HttpStatusError;
 use warp_server_client::auth::{AuthClientImpl, AuthEvent, EXPERIMENT_ID_HEADER};
 use warp_server_client::base_client::{
     AmbientHeaderPolicy, AuthenticatedGraphqlConfig, BaseClient, GraphqlRoutingConfig,
-    HeaderOverride, TEAM_UID_HEADER,
+    TEAM_UID_HEADER,
 };
 use warp_server_client::network_logging::NetworkLogModel;
 use warpui::r#async::BoxFuture;
@@ -441,44 +440,6 @@ impl ServerApi {
             .await
     }
 
-    /// Returns ambient agent headers (workload token, cloud-agent ID) scoped to one task,
-    /// without disturbing the client's own inherited ambient-agent-task-ID state.
-    async fn ambient_agent_headers_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-    ) -> Result<Vec<(String, String)>> {
-        self.ambient_headers(AmbientHeaderPolicy::for_task(task_id.to_string()))
-            .await
-    }
-
-    /// Returns task-scoped ambient agent headers for a caller that pins them into a long-lived
-    /// transport instead of resolving them per request.
-    ///
-    /// `must_outlive` is the instant through which the pinned headers have to keep working,
-    /// typically the end of the run. The workload token is attached only when it stays valid
-    /// that long, since warp-server rejects an expired one but tolerates its absence. Pass
-    /// `None` when no such instant is known, which resolves the token the same way an ordinary
-    /// per-request caller would.
-    pub async fn pinned_ambient_agent_headers_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        must_outlive: Option<DateTime<Utc>>,
-    ) -> Result<Vec<(String, String)>> {
-        let workload_token = match must_outlive {
-            Some(must_outlive) => self
-                .base_client
-                .get_ambient_workload_token_valid_until(must_outlive)
-                .await?
-                .map_or(HeaderOverride::Omit, HeaderOverride::Set),
-            None => HeaderOverride::Inherit,
-        };
-        self.ambient_headers(AmbientHeaderPolicy {
-            workload_token,
-            ..AmbientHeaderPolicy::for_task(task_id.to_string())
-        })
-        .await
-    }
-
     pub fn send_graphql_request<'a, QF, O: warp_graphql::client::Operation<QF> + Send + 'a>(
         &'a self,
         operation: O,
@@ -523,121 +484,6 @@ impl ServerApi {
         team_scope
             .team_uid()
             .map(|team_uid| team_uid.uid().to_string())
-    }
-
-    /// Opens an SSE stream to the agent event-push endpoint.
-    ///
-    /// The returned `EventSourceStream` yields `reqwest_eventsource::Event`
-    /// items until the connection closes or an error occurs. The caller is
-    /// responsible for reading the stream and handling reconnection.
-    ///
-    /// The stream is served by warp-server-rtc (not the main warp-server pool),
-    /// so the URL is built from `ChannelState::rtc_http_url()` rather than
-    /// `server_root_url()`.
-    pub async fn stream_agent_events(
-        &self,
-        run_ids: &[String],
-        since_sequence: i64,
-    ) -> Result<http_client::EventSourceStream> {
-        debug_assert!(!run_ids.is_empty(), "run_ids must not be empty");
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .context("Failed to get access token for SSE stream")?;
-
-        let run_ids_param: String = run_ids
-            .iter()
-            .map(|id| format!("run_ids[]={}", urlencoding::encode(id)))
-            .collect::<Vec<_>>()
-            .join("&");
-        let url = format!(
-            "{}/api/v1/agent/events/stream?{run_ids_param}&since={since_sequence}",
-            ChannelState::rtc_http_url()
-        );
-
-        let mut request = self.base_client.http_client().get(&url);
-        if let Some(token) = auth_token.as_bearer_token() {
-            request = request.bearer_auth(token);
-        }
-
-        for (name, value) in self.ambient_agent_headers().await? {
-            request = request.header(name, value);
-        }
-
-        Ok(request.eventsource())
-    }
-
-    /// Opens an SSE stream against the ancestor-scoped agent event endpoint.
-    pub async fn stream_agent_events_for_ancestor(
-        &self,
-        ancestor_run_id: &str,
-        include_self: bool,
-        since_sequence: i64,
-    ) -> Result<http_client::EventSourceStream> {
-        debug_assert!(
-            !ancestor_run_id.is_empty(),
-            "ancestor_run_id must not be empty"
-        );
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .context("Failed to get access token for SSE stream")?;
-
-        let include_self_param = if include_self {
-            "&include_self=true"
-        } else {
-            ""
-        };
-        let url = format!(
-            "{}/api/v1/agent/events/stream?ancestor_run_id={}&since={since_sequence}{include_self_param}",
-            ChannelState::rtc_http_url(),
-            urlencoding::encode(ancestor_run_id),
-        );
-
-        let mut request = self.base_client.http_client().get(&url);
-        if let Some(token) = auth_token.as_bearer_token() {
-            request = request.bearer_auth(token);
-        }
-
-        for (name, value) in self.ambient_agent_headers().await? {
-            request = request.header(name, value);
-        }
-
-        Ok(request.eventsource())
-    }
-
-    pub async fn stream_agent_events_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        run_ids: &[String],
-        since_sequence: i64,
-    ) -> Result<http_client::EventSourceStream> {
-        debug_assert!(!run_ids.is_empty(), "run_ids must not be empty");
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .context("Failed to get access token for SSE stream")?;
-
-        let run_ids_param: String = run_ids
-            .iter()
-            .map(|id| format!("run_ids[]={}", urlencoding::encode(id)))
-            .collect::<Vec<_>>()
-            .join("&");
-        let url = format!(
-            "{}/api/v1/agent/events/stream?{run_ids_param}&since={since_sequence}",
-            ChannelState::rtc_http_url()
-        );
-
-        let mut request = self.base_client.http_client().get(&url);
-        if let Some(token) = auth_token.as_bearer_token() {
-            request = request.bearer_auth(token);
-        }
-
-        for (name, value) in self.ambient_agent_headers_for_task(task_id).await? {
-            request = request.header(name, value);
-        }
-
-        Ok(request.eventsource())
     }
 
     /// Sends a POST request to a public API endpoint and returns the raw response on success.
@@ -822,39 +668,6 @@ impl ServerApi {
     {
         self.post_public_api_response(path, body).await?;
         Ok(())
-    }
-
-    /// Sends a PATCH request to a public API endpoint that returns no response body.
-    async fn patch_public_api_unit<B>(&self, path: &str, body: &B) -> Result<()>
-    where
-        B: Serialize,
-    {
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .context("Failed to get access token for API request")?;
-
-        let url = format!("{}/api/v1/{}", ChannelState::server_root_url(), path);
-
-        let mut request = self.base_client.http_client().patch(&url).json(body);
-        if let Some(token) = auth_token.as_bearer_token() {
-            request = request.bearer_auth(token);
-        }
-
-        for (name, value) in self.ambient_agent_headers().await? {
-            request = request.header(name, value);
-        }
-
-        let response = request
-            .send()
-            .await
-            .with_context(|| format!("Failed to send API request to {url}"))?;
-
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(Self::error_from_response(response).await)
-        }
     }
 
     /// Sends an authenticated empty POST request to /client/login, which signals to the server

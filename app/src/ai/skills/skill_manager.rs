@@ -1,7 +1,6 @@
 #[path = "file_watchers/mod.rs"]
 mod file_watchers;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
 use ai::skills::{ParsedSkill, SkillPathOrigin, SkillReference, SkillScope};
 pub use file_watchers::{SkillWatcher, SkillWatcherEvent, extract_skill_parent_directory};
@@ -30,9 +29,6 @@ pub struct SkillManager {
     /// - Key: `/repo/frontend/.agents/skills`
     directory_skills: HashMap<LocalOrRemotePath, HashSet<LocalOrRemotePath>>,
     skills_by_path: HashMap<LocalOrRemotePath, ParsedSkill>,
-    /// Reverse lookup: skill name → set of paths with that name.
-    /// This allows efficient lookup by skill name without scanning all paths.
-    skills_by_name: HashMap<String, HashSet<LocalOrRemotePath>>,
     /// Skills bundled into Warp for the local host and connected remote hosts.
     bundled_skills: BundledSkills,
     /// Home directories published by connected remote hosts.
@@ -68,7 +64,6 @@ impl SkillManager {
         Self {
             directory_skills: HashMap::new(),
             skills_by_path: HashMap::new(),
-            skills_by_name: HashMap::new(),
             bundled_skills: BundledSkills::default(),
             remote_home_directories: HashMap::new(),
             skill_watcher,
@@ -145,17 +140,6 @@ impl SkillManager {
         skills
     }
 
-    /// Returns the currently-known home skill file paths.
-    pub fn home_skill_paths(&self) -> Vec<LocalOrRemotePath> {
-        let Some(home_dir) = self.home_directory_for_origin(&SkillPathOrigin::Local) else {
-            return vec![];
-        };
-        self.directory_skills
-            .get(&home_dir)
-            .map(|skills| skills.iter().cloned().collect())
-            .unwrap_or_default()
-    }
-
     /// Returns the parsed home skills currently cached by the local watcher.
     pub fn home_skills(&self) -> impl Iterator<Item = &ParsedSkill> + '_ {
         dirs::home_dir()
@@ -164,60 +148,6 @@ impl SkillManager {
             .filter_map(|home_dir| self.directory_skills.get(&home_dir))
             .flatten()
             .filter_map(|path| self.skills_by_path.get(path))
-    }
-
-    /// Returns the currently-known directories which have skills registered.
-    /// This includes both repo roots and subdirectories with skills.
-    pub fn directories_with_skills(&self) -> Vec<PathBuf> {
-        let mut dirs: Vec<PathBuf> = self
-            .directory_skills
-            .keys()
-            .filter_map(|path| path.to_local_path().map(Path::to_path_buf))
-            .collect();
-        dirs.sort();
-        dirs
-    }
-
-    /// Returns skill file paths that are under `scope_dir`.
-    ///
-    /// This is used for skill resolution when the agent is invoked in a directory
-    /// above a series of repos—we need skills in those repos to be in scope.
-    ///
-    /// Example: If `scope_dir` is `/code` and there are skills at:
-    /// - `/code/repo-a/.agents/skills/deploy/SKILL.md`
-    /// - `/code/repo-b/.agents/skills/test/SKILL.md`
-    /// Both will be returned.
-    pub fn skill_paths_in_scope(&self, scope_dir: &Path) -> Vec<PathBuf> {
-        let mut paths = HashSet::new();
-        let scope_dir = LocalOrRemotePath::Local(scope_dir.to_path_buf());
-
-        for (dir, skill_paths) in &self.directory_skills {
-            // Include skills from directories that are under scope_dir
-            if dir.starts_with(&scope_dir) {
-                paths.extend(
-                    skill_paths
-                        .iter()
-                        .filter_map(|path| path.to_local_path().map(Path::to_path_buf)),
-                );
-            }
-        }
-
-        let mut paths: Vec<PathBuf> = paths.into_iter().collect();
-        paths.sort();
-        paths
-    }
-
-    /// Returns skill file paths that have the given skill name.
-    /// A skill's name comes from the `name` field in its SKILL.md front matter.
-    pub fn skill_paths_by_name(&self, name: &str) -> Vec<LocalOrRemotePath> {
-        self.skills_by_name
-            .get(name)
-            .map(|paths| {
-                let mut paths: Vec<LocalOrRemotePath> = paths.iter().cloned().collect();
-                paths.sort_by_key(LocalOrRemotePath::display_path);
-                paths
-            })
-            .unwrap_or_default()
     }
 
     /// Returns a reference to a parsed skill for a specific SKILL.md file path, if it is cached.
@@ -251,17 +181,6 @@ impl SkillManager {
             SkillReference::Path(path) => self.skill_by_location(path),
             SkillReference::BundledSkillId(id) => self.bundled_skills.local_skill(id),
         }
-    }
-
-    /// Get the definition of a skill only if it is currently available for invocation.
-    ///
-    /// Path-based user skills are always controlled by normal path scoping. Bundled
-    /// skills (the local catalog's ID-addressed entries and remote catalogs'
-    /// path-addressed entries) additionally respect their runtime activation
-    /// state so stale references cannot invoke disabled bundled skills.
-    pub fn active_skill_by_reference(&self, reference: &SkillReference) -> Option<&ParsedSkill> {
-        self.active_skill_by_reference_with_origin(reference, &SkillPathOrigin::Local)
-            .ok()
     }
 
     /// Get the definition of a skill for the selected execution host only if it is active.
@@ -389,19 +308,7 @@ impl SkillManager {
     }
 
     fn remove_skill_by_path(&mut self, skill_path: &LocalOrRemotePath) {
-        let Some(skill) = self.skills_by_path.remove(skill_path) else {
-            return;
-        };
-        let remove_name = self
-            .skills_by_name
-            .get_mut(&skill.name)
-            .is_some_and(|paths| {
-                paths.remove(skill_path);
-                paths.is_empty()
-            });
-        if remove_name {
-            self.skills_by_name.remove(&skill.name);
-        }
+        self.skills_by_path.remove(skill_path);
     }
 
     fn handle_skill_watcher_event(
@@ -442,10 +349,6 @@ impl SkillManager {
                         .or_default()
                         .insert(skill.path.clone());
 
-                    self.skills_by_name
-                        .entry(skill.name.clone())
-                        .or_default()
-                        .insert(skill.path.clone());
                     self.skills_by_path.insert(skill.path.clone(), skill);
                 }
                 _ => {
@@ -491,10 +394,7 @@ impl SkillManager {
     /// Adds a skill to the skill manager for testing purposes.
     #[cfg(test)]
     pub fn add_skill_for_testing(&mut self, skill: ParsedSkill) {
-        let path = skill.path.clone();
-        let name = skill.name.clone();
-        self.skills_by_path.insert(path.clone(), skill);
-        self.skills_by_name.entry(name).or_default().insert(path);
+        self.skills_by_path.insert(skill.path.clone(), skill);
     }
 
     /// Adds a bundled skill to the skill manager for testing purposes.

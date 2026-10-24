@@ -192,7 +192,6 @@ fn ambient_agent_task(
     let now = Utc::now();
     AmbientAgentTask {
         task_id,
-        parent_run_id: None,
         title: "Task".to_string(),
         state,
         prompt: "test".to_string(),
@@ -216,8 +215,6 @@ fn ambient_agent_task(
         is_sandbox_running: false,
         agent_config_snapshot: None,
         artifacts: vec![],
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }
@@ -1076,24 +1073,6 @@ fn missing_metadata_returns_error() {
 }
 
 #[test]
-fn completed_child_presentation_requires_edit_access() {
-    assert_eq!(
-        completed_child_presentation(ConversationAccess::Edit, false),
-        CompletedChildPresentation::Continuation
-    );
-    for access in [ConversationAccess::ViewOnly, ConversationAccess::Unknown] {
-        assert_eq!(
-            completed_child_presentation(access, false),
-            CompletedChildPresentation::PassiveTranscript
-        );
-    }
-    assert_eq!(
-        completed_child_presentation(ConversationAccess::Edit, true),
-        CompletedChildPresentation::PassiveTranscript
-    );
-}
-
-#[test]
 fn owned_oz_task_without_metadata_shows_inline_followup_input() {
     App::test((), |mut app| async move {
         let TestHandles {
@@ -1255,7 +1234,7 @@ fn ended_failed_task_uses_ordinary_cloud_continuation() {
 }
 
 /// Builds a disconnected ambient cloud pane model carrying `task_id` as its shared-session source
-/// orchestrator id, with the given collaboration `status`.
+/// task id, with the given sharing `status`.
 fn ambient_pane_model(task_id: AmbientAgentTaskId, status: SharedSessionStatus) -> TerminalModel {
     let mut model = TerminalModel::mock(None, None);
     model.set_shared_session_source(SharedSessionSource::ambient_agent(Some(
@@ -1327,7 +1306,7 @@ fn routing_omits_task_id_for_non_ambient_shared_session_viewer() {
 }
 
 #[test]
-fn routing_is_local_for_active_sharer_local_orchestration_child() {
+fn routing_is_local_for_active_local_sharer() {
     App::test((), |mut app| async move {
         // See the comment in `routing_is_live_remote_vm_for_active_viewer`.
         let _agent_management_guard = FeatureFlag::AgentManagementView.override_enabled(false);

@@ -26,7 +26,6 @@ use super::*;
 use crate::ai::AIRequestUsageModel;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;
 use crate::ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::cloud_environments::CloudEnvironmentCatalog;
 use crate::ai::document::ai_document_model::AIDocumentModel;
@@ -138,16 +137,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     // QueuedQueryModel subscribes to history events; register after the
     // history model is in place.
     app.add_singleton_model(crate::ai::blocklist::QueuedQueryModel::new);
-    app.add_singleton_model(|ctx| OrchestrationPillBarModel::new(Default::default(), ctx));
-    // The blocklist controller created during terminal bootstrap subscribes to
-    // OrchestrationEventService and OrchestrationEventStreamer unconditionally,
-    // so both singletons must be registered before bootstrap.
-    app.add_singleton_model(
-        crate::ai::blocklist::orchestration_events::OrchestrationEventService::new,
-    );
-    app.add_singleton_model(
-        crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::new,
-    );
     app.add_singleton_model(|_| ActiveAgentViewsModel::new());
     app.add_singleton_model(AgentNotificationsModel::new);
     app.add_singleton_model(AgentConversationsModel::new);
@@ -5375,7 +5364,6 @@ mod simplified_wasm_tab_bar {
         let now = Utc::now();
         AmbientAgentTask {
             task_id,
-            parent_run_id: None,
             title: "Owned task".to_string(),
             state: AmbientAgentTaskState::Succeeded,
             prompt: "test".to_string(),
@@ -5399,8 +5387,6 @@ mod simplified_wasm_tab_bar {
             is_sandbox_running: false,
             agent_config_snapshot: None,
             artifacts: vec![],
-            last_event_sequence: None,
-            children: vec![],
             debug_agent_available: false,
             scope: None,
         }

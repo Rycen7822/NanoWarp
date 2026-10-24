@@ -18,7 +18,6 @@ use crate::ai::ambient_agents::{
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::history_model::{AIConversationMetadata, BlocklistAIHistoryModel};
-use crate::ai::blocklist::orchestration_topology::orchestration_aware_conversation_status;
 use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::auth::{AuthStateProvider, UserUid};
 use crate::util::time_format::human_readable_precise_duration;
@@ -299,15 +298,12 @@ impl AgentConversationEntry {
 /// Returns the local conversation ID represented by the given task, if this task and a
 /// conversation entry both point at the same underlying local run.
 ///
-/// We first match using the orchestration agent ID (task ID / run ID under v2), and fall back
-/// to the server conversation token for cases where the task only carries conversation identity
-/// through `conversation_id`.
 pub(super) fn conversation_id_shadowed_by_task(
     task: &AmbientAgentTask,
     history_model: &BlocklistAIHistoryModel,
 ) -> Option<AIConversationId> {
     history_model
-        .conversation_id_for_agent_id(&task.run_id().to_string())
+        .find_conversation_id_by_task_id(&task.task_id)
         .or_else(|| {
             task.conversation_id().and_then(|conversation_id| {
                 history_model.find_conversation_id_by_server_token(&ServerConversationToken::new(
@@ -391,13 +387,7 @@ fn conversation_display_status(
 ) -> AgentRunDisplayStatus {
     history_model
         .conversation(&metadata.nav_data.id)
-        .map(|conversation| {
-            // Roll the whole orchestration subtree (children, grandchildren,
-            // …) into the card's status.
-            AgentRunDisplayStatus::from_conversation_status(
-                &orchestration_aware_conversation_status(history_model, conversation),
-            )
-        })
+        .map(|conversation| AgentRunDisplayStatus::from_conversation_status(conversation.status()))
         .unwrap_or(AgentRunDisplayStatus::ConversationSucceeded)
 }
 

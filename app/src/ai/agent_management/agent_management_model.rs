@@ -298,12 +298,6 @@ impl AgentNotificationsModel {
                     ctx,
                 );
             }
-            // Yielded conversations are still active; mirror the
-            // InProgress arm and clear any stale notification for this
-            // origin.
-            ConversationStatus::WaitingForEvents => {
-                self.remove_notification_by_source(origin, ctx);
-            }
         }
     }
 
@@ -388,12 +382,9 @@ impl ConversationStatus {
             ConversationStatus::Success
             | ConversationStatus::Blocked { .. }
             | ConversationStatus::Error => true,
-            // Streaming hasn't reached a notable state; a recovering or
-            // yielded conversation is still active; user-cancellations are
-            // self-evident.
+            // Streaming and recovery remain active; user cancellations are self-evident.
             ConversationStatus::InProgress
             | ConversationStatus::TransientError
-            | ConversationStatus::WaitingForEvents
             | ConversationStatus::Cancelled => false,
         }
     }

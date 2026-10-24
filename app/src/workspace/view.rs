@@ -55,7 +55,6 @@ use serde_json;
 use session_sharing_protocol::common::SessionId as SharedSessionId;
 #[cfg(target_family = "wasm")]
 use url::Url;
-use warp_cli::agent::Harness;
 use warp_core::context_flag::ContextFlag;
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::features::FeatureFlag;
@@ -165,7 +164,6 @@ use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, FORK_PREFIX, PendingAttachment, PendingQueryState, QueuedQueryOrigin,
     SerializedBlockListItem, SlashCommandRequest,
 };
-use crate::ai::cloud_agent_settings::{AuthSecretPreference, CloudAgentSettings};
 #[cfg(target_family = "wasm")]
 use crate::ai::conversation_details_panel::ConversationDetailsPanel;
 use crate::ai::conversation_utils;
@@ -238,7 +236,7 @@ use crate::palette::PaletteMode;
 use crate::pane_group::FilePane;
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{
-    self, AIFactPane, AnyPaneContent, ChildAgentOrigin, CodeDiffPane, CodePane, CodeReviewPanelArg,
+    self, AIFactPane, AnyPaneContent, CodeDiffPane, CodePane, CodeReviewPanelArg,
     CustomRouterEditorPane, Direction as PaneGroupDirection, Direction, ExecutionProfileEditorPane,
     NetworkLogPane, NewTerminalOptions, PaneGroup, PaneId, PanesLayout, TabBarHoverIndex,
     TerminalPaneId,
@@ -335,7 +333,6 @@ use crate::terminal::shared_session::SharedSessionActionSource;
 #[cfg(feature = "integration_tests")]
 use crate::terminal::shared_session::SharedSessionSource;
 use crate::terminal::shell::ShellType;
-use crate::terminal::view::ambient_agent::{AuthSecretFtuxView, AuthSecretFtuxViewEvent};
 use crate::terminal::view::load_ai_conversation::{
     RestoreConversationEntryBehavior, RestoredAIConversation,
 };
@@ -980,10 +977,6 @@ pub struct Workspace {
     tab_config_action_sidecar_item: Option<SidecarItemKind>,
     tab_config_action_sidecar_mouse_states: crate::tab_configs::action_sidecar::SidecarMouseStates,
     remove_tab_config_confirmation_dialog: ViewHandle<RemoveTabConfigConfirmationDialog>,
-    /// Workspace-level modal hosting `AuthSecretFtuxView` for the
-    /// orchestration cards' "New API key…" flow. Cloud mode renders the
-    /// FTUX view inline and does not use this.
-    create_auth_secret_modal: Option<ViewHandle<Modal<AuthSecretFtuxView>>>,
 }
 
 impl Workspace {
@@ -2908,7 +2901,6 @@ impl Workspace {
             tab_config_action_sidecar_mouse_states: Default::default(),
             remove_tab_config_confirmation_dialog:
                 Self::build_remove_tab_config_confirmation_dialog(ctx),
-            create_auth_secret_modal: None,
         };
 
         ws.configure_new_workspace(workspace_setting, ctx);
@@ -10538,51 +10530,6 @@ impl Workspace {
         }
     }
 
-    /// If a closing tab is an untouched split-off child-agent tab, move its
-    /// pane back to the original tab instead of closing it. Returns true if
-    /// handled.
-    fn try_re_adopt_split_off_child_agent_tab(
-        &mut self,
-        index: usize,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(tab_data) = self.tabs.get(index) else {
-            return false;
-        };
-        let Some(origin) = tab_data
-            .pane_group
-            .as_ref(ctx)
-            .child_agent_origin()
-            .cloned()
-        else {
-            return false;
-        };
-        let Some(source_pane_group) = origin.source_pane_group.upgrade(ctx) else {
-            return false;
-        };
-
-        let pane_group = tab_data.pane_group.clone();
-        // Only re-adopt untouched split-off tabs; changed layouts use normal
-        // close handling.
-        let pane_ids: Vec<PaneId> = pane_group.as_ref(ctx).pane_ids().collect();
-        if pane_ids.len() != 1 {
-            return false;
-        }
-        let pane_id = pane_ids[0];
-
-        let Some(pane_content) =
-            pane_group.update(ctx, |pg, ctx| pg.remove_pane_for_move(&pane_id, ctx))
-        else {
-            return false;
-        };
-
-        source_pane_group.update(ctx, |pg, ctx| {
-            pg.re_adopt_child_agent_pane(pane_content, origin.conversation_id, ctx);
-        });
-
-        true
-    }
-
     fn remove_tab(
         &mut self,
         index: usize,
@@ -10608,13 +10555,7 @@ impl Workspace {
             return;
         }
 
-        // Preserve split-off child-agent tabs by moving their lone pane back
-        // before close cleanup. Skip tab moves so the destination keeps the
-        // pane.
-        let re_adopted =
-            detach_panes_for_close && self.try_re_adopt_split_off_child_agent_tab(index, ctx);
-
-        if !re_adopted && detach_panes_for_close {
+        if detach_panes_for_close {
             let working_directories_model = self.working_directories_model.clone();
             pane_group.update(ctx, |pane_group, ctx| {
                 pane_group.for_all_terminal_panes(
@@ -10647,9 +10588,7 @@ impl Workspace {
             self.prune_empty_tab_group(group_id, ctx);
         }
 
-        // Re-adopted child tabs leave no useful tab contents to restore; the
-        // live pane already moved back.
-        if add_to_undo_stack && !re_adopted {
+        if add_to_undo_stack {
             let handle = ctx.handle();
             UndoCloseStack::handle(ctx).update(ctx, |stack, ctx| {
                 log::info!("storing data for closed tab");
@@ -13332,63 +13271,6 @@ impl Workspace {
         });
     }
 
-    /// Opens the workspace-level blocking modal for creating a new managed
-    /// auth secret. Persists the new secret on success and dismisses the
-    /// modal; cards adopt it via `HarnessAvailabilityEvent::AuthSecretCreated`.
-    fn show_create_auth_secret_modal(&mut self, harness: Harness, ctx: &mut ViewContext<Self>) {
-        let body = ctx.add_typed_action_view(|ctx| {
-            AuthSecretFtuxView::new(harness, ctx)
-                .with_skip_hidden()
-                .with_compact_mode(ctx)
-        });
-        ctx.subscribe_to_view(&body, |me, _, event, ctx| match event {
-            AuthSecretFtuxViewEvent::SecretSelected { harness, name }
-            | AuthSecretFtuxViewEvent::Created { harness, name } => {
-                let harness = *harness;
-                let name = name.clone();
-                let team_scope = UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx);
-                CloudAgentSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings.mark_harness_auth_ftux_completed(harness, ctx);
-                    settings.persist_auth_secret_preference(
-                        &team_scope,
-                        harness,
-                        Some(AuthSecretPreference::Named(name)),
-                        ctx,
-                    );
-                });
-                me.dismiss_create_auth_secret_modal(ctx);
-            }
-            AuthSecretFtuxViewEvent::Cancelled | AuthSecretFtuxViewEvent::Skipped { .. } => {
-                me.dismiss_create_auth_secret_modal(ctx);
-            }
-            // Keep the modal open on Failed; the view already toasts.
-            AuthSecretFtuxViewEvent::Failed { .. } => {}
-        });
-
-        let title = "New API key".to_string();
-        let modal = ctx.add_typed_action_view(|ctx| {
-            Modal::new(Some(title), body, ctx).with_modal_style(UiComponentStyles {
-                width: Some(520.),
-                ..Default::default()
-            })
-        });
-        ctx.subscribe_to_view(&modal, |me, _, event, ctx| {
-            if matches!(event, ModalEvent::Close) {
-                me.dismiss_create_auth_secret_modal(ctx);
-            }
-        });
-        ctx.focus(&modal);
-        self.create_auth_secret_modal = Some(modal);
-        ctx.notify();
-    }
-
-    fn dismiss_create_auth_secret_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.create_auth_secret_modal.take().is_some() {
-            self.focus_active_tab(ctx);
-            ctx.notify();
-        }
-    }
-
     pub(crate) fn handle_file_tree_event(
         &mut self,
         pane_group: ViewHandle<PaneGroup>,
@@ -13846,35 +13728,6 @@ impl Workspace {
             }
             #[cfg(not(feature = "local_fs"))]
             pane_group::Event::RemoteRepoNavigated { .. } => {}
-            pane_group::Event::OpenChildAgentInNewTab { conversation_id } => {
-                // Move the existing child pane into a new tab so the live
-                // session stays intact.
-                let conversation_id = *conversation_id;
-                let removed_pane = pane_group.update(ctx, |pg, ctx| {
-                    pg.take_child_agent_pane_for_split_off(conversation_id, ctx)
-                });
-                let Some(removed_pane) = removed_pane else {
-                    log::warn!(
-                        "OpenChildAgentInNewTab: no hidden child pane registered for conversation {conversation_id:?}"
-                    );
-                    return;
-                };
-                // Ensure the new tab lands at the correct index and inherits correct group.
-                let (new_tab_index, group_id) = self.new_tab_index_and_group(ctx);
-                let source_pane_group = pane_group.downgrade();
-                self.add_tab_from_existing_pane(removed_pane, new_tab_index, group_id, ctx);
-                // Mark the new tab so closing it can move the pane back.
-                if let Some(new_pane_group) =
-                    self.get_pane_group_view(self.active_tab_index).cloned()
-                {
-                    new_pane_group.update(ctx, |pg, _ctx| {
-                        pg.set_child_agent_origin(ChildAgentOrigin {
-                            source_pane_group,
-                            conversation_id,
-                        });
-                    });
-                }
-            }
             pane_group::Event::DroppedOnTabBar { origin, pane_id } => {
                 if let Some(hovered_tab_index) = self.hovered_tab_index {
                     match hovered_tab_index {
@@ -19291,24 +19144,6 @@ impl Workspace {
             }
         }
 
-        match ai_settings.orchestration_message_display_mode {
-            crate::settings::OrchestrationMessageDisplayMode::ShowAndCollapse => {
-                context
-                    .set
-                    .insert(flags::ORCHESTRATION_MESSAGE_DISPLAY_SHOW_AND_COLLAPSE);
-            }
-            crate::settings::OrchestrationMessageDisplayMode::AlwaysShow => {
-                context
-                    .set
-                    .insert(flags::ORCHESTRATION_MESSAGE_DISPLAY_ALWAYS_SHOW);
-            }
-            crate::settings::OrchestrationMessageDisplayMode::AlwaysCollapse => {
-                context
-                    .set
-                    .insert(flags::ORCHESTRATION_MESSAGE_DISPLAY_ALWAYS_COLLAPSE);
-            }
-        }
-
         match ai_settings.default_prompt_submission_mode {
             crate::settings::PromptSubmissionMode::Interrupt => {
                 context.set.insert(flags::PROMPT_SUBMISSION_INTERRUPT);
@@ -19968,9 +19803,6 @@ impl TypedActionView for Workspace {
             OpenSettingsFile => {
                 let path = crate::settings::user_preferences_toml_file_path();
                 self.add_tab_for_code_file(path, None, ctx);
-            }
-            OpenCreateAuthSecretModal { harness } => {
-                self.show_create_auth_secret_modal(*harness, ctx);
             }
             OpenNetworkLogPane => {
                 self.open_network_log_pane(ctx);
@@ -22593,10 +22425,6 @@ impl View for Workspace {
 
         if let Some(lightbox_view) = &self.lightbox_view {
             stack.add_child(ChildView::new(lightbox_view).finish());
-        }
-
-        if let Some(create_auth_secret_modal) = &self.create_auth_secret_modal {
-            stack.add_child(ChildView::new(create_auth_secret_modal).finish());
         }
 
         if FeatureFlag::CreatingSharedSessions.is_enabled()

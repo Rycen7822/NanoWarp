@@ -113,9 +113,7 @@ use session_sharing_protocol::sharer::{
 use settings::{Setting, ToggleableSetting};
 use shared_session::cloud_conversation_continuation::CloudConversationContinuationUiState;
 pub(crate) use shared_session::cloud_conversation_continuation::{
-    AIQueryRouting, CloudRoutingIndicator, CompletedChildPresentation, ConversationAccess,
-    completed_child_conversation_access, completed_child_presentation, resolve_ai_query_routing,
-    resolve_ambient_agent_task_id,
+    AIQueryRouting, CloudRoutingIndicator, resolve_ai_query_routing, resolve_ambient_agent_task_id,
 };
 use shared_session::{SharedSessionAdapter, Viewer};
 use ssh_file_upload::{FileUpload, FileUploadEvent};
@@ -212,13 +210,12 @@ use crate::ai::ambient_agents::{
     AmbientAgentTaskId, AmbientConversationStatus, conversation_output_status_from_conversation,
 };
 use crate::ai::blocklist::agent_view::agent_input_footer::toolbar_item::AgentToolbarItemKind;
-use crate::ai::blocklist::agent_view::orchestration_conversation_links::pane_group_id_containing_terminal_view;
 use crate::ai::blocklist::agent_view::{
     AgentViewController, AgentViewControllerEvent, AgentViewConversationSelection,
     AgentViewDisplayMode, AgentViewEntryBlockParams, AgentViewEntryOrigin,
     AgentViewHeaderDisabledTheme, AgentViewHeaderTheme, AgentViewZeroStateBlock,
     AgentViewZeroStateEvent, ENTER_OR_EXIT_CONFIRMATION_WINDOW, EphemeralMessageModel,
-    ExitConfirmationTrigger, GuiInputModePolicy, InlineAgentViewHeader, OrchestrationPillBar,
+    ExitConfirmationTrigger, GuiInputModePolicy, InlineAgentViewHeader,
     fork_from_last_known_good_state_exchange_id, get_agent_view_entry_block_position_id,
     is_in_cloud_context,
 };
@@ -230,7 +227,6 @@ use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarEvent;
 use crate::ai::blocklist::block::{AIBlockAction, FinishReason};
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelImpl};
-use crate::ai::blocklist::orchestration_topology::OrchestrationNavigationDirection;
 use crate::ai::blocklist::summarization_cancel_dialog::SummarizationCancelDialog;
 use crate::ai::blocklist::telemetry_banner::TelemetryBanner;
 use crate::ai::blocklist::usage::conversation_usage_view::{
@@ -247,10 +243,9 @@ use crate::ai::blocklist::{
     ClientIdentifiers, ConversationSelection, ConversationStatusUpdate, InputConfig, InputType,
     InputTypeAutoDetectionSource, PRE_REWIND_PREFIX, PendingAttachment, PendingQueryState,
     QueuedQuery, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, ShellCommandExecutor,
-    ShellCommandExecutorEvent, ShellRecoveryResult, SlashCommandRequest, StartAgentExecutor,
-    StartAgentExecutorEvent, StartAgentRequest, ai_brand_color, block_context_from_terminal_model,
-    get_ai_block_overflow_menu_element_position_id, get_attached_blocks_chip_element_position_id,
-    is_lrc_auto_queue_active,
+    ShellCommandExecutorEvent, ShellRecoveryResult, SlashCommandRequest, ai_brand_color,
+    block_context_from_terminal_model, get_ai_block_overflow_menu_element_position_id,
+    get_attached_blocks_chip_element_position_id, is_lrc_auto_queue_active,
 };
 use crate::ai::conversation_details_panel::ConversationDetailsPanelEvent;
 use crate::ai::conversation_utils;
@@ -1596,7 +1591,7 @@ pub enum Event {
     },
     OpenCodeReviewPaneAndScrollToComment {
         open_code_review: CodeReviewPanelArg,
-        comment: AttachedReviewComment,
+        comment: Box<AttachedReviewComment>,
         diff_mode: DiffMode,
     },
     ImportAllCodeReviewComments {
@@ -1809,46 +1804,8 @@ pub enum Event {
     ShowCloudAgentCapacityModal {
         variant: CloudAgentCapacityModalVariant,
     },
-    /// Emitted when the StartAgent executor needs the workspace to create
-    /// a new child agent conversation in a split pane. The freshly-created
-    /// child conversation id is echoed back to the executor via
-    /// [`BlocklistAIHistoryModel::record_new_conversation_request_complete`]
-    /// so the executor can disambiguate per-request pendings when multiple
-    /// StartAgent requests are in flight in parallel.
-    StartAgentConversation(StartAgentRequest),
-    /// Emitted when the user clicks a child agent row in the status card to reveal
-    /// its hidden pane.
-    RevealChildAgent {
-        conversation_id: AIConversationId,
-    },
-    /// Emitted when the user clicks a pill in the orchestration pill bar.
-    /// The pane group swaps visibility instead of cloning the conversation.
-    SwapPaneToConversation {
-        conversation_id: AIConversationId,
-    },
-    /// A unified-stack child viewer could not join its dedicated live
-    /// execution session. The pane group keeps the child passive and
-    /// re-drives it from current task metadata.
-    OrchestrationChildSharedSessionJoinFailed {
-        conversation_id: AIConversationId,
-        session_id: session_sharing_protocol::common::SessionId,
-    },
-    /// Emitted when "Open in new tab" is picked from a child pill's 3-dot menu.
-    /// Bubbles up to the workspace to create the new tab.
-    OpenChildAgentInNewTab {
-        conversation_id: AIConversationId,
-    },
-    /// Emitted when "Open in new pane" is picked from a child pill's 3-dot menu.
-    /// Reuses the existing dedicated child pane to preserve in-flight state.
-    OpenChildAgentInNewPane {
-        conversation_id: AIConversationId,
-    },
     /// Emitted when "Stop agent" is picked from a child pill's 3-dot menu.
     StopAgentConversation {
-        conversation_id: AIConversationId,
-    },
-    /// Emitted when "Kill agent" is picked from a child pill's 3-dot menu.
-    KillAgentConversation {
         conversation_id: AIConversationId,
     },
     /// Emitted when this pane's [`ambient_agent::AmbientAgentViewModel`] is lazily
@@ -2141,26 +2098,6 @@ struct TerminalViewMouseStates {
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     show_in_file_explorer_tooltip: MouseStateHandle,
     jump_to_bottom_of_block_button: MouseStateHandle,
-
-    parent_conversation_header_link: MouseStateHandle,
-    /// Persistent horizontal scroll state for the orchestration breadcrumb
-    /// row. Lives here (rather than as a `MouseStateHandle`) so the user's
-    /// scroll position survives across renders — in narrow split-off panes
-    /// the breadcrumb row often overflows the title slot, and we wrap it
-    /// in a `NewScrollable::horizontal` keyed on this handle so the user
-    /// can pan to read clipped labels.
-    breadcrumbs_horizontal_scroll: ClippedScrollStateHandle,
-}
-
-/// The output a test-only dummy AI block should report, selecting which
-/// `FakeAIBlockModel` shape backs the inserted block.
-#[cfg(any(test, feature = "integration_tests"))]
-enum DummyAIBlockOutput {
-    /// Still streaming, so the block never finishes.
-    Streaming,
-    Complete(crate::ai::agent::AIAgentOutput),
-    /// The stream was cancelled with this partial output.
-    Cancelled(crate::ai::agent::AIAgentOutput),
 }
 
 /// An enum representing the different states that a terminal view can be in,
@@ -2645,19 +2582,10 @@ pub struct TerminalView {
 
     agent_view_controller: ModelHandle<AgentViewController>,
     agent_view_back_button: ViewHandle<ActionButton>,
-    /// Pill bar shown above the agent view header listing the orchestrator and
-    /// child agents. Always constructed; render-time guards control whether it draws anything.
-    orchestration_pill_bar: ViewHandle<OrchestrationPillBar>,
-    /// `true` when this view hosts a child agent split off into its own
-    /// pane/tab. Drives breadcrumb-vs-pill-bar rendering in the pane header.
-    is_orchestration_split_off: bool,
     is_using_conversation_for_pane_header_title: bool,
 
     ambient_agent_view_model: Option<ModelHandle<ambient_agent::AmbientAgentViewModel>>,
     pending_cloud_followup_task_id: Option<AmbientAgentTaskId>,
-    /// A passive orchestration child whose live execution session could not
-    /// be joined. Task refresh may later replace this with a transcript.
-    orchestration_child_live_unavailable: bool,
 
     /// Conversation details panel (side panel showing conversation/task metadata).
     /// Available for cloud Oz runs and for any active local AI conversation.
@@ -2670,8 +2598,7 @@ pub struct TerminalView {
     /// by the cloud-mode auto-open path; local conversations require the user to
     /// click the pane-header toggle button to open the panel.
     has_auto_opened_conversation_details_panel: bool,
-    /// Determines whether the one-shot auto-open should open the panel or be
-    /// consumed without opening.
+    /// Controls whether one-shot auto-open follows a user-closed panel during a cloud follow-up.
     conversation_details_panel_auto_open_policy: ConversationDetailsPanelAutoOpenPolicy,
     /// Mouse state handle for the conversation details panel toggle button in the pane header.
     /// On WASM this is used by the workspace-level transcript panel toggle; on desktop, it is used
@@ -3128,19 +3055,8 @@ impl TerminalView {
                     let was_new = *original_exchange_count == 0;
                     let was_modified = *final_exchange_count != *original_exchange_count;
 
-                    // Child agents in an orchestration tree are part of the
-                    // orchestrator's pill bar and should remain visible even
-                    // when they're empty (e.g. failed-to-start, or just
-                    // haven't received their first event yet). The auto-
-                    // remove below is meant to prune accidentally-opened
-                    // empty *root* conversations, not children of an
-                    // orchestrator.
-                    let is_child_agent = BlocklistAIHistoryModel::as_ref(ctx)
-                        .conversation(conversation_id)
-                        .is_some_and(|c| c.is_child_agent_conversation());
-
                     // Delete unmodified new root conversations.
-                    if !was_modified && was_new && !is_child_agent {
+                    if !was_modified && was_new {
                         conversation_utils::remove_conversation(
                             *conversation_id,
                             me.view_id,
@@ -3572,10 +3488,6 @@ impl TerminalView {
             Self::handle_shell_command_executor_event,
         );
 
-        ctx.subscribe_to_model(
-            &ai_action_model.as_ref(ctx).start_agent_executor(ctx),
-            Self::handle_start_agent_executor_event,
-        );
         let find_bar = ctx.add_typed_action_view(|ctx| Find::new(find_model.clone(), ctx));
         ctx.subscribe_to_view(&find_bar, move |me, _, event, ctx| {
             me.handle_find_event(event, ctx);
@@ -3912,10 +3824,6 @@ impl TerminalView {
                 ctx,
             )
         });
-        let orchestration_pill_bar = ctx.add_typed_action_view(|ctx| {
-            OrchestrationPillBar::new(agent_view_controller.clone(), ctx)
-        });
-        ctx.subscribe_to_view(&orchestration_pill_bar, |_, _, _, ctx| ctx.notify());
 
         let agent_view_back_button = ctx.add_typed_action_view(|ctx| {
             ActionButton::new("for terminal", AgentViewHeaderTheme)
@@ -4100,8 +4008,6 @@ impl TerminalView {
             use_agent_footer: use_agent_button_bar,
             agent_view_controller,
             agent_view_back_button,
-            orchestration_pill_bar,
-            is_orchestration_split_off: false,
             is_using_conversation_for_pane_header_title: false,
             // Wired after construction via `wire_ambient_agent_view_model`.
             ambient_agent_view_model: None,
@@ -4110,7 +4016,6 @@ impl TerminalView {
             has_auto_opened_conversation_details_panel: false,
             conversation_details_panel_auto_open_policy: Default::default(),
             pending_cloud_followup_task_id: None,
-            orchestration_child_live_unavailable: false,
             conversation_details_panel_toggle_mouse_state: Default::default(),
             ambient_agent_cancel_mouse_state: Default::default(),
             is_pending_aws_login: false,
@@ -4541,53 +4446,6 @@ impl TerminalView {
         callback(self, ctx);
     }
 
-    /// If the active conversation is a child agent, navigate to its DIRECT
-    /// parent (one level up, so repeated ESC walks up an orchestration tree)
-    /// and return `true`; otherwise return `false` so the caller can run
-    /// the normal exit-agent-view flow. Cross-tab and swap-target cases
-    /// are handled by the workspace's focus path; falls back to emitting
-    /// a swap event when the parent has no visible owner. Runs before
-    /// any can-exit gating so long-running children can still navigate back.
-    fn try_navigate_to_parent_conversation(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        if !FeatureFlag::AgentView.is_enabled() {
-            return false;
-        }
-        let active_conv_id = self
-            .agent_view_controller
-            .as_ref(ctx)
-            .agent_view_state()
-            .active_conversation_id();
-        let Some(active_conv_id) = active_conv_id else {
-            return false;
-        };
-        let history = BlocklistAIHistoryModel::as_ref(ctx);
-        let parent_id = history
-            .conversation(&active_conv_id)
-            .and_then(|c| history.resolved_parent_conversation_id_for_conversation(c));
-        let Some(parent_id) = parent_id else {
-            return false;
-        };
-        // Only focus the parent's terminal view when it is actually visible
-        // in some pane group. A mid-tree parent lives in a *hidden* child
-        // pane (off-tree), which the workspace focus path cannot reach —
-        // swap it into this pane instead, mirroring pill-bar navigation.
-        let visible_parent_view_id = history
-            .terminal_surface_id_for_conversation(&parent_id)
-            .filter(|view_id| pane_group_id_containing_terminal_view(*view_id, ctx).is_some());
-
-        if let Some(parent_terminal_view_id) = visible_parent_view_id {
-            // Defer so it runs after in-flight event handling completes.
-            ctx.dispatch_typed_action_deferred(WorkspaceAction::FocusTerminalViewInWorkspace {
-                terminal_view_id: parent_terminal_view_id,
-            });
-        } else {
-            ctx.emit(Event::SwapPaneToConversation {
-                conversation_id: parent_id,
-            });
-        }
-        true
-    }
-
     /// Exits the active agent, either:
     /// * Exiting agent view for the selected conversation
     /// * Popping the current view off the navigation stack (for nested cloud mode agents)
@@ -4978,15 +4836,11 @@ impl TerminalView {
             conversation_id, ..
         } = event
         {
-            // If the conversation still has a subagent in flight (e.g. a CLI
-            // subagent managing a long-running command), the response stream
-            // that just ended belongs to the subagent or to the main agent
-            // handing off to it — not the end of the overall turn. Defer
-            // conversation-finished side effects (e.g. firing a queued `/queue`
-            // prompt) until the entire turn is actually done.
+            // A CLI subtask can outlive its response stream; wait for its handoff before
+            // treating the overall conversation turn as finished.
             let has_active_subagent = BlocklistAIHistoryModel::as_ref(ctx)
                 .conversation(conversation_id)
-                .is_some_and(|c| c.has_active_subagent());
+                .is_some_and(|conversation| conversation.has_active_subagent());
 
             let mut pane_finish_reason: Option<FinishReason> = None;
             if let Some(active_ai_block) = self.active_ai_block(ctx) {
@@ -5015,12 +4869,7 @@ impl TerminalView {
                 self.fire_conversation_finished_callbacks(reason, ctx);
             }
 
-            // Conversation-scoped: drain this conversation's queued prompts
-            // keyed off its own most recent block. The pane-global lookup
-            // above can observe a sibling conversation's block instead
-            // (orchestration panes host the lead and local child conversations
-            // in one view), so it can't drive the drain decision or supply the
-            // finish reason.
+            // Drain queued prompts using the finished conversation's latest block.
             if !has_active_subagent
                 && let Some(reason) = self.finish_reason_for_conversation(*conversation_id, ctx)
             {
@@ -5239,8 +5088,8 @@ impl TerminalView {
     /// Sends the leading prompts that were auto-queued during an agent-requested long-running
     /// command ([`QueuedQueryOrigin::LrcAutoQueue`]) to the agent, in queue order.
     ///
-    /// Command finish may happen before the CLI subagent has handed its result back to the main
-    /// agent. In that case the rows stay queued and fire when history shows the subagent is gone.
+    /// Command completion can precede the CLI subtask's handoff to the main agent.
+    /// Keep the rows queued until history confirms that handoff.
     pub(crate) fn send_lrc_queued_prompts(
         &mut self,
         conversation_id: AIConversationId,
@@ -5352,28 +5201,6 @@ impl TerminalView {
             input.append_to_buffer(content.as_str(), ctx);
             ctx.notify();
         });
-    }
-
-    /// Marks this view as hosting a split-off child; pane header switches
-    /// from the pill bar to a parent→child breadcrumb row.
-    pub fn mark_as_orchestration_split_off(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.is_orchestration_split_off {
-            self.is_orchestration_split_off = true;
-            ctx.notify();
-        }
-    }
-
-    /// Clears the split-off marker so the pill bar renders again.
-    pub fn clear_orchestration_split_off(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.is_orchestration_split_off {
-            self.is_orchestration_split_off = false;
-            ctx.notify();
-        }
-    }
-
-    /// Whether this view renders the breadcrumb row instead of the pill bar.
-    pub fn is_orchestration_split_off(&self) -> bool {
-        self.is_orchestration_split_off
     }
 
     /// Returns true if the given conversation is currently selected in this terminal.
@@ -5649,38 +5476,16 @@ impl TerminalView {
                     .collect()
             }
             BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { conversation_id } => {
-                // The conversation's latest usage pill and each ancestor's latest rollup depend on
-                // this metadata.
-                let history = BlocklistAIHistoryModel::as_ref(ctx);
-                let mut affected_conversation_ids = HashSet::from([*conversation_id]);
-                let mut current_conversation_id = *conversation_id;
-                while let Some(parent_conversation_id) = history
-                    .conversation(&current_conversation_id)
-                    .and_then(|conversation| {
-                        history.resolved_parent_conversation_id_for_conversation(conversation)
-                    })
-                {
-                    if !affected_conversation_ids.insert(parent_conversation_id) {
-                        break;
-                    }
-                    current_conversation_id = parent_conversation_id;
-                }
-                let latest_exchange_ids = affected_conversation_ids
-                    .into_iter()
-                    .filter_map(|conversation_id| {
-                        history
-                            .conversation(&conversation_id)
-                            .and_then(|conversation| conversation.latest_visible_exchange())
-                            .map(|exchange| exchange.id)
-                    })
-                    .collect::<HashSet<_>>();
+                let latest_exchange_id = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(conversation_id)
+                    .and_then(|conversation| conversation.latest_visible_exchange())
+                    .map(|exchange| exchange.id);
 
                 self.rich_content_views
                     .iter()
                     .filter_map(|rich_content| {
                         let metadata = rich_content.ai_block_metadata()?;
-                        latest_exchange_ids
-                            .contains(&metadata.exchange_id)
+                        (latest_exchange_id == Some(metadata.exchange_id))
                             .then(|| metadata.ai_block_handle.clone())
                     })
                     .collect()
@@ -5703,8 +5508,6 @@ impl TerminalView {
             | BlocklistAIHistoryEvent::UpdatedConversationArtifacts { .. }
             | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
             | BlocklistAIHistoryEvent::ConversationTransferredBetweenTerminalSurfaces { .. }
-            | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
-            | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
             | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. } => Vec::new(),
         }
     }
@@ -5769,8 +5572,6 @@ impl TerminalView {
             | BlocklistAIHistoryEvent::RestoredConversations { .. }
             | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
             | BlocklistAIHistoryEvent::ConversationTransferredBetweenTerminalSurfaces { .. }
-            | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
-            | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
             | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. }
             | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. } => None,
         }
@@ -6157,8 +5958,7 @@ impl TerminalView {
                         // TransientError is non-terminal: an automatic recovery is pending.
                         ConversationStatus::InProgress
                         | ConversationStatus::TransientError
-                        | ConversationStatus::Blocked { .. }
-                        | ConversationStatus::WaitingForEvents => None,
+                        | ConversationStatus::Blocked { .. } => None,
                     };
                     if let Some(finish_reason) = finish_reason {
                         self.handle_finished_conversation(*conversation_id, finish_reason, ctx);
@@ -6310,8 +6110,6 @@ impl TerminalView {
             | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationArtifacts { .. }
             | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
-            | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
-            | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
             | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. }
             | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. } => {}
         }
@@ -6653,25 +6451,12 @@ impl TerminalView {
             wall_to_wall_response_time_ms,
         };
 
-        // View to hold the usage footer. Always route through the
-        // rollup-aware constructor so the view subscribes to history
-        // events and re-renders when any contributing agent's usage
-        // updates. The rollup itself is computed at render time and is
-        // self-gating: conversations without descendants short-circuit
-        // to today's UI inside `ConversationUsageView::render`, so no
-        // feature flag check is needed at the call site.
-        //
-        // Use `add_typed_action_view` (not `add_view`) so the framework
-        // registers `ConversationUsageView::handle_action`. Without this,
-        // typed actions like `ToggleDetailsExpanded` / `ShowAllAgentRows`
-        // dispatched from the view's own click handlers would be logged
-        // as `Dispatched action has no handlers` and silently ignored.
+        // Register the usage footer as a typed action view.
         let usage_view = ctx.add_typed_action_view(|ctx| {
-            ConversationUsageView::new_footer_with_rollup(
+            ConversationUsageView::new_footer(
                 conversation_usage_info,
                 Some(timing_info),
                 MouseStateHandle::default(),
-                conversation_id,
                 ctx,
             )
         });
@@ -7277,28 +7062,6 @@ impl TerminalView {
         }
     }
 
-    fn handle_start_agent_executor_event(
-        &mut self,
-        _executor: ModelHandle<StartAgentExecutor>,
-        event: &StartAgentExecutorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            StartAgentExecutorEvent::CreateAgent(request) => {
-                ctx.emit(Event::StartAgentConversation(request.as_ref().clone()));
-            }
-            StartAgentExecutorEvent::CleanupFailedChildLaunch { conversation_id } => {
-                // The child failed at launch and never started a server-side
-                // run; reuse the Kill path to drop its hidden pane and
-                // conversation so the orchestration pill bar stops showing a
-                // dead chip.
-                ctx.emit(Event::KillAgentConversation {
-                    conversation_id: *conversation_id,
-                });
-            }
-        }
-    }
-
     fn get_ai_notification_summary(
         &self,
         conversation: &AIConversation,
@@ -7792,47 +7555,10 @@ impl TerminalView {
             && !model.is_conversation_transcript_viewer()
     }
 
-    /// Consume the one-shot conversation details panel auto-open for this
-    /// view. Call this before the first `maybe_auto_open_conversation_details_panel`
-    /// fires (e.g. on a parent-orchestrated child agent pane) so the panel does
-    /// not default open. Manual toggle via `TerminalAction::ToggleConversationDetailsPanel`
-    /// continues to work normally.
+    /// Preserve a closed details panel when a cloud follow-up session becomes ready.
     pub(crate) fn suppress_initial_conversation_details_panel_auto_open(&mut self) {
         self.conversation_details_panel_auto_open_policy =
             ConversationDetailsPanelAutoOpenPolicy::DefaultClosed;
-    }
-
-    pub(crate) fn set_orchestration_child_live_unavailable(
-        &mut self,
-        unavailable: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.orchestration_child_live_unavailable == unavailable {
-            return;
-        }
-        self.orchestration_child_live_unavailable = unavailable;
-        ctx.notify();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_orchestration_child_live_unavailable_for_test(&self) -> bool {
-        self.orchestration_child_live_unavailable
-    }
-    #[cfg(test)]
-    pub(crate) fn has_agent_view_zero_state_for_test(&self) -> bool {
-        self.rich_content_views
-            .iter()
-            .any(|view| view.is_agent_view_zero_state())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_initial_conversation_details_panel_auto_open_suppressed_for_test(
-        &self,
-    ) -> bool {
-        matches!(
-            self.conversation_details_panel_auto_open_policy,
-            ConversationDetailsPanelAutoOpenPolicy::DefaultClosed
-        )
     }
 
     fn maybe_insert_tombstone_for_non_running_shared_ambient_task(
@@ -10844,34 +10570,17 @@ impl TerminalView {
         conversation_id.map(|conversation_id| (conversation_id, command))
     }
 
-    /// Updates the back button's state and label. For child agents ESC
-    /// navigates one level up instead of exiting in place, so the label
-    /// names the direct parent (see [`agent_view_back_button_label`]).
+    /// Updates the back button using the ordinary agent-view exit policy.
     pub(crate) fn update_agent_view_back_button_state(&mut self, ctx: &mut ViewContext<Self>) {
-        let active_conv_id = self
+        let disabled_reason = self
             .agent_view_controller
             .as_ref(ctx)
-            .agent_view_state()
-            .active_conversation_id();
-        let history = BlocklistAIHistoryModel::as_ref(ctx);
-        let label = agent_view_back_button_label(history, active_conv_id);
-        // The label is "for terminal" exactly when no parent resolved, so
-        // it doubles as the child-agent signal.
-        let is_child_agent = label != "for terminal";
-
-        // Never disable for child agents: the swap-back path can't be blocked.
-        let disabled_reason = if is_child_agent {
-            None
-        } else {
-            self.agent_view_controller
-                .as_ref(ctx)
-                .can_exit_agent_view()
-                .err()
-                .map(|e| e.to_string())
-        };
+            .can_exit_agent_view()
+            .err()
+            .map(|error| error.to_string());
 
         self.agent_view_back_button.update(ctx, |button, ctx| {
-            button.set_label(label, ctx);
+            button.set_label("for terminal", ctx);
             button.set_disabled(disabled_reason.is_some(), ctx);
             button.set_tooltip(disabled_reason, ctx);
         });
@@ -18218,7 +17927,7 @@ impl TerminalView {
                 let diff_mode = self.diff_mode_for_branch(base_branch.as_deref(), ctx);
                 ctx.emit(Event::OpenCodeReviewPaneAndScrollToComment {
                     open_code_review: arg,
-                    comment: (**comment).clone(),
+                    comment: Box::new((**comment).clone()),
                     diff_mode,
                 });
             }
@@ -19192,12 +18901,6 @@ impl TerminalView {
                 if FeatureFlag::AgentView.is_enabled()
                     && self.agent_view_controller.as_ref(ctx).is_active()
                 {
-                    // For child agents, ESC navigates to the parent first;
-                    // run this before any can-exit gating.
-                    if self.try_navigate_to_parent_conversation(ctx) {
-                        return;
-                    }
-
                     // Disable escape completely for ambient agents without a parent terminal.
                     if self
                         .agent_view_controller
@@ -20381,7 +20084,7 @@ impl TerminalView {
             server_output_id: Some(Self::dummy_server_output_id()),
             ..Default::default()
         };
-        self.insert_dummy_ai_block_internal(query, DummyAIBlockOutput::Complete(output), ctx)
+        self.insert_dummy_ai_block_internal(query, Some(output), ctx)
     }
 
     /// Inserts a dummy AI block that is still streaming (unfinished), for tests
@@ -20392,77 +20095,7 @@ impl TerminalView {
         query: String,
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<AIBlock> {
-        self.insert_dummy_ai_block_internal(query, DummyAIBlockOutput::Streaming, ctx)
-    }
-
-    /// Inserts a dummy AI block whose stream was cancelled while a `run_agents`
-    /// tool call for `agent_names` was still streaming, so the call never
-    /// reached the action queue and has no action status.
-    #[cfg(any(test, feature = "integration_tests"))]
-    pub fn insert_dummy_cancelled_run_agents_ai_block(
-        &mut self,
-        query: String,
-        summary: String,
-        agent_names: Vec<String>,
-        ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<AIBlock> {
-        use ai::agent::action::{
-            RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest,
-        };
-
-        use crate::ai::agent::task::TaskId;
-        use crate::ai::agent::{
-            AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentOutput, AIAgentOutputMessage,
-            AIAgentText, AIAgentTextSection, MessageId,
-        };
-
-        let request = RunAgentsRequest {
-            metadata: Default::default(),
-            summary: summary.clone(),
-            base_prompt: "Shared instructions for every child agent.".to_owned(),
-            skills: vec![],
-            model_id: "auto".to_owned(),
-            harness_type: "oz".to_owned(),
-            execution_mode: RunAgentsExecutionMode::Local,
-            agent_run_configs: agent_names
-                .into_iter()
-                .map(|name| RunAgentsAgentRunConfig {
-                    metadata: Default::default(),
-                    name,
-                    prompt: "Do the work.".to_owned(),
-                    title: String::new(),
-                    agent_identity_uid: String::new(),
-                    model_id: String::new(),
-                })
-                .collect(),
-            plan_id: String::new(),
-            harness_auth_secret_name: None,
-        };
-
-        let output = AIAgentOutput {
-            messages: vec![
-                AIAgentOutputMessage::text(
-                    MessageId::new("fake-run-agents-text-id".to_owned()),
-                    AIAgentText {
-                        sections: vec![AIAgentTextSection::PlainText {
-                            text: summary.into(),
-                        }],
-                    },
-                ),
-                AIAgentOutputMessage::action(
-                    MessageId::new("fake-run-agents-action-message-id".to_owned()),
-                    AIAgentAction {
-                        id: AIAgentActionId::from("fake-run-agents-action-id".to_owned()),
-                        task_id: TaskId::new("fake-task-id".to_owned()),
-                        action: AIAgentActionType::RunAgents(Box::new(request)),
-                        requires_result: true,
-                    },
-                ),
-            ],
-            server_output_id: Some(Self::dummy_server_output_id()),
-            ..Default::default()
-        };
-        self.insert_dummy_ai_block_internal(query, DummyAIBlockOutput::Cancelled(output), ctx)
+        self.insert_dummy_ai_block_internal(query, None, ctx)
     }
 
     #[cfg(any(test, feature = "integration_tests"))]
@@ -20481,7 +20114,7 @@ impl TerminalView {
     fn insert_dummy_ai_block_internal(
         &mut self,
         query: String,
-        output: DummyAIBlockOutput,
+        output: Option<crate::ai::agent::AIAgentOutput>,
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<AIBlock> {
         use crate::ai::agent::AIAgentInput;
@@ -20516,11 +20149,8 @@ impl TerminalView {
         let conversation_id = new_conversation_id.expect("conversation created for dummy AI block");
 
         let ai_block_model = Rc::new(match output {
-            DummyAIBlockOutput::Complete(output) => FakeAIBlockModel::new(inputs, output),
-            DummyAIBlockOutput::Streaming => FakeAIBlockModel::new_streaming(inputs),
-            DummyAIBlockOutput::Cancelled(output) => {
-                FakeAIBlockModel::new_cancelled(inputs, output)
-            }
+            Some(output) => FakeAIBlockModel::new(inputs, output),
+            None => FakeAIBlockModel::new_streaming(inputs),
         });
         let ai_block = ctx.add_typed_action_view(|ctx| {
             AIBlock::new(
@@ -20997,42 +20627,6 @@ impl TerminalView {
                 },
             ),
             filter_button_position_id(block_index).as_str(),
-        )
-        .finish()
-    }
-
-    fn render_orchestration_child_live_unavailable(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let color = appearance
-            .theme()
-            .sub_text_color(appearance.theme().background());
-
-        SavePosition::new(
-            Align::new(
-                Flex::column()
-                    .with_child(
-                        Text::new_inline(
-                            "Live session unavailable",
-                            appearance.ui_font_family(),
-                            14.,
-                        )
-                        .with_color(color.into())
-                        .finish(),
-                    )
-                    .with_child(
-                        Text::new_inline(
-                            "The transcript will appear when this child finishes.",
-                            appearance.ui_font_family(),
-                            12.,
-                        )
-                        .with_color(color.into())
-                        .finish(),
-                    )
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .finish(),
-            )
-            .finish(),
-            &self.content_element_position_id,
         )
         .finish()
     }
@@ -23909,14 +23503,7 @@ impl TypedActionView for TerminalView {
             | AwsBedrockLoginBanner(_)
             | AwsCliNotInstalledBanner(_)
             | ToggleUsageFooter
-            | RevealChildAgent { .. }
-            | SwitchAgentViewToConversation { .. }
-            | OpenChildAgentInNewPane { .. }
-            | OpenChildAgentInNewTab { .. }
             | StopAgentConversation { .. }
-            | KillAgentConversation { .. }
-            | CyclePreviousOrchestrationChildAgent
-            | CycleNextOrchestrationChildAgent
             | ToggleSessionRecording
             | Osc52AllowBlockedClipboardOperation => Empty,
         }
@@ -24755,12 +24342,7 @@ impl TypedActionView for TerminalView {
                 ctx.notify();
             }
             ExitAgentView => {
-                // Match the back button's "for Orchestrator" affordance for
-                // child agents: navigate to the parent before falling back
-                // to the in-place exit flow.
-                if self.try_navigate_to_parent_conversation(ctx) {
-                    ctx.notify();
-                } else if self
+                if self
                     .agent_view_controller
                     .as_ref(ctx)
                     .can_exit_agent_view()
@@ -24811,57 +24393,10 @@ impl TypedActionView for TerminalView {
             ToggleUsageFooter => {
                 self.toggle_usage_footer(ctx);
             }
-            RevealChildAgent { conversation_id } => {
-                ctx.emit(Event::RevealChildAgent {
-                    conversation_id: *conversation_id,
-                });
-            }
-            SwitchAgentViewToConversation { conversation_id } => {
-                // Pill-bar nav: every child has a hidden pane, so swap to it.
-                ctx.emit(Event::SwapPaneToConversation {
-                    conversation_id: *conversation_id,
-                });
-            }
-            OpenChildAgentInNewPane { conversation_id } => {
-                // Reveal the existing child pane as a sibling; preserves
-                // in-flight state. Don't touch `self`'s active conversation
-                // — `self` is the child view, swapped into the orchestrator's slot.
-                ctx.emit(Event::OpenChildAgentInNewPane {
-                    conversation_id: *conversation_id,
-                });
-            }
-            OpenChildAgentInNewTab { conversation_id } => {
-                // Workspace re-parents the existing child pane into a new tab.
-                // Don't touch `self`'s active conversation (same reason as above).
-                ctx.emit(Event::OpenChildAgentInNewTab {
-                    conversation_id: *conversation_id,
-                });
-            }
             StopAgentConversation { conversation_id } => {
                 ctx.emit(Event::StopAgentConversation {
                     conversation_id: *conversation_id,
                 });
-            }
-            KillAgentConversation { conversation_id } => {
-                ctx.emit(Event::KillAgentConversation {
-                    conversation_id: *conversation_id,
-                });
-            }
-            CyclePreviousOrchestrationChildAgent | CycleNextOrchestrationChildAgent => {
-                let direction = match action {
-                    CyclePreviousOrchestrationChildAgent => {
-                        OrchestrationNavigationDirection::Previous
-                    }
-                    CycleNextOrchestrationChildAgent => OrchestrationNavigationDirection::Next,
-                    _ => unreachable!("matched orchestration cycle action"),
-                };
-                if let Some(conversation_id) = self
-                    .agent_view_controller
-                    .as_ref(ctx)
-                    .adjacent_orchestration_conversation_id(direction, ctx)
-                {
-                    ctx.emit(Event::RevealChildAgent { conversation_id });
-                }
             }
             ToggleSessionRecording => {
                 self.pty_recorder.update(ctx, |recorder, ctx| {
@@ -24958,9 +24493,7 @@ impl View for TerminalView {
                         && !self.is_ambient_agent_session(app);
                     let is_loading_transcript = model.is_loading_conversation_transcript();
                     let should_show_loading = is_view_pending_clause || is_loading_transcript;
-                    let output_area = if self.orchestration_child_live_unavailable {
-                        self.render_orchestration_child_live_unavailable(app)
-                    } else if should_show_loading {
+                    let output_area = if should_show_loading {
                         self.render_viewer_loading(app)
                     } else if is_alt_screen_active {
                         did_wrap_terminal_size = true;
@@ -25982,43 +25515,8 @@ fn maybe_wrap_terminal_element_in_scrollable(
 
 /// Maximum pixel width of the back-button label before it ellipsizes
 /// (pixel-based, via the button's label clip), keeping the pane header
-/// compact for long parent-agent names.
+/// compact in narrow panes.
 const BACK_BUTTON_LABEL_MAX_WIDTH: f32 = 160.;
-
-/// Returns the agent-view back button label. ESC navigates one level up, so
-/// the label names the direct parent: children of the tree root keep the
-/// classic "for Orchestrator" wording, nested subagents name their parent
-/// agent (falling back to a generic label), and non-child conversations exit
-/// back to the terminal. Long parent names are ellipsized pixel-based by the
-/// button itself ([`BACK_BUTTON_LABEL_MAX_WIDTH`]).
-fn agent_view_back_button_label(
-    history: &BlocklistAIHistoryModel,
-    active_conversation_id: Option<AIConversationId>,
-) -> Cow<'static, str> {
-    let parent_id = active_conversation_id
-        .and_then(|id| history.conversation(&id))
-        .and_then(|c| history.resolved_parent_conversation_id_for_conversation(c));
-    let Some(parent_id) = parent_id else {
-        return Cow::Borrowed("for terminal");
-    };
-    let parent = history.conversation(&parent_id);
-    // An unloaded parent can't be classified; keep the classic wording.
-    let parent_is_root = parent.is_none_or(|parent| {
-        history
-            .resolved_parent_conversation_id_for_conversation(parent)
-            .is_none()
-    });
-    if parent_is_root {
-        return Cow::Borrowed("for Orchestrator");
-    }
-    match parent
-        .and_then(|parent| parent.agent_name())
-        .filter(|name| !name.is_empty())
-    {
-        Some(name) => Cow::Owned(format!("for {name}")),
-        None => Cow::Borrowed("for parent agent"),
-    }
-}
 
 #[cfg(test)]
 #[path = "view_tests.rs"]

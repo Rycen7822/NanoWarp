@@ -17,9 +17,8 @@ use warpui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use crate::ai::blocklist::inline_action::orchestration_controls::ORCHESTRATION_WARP_WORKER_HOST;
 use crate::ai::cloud_agent_settings::CloudAgentSettings;
-use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
+use crate::ai::connected_self_hosted_workers::{ConnectedSelfHostedWorkersModel, WARP_WORKER_HOST};
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
@@ -68,7 +67,7 @@ impl Host {
     /// Returns the value to send as `worker_host` in the config snapshot.
     pub fn worker_host_value(&self) -> Option<String> {
         match self {
-            Host::Warp => Some(ORCHESTRATION_WARP_WORKER_HOST.to_string()),
+            Host::Warp => Some(WARP_WORKER_HOST.to_string()),
             Host::SelfHosted { slug } => Some(slug.clone()),
         }
     }
@@ -171,7 +170,7 @@ impl HostSelector {
             .value()
             .as_deref()
         {
-            let restored = if saved_slug == ORCHESTRATION_WARP_WORKER_HOST {
+            let restored = if saved_slug == WARP_WORKER_HOST {
                 Host::Warp
             } else {
                 Host::SelfHosted {

@@ -14,7 +14,6 @@ fn make_task(snapshot_name: Option<&str>, title: &str) -> AmbientAgentTask {
     });
     AmbientAgentTask {
         task_id: "11111111-1111-1111-1111-111111111111".parse().unwrap(),
-        parent_run_id: None,
         title: title.to_string(),
         state: AmbientAgentTaskState::InProgress,
         prompt: String::new(),
@@ -34,8 +33,6 @@ fn make_task(snapshot_name: Option<&str>, title: &str) -> AmbientAgentTask {
         is_sandbox_running: false,
         agent_config_snapshot,
         artifacts: vec![],
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }

@@ -43,12 +43,10 @@ use crate::pane_group::TerminalViewResources;
 use crate::terminal::{TerminalManager, TerminalModel, TerminalView, shared_session};
 
 /// Creates a cloud mode terminal view and manager for ambient agent sessions.
-/// See `viewer::TerminalManager::enable_orchestration_polling` for the flag.
 pub fn create_cloud_mode_view(
     resources: TerminalViewResources,
     view_bounds_size: Vector2F,
     window_id: WindowId,
-    enable_orchestration_polling: bool,
     ctx: &mut AppContext,
 ) -> (
     ViewHandle<TerminalView>,
@@ -61,7 +59,6 @@ pub fn create_cloud_mode_view(
         resources,
         view_bounds_size,
         window_id,
-        enable_orchestration_polling,
         ctx,
     );
     let viewer_manager = terminal_init.manager;

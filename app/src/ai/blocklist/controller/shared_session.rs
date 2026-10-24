@@ -18,12 +18,9 @@ use crate::ai::agent::conversation::{AIConversationId, ConversationStatus, TaskS
 use crate::ai::agent::{AIAgentActionId, AIAgentAttachment, BaseUserQuery, EntrypointType};
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::attachment_utils::{
-    build_file_attachment_map, download_task_file_attachments, resolve_agent_attachments,
-};
+use crate::ai::attachment_utils::resolve_agent_attachments;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
-use crate::server::server_api::ServerApiProvider;
 use crate::workspaces::user_workspaces::ResolvedTeamScope;
 
 /// Resolution of the local conversation a shared-session-injected prompt should target. See
@@ -731,8 +728,7 @@ impl BlocklistAIController {
         };
 
         // Process attachments and set them in the context model
-        let (block_ids, selected_text_parts, file_downloads) =
-            resolve_agent_attachments(attachments);
+        let (block_ids, selected_text_parts) = resolve_agent_attachments(attachments);
 
         // Set block and text attachments in the context model.
         self.context_model.update(ctx, |context_model, ctx| {
@@ -748,69 +744,13 @@ impl BlocklistAIController {
             }
         });
 
-        // If there are no file downloads (or the feature is disabled), send the query immediately.
-        if file_downloads.is_empty() || !FeatureFlag::CloudModeImageContext.is_enabled() {
-            self.send_warp_agent_prompt_from_shared_session_injection(
-                prompt,
-                conversation_id,
-                participant_id,
-                HashMap::new(),
-                base,
-                ctx,
-            );
-            return;
-        }
-
-        // We have file downloads — ensure both the download dir and task ID are available.
-        let Some(attachment_dir) = self.attachments_download_dir.clone() else {
-            report_error!(
-                "No attachments_download_dir set on controller, cannot process file attachments"
-            );
-            self.send_warp_agent_prompt_from_shared_session_injection(
-                prompt,
-                conversation_id,
-                participant_id,
-                HashMap::new(),
-                base,
-                ctx,
-            );
-            return;
-        };
-        let Some(task_id) = self.ambient_agent_task_id else {
-            report_error!("No task_id available to download attachments");
-            self.send_warp_agent_prompt_from_shared_session_injection(
-                prompt,
-                conversation_id,
-                participant_id,
-                HashMap::new(),
-                base,
-                ctx,
-            );
-            return;
-        };
-
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
-
-        ctx.spawn(
-            download_task_file_attachments(
-                ai_client,
-                http_client,
-                task_id,
-                attachment_dir,
-                file_downloads,
-            ),
-            move |controller, downloaded, ctx| {
-                let file_attachments = build_file_attachment_map(&downloaded);
-                controller.send_warp_agent_prompt_from_shared_session_injection(
-                    prompt,
-                    conversation_id,
-                    participant_id,
-                    file_attachments,
-                    base,
-                    ctx,
-                );
-            },
+        self.send_warp_agent_prompt_from_shared_session_injection(
+            prompt,
+            conversation_id,
+            participant_id,
+            HashMap::new(),
+            base,
+            ctx,
         );
     }
 
@@ -818,7 +758,8 @@ impl BlocklistAIController {
     /// conversation into a retained environment-setup-failure session (REMOTE-2661). Getting
     /// this wrong only costs a misleading lifecycle update; the server guards against reopening.
     fn is_open_for_setup_failure_debug_bootstrap(&self, ctx: &AppContext) -> bool {
-        self.ambient_agent_task_id.is_some_and(|task_id| {
+        let task_id = self.terminal_model.lock().ambient_agent_task_id();
+        task_id.is_some_and(|task_id| {
             AgentConversationsModel::as_ref(ctx)
                 .get_task_data(&task_id)
                 .is_some_and(|task| task.is_open_for_setup_failure_debug_bootstrap())
@@ -827,7 +768,8 @@ impl BlocklistAIController {
 
     /// Returns a task whose configuration uses a third-party harness.
     fn cli_harness_backed_task_id(&self, ctx: &AppContext) -> Option<AmbientAgentTaskId> {
-        self.ambient_agent_task_id.filter(|task_id| {
+        let task_id = self.terminal_model.lock().ambient_agent_task_id();
+        task_id.filter(|task_id| {
             AgentConversationsModel::as_ref(ctx)
                 .get_task_data(task_id)
                 .is_some_and(|task| task.is_third_party_harness())

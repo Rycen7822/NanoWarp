@@ -4,17 +4,16 @@ use itertools::Itertools;
 use mockito::{Matcher, Server};
 use warp_graphql::ai::PlatformErrorCode;
 use warp_graphql::platform_error::{PlatformErrorInfo, PlatformErrorMessageFormat};
-use warp_server_client::base_client::{CLOUD_AGENT_ID_HEADER, TEAM_UID_HEADER};
+use warp_server_client::base_client::TEAM_UID_HEADER;
 
 use super::super::ServerApi;
 use super::{
-    AIClient, AgentRunEvent, AgentSource, AmbientAgentTaskState, Artifact,
-    ArtifactDownloadResponse, CONNECTED_SELF_HOSTED_WORKERS_PATH, ConnectedSelfHostedWorker,
-    ExecutionLocation, ForkConversationResponse, ListConnectedSelfHostedWorkersResponse,
-    ListRunsResponse, PrepareAttachmentUploadsResponse, ReadAgentMessageResponse,
-    RunFollowupRequest, SpawnAgentRequest, TaskListFilter, TaskStatusUpdate, UserQueryMode,
-    agent_task_status_message_input, build_fork_conversation_url, build_list_agent_runs_url,
-    build_run_followup_url,
+    AIClient, AgentSource, AmbientAgentTaskState, Artifact, ArtifactDownloadResponse,
+    CONNECTED_SELF_HOSTED_WORKERS_PATH, ConnectedSelfHostedWorker, ExecutionLocation,
+    ForkConversationResponse, ListConnectedSelfHostedWorkersResponse, ListRunsResponse,
+    PrepareAttachmentUploadsResponse, RunFollowupRequest, SpawnAgentRequest, TaskListFilter,
+    TaskStatusUpdate, UserQueryMode, agent_task_status_message_input, build_fork_conversation_url,
+    build_list_agent_runs_url, build_run_followup_url,
 };
 use crate::notebooks::NotebookId;
 use crate::server::ids::ServerId;
@@ -80,30 +79,6 @@ fn task_status_message_input_preserves_full_platform_error() {
 }
 
 #[test]
-fn ambient_agent_headers_for_task_overrides_existing_cloud_agent_header() {
-    let server_api = ServerApi::new_for_test();
-    let ambient_task_id = "550e8400-e29b-41d4-a716-446655440000".parse().unwrap();
-    let task_scoped_id = "123e4567-e89b-12d3-a456-426614174000".parse().unwrap();
-
-    server_api.set_ambient_agent_task_id(Some(ambient_task_id));
-
-    let cloud_agent_headers: Vec<_> =
-        block_on(server_api.ambient_agent_headers_for_task(&task_scoped_id))
-            .unwrap()
-            .into_iter()
-            .filter(|(name, _)| *name == CLOUD_AGENT_ID_HEADER)
-            .collect();
-
-    assert_eq!(
-        cloud_agent_headers,
-        vec![(
-            CLOUD_AGENT_ID_HEADER.to_string(),
-            task_scoped_id.to_string()
-        )]
-    );
-}
-
-#[test]
 fn list_agent_runs_sends_selected_team_header() {
     let team_uid = ServerId::from(123);
     let scope = RequestTeamScope::from_scope(&TeamContextForOperation::new_for_test(team_uid));
@@ -157,7 +132,6 @@ fn spawn_agent_request_serializes_explicit_personal_ownership() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -182,7 +156,6 @@ fn spawn_agent_request_serializes_agent_uid_as_agent_identity_uid() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -279,7 +252,6 @@ fn spawn_agent_request_omits_prompt_when_none() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -988,66 +960,6 @@ fn test_artifact_plan_serialize_deserialize_roundtrip() {
 }
 
 #[test]
-fn test_deserialize_read_agent_message_response_with_timestamps() {
-    let json = r#"{
-        "message_id": "message-1",
-        "sender_run_id": "run-1",
-        "subject": "Build finished",
-        "body": "Everything passed.",
-        "sent_at": "2026-04-09T20:00:00Z",
-        "delivered_at": "2026-04-09T20:01:00Z",
-        "read_at": "2026-04-09T20:02:00Z"
-    }"#;
-
-    let response: ReadAgentMessageResponse = serde_json::from_str(json).unwrap();
-
-    assert_eq!(response.message_id, "message-1");
-    assert_eq!(response.sender_run_id, "run-1");
-    assert_eq!(response.subject, "Build finished");
-    assert_eq!(response.body, "Everything passed.");
-    assert_eq!(response.sent_at, "2026-04-09T20:00:00Z");
-    assert_eq!(
-        response.delivered_at.as_deref(),
-        Some("2026-04-09T20:01:00Z")
-    );
-    assert_eq!(response.read_at.as_deref(), Some("2026-04-09T20:02:00Z"));
-}
-
-#[test]
-fn test_deserialize_agent_run_events_with_optional_fields() {
-    let json = r#"[
-        {
-            "event_type": "run_started",
-            "run_id": "run-1",
-            "ref_id": null,
-            "execution_id": "exec-1",
-            "occurred_at": "2026-04-09T20:00:00Z",
-            "sequence": 7
-        },
-        {
-            "event_type": "new_message",
-            "run_id": "run-2",
-            "ref_id": "message-9",
-            "execution_id": null,
-            "occurred_at": "2026-04-09T20:05:00Z",
-            "sequence": 8
-        }
-    ]"#;
-
-    let events: Vec<AgentRunEvent> = serde_json::from_str(json).unwrap();
-
-    assert_eq!(events.len(), 2);
-    assert_eq!(events[0].event_type, "run_started");
-    assert_eq!(events[0].execution_id.as_deref(), Some("exec-1"));
-    assert_eq!(events[0].ref_id, None);
-    assert_eq!(events[0].sequence, 7);
-    assert_eq!(events[1].event_type, "new_message");
-    assert_eq!(events[1].ref_id.as_deref(), Some("message-9"));
-    assert_eq!(events[1].execution_id, None);
-    assert_eq!(events[1].sequence, 8);
-}
-
-#[test]
 fn test_artifact_plan_serialize_deserialize_roundtrip_no_notebook_uid() {
     let original = Artifact::Plan {
         document_uid: "doc-123".to_string(),
@@ -1146,7 +1058,6 @@ fn build_list_agent_runs_url_all_fields() {
         environment_id: Some("env-123".to_string()),
         skill_spec: Some("owner/repo:SKILL.md".to_string()),
         schedule_id: Some("sched-1".to_string()),
-        ancestor_run_id: Some("run-parent".to_string()),
         config_name: Some("nightly".to_string()),
         model_id: Some("claude-4-5".to_string()),
         search_query: Some("oz run".to_string()),
@@ -1168,7 +1079,6 @@ fn build_list_agent_runs_url_all_fields() {
          &environment_id=env-123\
          &skill_spec=owner%2Frepo%3ASKILL.md\
          &schedule_id=sched-1\
-         &ancestor_run_id=run-parent\
          &name=nightly\
          &model_id=claude-4-5\
          &q=oz%20run\

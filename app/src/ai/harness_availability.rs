@@ -196,14 +196,6 @@ impl HarnessAvailabilityModel {
             .any(|h| h.harness == harness && h.enabled)
     }
 
-    pub fn models_for(&self, harness: Harness) -> Option<&[HarnessModelInfo]> {
-        self.harnesses
-            .iter()
-            .find(|h| h.harness == harness)
-            .map(|h| h.available_models.as_slice())
-            .filter(|m| !m.is_empty())
-    }
-
     pub fn auth_secrets_for<S: TeamScope + ?Sized>(
         &self,
         team_scope: &S,

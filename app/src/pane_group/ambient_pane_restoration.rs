@@ -104,7 +104,6 @@ impl PaneGroup {
                         session_id,
                         resources.clone(),
                         view_size,
-                        true, // enable_orchestration_polling
                         true, // is_ambient_agent
                         ctx,
                     );

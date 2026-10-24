@@ -203,37 +203,6 @@ fn agent_exited_shell_is_failed_with_invalid_request() {
 /// A yielded conversation must report `IN_PROGRESS` to the task service
 /// so the task row stays active across the yield. No status message is
 /// attached because the yield is an internal state.
-#[test]
-fn map_conversation_status_waiting_for_events_reports_in_progress_with_no_message() {
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let conversation = AIConversation::new(false, false);
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-        history_model.update(&mut app, |model, ctx| {
-            let conv = model
-                .conversation_mut(&conversation_id)
-                .expect("conversation was just restored");
-            conv.update_status(ConversationStatus::WaitingForEvents, terminal_view_id, ctx);
-        });
-
-        history_model.read(&app, |model, _| {
-            let conv = model.conversation(&conversation_id).unwrap();
-            assert_eq!(conv.status(), &ConversationStatus::WaitingForEvents);
-            let (state, update) = map_conversation_status(conv);
-            assert_eq!(state, AgentTaskState::InProgress);
-            assert!(
-                update.is_none(),
-                "WaitingForEvents must not attach a status message"
-            );
-        });
-    });
-}
 
 #[test]
 fn map_conversation_status_in_progress_reports_in_progress_with_no_message() {
@@ -400,8 +369,8 @@ fn map_conversation_status_error_classifies_status_error_via_setter() {
     });
 }
 
-/// An out-of-band `status_error` with `is_user_error: false` (e.g. a child-launch
-/// or skill-resolution failure) classifies as ERROR and surfaces its message.
+/// An out-of-band `status_error` with `is_user_error: false` (e.g. a
+/// skill-resolution failure) classifies as ERROR and surfaces its message.
 #[test]
 fn map_conversation_status_error_classifies_status_error_other_as_error() {
     let mut conversation = AIConversation::new(false, false);
@@ -487,11 +456,11 @@ fn shared_session_link_fires_update_agent_task_with_session_id() {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        // A local orchestrator conversation owned by this client: not a
-        // viewer, not a remote-child placeholder, and has a `task_id`.
+        // A local conversation owned by this client: not a
+        // viewer, and has a `task_id`.
         let mut conversation = AIConversation::new(false, false);
         let task_id = fixed_task_id();
-        conversation.set_run_id(task_id.to_string());
+        conversation.set_task_id(task_id);
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {
@@ -526,7 +495,7 @@ fn shared_session_link_uses_correct_argument_order() {
 
         let mut conversation = AIConversation::new(false, false);
         let task_id = fixed_task_id();
-        conversation.set_run_id(task_id.to_string());
+        conversation.set_task_id(task_id);
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {
@@ -576,7 +545,7 @@ fn shared_session_link_skips_viewer_conversations() {
         // client does not own the task and must not link.
         let mut conversation =
             AIConversation::new(/* is_viewing_shared_session */ true, false);
-        conversation.set_run_id(fixed_task_id().to_string());
+        conversation.set_task_id(fixed_task_id());
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {
@@ -598,40 +567,6 @@ fn shared_session_link_skips_viewer_conversations() {
             counter.load(Ordering::SeqCst),
             0,
             "viewer guard must skip the RPC"
-        );
-    });
-}
-
-#[test]
-fn shared_session_link_skips_remote_child_conversations() {
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut conversation = AIConversation::new(false, false);
-        conversation.set_run_id(fixed_task_id().to_string());
-        conversation.mark_as_remote_child();
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        let (_model, counter) = install_model_with_call_counter(&mut app);
-
-        history_model.update(&mut app, |_, ctx| {
-            ctx.emit(BlocklistAIHistoryEvent::LocalSharedSessionEstablished {
-                conversation_id,
-                session_id: fixed_session_id(),
-            });
-        });
-
-        pump_spawned_tasks().await;
-
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            0,
-            "remote-child guard must skip the RPC"
         );
     });
 }
@@ -705,7 +640,7 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
 
         let mut conversation = AIConversation::new(false, false);
         let task_id = fixed_task_id();
-        conversation.set_run_id(task_id.to_string());
+        conversation.set_task_id(task_id);
         conversation.set_server_conversation_token("server-conversation-id".to_string());
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
@@ -753,7 +688,7 @@ fn conversation_server_token_assigned_skips_viewer_conversations() {
 
         let mut conversation =
             AIConversation::new(/* is_viewing_shared_session */ true, false);
-        conversation.set_run_id(fixed_task_id().to_string());
+        conversation.set_task_id(fixed_task_id());
         conversation.set_server_conversation_token("server-conversation-id".to_string());
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
@@ -780,41 +715,6 @@ fn conversation_server_token_assigned_skips_viewer_conversations() {
     });
 }
 
-#[test]
-fn conversation_server_token_assigned_skips_remote_child_conversations() {
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut conversation = AIConversation::new(false, false);
-        conversation.set_run_id(fixed_task_id().to_string());
-        conversation.set_server_conversation_token("server-conversation-id".to_string());
-        conversation.mark_as_remote_child();
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        let (_model, counter) = install_model_with_call_counter(&mut app);
-
-        history_model.update(&mut app, |_, ctx| {
-            ctx.emit(BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
-                conversation_id,
-                terminal_surface_id: terminal_view_id,
-            });
-        });
-
-        pump_spawned_tasks().await;
-
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            0,
-            "remote-child guard must skip the RPC for token-assigned events"
-        );
-    });
-}
-
 /// A debug conversation bootstrapped into a retained setup-failure session
 /// (`TaskSyncMode::PreserveTerminalSetupFailure`) must keep reporting its conversation ID —
 /// live injection and transcript APIs depend on it — but must never drive task state or a
@@ -828,7 +728,7 @@ fn preserve_terminal_setup_failure_conversation_reports_token_without_task_state
 
         let mut conversation = AIConversation::new(false, false);
         let task_id = fixed_task_id();
-        conversation.set_run_id(task_id.to_string());
+        conversation.set_task_id(task_id);
         conversation.set_task_sync_mode(TaskSyncMode::PreserveTerminalSetupFailure);
         conversation.set_server_conversation_token("debug-conversation-token".to_string());
         let conversation_id = conversation.id();

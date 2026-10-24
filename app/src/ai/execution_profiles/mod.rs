@@ -1,7 +1,6 @@
 pub use cloud_object_models::{
     AIExecutionProfile, ActionPermission, AskUserQuestionPermission, CloudAIExecutionProfile,
-    CloudAIExecutionProfileModel, PROFILE_NAME_MAX_LENGTH, RunAgentsPermission,
-    WriteToPtyPermission,
+    CloudAIExecutionProfileModel, PROFILE_NAME_MAX_LENGTH, WriteToPtyPermission,
 };
 use markdown_parser::{FormattedTextFragment, FormattedTextInline};
 use warp_core::features::FeatureFlag;

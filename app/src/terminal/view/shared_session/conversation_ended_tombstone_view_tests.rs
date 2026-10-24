@@ -14,7 +14,6 @@ fn task_with_run_time_and_credits() -> AmbientAgentTask {
     let started_at = Utc::now();
     AmbientAgentTask {
         task_id: "550e8400-e29b-41d4-a716-000000005000".parse().unwrap(),
-        parent_run_id: None,
         title: "Task".to_string(),
         state: AmbientAgentTaskState::Succeeded,
         prompt: "test".to_string(),
@@ -45,8 +44,6 @@ fn task_with_run_time_and_credits() -> AmbientAgentTask {
         agent_config_snapshot: None,
         artifacts: vec![],
         is_sandbox_running: false,
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }

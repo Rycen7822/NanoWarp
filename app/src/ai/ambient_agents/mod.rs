@@ -79,13 +79,11 @@ pub fn conversation_output_status_from_conversation(
             terminal_status_from_last_exchange(conversation)
         }
 
-        // `InProgress` and `WaitingForEvents` are not terminal, but we preserve the
-        // existing behavior of reporting a terminal outcome whenever the last exchange
-        // has already finished.
+        // Preserve reporting a terminal outcome when the last exchange has finished,
+        // even if the conversation still says `InProgress`.
         ConversationStatus::InProgress
         | ConversationStatus::Success
-        | ConversationStatus::Cancelled
-        | ConversationStatus::WaitingForEvents => terminal_status_from_last_exchange(conversation),
+        | ConversationStatus::Cancelled => terminal_status_from_last_exchange(conversation),
     }
 }
 

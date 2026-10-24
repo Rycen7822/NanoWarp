@@ -6,10 +6,7 @@ use std::time::Duration;
 use ai::agent::UnknownCitationTypeError;
 use ai::agent::action::ReadSkillRequest;
 use ai::agent::convert::ToolToAIAgentActionError;
-use ai::skills::{
-    ParsedSkill, SkillPathOrigin, skill_reference_from_api_skill_ref,
-    skill_reference_from_read_skill_ref,
-};
+use ai::skills::{ParsedSkill, SkillPathOrigin, skill_reference_from_read_skill_ref};
 use api::ask_user_question::question::QuestionType;
 use warp_core::channel::ChannelState;
 use warp_multi_agent_api as api;
@@ -24,9 +21,8 @@ use crate::ai::agent::util::parse_markdown_into_text_and_code_sections;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentAttachment, AIAgentCitation, AIAgentInput,
     AIAgentOutputMessage, AIAgentText, AIAgentTodo, ArtifactCreatedData, BaseUserQuery,
-    InvokeSkillUserQuery, MessageId, RunAgentsAgentRunConfig, RunAgentsExecutionMode,
-    RunAgentsRequest, SubagentCall, SubagentType, SummarizationType, TodoOperation, UserQueryMode,
-    WebFetchStatus, WebSearchStatus,
+    InvokeSkillUserQuery, MessageId, SubagentCall, SubagentType, SummarizationType, TodoOperation,
+    UserQueryMode, WebFetchStatus, WebSearchStatus,
 };
 use crate::ai::artifact_download::sanitized_basename;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -66,93 +62,16 @@ fn convert_read_skill(
 }
 
 /// Converts proto UserQueryMode to the internal UserQueryMode type
-pub(crate) fn convert_user_query_mode(mode: Option<&api::UserQueryMode>) -> UserQueryMode {
+pub(crate) fn convert_user_query_mode(mode: Option<&api::UserQueryMode>) -> Option<UserQueryMode> {
     let Some(mode) = mode else {
-        return UserQueryMode::default();
+        return Some(UserQueryMode::default());
     };
 
     match &mode.r#type {
-        Some(api::user_query_mode::Type::Plan(_)) => UserQueryMode::Plan,
-        Some(api::user_query_mode::Type::Orchestrate(_)) => UserQueryMode::Orchestrate,
-        None => UserQueryMode::Normal,
+        Some(api::user_query_mode::Type::Plan(_)) => Some(UserQueryMode::Plan),
+        Some(api::user_query_mode::Type::Orchestrate(_)) => None,
+        None => Some(UserQueryMode::Normal),
     }
-}
-
-/// Maps the proto `Harness` oneof to a client-side string identifier
-/// (e.g. "oz", "claude"). Returns `None` for an unset variant.
-pub(crate) fn convert_run_agents_harness(harness: Option<&api::Harness>) -> Option<String> {
-    let variant = harness?.variant.as_ref()?;
-    Some(
-        match variant {
-            api::harness::Variant::Oz(_) => "oz",
-            api::harness::Variant::ClaudeCode(_) => "claude",
-            api::harness::Variant::OpenCode(_) => "opencode",
-            api::harness::Variant::Gemini(_) => "gemini",
-            api::harness::Variant::Codex(_) => "codex",
-            api::harness::Variant::Pi(_) => "pi",
-        }
-        .to_string(),
-    )
-}
-
-fn convert_run_agents_execution_mode(
-    execution_mode: Option<api::run_agents::ExecutionModeOneOf>,
-) -> RunAgentsExecutionMode {
-    match execution_mode {
-        Some(api::run_agents::ExecutionModeOneOf::Remote(remote)) => {
-            RunAgentsExecutionMode::Remote {
-                environment_id: remote.environment_id,
-                worker_host: remote.worker_host,
-                runner_id: remote.runner_id,
-            }
-        }
-        Some(api::run_agents::ExecutionModeOneOf::Local(_)) | None => RunAgentsExecutionMode::Local,
-    }
-}
-
-fn convert_run_agents(
-    run_agents: api::RunAgents,
-    skill_path_origin: &SkillPathOrigin,
-) -> AIAgentActionType {
-    let api::RunAgents {
-        metadata,
-        summary,
-        base_prompt,
-        skills,
-        model_id,
-        harness,
-        agent_run_configs,
-        execution_mode,
-        plan_id,
-    } = run_agents;
-    AIAgentActionType::RunAgents(Box::new(RunAgentsRequest {
-        metadata,
-        summary,
-        base_prompt,
-        skills: skills
-            .into_iter()
-            .filter_map(|skill| skill_reference_from_api_skill_ref(skill, skill_path_origin))
-            .collect(),
-        model_id,
-        harness_type: convert_run_agents_harness(harness.as_ref()).unwrap_or_default(),
-        execution_mode: convert_run_agents_execution_mode(execution_mode),
-        agent_run_configs: agent_run_configs
-            .into_iter()
-            .map(|config| RunAgentsAgentRunConfig {
-                metadata: config.metadata,
-                name: config.name,
-                prompt: config.prompt,
-                title: config.title,
-                agent_identity_uid: config.agent_identity_uid,
-                model_id: config.model_id,
-            })
-            .collect(),
-        plan_id,
-        // Auth secret is a client-side dispatch concern populated by the
-        // confirmation card from `CloudAgentSettings.last_selected_auth_secret`
-        // before Accept. The proto does not carry it.
-        harness_auth_secret_name: None,
-    }))
 }
 
 /// Unexpected errors when trying to convert an [`api::Message`] to an [`AIAgentOutputMessage`].
@@ -528,7 +447,9 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
                             )
                             .with_citations(citations),
                         )),
-                        Some(api::message::artifact_event::artifact_created::Artifact::Screenshot(_))
+                        Some(
+                            api::message::artifact_event::artifact_created::Artifact::Screenshot(_),
+                        )
                         | None => Ok(MaybeAIAgentOutputMessage::NoClientRepresentation),
                     }
                 }
@@ -536,48 +457,16 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
                     Ok(MaybeAIAgentOutputMessage::NoClientRepresentation)
                 }
             },
-            api::message::Message::MessagesReceivedFromAgents(messages_received_from_agents) => {
-                let messages = messages_received_from_agents
-                    .messages
-                    .into_iter()
-                    .map(|msg| crate::ai::agent::ReceivedMessageDisplay {
-                        message_id: msg.message_id,
-                        sender_agent_id: msg.sender_agent_id,
-                        addresses: msg.addresses,
-                        subject: msg.subject,
-                        message_body: msg.message_body,
-                    })
-                    .collect();
-                Ok(MaybeAIAgentOutputMessage::Message(
-                    AIAgentOutputMessage::messages_received_from_agents(
-                        MessageId::new(self.id),
-                        messages,
-                    )
-                    .with_citations(citations),
-                ))
-            }
-            api::message::Message::EventsFromAgents(events) => {
-                let event_ids = events
-                    .agent_events
-                    .iter()
-                    .map(|e| e.event_id.clone())
-                    .collect();
-                Ok(MaybeAIAgentOutputMessage::Message(
-                    AIAgentOutputMessage::events_from_agents(MessageId::new(self.id), event_ids)
-                        .with_citations(citations),
-                ))
-            }
             // These messages don't indicate an error but they don't translate to a client-side output message.
-            api::message::Message::UserQuery(_)
+            api::message::Message::MessagesReceivedFromAgents(_)
+            | api::message::Message::EventsFromAgents(_)
+            | api::message::Message::UserQuery(_)
             | api::message::Message::SystemQuery(_)
             | api::message::Message::ToolCallResult(_)
             | api::message::Message::CodeReview(_)
             | api::message::Message::ServerEvent(_)
             | api::message::Message::InvokeSkill(_)
             | api::message::Message::PassiveSuggestionResult(_)
-            // Stage 2 plan-card config snapshot: hydrated separately by the
-            // plan card's `AIDocumentModel` subscription, not via the
-            // exchange/output stream. No client output message representation.
             | api::message::Message::OrchestrationConfigSnapshot(_)
             | api::message::Message::RequestMetadata(_) => {
                 Ok(MaybeAIAgentOutputMessage::NoClientRepresentation)
@@ -719,16 +608,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
                     subagent_type,
                 }))
             }
-            api::message::tool_call::Tool::RunAgents(orchestrate) => {
-                create_standard_action(convert_run_agents(orchestrate, params.skill_path_origin))
-            }
-            api::message::tool_call::Tool::SendMessageToAgent(send_message) => {
-                create_standard_action(AIAgentActionType::SendMessageToAgent {
-                    addresses: send_message.addresses,
-                    subject: send_message.subject,
-                    message: send_message.message,
-                })
-            }
             api::message::tool_call::Tool::InsertReviewComments(insert_review_comments) => {
                 create_standard_action(insert_review_comments.into())
             }
@@ -751,12 +630,6 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             api::message::tool_call::Tool::Server(_)
             | api::message::tool_call::Tool::SuggestPrompt(_) => {
                 Ok(MaybeAIAgentAction::NoClientRepresentation)
-            }
-            api::message::tool_call::Tool::WaitForEvents(payload) => {
-                create_standard_action(AIAgentActionType::WaitForEvents {
-                    tool_call_id: self.tool_call_id.clone(),
-                    idle_timeout_seconds: payload.idle_timeout_seconds,
-                })
             }
             _ => Err(ToolToAIAgentActionError::UnexpectedTool),
         }
@@ -782,6 +655,9 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
         let Some(inner) = &m.message else { continue };
         match inner {
             api::message::Message::UserQuery(uq) => {
+                let Some(user_query_mode) = convert_user_query_mode(uq.mode.as_ref()) else {
+                    continue;
+                };
                 let context = convert_input_context(uq.context.as_ref());
                 let referenced_attachments = uq
                     .referenced_attachments
@@ -797,7 +673,7 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
                     context,
                     static_query_type: None,
                     referenced_attachments,
-                    user_query_mode: convert_user_query_mode(uq.mode.as_ref()),
+                    user_query_mode,
                     running_command: None,
                     intended_agent: Some(uq.intended_agent()),
                     base: BaseUserQuery::from_message(uq),

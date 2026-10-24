@@ -45,7 +45,6 @@ pub(crate) mod billing_workspace_settings;
 pub(crate) mod team_workspace_settings;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) use team_workspace_settings::GeminiEnterpriseBackgroundHost;
-pub(crate) use team_workspace_settings::TeamContextForOperationResolver;
 #[cfg(test)]
 pub(crate) use team_workspace_settings::TeamlessScopeForTest;
 pub use team_workspace_settings::{

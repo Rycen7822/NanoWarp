@@ -24,14 +24,9 @@ pub(crate) use execute::MalformedFinalLineProxyEvent;
 pub use execute::{
     AskUserQuestionExecutor, EditAcceptClickedEvent, EditResolvedEvent, EditStats,
     NewConversationDecision, ReadFileContextResult, RequestFileEditsExecutor,
-    RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent, RunAgentsExecutor,
-    RunAgentsExecutorEvent, RunAgentsSpawningSnapshot, ShellCommandExecutor,
-    ShellCommandExecutorEvent, ShellRecoveryResult, StartAgentExecutor, StartAgentExecutorEvent,
-    StartAgentRequest, StartAgentRequestId, TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR,
-    read_local_file_context,
+    RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent, ShellCommandExecutor,
+    ShellCommandExecutorEvent, ShellRecoveryResult, read_local_file_context,
 };
-#[cfg(test)]
-pub(crate) use execute::{compose_run_agents_child_prompt, run_agents_to_start_agent_mode};
 use futures::future::{BoxFuture, join_all};
 use itertools::Itertools;
 use parking_lot::FairMutex;
@@ -52,7 +47,6 @@ use crate::ai::agent::{
     RequestCommandOutputResult,
 };
 use crate::ai::blocklist::action_model::execute::suggest_new_conversation::SuggestNewConversationExecutor;
-use crate::ai::blocklist::telemetry::send_run_agents_completed_telemetry;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
 use crate::terminal::TerminalModel;
@@ -371,14 +365,6 @@ impl BlocklistAIActionModel {
         self.executor.as_ref(app).search_codebase_executor()
     }
 
-    pub fn start_agent_executor(&self, app: &AppContext) -> ModelHandle<StartAgentExecutor> {
-        self.executor.as_ref(app).start_agent_executor().clone()
-    }
-
-    pub fn run_agents_executor(&self, app: &AppContext) -> ModelHandle<RunAgentsExecutor> {
-        self.executor.as_ref(app).run_agents_executor().clone()
-    }
-
     pub fn ask_user_question_executor(
         &self,
         app: &AppContext,
@@ -387,16 +373,6 @@ impl BlocklistAIActionModel {
             .as_ref(app)
             .ask_user_question_executor()
             .clone()
-    }
-
-    pub fn set_ambient_agent_task_id(
-        &mut self,
-        id: Option<crate::ai::ambient_agents::AmbientAgentTaskId>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.executor.update(ctx, |executor, ctx| {
-            executor.set_ambient_agent_task_id(id, ctx);
-        });
     }
 
     fn blocked_action_for_conversation(
@@ -658,74 +634,6 @@ impl BlocklistAIActionModel {
         }
     }
 
-    /// Dispatches a `RunAgents` action with the user-edited request
-    /// from the confirmation card.
-    pub fn execute_run_agents(
-        &mut self,
-        action_id: &AIAgentActionId,
-        request: ai::agent::action::RunAgentsRequest,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let mut found = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(action) = queue.iter_mut().find(|action| &action.id == action_id) {
-                found = Some((*conv_id, action));
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
-            log::warn!(
-                "BlocklistAIActionModel::execute_run_agents: no pending action for {action_id:?}"
-            );
-            return;
-        };
-        if !matches!(action.action, AIAgentActionType::RunAgents(_)) {
-            log::warn!(
-                "BlocklistAIActionModel::execute_run_agents: pending action {action_id:?} is not RunAgents"
-            );
-            return;
-        }
-        action.action = AIAgentActionType::RunAgents(Box::new(request));
-        self.execute_action(action_id, conversation_id, ctx);
-    }
-
-    /// Removes a pending `RunAgents` action and records a `Denied`
-    /// result. Used when the orchestration config is disapproved at
-    /// the time the action becomes blocked on user confirmation.
-    pub fn deny_run_agents(
-        &mut self,
-        action_id: &AIAgentActionId,
-        reason: String,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let mut found: Option<(AIConversationId, AIAgentAction)> = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(idx) = queue.iter().position(|a| &a.id == action_id) {
-                if let Some(action) = queue.remove(idx) {
-                    found = Some((*conv_id, action));
-                }
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
-            log::warn!(
-                "BlocklistAIActionModel::deny_run_agents: no pending action for {action_id:?}"
-            );
-            return;
-        };
-        let result =
-            AIAgentActionResultType::RunAgents(ai::agent::action_result::RunAgentsResult::Denied {
-                reason,
-            });
-        send_run_agents_completed_telemetry(conversation_id, &action.action, &result, ctx);
-        let result = Arc::new(AIAgentActionResult {
-            id: action.id,
-            task_id: action.task_id,
-            result,
-        });
-        self.handle_action_result(conversation_id, result, None, ctx);
-    }
-
     /// Attempts to execute the next pending action for the active conversation.
     pub fn execute_next_action_for_user(
         &mut self,
@@ -859,25 +767,18 @@ impl BlocklistAIActionModel {
 
         let action_id = action.id.clone();
         let phase = self.action_phase_for_action(&action, ctx);
-        // WaitForEvents owns its own status transition; skip the default
-        // in-progress update.
-        let is_wait_for_events = matches!(action.action, AIAgentActionType::WaitForEvents { .. });
         let execute_result = self.executor.update(ctx, |executor, ctx| {
             executor.try_to_execute_action(action, conversation_id, is_user_initiated, ctx)
         });
 
         match execute_result {
             TryExecuteResult::ExecutedAsync => {
-                if !is_wait_for_events {
-                    self.update_conversation_in_progress_status(conversation_id, ctx);
-                }
+                self.update_conversation_in_progress_status(conversation_id, ctx);
                 self.add_running_action(conversation_id, action_id, phase);
                 Some(StartedAction::Async { phase })
             }
             TryExecuteResult::ExecutedSync => {
-                if !is_wait_for_events {
-                    self.update_conversation_in_progress_status(conversation_id, ctx);
-                }
+                self.update_conversation_in_progress_status(conversation_id, ctx);
                 Some(StartedAction::Sync)
             }
             TryExecuteResult::NotExecuted { reason, action } => {
@@ -1059,27 +960,6 @@ impl BlocklistAIActionModel {
             .is_some_and(|r| r.contains(action_id))
     }
 
-    /// Cancels any in-flight WaitForEvents action for the given conversation.
-    pub fn cancel_wait_for_events_for_conversation(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let action_id = self.executor.update(ctx, |executor, _| {
-            executor.find_running_wait_for_events(conversation_id)
-        });
-        if let Some(action_id) = action_id {
-            self.cancel_action_with_id(
-                conversation_id,
-                &action_id,
-                CancellationReason::FollowUpSubmitted {
-                    is_for_same_conversation: true,
-                },
-                ctx,
-            );
-        }
-    }
-
     pub(super) fn cancel_all_pending_actions(
         &mut self,
         conversation_id: AIConversationId,
@@ -1141,12 +1021,6 @@ impl BlocklistAIActionModel {
         ctx: &mut ModelContext<Self>,
     ) {
         let cancelled_result = pending_action.action.cancelled_result();
-        send_run_agents_completed_telemetry(
-            conversation_id,
-            &pending_action.action,
-            &cancelled_result,
-            ctx,
-        );
         let result = Arc::new(AIAgentActionResult {
             id: pending_action.id,
             task_id: pending_action.task_id,

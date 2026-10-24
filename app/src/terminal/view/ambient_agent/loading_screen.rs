@@ -17,8 +17,8 @@ use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::UiComponent;
 use warpui::{AppContext, Entity, SingletonEntity, WeakViewHandle};
 
+use super::model::CloudAgentStartupPresentation;
 use crate::ai::loading::shimmering_warp_loading_text;
-use crate::ai::orchestration::CloudAgentStartupPresentation;
 use crate::ui_components::blended_colors;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 

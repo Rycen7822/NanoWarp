@@ -51,7 +51,7 @@ pub(crate) enum AIQueryRouting {
     /// source, non-Oz tombstone). The input is non-editable; a follow-up must never run locally.
     UnconnectedReadOnly,
     /// Continues on the local machine. Covers ordinary local agent panes and local ambient sharers
-    /// (e.g. `run_agents(local)` orchestration children, `/remote-control` of a local session).
+    /// (e.g. `/remote-control` of a local session).
     Local,
     /// A retained environment-setup-failure session with an open debug window (REMOTE-2661).
     /// Must route through the authenticated follow-up service, never the direct viewer prompt
@@ -109,24 +109,6 @@ pub(crate) enum ConversationAccess {
     Edit,
     ViewOnly,
     Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CompletedChildPresentation {
-    Continuation,
-    PassiveTranscript,
-}
-
-pub(crate) fn completed_child_presentation(
-    access: ConversationAccess,
-    blocks_cloud_followups: bool,
-) -> CompletedChildPresentation {
-    match (access, blocks_cloud_followups) {
-        (ConversationAccess::Edit, false) => CompletedChildPresentation::Continuation,
-        (ConversationAccess::Edit, true)
-        | (ConversationAccess::ViewOnly, _)
-        | (ConversationAccess::Unknown, _) => CompletedChildPresentation::PassiveTranscript,
-    }
 }
 
 pub(in crate::terminal::view) fn resolve_cloud_conversation_continuation_ui_state(
@@ -237,7 +219,7 @@ pub(crate) fn resolve_ai_query_routing(
         };
     }
 
-    // Ordinary local pane, or a sharer running locally (e.g. a local orchestration child).
+    // Ordinary local pane, or a sharer running locally.
     if !is_ambient && !is_transcript_viewer {
         return AIQueryRouting::Local;
     }
@@ -394,19 +376,6 @@ pub(crate) fn conversation_access(
         ConversationAccess::Edit
     } else {
         ConversationAccess::ViewOnly
-    }
-}
-
-pub(crate) fn completed_child_conversation_access(
-    metadata: Option<&ServerAIConversationMetadata>,
-    task: Option<&AmbientAgentTask>,
-    app: &AppContext,
-) -> ConversationAccess {
-    match metadata {
-        Some(metadata) => conversation_access(metadata, app),
-        None => task
-            .map(|task| task_ownership_access(task, app))
-            .unwrap_or(ConversationAccess::Unknown),
     }
 }
 

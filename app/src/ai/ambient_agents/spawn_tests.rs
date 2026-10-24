@@ -22,7 +22,6 @@ fn task_with(
 ) -> AmbientAgentTask {
     AmbientAgentTask {
         task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-        parent_run_id: None,
         title: "title".to_string(),
         state,
         prompt: "prompt".to_string(),
@@ -42,8 +41,6 @@ fn task_with(
         agent_config_snapshot: None,
         artifacts: vec![],
         is_sandbox_running: true,
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }
@@ -58,13 +55,7 @@ async fn monitor_spawned_task_does_not_spawn_again() {
     mock.expect_get_ambient_agent_task()
         .times(1)
         .returning(|_| Ok(task_with(AmbientAgentTaskState::Succeeded, None, None)));
-    let mut stream = Box::pin(monitor_spawned_task(
-        run_id(),
-        "already-created-run".to_owned(),
-        false,
-        Arc::new(mock),
-        None,
-    ));
+    let mut stream = Box::pin(monitor_spawned_task(run_id(), false, Arc::new(mock), None));
 
     assert!(matches!(
         stream.next().await.expect("spawned event").expect("ok"),
@@ -710,7 +701,6 @@ async fn spawn_uses_resolved_team_scope() {
         .returning(|_, _| {
             Ok(SpawnAgentResponse {
                 task_id: run_id(),
-                run_id: run_id().to_string(),
                 at_capacity: false,
             })
         });
@@ -729,7 +719,6 @@ async fn spawn_uses_resolved_team_scope() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -775,7 +764,6 @@ async fn poll_retries_transient_429_errors() {
     mock.expect_spawn_agent().returning(|_, _| {
         Ok(SpawnAgentResponse {
             task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             at_capacity: false,
         })
     });
@@ -805,7 +793,6 @@ async fn poll_retries_transient_429_errors() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -850,7 +837,6 @@ async fn poll_fails_on_permanent_http_error() {
     mock.expect_spawn_agent().returning(|_, _| {
         Ok(SpawnAgentResponse {
             task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             at_capacity: false,
         })
     });
@@ -872,7 +858,6 @@ async fn poll_fails_on_permanent_http_error() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -914,7 +899,6 @@ async fn poll_gives_up_after_max_transient_retries() {
     mock.expect_spawn_agent().returning(|_, _| {
         Ok(SpawnAgentResponse {
             task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             at_capacity: false,
         })
     });
@@ -940,7 +924,6 @@ async fn poll_gives_up_after_max_transient_retries() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -981,7 +964,6 @@ async fn poll_stops_on_terminal_failure_like_state() {
     mock.expect_spawn_agent().returning(|_, _| {
         Ok(SpawnAgentResponse {
             task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             at_capacity: false,
         })
     });
@@ -1002,7 +984,6 @@ async fn poll_stops_on_terminal_failure_like_state() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -1112,7 +1093,6 @@ async fn poll_for_session_join_info_waits_until_link_is_available() {
     mock.expect_spawn_agent().returning(|_, _| {
         Ok(SpawnAgentResponse {
             task_id: "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             at_capacity: false,
         })
     });
@@ -1147,7 +1127,6 @@ async fn poll_for_session_join_info_waits_until_link_is_available() {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,

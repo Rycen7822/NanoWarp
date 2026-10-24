@@ -559,13 +559,6 @@ pub enum FeatureFlag {
     /// content changes via auto-reload.
     CodeReviewScrollPreservation,
 
-    /// Gates the client-side multi-level orchestration surfaces: child
-    /// conversations auto-executing their own `run_agents` calls and the
-    /// confirmation-card disclosure that launched agents may start
-    /// children of their own. When disabled, a child's `run_agents` call
-    /// fails gracefully instead of presenting a card in a hidden pane.
-    MultiLevelOrchestration,
-
     /// Shows a pending user query indicator during summarization when a follow-up
     /// prompt is queued via `/fork-and-compact` or `/compact-and`.
     PendingUserQueryIndicator,
@@ -717,20 +710,10 @@ pub enum FeatureFlag {
     /// provider-side prompt cache has expired.
     PromptCacheExpiryWarning,
 
-    /// Enables the `--runner` flag on `run-cloud`, which overrides an agent's
-    /// compute (docker image, instance shape, setup commands) by runner ID.
-    CloudRunners,
-
     /// Renders supported solid box-drawing characters (`U+2500..=U+257F`)
     /// procedurally as cell-filling rectangles instead of from the font,
     /// eliminating seams between adjacent box-drawing cells in the terminal.
     BoxDrawingGlyphs,
-
-    /// Enables cloud agent runner selection: the `oz runner` CRUD commands
-    /// for managing runners via the CLI, and the Runner dropdown in the
-    /// orchestration (`run_agents`) confirmation card and plan-card config
-    /// block for choosing a runner when starting remote child agents.
-    CloudAgentRunners,
 
     /// Gates the account-first onboarding flow, including the reordered
     /// pre-auth slides and post-auth account offer.
@@ -809,7 +792,6 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::TerminalLifecycleRecovery,
     FeatureFlag::PromptCacheExpiryWarning,
     FeatureFlag::JupyterNotebookRendering,
-    FeatureFlag::MultiLevelOrchestration,
     FeatureFlag::BoxDrawingGlyphs,
     FeatureFlag::WarpingModelName,
     FeatureFlag::LrcActivitySignal,

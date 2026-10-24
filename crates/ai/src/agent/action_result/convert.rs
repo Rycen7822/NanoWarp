@@ -1018,34 +1018,6 @@ impl TryFrom<FetchConversationResult> for api::request::input::tool_call_result:
     }
 }
 
-impl From<SendMessageToAgentResult> for api::request::input::tool_call_result::Result {
-    fn from(result: SendMessageToAgentResult) -> Self {
-        api::request::input::tool_call_result::Result::SendMessageToAgent(
-            api::SendMessageToAgentResult {
-                result: match result {
-                    SendMessageToAgentResult::Success { message_id } => {
-                        Some(api::send_message_to_agent_result::Result::Success(
-                            api::send_message_to_agent_result::Success { message_id },
-                        ))
-                    }
-                    SendMessageToAgentResult::Error(error) => {
-                        Some(api::send_message_to_agent_result::Result::Error(
-                            api::send_message_to_agent_result::Error { message: error },
-                        ))
-                    }
-                    SendMessageToAgentResult::Cancelled => {
-                        Some(api::send_message_to_agent_result::Result::Error(
-                            api::send_message_to_agent_result::Error {
-                                message: "Cancelled by user".to_string(),
-                            },
-                        ))
-                    }
-                },
-            },
-        )
-    }
-}
-
 impl From<AskUserQuestionAnswerItem> for api::ask_user_question_result::AnswerItem {
     fn from(item: AskUserQuestionAnswerItem) -> Self {
         match item {
@@ -1114,75 +1086,6 @@ impl From<AskUserQuestionResult> for api::request::input::tool_call_result::Resu
     }
 }
 
-impl From<RunAgentsAgentOutcome> for api::run_agents_result::AgentOutcome {
-    fn from(outcome: RunAgentsAgentOutcome) -> Self {
-        let result = match outcome.kind {
-            RunAgentsAgentOutcomeKind::Launched { agent_id } => {
-                api::run_agents_result::agent_outcome::Result::Launched(
-                    api::run_agents_result::LaunchedAgent { agent_id },
-                )
-            }
-            RunAgentsAgentOutcomeKind::Failed { error } => {
-                api::run_agents_result::agent_outcome::Result::Failed(
-                    api::run_agents_result::FailedAgent { error },
-                )
-            }
-        };
-        api::run_agents_result::AgentOutcome {
-            name: outcome.name,
-            result: Some(result),
-            // Map our resolved_model_id to the proto's model_id field.
-            model_id: outcome.resolved_model_id,
-            // harness and execution_mode are not tracked per-agent on the client side.
-            harness: None,
-            execution_mode: None,
-        }
-    }
-}
-
-impl TryFrom<RunAgentsResult> for api::request::input::tool_call_result::Result {
-    type Error = ConvertToAPITypeError;
-
-    fn try_from(result: RunAgentsResult) -> Result<Self, Self::Error> {
-        match result {
-            RunAgentsResult::Launched { agents, .. } => Ok(
-                api::request::input::tool_call_result::Result::RunAgentsResult(
-                    api::RunAgentsResult {
-                        outcome: Some(api::run_agents_result::Outcome::Launched(
-                            api::run_agents_result::Launched {
-                                agents: agents.into_iter().map(Into::into).collect(),
-                                ..Default::default()
-                            },
-                        )),
-                    },
-                ),
-            ),
-            RunAgentsResult::Denied { reason } => Ok(
-                api::request::input::tool_call_result::Result::RunAgentsResult(
-                    api::RunAgentsResult {
-                        outcome: Some(api::run_agents_result::Outcome::Denied(
-                            api::run_agents_result::Denied { reason },
-                        )),
-                    },
-                ),
-            ),
-            RunAgentsResult::Failure { error } => Ok(
-                api::request::input::tool_call_result::Result::RunAgentsResult(
-                    api::RunAgentsResult {
-                        outcome: Some(api::run_agents_result::Outcome::Failure(
-                            api::run_agents_result::Failure { error },
-                        )),
-                    },
-                ),
-            ),
-            // Reject is conveyed by the generic ToolCallResult.Cancel marker
-            // synthesized server-side on the next user input; nothing for the
-            // client to send on the wire here.
-            RunAgentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
-        }
-    }
-}
-
 impl TryFrom<InsertReviewCommentsResult> for api::request::input::tool_call_result::Result {
     type Error = ConvertToAPITypeError;
 
@@ -1209,22 +1112,6 @@ impl TryFrom<InsertReviewCommentsResult> for api::request::input::tool_call_resu
                 ),
             ),
             InsertReviewCommentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
-        }
-    }
-}
-
-impl TryFrom<WaitForEventsResult> for api::request::input::tool_call_result::Result {
-    type Error = ConvertToAPITypeError;
-
-    /// Completed → wire form; Cancelled → drop (mirrors RunAgents).
-    fn try_from(result: WaitForEventsResult) -> Result<Self, Self::Error> {
-        match result {
-            WaitForEventsResult::Completed => Ok(
-                api::request::input::tool_call_result::Result::WaitForEvents(
-                    api::WaitForEventsResult {},
-                ),
-            ),
-            WaitForEventsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
         }
     }
 }

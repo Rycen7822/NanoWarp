@@ -57,7 +57,6 @@ fn create_test_task(
 ) -> AmbientAgentTask {
     AmbientAgentTask {
         task_id: task_id.parse().unwrap(),
-        parent_run_id: None,
         title: format!("Task {task_id}"),
         state: AmbientAgentTaskState::Succeeded,
         prompt: "test".to_string(),
@@ -81,8 +80,6 @@ fn create_test_task(
         agent_config_snapshot: None,
         artifacts: vec![],
         is_sandbox_running: false,
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }
@@ -237,16 +234,8 @@ fn test_title_update_refreshes_shadowing_task_title() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: None,
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -345,16 +334,8 @@ fn test_display_status_uses_matching_conversation_for_in_progress_task() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -403,16 +384,8 @@ fn test_display_status_uses_active_execution_over_previous_conversation_status()
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -468,16 +441,8 @@ fn test_display_status_updates_when_blocked_conversation_resumes() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -549,16 +514,8 @@ fn test_display_status_terminal_task_state_overrides_matching_conversation() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -605,16 +562,8 @@ fn test_status_filter_uses_display_status_for_task_backed_conversations() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -1135,143 +1084,17 @@ fn test_local_conversation_entry_uses_charged_usage_dollar_total() {
 }
 
 #[test]
-fn test_get_entries_excludes_child_agent_task() {
-    App::test((), |mut app| async move {
-        add_entry_projection_test_models(&mut app);
-
-        let now = Utc::now();
-        let mut model = create_test_model();
-
-        let parent_task = create_test_task(&make_uuid(9001), "user-a", now);
-        model.tasks.insert(parent_task.task_id, parent_task.clone());
-
-        // A cloud child run carries `parent_run_id`; it must not surface as a
-        // standalone (cloud) entry.
-        let mut child_task = create_test_task(&make_uuid(9002), "user-a", now);
-        child_task.parent_run_id = Some(make_uuid(9001));
-        model.tasks.insert(child_task.task_id, child_task.clone());
-
-        app.update(|ctx| {
-            let entries = model.get_entries(&all_owner_filters(), &TeamlessScopeForTest, ctx);
-            assert_eq!(entries.len(), 1);
-            assert_eq!(
-                entries[0].id,
-                AgentConversationEntryId::AmbientRun(parent_task.task_id)
-            );
-        });
-    });
-}
-
-#[test]
-fn test_get_entries_excludes_conversation_shadowed_by_child_task() {
-    App::test((), |mut app| async move {
-        add_entry_projection_test_models(&mut app);
-        let history_model = BlocklistAIHistoryModel::handle(&app);
-        let terminal_view_id = EntityId::new();
-        let now = Utc::now();
-
-        // A local conversation whose own metadata carries no parent linkage;
-        // its only orchestration tie is that a child task points at it via
-        // the server conversation token.
-        let conversation_id = AIConversationId::new();
-        let conversation = create_restored_conversation(
-            conversation_id,
-            "shadowed-root",
-            AgentConversationData {
-                server_conversation_token: Some("child-token".to_string()),
-                conversation_usage_metadata: None,
-                reverted_action_ids: None,
-                forked_from_server_conversation_token: None,
-                artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: Some("Agent 1".to_string()),
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
-                run_id: None,
-                autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
-                use_warp_credits_instead_of_chatgpt: false,
-            },
-        );
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        let mut model = create_test_model();
-        model.conversations.insert(
-            conversation_id,
-            create_test_conversation_metadata(conversation_id, "Shadowed conversation"),
-        );
-        let mut child_task = create_test_task(&make_uuid(9002), "user-a", now);
-        child_task.parent_run_id = Some(make_uuid(9001));
-        child_task.conversation_id = Some("child-token".to_string());
-        model.tasks.insert(child_task.task_id, child_task);
-
-        app.update(|ctx| {
-            assert!(
-                model
-                    .get_entries(&all_owner_filters(), &TeamlessScopeForTest, ctx)
-                    .is_empty(),
-                "a conversation shadowed by a child task must be hidden with it"
-            );
-            assert!(
-                !model.has_items(&TeamlessScopeForTest, ctx),
-                "a conversation shadowed by a child task must not count as a visible item"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_conversation_metadata_child_predicate_matches_conversation() {
-    use crate::ai::blocklist::history_model::AIConversationMetadata;
-
-    // Non-child conversation: neither representation reports a child.
-    let plain = AIConversation::new(false, false);
-    let plain_metadata = AIConversationMetadata::from(&plain);
-    assert!(!plain.is_child_agent_conversation());
-    assert_eq!(
-        plain_metadata.is_child_agent_conversation(),
-        plain.is_child_agent_conversation()
-    );
-
-    // Child conversation: the metadata predicate matches the conversation's.
-    let mut child = AIConversation::new(false, false);
-    child.set_parent_conversation_id(AIConversationId::new());
-    let child_metadata = AIConversationMetadata::from(&child);
-    assert!(child.is_child_agent_conversation());
-    assert_eq!(
-        child_metadata.is_child_agent_conversation(),
-        child.is_child_agent_conversation()
-    );
-}
-
-#[test]
-fn test_has_items_ignores_child_agent_tasks() {
+fn test_has_items_includes_agent_tasks() {
     App::test((), |mut app| async move {
         add_entry_projection_test_models(&mut app);
         let now = Utc::now();
 
-        // A model containing only a child task produces no visible entries, so
-        // `has_items` must report empty (matching `get_entries`).
-        let mut child_only = create_test_model();
-        let mut child_task = create_test_task(&make_uuid(9101), "user-a", now);
-        child_task.parent_run_id = Some(make_uuid(9100));
-        child_only.tasks.insert(child_task.task_id, child_task);
-
-        // A model with a normal (non-child) task has visible items.
+        // A model with a task has visible items.
         let mut with_parent = create_test_model();
         let parent_task = create_test_task(&make_uuid(9102), "user-a", now);
         with_parent.tasks.insert(parent_task.task_id, parent_task);
 
         app.update(|ctx| {
-            assert!(
-                !child_only.has_items(&TeamlessScopeForTest, ctx),
-                "a child-only model should be treated as empty"
-            );
             assert!(
                 with_parent.has_items(&TeamlessScopeForTest, ctx),
                 "a model with a non-child task should have items"
@@ -1336,16 +1159,8 @@ fn test_get_entries_merges_task_and_local_conversation_by_run_id() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -1392,16 +1207,8 @@ fn test_get_entries_merges_task_and_local_conversation_by_server_token() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: None,
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -1688,16 +1495,8 @@ fn test_resolve_open_action_returns_none_for_active_unattachable_session() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -2047,16 +1846,8 @@ fn test_server_token_assignment_updates_copy_link_resolution() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: None,
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -2210,16 +2001,8 @@ fn test_resolve_copy_link_uses_attached_synced_conversation_for_task_without_tok
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -2591,16 +2374,8 @@ fn test_get_entries_prefers_task_when_task_id_matches_conversation_run_id() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: Some(task_id.clone()),
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );
@@ -2653,16 +2428,8 @@ fn test_get_entries_prefers_task_when_server_token_matches() {
                 reverted_action_ids: None,
                 forked_from_server_conversation_token: None,
                 artifacts_json: None,
-                parent_agent_id: None,
-                agent_name: None,
-                orchestration_harness_type: None,
-                parent_conversation_id: None,
-                is_remote_child: false,
-                root_task_is_optimistic: None,
                 run_id: None,
                 autoexecute_override: None,
-                last_event_sequence: None,
-                pinned: false,
                 use_warp_credits_instead_of_chatgpt: false,
             },
         );

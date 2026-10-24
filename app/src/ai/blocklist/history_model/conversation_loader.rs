@@ -1,7 +1,7 @@
 //! This module contains functions for loading, fetching, and merging conversation data
 //! from local database and server sources.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -11,10 +11,7 @@ use persistence::model::AgentConversationRecord;
 use warp_core::features::FeatureFlag;
 use warpui::{AppContext, SingletonEntity};
 
-use super::{
-    AIConversationMetadata, BlocklistAIHistoryModel, MAX_HISTORICAL_CONVERSATIONS,
-    agent_id_key_from_persisted_data,
-};
+use super::{AIConversationMetadata, BlocklistAIHistoryModel, MAX_HISTORICAL_CONVERSATIONS};
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::api::convert_conversation::{
     RestorationMode, convert_conversation_data_to_ai_conversation,
@@ -149,14 +146,6 @@ impl AIConversationMetadata {
         }
         if self.artifacts.is_empty() {
             self.artifacts = other.artifacts;
-        }
-        // Preserve parent linkage so a merged record (e.g. cloud metadata merged
-        // with the in-memory child's metadata) keeps its child-agent status.
-        if self.parent_conversation_id.is_none() {
-            self.parent_conversation_id = other.parent_conversation_id;
-        }
-        if self.parent_agent_id.is_none() {
-            self.parent_agent_id = other.parent_agent_id;
         }
         self
     }
@@ -317,25 +306,10 @@ impl BlocklistAIHistoryModel {
         let mut new_cloud_count = 0;
         let mut restored_conversations_updated = 0;
 
-        // Collect tokens belonging to child agent conversations so we can skip them.
-        let mut child_conversation_tokens: HashSet<String> = HashSet::new();
-        for conv in self.conversations_by_id.values() {
-            if let Some(token) = conv.server_conversation_token()
-                && conv.is_child_agent_conversation()
-            {
-                child_conversation_tokens.insert(token.as_str().to_string());
-            }
-        }
-
         for server_meta in cloud_metadata_list {
             let server_token = server_meta.server_conversation_token.clone();
             let server_token_str = server_token.as_str();
 
-            // Child agent conversations are managed by their parent's status card
-            // and should not appear in navigation/history.
-            if child_conversation_tokens.contains(server_token_str) {
-                continue;
-            }
             let had_metadata_entry = self
                 .all_conversations_metadata
                 .values()
@@ -466,15 +440,11 @@ impl BlocklistAIHistoryModel {
                 )
                 .ok();
 
-                if let Some(data) = conversation_data.as_ref() {
-                    if let Some(agent_id) = agent_id_key_from_persisted_data(data) {
-                        self.agent_id_to_conversation_id
-                            .insert(agent_id.to_owned(), conversation_id);
-                    }
-                    if let Some(token) = data.server_conversation_token.as_ref() {
-                        self.server_token_to_conversation_id
-                            .insert(ServerConversationToken::new(token.clone()), conversation_id);
-                    }
+                if let Some(data) = conversation_data.as_ref()
+                    && let Some(token) = data.server_conversation_token.as_ref()
+                {
+                    self.server_token_to_conversation_id
+                        .insert(ServerConversationToken::new(token.clone()), conversation_id);
                 }
 
                 Some(HistoricalConversationRow {
@@ -495,52 +465,6 @@ impl BlocklistAIHistoryModel {
                     conversation_data,
                     summary,
                 } = row;
-
-                // Child agent conversations are managed by their parent's
-                // status card and should not appear in navigation/history.
-                // Record the parent→child mapping before filtering so that
-                // create_missing_child_agent_panes can discover children
-                // before they are loaded into conversations_by_id.
-                if let Some(parent_id) = conversation_data
-                    .as_ref()
-                    .and_then(|data| self.resolved_parent_conversation_id_from_persisted_data(data))
-                {
-                    self.index_child_conversation(conversation_id, parent_id);
-                    // Eagerly hydrate the child conversation into
-                    // `conversations_by_id` so the pill bar and orchestration
-                    // transcript name resolution can find it before the
-                    // parent's hidden child pane materializes lazily. This is
-                    // restricted to orchestration children only — non-child
-                    // historical conversations continue to load lazily via
-                    // `restore_conversations`. We do NOT emit
-                    // `RestoredConversations`, touch
-                    // `live_conversation_ids_for_terminal_view`, or update
-                    // `terminal_view_created_at` here; those still happen
-                    // later when the hidden pane is materialized via
-                    // `restore_conversations`. A subsequent `restore_conversations`
-                    // call replaces this entry idempotently.
-                    //
-                    // Startup rows carry no tasks, so the child's task
-                    // payload is loaded from the local DB; fully-hydrated
-                    // inputs convert directly.
-                    let child_conversation = if agent_conversation.tasks.is_empty() {
-                        self.load_conversation_from_db(&conversation_id)
-                    } else {
-                        convert_persisted_conversation_to_ai_conversation_with_metadata(
-                            agent_conversation.clone(),
-                        )
-                    };
-                    if let Some(child_conversation) = child_conversation {
-                        self.conversations_by_id
-                            .insert(conversation_id, child_conversation);
-                    } else {
-                        log::warn!(
-                            "Failed to eagerly hydrate orchestration child {conversation_id}; \
-                             pill bar / name resolution will fall back to lazy materialization",
-                        );
-                    }
-                    return None;
-                }
 
                 // Skip conversations that only contain passive AutoCodeDiff
                 // system queries the user never interacted with (past
@@ -593,17 +517,6 @@ impl BlocklistAIHistoryModel {
                         artifacts,
                         // Only populated when loading from server, not from local DB
                         server_conversation_metadata: None,
-                        // Carry parent linkage from persisted data so child-agent
-                        // status survives even if the parent isn't resolvable
-                        // locally (the child-skip above only fires when the
-                        // parent conversation is known).
-                        parent_conversation_id: conversation_data
-                            .as_ref()
-                            .and_then(|data| data.parent_conversation_id.as_deref())
-                            .and_then(|id| AIConversationId::try_from(id.to_owned()).ok()),
-                        parent_agent_id: conversation_data
-                            .as_ref()
-                            .and_then(|data| data.parent_agent_id.clone()),
                     },
                 ))
             })

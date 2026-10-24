@@ -86,9 +86,8 @@ use crate::settings::{
     AutoApproveBypassesCommandDenylist, AwsBedrockAutoLogin, AwsBedrockCredentialsEnabled,
     CanUseWarpCreditsForFallback, GeminiEnterpriseCredentialsEnabled,
     IncludeAgentCommandsInHistory, InputSettings, LongRunningCommandSubmissionMode,
-    NLDInTerminalEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    ShouldRenderUseAgentToolbarForUserCommands, ShowConversationHistory, ShowHintText,
-    ThinkingDisplayMode,
+    NLDInTerminalEnabled, PromptSubmissionMode, ShouldRenderUseAgentToolbarForUserCommands,
+    ShowConversationHistory, ShowHintText, ThinkingDisplayMode,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -182,35 +181,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                     mode.command_palette_description(),
                     builder(SettingsAction::WarpAgent(
                         WarpAgentPageAction::SetThinkingDisplayMode(mode),
-                    )),
-                    ai_context.clone() & !id!(context_flag),
-                )
-                .with_group(bindings::BindingGroup::WarpAi.as_str())
-            })
-            .collect();
-        app.register_fixed_bindings(mode_bindings);
-    }
-    {
-        use warpui::keymap::FixedBinding;
-
-        let ai_context = context.clone() & id!(flags::IS_ANY_AI_ENABLED);
-        let mode_bindings: Vec<FixedBinding> = OrchestrationMessageDisplayMode::iter()
-            .map(|mode| {
-                let context_flag = match mode {
-                    OrchestrationMessageDisplayMode::ShowAndCollapse => {
-                        flags::ORCHESTRATION_MESSAGE_DISPLAY_SHOW_AND_COLLAPSE
-                    }
-                    OrchestrationMessageDisplayMode::AlwaysShow => {
-                        flags::ORCHESTRATION_MESSAGE_DISPLAY_ALWAYS_SHOW
-                    }
-                    OrchestrationMessageDisplayMode::AlwaysCollapse => {
-                        flags::ORCHESTRATION_MESSAGE_DISPLAY_ALWAYS_COLLAPSE
-                    }
-                };
-                FixedBinding::empty(
-                    mode.command_palette_description(),
-                    builder(SettingsAction::WarpAgent(
-                        WarpAgentPageAction::SetOrchestrationMessageDisplayMode(mode),
                     )),
                     ai_context.clone() & !id!(context_flag),
                 )
@@ -420,7 +390,6 @@ pub struct WarpAgentPageView {
     agent_toolbar_inline_editor: ViewHandle<AgentToolbarInlineEditor>,
 
     thinking_display_mode_dropdown: ViewHandle<Dropdown<WarpAgentPageAction>>,
-    orchestration_message_display_mode_dropdown: ViewHandle<Dropdown<WarpAgentPageAction>>,
     default_prompt_submission_mode_dropdown: ViewHandle<Dropdown<WarpAgentPageAction>>,
     lrc_submission_mode_dropdown: ViewHandle<Dropdown<WarpAgentPageAction>>,
     #[cfg(feature = "local_fs")]
@@ -476,18 +445,6 @@ impl WarpAgentPageView {
                 );
             });
         }
-        let orchestration_message_display_mode_dropdown =
-            OtherAIWidget::create_orchestration_message_display_mode_dropdown(ctx);
-        {
-            let current_mode = AISettings::as_ref(ctx).orchestration_message_display_mode;
-            orchestration_message_display_mode_dropdown.update(ctx, |dropdown, ctx| {
-                dropdown.set_selected_by_action(
-                    WarpAgentPageAction::SetOrchestrationMessageDisplayMode(current_mode),
-                    ctx,
-                );
-            });
-        }
-
         let default_prompt_submission_mode_dropdown =
             OtherAIWidget::create_default_prompt_submission_mode_dropdown(ctx);
         {
@@ -593,18 +550,6 @@ impl WarpAgentPageView {
                         .update(ctx, |dropdown, ctx| {
                             dropdown.set_selected_by_action(
                                 WarpAgentPageAction::SetThinkingDisplayMode(current_mode),
-                                ctx,
-                            );
-                        });
-                }
-                AISettingsChangedEvent::OrchestrationMessageDisplayMode { .. } => {
-                    let current_mode = AISettings::as_ref(ctx).orchestration_message_display_mode;
-                    me.orchestration_message_display_mode_dropdown
-                        .update(ctx, |dropdown, ctx| {
-                            dropdown.set_selected_by_action(
-                                WarpAgentPageAction::SetOrchestrationMessageDisplayMode(
-                                    current_mode,
-                                ),
                                 ctx,
                             );
                         });
@@ -844,7 +789,6 @@ impl WarpAgentPageView {
             local_only_icon_tooltip_states: Default::default(),
             agent_toolbar_inline_editor,
             thinking_display_mode_dropdown,
-            orchestration_message_display_mode_dropdown,
             default_prompt_submission_mode_dropdown,
             lrc_submission_mode_dropdown,
             #[cfg(feature = "local_fs")]
@@ -1784,7 +1728,6 @@ impl WarpAgentPageView {
             Box::new(AgentToolbarLayoutEditorWidget),
             Box::new(ShowConversationHistoryWidget::default()),
             Box::new(ThinkingDisplayModeWidget),
-            Box::new(OrchestrationMessageDisplayModeWidget),
         ];
         #[cfg(feature = "local_fs")]
         other_widgets.push(Box::new(ConversationLayoutPreferenceWidget));
@@ -1914,7 +1857,6 @@ pub enum WarpAgentPageAction {
     HyperlinkClick(HyperlinkUrl),
     ToggleShowInputHintText,
     SetThinkingDisplayMode(ThinkingDisplayMode),
-    SetOrchestrationMessageDisplayMode(OrchestrationMessageDisplayMode),
     SetPromptSubmissionMode(PromptSubmissionMode),
     SetLongRunningCommandSubmissionMode(LongRunningCommandSubmissionMode),
     SignupAnonymousUser,
@@ -2053,16 +1995,6 @@ impl TypedActionView for WarpAgentPageView {
             WarpAgentPageAction::SetThinkingDisplayMode(mode) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.thinking_display_mode.set_value(*mode, ctx));
-                });
-                ctx.notify();
-            }
-            WarpAgentPageAction::SetOrchestrationMessageDisplayMode(mode) => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .orchestration_message_display_mode
-                            .set_value(*mode, ctx)
-                    );
                 });
                 ctx.notify();
             }
@@ -2806,28 +2738,6 @@ impl OtherAIWidget {
             dropdown
         })
     }
-
-    fn create_orchestration_message_display_mode_dropdown(
-        ctx: &mut ViewContext<WarpAgentPageView>,
-    ) -> ViewHandle<Dropdown<WarpAgentPageAction>> {
-        let items: Vec<DropdownItem<WarpAgentPageAction>> = OrchestrationMessageDisplayMode::iter()
-            .map(|mode| {
-                DropdownItem::new(
-                    mode.display_name(),
-                    WarpAgentPageAction::SetOrchestrationMessageDisplayMode(mode),
-                )
-            })
-            .collect();
-
-        ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_menu_max_height(AI_SETTINGS_DROPDOWN_MAX_HEIGHT, ctx);
-            dropdown.add_items(items, ctx);
-            dropdown
-        })
-    }
 }
 
 #[derive(Default)]
@@ -2964,40 +2874,6 @@ impl SettingsWidget for ThinkingDisplayModeWidget {
             ),
             (!is_any_ai_enabled).then(|| appearance.theme().disabled_ui_text_color()),
             &view.thinking_display_mode_dropdown,
-        )
-    }
-}
-
-#[derive(Default)]
-struct OrchestrationMessageDisplayModeWidget;
-
-impl SettingsWidget for OrchestrationMessageDisplayModeWidget {
-    type View = WarpAgentPageView;
-
-    fn search_terms(&self) -> &str {
-        "other orchestration messages child agents collapse expand hide display"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_any_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
-        render_dropdown_item(
-            appearance,
-            "Orchestration message display",
-            Some("Controls whether orchestration messages stay expanded."),
-            None,
-            LocalOnlyIconState::for_setting(
-                OrchestrationMessageDisplayMode::storage_key(),
-                OrchestrationMessageDisplayMode::sync_to_cloud(),
-                &mut view.local_only_icon_tooltip_states.borrow_mut(),
-                app,
-            ),
-            (!is_any_ai_enabled).then(|| appearance.theme().disabled_ui_text_color()),
-            &view.orchestration_message_display_mode_dropdown,
         )
     }
 }

@@ -3,8 +3,8 @@
 use settings::Setting as _;
 use warp_core::context_flag::ContextFlag;
 use warpui::elements::{
-    ConstrainedBox, CrossAxisAlignment, Empty, Flex, MainAxisAlignment, MainAxisSize,
-    ParentElement, Shrinkable,
+    ConstrainedBox, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize, ParentElement,
+    Shrinkable,
 };
 use warpui::prelude::{ChildView, Container};
 use warpui::text_layout::ClipConfig;
@@ -23,8 +23,6 @@ use crate::ai::agent::conversation::{
     AIConversation, ConversationStatus, ServerAIConversationMetadata,
 };
 use crate::ai::blocklist::BlocklistAIHistoryModel;
-use crate::ai::blocklist::agent_view::orchestration_conversation_links::parent_conversation_navigation_card;
-use crate::ai::blocklist::orchestration_topology::orchestration_aware_conversation_status;
 use crate::appearance::Appearance;
 use crate::drive::sharing::ShareableObject;
 use crate::features::FeatureFlag;
@@ -35,7 +33,7 @@ use crate::pane_group::pane::view::header::components::{
     CenteredHeaderEdgeWidth, header_edge_min_width, render_pane_header_buttons,
     render_pane_header_title_text, render_three_column_header,
 };
-use crate::pane_group::pane::view::header::{PANE_HEADER_HEIGHT, render_pane_header_draggable};
+use crate::pane_group::pane::view::header::render_pane_header_draggable;
 use crate::pane_group::pane::{PaneStack, view};
 use crate::pane_group::{BackingView, SplitPaneState, TOGGLE_MAXIMIZE_PANE_BINDING_NAME};
 use crate::settings::app_installation_detection::{
@@ -267,15 +265,6 @@ impl TerminalView {
         header_ctx: &view::HeaderRenderContext,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        // V2 swap-panes semantics: every conversation in the orchestration
-        // tree (orchestrator + each child) gets the orchestration pill bar
-        // rendered above the agent view header, so the pane title here
-        // falls back to the regular conversation title. Breadcrumbs used
-        // to render here for split-off child views, but the swap-panes
-        // refactor removed the split-off code path — the pill bar is now
-        // shown on every view, so a breadcrumb row alongside it would
-        // double-render the same navigation affordance.
-
         let appearance = Appearance::as_ref(app);
         let pane_config = self.pane_configuration.as_ref(app);
         let title = pane_config.title().to_owned();
@@ -476,91 +465,6 @@ impl TerminalView {
         (right_row.finish(), min_width)
     }
 
-    fn render_parent_conversation_header_card(&self, app: &AppContext) -> Option<Box<dyn Element>> {
-        if !(FeatureFlag::AgentView.is_enabled()
-            && self.agent_view_controller.as_ref(app).is_fullscreen())
-        {
-            return None;
-        }
-
-        let active_conversation_id = self
-            .agent_view_controller
-            .as_ref(app)
-            .agent_view_state()
-            .active_conversation_id()?;
-        let active_conversation =
-            BlocklistAIHistoryModel::as_ref(app).conversation(&active_conversation_id)?;
-        parent_conversation_navigation_card(
-            active_conversation,
-            self.mouse_states.parent_conversation_header_link.clone(),
-            app,
-        )
-    }
-
-    fn maybe_add_parent_navigation_card(
-        &self,
-        header: Box<dyn Element>,
-        parent_conversation_header_card: Option<Box<dyn Element>>,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        // The pill bar is shown for the orchestrator and swap-target child panes.
-        // Split-off panes ("Open in new pane" / "Open in new tab") render a
-        // breadcrumb row instead. When no children have arrived yet,
-        // `OrchestrationPillBar::pill_specs` returns `None` and the pill
-        // bar's `render` short-circuits to `Empty`.
-        if FeatureFlag::AgentView.is_enabled()
-            && self.agent_view_controller.as_ref(app).is_fullscreen()
-        {
-            // The wrapping `Flex::column` would otherwise pass an infinite
-            // vertical max constraint down to its non-flex children. That
-            // breaks the title's vertical centering: with infinite max.y,
-            // the centered `Align` inside `render_three_column_header`
-            // collapses to the title's own (small) line-box height, and
-            // the outer row's `CrossAxisAlignment::Stretch` then pins the
-            // title to the top of the row. Pinning the header to its
-            // standard `PANE_HEADER_HEIGHT` here restores the finite
-            // vertical constraint the centering logic relies on, while
-            // letting the pill bar / breadcrumb row sit immediately below
-            // at its own height.
-            let pinned_header = ConstrainedBox::new(header)
-                .with_height(PANE_HEADER_HEIGHT)
-                .finish();
-            let secondary_row: Box<dyn Element> = if self.is_orchestration_split_off() {
-                crate::ai::blocklist::agent_view::render_orchestration_breadcrumbs(
-                    self.agent_view_controller.as_ref(app),
-                    self.mouse_states.parent_conversation_header_link.clone(),
-                    self.mouse_states.breadcrumbs_horizontal_scroll.clone(),
-                    app,
-                )
-                .unwrap_or_else(|| Empty::new().finish())
-            } else {
-                ChildView::new(&self.orchestration_pill_bar).finish()
-            };
-            return Flex::column()
-                .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .with_child(pinned_header)
-                .with_child(secondary_row)
-                .finish();
-        }
-
-        if let Some(parent_card) = parent_conversation_header_card {
-            Flex::column()
-                .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .with_child(
-                    Container::new(parent_card)
-                        .with_padding_left(4.)
-                        .with_padding_right(4.)
-                        .with_padding_top(4.)
-                        .with_padding_bottom(2.)
-                        .finish(),
-                )
-                .with_child(header)
-                .finish()
-        } else {
-            header
-        }
-    }
-
     fn render_terminal_pane_header(
         &self,
         header_ctx: &view::HeaderRenderContext,
@@ -568,7 +472,6 @@ impl TerminalView {
     ) -> Box<dyn Element> {
         let is_fullscreen_agent_view = FeatureFlag::AgentView.is_enabled()
             && self.agent_view_controller.as_ref(app).is_fullscreen();
-        let parent_conversation_header_card = self.render_parent_conversation_header_card(app);
 
         let left = self.maybe_render_header_back_button(app);
         let center = self.render_header_title(is_fullscreen_agent_view, header_ctx, app);
@@ -585,19 +488,10 @@ impl TerminalView {
             header_ctx.header_left_inset,
             header_ctx.draggable_state.is_dragging(),
         );
-        // Make only the title row draggable; the secondary row (pill
-        // bar / breadcrumbs / navigation card) sits outside the drag
-        // region so its own mouse-driven widgets (notably the pill
-        // bar's scrollbar thumb) keep their hit-targets.
-        let draggable_header = render_pane_header_draggable::<TerminalView>(
+        render_pane_header_draggable::<TerminalView>(
             self.pane_configuration.clone(),
             header,
             header_ctx.draggable_state.clone(),
-            app,
-        );
-        self.maybe_add_parent_navigation_card(
-            draggable_header,
-            parent_conversation_header_card,
             app,
         )
     }
@@ -1053,9 +947,7 @@ impl TerminalView {
 
     /// Selected conversation status for chrome, or [`ConversationStatus::InProgress`] while the
     /// active block is long-running (terminal-derived; not mirrored in history events) or while
-    /// a cloud-mode ambient agent is still in its environment-setup phase. For orchestrator
-    /// conversations, returns the aggregated child status so tab/header badges keep reflecting
-    /// active descendants after its turn finishes.
+    /// a cloud-mode ambient agent is still in its environment-setup phase.
     pub fn selected_conversation_status(&self, ctx: &AppContext) -> Option<ConversationStatus> {
         let long_running = self.is_long_running();
         let cloud_setup = self.is_in_cloud_agent_setup_phase(ctx);
@@ -1078,10 +970,7 @@ impl TerminalView {
             return None;
         }
 
-        Some(orchestration_aware_conversation_status(
-            BlocklistAIHistoryModel::as_ref(ctx),
-            conversation,
-        ))
+        Some(conversation.status().clone())
     }
 
     pub fn selected_conversation_is_empty(&self, ctx: &AppContext) -> bool {
@@ -1113,17 +1002,6 @@ impl TerminalView {
         self.selected_conversation_for_user_facing_chrome(ctx)
             .map(|conversation| {
                 self.selected_conversation_display_title_for_chrome(conversation, is_ambient_agent)
-            })
-    }
-
-    /// Whether the selected conversation is a local orchestration child: it was spawned by a
-    /// parent orchestrator and is not executing on a remote worker. These runs are backed by a
-    /// server task (so they carry an ambient task id) but execute locally, so their agent icon
-    /// must use the local treatment rather than the cloud/ambient one.
-    pub(crate) fn selected_conversation_is_local_child(&self, ctx: &AppContext) -> bool {
-        self.selected_conversation_for_user_facing_chrome(ctx)
-            .is_some_and(|conversation| {
-                conversation.is_child_agent_conversation() && !conversation.is_remote_child()
             })
     }
 

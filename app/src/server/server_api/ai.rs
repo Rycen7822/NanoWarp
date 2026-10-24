@@ -5,7 +5,7 @@ use ai::index::full_source_code_embedding::store_client::{IntermediateNode, Stor
 use ai::index::full_source_code_embedding::{
     self, CodebaseContextConfig, ContentHash, EmbeddingConfig, NodeHash, RepoMetadata,
 };
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -18,9 +18,6 @@ use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warp_graphql::ai::{AgentTaskState, PlatformErrorCode};
 use warp_graphql::client::Operation;
-use warp_graphql::mutations::create_agent_task::{
-    CreateAgentTask, CreateAgentTaskInput, CreateAgentTaskResult, CreateAgentTaskVariables,
-};
 use warp_graphql::mutations::delete_ai_conversation::{
     DeleteAIConversation, DeleteAIConversationVariables, DeleteConversationInput,
     DeleteConversationResult,
@@ -132,7 +129,6 @@ fn public_api_user_query_mode(mode: UserQueryMode) -> &'static str {
     match mode {
         UserQueryMode::Normal => "normal",
         UserQueryMode::Plan => "plan",
-        UserQueryMode::Orchestrate => "orchestrate",
     }
 }
 
@@ -174,7 +170,7 @@ pub struct SpawnAgentRequest {
     /// None for skill-only invocations; omitted on the wire.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    /// The public API accepts lowercase mode strings (`normal`, `plan`, or `orchestrate`).
+    /// The public API accepts lowercase mode strings (`normal` or `plan`).
     #[serde(serialize_with = "serialize_user_query_mode_for_public_api")]
     pub mode: UserQueryMode,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,10 +191,6 @@ pub struct SpawnAgentRequest {
     pub attachments: Vec<AttachmentInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interactive: Option<bool>,
-    /// Populated when a cloud agent spawns a child run via the public API.
-    /// Not yet wired through the local start_agent flow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_run_id: Option<String>,
     /// Base64-encoded `warp.multi_agent.v1.Skill` payloads to restore as runtime skills.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub runtime_skills: Vec<String>,
@@ -242,46 +234,9 @@ pub struct RunFollowupRequest {
     pub message: String,
 }
 
-// --- Orchestrations V2 messaging types ---
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SendAgentMessageRequest {
-    pub to: Vec<String>,
-    pub subject: String,
-    pub body: String,
-    pub sender_run_id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SendAgentMessageResponse {
-    pub message_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AgentRunEvent {
-    pub event_type: String,
-    pub run_id: String,
-    pub ref_id: Option<String>,
-    pub execution_id: Option<String>,
-    pub occurred_at: String,
-    pub sequence: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ReadAgentMessageResponse {
-    pub message_id: String,
-    pub sender_run_id: String,
-    pub subject: String,
-    pub body: String,
-    pub sent_at: String,
-    pub delivered_at: Option<String>,
-    pub read_at: Option<String>,
-}
-
 #[derive(serde::Deserialize)]
 pub struct SpawnAgentResponse {
     pub task_id: AmbientAgentTaskId,
-    pub run_id: String,
     #[serde(default)]
     pub at_capacity: bool,
 }
@@ -357,22 +312,6 @@ pub struct PrepareAttachmentUploadsRequest {
     pub files: Vec<AttachmentFileInfo>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DownloadAttachmentsRequest {
-    pub attachment_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct AttachmentDownloadInfo {
-    pub attachment_id: String,
-    pub download_url: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct DownloadAttachmentsResponse {
-    pub attachments: Vec<AttachmentDownloadInfo>,
-}
-
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct AttachmentUploadInfo {
     pub attachment_id: String,
@@ -416,7 +355,6 @@ pub struct TaskListFilter {
     pub environment_id: Option<String>,
     pub skill_spec: Option<String>,
     pub schedule_id: Option<String>,
-    pub ancestor_run_id: Option<String>,
     pub config_name: Option<String>,
     pub model_id: Option<String>,
     pub search_query: Option<String>,
@@ -467,9 +405,6 @@ pub(crate) fn build_list_agent_runs_url(limit: i32, filter: &TaskListFilter) -> 
     }
     if let Some(schedule_id) = filter.schedule_id.as_deref() {
         push("schedule_id", schedule_id);
-    }
-    if let Some(ancestor_run_id) = filter.ancestor_run_id.as_deref() {
-        push("ancestor_run_id", ancestor_run_id);
     }
     if let Some(config_name) = filter.config_name.as_deref() {
         push("name", config_name);
@@ -599,16 +534,6 @@ pub trait AIClient: 'static + Send + Sync {
         request_ids: Vec<String>,
     ) -> anyhow::Result<i32, anyhow::Error>;
 
-    async fn create_agent_task(
-        &self,
-        prompt: String,
-        environment_uid: Option<String>,
-        parent_run_id: Option<String>,
-        config: Option<AgentConfigSnapshot>,
-        metadata: HashMap<String, String>,
-        team_scope: RequestTeamScope,
-    ) -> anyhow::Result<AmbientAgentTaskId, anyhow::Error>;
-
     /// Updates a run's server-side record. Every argument is independently optional; omitted
     /// fields are left untouched rather than cleared.
     ///
@@ -704,36 +629,6 @@ pub trait AIClient: 'static + Send + Sync {
         task_id: &AmbientAgentTaskId,
         files: &[AttachmentFileInfo],
     ) -> anyhow::Result<PrepareAttachmentUploadsResponse, anyhow::Error>;
-
-    async fn download_task_attachments(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        attachment_ids: &[String],
-    ) -> anyhow::Result<DownloadAttachmentsResponse, anyhow::Error>;
-
-    // --- Orchestrations V2 messaging ---
-
-    async fn send_agent_message(
-        &self,
-        request: SendAgentMessageRequest,
-    ) -> anyhow::Result<SendAgentMessageResponse, anyhow::Error>;
-
-    /// Persists the latest observed event sequence number for a run on the
-    /// server. Used to keep the server-side cursor in sync with the client so
-    /// that driver/cloud restores can resume without replaying events the
-    /// parent has already acted on.
-    async fn update_event_sequence_on_server(
-        &self,
-        run_id: &str,
-        sequence: i64,
-    ) -> anyhow::Result<(), anyhow::Error>;
-
-    async fn mark_message_delivered(&self, message_id: &str) -> anyhow::Result<(), anyhow::Error>;
-
-    async fn read_agent_message(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<ReadAgentMessageResponse, anyhow::Error>;
 }
 
 impl ServerApi {
@@ -751,85 +646,6 @@ impl ServerApi {
                 request_team_scope.and_then(RequestTeamScope::team_uid),
             )
             .await
-    }
-
-    pub(crate) async fn post_public_api_response_for_task<B>(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        path: &str,
-        body: &B,
-    ) -> anyhow::Result<http_client::Response>
-    where
-        B: serde::Serialize,
-    {
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .context("Failed to get access token for API request")?;
-
-        let url = format!("{}/api/v1/{}", crate::ChannelState::server_root_url(), path);
-
-        let mut request = self.base_client.http_client().post(&url).json(body);
-        if let Some(token) = auth_token.as_bearer_token() {
-            request = request.bearer_auth(token);
-        }
-
-        for (name, value) in self.ambient_agent_headers_for_task(task_id).await? {
-            request = request.header(name, value);
-        }
-
-        let response = request
-            .send()
-            .await
-            .with_context(|| format!("Failed to send API request to {url}"))?;
-
-        if response.status().is_success() {
-            Ok(response)
-        } else {
-            Err(Self::error_from_response(response).await)
-        }
-    }
-
-    pub(crate) async fn send_agent_message_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        request: SendAgentMessageRequest,
-    ) -> anyhow::Result<SendAgentMessageResponse, anyhow::Error> {
-        let response = self
-            .post_public_api_response_for_task(task_id, "agent/messages", &request)
-            .await?;
-        let response = response.json::<SendAgentMessageResponse>().await?;
-        Ok(response)
-    }
-
-    pub(crate) async fn mark_message_delivered_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        message_id: &str,
-    ) -> anyhow::Result<(), anyhow::Error> {
-        self.post_public_api_response_for_task(
-            task_id,
-            &format!("agent/messages/{message_id}/delivered"),
-            &(),
-        )
-        .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn read_agent_message_for_task(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        message_id: &str,
-    ) -> anyhow::Result<ReadAgentMessageResponse, anyhow::Error> {
-        let response = self
-            .post_public_api_response_for_task(
-                task_id,
-                &format!("agent/messages/{message_id}/read"),
-                &(),
-            )
-            .await?;
-        let response = response.json::<ReadAgentMessageResponse>().await?;
-        Ok(response)
     }
 }
 
@@ -1131,65 +947,6 @@ impl AIClient for ServerApi {
         config.worker_host = tracing::field::Empty,
         config.harness = tracing::field::Empty
     ))]
-    async fn create_agent_task(
-        &self,
-        prompt: String,
-        environment_uid: Option<String>,
-        parent_run_id: Option<String>,
-        config: Option<AgentConfigSnapshot>,
-        metadata: HashMap<String, String>,
-        team_scope: RequestTeamScope,
-    ) -> anyhow::Result<AmbientAgentTaskId, anyhow::Error> {
-        if let Some(config) = &config {
-            if let Some(worker_host) = &config.worker_host {
-                tracing::Span::current().record("config.worker_host", worker_host);
-            }
-            if let Some(harness) = &config.harness {
-                let harness: Option<serde_json::Value> =
-                    serde_json::to_value(harness.harness_type).ok();
-                if let Some(serde_json::Value::String(harness)) = harness {
-                    tracing::Span::current().record("config.harness", harness);
-                }
-            }
-        }
-
-        // Serialize the config to JSON if provided
-        let agent_config_snapshot = config
-            .map(|c| serde_json::to_string(&c))
-            .transpose()
-            .map_err(|e| anyhow!("Failed to serialize agent config: {e}"))?;
-
-        let variables = CreateAgentTaskVariables {
-            input: CreateAgentTaskInput {
-                prompt,
-                environment_uid: environment_uid.map(|uid| uid.into()),
-                parent_run_id: parent_run_id.map(|run_id| run_id.into()),
-                agent_config_snapshot,
-                metadata: (!metadata.is_empty())
-                    .then(|| serde_json::to_string(&metadata))
-                    .transpose()?,
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = CreateAgentTask::build(variables);
-        let response = self
-            .send_graphql_request_for_team(operation, team_scope)
-            .await?;
-
-        match response.create_agent_task {
-            CreateAgentTaskResult::CreateAgentTaskOutput(output) => output
-                .task_id
-                .into_inner()
-                .parse()
-                .map_err(|e| anyhow!("Failed to parse task ID from server: {e}")),
-            CreateAgentTaskResult::UserFacingError(e) => {
-                Err(anyhow!(get_user_facing_error_message(e)))
-            }
-            CreateAgentTaskResult::Unknown => Err(anyhow!("failed to create agent task")),
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip_all, err, fields(
         tags.cloud_agent = true,
@@ -1486,66 +1243,6 @@ impl AIClient for ServerApi {
                 &format!("agent/runs/{task_id}/attachments/prepare"),
                 &request,
             )
-            .await?;
-        Ok(response)
-    }
-
-    async fn download_task_attachments(
-        &self,
-        task_id: &AmbientAgentTaskId,
-        attachment_ids: &[String],
-    ) -> anyhow::Result<DownloadAttachmentsResponse, anyhow::Error> {
-        let request = DownloadAttachmentsRequest {
-            attachment_ids: attachment_ids.to_vec(),
-        };
-        let response: DownloadAttachmentsResponse = self
-            .post_public_api(
-                &format!("agent/runs/{task_id}/attachments/download"),
-                &request,
-            )
-            .await?;
-        Ok(response)
-    }
-
-    // --- Orchestrations V2 messaging ---
-
-    async fn send_agent_message(
-        &self,
-        request: SendAgentMessageRequest,
-    ) -> anyhow::Result<SendAgentMessageResponse, anyhow::Error> {
-        let response: SendAgentMessageResponse =
-            self.post_public_api("agent/messages", &request).await?;
-        Ok(response)
-    }
-
-    async fn update_event_sequence_on_server(
-        &self,
-        run_id: &str,
-        sequence: i64,
-    ) -> anyhow::Result<(), anyhow::Error> {
-        #[derive(serde::Serialize)]
-        struct UpdateBody {
-            sequence: i64,
-        }
-
-        self.patch_public_api_unit(
-            &format!("agent/runs/{run_id}/event-sequence"),
-            &UpdateBody { sequence },
-        )
-        .await
-    }
-
-    async fn mark_message_delivered(&self, message_id: &str) -> anyhow::Result<(), anyhow::Error> {
-        self.post_public_api_unit(&format!("agent/messages/{message_id}/delivered"), &())
-            .await
-    }
-
-    async fn read_agent_message(
-        &self,
-        message_id: &str,
-    ) -> anyhow::Result<ReadAgentMessageResponse, anyhow::Error> {
-        let response: ReadAgentMessageResponse = self
-            .post_public_api(&format!("agent/messages/{message_id}/read"), &())
             .await?;
         Ok(response)
     }

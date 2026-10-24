@@ -75,9 +75,6 @@ pub struct AuthSecretFtuxDropdown {
     harness: Harness,
     display_label: Option<String>,
     label_mouse_state: MouseStateHandle,
-    /// Compact mode (orchestration modal): no auto-open, suppresses the
-    /// existing-secrets list and Skip, shows only "+ New …" entries.
-    compact_mode: bool,
 }
 
 impl AuthSecretFtuxDropdown {
@@ -160,7 +157,6 @@ impl AuthSecretFtuxDropdown {
             harness,
             display_label: None,
             label_mouse_state: MouseStateHandle::default(),
-            compact_mode: false,
         };
         me.refresh_menu(ctx);
         me.set_menu_visibility(true, ctx);
@@ -176,20 +172,6 @@ impl AuthSecretFtuxDropdown {
                 model.ensure_auth_secrets_fetched(&team_scope, harness, ctx);
             });
         }
-        ctx.notify();
-    }
-
-    /// Toggle compact mode. See the `compact_mode` field for what changes.
-    /// Idempotent.
-    pub fn set_compact_mode(&mut self, compact: bool, ctx: &mut ViewContext<Self>) {
-        if self.compact_mode == compact {
-            return;
-        }
-        self.compact_mode = compact;
-        if compact {
-            self.set_menu_visibility(false, ctx);
-        }
-        self.refresh_menu(ctx);
         ctx.notify();
     }
 
@@ -286,9 +268,7 @@ impl AuthSecretFtuxDropdown {
         }
     }
 
-    /// Updates the harness this dropdown should query secrets for. Resets the
-    /// search query / editor and refreshes the menu, then lazily fetches
-    /// secrets for the new harness if the menu is currently open.
+    /// Refresh available secrets when the pane's harness changes.
     pub fn set_harness(&mut self, harness: Harness, ctx: &mut ViewContext<Self>) {
         if self.harness == harness {
             return;
@@ -339,30 +319,10 @@ impl AuthSecretFtuxDropdown {
         let team_scope = UserWorkspaces::as_ref(ctx).team_context(&self.view_handle, ctx);
         let availability = HarnessAvailabilityModel::as_ref(ctx);
         let query = self.search_query.trim().to_lowercase();
-        let compact = self.compact_mode;
 
         let mut items: Vec<MenuItem<FtuxDropdownAction>> = Vec::new();
 
         let no_results_text_color = internal_colors::text_sub(theme, theme.surface_2());
-
-        if compact {
-            // Compact (modal) mode: only render "+ New …" entries.
-            for (index, info) in auth_secret_types_for_harness(harness).iter().enumerate() {
-                items.push(MenuItem::Item(
-                    MenuItemFields::new(format!("New {}", info.display_name))
-                        .with_font_size_override(FONT_SIZE)
-                        .with_padding_override(MENU_ITEM_VERTICAL_PADDING, MENU_HORIZONTAL_PADDING)
-                        .with_override_hover_background_color(hover_background)
-                        .with_icon(Icon::Plus)
-                        .with_on_select_action(FtuxDropdownAction::SelectNewType(index)),
-                ));
-            }
-            self.menu.update(ctx, |menu, ctx| {
-                menu.set_border(Some(border));
-                menu.set_items(items, ctx);
-            });
-            return;
-        }
 
         match availability.auth_secrets_for(&team_scope, harness) {
             AuthSecretFetchState::Loaded(secrets) => {

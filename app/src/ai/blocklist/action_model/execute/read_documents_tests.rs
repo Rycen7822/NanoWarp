@@ -78,21 +78,15 @@ fn add_saved_plan_notebook(app: &mut App, document_id: AIDocumentId, content: &s
 }
 
 #[test]
-fn execute_lazily_hydrates_missing_plan_for_remote_child_without_local_parent() {
+fn execute_lazily_hydrates_missing_saved_plan() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let executor = app.add_model(|_| ReadDocumentsExecutor::new());
         let document_id = AIDocumentId::new();
-        add_saved_plan_notebook(&mut app, document_id, "# Remote child plan");
-        let child_conversation_id =
+        add_saved_plan_notebook(&mut app, document_id, "# Saved plan");
+        let conversation_id =
             BlocklistAIHistoryModel::handle(&app).update(&mut app, |history, ctx| {
-                let child_conversation_id =
-                    history.start_new_conversation(EntityId::new(), false, false, false, ctx);
-                history
-                    .conversation_mut(&child_conversation_id)
-                    .expect("child conversation should exist")
-                    .set_parent_agent_id("non-local-parent-run-id".to_string());
-                child_conversation_id
+                history.start_new_conversation(EntityId::new(), false, false, false, ctx)
             });
         let action = read_action(document_id);
 
@@ -101,7 +95,7 @@ fn execute_lazily_hydrates_missing_plan_for_remote_child_without_local_parent() 
                 .execute(
                     ExecuteActionInput {
                         action: &action,
-                        conversation_id: child_conversation_id,
+                        conversation_id,
                     },
                     ctx,
                 )
@@ -116,7 +110,7 @@ fn execute_lazily_hydrates_missing_plan_for_remote_child_without_local_parent() 
         };
         assert_eq!(documents.len(), 1);
         assert_eq!(documents[0].document_id, document_id);
-        assert_eq!(documents[0].content, "# Remote child plan\n");
+        assert_eq!(documents[0].content, "# Saved plan\n");
     });
 }
 

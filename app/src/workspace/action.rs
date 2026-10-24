@@ -563,11 +563,6 @@ pub enum WorkspaceAction {
     ContinueConversationLocally {
         conversation_id: AIConversationId,
     },
-    /// Open the workspace modal for creating a new managed auth secret.
-    /// Dispatched by orchestration card pickers' "New API key…" item.
-    OpenCreateAuthSecretModal {
-        harness: warp_cli::agent::Harness,
-    },
     /// Summarize the active AI conversation in the focused pane.
     SummarizeAIConversation {
         prompt: Option<String>,
@@ -1003,7 +998,6 @@ impl WorkspaceAction {
             | TabConfigSidecarRemoveConfig { .. }
             | OpenSettingsFile
             | FixSettingsWithOz { .. }
-            | OpenCreateAuthSecretModal { .. }
             | OpenNetworkLogPane
             | OpenNewWindowForTeam { .. }
             | ShowTeamSwitcherMenu => false,

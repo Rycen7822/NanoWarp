@@ -329,18 +329,6 @@ fn usage_display_unit_toml_path() {
 }
 
 #[test]
-fn orchestration_is_enabled_when_ai_is_enabled() {
-    App::test((), |mut app| async move {
-        initialize_settings_for_tests(&mut app);
-        add_ai_enablement_dependencies_for_test(&mut app);
-
-        AISettings::handle(&app).read(&app, |settings, ctx| {
-            assert!(settings.is_orchestration_enabled(ctx));
-        });
-    });
-}
-
-#[test]
 fn test_should_display_quota_reset_banner_with_empty_history() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);

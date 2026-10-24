@@ -3792,7 +3792,7 @@ pub fn render_query_text(props: UserQueryProps<'_>, app: &AppContext) -> Text {
 /// Renders a scrollable collapsible content area with auto-scroll-to-bottom
 /// during streaming. Returns `None` if the state is collapsed.
 ///
-/// Shared by reasoning/summarization blocks and orchestration blocks.
+/// Used by reasoning and summarization blocks.
 pub(crate) fn render_scrollable_collapsible_content(
     message_id: &MessageId,
     state: &CollapsibleElementState,

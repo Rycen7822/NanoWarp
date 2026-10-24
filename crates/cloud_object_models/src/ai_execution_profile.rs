@@ -83,47 +83,6 @@ impl WriteToPtyPermission {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RunAgentsPermission {
-    NeverAllow,
-    AlwaysAllow,
-    #[default]
-    AlwaysAsk,
-
-    // This is intended to catch deserialization errors whenever we add new variants to this enum.
-    #[serde(other)]
-    Unknown,
-}
-
-impl RunAgentsPermission {
-    pub fn description(&self) -> &'static str {
-        match self {
-            RunAgentsPermission::NeverAllow => {
-                "The Agent cannot run child agents and the run_agents tool will not be available."
-            }
-            RunAgentsPermission::AlwaysAllow => {
-                "Give the Agent full autonomy to run child agents without approval."
-            }
-            RunAgentsPermission::AlwaysAsk => {
-                "Require explicit approval before the Agent runs child agents."
-            }
-            RunAgentsPermission::Unknown => "Unknown setting.",
-        }
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        matches!(self, Self::AlwaysAllow | Self::AlwaysAsk)
-    }
-
-    pub fn is_always_allow(&self) -> bool {
-        matches!(self, Self::AlwaysAllow)
-    }
-
-    pub fn is_never_allow(&self) -> bool {
-        matches!(self, Self::NeverAllow | Self::Unknown)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AskUserQuestionPermission {
     /// Never pause; skip questions and continue with best judgment.
     Never,
@@ -323,7 +282,6 @@ pub struct AIExecutionProfile {
     pub execute_commands: ActionPermission,
     pub write_to_pty: WriteToPtyPermission,
     pub ask_user_question: AskUserQuestionPermission,
-    pub run_agents: RunAgentsPermission,
 
     /// Always ask for permission for these commands
     pub command_denylist: Vec<AgentModeCommandExecutionPredicate>,
@@ -357,7 +315,6 @@ impl Default for AIExecutionProfile {
             execute_commands: ActionPermission::AlwaysAsk,
             write_to_pty: WriteToPtyPermission::AlwaysAsk,
             ask_user_question: AskUserQuestionPermission::AlwaysAsk,
-            run_agents: RunAgentsPermission::AlwaysAsk,
             command_denylist: DEFAULT_COMMAND_EXECUTION_DENYLIST.clone(),
             command_allowlist: Vec::new(),
             directory_allowlist: Vec::new(),
@@ -391,7 +348,6 @@ impl AIExecutionProfile {
             execute_commands: ActionPermission::AlwaysAllow,
             write_to_pty: WriteToPtyPermission::AlwaysAllow,
             ask_user_question: AskUserQuestionPermission::Never,
-            run_agents: RunAgentsPermission::AlwaysAllow,
             command_denylist: Vec::new(),
             command_allowlist: Vec::new(),
             directory_allowlist: Vec::new(),
@@ -421,7 +377,6 @@ impl AIExecutionProfile {
             execute_commands: ActionPermission::AlwaysAllow,
             write_to_pty: WriteToPtyPermission::AlwaysAllow,
             ask_user_question: AskUserQuestionPermission::Never,
-            run_agents: RunAgentsPermission::AlwaysAllow,
             command_denylist,
             command_allowlist: DEFAULT_COMMAND_EXECUTION_ALLOWLIST.to_vec(),
             directory_allowlist: Vec::new(),

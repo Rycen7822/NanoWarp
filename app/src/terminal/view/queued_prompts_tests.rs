@@ -107,7 +107,6 @@ fn cloud_spawn_request(prompt: &str) -> SpawnAgentRequest {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -128,7 +127,6 @@ fn promptless_cloud_spawn_request() -> SpawnAgentRequest {
         skill: None,
         attachments: vec![],
         interactive: None,
-        parent_run_id: None,
         runtime_skills: vec![],
         referenced_attachments: vec![],
         snapshot_disabled: None,
@@ -1708,8 +1706,7 @@ fn multi_cycle_queue_keeps_each_rows_attachments_independent() {
 
 #[test]
 fn finish_reason_is_scoped_to_the_finished_conversation() {
-    // An orchestration pane hosts the lead and local child conversations in one view, so the
-    // most recent block in the pane can belong to a sibling conversation that is still
+    // The most recent block in the pane can belong to another conversation that is still
     // mid-turn. The per-conversation lookup must report the finished conversation's own block
     // as Complete (so its queued prompts drain) and the streaming sibling's as unfinished.
     App::test((), |mut app| async move {
@@ -1746,8 +1743,7 @@ fn finish_reason_is_scoped_to_the_finished_conversation() {
 fn finished_receiving_output_drains_queue_when_sibling_block_masks_turn_end() {
     // End-to-end through the controller-event path: `FinishedReceivingOutput` for a finished
     // conversation must drain that conversation's queue even when a sibling conversation's
-    // still-streaming block is the most recent block in the pane (orchestration panes host the
-    // lead and local child conversations in one view).
+    // still-streaming block is the most recent block in the pane.
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let terminal = add_window_with_terminal(&mut app, None);

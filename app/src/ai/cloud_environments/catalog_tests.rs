@@ -116,7 +116,7 @@ fn environment_timestamp_updates_refresh_recency_order() {
 }
 
 #[test]
-fn default_resolution_preserves_each_gui_consumer_name_tie_breaker() {
+fn default_resolution_uses_case_insensitive_name_tie_breaker() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
         let cloud_model = app.add_singleton_model(CloudModel::mock);
@@ -132,10 +132,6 @@ fn default_resolution_preserves_each_gui_consumer_name_tie_breaker() {
 
         catalog.read(&app, |catalog, ctx| {
             assert_eq!(catalog.default_environment_id(ctx), Some(lowercase_id));
-            assert_eq!(
-                catalog.orchestration_default_environment_id(ctx),
-                Some(uppercase_id)
-            );
         });
     });
 }

@@ -99,12 +99,6 @@ pub async fn generate_multi_agent_output(
                 FeatureFlag::SummarizationViaMessageReplacement.is_enabled(),
             supports_bundled_skills: FeatureFlag::BundledSkills.is_enabled(),
             supports_research_agent: params.research_agent_enabled,
-            supports_orchestration_v2: supports_orchestration_v2(params.orchestration_enabled),
-            supports_orchestration_runners: params.orchestration_enabled
-                && FeatureFlag::CloudAgentRunners.is_enabled(),
-            // Unconditional: echoed agent messages are always confirmed delivered, so injection
-            // cannot produce a duplicate turn.
-            supports_server_side_agent_message_injection: true,
             supports_chatgpt_subscription_error: true,
             supports_chatgpt_subscription_copy_text: true,
             custom_model_providers: params.custom_model_providers,
@@ -132,8 +126,7 @@ pub async fn generate_multi_agent_output(
             } else {
                 String::new()
             },
-            parent_agent_id: params.parent_agent_id.unwrap_or_default(),
-            agent_name: params.agent_name.unwrap_or_default(),
+            ..Default::default()
         }),
         ..Default::default()
     };
@@ -207,10 +200,6 @@ fn api_keys_with_warp_credit_fallback_setting(
     }
 }
 
-fn supports_orchestration_v2(orchestration_enabled: bool) -> bool {
-    orchestration_enabled
-}
-
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
     let mut supported_tools = vec![
         api::ToolType::Grep,
@@ -258,13 +247,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
 
     if FeatureFlag::ListSkills.is_enabled() {
         supported_tools.push(api::ToolType::ReadSkill);
-    }
-
-    if params.orchestration_enabled {
-        supported_tools.extend([api::ToolType::RunAgents, api::ToolType::SendMessageToAgent]);
-        // Declare client-handled wait_for_events so the server doesn't
-        // fall back to the legacy server-handled form.
-        supported_tools.push(api::ToolType::WaitForEvents);
     }
 
     if FeatureFlag::AskUserQuestion.is_enabled() && params.ask_user_question_enabled {

@@ -136,7 +136,11 @@ fn write_task_messages(
             Message::ToolCall(tc) => {
                 let tool_call_id = &tc.tool_call_id;
                 match &tc.tool {
-                    Some(Tool::Server(_)) | Some(Tool::InitProject(_)) => {
+                    Some(Tool::Server(_))
+                    | Some(Tool::InitProject(_))
+                    | Some(Tool::RunAgents(_))
+                    | Some(Tool::SendMessageToAgent(_))
+                    | Some(Tool::WaitForEvents(_)) => {
                         // Skip opaque server and retired project initialization tool calls.
                     }
                     Some(Tool::Subagent(sub)) => {
@@ -191,7 +195,10 @@ fn write_task_messages(
                 let tool_call_id = &tcr.tool_call_id;
                 match &tcr.result {
                     Some(ToolCallResultType::Server(_))
-                    | Some(ToolCallResultType::InitProject(_)) => {
+                    | Some(ToolCallResultType::InitProject(_))
+                    | Some(ToolCallResultType::RunAgentsResult(_))
+                    | Some(ToolCallResultType::SendMessageToAgent(_))
+                    | Some(ToolCallResultType::WaitForEvents(_)) => {
                         // Skip opaque server and retired project initialization results.
                     }
                     Some(ToolCallResultType::Subagent(_)) => {
@@ -411,14 +418,6 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
                 None => {}
             }
         }
-        Tool::SendMessageToAgent(s) => {
-            out.push_str(&format!(
-                "subject: \"{}\"\n",
-                escape_yaml_string(&s.subject)
-            ));
-            out.push_str("message: |\n");
-            write_block_scalar(out, truncate_content(&s.message, 2048));
-        }
         Tool::AskUserQuestion(ask) => {
             if ask.questions.is_empty() {
                 out.push_str("questions: []\n");
@@ -474,21 +473,10 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
                 out.push_str(&format!("  - deleted: {}\n", df.file_path));
             }
         }
-        Tool::RunAgents(o) => {
-            out.push_str(&format!(
-                "summary: \"{}\"\n",
-                escape_yaml_string(&o.summary)
-            ));
-            out.push_str("agents:\n");
-            for cfg in &o.agent_run_configs {
-                out.push_str(&format!(
-                    "  - name: \"{}\"\n",
-                    escape_yaml_string(&cfg.name)
-                ));
-            }
-        }
         // No additional args worth serializing.
-        Tool::ReadMcpResource(_)
+        Tool::RunAgents(_)
+        | Tool::SendMessageToAgent(_)
+        | Tool::ReadMcpResource(_)
         | Tool::CallMcpTool(_)
         | Tool::ReadShellCommandOutput(_)
         | Tool::UseComputer(_)
@@ -512,58 +500,9 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
 /// Writes content from structured tool call results.
 fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType) {
     match result {
-        ToolCallResultType::RunAgentsResult(r) => match &r.outcome {
-            Some(api::run_agents_result::Outcome::Launched(launched)) => {
-                out.push_str("status: launched\n");
-                out.push_str(&format!("agent_count: {}\n", launched.agents.len()));
-                if !launched.agents.is_empty() {
-                    out.push_str("agents:\n");
-                    for agent in &launched.agents {
-                        out.push_str(&format!(
-                            "  - name: \"{}\"\n",
-                            escape_yaml_string(&agent.name)
-                        ));
-                        match &agent.result {
-                            Some(api::run_agents_result::agent_outcome::Result::Launched(
-                                launched,
-                            )) => {
-                                out.push_str("    status: launched\n");
-                                out.push_str(&format!("    agent_id: {}\n", launched.agent_id));
-                            }
-                            Some(api::run_agents_result::agent_outcome::Result::Failed(failed)) => {
-                                out.push_str("    status: failed\n");
-                                out.push_str(&format!(
-                                    "    error: \"{}\"\n",
-                                    escape_yaml_string(&failed.error)
-                                ));
-                            }
-                            None => {
-                                out.push_str("    status: unknown\n");
-                            }
-                        }
-                    }
-                    out.push_str(
-                        "next_step: \"Use send_message_to_agent with the existing agent_id instead of running agents again.\"\n",
-                    );
-                }
-            }
-            Some(api::run_agents_result::Outcome::Denied(denied)) => {
-                out.push_str("status: launch_denied\n");
-                out.push_str(&format!(
-                    "reason: \"{}\"\n",
-                    escape_yaml_string(&denied.reason)
-                ));
-            }
-            Some(api::run_agents_result::Outcome::Failure(failure)) => {
-                out.push_str("status: failure\n");
-                out.push_str(&format!(
-                    "error: \"{}\"\n",
-                    escape_yaml_string(&failure.error)
-                ));
-            }
-            None => {}
-        },
-        ToolCallResultType::WaitForEvents(_) => {}
+        ToolCallResultType::RunAgentsResult(_)
+        | ToolCallResultType::SendMessageToAgent(_)
+        | ToolCallResultType::WaitForEvents(_) => {}
         ToolCallResultType::UploadFileArtifact(_)
         | ToolCallResultType::StartRecording(_)
         | ToolCallResultType::StopRecording(_) => {}
@@ -878,19 +817,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
                                 }
                             }
                         }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::SendMessageToAgent(r) => {
-            if let Some(res) = &r.result {
-                use api::send_message_to_agent_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str(&format!("message_id: {}\n", s.message_id));
                     }
                     Result::Error(e) => {
                         out.push_str(&format!("error: {}\n", e.message));

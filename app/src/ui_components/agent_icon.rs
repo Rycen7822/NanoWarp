@@ -47,17 +47,7 @@ pub(crate) fn terminal_view_agent_icon_variant(
     let task_data = ambient_task_id
         .and_then(|task_id| AgentConversationsModel::as_ref(app).get_task_data(&task_id));
 
-    // Local orchestration children are dispatched as server tasks (so they carry an ambient
-    // task id) but execute on the user's machine, so they must not get the cloud treatment.
-    let is_local_child = terminal_view.selected_conversation_is_local_child(app);
-
-    // Whether this pane is genuinely a cloud/ambient conversation for icon purposes. Keys off
-    // [`TerminalView::is_cloud_agent_session`] or a restored cloud transcript (server metadata),
-    // NOT the mere presence of an orchestrator task id — a manually shared *local* (`User`)
-    // session carries a `source_task_id` sidecar but is not cloud (see QUALITY-726). Local
-    // orchestration children always keep the local treatment.
-    let is_cloud = (terminal_view.is_cloud_agent_session(app) || server_ambient_task_id.is_some())
-        && !is_local_child;
+    let is_cloud = terminal_view.is_cloud_agent_session(app) || server_ambient_task_id.is_some();
 
     // Defer to the card helper when we have task data.
     if let Some(task) = task_data.as_ref() {

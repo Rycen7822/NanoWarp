@@ -260,16 +260,6 @@ impl TerminalView {
         self.enable_cloud_followup_input(task_id, ctx);
     }
 
-    /// Enables the established continuation input after pane hydration has
-    /// already resolved explicit conversation Edit access.
-    pub(crate) fn enable_completed_cloud_continuation(
-        &mut self,
-        task_id: AmbientAgentTaskId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.enable_cloud_followup_input_after_conversation_end(task_id, ctx);
-    }
-
     pub(super) fn handle_viewer_role_change_menu_event(
         &mut self,
         event: &MenuEvent,

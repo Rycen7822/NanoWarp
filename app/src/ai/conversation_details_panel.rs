@@ -268,7 +268,7 @@ impl ConversationDetailsData {
     fn directory_for_task(task: &AmbientAgentTask, app: &AppContext) -> Option<String> {
         let history_model = BlocklistAIHistoryModel::as_ref(app);
         let conversation_id = history_model
-            .conversation_id_for_agent_id(&task.run_id().to_string())
+            .find_conversation_id_by_task_id(&task.task_id)
             .or_else(|| {
                 task.conversation_id().and_then(|conversation_id| {
                     history_model.find_conversation_id_by_server_token(

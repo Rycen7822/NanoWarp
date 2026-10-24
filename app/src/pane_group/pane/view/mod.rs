@@ -35,8 +35,7 @@ const HAS_SHARED_OBJECT_CONTEXT_KEY: &str = "PaneView_HasSharedObject";
 /// Max width applied to the pane header while the pane renders as a floating drag preview.
 /// During a pane drag the pane is laid out with unbounded constraints; `MainAxisSize::Min`
 /// avoids the infinite *vertical*-constraint panic, but the header's *width* would still be
-/// unbounded. Content that stretches to fill the width — the orchestration pill bar's clipped
-/// horizontal scrollable — cannot be laid out with an infinite width without reporting an
+/// unbounded. A clipped horizontal scrollable cannot be laid out with an infinite width without reporting an
 /// infinite/NaN viewport and panicking in `Scene::validate_rect`. Capping the preview keeps
 /// the width finite while still producing a representative header ghost.
 const DRAG_PREVIEW_HEADER_MAX_WIDTH: f32 = 400.;

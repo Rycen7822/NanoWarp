@@ -24,7 +24,6 @@ use std::time::Duration;
 // Re-export types that were moved to the ai and ai_types crates.
 pub use ai::agent::action::*;
 pub use ai::agent::action_result::*;
-use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationConfigStatus};
 pub use ai::agent::{AIAgentCitation, FileLocations};
 use ai::skills::ParsedSkill;
 pub use ai_types::{AIAgentActionId, EntrypointType};
@@ -40,7 +39,7 @@ pub use telemetry::AIIdentifiers;
 use uuid::Uuid;
 use warp_core::channel::ChannelState;
 use warp_editor::render::model::LineCount;
-use warp_multi_agent_api::{AgentEvent, AgentType, diff_hunk as diff_hunk_api};
+use warp_multi_agent_api::{AgentType, diff_hunk as diff_hunk_api};
 
 pub use self::api::{MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError};
 pub use self::base_user_query::BaseUserQuery;
@@ -646,14 +645,6 @@ impl AIAgentOutput {
                 }
                 AIAgentOutputMessageType::ArtifactCreated(_) => continue,
                 AIAgentOutputMessageType::SkillInvoked(_) => continue,
-                AIAgentOutputMessageType::MessagesReceivedFromAgents { messages } => {
-                    result.push(format!("Received {} messages", messages.len()));
-                    last_was_action = false;
-                }
-                AIAgentOutputMessageType::EventsFromAgents { event_ids } => {
-                    result.push(format!("Received {} agent events", event_ids.len()));
-                    last_was_action = false;
-                }
             }
         }
 
@@ -1837,16 +1828,6 @@ pub struct InvokedSkill {
     pub name: String,
 }
 
-/// Data for a single received message, used for rendering in the UI.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReceivedMessageDisplay {
-    pub message_id: String,
-    pub sender_agent_id: String,
-    pub addresses: Vec<String>,
-    pub subject: String,
-    pub message_body: String,
-}
-
 impl Display for InvokedSkill {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "InvokedSkill: {}", self.name)
@@ -1889,14 +1870,6 @@ pub enum AIAgentOutputMessageType {
     /// Notification that an artifact was created (e.g. a PR).
     ArtifactCreated(ArtifactCreatedData),
     SkillInvoked(InvokedSkill),
-    /// Messages received from other agent conversations.
-    MessagesReceivedFromAgents {
-        messages: Vec<ReceivedMessageDisplay>,
-    },
-    /// Lifecycle events received from other agent conversations.
-    EventsFromAgents {
-        event_ids: Vec<String>,
-    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -2078,12 +2051,6 @@ impl Display for AIAgentOutputMessage {
             AIAgentOutputMessageType::SkillInvoked(invoked_skill) => {
                 write!(f, "Skill Invoked: {}", invoked_skill.name)?
             }
-            AIAgentOutputMessageType::MessagesReceivedFromAgents { messages } => {
-                write!(f, "Received {} messages", messages.len())?
-            }
-            AIAgentOutputMessageType::EventsFromAgents { event_ids } => {
-                write!(f, "Received {} agent events", event_ids.len())?
-            }
         }
 
         if !self.citations.is_empty() {
@@ -2208,25 +2175,6 @@ impl AIAgentOutputMessage {
         Self {
             id,
             message: AIAgentOutputMessageType::SkillInvoked(invoked_skill),
-            citations: vec![],
-        }
-    }
-
-    pub fn messages_received_from_agents(
-        id: MessageId,
-        messages: Vec<ReceivedMessageDisplay>,
-    ) -> Self {
-        Self {
-            id,
-            message: AIAgentOutputMessageType::MessagesReceivedFromAgents { messages },
-            citations: vec![],
-        }
-    }
-
-    pub fn events_from_agents(id: MessageId, event_ids: Vec<String>) -> Self {
-        Self {
-            id,
-            message: AIAgentOutputMessageType::EventsFromAgents { event_ids },
             citations: vec![],
         }
     }
@@ -2802,7 +2750,6 @@ pub enum UserQueryMode {
     #[default]
     Normal,
     Plan,
-    Orchestrate,
 }
 
 // TODO(zachbai): Refactor this to consolidate with `LongRunningCommandSnapshot` and `Snapshot`
@@ -2878,38 +2825,6 @@ pub enum AIAgentInput {
         result: AIAgentActionResult,
         context: Arc<[AIAgentContext]>,
     },
-
-    /// Messages received from other agent conversations via the message bus.
-    MessagesReceivedFromAgents {
-        messages: Vec<ReceivedMessageInput>,
-    },
-    /// Events received from other agent conversations.
-    EventsFromAgents {
-        events: Vec<AgentEvent>,
-    },
-
-    /// Piggybacked orchestration config update from the plan card.
-    /// Sent on the next outbound request after the user edits the
-    /// config block or toggles approval.
-    OrchestrationConfigUpdate {
-        plan_id: String,
-        config: OrchestrationConfig,
-        status: OrchestrationConfigStatus,
-    },
-
-    /// Reports that the run was woken; the server injects any pending agent messages into the
-    /// turn.
-    AgentWake,
-}
-
-/// Data for a single message received by an agent from another agent.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReceivedMessageInput {
-    pub message_id: String,
-    pub sender_agent_id: String,
-    pub addresses: Vec<String>,
-    pub subject: String,
-    pub message_body: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2951,14 +2866,6 @@ impl Display for AIAgentInput {
                 }
             }
             Self::StartFromAmbientRunPrompt { .. } => write!(f, "StartFromAmbientRunPrompt"),
-            Self::MessagesReceivedFromAgents { messages } => {
-                write!(f, "MessagesReceivedFromAgents({} messages)", messages.len())
-            }
-            Self::EventsFromAgents { events } => {
-                write!(f, "EventsFromAgents({} events)", events.len())
-            }
-            Self::OrchestrationConfigUpdate { .. } => write!(f, "OrchestrationConfigUpdate"),
-            Self::AgentWake => write!(f, "AgentWake"),
         }
     }
 }
@@ -2988,11 +2895,7 @@ impl AIAgentInput {
             Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
             | Self::SummarizeConversation { .. }
-            | Self::StartFromAmbientRunPrompt { .. }
-            | Self::MessagesReceivedFromAgents { .. }
-            | Self::EventsFromAgents { .. }
-            | Self::OrchestrationConfigUpdate { .. }
-            | Self::AgentWake => None,
+            | Self::StartFromAmbientRunPrompt { .. } => None,
         }
     }
 
@@ -3024,10 +2927,6 @@ impl AIAgentInput {
             | Self::InvokeSkill { context, .. }
             | Self::StartFromAmbientRunPrompt { context, .. }
             | Self::SummarizeConversation { context, .. } => Some(context),
-            Self::MessagesReceivedFromAgents { .. }
-            | Self::EventsFromAgents { .. }
-            | Self::OrchestrationConfigUpdate { .. }
-            | Self::AgentWake => None,
         }
     }
 
@@ -3048,11 +2947,7 @@ impl AIAgentInput {
             | Self::CodeReview { .. }
             | Self::SummarizeConversation { .. }
             | Self::InvokeSkill { .. }
-            | Self::StartFromAmbientRunPrompt { .. }
-            | Self::MessagesReceivedFromAgents { .. }
-            | Self::EventsFromAgents { .. }
-            | Self::OrchestrationConfigUpdate { .. }
-            | Self::AgentWake => None,
+            | Self::StartFromAmbientRunPrompt { .. } => None,
         }
     }
 }

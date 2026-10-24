@@ -268,8 +268,7 @@ impl SingletonEntity for LocalAgentTaskSyncModel {}
 
 /// Resolves a conversation ID to a `(task_id, value)` pair when the
 /// conversation is owned by this client. Returns `None` for viewer
-/// conversations, remote-child placeholders, conversations without a
-/// `task_id`, and unknown conversation IDs.
+/// conversations, conversations without a `task_id`, and unknown conversation IDs.
 fn with_local_conversation<T>(
     conversation_id: AIConversationId,
     ctx: &ModelContext<LocalAgentTaskSyncModel>,
@@ -283,14 +282,6 @@ fn with_local_conversation<T>(
     if conversation.is_viewing_shared_session() {
         return None;
     }
-    // Skip remote child placeholder conversations — the remote worker's
-    // own client handles status reporting. Reporting here would
-    // prematurely move remote tasks from QUEUED to IN_PROGRESS before
-    // the worker can claim them. Local children are NOT skipped because
-    // they execute in this client and have no separate reporter.
-    if conversation.is_remote_child() {
-        return None;
-    }
     let task_id = conversation.task_id()?;
     Some((task_id, make_value(conversation)))
 }
@@ -302,9 +293,6 @@ fn map_conversation_status(
 ) -> (AgentTaskState, Option<TaskStatusUpdate>) {
     match conversation.status() {
         ConversationStatus::InProgress => (AgentTaskState::InProgress, None),
-        // Report WaitingForEvents as IN_PROGRESS so the server task state
-        // matches the local view.
-        ConversationStatus::WaitingForEvents => (AgentTaskState::InProgress, None),
         ConversationStatus::Success => (AgentTaskState::Succeeded, None),
         // Recovery pending: stay IN_PROGRESS, no message — `update_agent_task`
         // can't clear it later, so a "reconnecting" note would linger after resume.

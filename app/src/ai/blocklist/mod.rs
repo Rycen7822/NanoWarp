@@ -2,7 +2,6 @@
 mod action_model;
 pub mod agent_view;
 pub mod block;
-mod child_agent_launch;
 pub mod code_block;
 mod context_model;
 mod controller;
@@ -11,10 +10,6 @@ pub(crate) mod diff_storage;
 pub(crate) mod diff_types;
 
 pub(crate) mod local_agent_task_sync_model;
-pub(crate) mod orchestration_child_tracker;
-pub(crate) mod orchestration_event_streamer;
-pub(crate) mod orchestration_events;
-pub(crate) mod orchestration_topology;
 pub(crate) mod queued_query;
 pub(super) use controller::RequestInput;
 pub mod history_model;
@@ -25,7 +20,6 @@ mod permissions;
 mod persistence;
 pub mod prompt;
 pub mod summarization_cancel_dialog;
-pub(crate) mod telemetry;
 pub mod usage;
 
 pub(crate) mod telemetry_banner;
@@ -37,21 +31,10 @@ pub use action_model::{
 };
 #[cfg_attr(target_family = "wasm", allow(unused_imports))]
 pub(crate) use action_model::{ReadFileContextResult, read_local_file_context};
-#[cfg_attr(target_family = "wasm", allow(unused_imports))]
-pub use action_model::{
-    StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
-    TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR,
-};
 pub use block::keyboard_navigable_buttons;
 #[cfg(any(test, feature = "integration_tests"))]
 pub(crate) use block::model::testing::FakeAIBlockModel;
 pub(crate) use block::{AIBlock, AIBlockEvent, RequestedEditResolution, init, model};
-pub use child_agent_launch::inherit_child_agent_settings;
-#[cfg(not(target_family = "wasm"))]
-pub use child_agent_launch::{
-    apply_child_agent_model_override, finish_local_oz_child_conversation,
-    prepare_local_oz_child_launch,
-};
 pub(crate) use context_model::block_context_from_terminal_model;
 pub use context_model::{
     AttachmentType, BlocklistAIContextEvent, BlocklistAIContextModel, PendingAttachment,

@@ -36,7 +36,6 @@ use crate::ai::ambient_agents::{
     AmbientAgentTaskState,
 };
 use crate::ai::artifacts::Artifact;
-use crate::ai::blocklist::orchestration_topology::orchestration_aware_conversation_status;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, ConversationStatusUpdate,
 };
@@ -409,14 +408,7 @@ impl AgentRunDisplayStatus {
                 let history_model = BlocklistAIHistoryModel::as_ref(app);
                 entry::conversation_id_shadowed_by_task(task, history_model)
                     .and_then(|conversation_id| history_model.conversation(&conversation_id))
-                    .map(|conversation| {
-                        // Roll the whole orchestration subtree (children,
-                        // grandchildren, …) into the root card's status.
-                        Self::from_conversation_status(&orchestration_aware_conversation_status(
-                            history_model,
-                            conversation,
-                        ))
-                    })
+                    .map(|conversation| Self::from_conversation_status(conversation.status()))
                     .unwrap_or_else(|| Self::from_task_state(task))
             }
             AmbientAgentTaskState::Succeeded
@@ -439,9 +431,6 @@ impl AgentRunDisplayStatus {
             ConversationStatus::Blocked { blocked_action } => Self::ConversationBlocked {
                 blocked_action: blocked_action.clone(),
             },
-            // Treat a yielded conversation as still in progress for the
-            // agent-run list display so it stays in the working bucket.
-            ConversationStatus::WaitingForEvents => Self::ConversationInProgress,
         }
     }
 
@@ -1351,26 +1340,11 @@ impl AgentConversationsModel {
     fn unfiltered_entries(&self, app: &AppContext) -> Vec<AgentConversationEntry> {
         let history_model = BlocklistAIHistoryModel::as_ref(app);
         let mut entries = Vec::new();
-        // Local conversation IDs represented by a task — either shown as a
-        // task entry or hidden along with a child task — and therefore not
-        // emitted as standalone conversation entries by the loops below.
+        // Local conversations represented by a task are not emitted again below.
         let mut attached_conversation_ids = HashSet::new();
         let mut emitted_conversation_ids = HashSet::new();
 
         for task in self.tasks.values() {
-            // Child agents (cloud runs carry `parent_run_id`) are represented
-            // under their parent's status card and must not appear as standalone
-            // entries — this mirrors the local navigation path's exclusion via
-            // `AIConversation::should_exclude_from_navigation`. Any local
-            // conversation shadowed by a child task is hidden along with it.
-            if task.parent_run_id.is_some() {
-                if let Some(conversation_id) =
-                    entry::conversation_id_shadowed_by_task(task, history_model)
-                {
-                    attached_conversation_ids.insert(conversation_id);
-                }
-                continue;
-            }
             let entry = entry::entry_for_task(task, history_model, app);
             if let Some(conversation_id) = entry.identity.local_conversation_id {
                 attached_conversation_ids.insert(conversation_id);
@@ -1728,8 +1702,6 @@ impl AgentConversationsModel {
             // UpdateTaskDescription, last_updated uses exchange.start_time which is set at append time).
             | BlocklistAIHistoryEvent::UpdatedStreamingExchange { .. }
             | BlocklistAIHistoryEvent::ConversationTransferredBetweenTerminalSurfaces { .. }
-            | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
-            | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
             | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. }
             | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. } => {}
@@ -1758,59 +1730,6 @@ impl AgentConversationsModel {
             ) => Some(error),
             _ => None,
         }
-    }
-
-    /// Updates a cached task to reflect that execution has started and its
-    /// session is now known (from a `run_session_linked` wire event). If the
-    /// task is not yet cached, starts a fetch to retrieve it.
-    ///
-    /// Mutating the cache entry directly avoids a full round-trip while still
-    /// giving `decide_child_pane_materialization` the `InProgress` +
-    /// `is_sandbox_running=true` + `session_id` it needs to return `AttachLive`
-    /// on the next pill click. `TasksUpdated` is emitted so any pending
-    /// re-drives fire immediately.
-    pub fn update_task_as_running_with_session(
-        &mut self,
-        task_id: &AmbientAgentTaskId,
-        session_id_str: String,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        use crate::ai::ambient_agents::AmbientAgentTaskState;
-        if let Some(task) = self.tasks.get_mut(task_id) {
-            task.session_id = Some(session_id_str);
-            task.is_sandbox_running = true;
-            // Only promote to InProgress if still in a queued/pending state;
-            // never downgrade a terminal state that may have arrived concurrently.
-            match task.state {
-                AmbientAgentTaskState::Queued
-                | AmbientAgentTaskState::Pending
-                | AmbientAgentTaskState::Claimed => {
-                    task.state = AmbientAgentTaskState::InProgress;
-                }
-                _ => {}
-            }
-            ctx.emit(AgentConversationsModelEvent::TasksUpdated);
-        } else {
-            // Task not cached yet; start a fetch.
-            self.async_fetch_task(task_id, ctx);
-        }
-    }
-
-    /// Evicts a task from the cache and immediately starts a fresh
-    /// `GET /agent/runs/{id}` fetch. Used by the family drain when a terminal
-    /// lifecycle event arrives for a child whose cached state is stale (e.g.
-    /// still shows `Queued` from the initial discovery fetch). The refreshed
-    /// data — including the server conversation token and terminal state —
-    /// enables `decide_child_pane_materialization` to return `LoadTranscript`
-    /// so subsequent pill clicks load the cloud transcript.
-    pub fn evict_and_refetch_task(
-        &mut self,
-        task_id: &AmbientAgentTaskId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.tasks.remove(task_id);
-        self.task_fetch_state.remove(task_id);
-        self.async_fetch_task(task_id, ctx);
     }
 
     /// Get raw task data by task ID, fetching from server if not in memory.

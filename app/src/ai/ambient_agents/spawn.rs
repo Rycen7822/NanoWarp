@@ -61,11 +61,8 @@ impl SessionJoinInfo {
 /// Lifecycle events during ambient agent startup.
 #[derive(Debug)]
 pub enum AmbientAgentEvent {
-    /// The task was successfully spawned with the given task ID and run ID.
-    TaskSpawned {
-        task_id: AmbientAgentTaskId,
-        run_id: String,
-    },
+    /// The task was successfully spawned with the given task ID.
+    TaskSpawned { task_id: AmbientAgentTaskId },
     /// The task state changed.
     StateChanged {
         state: AmbientAgentTaskState,
@@ -106,8 +103,8 @@ pub fn spawn_task(
     // See https://github.com/tokio-rs/async-stream/issues/63.
     async_stream::stream! {
         // First, spawn the ambient agent task.
-        let (task_id, run_id, at_capacity) = match ai_client.spawn_agent(request, team_scope).await {
-            Ok(response) => (response.task_id, response.run_id, response.at_capacity),
+        let (task_id, at_capacity) = match ai_client.spawn_agent(request, team_scope).await {
+            Ok(response) => (response.task_id, response.at_capacity),
             Err(err) => {
                 yield Err(err);
                 return;
@@ -116,7 +113,6 @@ pub fn spawn_task(
 
         let mut stream = Box::pin(monitor_spawned_task(
             task_id,
-            run_id,
             at_capacity,
             ai_client,
             timeout,
@@ -133,13 +129,12 @@ pub fn spawn_task(
 /// that own task creation to avoid issuing a second spawn request.
 pub fn monitor_spawned_task(
     task_id: AmbientAgentTaskId,
-    run_id: String,
     at_capacity: bool,
     ai_client: Arc<dyn AIClient>,
     timeout: Option<Duration>,
 ) -> impl Stream<Item = Result<AmbientAgentEvent, anyhow::Error>> {
     async_stream::stream! {
-        yield Ok(AmbientAgentEvent::TaskSpawned { task_id, run_id });
+        yield Ok(AmbientAgentEvent::TaskSpawned { task_id });
 
         // Emit AtCapacity event if the server indicates capacity limit reached.
         if at_capacity {

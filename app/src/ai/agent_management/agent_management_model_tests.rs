@@ -263,7 +263,7 @@ fn separate_conversations_have_independent_pending_artifacts() {
 
 // should_trigger_notification: pure-function tests pinning which statuses
 // fire user-facing notifications. Terminal-error and blocked surface;
-// in-progress, waiting-for-events, and user-cancelled do not.
+// in-progress and user-cancelled do not.
 
 #[test]
 fn should_trigger_notification_returns_true_for_success() {
@@ -291,18 +291,13 @@ fn should_trigger_notification_returns_false_for_in_progress() {
 }
 
 #[test]
-fn should_trigger_notification_returns_false_for_waiting_for_events() {
-    assert!(!ConversationStatus::WaitingForEvents.should_trigger_notification());
-}
-
-#[test]
 fn should_trigger_notification_returns_false_for_cancelled() {
     assert!(!ConversationStatus::Cancelled.should_trigger_notification());
 }
 
 // Mailbox suppression for non-terminal status updates. In App::test the
 // `is_conversation_open` gate always returns false, so the
-// WaitingForEvents and InProgress arms both clear stale notifications
+// InProgress updates clear stale notifications
 // regardless of status; this still pins the user-visible contract that
 // no stale "Task completed" toast survives a non-terminal transition.
 
@@ -340,50 +335,6 @@ fn seed_stale_notification(
 }
 
 #[test]
-fn waiting_for_events_clears_stale_notification_and_adds_none() {
-    App::test((), |mut app| async move {
-        let _guard = FeatureFlag::HOANotifications.override_enabled(true);
-        let (history, notifications) = setup_app(&mut app);
-        disable_telemetry_path(&mut app);
-
-        let conversation = AIConversation::new(false, false);
-        let conversation_id = conversation.id();
-        let terminal_view_id = EntityId::new();
-        history.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        seed_stale_notification(&notifications, &mut app, conversation_id, terminal_view_id);
-        notifications.read(&app, |model, _| {
-            assert_eq!(
-                model
-                    .notifications()
-                    .filtered_count(NotificationFilter::All),
-                1,
-                "precondition: one stale notification queued"
-            );
-        });
-
-        history.update(&mut app, |model, ctx| {
-            let conv = model
-                .conversation_mut(&conversation_id)
-                .expect("conversation was just restored");
-            conv.update_status(ConversationStatus::WaitingForEvents, terminal_view_id, ctx);
-        });
-
-        notifications.read(&app, |model, _| {
-            assert_eq!(
-                model
-                    .notifications()
-                    .filtered_count(NotificationFilter::All),
-                0,
-                "WaitingForEvents must clear stale notifications and add no new toast"
-            );
-        });
-    });
-}
-
-#[test]
 fn in_progress_resume_clears_stale_notification_and_adds_none() {
     App::test((), |mut app| async move {
         let _guard = FeatureFlag::HOANotifications.override_enabled(true);
@@ -397,14 +348,12 @@ fn in_progress_resume_clears_stale_notification_and_adds_none() {
             model.restore_conversations(terminal_view_id, vec![conversation], ctx);
         });
 
-        // First move the conversation into WaitingForEvents, then back into
-        // InProgress. The second transition is the resume signal that
-        // PRODUCT.md (18) requires not to fire a notification.
+        // Recover from a transient error without leaving a stale notification.
         history.update(&mut app, |model, ctx| {
             let conv = model
                 .conversation_mut(&conversation_id)
                 .expect("conversation was just restored");
-            conv.update_status(ConversationStatus::WaitingForEvents, terminal_view_id, ctx);
+            conv.update_status(ConversationStatus::TransientError, terminal_view_id, ctx);
         });
 
         seed_stale_notification(&notifications, &mut app, conversation_id, terminal_view_id);
@@ -431,8 +380,7 @@ fn in_progress_resume_clears_stale_notification_and_adds_none() {
                     .notifications()
                     .filtered_count(NotificationFilter::All),
                 0,
-                "WaitingForEvents → InProgress resume must not fire a notification \
-                 (covers PRODUCT.md (18))"
+                "Resuming after a transient error must not fire a notification"
             );
         });
     });

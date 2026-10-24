@@ -12,32 +12,146 @@ use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity, WeakVi
 
 use super::AmbientAgentProgressUIState;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::spawn::{AmbientAgentEvent, spawn_task, submit_run_followup};
 use crate::ai::ambient_agents::task::{HarnessAuthSecretsConfig, HarnessConfig};
 use crate::ai::ambient_agents::telemetry::CloudAgentTelemetryEvent;
-use crate::ai::ambient_agents::{AgentSource, AmbientAgentTaskId};
-use crate::ai::blocklist::BlocklistAIHistoryModel;
+use crate::ai::ambient_agents::{
+    AgentSource, AmbientAgentTaskId, OUT_OF_CREDITS_TASK_FAILURE_MESSAGE,
+    SERVER_OVERLOADED_TASK_FAILURE_MESSAGE, github_auth_url,
+};
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::{LLMId, LLMPreferences};
-use crate::ai::orchestration::{
-    CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
-    classify_cloud_agent_startup_error, should_disable_snapshot,
-};
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ServerId, SyncId};
-use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::{
     AgentConfigSnapshot, AmbientAgentTaskState, AttachmentInput, RunFollowupRequest,
     SpawnAgentRequest,
 };
+use crate::server::server_api::{
+    AIApiError, ClientError, CloudAgentCapacityError, ServerApiProvider,
+};
 use crate::server::team_scope::RequestTeamScope;
+use crate::settings::PrivacySettings;
 use crate::terminal::view::ambient_agent::{SetupCommandGroupId, SetupCommandState};
 use crate::terminal::{CLIAgent, TerminalView};
 use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces};
+use crate::workspaces::workspace::AdminEnablementSetting;
+
+/// A recoverable startup condition that requires user action.
+///
+/// The GUI represents this as `ambient_agent::Status::NeedsGithubAuth`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloudAgentStartupBlocker {
+    GitHubAuthRequired { message: String, auth_url: String },
+}
+
+/// A terminal cloud-agent startup failure.
+///
+/// The GUI represents these as `ambient_agent::Status::Failed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloudAgentStartupFailure {
+    Capacity { message: String },
+    OutOfCredits { message: String },
+    ServerOverloaded { message: String },
+    Other { message: String },
+}
+
+/// Renderer-neutral content for a cloud-agent startup card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloudAgentStartupPresentation {
+    pub title: &'static str,
+    pub detail: String,
+    pub action_label: Option<&'static str>,
+    pub primary_url: Option<String>,
+}
+
+impl CloudAgentStartupPresentation {
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self {
+            title: "Failed to start environment",
+            detail: message.into(),
+            action_label: None,
+            primary_url: None,
+        }
+    }
+
+    pub fn github_auth(auth_url: impl Into<String>) -> Self {
+        Self {
+            title: "GitHub Authentication Required",
+            detail: "Please authenticate with GitHub to continue".to_string(),
+            action_label: Some("Authenticate with GitHub"),
+            primary_url: Some(auth_url.into()),
+        }
+    }
+}
+/// Shared interpretation of an error returned while starting a cloud agent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloudAgentStartupIssue {
+    Blocked(CloudAgentStartupBlocker),
+    Failed(CloudAgentStartupFailure),
+}
+
+/// Maps server/client launch failures into shared startup presentation.
+fn classify_cloud_agent_startup_error(error: &anyhow::Error) -> CloudAgentStartupIssue {
+    if let Some(client_error) = error.downcast_ref::<ClientError>()
+        && let Some(auth_url) = &client_error.auth_url
+    {
+        return CloudAgentStartupIssue::Blocked(CloudAgentStartupBlocker::GitHubAuthRequired {
+            message: client_error.error.clone(),
+            auth_url: github_auth_url::cloud_setup_auth_url_with_next(auth_url),
+        });
+    }
+    if let Some(capacity_error) = error.downcast_ref::<CloudAgentCapacityError>() {
+        return CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Capacity {
+            message: capacity_error.error.clone(),
+        });
+    }
+    if let Some(ai_api_error) = error.downcast_ref::<AIApiError>() {
+        match ai_api_error {
+            AIApiError::QuotaLimit {
+                user_display_message,
+            } => {
+                return CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::OutOfCredits {
+                    message: user_display_message
+                        .clone()
+                        .unwrap_or_else(|| OUT_OF_CREDITS_TASK_FAILURE_MESSAGE.to_string()),
+                });
+            }
+            AIApiError::ServerOverloaded => {
+                return CloudAgentStartupIssue::Failed(
+                    CloudAgentStartupFailure::ServerOverloaded {
+                        message: SERVER_OVERLOADED_TASK_FAILURE_MESSAGE.to_string(),
+                    },
+                );
+            }
+            AIApiError::Transport(_)
+            | AIApiError::Deserialization(_)
+            | AIApiError::NoContextFound
+            | AIApiError::ErrorStatus(_, _)
+            | AIApiError::Other(_)
+            | AIApiError::Stream { .. }
+            | AIApiError::UnexpectedEof
+            | AIApiError::GrokSubscriptionTokenRefreshFailed => {}
+        }
+    }
+    CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Other {
+        message: error.to_string(),
+    })
+}
+
+fn should_disable_snapshot(ctx: &AppContext) -> bool {
+    let privacy = PrivacySettings::as_ref(ctx);
+    if !privacy.is_cloud_conversation_storage_enabled {
+        return true;
+    }
+    matches!(
+        UserWorkspaces::as_ref(ctx).get_cloud_conversation_storage_enablement_setting(),
+        AdminEnablementSetting::Disable
+    )
+}
 
 /// Tracks progress timestamps for each step during ambient agent spawning.
 #[derive(Debug, Clone)]
@@ -139,11 +253,6 @@ pub struct AmbientAgentViewModel {
     /// Source of the current cloud agent task, once known.
     source: Option<AgentSource>,
 
-    /// The local conversation associated with this cloud agent run, if any.
-    /// Set for remote child agents spawned via `start_agent` so the `run_id`
-    /// from the server response can be wired back to the conversation.
-    conversation_id: Option<AIConversationId>,
-
     /// Selected execution harness for the cloud agent run.
     /// Defaults to `Harness::Oz`. Used to populate `AgentConfigSnapshot.harness` on spawn.
     harness: Harness,
@@ -226,7 +335,6 @@ impl AmbientAgentViewModel {
             setup_commands_state: Default::default(),
             task_id: None,
             source: None,
-            conversation_id: None,
             harness,
             worker_host: None,
             harness_model_id: None,
@@ -703,7 +811,7 @@ impl AmbientAgentViewModel {
     }
 
     /// Attach a new execution session to an existing ambient agent pane (e.g. when the
-    /// owner reopens a cloud conversation whose orchestrator has spun up a follow-up
+    /// owner reopens a cloud conversation whose run has started a follow-up
     /// session). The emitted `ExecutionSessionReady` event drives the view-side
     /// `TerminalManager::attach_execution_session` swap to the new shared session.
     pub fn attach_execution_session(
@@ -834,7 +942,6 @@ impl AmbientAgentViewModel {
         self.environment_id_from_viewed_task = false;
         self.task_id = None;
         self.source = None;
-        self.conversation_id = None;
         self.harness_model_id = None;
         self.harness_reasoning_level = None;
         self.harness_command_started = false;
@@ -845,11 +952,6 @@ impl AmbientAgentViewModel {
         self.setup_commands_state = Default::default();
         self.stop_progress_timer();
         ctx.notify();
-    }
-
-    /// Sets the local conversation ID associated with this cloud agent run.
-    pub fn set_conversation_id(&mut self, id: Option<AIConversationId>) {
-        self.conversation_id = id;
     }
 
     /// Builds the default `AgentConfigSnapshot` for spawning a cloud agent from this pane.
@@ -928,7 +1030,6 @@ impl AmbientAgentViewModel {
             skill: None,
             attachments,
             interactive: None,
-            parent_run_id: None,
             runtime_skills: vec![],
             referenced_attachments: vec![],
             snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
@@ -1037,7 +1138,7 @@ impl AmbientAgentViewModel {
         ctx: &mut ModelContext<Self>,
     ) {
         match event {
-            AmbientAgentEvent::TaskSpawned { task_id, run_id } => {
+            AmbientAgentEvent::TaskSpawned { task_id, .. } => {
                 self.task_id = Some(task_id);
                 if matches!(self.status, Status::Cancelled { .. }) {
                     log::info!(
@@ -1046,20 +1147,6 @@ impl AmbientAgentViewModel {
                     );
                     Self::cancel_spawned_task(task_id, ctx);
                     return;
-                }
-
-                if let Some(conversation_id) = self.conversation_id {
-                    let terminal_view_id = self.terminal_view_id;
-                    let spawned_task_id = Some(task_id);
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                        history.assign_run_id_for_conversation(
-                            conversation_id,
-                            run_id,
-                            spawned_task_id,
-                            terminal_view_id,
-                            ctx,
-                        );
-                    });
                 }
 
                 ActiveAgentViewsModel::handle(ctx).update(ctx, |model, ctx| {

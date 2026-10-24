@@ -165,7 +165,6 @@ pub mod workflows;
 pub mod workspace;
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::ops::Deref;
 #[cfg(feature = "local_fs")]
 use std::path::PathBuf;
@@ -212,7 +211,6 @@ use workspace::sync_inputs::SyncedInputState;
 
 use self::features::FeatureFlag;
 use crate::ai::AIRequestUsageModel;
-use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
@@ -244,7 +242,6 @@ use crate::notebooks::manager::NotebookManager;
 use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::persistence::PersistenceWriter;
-use crate::persistence::model::AgentConversationData;
 use crate::projects::ProjectManagementModel;
 use crate::root_view::{
     OpenFromRestoredArg, OpenPath, quake_mode_window_id, quake_mode_window_is_open,
@@ -1587,22 +1584,6 @@ pub(crate) fn initialize_app(
         )
     });
 
-    // Seed the orchestration pin set from persisted conversation data
-    // before the conversations vec is consumed by the singletons below.
-    // Each conversation's `AgentConversationData.pinned` is the source of
-    // truth; the singleton mirrors them in memory for fast cross-pane lookups.
-    let initial_pinned_conversations: HashSet<AIConversationId> = multi_agent_conversations
-        .iter()
-        .filter_map(|conv| {
-            let data =
-                serde_json::from_str::<AgentConversationData>(&conv.conversation.conversation_data)
-                    .ok()?;
-            if !data.pinned {
-                return None;
-            }
-            AIConversationId::try_from(conv.conversation.conversation_id.clone()).ok()
-        })
-        .collect();
     {
         let conversations = &multi_agent_conversations;
         ctx.add_singleton_model(move |_| {
@@ -1619,14 +1600,6 @@ pub(crate) fn initialize_app(
     // Per-conversation queued prompts. Registered after the history model
     // since it subscribes to history events for cleanup.
     ctx.add_singleton_model(ai::blocklist::QueuedQueryModel::new);
-    // Cross-pane UI state for the orchestration pill bar. Registered
-    // after the history model since it subscribes to history events.
-    ctx.add_singleton_model(move |ctx| {
-        ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel::new(
-            initial_pinned_conversations,
-            ctx,
-        )
-    });
     // Conversations restore lazily from the local DB on demand; startup only
     // loads metadata.
     ctx.add_singleton_model(|_| RestoredAgentConversations::new());
@@ -1634,12 +1607,8 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| ActiveAgentViewsModel::new());
     ctx.add_singleton_model(AgentNotificationsModel::new);
     ctx.add_singleton_model(BlocklistAIPermissions::new);
-    ctx.add_singleton_model(ai::blocklist::orchestration_events::OrchestrationEventService::new);
     ctx.add_singleton_model(
         ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel::new,
-    );
-    ctx.add_singleton_model(
-        ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::new,
     );
 
     if launch_mode.supports_indexing() {

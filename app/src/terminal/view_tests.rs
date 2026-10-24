@@ -100,7 +100,6 @@ fn owned_resumable_oz_task(task_id: AmbientAgentTaskId) -> AmbientAgentTask {
     let now = Utc::now();
     AmbientAgentTask {
         task_id,
-        parent_run_id: None,
         title: "Task".to_string(),
         state: AmbientAgentTaskState::Succeeded,
         prompt: "test".to_string(),
@@ -124,8 +123,6 @@ fn owned_resumable_oz_task(task_id: AmbientAgentTaskId) -> AmbientAgentTask {
         is_sandbox_running: false,
         agent_config_snapshot: None,
         artifacts: vec![],
-        last_event_sequence: None,
-        children: vec![],
         debug_agent_available: false,
         scope: None,
     }
@@ -1882,68 +1879,40 @@ fn todo_update_targets_only_todo_bearing_blocks_in_conversation() {
 }
 
 #[test]
-fn usage_update_targets_latest_blocks_for_conversation_and_ancestors() {
+fn usage_update_targets_latest_block_for_conversation() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let terminal = add_window_with_terminal(&mut app, None);
 
-        let (child_conversation_id, parent_old_block_id, expected_block_ids) =
+        let (conversation_id, old_block_id, latest_block_id) =
             terminal.update(&mut app, |view, ctx| {
-                let (parent_conversation_id, _, _, _) = append_exchange_and_handle_event(
+                let (conversation_id, _, _, _) = append_exchange_and_handle_event(
                     view,
-                    agent_view_user_query_input("parent first"),
+                    agent_view_user_query_input("first"),
                     ctx,
                 );
-                let parent_old_block_id =
-                    *ai_block_ids_for_conversation(view, parent_conversation_id)
-                        .last()
-                        .expect("parent AI block should exist");
-                let child_conversation_id =
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                        history.start_new_child_conversation(
-                            view.view_id,
-                            "child".to_string(),
-                            parent_conversation_id,
-                            None,
-                            false,
-                            ctx,
-                        )
-                    });
+                let old_block_id = *ai_block_ids_for_conversation(view, conversation_id)
+                    .last()
+                    .expect("first AI block should exist");
                 append_inputs_to_conversation_and_handle_event(
                     view,
-                    child_conversation_id,
-                    vec![agent_view_user_query_input("child")],
+                    conversation_id,
+                    vec![agent_view_user_query_input("latest")],
                     ctx,
                 );
-                append_inputs_to_conversation_and_handle_event(
-                    view,
-                    parent_conversation_id,
-                    vec![agent_view_user_query_input("parent latest")],
-                    ctx,
-                );
-                let expected_block_ids = HashSet::from([
-                    *ai_block_ids_for_conversation(view, child_conversation_id)
-                        .last()
-                        .expect("child AI block should exist"),
-                    *ai_block_ids_for_conversation(view, parent_conversation_id)
-                        .last()
-                        .expect("latest parent AI block should exist"),
-                ]);
-                (
-                    child_conversation_id,
-                    parent_old_block_id,
-                    expected_block_ids,
-                )
+                let latest_block_id = *ai_block_ids_for_conversation(view, conversation_id)
+                    .last()
+                    .expect("latest AI block should exist");
+                (conversation_id, old_block_id, latest_block_id)
             });
 
         terminal.read(&app, |view, ctx| {
-            let event = BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
-                conversation_id: child_conversation_id,
-            };
+            let event =
+                BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { conversation_id };
             let targets = routed_ai_block_ids(view, &event, ctx);
 
-            assert_eq!(targets, expected_block_ids);
-            assert!(!targets.contains(&parent_old_block_id));
+            assert_eq!(targets, HashSet::from([latest_block_id]));
+            assert!(!targets.contains(&old_block_id));
         });
     })
 }
@@ -3473,7 +3442,6 @@ fn cloud_mode_dispatched_agent_inserts_queued_user_query() {
                             skill: None,
                             attachments: vec![],
                             interactive: None,
-                            parent_run_id: None,
                             runtime_skills: vec![],
                             referenced_attachments: vec![],
                             snapshot_disabled: None,
@@ -8582,116 +8550,6 @@ fn copy_does_not_forward_on_normal_screen() {
             "Copy must not write anything to the PTY on the normal screen with no selection"
         );
     })
-}
-
-#[test]
-fn back_button_label_names_the_direct_parent_at_depth() {
-    App::test((), |mut app| async move {
-        crate::test_util::settings::initialize_history_persistence_for_tests(&mut app);
-        let terminal_view_id = EntityId::new();
-        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
-        let (root_id, mid_id, grandchild_id) = history_model.update(&mut app, |history, ctx| {
-            let root_id =
-                history.start_new_conversation(terminal_view_id, false, false, false, ctx);
-            let mid_id = history.start_new_child_conversation(
-                terminal_view_id,
-                "api-refactor".to_string(),
-                root_id,
-                None,
-                false,
-                ctx,
-            );
-            let grandchild_id = history.start_new_child_conversation(
-                terminal_view_id,
-                "grandchild".to_string(),
-                mid_id,
-                None,
-                false,
-                ctx,
-            );
-            (root_id, mid_id, grandchild_id)
-        });
-
-        // A nested parent whose agent name is empty falls back to the
-        // generic wording instead of rendering "for ".
-        let (unnamed_mid_id, nested_under_unnamed_id) =
-            history_model.update(&mut app, |history, ctx| {
-                let unnamed_mid_id = history.start_new_child_conversation(
-                    terminal_view_id,
-                    String::new(),
-                    root_id,
-                    None,
-                    false,
-                    ctx,
-                );
-                let nested_id = history.start_new_child_conversation(
-                    terminal_view_id,
-                    "nested".to_string(),
-                    unnamed_mid_id,
-                    None,
-                    false,
-                    ctx,
-                );
-                (unnamed_mid_id, nested_id)
-            });
-
-        history_model.read(&app, |history, _| {
-            assert_eq!(agent_view_back_button_label(history, None), "for terminal");
-            assert_eq!(
-                agent_view_back_button_label(history, Some(root_id)),
-                "for terminal",
-            );
-            assert_eq!(
-                agent_view_back_button_label(history, Some(mid_id)),
-                "for Orchestrator",
-            );
-            assert_eq!(
-                agent_view_back_button_label(history, Some(grandchild_id)),
-                "for api-refactor",
-            );
-            assert_eq!(
-                agent_view_back_button_label(history, Some(unnamed_mid_id)),
-                "for Orchestrator",
-            );
-            assert_eq!(
-                agent_view_back_button_label(history, Some(nested_under_unnamed_id)),
-                "for parent agent",
-            );
-        });
-    });
-}
-
-/// A child linked to its parent only via a legacy server conversation token
-/// in `parent_agent_id` (no explicit parent conversation id, no run id) must
-/// still resolve the parent through the history model's canonical
-/// resolution, yielding the same back-button label as an id-linked child.
-#[test]
-fn back_button_label_resolves_token_only_parent_linkage() {
-    App::test((), |mut app| async move {
-        crate::test_util::settings::initialize_history_persistence_for_tests(&mut app);
-        let terminal_view_id = EntityId::new();
-        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
-        let child_id = history_model.update(&mut app, |history, ctx| {
-            let root_id =
-                history.start_new_conversation(terminal_view_id, false, false, false, ctx);
-            history
-                .set_server_conversation_token_for_conversation(root_id, "root-token".to_string());
-            let child_id =
-                history.start_new_conversation(terminal_view_id, false, false, false, ctx);
-            history
-                .conversation_mut(&child_id)
-                .expect("child conversation exists")
-                .set_parent_agent_id("root-token".to_string());
-            child_id
-        });
-
-        history_model.read(&app, |history, _| {
-            assert_eq!(
-                agent_view_back_button_label(history, Some(child_id)),
-                "for Orchestrator",
-            );
-        });
-    });
 }
 
 #[test]

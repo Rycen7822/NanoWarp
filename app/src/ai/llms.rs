@@ -1558,37 +1558,6 @@ impl LLMPreferences {
         }
     }
 
-    /// Pins an explicit child-run model independently of profile or TUI
-    /// defaults. Persist the pin whenever it changes, but notify active-model
-    /// subscribers only when the surface's effective selection changes.
-    #[cfg(not(target_family = "wasm"))]
-    pub(crate) fn set_agent_mode_llm_override(
-        &mut self,
-        scope: &(impl TeamScope + ?Sized),
-        terminal_view_id: EntityId,
-        model_id: LLMId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let previous_effective_model_id = self
-            .get_active_base_model(scope, ctx, Some(terminal_view_id))
-            .id
-            .clone();
-        let stored_selection_changed = self
-            .base_llm_for_terminal_view
-            .insert(terminal_view_id, model_id.clone())
-            != Some(model_id);
-        if stored_selection_changed {
-            self.trigger_snapshot_save(ctx);
-            if self
-                .get_active_base_model(scope, ctx, Some(terminal_view_id))
-                .id
-                != previous_effective_model_id
-            {
-                ctx.emit(LLMPreferencesEvent::UpdatedActiveAgentModeLLM);
-            }
-        }
-    }
-
     /// Copies the raw per-pane Agent Mode override from `source_terminal_view_id`
     /// onto `new_terminal_view_id`, removing any existing override when the
     /// source has none. Combined with copying the source's execution profile,

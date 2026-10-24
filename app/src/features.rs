@@ -71,10 +71,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellSelector,
         #[cfg(feature = "integration_command")]
         FeatureFlag::IntegrationCommand,
-        #[cfg(feature = "cloud_runners")]
-        FeatureFlag::CloudRunners,
-        #[cfg(feature = "cloud_agent_runners")]
-        FeatureFlag::CloudAgentRunners,
         #[cfg(feature = "cloud_agent_execution_config")]
         FeatureFlag::CloudAgentExecutionConfig,
         #[cfg(feature = "account_first_onboarding")]

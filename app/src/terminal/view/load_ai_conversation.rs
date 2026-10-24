@@ -773,16 +773,8 @@ impl TerminalView {
             reverted_action_ids: None,
             forked_from_server_conversation_token: None,
             artifacts_json: None,
-            parent_agent_id: None,
-            agent_name: None,
-            orchestration_harness_type: None,
-            parent_conversation_id: None,
-            is_remote_child: false,
-            root_task_is_optimistic: None,
             run_id: None,
             autoexecute_override: None,
-            last_event_sequence: None,
-            pinned: false,
             use_warp_credits_instead_of_chatgpt: false,
         };
 

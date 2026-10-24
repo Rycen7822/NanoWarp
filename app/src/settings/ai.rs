@@ -155,43 +155,6 @@ impl ThinkingDisplayMode {
     }
 }
 
-/// Controls how child-agent message bodies are displayed.
-#[derive(
-    Default,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Copy,
-    Clone,
-    EnumIter,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "Controls how child-agent messages are displayed.",
-    rename_all = "snake_case"
-)]
-pub enum OrchestrationMessageDisplayMode {
-    /// Show child-agent messages while streaming, then collapse them.
-    ShowAndCollapse,
-    /// Keep child-agent message bodies expanded.
-    AlwaysShow,
-    /// Keep child-agent message bodies collapsed.
-    #[default]
-    AlwaysCollapse,
-}
-
-settings::macros::implement_setting_for_enum!(
-    OrchestrationMessageDisplayMode,
-    AISettings,
-    SupportedPlatforms::ALL,
-    SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-    private: false,
-    toml_path: "agents.warp_agent.other.orchestration_message_display_mode",
-    description: "Controls how child-agent messages are displayed.",
-);
-
 /// Unit for GUI usage and spend displays.
 #[derive(
     Default,
@@ -231,45 +194,6 @@ impl UsageDisplayUnit {
             UsageDisplayUnit::Credits => "Credits",
             UsageDisplayUnit::Dollars => "Dollars",
         }
-    }
-}
-
-impl OrchestrationMessageDisplayMode {
-    /// Display name for the settings dropdown.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            OrchestrationMessageDisplayMode::ShowAndCollapse => "Show & collapse",
-            OrchestrationMessageDisplayMode::AlwaysShow => "Always show",
-            OrchestrationMessageDisplayMode::AlwaysCollapse => "Always collapse",
-        }
-    }
-
-    pub fn command_palette_description(&self) -> &'static str {
-        match self {
-            OrchestrationMessageDisplayMode::ShowAndCollapse => {
-                "Set child-agent message display: show & collapse"
-            }
-            OrchestrationMessageDisplayMode::AlwaysShow => {
-                "Set child-agent message display: always show"
-            }
-            OrchestrationMessageDisplayMode::AlwaysCollapse => {
-                "Set child-agent message display: always collapse"
-            }
-        }
-    }
-
-    /// Whether child-agent message bodies should expand while streaming.
-    pub fn should_expand_agent_message_body(&self) -> bool {
-        matches!(
-            self,
-            OrchestrationMessageDisplayMode::ShowAndCollapse
-                | OrchestrationMessageDisplayMode::AlwaysShow
-        )
-    }
-
-    /// Whether child-agent message bodies should collapse after streaming.
-    pub fn should_collapse_agent_message_body_on_finish(&self) -> bool {
-        matches!(self, OrchestrationMessageDisplayMode::ShowAndCollapse)
     }
 }
 
@@ -822,8 +746,6 @@ define_settings_group!(AISettings, settings: [
     // Controls how agent thinking/reasoning traces are displayed.
     thinking_display_mode: ThinkingDisplayMode,
 
-    // Controls how orchestration message bodies are expanded by default.
-    orchestration_message_display_mode: OrchestrationMessageDisplayMode,
 
     // Default behavior when the user submits a new prompt while the agent is still
     // responding. Per-conversation overrides live on `QueuedQueryModel`; this
@@ -981,10 +903,6 @@ impl AISettings {
 
     pub fn is_warp_drive_context_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_any_ai_enabled(app) && *self.warp_drive_context_enabled
-    }
-
-    pub fn is_orchestration_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_any_ai_enabled(app)
     }
 
     /// Determines whether a quota reset banner should be displayed to the user.
@@ -1152,10 +1070,6 @@ impl AISettings {
 
     pub fn is_ask_user_question_permissions_editable(&self, app: &AppContext) -> bool {
         self.is_any_ai_enabled(app)
-    }
-
-    pub fn is_run_agents_permissions_editable(&self, app: &AppContext) -> bool {
-        self.is_orchestration_enabled(app)
     }
 }
 

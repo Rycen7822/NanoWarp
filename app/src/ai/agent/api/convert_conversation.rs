@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use ai::agent::action_result::{
     AskUserQuestionAnswerItem, AskUserQuestionResult, FetchConversationResult, ReadSkillResult,
-    SendMessageToAgentResult,
 };
 use ai::skills::{ParsedSkill, SkillPathOrigin};
 use chrono::{DateTime, Local, TimeZone};
@@ -76,16 +75,8 @@ pub fn convert_conversation_data_to_ai_conversation(
             ),
             // If we fork, new conversation, artifacts don't carry over
             artifacts_json: None,
-            parent_agent_id: None,
-            agent_name: None,
-            orchestration_harness_type: None,
-            parent_conversation_id: None,
-            is_remote_child: false,
-            root_task_is_optimistic: None,
             run_id: None,
             autoexecute_override: None,
-            last_event_sequence: None,
-            pinned: false,
             use_warp_credits_instead_of_chatgpt: false,
         },
         RestorationMode::Continue => AgentConversationData {
@@ -96,18 +87,10 @@ pub fn convert_conversation_data_to_ai_conversation(
             reverted_action_ids: None,
             forked_from_server_conversation_token: None,
             artifacts_json: serde_json::to_string(&metadata.artifacts).ok(),
-            parent_agent_id: None,
-            agent_name: None,
-            orchestration_harness_type: None,
-            parent_conversation_id: None,
-            is_remote_child: false,
-            root_task_is_optimistic: None,
             run_id: metadata
                 .ambient_agent_task_id
                 .map(|task_id| task_id.to_string()),
             autoexecute_override: None,
-            last_event_sequence: None,
-            pinned: false,
             use_warp_credits_instead_of_chatgpt: false,
         },
     };
@@ -381,13 +364,16 @@ impl ConvertToExchanges for &api::Task {
 
             let added_message_as_exchange_input = match message {
                 api::message::Message::UserQuery(user_query) => {
+                    let Some(user_query_mode) = convert_user_query_mode(user_query.mode.as_ref()) else {
+                        continue;
+                    };
                     // Add user query as input
                     current_inputs.push(AIAgentInput::UserQuery {
                         query: user_query.query.clone(),
                         context: convert_input_context(user_query.context.as_ref()),
                         static_query_type: None,
                         referenced_attachments: HashMap::new(),
-                        user_query_mode: convert_user_query_mode(user_query.mode.as_ref()),
+                        user_query_mode,
                         running_command: None,
                         intended_agent: Some(user_query.intended_agent()),
                         base: BaseUserQuery::from_message(user_query),
@@ -464,14 +450,6 @@ impl ConvertToExchanges for &api::Task {
 
                     true
                 }
-                // Preserve EventsFromAgents as an explicit input in restored conversations
-                // so orchestration state (including lifecycle timestamps) survives roundtrip.
-                api::message::Message::EventsFromAgents(events) => {
-                    current_inputs.push(AIAgentInput::EventsFromAgents {
-                        events: events.agent_events.clone(),
-                    });
-                    true
-                }
                 api::message::Message::PassiveSuggestionResult(_)
                 | api::message::Message::AgentOutput(_)
                 | api::message::Message::AgentReasoning(_)
@@ -486,6 +464,7 @@ impl ConvertToExchanges for &api::Task {
                 | api::message::Message::DebugOutput(_)
                 | api::message::Message::ArtifactEvent(_)
                 | api::message::Message::MessagesReceivedFromAgents(_)
+                | api::message::Message::EventsFromAgents(_)
                 | api::message::Message::ModelUsed(_)
                 | api::message::Message::OrchestrationConfigSnapshot(_)
                 | api::message::Message::RequestMetadata(_) => false,
@@ -1224,105 +1203,6 @@ pub(crate) fn convert_tool_call_result_to_input(
                 context,
             })
         }
-        Some(ToolCallResultType::SendMessageToAgent(result)) => {
-            let send_message_result = match &result.result {
-                Some(api::send_message_to_agent_result::Result::Success(success)) => {
-                    SendMessageToAgentResult::Success {
-                        message_id: success.message_id.clone(),
-                    }
-                }
-                Some(api::send_message_to_agent_result::Result::Error(error)) => {
-                    SendMessageToAgentResult::Error(error.message.clone())
-                }
-                None => SendMessageToAgentResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::SendMessageToAgent(send_message_result),
-                },
-                context,
-            })
-        }
-        Some(ToolCallResultType::RunAgentsResult(result)) => {
-            use ai::agent::action_result::{
-                RunAgentsAgentOutcome, RunAgentsAgentOutcomeKind, RunAgentsLaunchedExecutionMode,
-                RunAgentsResult,
-            };
-            let run_agents_result = match &result.outcome {
-                Some(api::run_agents_result::Outcome::Launched(launched)) => {
-                    #[allow(deprecated)]
-                    let execution_mode = match &launched.resolved_execution_mode {
-                        Some(api::run_agents_result::launched::ResolvedExecutionMode::Remote(
-                            remote,
-                        )) => RunAgentsLaunchedExecutionMode::Remote {
-                            environment_id: remote.environment_id.clone(),
-                            worker_host: remote.worker_host.clone(),
-                            runner_id: remote.runner_id.clone(),
-                        },
-                        Some(api::run_agents_result::launched::ResolvedExecutionMode::Local(_))
-                        | None => RunAgentsLaunchedExecutionMode::Local,
-                    };
-                    let agents = launched
-                        .agents
-                        .iter()
-                        .map(|outcome| RunAgentsAgentOutcome {
-                            name: outcome.name.clone(),
-                            // Proto field is model_id (renamed from resolved_model_id).
-                            resolved_model_id: outcome.model_id.clone(),
-                            kind: match &outcome.result {
-                                Some(api::run_agents_result::agent_outcome::Result::Launched(
-                                    launched_agent,
-                                )) => RunAgentsAgentOutcomeKind::Launched {
-                                    agent_id: launched_agent.agent_id.clone(),
-                                },
-                                Some(api::run_agents_result::agent_outcome::Result::Failed(
-                                    failed,
-                                )) => RunAgentsAgentOutcomeKind::Failed {
-                                    error: failed.error.clone(),
-                                },
-                                None => RunAgentsAgentOutcomeKind::Failed {
-                                    error: String::new(),
-                                },
-                            },
-                        })
-                        .collect();
-                    #[allow(deprecated)]
-                    let model_id = launched.resolved_model_id.clone();
-                    #[allow(deprecated)]
-                    let harness_type =
-                        crate::ai::agent::api::convert_from::convert_run_agents_harness(
-                            launched.resolved_harness.as_ref(),
-                        )
-                        .unwrap_or_default();
-                    RunAgentsResult::Launched {
-                        model_id,
-                        harness_type,
-                        execution_mode,
-                        agents,
-                    }
-                }
-                Some(api::run_agents_result::Outcome::Denied(denied)) => RunAgentsResult::Denied {
-                    reason: denied.reason.clone(),
-                },
-                Some(api::run_agents_result::Outcome::Failure(failure)) => {
-                    RunAgentsResult::Failure {
-                        error: failure.error.clone(),
-                    }
-                }
-                None => RunAgentsResult::Cancelled,
-            };
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::RunAgents(run_agents_result),
-                },
-                context,
-            })
-        }
         // Deprecated/unused result types or absent result.
         Some(ToolCallResultType::SuggestCreatePlan(..))
         | Some(ToolCallResultType::SuggestPlan(..))
@@ -1331,7 +1211,9 @@ pub(crate) fn convert_tool_call_result_to_input(
             log::warn!("No result present for tool call ID: {tool_call_id}");
             None
         }
-        Some(ToolCallResultType::ReadMcpResource(_))
+        Some(ToolCallResultType::SendMessageToAgent(_))
+        | Some(ToolCallResultType::RunAgentsResult(_))
+        | Some(ToolCallResultType::ReadMcpResource(_))
         | Some(ToolCallResultType::CallMcpTool(_))
         | Some(ToolCallResultType::WaitForEvents(_))
         | Some(ToolCallResultType::UploadFileArtifact(_))
@@ -1441,12 +1323,8 @@ fn create_cancelled_result_for_tool_call(
         ToolType::AskUserQuestion(_) => {
             AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Cancelled)
         }
-        ToolType::SendMessageToAgent(_) => {
-            AIAgentActionResultType::SendMessageToAgent(SendMessageToAgentResult::Cancelled)
-        }
-        ToolType::RunAgents(_) => {
-            AIAgentActionResultType::RunAgents(ai::agent::action_result::RunAgentsResult::Cancelled)
-        }
+        ToolType::SendMessageToAgent(_) => return None,
+        ToolType::RunAgents(_) => return None,
         // These tools are deprecated.
         ToolType::SuggestCreatePlan(_) | ToolType::SuggestPlan(_) => return None,
         ToolType::WaitForEvents(_) => {

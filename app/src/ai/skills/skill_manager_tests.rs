@@ -809,7 +809,8 @@ fn active_skill_by_reference_resolves_exact_remote_identity() {
 
         let resolved = handle.read(&app, |manager, _ctx| {
             manager
-                .active_skill_by_reference(&reference)
+                .active_skill_by_reference_with_origin(&reference, &SkillPathOrigin::Local)
+                .ok()
                 .map(|skill| skill.path.clone())
         });
 
@@ -843,10 +844,18 @@ fn active_skill_by_reference_distinguishes_remote_hosts_with_the_same_display_pa
         let resolved = handle.read(&app, |manager, _ctx| {
             (
                 manager
-                    .active_skill_by_reference(&first_reference)
+                    .active_skill_by_reference_with_origin(
+                        &first_reference,
+                        &SkillPathOrigin::Local,
+                    )
+                    .ok()
                     .map(|skill| skill.path.clone()),
                 manager
-                    .active_skill_by_reference(&second_reference)
+                    .active_skill_by_reference_with_origin(
+                        &second_reference,
+                        &SkillPathOrigin::Local,
+                    )
+                    .ok()
                     .map(|skill| skill.path.clone()),
             )
         });
@@ -896,8 +905,6 @@ fn remote_home_skills_are_host_scoped_replaceable_and_path_invokable() {
     let second_host = HostId::new("second-host".to_string());
     let first_skill = make_remote_home_skill(&first_host, "deploy", "first host content");
     let second_skill = make_remote_home_skill(&second_host, "deploy", "second host content");
-    let first_skill_path = first_skill.path.clone();
-    let second_skill_path = second_skill.path.clone();
     let first_reference = SkillReference::Path(first_skill.path.clone());
     let second_reference = SkillReference::Path(second_skill.path.clone());
     let first_cwd = remote_test_path(&first_host, "/work/repo");
@@ -924,14 +931,6 @@ fn remote_home_skills_are_host_scoped_replaceable_and_path_invokable() {
                 vec![second_skill],
             );
         });
-        assert_eq!(
-            handle
-                .read(&app, |manager, _| manager.skill_paths_by_name("deploy"))
-                .into_iter()
-                .collect::<HashSet<_>>(),
-            HashSet::from([first_skill_path.clone(), second_skill_path.clone()])
-        );
-
         for (cwd, host_id, expected_content, reference) in [
             (
                 &first_cwd,
@@ -1040,10 +1039,6 @@ fn remote_home_skills_are_host_scoped_replaceable_and_path_invokable() {
                 )
                 .is_ok()
         }));
-        assert_eq!(
-            handle.read(&app, |manager, _| manager.skill_paths_by_name("deploy")),
-            vec![second_skill_path]
-        );
     });
 }
 
@@ -1078,11 +1073,6 @@ fn removing_remote_home_skills_preserves_project_skills_below_home() {
         handle.read(&app, |manager, _| {
             assert!(manager.skill_by_path(&home_skill_path).is_none());
             assert!(manager.skill_by_path(&project_skill_path).is_some());
-            assert!(manager.skill_paths_by_name("home").is_empty());
-            assert_eq!(
-                manager.skill_paths_by_name("project"),
-                vec![project_skill_path]
-            );
         });
     });
 }

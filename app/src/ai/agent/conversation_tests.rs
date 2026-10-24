@@ -47,16 +47,8 @@ fn conversation_data_with_usage_metadata(
         reverted_action_ids: None,
         forked_from_server_conversation_token: None,
         artifacts_json: None,
-        parent_agent_id: None,
-        agent_name: None,
-        orchestration_harness_type: None,
-        parent_conversation_id: None,
-        is_remote_child: false,
-        root_task_is_optimistic: None,
         run_id: None,
         autoexecute_override: None,
-        last_event_sequence: None,
-        pinned: false,
         use_warp_credits_instead_of_chatgpt: false,
     }
 }
@@ -268,29 +260,6 @@ fn restored_conversation_defaults_autoexecute_override_when_not_persisted() {
 }
 
 #[test]
-fn restored_conversation_uses_persisted_last_event_sequence() {
-    let conversation_data: AgentConversationData =
-        serde_json::from_str(r#"{"server_conversation_token":null,"last_event_sequence":42}"#)
-            .unwrap();
-
-    let conversation = restored_conversation(Some(conversation_data));
-
-    assert_eq!(conversation.last_event_sequence(), Some(42));
-}
-
-#[test]
-fn restored_conversation_uses_persisted_remote_child_marker() {
-    let conversation_data: AgentConversationData =
-        serde_json::from_str(r#"{"server_conversation_token":null,"is_remote_child":true}"#)
-            .unwrap();
-
-    let conversation = restored_conversation(Some(conversation_data));
-
-    assert!(conversation.is_remote_child());
-    assert_eq!(conversation.driver(), ConversationDriver::RemoteChild);
-}
-
-#[test]
 fn new_conversation_maps_constructor_flags_to_a_driver() {
     assert_eq!(
         AIConversation::new(false, false).driver(),
@@ -311,7 +280,6 @@ fn legacy_flag_accessors_reflect_the_driver() {
     let mut conversation = AIConversation::new(false, false);
     assert!(!conversation.is_viewing_shared_session());
     assert!(!conversation.is_cli_agent_transcript());
-    assert!(!conversation.is_remote_child());
 
     conversation.set_is_viewing_shared_session(true);
     assert!(conversation.is_viewing_shared_session());
@@ -322,28 +290,9 @@ fn legacy_flag_accessors_reflect_the_driver() {
 
     conversation.set_is_viewing_shared_session(false);
     assert_eq!(conversation.driver(), ConversationDriver::Native);
-
-    conversation.mark_as_remote_child();
-    assert!(conversation.is_remote_child());
-    // Clearing the viewer flag on a non-viewer is a no-op, as it was with independent booleans.
-    conversation.set_is_viewing_shared_session(false);
-    assert_eq!(conversation.driver(), ConversationDriver::RemoteChild);
 }
 
-#[test]
-fn child_conversation_detection_uses_parent_agent_id() {
-    let conversation_data: AgentConversationData = serde_json::from_str(
-        r#"{"server_conversation_token":null,"parent_agent_id":"parent-run-id"}"#,
-    )
-    .unwrap();
-
-    let conversation = restored_conversation(Some(conversation_data));
-
-    assert!(conversation.is_child_agent_conversation());
-    assert_eq!(conversation.parent_conversation_id(), None);
-}
-
-/// When the persisted task list is empty (e.g. a child conversation persisted
+/// When the persisted task list is empty (e.g. a new conversation persisted
 /// before any server response), restoring via `new_restored_synthesizing_on_empty`
 /// must produce a fresh in-progress optimistic root, mirroring
 /// `AIConversation::new()`.
@@ -849,53 +798,6 @@ fn footer_model_token_usage_preserves_unresolved_custom_endpoint_usage_with_fall
     });
 }
 
-/// The legacy `AgentConversationData.root_task_is_optimistic` flag must be
-/// ignored on restore. A non-empty task list always produces a real
-/// server-backed root regardless of whether the flag is set.
-#[test]
-fn restored_conversation_ignores_legacy_root_task_is_optimistic_flag_with_non_empty_tasks() {
-    let conversation_data: AgentConversationData = serde_json::from_str(
-        r#"{"server_conversation_token":null,"root_task_is_optimistic":true}"#,
-    )
-    .unwrap();
-
-    let conversation = restored_conversation(Some(conversation_data));
-    let root_task = conversation
-        .get_root_task()
-        .expect("root task should exist");
-
-    assert_eq!(root_task.id().to_string(), "root-task");
-    assert!(root_task.is_root_task());
-    assert!(
-        root_task.source().is_some(),
-        "with a real task list, the legacy optimistic flag must be ignored",
-    );
-}
-
-/// The legacy `root_task_is_optimistic` flag is ignored when restoring an
-/// empty task list via `new_restored_synthesizing_on_empty`.
-#[test]
-fn restored_conversation_ignores_legacy_root_task_is_optimistic_flag_with_empty_tasks() {
-    let conversation_data: AgentConversationData = serde_json::from_str(
-        r#"{"server_conversation_token":null,"root_task_is_optimistic":true}"#,
-    )
-    .unwrap();
-
-    let conversation = AIConversation::new_restored_synthesizing_on_empty(
-        AIConversationId::new(),
-        vec![],
-        Some(conversation_data),
-    )
-    .expect("empty task list must synthesize an optimistic root regardless of legacy flag");
-
-    let root_task = conversation
-        .get_root_task()
-        .expect("synthesized root task should exist");
-    assert!(root_task.is_root_task());
-    assert!(root_task.source().is_none());
-    assert_eq!(conversation.status(), &ConversationStatus::InProgress);
-}
-
 /// Strict `new_restored` returns `NoRootTask` for an empty task list.
 #[test]
 fn new_restored_with_empty_task_list_returns_no_root_task_error() {
@@ -1077,16 +979,8 @@ fn fork_artifacts_adds_file_artifacts_to_conversation() {
     );
 }
 
-#[test]
-fn waiting_for_events_display_label_is_waiting() {
-    assert_eq!(
-        format!("{}", ConversationStatus::WaitingForEvents),
-        "Waiting"
-    );
-}
-
 /// `is_done` returns true only for `Success | Error | Cancelled`;
-/// `WaitingForEvents` and `Blocked` are not done because the run can still
+/// `Blocked` is not done because the run can still
 /// resume on its own.
 #[test]
 fn is_done_only_includes_success_error_cancelled() {
@@ -1101,40 +995,6 @@ fn is_done_only_includes_success_error_cancelled() {
         }
         .is_done()
     );
-    assert!(!ConversationStatus::WaitingForEvents.is_done());
-}
-
-/// `is_waiting_for_events` is true only for the new variant.
-#[test]
-fn is_waiting_for_events_returns_true_only_for_waiting_for_events_variant() {
-    assert!(ConversationStatus::WaitingForEvents.is_waiting_for_events());
-
-    assert!(!ConversationStatus::InProgress.is_waiting_for_events());
-    assert!(!ConversationStatus::Success.is_waiting_for_events());
-    assert!(!ConversationStatus::Error.is_waiting_for_events());
-    assert!(!ConversationStatus::Cancelled.is_waiting_for_events());
-    assert!(
-        !ConversationStatus::Blocked {
-            blocked_action: "approve".to_string()
-        }
-        .is_waiting_for_events()
-    );
-}
-
-/// A conversation that was yielded via `wait_for_events` at shutdown
-/// restores as whatever `derive_status_from_root_task` returns (Success
-/// for a cleanly-streamed last exchange). The unresolved tool call stays
-/// in the transcript as an orphan; the next outbound request triggers
-/// the server's existing supersede mechanism to synthesize the matching
-/// `Cancel`. The waiting state itself is not durable across restart.
-#[test]
-fn restored_conversation_does_not_re_enter_waiting_for_events() {
-    let conversation_data: AgentConversationData =
-        serde_json::from_str(r#"{"server_conversation_token":null}"#).unwrap();
-
-    let conversation = restored_conversation(Some(conversation_data));
-
-    assert_eq!(conversation.status(), &ConversationStatus::Success);
 }
 
 fn fetched_memory(

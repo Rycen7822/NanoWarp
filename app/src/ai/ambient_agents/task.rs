@@ -220,8 +220,6 @@ impl TaskScope {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct AmbientAgentTask {
     pub task_id: AmbientAgentTaskId,
-    #[serde(default)]
-    pub parent_run_id: Option<String>,
     pub title: String,
     pub state: AmbientAgentTaskState,
     pub prompt: String,
@@ -249,20 +247,6 @@ pub struct AmbientAgentTask {
     pub agent_config_snapshot: Option<AgentConfigSnapshot>,
     #[serde(default, deserialize_with = "deserialize_artifacts")]
     pub artifacts: Vec<Artifact>,
-
-    /// The last event sequence number recorded for this run by the server.
-    /// Used by orchestration event delivery to resume from the correct
-    /// cursor on restart. Populated by `GET /agent/runs/{run_id}` when the
-    /// server supports it; `None` on older servers.
-    #[serde(default)]
-    pub last_event_sequence: Option<i64>,
-
-    /// The server-recorded `run_id`s of direct children of this run. Used
-    /// by orchestration event-delivery restore to discover children whose
-    /// records may not exist locally (e.g. remote-worker children in the
-    /// driver case). Empty on older servers.
-    #[serde(default)]
-    pub children: Vec<String>,
 
     /// Server-computed: whether a debug agent may be bootstrapped into this run's retained
     /// environment-setup-failure session right now (REMOTE-2661). `#[serde(default)]` so an
@@ -311,12 +295,6 @@ pub struct AttachmentInput {
     pub file_name: String,
     pub mime_type: String,
     pub data: String, // base64-encoded data
-}
-
-/// Returns the trimmed orchestrator agent name, or `None` when empty / whitespace-only.
-pub fn normalize_orchestrator_agent_name(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 impl AmbientAgentTask {

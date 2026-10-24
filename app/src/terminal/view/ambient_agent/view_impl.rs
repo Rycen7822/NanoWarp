@@ -48,25 +48,12 @@ fn auth_check_command_for(harness: Harness) -> Option<String> {
     }
 }
 
-const CHILD_AGENT_GITHUB_AUTH_REQUIRED_BLOCKED_ACTION: &str =
-    "GitHub authentication required before starting the child agent.";
-
 impl TerminalView {
     fn active_ambient_agent_conversation_id(&self, ctx: &AppContext) -> Option<AIConversationId> {
         self.agent_view_controller
             .as_ref(ctx)
             .agent_view_state()
             .active_conversation_id()
-    }
-
-    fn active_ambient_agent_conversation_is_child(&self, ctx: &AppContext) -> bool {
-        let Some(conversation_id) = self.active_ambient_agent_conversation_id(ctx) else {
-            return false;
-        };
-
-        BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .is_some_and(|conversation| conversation.is_child_agent_conversation())
     }
 
     fn update_active_ambient_agent_conversation_status(
@@ -282,16 +269,6 @@ impl TerminalView {
             }
             AmbientAgentViewModelEvent::NeedsGithubAuth => {
                 self.pending_cloud_followup_task_id = None;
-                if self.active_ambient_agent_conversation_is_child(ctx) {
-                    self.update_active_ambient_agent_conversation_status(
-                        ConversationStatus::Blocked {
-                            blocked_action: CHILD_AGENT_GITHUB_AUTH_REQUIRED_BLOCKED_ACTION
-                                .to_string(),
-                        },
-                        None,
-                        ctx,
-                    );
-                }
                 // Re-render to show the GitHub auth required state in the footer.
                 ctx.emit(TerminalViewEvent::TerminalViewStateChanged);
                 ctx.notify();
@@ -734,13 +711,8 @@ impl TerminalView {
         };
 
         // TODO: Use self.size_info
-        let (terminal_view, terminal_manager) = super::create_cloud_mode_view(
-            resources,
-            Vector2F::zero(),
-            ctx.window_id(),
-            true, // root orchestrator viewer
-            ctx,
-        );
+        let (terminal_view, terminal_manager) =
+            super::create_cloud_mode_view(resources, Vector2F::zero(), ctx.window_id(), ctx);
 
         // Only insert an ambient agent entry block once the agent is actually dispatched.
         // This avoids persisting an empty "New cloud agent" entry when the user enters cloud mode
