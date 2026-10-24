@@ -31,7 +31,6 @@ use super::spawner::{PtySpawnHooks, PtySpawnMode};
 use super::terminal_attributes::TerminalAttributesPoller;
 use super::{mio_channel, recorder};
 use crate::ai::aws_credentials::AwsCredentialRefresher as _;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_state::AuthState;
 use crate::banner::BannerState;
@@ -48,6 +47,7 @@ use crate::terminal::event_listener::ChannelEventListener;
 #[cfg(unix)]
 use crate::terminal::local_tty::terminal_attributes::Event as TerminalAttributesPollerEvent;
 use crate::terminal::local_tty::{Pty, PtyOptions};
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::session::{Sessions, SessionsEvent};
 #[cfg(unix)]
 use crate::terminal::model::terminal_model::BlockIndex;
@@ -241,7 +241,7 @@ impl<S> TerminalManager<S> {
         startup_directory: Option<PathBuf>,
         env_vars: HashMap<OsString, OsString>,
         is_shared_session_creator: IsSharedSessionCreator,
-        all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
+        all_restored_blocks: Option<&Vec<SerializedBlock>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
         model_event_sender: Option<SyncSender<ModelEvent>>,

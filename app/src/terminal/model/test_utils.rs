@@ -28,9 +28,9 @@ use super::kitty::{
 };
 use super::terminal_model::BlockIndex;
 use super::{ObfuscateSecrets, TerminalModel};
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::terminal::color::{self, Colors};
 use crate::terminal::event_listener::ChannelEventListener;
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::{BlockPadding, SizeInfo};
 
 pub fn block_size() -> BlockSize {
@@ -135,9 +135,7 @@ fn block_padding() -> BlockPadding {
 ///     .with_terminal_events_tx(events_tx)
 ///     .build();
 ///
-/// // `.into()` produces the `SerializedBlockListItem` that `with_restored_blocks`
-/// // expects; its type lives in a private module so it can't be named directly.
-/// let block = SerializedBlock::new_for_test("test".into(), "test".into()).into();
+/// let block = SerializedBlock::new_for_test("test".into(), "test".into());
 ///
 /// let block_list = TestBlockListBuilder::new()
 ///     .with_channel_event_proxy(channel_event_proxy)
@@ -151,7 +149,7 @@ fn block_padding() -> BlockPadding {
 /// assert!(matches!(data.block_type, BlockType::Restored));
 /// ```
 pub struct TestBlockListBuilder<'a> {
-    restored_blocks: Option<&'a [SerializedBlockListItem]>,
+    restored_blocks: Option<&'a [SerializedBlock]>,
     honor_ps1: bool,
     block_sizes: BlockSize,
     channel_event_proxy: ChannelEventListener,
@@ -167,7 +165,7 @@ impl<'a> TestBlockListBuilder<'a> {
         }
     }
 
-    pub fn with_restored_blocks(mut self, restored_blocks: &'a [SerializedBlockListItem]) -> Self {
+    pub fn with_restored_blocks(mut self, restored_blocks: &'a [SerializedBlock]) -> Self {
         self.restored_blocks = Some(restored_blocks);
         self
     }
@@ -321,7 +319,7 @@ impl TerminalModel {
     /// See [`TerminalModel::new_for_test`] for a more configurable
     /// test constructor.
     pub fn mock(
-        restored_blocks: Option<&[SerializedBlockListItem]>,
+        restored_blocks: Option<&[SerializedBlock]>,
         event_proxy: Option<ChannelEventListener>,
     ) -> TerminalModel {
         TerminalModel::new_for_test(

@@ -43,7 +43,6 @@ use super::link::{NotebookLinks, SessionSource};
 use super::manager::NotebookManager;
 use super::telemetry::NotebookTelemetryAction;
 use super::{CloudNotebookModel, NotebookId, NotebookLocation, styles};
-use crate::ai::blocklist::secret_redaction::find_secrets_in_text;
 use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::appearance::Appearance;
 use crate::cloud_object::grab_edit_access_modal::{GrabEditAccessModal, GrabEditAccessModalEvent};
@@ -91,6 +90,7 @@ use crate::workflows::{WorkflowSource, WorkflowType};
 use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{cmd_or_ctrl_shift, safe_info, send_telemetry_from_ctx};
+use secret_redaction::find_secrets_in_text;
 
 mod details_bar;
 

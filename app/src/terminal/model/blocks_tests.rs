@@ -674,8 +674,7 @@ pub fn test_restore_completed_blocks() {
         .with_terminal_events_tx(events_tx)
         .build();
 
-    let serialized_block: SerializedBlockListItem =
-        SerializedBlock::new_for_test("i am".into(), "restored".into()).into();
+    let serialized_block = SerializedBlock::new_for_test("i am".into(), "restored".into());
     let restored_blocks = [serialized_block.clone(), serialized_block];
     let block_list = TestBlockListBuilder::new()
         .with_channel_event_proxy(channel_event_proxy)
@@ -736,9 +735,9 @@ pub fn test_restore_blocks_with_local_status() {
 
     // Create block list with these blocks
     let restored_blocks = [
-        local_block.clone().into(),
-        remote_block.clone().into(),
-        unspecified_block.clone().into(),
+        local_block.clone(),
+        remote_block.clone(),
+        unspecified_block.clone(),
     ];
 
     let block_list = TestBlockListBuilder::new()
@@ -780,7 +779,7 @@ pub fn test_restore_block_that_wasnt_started() {
     let block = SerializedBlock::new_active_block_for_test();
     let block_list = TestBlockListBuilder::new()
         .with_channel_event_proxy(channel_event_proxy)
-        .with_restored_blocks(&[block.into()])
+        .with_restored_blocks(&[block])
         .build();
 
     // Non-started blocks are skipped during the restoration process, so we
@@ -815,7 +814,7 @@ pub fn test_restore_block_that_wasnt_completed() {
     block.completed_ts = None;
     let block_list = TestBlockListBuilder::new()
         .with_channel_event_proxy(channel_event_proxy)
-        .with_restored_blocks(&[block.into()])
+        .with_restored_blocks(&[block])
         .build();
 
     // Non-completed blocks are skipped during the restoration process, so we
@@ -900,9 +899,8 @@ pub fn test_basic_bootstrapping() {
 
 #[test]
 pub fn test_session_restoration_separator() {
-    let serialized_block: SerializedBlockListItem =
-        SerializedBlock::new_for_test("i am".as_bytes().to_vec(), "restored".as_bytes().to_vec())
-            .into();
+    let serialized_block =
+        SerializedBlock::new_for_test("i am".as_bytes().to_vec(), "restored".as_bytes().to_vec());
     let restored_blocks = [serialized_block.clone(), serialized_block];
     let mut block_list = TestBlockListBuilder::new()
         .with_restored_blocks(&restored_blocks)

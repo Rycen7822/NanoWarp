@@ -15,11 +15,11 @@ use super::settings::TerminalSettings;
 use super::view::{WARP_PROMPT_HEIGHT_LINES, create_size_info_for_blocklist};
 use super::{BlockPadding, ShellLaunchState, SizeInfo, TerminalModel, color};
 use crate::PrivacySettings;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;
 use crate::appearance::Appearance;
 use crate::pane_group::pane::DetachType;
 use crate::settings::{BlockVisibilitySettings, DebugSettings, InputModeSettings};
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::shell_recovery::ShellReplacementRequest;
 
 pub trait TerminalManager: Any {
@@ -123,7 +123,7 @@ pub(super) fn compute_block_size(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn create_terminal_model(
     startup_directory: Option<PathBuf>,
-    restored_blocks: Option<&Vec<SerializedBlockListItem>>,
+    restored_blocks: Option<&Vec<SerializedBlock>>,
     initial_size: Vector2F,
     channel_event_proxy: ChannelEventListener,
     shell_state: ShellLaunchState,

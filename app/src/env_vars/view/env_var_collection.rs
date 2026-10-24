@@ -20,7 +20,6 @@ use warpui::{
 
 use super::command_dialog::EnvVarCommandDialog;
 use super::menus::Menus;
-use crate::ai::blocklist::block::secret_redaction::find_secrets_in_text_with_levels;
 use crate::cloud_object::breadcrumbs::ContainingObject;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::{CloudObjectEventEntrypoint, Owner};
@@ -57,6 +56,7 @@ use crate::view_components::alert::AlertConfig;
 use crate::view_components::{Alert, DismissibleToast, ToastType};
 use crate::workspace::ToastStack;
 use crate::{Appearance, CloudObjectTypeAndId, TelemetryEvent, send_telemetry_from_ctx};
+use secret_redaction::find_secrets_in_text_with_levels;
 
 // Universal
 pub(super) const CORE_HORIZONATAL_MARGIN: f32 = 24.;

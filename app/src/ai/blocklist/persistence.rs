@@ -19,7 +19,7 @@ use crate::ai::agent::{
 };
 use crate::ai::llms::LLMId;
 use crate::persistence::ModelEvent;
-use crate::terminal::model::block::{BlockId, SerializedBlock};
+use crate::terminal::model::block::BlockId;
 
 /// Data we persist for each [`AIAgentExchange`] for use in history. Does not contain output data.
 #[derive(Debug, Deserialize, Clone)]
@@ -378,39 +378,6 @@ impl TryFrom<PersistedAIAgentActionType> for AIAgentActionType {
             PersistedAIAgentActionType::NotPersisted => Err(anyhow!(
                 "Restoration is handled through conversation tasks, not persisted blocks."
             )),
-        }
-    }
-}
-
-/// The types of "blocks" we can store in our SQLite database for session restoration. Only command
-/// blocks are true [`crate::terminal::model::block::Block`]s.
-///
-/// TODO(roland): now that there is no AI serialized block, consider removing this enum wrapper
-#[derive(Debug, Clone, PartialEq)]
-pub enum SerializedBlockListItem {
-    Command { block: Box<SerializedBlock> },
-}
-
-impl SerializedBlockListItem {
-    pub(crate) fn start_ts(&self) -> Option<DateTime<Local>> {
-        match self {
-            Self::Command { block } => block.start_ts,
-        }
-    }
-}
-
-impl From<crate::persistence::model::Block> for SerializedBlockListItem {
-    fn from(value: crate::persistence::model::Block) -> Self {
-        Self::Command {
-            block: Box::new(SerializedBlock::from(value)),
-        }
-    }
-}
-
-impl From<SerializedBlock> for SerializedBlockListItem {
-    fn from(value: SerializedBlock) -> Self {
-        Self::Command {
-            block: Box::new(value),
         }
     }
 }

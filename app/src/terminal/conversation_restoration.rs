@@ -11,7 +11,6 @@ use chrono::{DateTime, Local};
 
 use crate::ai::agent::AIAgentExchange;
 use crate::ai::agent::conversation::AIConversation;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::terminal::TerminalModel;
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::view::blocklist_filter::exchanges_for_blocklist;
@@ -57,15 +56,11 @@ pub fn prepare_conversation_block_restoration(
     terminal_model: &mut TerminalModel,
 ) -> ConversationBlockRestorationPlan {
     let first_restored_command = terminal_model.block_list().active_block_index();
-    let serialized_items = conversation.to_serialized_blocklist_items();
-    if !serialized_items.is_empty() {
+    let serialized_blocks = conversation.to_serialized_blocks();
+    if !serialized_blocks.is_empty() {
         let block_list = terminal_model.block_list_mut();
-        for item in &serialized_items {
-            match item {
-                SerializedBlockListItem::Command { block } => {
-                    block_list.insert_restored_block(block);
-                }
-            }
+        for block in &serialized_blocks {
+            block_list.insert_restored_block(block);
         }
     }
 

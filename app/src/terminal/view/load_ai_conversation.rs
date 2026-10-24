@@ -724,7 +724,7 @@ impl TerminalView {
 
     /// Process code diffs from AI output messages and apply them to the AI block for rendering.
     /// Command blocks should already exist in the blocklist (extracted via
-    /// `conversation.to_serialized_blocklist_items`) before AI blocks are created.
+    /// `conversation.to_serialized_blocks`) before AI blocks are created.
     fn process_restored_outputs(
         &mut self,
         ai_block: &mut AIBlock,

@@ -11,14 +11,14 @@ use itertools::Itertools;
 
 use super::model::Block;
 use super::{model, schema};
-use crate::ai::blocklist::{PersistedAIInput, PersistedAIInputType, SerializedBlockListItem};
+use crate::ai::blocklist::{PersistedAIInput, PersistedAIInputType};
 use crate::app_state::PaneUuid;
 use crate::persistence::schema::ai_queries;
 use crate::terminal::model::block::{SerializedAgentViewVisibility, SerializedBlock};
 
 const MAX_TERMINAL_BLOCKS_TO_PERSIST_PER_SESSION: i64 = 100;
 
-type PersistedBlocks = HashMap<PaneUuid, Vec<SerializedBlockListItem>>;
+type PersistedBlocks = HashMap<PaneUuid, Vec<SerializedBlock>>;
 
 /// An AI query read from the SQLite DB.
 #[derive(Identifiable, Insertable, Queryable, Selectable)]
@@ -230,10 +230,10 @@ pub(super) fn get_all_restored_blocks(
                 blocks.into_iter().map(Into::into).collect(),
             )
         })
-        .collect::<HashMap<_, Vec<SerializedBlockListItem>>>();
+        .collect::<HashMap<_, Vec<SerializedBlock>>>();
 
     for (_, blocks) in all_block_items_by_pane.iter_mut() {
-        blocks.sort_by_key(|item| item.start_ts());
+        blocks.sort_by_key(|block| block.start_ts);
         // Only keep most recent command blocks
         blocks.drain(
             0..blocks

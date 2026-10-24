@@ -1,4 +1,5 @@
 use regex::Regex;
+use secret_redaction::find_secrets_in_text;
 use serial_test::serial;
 use warpui::elements::Text;
 use warpui::fonts::FamilyId;

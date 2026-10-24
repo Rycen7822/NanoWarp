@@ -32,7 +32,6 @@ use warpui::{
 };
 
 use crate::ai::AIRequestUsageModel;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::ai::onboarding::{
     build_onboarding_models, current_onboarding_auth_state, onboarding_pricing_promotion_message,
@@ -74,6 +73,7 @@ use crate::settings_view::{SettingsSection, flags};
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::keys_settings::KeysSettings;
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::cell_size_and_padding;
 use crate::themes::onboarding_theme_picker_themes;
@@ -1192,7 +1192,7 @@ pub enum NewWorkspaceSource {
     },
     Restored {
         window_snapshot: Box<WindowSnapshot>,
-        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
     },
     Session {
         options: Box<NewTerminalOptions>,

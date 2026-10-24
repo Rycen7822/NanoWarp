@@ -41,7 +41,6 @@ use super::secrets::RespectObfuscatedSecrets;
 use super::selection::ScrollDelta;
 use super::session::{Sessions, command_executor};
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::redaction::redact_secrets;
 use crate::context_chips::prompt_snapshot::PromptSnapshot;
 use crate::server::ids::SyncId;
 use crate::terminal::block_filter::BlockFilterQuery;
@@ -66,6 +65,7 @@ use crate::terminal::model::terminal_model::{BlockIndex, WithinBlock};
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::WithinBlockBanner;
 use crate::terminal::{BlockPadding, ShellHost, SizeInfo};
+use secret_redaction::redact_secrets;
 
 pub const LONG_RUNNING_COMMAND_DURATION_MS: u64 = 50;
 pub const LONG_RUNNING_BOTTOM_PADDING_LINES: f32 = 0.2;

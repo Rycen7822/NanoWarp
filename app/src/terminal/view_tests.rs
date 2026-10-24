@@ -2946,7 +2946,6 @@ fn cmd_enter_from_active_non_empty_agent_view_requires_confirmation() {
 fn test_clear_session_flag_state() {
     use warp_terminal::shell::ShellType;
 
-    use crate::ai::blocklist::SerializedBlockListItem;
     use crate::terminal::ShellHost;
     use crate::terminal::model::block::SerializedBlock;
 
@@ -2963,10 +2962,7 @@ fn test_clear_session_flag_state() {
             hostname: "remote".to_string(), // Remote hostname indicates a remote session
         });
 
-        // Convert to SerializedBlockListItem
-        let restored_blocks = [SerializedBlockListItem::Command {
-            block: Box::new(remote_block),
-        }];
+        let restored_blocks = [remote_block];
 
         // Create terminal with the restored remote block
         let terminal = add_window_with_terminal(&mut app, Some(&restored_blocks));

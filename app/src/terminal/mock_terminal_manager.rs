@@ -10,9 +10,9 @@ use super::model::session::Sessions;
 use super::model_events::ModelEventDispatcher;
 use super::terminal_manager::BlockSpacing;
 use super::{ShellLaunchState, TerminalManager, TerminalModel, TerminalView};
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::context_chips::prompt_type::PromptType;
 use crate::pane_group::TerminalViewResources;
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::view::ConversationRestorationInNewPaneType;
 
 pub struct MockTerminalManager {
@@ -27,7 +27,7 @@ impl MockTerminalManager {
     pub fn create_model(
         shell_state: ShellLaunchState,
         resources: TerminalViewResources,
-        restored_blocks: Option<&Vec<SerializedBlockListItem>>,
+        restored_blocks: Option<&Vec<SerializedBlock>>,
         conversation_restoration: Option<ConversationRestorationInNewPaneType>,
         initial_size: Vector2F,
         window_id: WindowId,
@@ -154,7 +154,7 @@ mod testing {
     impl MockTerminalManager {
         pub fn create_new_terminal_view_window_for_test(
             app: &mut App,
-            restored_blocks: Option<&[SerializedBlockListItem]>,
+            restored_blocks: Option<&[SerializedBlock]>,
         ) -> ViewHandle<TerminalView> {
             let server_api = app.read(|ctx| ServerApiProvider::as_ref(ctx).get());
             let tips_model = app.add_model(|_| Default::default());

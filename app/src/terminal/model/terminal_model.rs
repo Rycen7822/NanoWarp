@@ -55,7 +55,6 @@ use super::selection::ScrollDelta;
 use super::session::{BootstrapSessionType, InBandCommandOutputReceiver, SessionId};
 use super::{Secret, SecretHandle};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::block_filter::BlockFilterQuery;
 use crate::terminal::block_list_element::GridType;
@@ -981,7 +980,7 @@ impl TerminalModel {
         event_proxy: ChannelEventListener,
         background_executor: Arc<Background>,
         should_show_bootstrap_block: bool,
-        restored_blocks: Option<&[SerializedBlockListItem]>,
+        restored_blocks: Option<&[SerializedBlock]>,
         honor_ps1: bool,
         is_inverted: bool,
         session_startup_path: Option<PathBuf>,
@@ -1045,7 +1044,7 @@ impl TerminalModel {
 
     #[allow(clippy::too_many_arguments)]
     fn new_internal(
-        restored_blocks: Option<&[SerializedBlockListItem]>,
+        restored_blocks: Option<&[SerializedBlock]>,
         sizes: BlockSize,
         colors: color::List,
         event_proxy: ChannelEventListener,
@@ -1131,7 +1130,7 @@ impl TerminalModel {
     /// Creates a terminal model for a local terminal session.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        restored_blocks: Option<&[SerializedBlockListItem]>,
+        restored_blocks: Option<&[SerializedBlock]>,
         sizes: BlockSize,
         colors: color::List,
         event_proxy: ChannelEventListener,

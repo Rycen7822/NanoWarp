@@ -64,11 +64,11 @@ pub use input_model::{
 #[cfg(test)]
 pub(crate) use permissions::is_agent_mode_autonomy_allowed;
 pub use permissions::{BlocklistAIPermissions, CommandExecutionPermissionAllowedReason};
+pub(crate) use persistence::PersistedAIInput;
 #[cfg_attr(target_family = "wasm", allow(unused))]
 pub(crate) use persistence::PersistedAIInputType;
 #[cfg_attr(target_family = "wasm", allow(unused))]
 pub use persistence::maybe_build_ai_query_upsert_event;
-pub(crate) use persistence::{PersistedAIInput, SerializedBlockListItem};
 pub(crate) use queued_query::{
     AutofireAction, QueuedQuery, QueuedQueryId, QueuedQueryOrigin, is_lrc_auto_queue_active,
 };

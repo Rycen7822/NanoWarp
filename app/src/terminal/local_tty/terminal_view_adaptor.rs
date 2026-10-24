@@ -32,7 +32,7 @@ use crate::ai::agent::conversation::AIConversation;
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
 use crate::ai::blocklist::{
     BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIControllerEvent,
-    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, InputConfig, SerializedBlockListItem,
+    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, InputConfig,
 };
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::context_chips::current_prompt::CurrentPrompt;
@@ -44,6 +44,7 @@ use crate::network::{NetworkStatusEvent, NetworkStatusKind};
 use crate::pane_group::TerminalViewResources;
 use crate::persistence::ModelEvent;
 use crate::server::telemetry::{TelemetryAgentViewEntryOrigin, TelemetryEvent};
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::shared_session::manager::Manager;
@@ -140,24 +141,24 @@ pub(crate) struct TerminalViewSurfaceConfig {
 
 /// Resolves the block list used by the GUI `TerminalView` surface.
 pub(crate) fn terminal_view_restored_blocks(
-    restored_blocks: Option<&Vec<SerializedBlockListItem>>,
+    restored_blocks: Option<&Vec<SerializedBlock>>,
     conversation_restoration: &Option<ConversationRestorationInNewPaneType>,
-) -> Option<Vec<SerializedBlockListItem>> {
+) -> Option<Vec<SerializedBlock>> {
     restored_blocks
         .filter(|blocks| !blocks.is_empty())
         .cloned()
         .or_else(|| match conversation_restoration {
             Some(ConversationRestorationInNewPaneType::Historical { conversation, .. })
             | Some(ConversationRestorationInNewPaneType::Forked { conversation, .. }) => {
-                Some(conversation.to_serialized_blocklist_items())
+                Some(conversation.to_serialized_blocks())
             }
             Some(ConversationRestorationInNewPaneType::Startup { conversations, .. }) => {
                 let mut items: Vec<_> = conversations
                     .iter()
-                    .flat_map(|c| c.to_serialized_blocklist_items())
+                    .flat_map(|c| c.to_serialized_blocks())
                     .collect();
                 // Because there are multiple conversations that may have interleaved timestamps, we need to sort by start_ts
-                items.sort_by_key(|item| item.start_ts());
+                items.sort_by_key(|block| block.start_ts);
                 if items.is_empty() { None } else { Some(items) }
             }
             _ => None,

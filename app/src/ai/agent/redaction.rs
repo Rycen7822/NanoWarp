@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-pub(crate) use secret_redaction::redact_secrets;
+use secret_redaction::redact_secrets;
 
 use crate::ai::agent::{
     AIAgentActionResultType, AIAgentAttachment, AIAgentContext, AIAgentInput, AnyFileContent,

@@ -113,7 +113,7 @@ fn shared_session_viewer_recovers_from_raw_precmd_with_completion_metadata_witho
 
 #[test]
 fn test_get_no_scrollback() {
-    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into()).into()];
+    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into())];
     let channel_event_proxy = ChannelEventListener::new_for_test();
     let mut model = TerminalModel::mock(Some(restored_blocks), Some(channel_event_proxy));
 
@@ -127,7 +127,7 @@ fn test_get_no_scrollback() {
 
 #[test]
 fn test_get_scrollback_starting_at_block() {
-    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into()).into()];
+    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into())];
     let channel_event_proxy = ChannelEventListener::new_for_test();
     let mut model = TerminalModel::mock(Some(restored_blocks), Some(channel_event_proxy));
 
@@ -149,7 +149,7 @@ fn test_get_scrollback_starting_at_block() {
 
 #[test]
 fn test_get_all_scrollback() {
-    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into()).into()];
+    let restored_blocks = &[SerializedBlock::new_for_test("a".into(), "b".into())];
     let channel_event_proxy = ChannelEventListener::new_for_test();
     let mut model = TerminalModel::mock(Some(restored_blocks), Some(channel_event_proxy));
 

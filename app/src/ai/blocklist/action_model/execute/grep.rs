@@ -16,7 +16,6 @@ use super::{
     get_server_output_id, is_file_path, is_git_repository,
 };
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::redaction::redact_secrets;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionResultType, AIAgentActionType, GrepFileMatch, GrepLineMatch,
     GrepResult, ServerOutputId,
@@ -30,6 +29,7 @@ use crate::terminal::model::session::{ExecuteCommandOptions, Session, shell_quot
 use crate::terminal::shell::ShellType;
 use crate::workspaces::user_workspaces::TeamContext;
 use crate::{PrivacySettings, TelemetryEvent, send_telemetry_from_app_ctx};
+use secret_redaction::redact_secrets;
 
 const GREP_TIMEOUT: Duration = Duration::from_secs(10);
 const NON_ZERO_EXIT_CODE_ERROR: &str = "Grep command exited with non-zero exit code";

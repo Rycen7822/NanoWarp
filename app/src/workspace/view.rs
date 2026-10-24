@@ -159,7 +159,7 @@ use crate::ai::blocklist::history_model::load_conversation_from_server;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, FORK_PREFIX, PendingAttachment, PendingQueryState, QueuedQueryOrigin,
-    SerializedBlockListItem, SlashCommandRequest,
+    SlashCommandRequest,
 };
 #[cfg(target_family = "wasm")]
 use crate::ai::conversation_details_panel::ConversationDetailsPanel;
@@ -309,6 +309,7 @@ use crate::terminal::general_settings::{DefaultSessionMode, GeneralSettings};
 use crate::terminal::input::{EXTERNAL_ALT_C_BINDING_CONTEXT, Input, MenuPositioning};
 use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::ligature_settings::should_use_ligature_rendering;
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::blockgrid::BlockGrid;
 use crate::terminal::model::escape_sequences::C0;
 #[cfg(feature = "local_fs")]
@@ -11039,7 +11040,7 @@ impl Workspace {
     pub fn add_tab_with_pane_layout(
         &mut self,
         panes_layout: PanesLayout,
-        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
         custom_tab_title: Option<String>,
         ctx: &mut ViewContext<Self>,
     ) {

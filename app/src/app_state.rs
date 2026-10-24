@@ -10,13 +10,14 @@ use warpui::{AppContext, SingletonEntity as _};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent_conversations_model::AgentManagementFilters;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::{InputConfig, SerializedBlockListItem};
+use crate::ai::blocklist::InputConfig;
 use crate::code::editor_management::CodeSource;
 use crate::root_view::quake_mode_window_id;
 use crate::server::ids::{ServerId, SyncId};
 use crate::settings_view::SettingsSection;
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;
+use crate::terminal::model::block::SerializedBlock;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::WorkspaceRegistry;
 use crate::workspace::tab_group::TabGroupId;
@@ -26,7 +27,7 @@ use crate::workspace::view::left_panel::ToolPanelView;
 pub struct AppState {
     pub windows: Vec<WindowSnapshot>,
     pub active_window_index: Option<usize>,
-    pub block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+    pub block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

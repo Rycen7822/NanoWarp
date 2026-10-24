@@ -58,7 +58,6 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, ConversationStatusUpdate, RequestInput, ResponseStreamId,
-    SerializedBlockListItem,
 };
 use crate::ai::llms::LLMPreferences;
 use crate::ai::skills::SkillDescriptor;
@@ -3644,7 +3643,7 @@ impl AIConversation {
                                 .unwrap_or_default(),
                             ),
                             // Use the tool call message ID (not the result message ID)
-                            // so that to_serialized_blocklist_items looks up the exchange
+                            // so that to_serialized_blocks looks up the exchange
                             // where the command was initiated — the right exchange for PWD
                             // and the start_ts fallback.
                             message_id: message_id.clone(),
@@ -3755,7 +3754,7 @@ impl AIConversation {
     /// before the warp input block to not break bootstrapping.
     /// Only the command blocks are actually created in the terminal model. During restoration in the TerminalView,
     /// AI blocks are inserted relative to the command blocks based on timestamp.
-    pub fn to_serialized_blocklist_items(&self) -> Vec<SerializedBlockListItem> {
+    pub fn to_serialized_blocks(&self) -> Vec<SerializedBlock> {
         let mut serialized_blocks = Vec::new();
 
         // Extract all command blocks from the task messages
@@ -3820,9 +3819,7 @@ impl AIConversation {
                     AgentViewVisibility::new_from_conversation(self.id).into(),
                 ),
             };
-            serialized_blocks.push(SerializedBlockListItem::Command {
-                block: Box::new(serialized_block),
-            });
+            serialized_blocks.push(serialized_block);
         }
 
         serialized_blocks

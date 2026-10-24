@@ -48,7 +48,7 @@ use crate::ai::ai_document_view::AIDocumentView;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::inline_action::code_diff_view::CodeDiffView;
-use crate::ai::blocklist::{BlocklistAIHistoryModel, InputConfig, SerializedBlockListItem};
+use crate::ai::blocklist::{BlocklistAIHistoryModel, InputConfig};
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentModel, AIDocumentVersion};
 use crate::ai::execution_profiles::ExecutionProfileId;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -108,6 +108,7 @@ use crate::terminal::local_tty::TerminalManager as LocalTtyTerminalManager;
 use crate::terminal::local_tty::{
     TerminalViewSurfaceConfig, create_terminal_view_surface, terminal_view_restored_blocks,
 };
+use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::session::Session;
 use crate::terminal::model::terminal_model::ConversationTranscriptViewerStatus;
 #[cfg(feature = "remote_tty")]
@@ -1349,7 +1350,7 @@ impl PaneGroup {
     #[allow(clippy::too_many_arguments)]
     fn restore_pane_tree(
         root: PaneNodeSnapshot,
-        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
         resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
@@ -1429,7 +1430,7 @@ impl PaneGroup {
     #[allow(clippy::too_many_arguments)]
     fn restore_pane_leaf(
         leaf: LeafSnapshot,
-        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
         resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
@@ -2928,7 +2929,7 @@ impl PaneGroup {
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         server_api: Arc<ServerApi>,
         panes_layout: PanesLayout,
-        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
+        block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
         model_event_sender: Option<SyncSender<ModelEvent>>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
@@ -4741,7 +4742,7 @@ impl PaneGroup {
         terminal_session_uuid: &[u8],
         is_shared_session: IsSharedSessionCreator,
         resources: TerminalViewResources,
-        restored_blocks: Option<&Vec<SerializedBlockListItem>>,
+        restored_blocks: Option<&Vec<SerializedBlock>>,
         conversation_restoration: Option<ConversationRestorationInNewPaneType>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
@@ -4883,7 +4884,7 @@ impl PaneGroup {
     ) {
         let ambient_agent_task_id =
             ambient_agent_task_id.or_else(|| Self::ambient_agent_task_id(&conversation));
-        let restored_blocks = conversation.to_serialized_blocklist_items();
+        let restored_blocks = conversation.to_serialized_blocks();
         let terminal_init = MockTerminalManager::create_model(
             ShellLaunchState::ShellSpawned {
                 available_shell: None,

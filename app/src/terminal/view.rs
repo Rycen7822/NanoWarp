@@ -191,7 +191,6 @@ use super::{GridType, should_right_click_paste};
 use crate::ai::agent::UserQueryMode;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
-use crate::ai::agent::redaction::redact_secrets;
 use crate::ai::agent::todos::popup::{AgentTodosPopupEvent, AgentTodosPopupView};
 use crate::ai::agent::{
     AIAgentActionId, AIAgentActionType, AIAgentCitation, AIAgentContext, AIAgentExchangeId,
@@ -472,6 +471,7 @@ use crate::{
     AIAgentActionResultType, ActiveSession as WindowActiveSession, safe_error, safe_warn,
     send_telemetry_from_ctx, send_telemetry_sync_from_ctx,
 };
+use secret_redaction::redact_secrets;
 
 lazy_static! {
     // A set of commands that perform minimal work that we use as a baseline to measure the latency of blocks.

@@ -3453,7 +3453,7 @@ fn add_settings_tab(workspace: &mut Workspace, ctx: &mut ViewContext<Workspace>)
                 search_query: None,
             }),
         }))),
-        Arc::new(HashMap::<PaneUuid, Vec<SerializedBlockListItem>>::new()),
+        Arc::new(HashMap::<PaneUuid, Vec<SerializedBlock>>::new()),
         None,
         ctx,
     );
