@@ -60,10 +60,6 @@ use crate::ai::blocklist::diff_storage::{
 };
 use crate::ai::blocklist::diff_types::{DiffSessionType, FileDiff, changed_lines_from_op};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
-use crate::ai::blocklist::inline_action::inline_action_header::INLINE_ACTION_HORIZONTAL_PADDING;
-use crate::ai::blocklist::inline_action::inline_action_icons::{
-    cancelled_icon, green_check_icon, icon_size, reverted_icon,
-};
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::paths::host_native_absolute_path;
 use crate::ai::skills::{
@@ -83,6 +79,9 @@ use crate::server::telemetry::AgentModeCodeFileNavigationSource;
 use crate::terminal::ShellLaunchData;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::{
+    cancelled_icon, green_check_icon, icon_size, reverted_icon,
+};
 use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{
@@ -93,6 +92,7 @@ use crate::view_components::compactible_action_button::{
     XLARGE_SIZE_SWITCH_THRESHOLD, render_compact_and_regular_button_rows,
 };
 use crate::view_components::compactible_split_action_button::CompactibleSplitActionButton;
+use crate::view_components::inline_action_header::INLINE_ACTION_HORIZONTAL_PADDING;
 use crate::workspace::ToastStack;
 use crate::{TelemetryEvent, cmd_or_ctrl_shift, send_telemetry_from_ctx};
 

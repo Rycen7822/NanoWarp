@@ -2,7 +2,6 @@
 mod action_model;
 pub mod agent_view;
 pub mod block;
-pub mod code_block;
 mod context_model;
 mod controller;
 pub(crate) mod conversation_selection;

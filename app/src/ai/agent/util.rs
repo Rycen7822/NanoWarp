@@ -13,8 +13,9 @@ use warp_util::path::LineAndColumnArg;
 
 use super::{
     AIAgentTextSection, AgentOutputImage, AgentOutputImageLayout, AgentOutputMermaidDiagram,
-    AgentOutputTable, ProgrammingLanguage,
+    AgentOutputTable,
 };
+use crate::code::ProgrammingLanguage;
 use crate::code::editor_management::CodeSource;
 use crate::features::FeatureFlag;
 

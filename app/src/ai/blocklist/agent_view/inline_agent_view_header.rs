@@ -10,7 +10,6 @@ use warpui::{
 
 use crate::ai::agent::icons;
 use crate::ai::blocklist::block::cli_controller::LongRunningCommandControlState;
-use crate::ai::blocklist::inline_action::inline_action_header::HeaderConfig;
 use crate::ai::blocklist::{
     BlocklistAIActionModel, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
 };
@@ -18,6 +17,7 @@ use crate::terminal::TerminalModel;
 use crate::terminal::model::session::Sessions;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::view_components::inline_action_header::HeaderConfig;
 
 const AGENT_PROMPT_TO_INTERACT_MESSAGE: &str = "Prompt agent to interact with";
 const AGENT_WAITING_ON_INSTRUCTIONS_MESSAGE: &str = "Agent is waiting on instructions";

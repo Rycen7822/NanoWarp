@@ -15,8 +15,8 @@ use warpui::{AppContext, Element, EventContext, PaintContext, SingletonEntity as
 
 use super::SubshellSource;
 use super::settings::WarpifySettings;
-use crate::ai::blocklist::inline_action::inline_action_icons;
 use crate::ui_components::blended_colors;
+use crate::ui_components::inline_action_icons;
 
 /// The flag font size varies with the monospace font width, but if it gets too big it will start
 /// to overlap with the prompt grid. This should eventually be fixed by growing the block height to

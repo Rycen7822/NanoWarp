@@ -54,8 +54,7 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentInput, AIAgentOutputMessageType, AIAgentTextSection,
     AgentOutputImage, AgentOutputImageLayout, AgentOutputMermaidDiagram, AgentOutputTable,
     AgentOutputTableRendering, ChatGPTSubscriptionErrorAction, ChatGPTSubscriptionErrorActionKind,
-    MessageId, ProgrammingLanguage, RenderableAIError, ShellCommandDelay, SummarizationType,
-    WebSearchStatus, icons,
+    MessageId, RenderableAIError, ShellCommandDelay, SummarizationType, WebSearchStatus, icons,
 };
 use crate::ai::blocklist::block::find::FindState;
 use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarAction;
@@ -64,17 +63,9 @@ use crate::ai::blocklist::block::{
     AIBlockAction, CollapsibleElementState, CollapsibleExpansionState, EmbeddedCodeEditorView,
     TableSectionHandles,
 };
-use crate::ai::blocklist::code_block::{
-    CodeBlockOptions, CodeSnippetButtonHandles, render_code_block_plain,
-    render_code_block_with_warp_text,
-};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
 use crate::ai::blocklist::inline_action::gemini_enterprise_credentials_error::GeminiEnterpriseCredentialsErrorView;
-use crate::ai::blocklist::inline_action::inline_action_header::{
-    INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
-};
-use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::RenderableAction;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::secret_redaction::{SecretRedactionState, redact_secrets_in_element};
@@ -85,6 +76,11 @@ use crate::ai::blocklist::view_util::{
 };
 use crate::ai::blocklist::{BlocklistAIActionModel, ShellCommandExecutor, TextLocation};
 use crate::ai::loading::shimmering_warp_loading_text;
+use crate::code::ProgrammingLanguage;
+use crate::code::code_block::{
+    CodeBlockOptions, CodeSnippetButtonHandles, render_code_block_plain,
+    render_code_block_with_warp_text,
+};
 use crate::code::editor::view::CodeEditorView;
 use crate::code::editor_management::CodeSource;
 use crate::notebooks::editor::{markdown_table_appearance, rich_text_styles};
@@ -99,8 +95,12 @@ use crate::ui_components::avatar::{Avatar, AvatarContent};
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::{self, icon_size};
 use crate::util::link_detection::{DetectedLinksState, add_link_detection_mouse_interactions};
 use crate::util::time_format::format_elapsed_seconds;
+use crate::view_components::inline_action_header::{
+    INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
+};
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;

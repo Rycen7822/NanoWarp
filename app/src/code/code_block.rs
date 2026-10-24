@@ -10,11 +10,11 @@ use warpui::elements::{
 use warpui::ui_components::components::UiComponent;
 use warpui::{AppContext, Element, EventContext, SingletonEntity, ViewHandle};
 
-use crate::ai::agent::ProgrammingLanguage;
-use crate::ai::blocklist::inline_action::inline_action_header::{
+use crate::code::ProgrammingLanguage;
+use crate::view_components::inline_action_header::{
     INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
 };
-use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
+use crate::ui_components::inline_action_icons::icon_size;
 use crate::appearance::Appearance;
 use crate::code::editor::view::CodeEditorView;
 use crate::code::editor_management::CodeSource;

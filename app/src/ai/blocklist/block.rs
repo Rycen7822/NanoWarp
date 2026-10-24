@@ -70,7 +70,6 @@ use warpui::{
 use self::model::{AIBlockModel, AIBlockModelHelper};
 use self::secret_redaction::*;
 use super::action_model::{AIActionStatus, BlocklistAIActionEvent, RequestFileEditsFormatKind};
-use super::code_block::CodeSnippetButtonHandles;
 use super::controller::ClientIdentifiers;
 use super::inline_action::code_diff_view::{
     CodeDiffState, CodeDiffView, CodeDiffViewAction, CodeDiffViewEvent,
@@ -88,9 +87,9 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, AIAgentAttachment,
     AIAgentCitation, AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutput,
     AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentTextSection, AIIdentifiers,
-    CancellationReason, MessageId, ProgrammingLanguage, RenderableAIError,
-    RequestCommandOutputResult, RequestFileEditsResult, ServerOutputId, SubagentCall, SubagentType,
-    SummarizationType, TodoOperation,
+    CancellationReason, MessageId, RenderableAIError, RequestCommandOutputResult,
+    RequestFileEditsResult, ServerOutputId, SubagentCall, SubagentType, SummarizationType,
+    TodoOperation,
 };
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -128,6 +127,8 @@ use crate::ai::skills::SkillOpenOrigin;
 use crate::ai::skills::{SkillManager, SkillTelemetryEvent};
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::auth::{AuthStateProvider, UserUid};
+use crate::code::ProgrammingLanguage;
+use crate::code::code_block::CodeSnippetButtonHandles;
 use crate::code::editor::comment_editor::create_readonly_comment_markdown_editor;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
 use crate::code::editor_management::CodeSource;

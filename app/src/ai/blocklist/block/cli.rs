@@ -51,7 +51,7 @@ use crate::ai::agent::icons::yellow_stop_icon;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentActionType, AIAgentInput, AIAgentOutput, AIAgentOutputMessageType, AIAgentPtyWriteMode,
-    AIAgentText, AIAgentTextSection, CancellationReason, ProgrammingLanguage, WebSearchStatus,
+    AIAgentText, AIAgentTextSection, CancellationReason, WebSearchStatus,
 };
 use crate::ai::blocklist::block::TextLocation;
 use crate::ai::blocklist::block::view_impl::common::{
@@ -61,8 +61,6 @@ use crate::ai::blocklist::block::view_impl::common::{
     LOAD_OUTPUT_MESSAGE_FOR_READING_FILES, LOAD_OUTPUT_MESSAGE_FOR_WEB_SEARCH, UserQueryProps,
     render_query_text,
 };
-use crate::ai::blocklist::code_block::CodeSnippetButtonHandles;
-use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
 use crate::ai::blocklist::permissions::is_agent_mode_autonomy_allowed;
 use crate::ai::blocklist::{
     BlocklistAIActionModel, BlocklistAIHistoryEvent, BlocklistAIPermissions,
@@ -71,6 +69,8 @@ use crate::ai::control_code_parser::{ParsedControlCodeOutput, parse_control_code
 use crate::ai::execution_profiles::profiles::{
     AIExecutionProfilesModel, AIExecutionProfilesModelEvent,
 };
+use crate::code::ProgrammingLanguage;
+use crate::code::code_block::CodeSnippetButtonHandles;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
 use crate::code::editor_management::CodeSource;
 use crate::editor::InteractionState;
@@ -84,6 +84,7 @@ use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::{ShellLaunchData, TerminalModel};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::icon_size;
 use crate::util::link_detection::{DetectedLinksState, detect_links};
 use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{

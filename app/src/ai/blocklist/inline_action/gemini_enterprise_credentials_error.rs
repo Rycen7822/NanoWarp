@@ -8,10 +8,10 @@ use warpui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use super::inline_action_icons::icon_size;
 use crate::Appearance;
 use crate::ai::blocklist::view_util::error_color;
 use crate::ui_components::blended_colors;
+use crate::ui_components::inline_action_icons::icon_size;
 use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme, PrimaryTheme};
 
 #[derive(Clone, Debug)]

@@ -6,11 +6,11 @@ use warpui::elements::{
 use warpui::platform::Cursor;
 use warpui::{AppContext, EventContext, SingletonEntity};
 
-use super::inline_action_header::{
+use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::icon_size;
+use crate::view_components::inline_action_header::{
     ICON_MARGIN, INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
 };
-use super::inline_action_icons::icon_size;
-use crate::ui_components::icons::Icon;
 
 pub fn render_search_results_header(
     title_text: String,

@@ -13,6 +13,7 @@ pub mod dropdown;
 mod feature_popup;
 mod filterable_dropdown;
 pub mod find;
+pub(crate) mod inline_action_header;
 mod markdown_toggle_view;
 mod submittable_text_input;
 mod warning_box;

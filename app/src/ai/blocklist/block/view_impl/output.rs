@@ -78,10 +78,6 @@ use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::ai::blocklist::inline_action::ask_user_question_view::AskUserQuestionView;
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
 use crate::ai::blocklist::inline_action::gemini_enterprise_credentials_error::GeminiEnterpriseCredentialsErrorView;
-use crate::ai::blocklist::inline_action::inline_action_header::{
-    HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
-};
-use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::{
     FormattedTextOrElement, RenderableAction, render_requested_action_body_text,
     render_requested_action_row, render_requested_action_row_for_text,
@@ -113,12 +109,16 @@ use crate::terminal::shared_session::SharedSessionStatus;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::{self, icon_size};
 use crate::util::link_detection::{DetectedLinksState, add_link_detection_mouse_interactions};
 use crate::util::time_format::format_elapsed_seconds;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::action_button::ActionButton;
 use crate::view_components::compactible_action_button::{
     CompactibleActionButton, RenderCompactibleActionButton, SMALL_SIZE_SWITCH_THRESHOLD,
+};
+use crate::view_components::inline_action_header::{
+    HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
 };
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::ChargeUnit;
@@ -821,7 +821,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                                 let phase_text = format_conversation_search_phase(&phase);
                                 let theme = appearance.theme();
                                 let icon_offset = icon_size(app)
-                                    + crate::ai::blocklist::inline_action::inline_action_header::ICON_MARGIN;
+                                    + crate::view_components::inline_action_header::ICON_MARGIN;
                                 let footer = Container::new(
                                     Text::new(
                                         phase_text,

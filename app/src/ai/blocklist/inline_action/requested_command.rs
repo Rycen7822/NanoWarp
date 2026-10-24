@@ -24,7 +24,6 @@ use warpui::{
     TypedActionView, UpdateView, View, ViewContext, ViewHandle,
 };
 
-use super::inline_action_icons::{self, icon_size};
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent::{
     AIAgentActionId, AIAgentActionResult, AIAgentActionResultType, AIAgentActionType,
@@ -40,10 +39,6 @@ use crate::ai::blocklist::block::view_impl::{
     render_autonomy_checkbox_setting_speedbump_footer, render_citation_chips,
 };
 use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
-use crate::ai::blocklist::inline_action::inline_action_header::{
-    ExpandedConfig, HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
-    RightClickConfig,
-};
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
     AIBlock, BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIHistoryModel,
@@ -58,6 +53,7 @@ use crate::terminal::TerminalModel;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::model::block::Block;
 use crate::ui_components::blended_colors;
+use crate::ui_components::inline_action_icons::{self, icon_size};
 use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::view_components::action_button::{ButtonSize, KeystrokeSource, NakedTheme};
 use crate::view_components::compactible_action_button::{
@@ -65,6 +61,10 @@ use crate::view_components::compactible_action_button::{
     RenderCompactibleActionButton,
 };
 use crate::view_components::compactible_split_action_button::CompactibleSplitActionButton;
+use crate::view_components::inline_action_header::{
+    ExpandedConfig, HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
+    RightClickConfig,
+};
 
 /// The vertical padding applied to the requested command row's content body.
 /// For horizontal padding, use [`INLINE_ACTION_HORIZONTAL_PADDING`] for consistency.

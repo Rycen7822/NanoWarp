@@ -16,13 +16,13 @@ use crate::ai::agent::icons::{
 use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{AIAgentTodo, MessageId};
 use crate::ai::blocklist::block::{AIBlockAction, TodoListElementState};
-use crate::ai::blocklist::inline_action::inline_action_header::{
-    ExpandedConfig, HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
-};
-use crate::ai::blocklist::inline_action::inline_action_icons::{cancelled_icon, icon_size};
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::{cancelled_icon, icon_size};
+use crate::view_components::inline_action_header::{
+    ExpandedConfig, HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
+};
 
 pub(super) fn render_todos(
     id: &MessageId,

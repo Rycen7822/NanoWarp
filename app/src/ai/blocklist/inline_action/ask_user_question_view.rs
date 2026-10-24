@@ -45,11 +45,6 @@ use crate::ai::blocklist::block::view_impl::{
     CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
     render_autonomy_dropdown_setting_speedbump_footer,
 };
-use crate::ai::blocklist::inline_action::inline_action_header::{
-    ExpandedConfig, HeaderConfig, INLINE_ACTION_HEADER_VERTICAL_PADDING,
-    INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
-};
-use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::CTRL_C_KEYSTROKE;
 use crate::ai::execution_profiles::AskUserQuestionPermission;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -59,11 +54,16 @@ use crate::terminal::input::message_bar::common::{
 use crate::terminal::input::message_bar::{Message, MessageItem};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::{self, icon_size};
 use crate::view_components::action_button::{
     ButtonSize, KeystrokeSource, NakedTheme, PrimaryTheme,
 };
 use crate::view_components::compactible_action_button::CompactibleActionButton;
 use crate::view_components::dropdown::{Dropdown, DropdownItem};
+use crate::view_components::inline_action_header::{
+    ExpandedConfig, HeaderConfig, INLINE_ACTION_HEADER_VERTICAL_PADDING,
+    INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
+};
 
 const ASK_USER_QUESTION_ACTIVE: &str = "AskUserQuestionActive";
 

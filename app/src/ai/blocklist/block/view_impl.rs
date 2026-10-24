@@ -65,7 +65,6 @@ use crate::ai::blocklist::block::view_impl::header::{
     OVERFLOW_BUTTON_SIZE, render_overflow_menu_button,
 };
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
-use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
 use crate::ai::blocklist::model::AIBlockModelHelper;
 use crate::appearance::Appearance;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -81,6 +80,7 @@ use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::icon_size;
 use crate::util::link_detection::DetectedLinkType;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::dropdown::DropdownItemAction;

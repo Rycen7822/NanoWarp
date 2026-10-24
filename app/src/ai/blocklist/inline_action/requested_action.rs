@@ -24,15 +24,15 @@ use warpui::fonts::FamilyId;
 use warpui::keymap::Keystroke;
 use warpui::{AppContext, Element, SingletonEntity};
 
-use super::inline_action_header::HeaderConfig;
 use crate::ai::blocklist::block::view_impl::WithContentItemSpacing;
-use crate::ai::blocklist::inline_action::inline_action_header;
-use crate::ai::blocklist::inline_action::inline_action_header::{
+use crate::ui_components::blended_colors;
+use crate::ui_components::inline_action_icons::icon_size;
+use crate::view_components::inline_action_header;
+use crate::view_components::inline_action_header::HeaderConfig;
+use crate::view_components::inline_action_header::{
     INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
     INLINE_ACTION_VERTICAL_PADDING,
 };
-use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
-use crate::ui_components::blended_colors;
 
 lazy_static! {
     pub static ref ENTER_KEYSTROKE: Keystroke = Keystroke {
