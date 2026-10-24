@@ -52,7 +52,6 @@ pub(crate) mod loading;
 pub(crate) use ai::paths;
 
 pub fn init(app: &mut AppContext) {
-    blocklist::keyboard_navigable_buttons::init(app);
     blocklist::block::number_shortcut_buttons::init(app);
     conversation_details_panel::init(app);
     agent_management::init(app);

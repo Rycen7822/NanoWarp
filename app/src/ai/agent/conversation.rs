@@ -40,9 +40,7 @@ use crate::ai::agent::api::convert_conversation::{
     proto_timestamp_to_local_datetime,
 };
 use crate::ai::agent::comment::CodeReview;
-use crate::ai::agent::icons::{
-    failed_icon, gray_stop_icon, in_progress_icon, succeeded_icon, yellow_stop_icon,
-};
+use crate::ai::agent::icons::{failed_icon, gray_stop_icon, in_progress_icon, succeeded_icon};
 use crate::ai::agent::linearization::compute_task_depths;
 use crate::ai::agent::request_metadata::{
     InferenceUsageType, LegacyCharges, RequestMetadataRecord, RequestModelCharge,
@@ -72,6 +70,7 @@ use crate::terminal::model::block::{
     AgentInteractionMetadata, AgentViewVisibility, BlockId, SerializedAIMetadata, SerializedBlock,
 };
 use crate::ui_components::icons::Icon;
+use crate::ui_components::inline_action_icons::yellow_stop_icon;
 use crate::workspaces::user_profiles::UserProfileWithUID;
 use crate::{BlocklistAIHistoryModel, GlobalResourceHandlesProvider};
 

@@ -14,14 +14,12 @@ use warpui::{
 };
 
 use crate::ai::blocklist::block::view_impl::common::render_user_avatar;
-use crate::ai::blocklist::block::view_impl::{
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
-};
 use crate::appearance::Appearance;
 use crate::terminal::block_list_element::BlockListMenuSource;
 use crate::terminal::view::TerminalAction;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
 
 /// Renders a pending user query block with dimmed text and a "Queued" badge.

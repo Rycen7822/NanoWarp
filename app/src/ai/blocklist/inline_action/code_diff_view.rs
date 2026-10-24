@@ -44,7 +44,7 @@ use warpui::{
 };
 
 use super::malformed_line_heuristics::has_malformed_terminal_correction_signal;
-use crate::ai::agent::icons::{self, yellow_stop_icon};
+use crate::ai::agent::icons;
 use crate::ai::agent::{
     AIAgentActionId, AIIdentifiers, FileEdit, RequestFileEditsResult, ServerOutputId,
 };
@@ -80,7 +80,7 @@ use crate::terminal::ShellLaunchData;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::ui_components::inline_action_icons::{
-    cancelled_icon, green_check_icon, icon_size, reverted_icon,
+    cancelled_icon, green_check_icon, icon_size, reverted_icon, yellow_stop_icon,
 };
 use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::view_components::DismissibleToast;

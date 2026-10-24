@@ -70,22 +70,6 @@ pub fn gray_circle_icon(appearance: &Appearance) -> warpui::elements::Icon {
     )
 }
 
-/// Not running, requires user's attention
-pub fn yellow_stop_icon(appearance: &Appearance) -> warpui::elements::Icon {
-    warpui::elements::Icon::new(
-        Icon::StopFilled.into(),
-        AnsiColorIdentifier::Yellow.to_ansi_color(&appearance.theme().terminal_colors().normal),
-    )
-}
-
-/// To be used for actions (like running commands/reading files) that are long-running and executing.
-pub fn yellow_running_icon(appearance: &Appearance) -> warpui::elements::Icon {
-    warpui::elements::Icon::new(
-        Icon::Circle.into(),
-        AnsiColorIdentifier::Yellow.to_ansi_color(&appearance.theme().terminal_colors().normal),
-    )
-}
-
 /// Used for buttons that stop the current task
 pub fn red_stop_icon(appearance: &Appearance) -> warpui::elements::Icon {
     warpui::elements::Icon::new(Icon::StopFilled.into(), appearance.theme().ansi_fg_red())

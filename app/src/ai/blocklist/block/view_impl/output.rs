@@ -43,14 +43,13 @@ use super::common::{
 use super::imported_comments::render_imported_comments;
 use super::todos::{render_completed_todo_items, render_todos};
 use super::{
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN, WithContentItemSpacing,
-    add_highlights_to_rich_text, render_autonomy_checkbox_setting_speedbump_footer,
-    render_citation_chips,
+    WithContentItemSpacing, add_highlights_to_rich_text,
+    render_autonomy_checkbox_setting_speedbump_footer, render_citation_chips,
 };
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::comment::ReviewComment;
 use crate::ai::agent::conversation::AIConversation;
-use crate::ai::agent::icons::{self, gray_stop_icon, yellow_stop_icon};
+use crate::ai::agent::icons::{self, gray_stop_icon};
 use crate::ai::agent::request_metadata::TurnPanelData;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
@@ -85,7 +84,6 @@ use crate::ai::blocklist::inline_action::requested_action::{
 use crate::ai::blocklist::inline_action::requested_command::RequestedCommand;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
-use crate::ai::blocklist::keyboard_navigable_buttons::KeyboardNavigableButtons;
 use crate::ai::blocklist::secret_redaction::SecretRedactionState;
 use crate::ai::blocklist::usage::request_metadata_turn_view::{
     RequestMetadataTurnView, turn_panel_tooltip_text_for_data, turn_panel_usage_display_unit,
@@ -109,7 +107,8 @@ use crate::terminal::shared_session::SharedSessionStatus;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
-use crate::ui_components::inline_action_icons::{self, icon_size};
+use crate::ui_components::inline_action_icons::{self, icon_size, yellow_stop_icon};
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::util::link_detection::{DetectedLinksState, add_link_detection_mouse_interactions};
 use crate::util::time_format::format_elapsed_seconds;
 use crate::util::truncation::truncate_from_end;
@@ -120,6 +119,7 @@ use crate::view_components::compactible_action_button::{
 use crate::view_components::inline_action_header::{
     HeaderConfig, INLINE_ACTION_HORIZONTAL_PADDING, InteractionMode,
 };
+use crate::view_components::keyboard_navigable_buttons::KeyboardNavigableButtons;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::ChargeUnit;
 use crate::{AIAgentTodoList, FeatureFlag};
@@ -713,7 +713,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             } else if is_finished {
                                 inline_action_icons::green_check_icon(appearance)
                             } else {
-                                icons::yellow_running_icon(appearance)
+                                inline_action_icons::yellow_running_icon(appearance)
                             };
 
                             // Resolve which conversation is being searched. Conversation IDs use
@@ -2614,8 +2614,8 @@ pub fn action_icon<V: View>(
         Some(status) => match status {
             AIActionStatus::Preprocessing => icons::gray_circle_icon(appearance),
             AIActionStatus::Queued => icons::gray_stop_icon(appearance),
-            AIActionStatus::Blocked => icons::yellow_stop_icon(appearance),
-            AIActionStatus::RunningAsync => icons::yellow_running_icon(appearance),
+            AIActionStatus::Blocked => inline_action_icons::yellow_stop_icon(appearance),
+            AIActionStatus::RunningAsync => inline_action_icons::yellow_running_icon(appearance),
             AIActionStatus::Finished(result) => {
                 if matches!(
                     result.result,
@@ -2623,7 +2623,7 @@ pub fn action_icon<V: View>(
                         RequestCommandOutputResult::LongRunningCommandSnapshot { .. }
                     )
                 ) {
-                    return icons::yellow_running_icon(appearance);
+                    return inline_action_icons::yellow_running_icon(appearance);
                 }
 
                 if result.result.is_successful() {
@@ -2638,7 +2638,7 @@ pub fn action_icon<V: View>(
         None => {
             if ai_block_model.status(app).is_streaming() {
                 if ai_block_model.is_first_action_in_output(action_id, app) {
-                    icons::yellow_running_icon(appearance)
+                    inline_action_icons::yellow_running_icon(appearance)
                 } else {
                     icons::gray_circle_icon(appearance)
                 }

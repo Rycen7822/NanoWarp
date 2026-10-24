@@ -9,7 +9,7 @@ use warpui::ui_components::button::{Button, ButtonVariant};
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
-use super::numbered_button::render_recommended_badge;
+use crate::context_chips::spacing;
 use crate::ui_components::icons::Icon;
 
 const MARGIN_BETWEEN_BUTTONS: f32 = 4.;
@@ -335,4 +335,22 @@ impl TypedActionView for KeyboardNavigableButtons {
 
 impl Entity for KeyboardNavigableButtons {
     type Event = KeyboardNavigableButtonsEvent;
+}
+
+pub(crate) fn render_recommended_badge(appearance: &Appearance) -> Box<dyn Element> {
+    let theme = appearance.theme();
+    Container::new(
+        Text::new(
+            "Recommended".to_string(),
+            appearance.ui_font_family(),
+            appearance.monospace_font_size() - 2.,
+        )
+        .with_color(internal_colors::neutral_6(theme))
+        .finish(),
+    )
+    .with_background(internal_colors::fg_overlay_2(theme))
+    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
+    .with_vertical_padding(spacing::UDI_CHIP_VERTICAL_PADDING)
+    .with_horizontal_padding(spacing::UDI_CHIP_HORIZONTAL_PADDING)
+    .finish()
 }

@@ -41,3 +41,19 @@ pub fn reverted_icon(appearance: &Appearance) -> warpui::elements::Icon {
         blended_colors::neutral_6(appearance.theme()),
     )
 }
+
+/// Not running, requires user's attention
+pub fn yellow_stop_icon(appearance: &Appearance) -> warpui::elements::Icon {
+    warpui::elements::Icon::new(
+        Icon::StopFilled.into(),
+        AnsiColorIdentifier::Yellow.to_ansi_color(&appearance.theme().terminal_colors().normal),
+    )
+}
+
+/// To be used for actions (like running commands/reading files) that are long-running and executing.
+pub fn yellow_running_icon(appearance: &Appearance) -> warpui::elements::Icon {
+    warpui::elements::Icon::new(
+        Icon::Circle.into(),
+        AnsiColorIdentifier::Yellow.to_ansi_color(&appearance.theme().terminal_colors().normal),
+    )
+}

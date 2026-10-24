@@ -3,7 +3,6 @@ pub mod cli;
 pub mod cli_controller;
 pub mod compact_agent_input;
 pub(super) mod find;
-pub mod keyboard_navigable_buttons;
 pub mod model;
 pub mod number_shortcut_buttons;
 pub mod numbered_button;
@@ -95,9 +94,6 @@ use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConvers
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::action_model::NewConversationDecision;
 use crate::ai::blocklist::agent_view::AgentViewController;
-use crate::ai::blocklist::block::keyboard_navigable_buttons::{
-    KeyboardNavigableButtonBuilder, KeyboardNavigableButtons,
-};
 use crate::ai::blocklist::context_model::AttachmentType;
 #[cfg(feature = "agent_mode_debug")]
 use crate::ai::blocklist::diff_types::FileDiff;
@@ -170,6 +166,9 @@ use crate::view_components::action_button::{
 };
 use crate::view_components::compactible_action_button::CompactibleActionButton;
 use crate::view_components::find::FindEvent;
+use crate::view_components::keyboard_navigable_buttons::{
+    KeyboardNavigableButtonBuilder, KeyboardNavigableButtons,
+};
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
 use crate::{

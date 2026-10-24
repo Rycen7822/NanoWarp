@@ -58,7 +58,6 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::block::find::FindState;
 use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarAction;
-use crate::ai::blocklist::block::view_impl::CONTENT_HORIZONTAL_PADDING;
 use crate::ai::blocklist::block::{
     AIBlockAction, CollapsibleElementState, CollapsibleExpansionState, EmbeddedCodeEditorView,
     TableSectionHandles,
@@ -91,6 +90,7 @@ use crate::terminal::grid_renderer::{FOCUSED_MATCH_COLOR, MATCH_COLOR};
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
 use crate::terminal::{self, ShellLaunchData, TerminalModel};
+use crate::ui_components::CONTENT_HORIZONTAL_PADDING;
 use crate::ui_components::avatar::{Avatar, AvatarContent};
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;

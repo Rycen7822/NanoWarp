@@ -47,7 +47,6 @@ use super::view_impl::common::{
 use super::view_impl::output::are_all_text_sections_empty;
 use super::{EmbeddedCodeEditorView, SecretRedactionState, TableSectionHandles};
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::icons::yellow_stop_icon;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentActionType, AIAgentInput, AIAgentOutput, AIAgentOutputMessageType, AIAgentPtyWriteMode,
@@ -84,7 +83,7 @@ use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::{ShellLaunchData, TerminalModel};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::ui_components::inline_action_icons::icon_size;
+use crate::ui_components::inline_action_icons::{icon_size, yellow_stop_icon};
 use crate::util::link_detection::{DetectedLinksState, detect_links};
 use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{

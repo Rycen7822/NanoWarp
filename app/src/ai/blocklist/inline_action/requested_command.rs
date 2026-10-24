@@ -35,7 +35,6 @@ use crate::ai::blocklist::block::cli_controller::{
 };
 use crate::ai::blocklist::block::view_impl::output::action_icon;
 use crate::ai::blocklist::block::view_impl::{
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
     render_autonomy_checkbox_setting_speedbump_footer, render_citation_chips,
 };
 use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
@@ -54,6 +53,7 @@ use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::model::block::Block;
 use crate::ui_components::blended_colors;
 use crate::ui_components::inline_action_icons::{self, icon_size};
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::view_components::action_button::{ButtonSize, KeystrokeSource, NakedTheme};
 use crate::view_components::compactible_action_button::{
@@ -1078,7 +1078,7 @@ impl RequestedCommandView {
                                 if is_errored {
                                     icons::failed_icon(appearance)
                                 } else if *is_blocked {
-                                    icons::yellow_stop_icon(appearance)
+                                    inline_action_icons::yellow_stop_icon(appearance)
                                 } else {
                                     icons::in_progress_icon(appearance)
                                 }
@@ -1088,7 +1088,7 @@ impl RequestedCommandView {
                             }
                         }
                     } else {
-                        icons::yellow_running_icon(appearance)
+                        inline_action_icons::yellow_running_icon(appearance)
                     }
                 } else if block.exit_code().is_sigint() {
                     inline_action_icons::cancelled_icon(appearance)

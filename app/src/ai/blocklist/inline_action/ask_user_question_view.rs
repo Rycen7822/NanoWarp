@@ -30,7 +30,6 @@ use warpui::{
 
 use crate::Appearance;
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::icons::yellow_stop_icon;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{AIAgentActionId, AIAgentActionResult, AIAgentActionResultType};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
@@ -41,10 +40,7 @@ use crate::ai::blocklist::block::compact_agent_input;
 use crate::ai::blocklist::block::number_shortcut_buttons::{
     self, NumberShortcutButtonBuilder, NumberShortcutButtons, NumberShortcutButtonsConfig,
 };
-use crate::ai::blocklist::block::view_impl::{
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
-    render_autonomy_dropdown_setting_speedbump_footer,
-};
+use crate::ai::blocklist::block::view_impl::render_autonomy_dropdown_setting_speedbump_footer;
 use crate::ai::blocklist::inline_action::requested_action::CTRL_C_KEYSTROKE;
 use crate::ai::execution_profiles::AskUserQuestionPermission;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -54,7 +50,8 @@ use crate::terminal::input::message_bar::common::{
 use crate::terminal::input::message_bar::{Message, MessageItem};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::ui_components::inline_action_icons::{self, icon_size};
+use crate::ui_components::inline_action_icons::{self, icon_size, yellow_stop_icon};
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::view_components::action_button::{
     ButtonSize, KeystrokeSource, NakedTheme, PrimaryTheme,
 };

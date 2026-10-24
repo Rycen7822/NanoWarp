@@ -81,6 +81,7 @@ use crate::terminal::view::TerminalAction;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::ui_components::inline_action_icons::icon_size;
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::util::link_detection::DetectedLinkType;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::dropdown::DropdownItemAction;
@@ -1267,18 +1268,6 @@ impl View for AIBlock {
     }
 }
 
-/// The horizontal padding applied to the AIBlock's content.
-///
-/// This should be applied to all content in the AIBlock, with the exception of the requested
-/// command UX when it is in "expanded" state, when the requested command item expands to the full
-/// terminal width as part of a UI that attempts to make the requested command UX in the
-/// AIBlock appear visually connected to the actual shell block despite them existing in different
-/// branches of the view hierarchy.
-///
-/// Each sub-component of the AI block (header, query, output) is responsible for implementing its
-/// own padding and margin using these values.
-pub(crate) const CONTENT_HORIZONTAL_PADDING: f32 = 20.;
-
 /// The vertical padding applied to the AIBlock's content.
 ///
 /// When there is an expanded requested command block, the padding from the bottom of the block is
@@ -1289,13 +1278,6 @@ pub(crate) const CONTENT_HORIZONTAL_PADDING: f32 = 20.;
 /// Each sub-component of the AI block (header, query, output) is responsible for implementing its
 /// own padding and margin using these values.
 pub(crate) const CONTENT_VERTICAL_PADDING: f32 = 16.;
-
-/// The space in between each "item" in the AI block, e.g. between header, query, and each output
-/// "step".
-///
-/// Each sub-component of the AI block (header, query, output) is responsible for implementing its
-/// own padding and margin using these values.
-pub(crate) const CONTENT_ITEM_VERTICAL_MARGIN: f32 = 16.;
 
 pub(crate) trait WithContentItemSpacing {
     /// Returns a [`Container`] with standard margin and padding values applied to be rendered as a

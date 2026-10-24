@@ -19,17 +19,14 @@ use warpui::{
     ViewContext,
 };
 
-use crate::ai::agent::icons::{yellow_running_icon, yellow_stop_icon};
-use crate::ai::blocklist::block::view_impl::{
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
-};
 use crate::appearance::Appearance;
 use crate::settings::InputModeSettings;
 use crate::terminal::block_list_element::BlockListMenuSource;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::view::TerminalAction;
 use crate::ui_components::blended_colors;
-use crate::ui_components::inline_action_icons::{self};
+use crate::ui_components::inline_action_icons::{self, yellow_running_icon, yellow_stop_icon};
+use crate::ui_components::{CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN};
 use crate::view_components::action_button::{
     ButtonSize, KeystrokeSource, NakedTheme, PrimaryTheme,
 };
