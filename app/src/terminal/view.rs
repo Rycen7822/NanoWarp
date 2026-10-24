@@ -60,7 +60,6 @@ use std::time::Duration;
 use action::RememberForWarpification;
 pub use action::{AgentOnboardingVersion, OnboardingIntention, OnboardingVersion, TerminalAction};
 use ai::api_keys::{ApiKeyManager, AwsCredentialsState};
-use ai::index::full_source_code_embedding::manager::{BuildSource, CodebaseIndexManager};
 use async_channel::{Receiver, Sender};
 use base64::Engine as _;
 pub use block_banner::{BLOCK_BANNER_HEIGHT, WithinBlockBanner};
@@ -252,7 +251,6 @@ use crate::ai::conversation_utils;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::ai::execution_profiles::ExecutionProfileId;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
 use crate::ai::llms::{LLMId, LLMModelHost, LLMPreferences};
 use crate::ai::loading::shimmering_warp_loading_text;
 #[cfg(feature = "local_fs")]
@@ -2461,7 +2459,6 @@ pub struct TerminalView {
     ai_action_model: ModelHandle<BlocklistAIActionModel>,
     ai_input_model: ModelHandle<BlocklistAIInputModel>,
     ai_context_model: ModelHandle<BlocklistAIContextModel>,
-    get_relevant_files_controller: ModelHandle<GetRelevantFilesController>,
 
     pending_env_var_collection: Option<CloudEnvVarCollection>,
 
@@ -3185,7 +3182,6 @@ impl TerminalView {
             model
         });
 
-        let get_relevant_files_controller = ctx.add_model(GetRelevantFilesController::new);
         let ai_action_team_context_resolver =
             UserWorkspaces::team_context_resolver(terminal_view.clone());
         let ai_action_model = ctx.add_model(|ctx| {
@@ -3193,7 +3189,6 @@ impl TerminalView {
                 model.clone(),
                 active_session.clone(),
                 &model_events_handle,
-                get_relevant_files_controller.clone(),
                 terminal_view_id,
                 ai_action_team_context_resolver,
                 ctx,
@@ -3969,7 +3964,6 @@ impl TerminalView {
             ai_controller,
             ai_action_model,
             ai_render_context,
-            get_relevant_files_controller,
             shared_session: None,
             pending_share_source: None,
             conversation_ended_tombstone_view_id: None,
@@ -4367,9 +4361,6 @@ impl TerminalView {
                     | RemoteServerManagerEvent::RepoMetadataSnapshot { .. }
                     | RemoteServerManagerEvent::RepoMetadataUpdated { .. }
                     | RemoteServerManagerEvent::RepoMetadataDirectoryLoaded { .. }
-                    | RemoteServerManagerEvent::CodebaseIndexStatusesSnapshot { .. }
-                    | RemoteServerManagerEvent::CodebaseIndexStatusUpdated { .. }
-                    | RemoteServerManagerEvent::CodebaseIndexMutationFailed { .. }
                     | RemoteServerManagerEvent::BufferUpdated { .. }
                     | RemoteServerManagerEvent::BufferConflictDetected { .. }
                     | RemoteServerManagerEvent::DiffStateSnapshotReceived { .. }
@@ -5722,7 +5713,6 @@ impl TerminalView {
                             response_stream_id: response_stream_id.clone(),
                         },
                         self.ai_controller.clone(),
-                        self.get_relevant_files_controller.clone(),
                         self.pwd(),
                         self.shell_launch_data_if_local(ctx),
                         self.ai_action_model.clone(),
@@ -7080,9 +7070,6 @@ impl TerminalView {
                     }
                     AIAgentActionType::ReadFiles(..) => {
                         "Warp Agent needs your permission to read files".to_string()
-                    }
-                    AIAgentActionType::SearchCodebase(..) => {
-                        "Warp Agent needs your permission to search your codebase".to_string()
                     }
                     AIAgentActionType::RequestFileEdits { .. } => {
                         "Warp Agent needs your permission to edit a file".to_string()
@@ -12388,12 +12375,6 @@ impl TerminalView {
         self.any_session_contains_restored_remote_blocks = self.contains_restored_remote_blocks();
         self.any_session_contains_remote_blocks |= self.active_block_is_considered_remote(ctx);
         self.update_focused_terminal_info(ctx);
-
-        if let Some(working_directory) = self.active_session_path_if_local(ctx) {
-            CodebaseIndexManager::handle(ctx).update(ctx, |manager, _ctx| {
-                manager.handle_session_bootstrapped(&working_directory);
-            });
-        }
 
         // At the end of bootstrapping, set the title to the title of
         // the selected conversation. If there is no selected conversation,
@@ -20125,7 +20106,6 @@ impl TerminalView {
             context: vec![AIAgentContext::Directory {
                 pwd: Some("~".to_owned()),
                 home_dir: None,
-                are_file_symbols_indexed: false,
             }]
             .into(),
             static_query_type: None,
@@ -20162,7 +20142,6 @@ impl TerminalView {
                     response_stream_id: None,
                 },
                 self.ai_controller.clone(),
-                self.get_relevant_files_controller.clone(),
                 None,
                 None,
                 self.ai_action_model.clone(),
@@ -22899,34 +22878,6 @@ impl TerminalView {
             .set_show_bootstrap_block(true);
     }
 
-    fn generate_codebase_index(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(active_session_path) = self.active_session_path_if_local(ctx) else {
-            return;
-        };
-
-        CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.build_and_sync_codebase_index(
-                BuildSource::FromPath(active_session_path.as_path()),
-                ctx,
-            );
-        });
-    }
-
-    fn write_codebase_index(&self, _ctx: &mut ViewContext<Self>) {
-        #[cfg(feature = "local_fs")]
-        {
-            let Some(working_directory_str) = self.pwd() else {
-                log::warn!("No working directory found for terminal session");
-                return;
-            };
-
-            let working_directory = PathBuf::from(working_directory_str);
-            CodebaseIndexManager::handle(_ctx).update(_ctx, |index_manager, ctx| {
-                index_manager.write_snapshot(working_directory.as_path(), ctx);
-            });
-        }
-    }
-
     /// Starts all enabled LSP servers for the current working directory.
     #[cfg(feature = "local_fs")]
     fn start_lsp_server_in_active_pwd(&self, ctx: &mut ViewContext<Self>) {
@@ -23475,11 +23426,9 @@ impl TypedActionView for TerminalView {
             | StopFileDropTarget
             | RunNativeShellCompletions { .. }
             | HideTelemetryBannerPermanently
-            | GenerateCodebaseIndex
             | LoadAgentModeConversation
             | DeleteAttachment { .. }
             | OpenAttachmentLightbox { .. }
-            | WriteCodebaseIndex
             | AttachFile
             | ToggleAutoexecuteMode
             | ToggleQueueNextPrompt
@@ -24017,9 +23966,6 @@ impl TypedActionView for TerminalView {
             ClearMarkedText => self.clear_marked_text_on_terminal(ctx),
             HideTelemetryBannerPermanently => self.hide_telemetry_banner_permanently(ctx),
             ShowInitializationBlock => self.show_initialization_block(),
-            GenerateCodebaseIndex => {
-                self.generate_codebase_index(ctx);
-            }
             LoadAgentModeConversation => {
                 self.load_agent_mode_conversation(ctx);
             }
@@ -24086,9 +24032,6 @@ impl TypedActionView for TerminalView {
                     images,
                     initial_index,
                 });
-            }
-            WriteCodebaseIndex => {
-                self.write_codebase_index(ctx);
             }
             AttachFile => {
                 if !self.can_attach_file(ctx) {

@@ -1,4 +1,3 @@
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 #[cfg(feature = "local_fs")]
 use ai::skills::SKILL_PROVIDER_DEFINITIONS;
 #[cfg(feature = "local_fs")]
@@ -24,7 +23,6 @@ use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::LLMPreferences;
-use crate::ai::outline::RepoOutlines;
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::ai::pricing_promotion::PricingPromotionState;
 use crate::ai::restored_conversations::RestoredAgentConversations;
@@ -126,13 +124,9 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     });
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| GitRepoModels::new());
-    app.add_singleton_model(RepoOutlines::new_for_test);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(SkillManager::new);
-    app.add_singleton_model(|ctx| {
-        CodebaseIndexManager::new_for_test(ServerApiProvider::as_ref(ctx).get(), ctx)
-    });
     app.add_singleton_model(|ctx| {
         AIExecutionProfilesModel::new(&crate::LaunchMode::new_for_unit_test(), ctx)
     });

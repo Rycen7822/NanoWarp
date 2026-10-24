@@ -40,7 +40,6 @@ use workspace::WorkspaceClient;
 use super::experiments::{ServerExperiment, ServerExperiments};
 use crate::ChannelState;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::get_relevant_files::api::{GetRelevantFiles, GetRelevantFilesResponse};
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
 use crate::server::team_scope::RequestTeamScope;
@@ -755,35 +754,6 @@ impl ServerApi {
     ) -> Result<()> {
         self.telemetry_api
             .flush_and_persist_events(max_event_count, settings_snapshot)
-    }
-
-    pub async fn get_relevant_files(
-        &self,
-        request: &GetRelevantFiles,
-        team_scope: RequestTeamScope,
-    ) -> Result<GetRelevantFilesResponse, AIApiError> {
-        let auth_token = self.get_or_refresh_access_token().await?;
-
-        let mut request_builder = self.base_client.http_client().post(format!(
-            "{}/ai/relevant_files",
-            ChannelState::server_root_url()
-        ));
-        if let Some(token) = auth_token.as_bearer_token() {
-            request_builder = request_builder.bearer_auth(token);
-        }
-        if let Some(team_uid) = team_scope.team_uid() {
-            request_builder = request_builder.header(TEAM_UID_HEADER, team_uid.uid());
-        }
-        let response = request_builder
-            .json(request)
-            .send()
-            .await?
-            .error_for_status_with_body()
-            .await?
-            .json()
-            .await?;
-
-        Ok(response)
     }
 }
 

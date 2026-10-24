@@ -25,10 +25,6 @@ fn create_test_request_limit_info(
         next_refresh_time: ServerTimestamp::new(next_refresh),
         is_unlimited,
         request_limit_refresh_duration: refresh_duration,
-        is_unlimited_codebase_indices: false,
-        max_codebase_indices: 0,
-        max_files_per_repo: 5000,
-        embedding_generation_batch_size: 100,
     }
 }
 

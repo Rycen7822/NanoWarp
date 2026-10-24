@@ -125,7 +125,6 @@ pub struct Tier {
     pub telemetry_data_collection_policy: Option<TelemetryDataCollectionPolicy>,
     pub ugc_data_collection_policy: Option<UgcDataCollectionPolicy>,
     pub usage_based_pricing_policy: Option<UsageBasedPricingPolicy>,
-    pub codebase_context_policy: Option<CodebaseContextPolicy>,
     pub byo_api_key_policy: Option<ByoApiKeyPolicy>,
     pub byo_endpoint_policy: Option<ByoEndpointPolicy>,
     pub managed_byok_byoe_policy: Option<ManagedByokByoePolicy>,
@@ -187,15 +186,6 @@ pub struct UgcDataCollectionPolicy {
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct UsageBasedPricingPolicy {
     pub toggleable: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct CodebaseContextPolicy {
-    pub toggleable: bool,
-    pub is_unlimited_indices: bool,
-    pub max_indices: i32,
-    pub max_files_per_repo: i32,
-    pub embedding_generation_batch_size: i32,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]

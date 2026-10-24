@@ -186,7 +186,6 @@ fn tier_conversion_maps_the_charge_unit() {
         telemetry_data_collection_policy: None,
         ugc_data_collection_policy: None,
         usage_based_pricing_policy: None,
-        codebase_context_policy: None,
         byo_api_key_policy: None,
         byo_endpoint_policy: None,
         managed_byok_byoe_policy: None,
@@ -370,7 +369,6 @@ mod team_settings_conversion {
                 is_enforced_by_workspace: true,
             },
             cloud_conversation_storage: admin_info(gqlws::AdminEnablementSetting::Disable, false),
-            codebase_context: admin_info(gqlws::AdminEnablementSetting::Enable, false),
             ai_permissions: gqlws::AiPermissionsSettingsInfo {
                 allow_ai_in_remote_sessions: bool_info(true, true),
                 remote_session_regex_list: str_list(&["foo.*"], &["ws.*"], &["team.*"]),
@@ -448,10 +446,6 @@ mod team_settings_conversion {
         assert_eq!(
             settings.cloud_conversation_storage.value,
             AdminEnablementSetting::Disable
-        );
-        assert_eq!(
-            settings.codebase_context.value,
-            AdminEnablementSetting::Enable
         );
 
         // AI permissions preserve the enforcement bit and compile the merged patterns.
@@ -561,8 +555,7 @@ mod team_settings_conversion {
 
     #[test]
     fn team_settings_from_gql_uses_team_payload() {
-        // The team payload carries distinctive values (llm enabled, codebase
-        // context Enable, ugc enforced). `team_settings_from_gql` derives
+        // The team payload carries distinctive values (llm enabled, ugc enforced). `team_settings_from_gql` derives
         // `Team.settings` from this payload only — it takes just the team settings,
         // so it structurally cannot clone workspace settings. This is the parse
         // boundary replacing the old `Team::organization_settings` clone.
@@ -571,11 +564,6 @@ mod team_settings_conversion {
         assert!(
             settings.llm_settings.enabled,
             "Team.settings must be sourced from the team payload"
-        );
-        assert_eq!(
-            settings.codebase_context.value,
-            AdminEnablementSetting::Enable,
-            "team codebase_context value must flow through from the team payload"
         );
         assert!(
             settings.ugc_collection.is_enforced_by_workspace,

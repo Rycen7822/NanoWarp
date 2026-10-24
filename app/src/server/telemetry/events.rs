@@ -832,21 +832,6 @@ pub enum CloudAgentShellRecoveryFailureClass {
     SharedSessionRebind,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RemoteCodebaseIndexStatusTelemetrySource {
-    Snapshot,
-    PushUpdate,
-    MutationResponse,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RemoteCodebaseAutoIndexTrigger {
-    NavigatedToGitRepo,
-    CodebaseContextEnablementChanged,
-}
-
 #[derive(Clone, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]
 pub enum TelemetryEvent {
@@ -1509,15 +1494,6 @@ pub enum TelemetryEvent {
         error: Option<String>,
     },
 
-    /// Emitted when the user toggles codebase context.
-    ToggleCodebaseContext {
-        is_codebase_context_enabled: bool,
-    },
-
-    ToggleAutoIndexing {
-        is_autoindexing_enabled: bool,
-    },
-
     TierLimitHit(TierLimitHitEvent),
     SharedObjectLimitHitBannerViewPlansButtonClicked,
     ResourceUsageStats {
@@ -1607,22 +1583,6 @@ pub enum TelemetryEvent {
         src: AutonomySettingToggleSource,
         new: AskUserQuestionPermission,
     },
-    FullEmbedCodebaseContextSearchSuccess {
-        action_id: AIAgentActionId,
-        total_search_duration: Duration,
-        out_of_sync_delay: Option<Duration>,
-    },
-    FullEmbedCodebaseContextSearchFailed {
-        action_id: AIAgentActionId,
-        error: String,
-    },
-    RepoOutlineConstructionSuccess {
-        total_parse_seconds: usize,
-        file_count: usize,
-    },
-    RepoOutlineConstructionFailed {
-        error: String,
-    },
     AutoexecutedAgentModeRequestedCommand {
         reason: CommandExecutionPermissionAllowedReason,
     },
@@ -1699,15 +1659,6 @@ pub enum TelemetryEvent {
         antivirus_name: Option<String>,
         long_os_version: Option<String>,
         exit_reason: Option<String>,
-    },
-    SearchCodebaseRequested {
-        action_id: AIAgentActionId,
-        server_output_id: Option<ServerOutputId>,
-        is_cross_repo: bool,
-    },
-    SearchCodebaseRepoUnavailable {
-        action_id: AIAgentActionId,
-        error: String,
     },
     /// User changed the input UX mode (e.g. Universal Developer Input, UDI, mode or Classic)
     InputUXModeChanged {
@@ -1954,26 +1905,6 @@ pub enum TelemetryEvent {
         remote_arch: Option<String>,
         exit_code: Option<i32>,
         signal_killed: Option<bool>,
-    },
-    /// Emitted when the remote codebase index status changes.
-    RemoteCodebaseIndexStatusChanged {
-        state: remote_server::codebase_index_proto::RemoteCodebaseIndexState,
-        previous_state: Option<remote_server::codebase_index_proto::RemoteCodebaseIndexState>,
-        has_root_hash: bool,
-        has_failure_message: bool,
-        progress_completed: Option<u64>,
-        progress_total: Option<u64>,
-        mutation_kind: Option<remote_server::manager::RemoteCodebaseIndexUpdateOperation>,
-        source: RemoteCodebaseIndexStatusTelemetrySource,
-        remote_os: Option<String>,
-        remote_arch: Option<String>,
-    },
-    /// Emitted when auto-indexing requests one or more remote codebases.
-    RemoteCodebaseAutoIndexRequested {
-        trigger: RemoteCodebaseAutoIndexTrigger,
-        requested_count: usize,
-        remote_os: Option<String>,
-        remote_arch: Option<String>,
     },
     /// Emitted when the user commits a non-empty edit to a queued prompt row.
     QueuedPromptEdited {
@@ -2569,16 +2500,6 @@ impl TelemetryEvent {
             TelemetryEvent::SuperGrokSubscriptionConnectFinished { error } => {
                 Some(json!({ "error": error }))
             }
-            TelemetryEvent::ToggleCodebaseContext {
-                is_codebase_context_enabled,
-            } => Some(json!( {
-                "is_codebase_context_enabled": is_codebase_context_enabled
-            })),
-            TelemetryEvent::ToggleAutoIndexing {
-                is_autoindexing_enabled,
-            } => Some(json!({
-                "is_autoindexing_enabled": is_autoindexing_enabled
-            })),
             TelemetryEvent::ToggleLigatureRendering { enabled } => {
                 Some(json!({"enabled": enabled}))
             }
@@ -2595,31 +2516,6 @@ impl TelemetryEvent {
             TelemetryEvent::ChangedAgentModeAskUserQuestionPermission { src, new } => Some(json!({
                 "source": src,
                 "new": new,
-            })),
-            TelemetryEvent::FullEmbedCodebaseContextSearchSuccess {
-                action_id,
-                total_search_duration,
-                out_of_sync_delay,
-            } => Some(json!({
-                "action_id": action_id,
-                "total_search_duration": total_search_duration,
-                "out_of_sync_delay": out_of_sync_delay
-            })),
-            TelemetryEvent::FullEmbedCodebaseContextSearchFailed { action_id, error } => {
-                Some(json!({
-                    "action_id": action_id,
-                    "error": error
-                }))
-            }
-            TelemetryEvent::RepoOutlineConstructionSuccess {
-                total_parse_seconds,
-                file_count,
-            } => Some(json!({
-                "total_parse_seconds": total_parse_seconds,
-                "file_count": file_count,
-            })),
-            TelemetryEvent::RepoOutlineConstructionFailed { error } => Some(json!({
-                "error": error,
             })),
             TelemetryEvent::AutoexecutedAgentModeRequestedCommand { reason } => Some(json!({
                 "reason": reason,
@@ -2716,19 +2612,6 @@ impl TelemetryEvent {
                 "antivirus_name": antivirus_name,
                 "long_os_version": long_os_version,
                 "exit_reason": exit_reason,
-            })),
-            TelemetryEvent::SearchCodebaseRequested {
-                action_id,
-                server_output_id,
-                is_cross_repo,
-            } => Some(json!({
-                "action_id": action_id,
-                "server_output_id": server_output_id,
-                "is_cross_repo": is_cross_repo,
-            })),
-            TelemetryEvent::SearchCodebaseRepoUnavailable { action_id, error } => Some(json!({
-                "action_id": action_id,
-                "error": error,
             })),
             TelemetryEvent::InputUXModeChanged {
                 is_udi_enabled,
@@ -2937,40 +2820,6 @@ impl TelemetryEvent {
                 remote_os,
                 remote_arch,
             } => Some(json!({
-                "remote_os": remote_os,
-                "remote_arch": remote_arch,
-            })),
-            TelemetryEvent::RemoteCodebaseIndexStatusChanged {
-                state,
-                previous_state,
-                has_root_hash,
-                has_failure_message,
-                progress_completed,
-                progress_total,
-                mutation_kind,
-                source,
-                remote_os,
-                remote_arch,
-            } => Some(json!({
-                "state": state,
-                "previous_state": previous_state,
-                "has_root_hash": has_root_hash,
-                "has_failure_message": has_failure_message,
-                "progress_completed": progress_completed,
-                "progress_total": progress_total,
-                "mutation_kind": mutation_kind,
-                "source": source,
-                "remote_os": remote_os,
-                "remote_arch": remote_arch,
-            })),
-            TelemetryEvent::RemoteCodebaseAutoIndexRequested {
-                trigger,
-                requested_count,
-                remote_os,
-                remote_arch,
-            } => Some(json!({
-                "trigger": trigger,
-                "requested_count": requested_count,
                 "remote_os": remote_os,
                 "remote_arch": remote_arch,
             })),
@@ -3458,8 +3307,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleGlobalAI { .. }
             | TelemetryEvent::SuperGrokSubscriptionConnectInitiated
             | TelemetryEvent::SuperGrokSubscriptionConnectFinished { .. }
-            | TelemetryEvent::ToggleCodebaseContext { .. }
-            | TelemetryEvent::ToggleAutoIndexing { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::ResourceUsageStats { .. }
@@ -3482,8 +3329,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggledAgentModeAutoexecuteReadonlyCommandsSetting { .. }
             | TelemetryEvent::ChangedAgentModeCodingPermissions { .. }
             | TelemetryEvent::ChangedAgentModeAskUserQuestionPermission { .. }
-            | TelemetryEvent::RepoOutlineConstructionSuccess { .. }
-            | TelemetryEvent::RepoOutlineConstructionFailed { .. }
             | TelemetryEvent::AutoexecutedAgentModeRequestedCommand { .. }
             | TelemetryEvent::KnowledgePaneOpened { .. }
             | TelemetryEvent::ExecutedWarpDrivePrompt { .. }
@@ -3501,10 +3346,6 @@ impl TelemetryEvent {
             | TelemetryEvent::FileGlobToolSucceeded
             | TelemetryEvent::FileGlobToolFailed { .. }
             | TelemetryEvent::ShellTerminatedPrematurely { .. }
-            | TelemetryEvent::FullEmbedCodebaseContextSearchFailed { .. }
-            | TelemetryEvent::FullEmbedCodebaseContextSearchSuccess { .. }
-            | TelemetryEvent::SearchCodebaseRequested { .. }
-            | TelemetryEvent::SearchCodebaseRepoUnavailable { .. }
             | TelemetryEvent::InputUXModeChanged { .. }
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::TabCloseButtonPositionUpdated { .. }
@@ -3557,9 +3398,7 @@ impl TelemetryEvent {
             | TelemetryEvent::RemoteServerSetupDuration { .. }
             | TelemetryEvent::RemoteServerHostUnsupported { .. }
             | TelemetryEvent::RemoteServerReconnection { .. }
-            | TelemetryEvent::RemoteServerReconnectExhausted { .. }
-            | TelemetryEvent::RemoteCodebaseIndexStatusChanged { .. }
-            | TelemetryEvent::RemoteCodebaseAutoIndexRequested { .. } => false,
+            | TelemetryEvent::RemoteServerReconnectExhausted { .. } => false,
             #[cfg(feature = "local_fs")]
             TelemetryEvent::CodePaneOpened { .. }
             | TelemetryEvent::CodePanelsFileOpened { .. }
@@ -3602,19 +3441,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
         // with a feature flag when appropriate.
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
-            Self::SearchCodebaseRequested { .. } | Self::SearchCodebaseRepoUnavailable { .. } => {
-                EnablementState::Flag(FeatureFlag::CrossRepoContext)
-            }
-            Self::RepoOutlineConstructionSuccess { .. } => {
-                EnablementState::Flag(FeatureFlag::AgentModeAnalytics)
-            }
-            Self::RepoOutlineConstructionFailed { .. } => {
-                EnablementState::Flag(FeatureFlag::AgentModeAnalytics)
-            }
-            Self::FullEmbedCodebaseContextSearchFailed { .. }
-            | Self::FullEmbedCodebaseContextSearchSuccess { .. } => {
-                EnablementState::Flag(FeatureFlag::FullSourceCodeEmbedding)
-            }
             Self::ObjectLinkCopied => EnablementState::Always,
             Self::FileTreeToggled => EnablementState::Flag(FeatureFlag::FileTree),
             Self::FileTreeItemAttachedAsContext => EnablementState::Flag(FeatureFlag::FileTree),
@@ -3888,8 +3714,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             #[cfg(windows)]
             Self::WSLRegistryError => EnablementState::Always,
-            Self::ToggleCodebaseContext => EnablementState::Always,
-            Self::ToggleAutoIndexing => EnablementState::Always,
             Self::AgentModeRatedResponse => {
                 EnablementState::Flag(FeatureFlag::GlobalAIAnalyticsBanner)
             }
@@ -3960,9 +3784,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::RemoteServerSetupDuration
             | Self::RemoteServerHostUnsupported
             | Self::RemoteServerReconnection
-            | Self::RemoteServerReconnectExhausted
-            | Self::RemoteCodebaseIndexStatusChanged
-            | Self::RemoteCodebaseAutoIndexRequested => {
+            | Self::RemoteServerReconnectExhausted => {
                 EnablementState::Flag(FeatureFlag::SshRemoteServer)
             }
             Self::QueuedPromptEdited
@@ -3975,11 +3797,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
 
     fn name(&self) -> &'static str {
         match self {
-            Self::RepoOutlineConstructionSuccess => "Repo Outline Built Successfully",
-            Self::RepoOutlineConstructionFailed => "Repo Outline Construction Failed",
-            // Although this event is sent when the block completes rather than
-            // when it's created, we are still naming it "Block Creation" to
-            // preserve our historical telemetry data.
             Self::BlockCompleted => "Block Creation",
             Self::BlockCompletedOnDogfoodOnly => "Block Completed (dogfood only)",
             Self::BackgroundBlockStarted => "Background Block Started",
@@ -4276,8 +4093,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::RemoteServerHostUnsupported => "RemoteServer.HostUnsupported",
             Self::RemoteServerReconnection => "RemoteServer.Reconnection",
             Self::RemoteServerReconnectExhausted => "RemoteServer.ReconnectExhausted",
-            Self::RemoteCodebaseIndexStatusChanged => "RemoteCodebaseIndex.StatusChanged",
-            Self::RemoteCodebaseAutoIndexRequested => "RemoteCodebaseIndex.AutoIndexRequested",
             Self::QueuedPromptEdited => "QueuedPrompt.Edited",
             Self::QueuedPromptDeleted => "QueuedPrompt.Deleted",
             Self::QueuedPromptReordered => "QueuedPrompt.Reordered",
@@ -4285,8 +4100,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::QueuedPromptSentNow => "QueuedPrompt.SentNow",
             #[cfg(windows)]
             Self::WSLRegistryError => "WSL Distribution Registry Error",
-            Self::ToggleCodebaseContext => "Toggle Agent Mode Codebase Context",
-            Self::ToggleAutoIndexing => "Toggle Codebase Context Autoindexing",
             Self::AttachedImagesToAgentModeQuery => "AgentMode.AttachedImages",
             Self::AgentModeRatedResponse => "AgentMode.RatedResponse",
             Self::ExecutedWarpDrivePrompt => "AgentMode.ExecutedWarpDrivePrompt",
@@ -4298,16 +4111,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::FileGlobToolSucceeded => "AgentMode.FileGlob.Succeeded",
             Self::FileGlobToolFailed { .. } => "AgentMode.FileGlob.Failed",
             Self::ShellTerminatedPrematurely { .. } => "Shell Terminated Prematurely",
-            Self::FullEmbedCodebaseContextSearchSuccess { .. } => {
-                "AgentMode.FullEmbedCodebaseContextSearch.Success"
-            }
-            Self::FullEmbedCodebaseContextSearchFailed { .. } => {
-                "AgentMode.FullEmbedCodebaseContextSearch.Failed"
-            }
-            Self::SearchCodebaseRequested { .. } => "AgentMode.SearchCodebase.Requested",
-            Self::SearchCodebaseRepoUnavailable { .. } => {
-                "AgentMode.SearchCodebase.RepoUnavailable"
-            }
             Self::InputUXModeChanged { .. } => "Input.InputUXModeChanged",
             Self::UserMenuUpgradeClicked => "User Menu Upgrade Clicked",
             Self::TabCloseButtonPositionUpdated { .. } => "Update Tab Close Button Position",
@@ -4360,10 +4163,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AIExecutionProfileContextWindowSelected { .. } => {
                 "Selected a context window limit for an execution profile's base model"
             }
-            Self::RepoOutlineConstructionSuccess => {
-                "Repository outline built successfully for providing codebase context"
-            }
-            Self::RepoOutlineConstructionFailed => "Repository outline built failed",
             Self::BlockCompleted => "Created Block",
             Self::AgentModeContinueConversationButtonClicked => {
                 "User clicked the Continue Conversation button in a block footer"
@@ -4855,12 +4654,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::WSLRegistryError => {
                 "Encountered an error while fetching WSL distributions from the registry"
             }
-            Self::ToggleCodebaseContext => {
-                "Toggled on/off the enablement of codebase context usage for Agent Mode."
-            }
-            Self::ToggleAutoIndexing => {
-                "Toggled on/off the enablement of autoindexing for codebase context."
-            }
             Self::ExecutedWarpDrivePrompt => "Executed a saved prompt.",
             Self::FileExceededContextLimit => "File from AI exceeded context limit",
             Self::AgentModeError => "Received an error when getting Agent Mode response",
@@ -4872,16 +4665,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::FileGlobToolSucceeded => "The file glob tool completed successfully",
             Self::FileGlobToolFailed { .. } => "The file glob tool failed to complete",
             Self::ShellTerminatedPrematurely { .. } => "The shell process terminated prematurely",
-            Self::FullEmbedCodebaseContextSearchSuccess => {
-                "Successfully searched full embed codebase context"
-            }
-            Self::FullEmbedCodebaseContextSearchFailed => {
-                "Failed to search full embed codebase context"
-            }
-            Self::SearchCodebaseRequested { .. } => "Ran the Search Codebase tool",
-            Self::SearchCodebaseRepoUnavailable { .. } => {
-                "Tried to use the Search Codebase tool on a repo that is unavailable"
-            }
             Self::InputUXModeChanged { .. } => "Changed the input UX mode",
             Self::UserMenuUpgradeClicked => "Clicked the 'Upgrade' menu item in the user menu",
             Self::TabCloseButtonPositionUpdated { .. } => "Updated the tab close button position",
@@ -4984,10 +4767,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::RemoteServerReconnectExhausted => {
                 "All reconnection attempts were exhausted after a spontaneous disconnect"
-            }
-            Self::RemoteCodebaseIndexStatusChanged => "The remote codebase index status changed",
-            Self::RemoteCodebaseAutoIndexRequested => {
-                "Remote codebase auto-indexing requested one or more repositories"
             }
             Self::QueuedPromptEdited => "User committed a non-empty edit to a queued prompt row",
             Self::QueuedPromptDeleted => "User deleted a queued prompt row",

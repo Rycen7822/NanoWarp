@@ -89,14 +89,6 @@ pub struct RequestLimitInfo {
     pub next_refresh_time: ServerTimestamp,
     pub is_unlimited: bool,
     pub request_limit_refresh_duration: RequestLimitRefreshDuration,
-    #[serde(default)]
-    pub is_unlimited_codebase_indices: bool,
-    #[serde(default)]
-    pub max_codebase_indices: usize,
-    #[serde(default)]
-    pub max_files_per_repo: usize,
-    #[serde(default)]
-    pub embedding_generation_batch_size: usize,
 }
 
 impl Default for RequestLimitInfo {
@@ -110,10 +102,6 @@ impl Default for RequestLimitInfo {
             next_refresh_time: ServerTimestamp::new(Utc::now() + chrono::Duration::days(30)),
             is_unlimited: false,
             request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-            is_unlimited_codebase_indices: false,
-            max_codebase_indices: 3,
-            max_files_per_repo: 5000,
-            embedding_generation_batch_size: 100,
         }
     }
 }
@@ -127,12 +115,6 @@ impl RequestLimitInfo {
             ..Self::default()
         }
     }
-}
-
-pub struct CodebaseContextUsageLimit {
-    pub max_files_per_repo: usize,
-    pub max_indices_allowed: Option<usize>,
-    pub embedding_generation_batch_size: usize,
 }
 
 /// Contains all usage-related information fetched from the server.
@@ -152,10 +134,6 @@ impl RequestLimitInfo {
             next_refresh_time: ServerTimestamp::new(Utc::now() + chrono::Duration::days(30)),
             is_unlimited: true,
             request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-            is_unlimited_codebase_indices: false,
-            max_codebase_indices: 40,
-            max_files_per_repo: 10000,
-            embedding_generation_batch_size: 100,
         }
     }
 }
@@ -618,23 +596,6 @@ impl AIRequestUsageModel {
 
     pub fn request_limit(&self) -> usize {
         self.request_limit_info.limit
-    }
-
-    /// Returns the number of indices the user's tier allows them to create and the number of files
-    /// the user's tier allows them to index. If the user is allowed unlimited indices, then the
-    /// max_indices_allowed is None.
-    pub fn codebase_context_limits(&self) -> CodebaseContextUsageLimit {
-        CodebaseContextUsageLimit {
-            max_files_per_repo: self.request_limit_info.max_files_per_repo,
-            max_indices_allowed: if self.request_limit_info.is_unlimited_codebase_indices {
-                None
-            } else {
-                Some(self.request_limit_info.max_codebase_indices)
-            },
-            embedding_generation_batch_size: self
-                .request_limit_info
-                .embedding_generation_batch_size,
-        }
     }
 
     pub fn next_refresh_time(&self) -> DateTime<Utc> {

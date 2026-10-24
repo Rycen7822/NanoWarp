@@ -17,8 +17,6 @@ pub mod aws_credentials;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod block_context;
 pub(crate) mod blocklist;
-#[cfg(any(feature = "local_fs", not(target_family = "wasm")))]
-pub(crate) mod codebase_auto_indexing;
 pub mod control_code_parser;
 pub(crate) mod conversation_details_panel;
 #[cfg(feature = "local_fs")]
@@ -34,7 +32,6 @@ pub(crate) mod custom_model_routers;
 pub(crate) mod document;
 #[cfg(not(target_family = "wasm"))]
 pub mod geap_credentials;
-pub(crate) mod get_relevant_files;
 pub mod harness_availability;
 pub(crate) mod harness_display;
 pub(crate) mod llms;
@@ -59,7 +56,6 @@ pub mod connected_self_hosted_workers;
 pub mod execution_profiles;
 pub mod facts;
 pub(crate) mod loading;
-pub mod outline;
 
 pub(crate) use ai::paths;
 

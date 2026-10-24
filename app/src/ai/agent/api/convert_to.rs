@@ -474,9 +474,6 @@ impl TryFrom<AIAgentActionResult> for api::request::input::user_inputs::user_inp
             AIAgentActionResultType::ReadFiles(read_files_result) => {
                 Some(read_files_result.try_into()?)
             }
-            AIAgentActionResultType::SearchCodebase(search_codebase_result) => {
-                Some(search_codebase_result.try_into()?)
-            }
             AIAgentActionResultType::RequestFileEdits(request_file_edits_result) => {
                 Some(request_file_edits_result.try_into()?)
             }
@@ -543,15 +540,11 @@ fn convert_context(context: &[AIAgentContext]) -> api::InputContext {
                 #[allow(deprecated)]
                 api_context.executed_shell_commands.push((*block).into());
             }
-            AIAgentContext::Directory {
-                pwd,
-                home_dir,
-                are_file_symbols_indexed,
-            } => {
+            AIAgentContext::Directory { pwd, home_dir } => {
                 api_context.directory = Some(api::input_context::Directory {
                     pwd: pwd.unwrap_or_default(),
                     home: home_dir.unwrap_or_default(),
-                    pwd_file_symbols_indexed: are_file_symbols_indexed,
+                    ..Default::default()
                 });
             }
             AIAgentContext::SelectedText(text) => {
@@ -585,11 +578,6 @@ fn convert_context(context: &[AIAgentContext]) -> api::InputContext {
                     data: image_context.data.into(),
                     mime_type: image_context.mime_type,
                 });
-            }
-            AIAgentContext::Codebase { path, name } => {
-                api_context
-                    .codebases
-                    .push(api::input_context::Codebase { path, name });
             }
             AIAgentContext::ProjectRules {
                 root_path,

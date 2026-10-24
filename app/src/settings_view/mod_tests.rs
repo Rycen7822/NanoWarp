@@ -41,10 +41,7 @@ fn subpage_display_names_are_correct() {
     assert_eq!(SettingsSection::WarpAgent.to_string(), "Warp Agent");
     assert_eq!(SettingsSection::AgentProfiles.to_string(), "Profiles");
     assert_eq!(SettingsSection::Knowledge.to_string(), "Knowledge");
-    assert_eq!(
-        SettingsSection::CodeIndexing.to_string(),
-        "Indexing and projects"
-    );
+    assert_eq!(SettingsSection::Projects.to_string(), "Projects");
     assert_eq!(
         SettingsSection::EditorAndCodeReview.to_string(),
         "Editor and Code Review"
@@ -72,7 +69,7 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::WarpAgent,
     SettingsSection::AgentProfiles,
     SettingsSection::Knowledge,
-    SettingsSection::CodeIndexing,
+    SettingsSection::Projects,
     SettingsSection::EditorAndCodeReview,
     SettingsSection::WarpCloudAgentAPIKeys,
 ];
@@ -97,7 +94,7 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::WarpAgent
             | SettingsSection::AgentProfiles
             | SettingsSection::Knowledge
-            | SettingsSection::CodeIndexing
+            | SettingsSection::Projects
             | SettingsSection::EditorAndCodeReview
             | SettingsSection::WarpCloudAgentAPIKeys => section,
         };
@@ -181,8 +178,8 @@ fn from_slug_accepts_legacy_spellings() {
         Some(SettingsSection::AgentProfiles)
     );
     assert_eq!(
-        SettingsSection::from_slug("CodeIndexing"),
-        Some(SettingsSection::CodeIndexing)
+        SettingsSection::from_slug("Projects"),
+        Some(SettingsSection::Projects)
     );
     assert_eq!(
         SettingsSection::from_slug("EditorAndCodeReview"),
@@ -200,17 +197,13 @@ fn from_slug_accepts_legacy_spellings() {
 
 #[test]
 fn from_slug_maps_superseded_page_names_to_the_page_that_replaced_them() {
-    // `AI` and `Code` named pages that have since been split or
+    // `AI` named a page that has since been split or
     // moved. Persisted sessions still use them, so they
     // resolve here, at the boundary, rather than existing as sections of their
     // own that every caller would have to remember to normalize.
     assert_eq!(
         SettingsSection::from_slug("AI"),
         Some(SettingsSection::WarpAgent)
-    );
-    assert_eq!(
-        SettingsSection::from_slug("Code"),
-        Some(SettingsSection::CodeIndexing)
     );
 }
 
@@ -245,7 +238,7 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Code",
             vec![
-                SettingsSection::CodeIndexing,
+                SettingsSection::Projects,
                 SettingsSection::EditorAndCodeReview,
             ],
         )),
@@ -291,7 +284,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
         stops[2],
         NavStop::CollapsedUmbrella {
             nav_index: 2,
-            first_subpage: SettingsSection::CodeIndexing,
+            first_subpage: SettingsSection::Projects,
             last_subpage: SettingsSection::EditorAndCodeReview,
         }
     ));
@@ -520,7 +513,7 @@ fn arrow_down_from_appearance_with_collapsed_agents_lands_on_first_subpage() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Pressing Down from Appearance should auto-expand Agents and select WarpAgent,
-    // not skip over to CodeIndexing.
+    // not skip over to Projects.
     let next = simulate_cycle(
         &nav_items,
         &stops,
@@ -531,18 +524,18 @@ fn arrow_down_from_appearance_with_collapsed_agents_lands_on_first_subpage() {
 }
 
 #[test]
-fn arrow_up_from_code_indexing_with_collapsed_agents_lands_on_last_subpage() {
+fn arrow_up_from_projects_with_collapsed_agents_lands_on_last_subpage() {
     let nav_items = realistic_nav_items();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Pressing Up from CodeIndexing should land on the collapsed Agents
+    // Pressing Up from Projects should land on the collapsed Agents
     // umbrella, which resolves to Knowledge (last visible subpage)
     // so the user continues moving in natural reading order rather than being
     // jumped back to the top of the umbrella.
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::CodeIndexing,
+        SettingsSection::Projects,
         CycleDirection::Up,
     );
     assert_eq!(next, SettingsSection::Knowledge);
@@ -556,13 +549,13 @@ fn arrow_up_into_collapsed_umbrella_respects_search_filter_for_last_subpage() {
     let is_visible = |section: SettingsSection| section != SettingsSection::Knowledge;
     let stops = build_nav_stops(&nav_items, is_visible);
 
-    // From CodeIndexing, Up should land on the last *visible* AI subpage
+    // From Projects, Up should land on the last *visible* AI subpage
     // (AgentProfiles), not on the filtered-out Knowledge
     // or on the first subpage WarpAgent.
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::CodeIndexing,
+        SettingsSection::Projects,
         CycleDirection::Up,
     );
     assert_eq!(next, SettingsSection::AgentProfiles);
@@ -575,14 +568,14 @@ fn arrow_down_from_expanded_last_subpage_leaves_umbrella() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Knowledge is the last Agents subpage; Down should move to
-    // CodeIndexing (the first subpage of the next umbrella).
+    // Projects (the first subpage of the next umbrella).
     let next = simulate_cycle(
         &nav_items,
         &stops,
         SettingsSection::Knowledge,
         CycleDirection::Down,
     );
-    assert_eq!(next, SettingsSection::CodeIndexing);
+    assert_eq!(next, SettingsSection::Projects);
 }
 
 #[test]
@@ -599,15 +592,15 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
         SettingsSection::Knowledge,
         CycleDirection::Down,
     );
-    assert_eq!(next_after_agents, SettingsSection::CodeIndexing);
+    assert_eq!(next_after_agents, SettingsSection::Projects);
 
-    // From the Code umbrella stop (i.e. the user is "on" CodeIndexing which
+    // From the Code umbrella stop (i.e. the user is "on" Projects which
     // maps back to the collapsed umbrella), pressing Down again should land
     // on the Cloud platform umbrella's first subpage.
     let next_after_code = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::CodeIndexing,
+        SettingsSection::Projects,
         CycleDirection::Down,
     );
     assert_eq!(next_after_code, SettingsSection::WarpCloudAgentAPIKeys);

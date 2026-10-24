@@ -1250,7 +1250,7 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         EditableBinding::new(
             "workspace:show_settings_code_page",
             BindingDescription::new("Open Settings: Code"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::CodeIndexing),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::Projects),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),

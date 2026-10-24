@@ -215,8 +215,6 @@ pub struct Language {
     pub comment_prefix: Option<String>,
     /// Language-specific bracket pairs.
     pub bracket_pairs: Vec<(char, char)>,
-    /// Query for parsing symbols.
-    pub symbols_query: Option<Query>,
     /// Display name for the language.
     pub display_name: String,
 }
@@ -323,9 +321,6 @@ fn load_language(lang: &str) -> Option<Language> {
     let indents_query_path = [lang, "indents.scm"].join("\\");
     let indents_query = load_query(&indents_query_path, &grammar);
 
-    let symbols_query_path = [lang, "identifiers.scm"].join("\\");
-    let symbols_query = load_query(&symbols_query_path, &grammar);
-
     Some(Language {
         highlight_query,
         indents_query,
@@ -333,7 +328,6 @@ fn load_language(lang: &str) -> Option<Language> {
         indent_unit,
         comment_prefix,
         bracket_pairs,
-        symbols_query,
         display_name: config.display_name,
     })
 }

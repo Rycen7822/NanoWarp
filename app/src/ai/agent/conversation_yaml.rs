@@ -136,7 +136,8 @@ fn write_task_messages(
             Message::ToolCall(tc) => {
                 let tool_call_id = &tc.tool_call_id;
                 match &tc.tool {
-                    Some(Tool::Server(_))
+                    Some(Tool::SearchCodebase(_))
+                    | Some(Tool::Server(_))
                     | Some(Tool::InitProject(_))
                     | Some(Tool::RunAgents(_))
                     | Some(Tool::SendMessageToAgent(_))
@@ -194,7 +195,8 @@ fn write_task_messages(
             Message::ToolCallResult(tcr) => {
                 let tool_call_id = &tcr.tool_call_id;
                 match &tcr.result {
-                    Some(ToolCallResultType::Server(_))
+                    Some(ToolCallResultType::SearchCodebase(_))
+                    | Some(ToolCallResultType::Server(_))
                     | Some(ToolCallResultType::InitProject(_))
                     | Some(ToolCallResultType::RunAgentsResult(_))
                     | Some(ToolCallResultType::SendMessageToAgent(_))
@@ -291,18 +293,6 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
         Tool::RunShellCommand(cmd) => {
             out.push_str("command: |\n");
             write_block_scalar(out, &cmd.command);
-        }
-        Tool::SearchCodebase(sc) => {
-            out.push_str(&format!("query: \"{}\"\n", escape_yaml_string(&sc.query)));
-            if !sc.codebase_path.is_empty() {
-                out.push_str(&format!("codebase_path: {}\n", sc.codebase_path));
-            }
-            if !sc.path_filters.is_empty() {
-                out.push_str("path_filters:\n");
-                for p in &sc.path_filters {
-                    out.push_str(&format!("  - \"{}\"\n", escape_yaml_string(p)));
-                }
-            }
         }
         Tool::ReadFiles(rf) => {
             out.push_str("files:\n");
@@ -489,6 +479,7 @@ fn write_tool_call_args(out: &mut String, tool: &Tool) {
         | Tool::SuggestNewConversation(_)
         | Tool::SuggestPrompt(_)
         | Tool::OpenCodeReview(_)
+        | Tool::SearchCodebase(_)
         | Tool::InitProject(_)
         | Tool::Server(_)
         | Tool::Subagent(_)
@@ -529,31 +520,6 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
                             "running_command_id: \"{}\"\n",
                             escape_yaml_string(&busy.running_command_id)
                         ));
-                    }
-                }
-            }
-        }
-        ToolCallResultType::SearchCodebase(r) => {
-            if let Some(res) = &r.result {
-                use api::search_codebase_result::Result;
-                match res {
-                    Result::Success(s) => {
-                        out.push_str("files:\n");
-                        for f in &s.files {
-                            out.push_str(&format!("  - name: {}\n", f.file_path));
-                            let preview = truncate_content(&f.content, 2048);
-                            if !preview.is_empty() {
-                                out.push_str("    content: |\n");
-                                for line in preview.lines() {
-                                    out.push_str("      ");
-                                    out.push_str(line);
-                                    out.push('\n');
-                                }
-                            }
-                        }
-                    }
-                    Result::Error(e) => {
-                        out.push_str(&format!("error: {}\n", e.message));
                     }
                 }
             }
@@ -899,7 +865,7 @@ fn write_tool_call_result_content(out: &mut String, result: &ToolCallResultType)
         ToolCallResultType::Cancel(_) => {
             out.push_str("status: cancelled\n");
         }
-        ToolCallResultType::InitProject(_) => {}
+        ToolCallResultType::SearchCodebase(_) | ToolCallResultType::InitProject(_) => {}
         // No structured content worth serializing.
         ToolCallResultType::ReadMcpResource(_)
         | ToolCallResultType::CallMcpTool(_)

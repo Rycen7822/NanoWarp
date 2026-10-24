@@ -319,7 +319,6 @@ pub enum TerminalAction {
     ClearMarkedText,
     HideTelemetryBannerPermanently,
     ShowInitializationBlock,
-    GenerateCodebaseIndex,
     /// This is for debugging, dev only for now
     LoadAgentModeConversation,
     ShowWarpifySettings,
@@ -332,7 +331,6 @@ pub enum TerminalAction {
     OpenAttachmentLightbox {
         index: usize,
     },
-    WriteCodebaseIndex,
     AttachFile,
     ToggleAutoexecuteMode,
     ToggleQueueNextPrompt,
@@ -575,14 +573,12 @@ impl fmt::Debug for TerminalAction {
             ClearMarkedText => write!(f, "ClearMarkedText"),
             HideTelemetryBannerPermanently => write!(f, "HideTelemetryBannerPermanently"),
             ShowInitializationBlock => write!(f, "ShowInitializationBlock"),
-            GenerateCodebaseIndex => write!(f, "GenerateIndexForRepo"),
             LoadAgentModeConversation => write!(f, "LoadAgentModeConversation"),
             ShowWarpifySettings => write!(f, "ShowWarpifySettings"),
             DeleteAttachment { index } => write!(f, "DeleteAttachment({index:?})"),
             OpenAttachmentLightbox { index } => {
                 write!(f, "OpenAttachmentLightbox({index:?})")
             }
-            WriteCodebaseIndex => write!(f, "PersistCodebaseIndex"),
             AttachFile => write!(f, "AttachFile"),
             ToggleAutoexecuteMode => write!(f, "ToggleAutoexecuteMode"),
             ToggleQueueNextPrompt => write!(f, "ToggleQueueNextPrompt"),

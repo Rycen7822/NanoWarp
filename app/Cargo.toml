@@ -459,8 +459,6 @@ async_find = []
 clear_autosuggestion_on_escape = []
 context_line_review_comments = []
 creating_shared_sessions = []
-cross_repo_context = []
-codebase_index_persistence = ["full_source_code_embedding"]
 default = [
     "agent_mode",
     "osc_hyperlinks",
@@ -504,7 +502,6 @@ default = [
     "code_find_replace",
     "agent_decides_command_execution",
     "linked_code_blocks",
-    "search_codebase_ui",
     "profiles_design_revamp",
     "multi_profile",
     "tabbed_editor_view",
@@ -606,7 +603,6 @@ default = [
     "cloud_mode_input_v2",
     "cloud_mode_setup_v2",
     "handoff_cloud_cloud",
-    "remote_codebase_indexing",
     "solo_user_byok",
     "custom_model_routers",
     "supergrok",
@@ -663,8 +659,6 @@ github_pr_prompt_chip = []
 agent_mode_evals = [
     "integration_tests",
     "warpui/defer_scene_build",
-    "full_source_code_embedding",
-    "cross_repo_context",
     "cloud_object_models/agent_mode_evals",
     "rust-embed/debug-embed",
     "warpui/log_named_telemetry_events",
@@ -684,7 +678,7 @@ allow_ignoring_input_suggestions = []
 heap_usage_tracking = ["jemalloc_pprof"]
 image_as_context = []
 in_band_generators_ssh = []
-jemalloc = ["dep:tikv-jemallocator", "ai/jemalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
 jemalloc_with_profiling = ["jemalloc", "tikv-jemallocator/profiling"]
 jemalloc_auto_heap_profiling = ["jemalloc_with_profiling"]
 jemalloc_pprof = ["jemalloc_with_profiling", "dep:jemalloc_pprof"]
@@ -725,7 +719,6 @@ read_image_files = []
 pprof_cpu_profiling = ["dep:pprof"]
 record_app_active_events = []
 recording_mode = []
-remote_codebase_indexing = ["full_source_code_embedding"]
 
 # This feature should only be enabled when building a release bundle with
 # the bundle script, and can be used to conditionally enable functionality
@@ -784,7 +777,6 @@ iterm_images = []
 validate_autosuggestions = []
 warp_packs = []
 command_correction_key = []
-full_source_code_embedding = []
 use_tantivy_search = []
 reload_stale_conversation_files = []
 retry_truncated_code_responses = []
@@ -798,7 +790,6 @@ expand_edit_to_pane = []
 fallback_model_load_output_messaging = []
 warping_model_name = []
 profiles_design_revamp = []
-search_codebase_ui = []
 linked_code_blocks = []
 tabbed_editor_view = []
 selection_as_context = []

@@ -123,12 +123,6 @@ pub struct WorkspaceMemberUsageInfo {
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct CodebaseContextSettings {
-    pub enabled: bool,
-    pub setting: AdminEnablementSetting,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct AmbientAgentSettings {
     pub enable_warp_attribution: AdminEnablementSetting,
     pub default_host_slug: Option<String>,
@@ -149,7 +143,6 @@ pub struct WorkspaceSettings {
     pub ai_autonomy_settings: AiAutonomySettings,
     pub usage_based_pricing_settings: UsageBasedPricingSettings,
     pub addon_credits_settings: AddonCreditsSettings,
-    pub codebase_context_settings: CodebaseContextSettings,
     pub sandboxed_agent_settings: Option<SandboxedAgentSettings>,
     pub ambient_agent_settings: Option<AmbientAgentSettings>,
 }
@@ -313,7 +306,6 @@ pub enum TeamVisibility {
 pub struct TeamSettings {
     pub ugc_collection: UgcCollectionSettingInfo,
     pub cloud_conversation_storage: AdminEnablementSettingInfo,
-    pub codebase_context: AdminEnablementSettingInfo,
     pub ai_permissions: AiPermissionsSettingsInfo,
     pub secret_redaction: SecretRedactionSettingsInfo,
     pub ai_autonomy: AiAutonomySettingsInfo,

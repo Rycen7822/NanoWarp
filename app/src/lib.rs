@@ -114,13 +114,6 @@ pub mod settings_view;
 pub mod tab_configs;
 pub mod terminal;
 pub mod themes;
-use ::ai::index::DEFAULT_SYNC_REQUESTS_PER_MIN;
-#[cfg(feature = "local_fs")]
-use ::ai::index::full_source_code_embedding::SnapshotStorage;
-use ::ai::index::full_source_code_embedding::SyncTask;
-use ::ai::index::full_source_code_embedding::manager::{
-    CodebaseIndexManager, CodebaseIndexManagerConfig,
-};
 use ::ai::project_context::model::ProjectContextModel;
 pub use ai::agent::todos::AIAgentTodoList;
 pub use ai::agent::{AIAgentActionResultType, FileEdit, TodoOperation};
@@ -167,7 +160,6 @@ pub mod workspace;
 use std::borrow::Cow;
 use std::ops::Deref;
 #[cfg(feature = "local_fs")]
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use ::settings::{Setting, ToggleableSetting};
@@ -183,7 +175,6 @@ pub use persistence::testing as sqlite_testing;
 use server::server_api::ServerApiProvider;
 use settings::{ExtraMetaKeys, PrivacySettings};
 #[cfg(feature = "local_fs")]
-use shellexpand::tilde;
 use terminal::input;
 use terminal::session_settings::SessionSettings;
 use url::Url;
@@ -218,7 +209,6 @@ use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::facts::manager::AIFactManager;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::LLMPreferences;
-use crate::ai::outline::RepoOutlines;
 use crate::ai::restored_conversations::RestoredAgentConversations;
 use crate::ai::skills::SkillManager;
 use crate::antivirus::AntivirusInfo;
@@ -296,20 +286,6 @@ fn determine_agent_source(
         // RemoteServerProxy and RemoteServerDaemon are headless server
         // processes that don't use the agent subsystem.
         LaunchMode::RemoteServerProxy | LaunchMode::RemoteServerDaemon { .. } => None,
-    }
-}
-
-#[cfg(feature = "local_fs")]
-fn daemon_codebase_index_snapshot_storage(launch_mode: &LaunchMode) -> Option<SnapshotStorage> {
-    match launch_mode {
-        LaunchMode::RemoteServerDaemon { identity_key } => {
-            let data_dir = remote_server::setup::remote_server_daemon_data_dir(identity_key);
-            let snapshot_dir = PathBuf::from(tilde(&data_dir).into_owned())
-                .join("cache")
-                .join("codebase_index_snapshots");
-            SnapshotStorage::from_dir(snapshot_dir)
-        }
-        LaunchMode::App { .. } | LaunchMode::RemoteServerProxy | LaunchMode::Test { .. } => None,
     }
 }
 
@@ -420,14 +396,6 @@ impl LaunchMode {
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     fn should_start_local_http_server(&self) -> bool {
         self.is_gui()
-    }
-
-    fn supports_indexing(&self) -> bool {
-        match self {
-            Self::App { .. } | Self::Test { .. } => true,
-            Self::RemoteServerDaemon { .. } => FeatureFlag::RemoteCodebaseIndexing.is_enabled(),
-            Self::RemoteServerProxy => false,
-        }
     }
 
     #[cfg(enable_crash_recovery)]
@@ -1058,18 +1026,7 @@ pub(crate) fn initialize_app(
             persistence::PersistenceScope::App
         }
     };
-    // Only read the subsets of persisted data this launch mode actually
-    // consumes; loading everything is expensive on large databases.
-    let persisted_data_scope = match launch_mode {
-        LaunchMode::RemoteServerDaemon { .. } => {
-            persistence::PersistedDataScope::CodebaseIndicesOnly
-        }
-        LaunchMode::App { .. } | LaunchMode::RemoteServerProxy | LaunchMode::Test { .. } => {
-            persistence::PersistedDataScope::Full
-        }
-    };
-    let (sqlite_data, writer_handles) =
-        persistence::initialize(ctx, persistence_scope, persisted_data_scope);
+    let (sqlite_data, writer_handles) = persistence::initialize(ctx, persistence_scope);
     timer.mark_interval_end("SQLITE_INITIALIZED");
 
     let persistence_writer = PersistenceWriter::new(writer_handles);
@@ -1133,7 +1090,7 @@ pub(crate) fn initialize_app(
                 sqlite_data.experiments,
                 sqlite_data.ai_queries,
                 sqlite_data.nld_prompts,
-                sqlite_data.codebase_indices,
+                sqlite_data.workspace_metadata,
                 sqlite_data.workspace_language_servers,
                 sqlite_data.multi_agent_conversations,
                 sqlite_data.projects,
@@ -1162,15 +1119,6 @@ pub(crate) fn initialize_app(
                 Default::default(),
             )
         });
-
-    // The daemon's `PersistedDataScope::CodebaseIndicesOnly` read already
-    // skips everything except codebase index metadata.
-    if matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. }) {
-        let codebase_index_count = persisted_workspaces.len();
-        log::debug!(
-            "[Remote codebase indexing] Restored daemon codebase index metadata: metadata_count={codebase_index_count}"
-        );
-    }
 
     // Initialize a global model to track server-side experiment state.
     // This depends on the [`GlobalResourceHandlesProvider`] and so it must
@@ -1289,8 +1237,6 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_ctx| SyncedInputState::new());
 
     ctx.add_singleton_model(remote_server::manager::RemoteServerManager::new);
-    #[cfg(not(target_family = "wasm"))]
-    ctx.add_singleton_model(remote_server::codebase_index_model::RemoteCodebaseIndexModel::new);
     #[cfg(not(target_family = "wasm"))]
     remote_server::wire_auth_token_rotation(ctx);
 
@@ -1611,18 +1557,6 @@ pub(crate) fn initialize_app(
         ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel::new,
     );
 
-    if launch_mode.supports_indexing() {
-        ctx.add_singleton_model(RepoOutlines::new);
-    } else {
-        ctx.add_singleton_model(|ctx| RepoOutlines::new_with_indexing_enabled(false, ctx));
-    }
-    ctx.add_singleton_model(|ctx| {
-        warp_core::sync_queue::SyncQueue::<SyncTask>::new_with_rate_limit(
-            &ctx.background_executor(),
-            Some(DEFAULT_SYNC_REQUESTS_PER_MIN),
-        )
-    });
-
     ctx.add_singleton_model(|_| UserProfiles::new(restored_user_profiles));
 
     ctx.add_singleton_model(|_| ObjectActions::new(object_actions));
@@ -1735,40 +1669,6 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|ctx| AIExecutionProfilesModel::new(launch_mode, ctx));
 
     ctx.add_singleton_model(DefaultTerminal::new);
-
-    ctx.add_singleton_model(|ctx| {
-        let should_restore_indices = launch_mode.supports_indexing()
-            && (matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. })
-                || UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx));
-        let indices_to_restore = if should_restore_indices {
-            persisted_workspaces.clone()
-        } else {
-            vec![]
-        };
-
-        let codebase_limits = AIRequestUsageModel::as_ref(ctx).codebase_context_limits();
-        let mut codebase_index_config = CodebaseIndexManagerConfig::new(
-            indices_to_restore,
-            codebase_limits.max_indices_allowed,
-            codebase_limits.max_files_per_repo,
-            codebase_limits.embedding_generation_batch_size,
-            server_api_provider.as_ref(ctx).get(),
-            launch_mode.supports_indexing(),
-        );
-        if matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. }) {
-            codebase_index_config = codebase_index_config.defer_persisted_index_restore();
-        }
-        #[cfg(feature = "local_fs")]
-        if let Some(snapshot_storage) = daemon_codebase_index_snapshot_storage(launch_mode) {
-            return CodebaseIndexManager::new_with_snapshot_storage(
-                codebase_index_config,
-                Some(snapshot_storage),
-                ctx,
-            );
-        }
-
-        CodebaseIndexManager::new_with_config(codebase_index_config, ctx)
-    });
 
     ctx.add_singleton_model(|ctx| {
         ProjectContextModel::new_from_persisted(

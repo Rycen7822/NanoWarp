@@ -13,7 +13,7 @@ use ::ai::api_keys::ApiKeyManager;
 use itertools::Itertools;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use regex::Regex;
-use settings::{Setting, ToggleableSetting};
+use settings::Setting;
 use strum::IntoEnumIterator;
 use warp_core::features::FeatureFlag;
 use warp_errors::{report_error, report_if_error};
@@ -22,18 +22,16 @@ use warpui::elements::{
     FormattedTextElement, HighlightedHyperlink, HyperlinkUrl, MainAxisAlignment, MainAxisSize,
     MouseStateHandle, ParentElement, Shrinkable, Text,
 };
-use warpui::keymap::ContextPredicate;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::ui_components::slider::SliderStateHandle;
-use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{
-    Action, AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
-    WeakViewHandle, id,
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+    WeakViewHandle,
 };
 
+use super::SettingsSection;
 use super::ai_shared::{
-    render_ai_setting_description, render_ai_setting_label, render_ai_setting_toggle, styles,
-    update_editor_interaction_state,
+    render_ai_setting_description, render_ai_setting_label, styles, update_editor_interaction_state,
 };
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
 use super::settings_page::{
@@ -42,7 +40,6 @@ use super::settings_page::{
     render_body_item_label, render_body_item_label_with_icon, render_custom_size_header,
     render_dropdown_item, render_input_list, render_separator, render_settings_info_banner,
 };
-use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, flags};
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::blocklist::view_util::{format_dollars, usage_display_unit};
 use crate::ai::execution_profiles::model_menu_items::{
@@ -66,8 +63,7 @@ use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, T
 use crate::server::telemetry::AutonomySettingToggleSource;
 use crate::settings::{
     AISettings, AISettingsChangedEvent, AgentModeCodingPermissionsType,
-    AgentModeCommandExecutionDenylist, AgentModeCommandExecutionPredicate, CodeSettings,
-    CodebaseContextEnabled, UsageDisplayUnit,
+    AgentModeCommandExecutionDenylist, AgentModeCommandExecutionPredicate, UsageDisplayUnit,
 };
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -1295,7 +1291,6 @@ impl Entity for AgentProfilesPageView {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentProfilesPageAction {
     HyperlinkClick(HyperlinkUrl),
-    ToggleCodebaseContext,
     AttemptLoginGatedUpgrade,
     RemoveFromCommandExecutionAllowlist(AgentModeCommandExecutionPredicate),
     RemoveFromCommandExecutionDenylist(AgentModeCommandExecutionPredicate),
@@ -1336,24 +1331,6 @@ impl TypedActionView for AgentProfilesPageView {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            AgentProfilesPageAction::ToggleCodebaseContext => {
-                match CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    settings.codebase_context_enabled.toggle_and_save_value(ctx)
-                }) {
-                    Ok(new_value) => {
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::ToggleCodebaseContext {
-                                is_codebase_context_enabled: new_value
-                            },
-                            ctx
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to set value for Codebase Context: {e:?}");
-                    }
-                }
-                ctx.notify();
-            }
             AgentProfilesPageAction::HyperlinkClick(hyperlink) => {
                 ctx.notify();
                 ctx.open_url(&hyperlink.url);
@@ -1580,26 +1557,6 @@ impl SettingsPageMeta for AgentProfilesPageView {
 impl From<ViewHandle<AgentProfilesPageView>> for SettingsPageViewHandle {
     fn from(view_handle: ViewHandle<AgentProfilesPageView>) -> Self {
         SettingsPageViewHandle::AgentProfiles(view_handle)
-    }
-}
-
-pub fn init_actions_from_parent_view<T: Action + Clone>(
-    app: &mut AppContext,
-    context: &ContextPredicate,
-    builder: fn(SettingsAction) -> T,
-) {
-    if !FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
-        ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-            vec![ToggleSettingActionPair::new(
-                "codebase index",
-                builder(SettingsAction::AgentProfiles(
-                    AgentProfilesPageAction::ToggleCodebaseContext,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::IS_CODEBASE_INDEXING_ENABLED,
-            )],
-            app,
-        );
     }
 }
 
@@ -1984,10 +1941,7 @@ impl SettingsWidget for UsageWidget {
 }
 
 #[derive(Default)]
-struct AgentsWidget {
-    codebase_context_toggle: SwitchStateHandle,
-    codebase_context_link_index: HighlightedHyperlink,
-}
+struct AgentsWidget {}
 
 impl SettingsWidget for AgentsWidget {
     type View = AgentProfilesPageView;
@@ -2026,7 +1980,7 @@ impl SettingsWidget for AgentsWidget {
                 .finish(),
             );
             agents_header.add_child(render_ai_setting_description(
-                "Set the boundaries for how your Agent operates. Choose what it can access, how much autonomy it has, and when it must ask for your approval. You can also fine-tune behavior around natural language input, codebase awareness, and more.",
+                "Set the boundaries for how your Agent operates. Choose what it can access, how much autonomy it has, and when it must ask for your approval. You can also fine-tune behavior around natural language input and more.",
                 ai_settings.is_any_ai_enabled(app),
                 app,
             ));
@@ -2414,18 +2368,6 @@ impl AgentsWidget {
         );
         widget_children.push(write_to_pty);
 
-        if !FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
-            let codebase_context = Self::render_codebase_context_outline_generation_setting(
-                self.codebase_context_toggle.clone(),
-                self.codebase_context_link_index.clone(),
-                view,
-                ai_settings,
-                appearance,
-                app,
-            );
-            widget_children.push(codebase_context);
-        }
-
         Flex::column().with_children(widget_children).finish()
     }
 
@@ -2641,60 +2583,6 @@ impl AgentsWidget {
                 .then(|| appearance.theme().disabled_ui_text_color()),
             &view.base_model_dropdown,
         )
-    }
-
-    fn render_codebase_context_outline_generation_setting(
-        codebase_context_toggle: SwitchStateHandle,
-        codebase_context_link_index: HighlightedHyperlink,
-        view: &AgentProfilesPageView,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &warpui::AppContext,
-    ) -> Box<dyn Element> {
-        let code_settings = CodeSettings::as_ref(app);
-        let toggle = render_ai_setting_toggle::<CodebaseContextEnabled>(
-            "Codebase Context",
-            AgentProfilesPageAction::ToggleCodebaseContext,
-            *code_settings.codebase_context_enabled,
-            ai_settings.is_any_ai_enabled(app),
-            codebase_context_toggle,
-            &view.local_only_icon_tooltip_states,
-            app,
-        );
-
-        let codebase_context_description = vec![
-            FormattedTextFragment::plain_text(
-                "Allow the Warp Agent to generate an outline of your codebase that can be used for context. No code is ever stored on our servers. ",
-            ),
-            FormattedTextFragment::hyperlink(
-                "Learn more",
-                "https://docs.warp.dev/agents/capabilities/codebase-context",
-            ),
-        ];
-        let description = Container::new(
-            FormattedTextElement::new(
-                FormattedText::new([FormattedTextLine::Line(codebase_context_description)]),
-                CONTENT_FONT_SIZE,
-                appearance.ui_font_family(),
-                appearance.ui_font_family(),
-                styles::description_font_color(ai_settings.is_any_ai_enabled(app), app).into(),
-                codebase_context_link_index,
-            )
-            .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-            .register_default_click_handlers(|url, ctx, _| {
-                ctx.dispatch_typed_action(AgentProfilesPageAction::HyperlinkClick(url));
-            })
-            .finish(),
-        )
-        .with_margin_top(styles::DESCRIPTION_NEGATIVE_MARGIN_OFFSET)
-        .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
-        .with_margin_right(styles::TOGGLE_WIDTH_MARGIN)
-        .finish();
-
-        Flex::column()
-            .with_child(toggle)
-            .with_child(description)
-            .finish()
     }
 }
 

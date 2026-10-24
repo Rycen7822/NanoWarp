@@ -113,17 +113,6 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                             }
                         }
                     }
-                    AIAgentActionResultType::SearchCodebase(search_codebase_result) => {
-                        if let crate::ai::agent::SearchCodebaseResult::Success { files } =
-                            search_codebase_result
-                        {
-                            for file in files {
-                                if let AnyFileContent::StringContent(content) = &mut file.content {
-                                    redact_secrets(content);
-                                }
-                            }
-                        }
-                    }
                     AIAgentActionResultType::RequestFileEdits(request_file_edits_result) => {
                         if let crate::ai::agent::RequestFileEditsResult::Success {
                             diff,
@@ -243,7 +232,6 @@ fn redact_context(context: &mut [AIAgentContext]) {
             | AIAgentContext::ExecutionEnvironment(_)
             | AIAgentContext::CurrentTime { .. }
             | AIAgentContext::Image(_)
-            | AIAgentContext::Codebase { .. }
             | AIAgentContext::ProjectRules { .. }
             | AIAgentContext::Git { .. }
             | AIAgentContext::Repository { .. }

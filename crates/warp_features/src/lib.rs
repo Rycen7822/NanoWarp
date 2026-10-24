@@ -224,12 +224,6 @@ pub enum FeatureFlag {
     /// Forces users to login.
     ForceLogin,
 
-    /// Enables full source code embedding of repos when using codebase context.
-    FullSourceCodeEmbedding,
-
-    /// Enables codebase indexing inside remote server daemon processes.
-    RemoteCodebaseIndexing,
-
     /// If enabled, command palette searches will use Tantivy search instead of the default fuzzy search.
     UseTantivySearch,
 
@@ -255,12 +249,6 @@ pub enum FeatureFlag {
     ReadImageFiles,
 
     UsageBasedPricing,
-
-    /// Enables cross-repo codebase context.
-    CrossRepoContext,
-
-    /// Persist codebase indices to disk.
-    CodebaseIndexPersistence,
 
     /// Enables the resume button for cancelled AI conversations.
     AIResumeButton,
@@ -301,9 +289,6 @@ pub enum FeatureFlag {
 
     /// Enables AI agent profile settings UI and functionality.
     ProfilesDesignRevamp,
-
-    /// Enables new Search Codebase UI
-    SearchCodebaseUI,
 
     /// Enables us to render linked code blocks
     LinkedCodeBlocks,
@@ -778,16 +763,12 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::SummarizationViaMessageReplacement,
     // These are enabled via 100% experiment on prod warp-server,
     // but we need to enable here for dogfood builds.
-    FeatureFlag::CrossRepoContext,
-    FeatureFlag::CodebaseIndexPersistence,
-    FeatureFlag::FullSourceCodeEmbedding,
     // End manually enabled Code features.
     FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::CodeReviewScrollPreservation,
     FeatureFlag::RememberFastForwardState,
     #[cfg(not(windows))]
     FeatureFlag::SshRemoteServer,
-    FeatureFlag::RemoteCodebaseIndexing,
     FeatureFlag::GPTConfigurableContextWindow,
     FeatureFlag::TerminalLifecycleRecovery,
     FeatureFlag::PromptCacheExpiryWarning,

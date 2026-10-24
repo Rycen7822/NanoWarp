@@ -2,7 +2,7 @@
 //! is defined as additional context to be attached to the next AI query.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use ai::project_context::model::ProjectContextModel;
@@ -26,7 +26,6 @@ use crate::ai::agent::{
 use crate::ai::block_context::BlockContext;
 use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
-use crate::ai::outline::RepoOutlines;
 use crate::code_review::github_repo_model::GitHubRepoModel;
 use crate::terminal::TerminalModel;
 use crate::terminal::event::{BlockCompletedEvent, BlockType};
@@ -34,7 +33,7 @@ use crate::terminal::model::block::{BlockId, BlockMetadata};
 use crate::terminal::model::session::Sessions;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::util::git::{PrInfo, RepositoryInfo};
-use crate::workspaces::user_workspaces::{TeamContextResolver, UserWorkspaces};
+use crate::workspaces::user_workspaces::TeamContextResolver;
 
 /// A non-image file picked via the "attach file" button, stored until query submission.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,7 +253,7 @@ impl BlocklistAIContextModel {
             pending_attachments: Default::default(),
             conversation_selection,
             terminal_surface_id,
-            team_context_resolver: UserWorkspaces::teamless_context_resolver_for_test(),
+            team_context_resolver: crate::workspaces::user_workspaces::UserWorkspaces::teamless_context_resolver_for_test(),
             pending_inline_diff_hunk_attachments: Default::default(),
             pending_document_id: None,
             auto_attached_agent_view_user_block_ids: Vec::new(),
@@ -350,20 +349,9 @@ impl BlocklistAIContextModel {
         is_user_query: bool,
         current_working_directory_location: Option<&LocalOrRemotePath>,
     ) -> Vec<AIAgentContext> {
-        // `pwd` is the shell-reported path used for directory context and local indexing.
+        // `pwd` is the shell-reported path used for directory context.
         // The location is passed separately because it preserves remote host identity for rules.
         let pwd = self.current_pwd();
-        let is_pwd_indexed = if cfg!(feature = "agent_mode_evals") {
-            // In evals, we want to disable file outline based search. Full
-            // source code embedding based context is still available.
-            false
-        } else {
-            UserWorkspaces::as_ref(app).is_codebase_context_enabled(app)
-                && pwd.as_ref().is_some_and(|pwd| {
-                    RepoOutlines::as_ref(app).is_directory_indexed(Path::new(&pwd))
-                })
-        };
-
         let project_rules = current_working_directory_location
             .and_then(|pwd| ProjectContextModel::as_ref(app).find_applicable_rules(pwd));
 
@@ -373,7 +361,6 @@ impl BlocklistAIContextModel {
         context.push(AIAgentContext::Directory {
             pwd,
             home_dir: self.home_directory(),
-            are_file_symbols_indexed: is_pwd_indexed,
         });
 
         let (head, branch) = {

@@ -4,7 +4,6 @@ use about_page::AboutPageView;
 use agent_profiles_page::{AgentProfilesPageAction, AgentProfilesPageEvent, AgentProfilesPageView};
 use appearance_page::{AppearancePageAction, AppearanceSettingsPageView};
 use code_editor_review_page::{EditorAndCodeReviewPageAction, EditorAndCodeReviewPageView};
-use code_indexing_page::{CodeIndexingPageAction, CodeIndexingPageEvent};
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
@@ -12,6 +11,7 @@ use knowledge_page::{KnowledgePageAction, KnowledgePageEvent, KnowledgePageView}
 use nav::{SettingsNavItem, SettingsUmbrella};
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
+use projects_page::{ProjectsPageAction, ProjectsPageEvent};
 use settings_file_footer::{SettingsFooterKind, SettingsFooterMouseStates, render_footer};
 use settings_page::{
     HEADER_PADDING, MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta,
@@ -64,7 +64,6 @@ mod agent_profiles_page;
 mod ai_shared;
 mod appearance_page;
 mod code_editor_review_page;
-mod code_indexing_page;
 pub(crate) mod custom_inference_modal;
 mod custom_router_view;
 mod directory_color_add_picker;
@@ -79,6 +78,7 @@ mod platform;
 mod platform_page;
 mod privacy;
 mod privacy_page;
+mod projects_page;
 mod remove_custom_endpoint_confirmation_dialog;
 mod set_default_model_modal;
 mod settings_file_footer;
@@ -88,9 +88,9 @@ mod warp_drive_page;
 mod warpify_page;
 
 pub(crate) use admin_actions::AdminActions;
-pub use code_indexing_page::CodeIndexingPageView;
 pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
+pub use projects_page::ProjectsPageView;
 pub use settings_page::{
     AdditionalInfo, InputListItem, LocalOnlyIconState, ToggleState, render_body_item_label,
     render_info_icon, render_input_list, render_separator,
@@ -240,7 +240,7 @@ pub enum SettingsSection {
     AgentProfiles,
     Knowledge,
     // ── Code umbrella subpages ──
-    CodeIndexing,
+    Projects,
     EditorAndCodeReview,
     // ── Cloud platform umbrella subpages ──
     WarpCloudAgentAPIKeys,
@@ -258,7 +258,7 @@ impl Display for SettingsSection {
             SettingsSection::WarpAgent => write!(f, "Warp Agent"),
             SettingsSection::AgentProfiles => write!(f, "Profiles"),
             SettingsSection::Knowledge => write!(f, "Knowledge"),
-            SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
+            SettingsSection::Projects => write!(f, "Projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             SettingsSection::WarpCloudAgentAPIKeys => write!(f, "API keys"),
             _ => write!(f, "{self:?}"),
@@ -290,7 +290,7 @@ impl SettingsSection {
             Self::WarpAgent => "Warp Agent",
             Self::AgentProfiles => "Profiles",
             Self::Knowledge => "Knowledge",
-            Self::CodeIndexing => "Indexing and projects",
+            Self::Projects => "Projects",
             Self::EditorAndCodeReview => "Editor and Code Review",
             // Keeps the "Oz" spelling the slug was seeded from; only the
             // Display label above dropped it.
@@ -318,8 +318,7 @@ impl SettingsSection {
             "Warp Agent" | "Oz" | "AI" => Self::WarpAgent,
             "Profiles" | "AgentProfiles" => Self::AgentProfiles,
             "Knowledge" => Self::Knowledge,
-            // "Code" named the combined page before it split in two.
-            "Indexing and projects" | "CodeIndexing" | "Code" => Self::CodeIndexing,
+            "Projects" => Self::Projects,
             "Editor and Code Review" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
             "Oz Cloud API Keys" | "OzCloudAPIKeys" => Self::WarpCloudAgentAPIKeys,
             _ => return None,
@@ -476,8 +475,6 @@ pub mod flags {
     pub const ALLOW_NATIVE_WAYLAND: &str = "Allow_Native_Wayland";
     pub const IS_ANY_AI_ENABLED: &str = "IsAnyAIEnabled";
     pub const IS_BLOCK_AI_SUMMARIES_ENABLED: &str = "IsBlockAISummariesEnabled";
-    pub const IS_CODEBASE_INDEXING_ENABLED: &str = "IsCodebaseIndexingEnabled";
-    pub const IS_AUTOINDEXING_ENABLED: &str = "IsAutoIndexingEnabled";
     pub const LIGATURE_RENDERING_CONTEXT_FLAG: &str = "Ligature_Rendering_Enabled";
     pub const HAS_SETTINGS_TO_IMPORT_FLAG: &str = "HasSettingsToImport";
     /// The user's setting enabled UDI, but we may show a classic input (e.g. ssh/subshell warpification)
@@ -518,9 +515,7 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     warpify_page::init_actions_from_parent_view(app, context, builder);
     privacy_page::init_actions_from_parent_view(app, context, builder);
     warp_agent_page::init_actions_from_parent_view(app, context, builder);
-    agent_profiles_page::init_actions_from_parent_view(app, context, builder);
     knowledge_page::init_actions_from_parent_view(app, context, builder);
-    code_indexing_page::init_actions_from_parent_view(app, context, builder);
     code_editor_review_page::init_actions_from_parent_view(app, context, builder);
     warp_drive_page::init_actions_from_parent_view(app, context, builder);
 
@@ -826,7 +821,7 @@ pub enum SettingsAction {
     WarpAgent(WarpAgentPageAction),
     AgentProfiles(AgentProfilesPageAction),
     Knowledge(KnowledgePageAction),
-    CodeIndexing(CodeIndexingPageAction),
+    Projects(ProjectsPageAction),
     EditorAndCodeReview(EditorAndCodeReviewPageAction),
     WarpDrive(warp_drive_page::WarpDriveSettingsPageAction),
     WarpifyPageToggle(WarpifyPageAction),
@@ -981,7 +976,7 @@ macro_rules! update_page {
             SettingsPageViewHandle::AgentProfiles(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Knowledge(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::CodeIndexing(handle) => $ctx.update_view(handle, $update),
+            SettingsPageViewHandle::Projects(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::EditorAndCodeReview(handle) => {
                 $ctx.update_view(handle, $update)
             }
@@ -1061,9 +1056,9 @@ impl SettingsView {
         let keybindings_handle = ctx.add_typed_action_view(KeybindingsView::new);
 
         // Code umbrella pages
-        let code_indexing_page_handle = ctx.add_typed_action_view(CodeIndexingPageView::new);
-        ctx.subscribe_to_view(&code_indexing_page_handle, |me, _, event, ctx| {
-            me.handle_code_indexing_page_event(event, ctx);
+        let projects_page_handle = ctx.add_typed_action_view(ProjectsPageView::new);
+        ctx.subscribe_to_view(&projects_page_handle, |me, _, event, ctx| {
+            me.handle_projects_page_event(event, ctx);
         });
         let editor_review_page_handle = ctx.add_typed_action_view(EditorAndCodeReviewPageView::new);
 
@@ -1122,7 +1117,7 @@ impl SettingsView {
             SettingsPage::new(warp_agent_page_handle),
             SettingsPage::new(agent_profiles_page_handle),
             SettingsPage::new(knowledge_page_handle),
-            SettingsPage::new(code_indexing_page_handle),
+            SettingsPage::new(projects_page_handle),
             SettingsPage::new(editor_review_page_handle),
             SettingsPage::new(appearance_page_handle),
             SettingsPage::new(features_page_handle),
@@ -1152,7 +1147,7 @@ impl SettingsView {
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Code",
                 vec![
-                    SettingsSection::CodeIndexing,
+                    SettingsSection::Projects,
                     SettingsSection::EditorAndCodeReview,
                 ],
             )),
@@ -1585,21 +1580,18 @@ impl SettingsView {
         }
     }
 
-    fn handle_code_indexing_page_event(
+    fn handle_projects_page_event(
         &mut self,
-        event: &CodeIndexingPageEvent,
+        event: &ProjectsPageEvent,
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            CodeIndexingPageEvent::SignupAnonymousUser => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            CodeIndexingPageEvent::OpenLspLogs { log_path } => {
+            ProjectsPageEvent::OpenLspLogs { log_path } => {
                 ctx.emit(SettingsViewEvent::OpenLspLogs {
                     log_path: log_path.clone(),
                 });
             }
-            CodeIndexingPageEvent::OpenProjectRules { rule_paths } => {
+            ProjectsPageEvent::OpenProjectRules { rule_paths } => {
                 ctx.emit(SettingsViewEvent::OpenProjectRulesPane {
                     rule_paths: rule_paths.clone(),
                 });
@@ -1706,7 +1698,7 @@ impl SettingsView {
             SettingsPageViewHandle::WarpAgent(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::AgentProfiles(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Knowledge(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::CodeIndexing(v) => v.as_ref(app).should_render(app),
+            SettingsPageViewHandle::Projects(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::EditorAndCodeReview(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::WarpDrive(v) => v.as_ref(app).should_render(app),
         }
@@ -2272,9 +2264,9 @@ impl TypedActionView for SettingsView {
                     })
                 }
             }
-            SettingsAction::CodeIndexing(code_action) => {
-                if let Some(page) = self.settings_page(SettingsSection::CodeIndexing)
-                    && let SettingsPageViewHandle::CodeIndexing(view) = &page.view_handle
+            SettingsAction::Projects(code_action) => {
+                if let Some(page) = self.settings_page(SettingsSection::Projects)
+                    && let SettingsPageViewHandle::Projects(view) = &page.view_handle
                 {
                     view.update(ctx, |view, ctx| {
                         view.handle_action(code_action, ctx);

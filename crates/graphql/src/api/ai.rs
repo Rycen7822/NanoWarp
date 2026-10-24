@@ -56,10 +56,6 @@ pub struct RequestLimitInfo {
     pub included_usage_cents: Option<f64>,
     pub usage_cents_used_since_last_refresh: Option<f64>,
     pub request_limit_refresh_duration: RequestLimitRefreshDuration,
-    pub is_unlimited_codebase_indices: bool,
-    pub max_codebase_indices: i32,
-    pub max_files_per_repo: i32,
-    pub embedding_generation_batch_size: i32,
 }
 
 #[derive(cynic::Enum, Clone, Copy, Debug, PartialEq)]

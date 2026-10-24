@@ -33,7 +33,6 @@ use parking_lot::FairMutex;
 use preprocess::{PendingPreprocessedActions, PreprocessId};
 use warpui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
-use self::execute::search_codebase::SearchCodebaseExecutor;
 use self::execute::{
     BlocklistAIActionExecutor, BlocklistAIActionExecutorEvent, NotExecutedReason,
     RunningActionPhase, TryExecuteResult,
@@ -48,7 +47,6 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::action_model::execute::suggest_new_conversation::SuggestNewConversationExecutor;
 use crate::ai::document::ai_document_model::AIDocumentModel;
-use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
 use crate::terminal::TerminalModel;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model_events::ModelEventDispatcher;
@@ -238,7 +236,6 @@ impl BlocklistAIActionModel {
         terminal_model: Arc<FairMutex<TerminalModel>>,
         active_session: ModelHandle<ActiveSession>,
         model_event_dispatcher: &ModelHandle<ModelEventDispatcher>,
-        get_relevant_files_controller: ModelHandle<GetRelevantFilesController>,
         terminal_view_id: EntityId,
         team_context_resolver: TeamContextResolver,
         ctx: &mut ModelContext<Self>,
@@ -248,7 +245,6 @@ impl BlocklistAIActionModel {
                 terminal_model,
                 active_session.clone(),
                 model_event_dispatcher,
-                get_relevant_files_controller,
                 terminal_view_id,
                 team_context_resolver,
                 ctx,
@@ -356,13 +352,6 @@ impl BlocklistAIActionModel {
             .as_ref(app)
             .request_file_edits_executor()
             .clone()
-    }
-
-    pub fn search_codebase_executor<'a>(
-        &'a self,
-        app: &'a AppContext,
-    ) -> &'a ModelHandle<SearchCodebaseExecutor> {
-        self.executor.as_ref(app).search_codebase_executor()
     }
 
     pub fn ask_user_question_executor(

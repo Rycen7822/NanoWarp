@@ -32,8 +32,6 @@ pub enum ServerExperiment {
     EnvVarsEarlyAccessExperiment,
     AgentModeAnalyticsExperiment,
     WindowsLaunchExperiment,
-    CodebaseContextExperiment,
-    CodebaseContextControl,
     OzMultiHarnessControl,
     OzMultiHarnessExperiment,
     MacosRunnersControl,
@@ -78,16 +76,6 @@ impl ServerExperiment {
             Self::WindowsLaunchExperiment => {
                 // TODO(alokedesai): Clean this up now that we no longer gate access to the Windows
                 // build on an allowlist.
-            }
-            Self::CodebaseContextExperiment => {
-                FeatureFlag::FullSourceCodeEmbedding.set_enabled(true);
-                FeatureFlag::CodebaseIndexPersistence.set_enabled(true);
-                FeatureFlag::CrossRepoContext.set_enabled(true);
-            }
-            Self::CodebaseContextControl => {
-                FeatureFlag::FullSourceCodeEmbedding.set_enabled(false);
-                FeatureFlag::CodebaseIndexPersistence.set_enabled(false);
-                FeatureFlag::CrossRepoContext.set_enabled(false);
             }
             Self::OzMultiHarnessControl => {
                 FeatureFlag::AgentHarness.set_enabled(false);

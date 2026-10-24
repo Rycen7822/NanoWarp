@@ -174,10 +174,6 @@ fn test_request_limit_info() {
                 next_refresh_time: ServerTimestamp::new(Utc::now() + Duration::days(1)),
                 is_unlimited: false,
                 request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-                is_unlimited_codebase_indices: false,
-                max_codebase_indices: 3,
-                max_files_per_repo: 5000,
-                embedding_generation_batch_size: 100,
             };
             assert_eq!(200, request_usage_model.request_limit());
             assert_eq!(39, request_usage_model.requests_used());
@@ -273,10 +269,6 @@ fn test_request_limit_info_with_limit() {
                 next_refresh_time: ServerTimestamp::new(Utc::now() + Duration::minutes(1)),
                 is_unlimited: false,
                 request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-                is_unlimited_codebase_indices: false,
-                max_codebase_indices: 3,
-                max_files_per_repo: 5000,
-                embedding_generation_batch_size: 100,
             };
             assert_eq!(999999999, request_usage_model.request_limit());
             assert_eq!(39, request_usage_model.requests_used());
@@ -298,10 +290,6 @@ fn test_request_limit_info_past_refresh_time() {
                 next_refresh_time: ServerTimestamp::new(Utc::now() - Duration::seconds(1)),
                 is_unlimited: false,
                 request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-                is_unlimited_codebase_indices: false,
-                max_codebase_indices: 3,
-                max_files_per_repo: 5000,
-                embedding_generation_batch_size: 100,
             };
             assert_eq!(200, request_usage_model.request_limit());
             assert_eq!(0, request_usage_model.requests_used());
@@ -323,10 +311,6 @@ fn test_request_limit_info_is_unlimited_true() {
                 next_refresh_time: ServerTimestamp::new(Utc::now() + Duration::minutes(1)),
                 is_unlimited: true,
                 request_limit_refresh_duration: RequestLimitRefreshDuration::Monthly,
-                is_unlimited_codebase_indices: false,
-                max_codebase_indices: 3,
-                max_files_per_repo: 5000,
-                embedding_generation_batch_size: 100,
             };
             assert_eq!(999999999, request_usage_model.request_limit());
             assert_eq!(39, request_usage_model.requests_used());

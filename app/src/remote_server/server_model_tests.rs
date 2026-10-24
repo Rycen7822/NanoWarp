@@ -144,7 +144,13 @@ fn fresh_model_starts_without_auth_token() {
     App::test((), |mut app| async move {
         let model = test_model(&mut app);
 
-        assert_eq!(model.auth_token().as_deref(), None);
+        assert_eq!(
+            model
+                .auth_state
+                .get_access_token_ignoring_validity()
+                .as_deref(),
+            None
+        );
         assert_eq!(model.auth_state.user_id(), None);
         assert_eq!(model.auth_state.user_email(), None);
     });
@@ -159,10 +165,15 @@ fn initialize_with_auth_token_stores_token() {
             auth_token: "initial-token".to_string(),
             user_id: "test-user-id".to_string(),
             user_email: "test@example.com".to_string(),
-            codebase_index_limits: None,
         });
 
-        assert_eq!(model.auth_token().as_deref(), Some("initial-token"));
+        assert_eq!(
+            model
+                .auth_state
+                .get_access_token_ignoring_validity()
+                .as_deref(),
+            Some("initial-token")
+        );
         assert_eq!(
             model.auth_state.user_id().unwrap().as_string(),
             "test-user-id"
@@ -182,17 +193,21 @@ fn empty_initialize_clears_auth_context() {
             auth_token: "initial-token".to_string(),
             user_id: "test-user-id".to_string(),
             user_email: "test@example.com".to_string(),
-            codebase_index_limits: None,
         });
 
         model.apply_initialize_auth(&Initialize {
             auth_token: String::new(),
             user_id: String::new(),
             user_email: String::new(),
-            codebase_index_limits: None,
         });
 
-        assert_eq!(model.auth_token().as_deref(), None);
+        assert_eq!(
+            model
+                .auth_state
+                .get_access_token_ignoring_validity()
+                .as_deref(),
+            None
+        );
         assert_eq!(model.auth_state.user_id(), None);
         assert_eq!(model.auth_state.user_email(), None);
     });
@@ -206,14 +221,19 @@ fn authenticate_with_auth_token_replaces_auth_token() {
             auth_token: "initial-token".to_string(),
             user_id: String::new(),
             user_email: String::new(),
-            codebase_index_limits: None,
         });
 
         model.handle_authenticate(Authenticate {
             auth_token: "rotated-token".to_string(),
         });
 
-        assert_eq!(model.auth_token().as_deref(), Some("rotated-token"));
+        assert_eq!(
+            model
+                .auth_state
+                .get_access_token_ignoring_validity()
+                .as_deref(),
+            Some("rotated-token")
+        );
     });
 }
 
@@ -225,14 +245,19 @@ fn empty_authenticate_clears_auth_token() {
             auth_token: "initial-token".to_string(),
             user_id: String::new(),
             user_email: String::new(),
-            codebase_index_limits: None,
         });
 
         model.handle_authenticate(Authenticate {
             auth_token: String::new(),
         });
 
-        assert_eq!(model.auth_token().as_deref(), None);
+        assert_eq!(
+            model
+                .auth_state
+                .get_access_token_ignoring_validity()
+                .as_deref(),
+            None
+        );
     });
 }
 

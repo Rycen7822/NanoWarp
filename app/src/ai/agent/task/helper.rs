@@ -103,7 +103,6 @@ impl ToolExt for api::message::tool_call::Tool {
         use api::message::tool_call::Tool;
         match self {
             Tool::RunShellCommand(_) => "run_shell_command",
-            Tool::SearchCodebase(_) => "search_codebase",
             Tool::ReadFiles(_) => "read_files",
             Tool::UploadFileArtifact(_) => "upload_artifact",
             Tool::ApplyFileDiffs(_) => "apply_file_diffs",
@@ -127,7 +126,8 @@ impl ToolExt for api::message::tool_call::Tool {
             Tool::SuggestPrompt(_) => "suggest_prompt",
             Tool::OpenCodeReview(_) => "open_code_review",
             Tool::InitProject(_) => "init_project",
-            Tool::ReadMcpResource(_)
+            Tool::SearchCodebase(_)
+            | Tool::ReadMcpResource(_)
             | Tool::CallMcpTool(_)
             | Tool::RunAgents(_)
             | Tool::SendMessageToAgent(_)

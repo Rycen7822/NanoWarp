@@ -61,8 +61,8 @@ use super::model::{
     TabGroup, Window, WorkspaceMetadata as WorkspaceMetadataModel,
 };
 use super::{
-    BlockCompleted, FinishedCommandMetadata, ModelEvent, PersistedData, PersistedDataScope,
-    PersistenceScope, StartedCommandMetadata, WriterHandles, schema,
+    BlockCompleted, FinishedCommandMetadata, ModelEvent, PersistedData, PersistenceScope,
+    StartedCommandMetadata, WriterHandles, schema,
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -123,7 +123,6 @@ const WARP_SQLITE_FILE_NAME: &str = "warp.sqlite";
 pub fn initialize(
     ctx: &mut AppContext,
     scope: PersistenceScope,
-    data_scope: PersistedDataScope,
 ) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
     unsafe {
         // Set up logging before any SQLite calls.
@@ -132,7 +131,10 @@ pub fn initialize(
     let database_path = database_file_path_for_scope(&scope);
     match init_db(&scope) {
         Ok(mut conn) => {
-            let mut persisted_data = read_persisted_data(&mut conn, ctx, data_scope);
+            let mut persisted_data = match scope {
+                PersistenceScope::App => read_persisted_data(&mut conn, ctx),
+                PersistenceScope::RemoteServerDaemon { .. } => None,
+            };
 
             let writer_handles = match start_writer(conn, database_path.clone()) {
                 Ok(writer_handles) => Some(writer_handles),
@@ -179,10 +181,9 @@ pub fn initialize(
 fn read_persisted_data(
     conn: &mut SqliteConnection,
     ctx: &mut AppContext,
-    data_scope: PersistedDataScope,
 ) -> Option<Box<PersistedData>> {
     let user_uid = AuthStateProvider::as_ref(ctx).get().user_id();
-    match read_sqlite_data(conn, user_uid, data_scope) {
+    match read_sqlite_data(conn, user_uid) {
         Ok(app_state) => Some(Box::new(app_state)),
         Err(err) => {
             send_telemetry_from_app_ctx!(TelemetryEvent::DatabaseReadError(err.to_string()), ctx);
@@ -639,13 +640,9 @@ fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> a
             server_creation_info,
         } => update_object_after_server_creation(connection, client_id, server_creation_info)
             .context("error executing object creation succeeded callback"),
-        ModelEvent::UpsertCodebaseIndexMetadata { index_metadata } => {
-            save_codebase_index_metadata(connection, *index_metadata)
-                .context("error upserting codebase index metadata")
-        }
-        ModelEvent::DeleteCodebaseIndexMetadata { repo_path } => {
-            delete_codebase_index_metadata(connection, &repo_path)
-                .context("error deleting codebase index metadata")
+        ModelEvent::UpsertWorkspaceMetadata { metadata } => {
+            save_workspace_metadata(connection, *metadata)
+                .context("error upserting workspace metadata")
         }
         ModelEvent::UpsertProject { project } => {
             save_project(connection, project).context("error upserting project")
@@ -1387,13 +1384,13 @@ fn decode_path(bytes: Vec<u8>) -> PathBuf {
     }
 }
 
-fn save_codebase_index_metadata(
+fn save_workspace_metadata(
     conn: &mut SqliteConnection,
-    index_metadata: ai::workspace::WorkspaceMetadata,
+    metadata: ai::workspace::WorkspaceMetadata,
 ) -> Result<()> {
     use schema::workspace_metadata::dsl::*;
 
-    let new_metadata: NewWorkspaceMetadata = index_metadata.into();
+    let new_metadata: NewWorkspaceMetadata = metadata.into();
 
     diesel::insert_into(workspace_metadata)
         .values(new_metadata.clone())
@@ -1405,7 +1402,7 @@ fn save_codebase_index_metadata(
     Ok(())
 }
 
-fn get_all_codebase_index_metadata(
+fn get_all_workspace_metadata(
     conn: &mut SqliteConnection,
 ) -> Result<Vec<ai::workspace::WorkspaceMetadata>, diesel::result::Error> {
     use schema::workspace_metadata::dsl::*;
@@ -1494,15 +1491,6 @@ fn upsert_workspace_language_server(
             .values(&new_language_server)
             .execute(conn)?;
     }
-
-    Ok(())
-}
-
-fn delete_codebase_index_metadata(conn: &mut SqliteConnection, index_path: &Path) -> Result<()> {
-    use schema::workspace_metadata::dsl::*;
-
-    let target_path = index_path.to_string_lossy().to_string();
-    diesel::delete(workspace_metadata.filter(repo_path.eq(target_path))).execute(conn)?;
 
     Ok(())
 }
@@ -2203,31 +2191,7 @@ fn box_persisted_generic_string_object(
 fn read_sqlite_data(
     conn: &mut SqliteConnection,
     current_user_id: Option<UserUid>,
-    data_scope: PersistedDataScope,
 ) -> Result<PersistedData, Error> {
-    if matches!(data_scope, PersistedDataScope::CodebaseIndicesOnly) {
-        return Ok(PersistedData {
-            app_state: None,
-            cloud_objects: Default::default(),
-            workspaces: Default::default(),
-            current_workspace_uid: None,
-            command_history: Default::default(),
-            user_profiles: Default::default(),
-            time_of_next_force_object_refresh: None,
-            object_actions: Default::default(),
-            experiments: Default::default(),
-            ai_queries: Default::default(),
-            nld_prompts: Default::default(),
-            codebase_indices: get_all_codebase_index_metadata(conn)?,
-            workspace_language_servers: Default::default(),
-            multi_agent_conversations: Default::default(),
-            projects: Default::default(),
-            project_rules: Default::default(),
-            ignored_suggestions: Default::default(),
-            conversation_summary_backfills: Default::default(),
-        });
-    }
-
     let app_state = {
         use schema::windows::dsl::*;
 
@@ -2596,7 +2560,7 @@ fn read_sqlite_data(
     };
     let ai_queries = process_ai_queries_for_uparrow_prompt(recent_ai_queries);
 
-    let codebase_indices = get_all_codebase_index_metadata(conn)?;
+    let workspace_metadata = get_all_workspace_metadata(conn)?;
     let workspace_language_servers = get_all_workspace_language_servers_by_workspace(conn)?;
     // Load conversation metadata only; task payloads are hydrated lazily
     // per-conversation via `read_agent_conversation_by_id`.
@@ -2618,7 +2582,7 @@ fn read_sqlite_data(
         experiments: server_experiments,
         ai_queries,
         nld_prompts,
-        codebase_indices,
+        workspace_metadata,
         workspace_language_servers,
         multi_agent_conversations,
         projects,

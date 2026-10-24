@@ -1173,10 +1173,6 @@ impl AIAgentAction {
         self.action.is_read_files()
     }
 
-    pub fn is_get_relevant_files(&self) -> bool {
-        self.action.is_search_codebase()
-    }
-
     pub fn is_grep(&self) -> bool {
         self.action.is_grep()
     }
@@ -1345,25 +1341,6 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 ReadFilesResult::Error(error) => write!(f, "\n_Read files error: {error} _"),
                 ReadFilesResult::Cancelled => write!(f, "\n_Read files cancelled_"),
             },
-            AIAgentActionResultType::SearchCodebase(result) => match result {
-                SearchCodebaseResult::Success { files } => {
-                    write!(f, "\n\n**Codebase Search Results:**\n\n")?;
-                    for file in files {
-                        writeln!(f, "- **{}**", file.file_name)?;
-                        let content = &file.content;
-                        if let AnyFileContent::StringContent(text) = content
-                            && !text.trim().is_empty()
-                        {
-                            writeln!(f, "```\n{text}\n```\n")?;
-                        }
-                    }
-                    Ok(())
-                }
-                SearchCodebaseResult::Failed { message, .. } => {
-                    write!(f, "\n_Codebase search failed: {message} _")
-                }
-                SearchCodebaseResult::Cancelled => write!(f, "\n_Codebase search cancelled_"),
-            },
             AIAgentActionResultType::FileGlobV2(result) => match result {
                 FileGlobV2Result::Success { matched_files, .. } => {
                     write!(f, "\n\n**File Glob Results:**\n\n")?;
@@ -1490,7 +1467,6 @@ impl AIAgentActionResult {
                     RequestCommandOutputResult::CancelledBeforeExecution
                 )
                 | AIAgentActionResultType::ReadFiles(ReadFilesResult::Cancelled)
-                | AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Cancelled)
                 | AIAgentActionResultType::Grep(GrepResult::Cancelled)
                 | AIAgentActionResultType::FileGlob(FileGlobResult::Cancelled)
                 | AIAgentActionResultType::SuggestNewConversation(
@@ -2192,7 +2168,6 @@ pub enum AIAgentContext {
     Directory {
         pwd: Option<String>,
         home_dir: Option<String>,
-        are_file_symbols_indexed: bool,
     },
 
     /// Text selected via the cursor within the block list.
@@ -2209,14 +2184,6 @@ pub enum AIAgentContext {
 
     /// An image attached to the query.
     Image(ImageContext),
-
-    /// Indexed codebase possibly relevant to the query.
-    Codebase {
-        /// Absolute path to the indexed codebase.
-        path: String,
-        /// Repository name.
-        name: String,
-    },
 
     ProjectRules {
         root_path: String,
@@ -2273,7 +2240,6 @@ enum AIAgentContextTagged {
     Directory {
         pwd: Option<String>,
         home_dir: Option<String>,
-        are_file_symbols_indexed: bool,
     },
     SelectedText(String),
     ExecutionEnvironment(WarpAiExecutionContext),
@@ -2281,10 +2247,6 @@ enum AIAgentContextTagged {
         current_time: DateTime<Local>,
     },
     Image(ImageContext),
-    Codebase {
-        path: String,
-        name: String,
-    },
     ProjectRules {
         root_path: String,
         active_rules: Vec<FileContext>,
@@ -2320,15 +2282,9 @@ enum AIAgentContextTagged {
 impl From<AIAgentContextTagged> for AIAgentContext {
     fn from(tagged: AIAgentContextTagged) -> Self {
         match tagged {
-            AIAgentContextTagged::Directory {
-                pwd,
-                home_dir,
-                are_file_symbols_indexed,
-            } => AIAgentContext::Directory {
-                pwd,
-                home_dir,
-                are_file_symbols_indexed,
-            },
+            AIAgentContextTagged::Directory { pwd, home_dir } => {
+                AIAgentContext::Directory { pwd, home_dir }
+            }
             AIAgentContextTagged::SelectedText(text) => AIAgentContext::SelectedText(text),
             AIAgentContextTagged::ExecutionEnvironment(context) => {
                 AIAgentContext::ExecutionEnvironment(context)
@@ -2337,9 +2293,6 @@ impl From<AIAgentContextTagged> for AIAgentContext {
                 AIAgentContext::CurrentTime { current_time }
             }
             AIAgentContextTagged::Image(image) => AIAgentContext::Image(image),
-            AIAgentContextTagged::Codebase { path, name } => {
-                AIAgentContext::Codebase { path, name }
-            }
             AIAgentContextTagged::ProjectRules {
                 root_path,
                 active_rules,

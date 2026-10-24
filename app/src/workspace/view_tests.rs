@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use ai::project_context::model::ProjectContextModel;
 use pane_group::{NotebookPane, PaneState, SplitPaneState, TerminalPaneId};
 #[cfg(feature = "local_fs")]
@@ -33,7 +32,6 @@ use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::facts::manager::AIFactManager;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::LLMPreferences;
-use crate::ai::outline::RepoOutlines;
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::ai::restored_conversations::RestoredAgentConversations;
 use crate::ai::skills::SkillManager;
@@ -49,8 +47,6 @@ use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::notebook::NotebookView;
 use crate::pane_group::{Direction, PaneGroupAction, PaneId};
 use crate::pricing::PricingInfoModel;
-#[cfg(not(target_family = "wasm"))]
-use crate::remote_server::codebase_index_model::RemoteCodebaseIndexModel;
 use crate::resource_center::Tip;
 use crate::server::cloud_objects::listener::Listener;
 use crate::server::cloud_objects::update_manager::UpdateManager;
@@ -156,7 +152,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|ctx| {
         AIExecutionProfilesModel::new(&crate::LaunchMode::new_for_unit_test(), ctx)
     });
-    app.add_singleton_model(RepoOutlines::new_for_test);
     app.add_singleton_model(BlocklistAIPermissions::new);
     app.add_singleton_model(|_| GPUState::new());
     app.add_singleton_model(|_| RestoredAgentConversations::new_seeded(vec![]));
@@ -172,8 +167,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
     app.add_singleton_model(|_| crate::code_review::git_repo_model::GitRepoModels::new());
     app.add_singleton_model(remote_server::manager::RemoteServerManager::new);
-    #[cfg(not(target_family = "wasm"))]
-    app.add_singleton_model(RemoteCodebaseIndexModel::new);
 
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
@@ -196,11 +189,8 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(
         crate::workspace::bonus_grant_notification_model::BonusGrantNotificationModel::new,
     );
-    app.add_singleton_model(|ctx| {
-        CodebaseIndexManager::new_for_test(ServerApiProvider::as_ref(ctx).get(), ctx)
-    });
-    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
     app.add_singleton_model(|_| ProjectContextModel::default());
+    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
     app.add_singleton_model(|_| PricingInfoModel::new());
     app.add_singleton_model(crate::ai::pricing_promotion::PricingPromotionState::new);
     app.add_singleton_model(AIDocumentModel::new);

@@ -8,7 +8,6 @@ pub(crate) mod inline_action_icons;
 mod malformed_line_heuristics;
 pub(crate) mod requested_action;
 pub(crate) mod requested_command;
-pub(super) mod search_codebase;
 pub(crate) mod search_results_common;
 pub(super) mod web_fetch;
 pub(super) mod web_search;

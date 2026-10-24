@@ -19,7 +19,7 @@ use crate::agent::action_result::{
     AIAgentActionResultType, AskUserQuestionResult, CreateDocumentsResult, EditDocumentsResult,
     FetchConversationResult, FileGlobResult, FileGlobV2Result, GrepResult,
     InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult, ReadShellCommandOutputResult,
-    ReadSkillResult, RequestCommandOutputResult, RequestFileEditsResult, SearchCodebaseResult,
+    ReadSkillResult, RequestCommandOutputResult, RequestFileEditsResult,
     SuggestNewConversationResult, TransferShellCommandControlToUserResult,
     WriteToLongRunningShellCommandResult,
 };
@@ -65,8 +65,6 @@ pub enum AIAgentActionType {
 
     /// AI requested getting the content of some files.
     ReadFiles(ReadFilesRequest),
-
-    SearchCodebase(SearchCodebaseRequest),
 
     /// AI requested a vector of edits. Each edit holds a list of diffs on a single code file.
     RequestFileEdits {
@@ -138,10 +136,6 @@ impl AIAgentActionType {
         matches!(self, Self::ReadFiles(..))
     }
 
-    pub fn is_search_codebase(&self) -> bool {
-        matches!(self, Self::SearchCodebase(..))
-    }
-
     pub fn is_grep(&self) -> bool {
         matches!(self, Self::Grep { .. })
     }
@@ -163,9 +157,6 @@ impl AIAgentActionType {
                 AIAgentActionResultType::RequestFileEdits(RequestFileEditsResult::Cancelled)
             }
             Self::ReadFiles(..) => AIAgentActionResultType::ReadFiles(ReadFilesResult::Cancelled),
-            Self::SearchCodebase(..) => {
-                AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Cancelled)
-            }
             Self::Grep { .. } => AIAgentActionResultType::Grep(GrepResult::Cancelled),
             Self::FileGlob { .. } => AIAgentActionResultType::FileGlob(FileGlobResult::Cancelled),
             Self::FileGlobV2 { .. } => {
@@ -219,7 +210,6 @@ impl AIAgentActionType {
                 "Write to long running shell command".to_string()
             }
             Self::ReadFiles(_) => "Read files".to_string(),
-            Self::SearchCodebase(_) => "Search codebase".to_string(),
             Self::RequestFileEdits { file_edits, .. } => {
                 let file_names = file_edits.iter().filter_map(|edit| edit.file()).join(", ");
                 format!("Edit {file_names}")
@@ -272,9 +262,6 @@ impl Display for AIAgentActionType {
                 )
             }
             AIAgentActionType::ReadFiles(request) => {
-                write!(f, "{request}")
-            }
-            AIAgentActionType::SearchCodebase(request) => {
                 write!(f, "{request}")
             }
             AIAgentActionType::RequestFileEdits { file_edits, title } => {
@@ -431,25 +418,6 @@ impl Display for ReadFilesRequest {
             .collect::<Vec<_>>()
             .join(", ");
         write!(f, "ReadFiles: [{file_names}]")
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SearchCodebaseRequest {
-    pub query: String,
-
-    /// Optional list of file paths to search through.  This is used to narrow down the search scope.
-    /// Files are searched if any of the partial paths are a substring of the file path.
-    pub partial_paths: Option<Vec<String>>,
-
-    /// Optional absolute path to the codebase that we want to search. If not
-    /// provided, we will use the codebase in the user's current directory.
-    pub codebase_path: Option<String>,
-}
-
-impl Display for SearchCodebaseRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SearchCodebase: {}", self.query)
     }
 }
 

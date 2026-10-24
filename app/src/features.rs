@@ -117,10 +117,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::AgentSharedSessions,
         #[cfg(feature = "command_correction_key")]
         FeatureFlag::CommandCorrectionKey,
-        #[cfg(feature = "full_source_code_embedding")]
-        FeatureFlag::FullSourceCodeEmbedding,
-        #[cfg(feature = "remote_codebase_indexing")]
-        FeatureFlag::RemoteCodebaseIndexing,
         #[cfg(feature = "use_tantivy_search")]
         FeatureFlag::UseTantivySearch,
         #[cfg(feature = "grep_tool")]
@@ -151,10 +147,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ReadImageFiles,
         #[cfg(feature = "usage_based_pricing")]
         FeatureFlag::UsageBasedPricing,
-        #[cfg(feature = "cross_repo_context")]
-        FeatureFlag::CrossRepoContext,
-        #[cfg(feature = "codebase_index_persistence")]
-        FeatureFlag::CodebaseIndexPersistence,
         #[cfg(feature = "ai_resume_button")]
         FeatureFlag::AIResumeButton,
         #[cfg(feature = "agent_decides_command_execution")]
@@ -177,8 +169,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::TabCloseButtonOnLeft,
         #[cfg(feature = "profiles_design_revamp")]
         FeatureFlag::ProfilesDesignRevamp,
-        #[cfg(feature = "search_codebase_ui")]
-        FeatureFlag::SearchCodebaseUI,
         #[cfg(feature = "linked_code_blocks")]
         FeatureFlag::LinkedCodeBlocks,
         #[cfg(feature = "tabbed_editor_view")]

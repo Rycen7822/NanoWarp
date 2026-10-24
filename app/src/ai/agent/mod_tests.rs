@@ -537,7 +537,6 @@ fn ai_agent_context_round_trips_tagged_variants() {
         AIAgentContext::Directory {
             pwd: Some("/tmp/project".to_string()),
             home_dir: Some("/Users/me".to_string()),
-            are_file_symbols_indexed: true,
         },
         AIAgentContext::SelectedText("selected text".to_string()),
         AIAgentContext::ExecutionEnvironment(WarpAiExecutionContext {
@@ -559,10 +558,6 @@ fn ai_agent_context_round_trips_tagged_variants() {
             mime_type: "image/png".to_string(),
             file_name: "shot.png".to_string(),
         }),
-        AIAgentContext::Codebase {
-            path: "/tmp/project".to_string(),
-            name: "project".to_string(),
-        },
         AIAgentContext::ProjectRules {
             root_path: "/tmp/project".to_string(),
             active_rules: vec![FileContext::new(

@@ -222,11 +222,7 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
 
     match params.session_context.session_type() {
         None | Some(SessionType::Local) => {
-            supported_tools.extend(&[
-                api::ToolType::ReadFiles,
-                api::ToolType::ApplyFileDiffs,
-                api::ToolType::SearchCodebase,
-            ]);
+            supported_tools.extend(&[api::ToolType::ReadFiles, api::ToolType::ApplyFileDiffs]);
         }
         Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
             // Remote session with a known host — enable tools that route
@@ -234,9 +230,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
             // after a successful connection handshake, so its presence is a
             // sufficient proxy for client availability.
             supported_tools.extend(&[api::ToolType::ReadFiles, api::ToolType::ApplyFileDiffs]);
-            if FeatureFlag::RemoteCodebaseIndexing.is_enabled() {
-                supported_tools.push(api::ToolType::SearchCodebase);
-            }
         }
         Some(SessionType::WarpifiedRemote { host_id: None }) => {
             // Feature flag off or not yet connected — no remote tools.
@@ -271,14 +264,10 @@ fn get_supported_cli_agent_tools(params: &RequestParams) -> Vec<api::ToolType> {
 
     match params.session_context.session_type() {
         None | Some(SessionType::Local) => {
-            supported_cli_agent_tools
-                .extend(&[api::ToolType::ReadFiles, api::ToolType::SearchCodebase]);
+            supported_cli_agent_tools.push(api::ToolType::ReadFiles);
         }
         Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
             supported_cli_agent_tools.push(api::ToolType::ReadFiles);
-            if FeatureFlag::RemoteCodebaseIndexing.is_enabled() {
-                supported_cli_agent_tools.push(api::ToolType::SearchCodebase);
-            }
         }
         Some(SessionType::WarpifiedRemote { host_id: None }) => {}
     }

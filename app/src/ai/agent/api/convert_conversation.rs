@@ -34,8 +34,8 @@ use crate::ai::agent::{
     GrepFileMatch, GrepLineMatch, GrepResult, ImageContext, InsertReviewCommentsResult,
     OutputModelInfo, ReadDocumentsResult, ReadFilesFailedFile, ReadFilesResult,
     ReadShellCommandOutputResult, RequestCommandOutputResult, RequestFileEditsResult,
-    SearchCodebaseFailureReason, SearchCodebaseResult, ServerOutputId, Shared, ShellCommandError,
-    SuggestNewConversationResult, TransferShellCommandControlToUserResult, UpdatedFileContext,
+    ServerOutputId, Shared, ShellCommandError, SuggestNewConversationResult,
+    TransferShellCommandControlToUserResult, UpdatedFileContext,
     WriteToLongRunningShellCommandResult,
 };
 use crate::ai::block_context::BlockContext;
@@ -168,7 +168,6 @@ pub(crate) fn convert_input_context(context: Option<&api::InputContext>) -> Arc<
             } else {
                 Some(directory.home.clone())
             },
-            are_file_symbols_indexed: directory.pwd_file_symbols_indexed,
         });
     }
 
@@ -260,16 +259,6 @@ pub(crate) fn convert_input_context(context: Option<&api::InputContext>) -> Arc<
                     .map(|file_content| FileContext::from(file_content.clone()))
                     .collect(),
                 additional_rule_paths: project_rules.additional_rule_file_paths.clone(),
-            });
-        }
-    }
-
-    // Convert codebases
-    for codebase in &context.codebases {
-        if !codebase.path.is_empty() && !codebase.name.is_empty() {
-            result.push(AIAgentContext::Codebase {
-                path: codebase.path.clone(),
-                name: codebase.name.clone(),
             });
         }
     }
@@ -671,35 +660,7 @@ pub(crate) fn convert_tool_call_result_to_input(
                 context,
             })
         }
-        Some(ToolCallResultType::SearchCodebase(result)) => {
-            let search_result = match &result.result {
-                Some(api::search_codebase_result::Result::Success(success)) => {
-                    let files = success
-                        .files
-                        .iter()
-                        .map(|file| FileContext::from(file.clone()))
-                        .collect();
-
-                    SearchCodebaseResult::Success { files }
-                }
-                Some(api::search_codebase_result::Result::Error(error)) => {
-                    SearchCodebaseResult::Failed {
-                        reason: SearchCodebaseFailureReason::ClientError,
-                        message: error.message.clone(),
-                    }
-                }
-                None => SearchCodebaseResult::Cancelled,
-            };
-
-            Some(AIAgentInput::ActionResult {
-                result: AIAgentActionResult {
-                    id: tool_call_id.into(),
-                    task_id: task_id.clone(),
-                    result: AIAgentActionResultType::SearchCodebase(search_result),
-                },
-                context,
-            })
-        }
+        Some(ToolCallResultType::SearchCodebase(_)) => None,
         Some(ToolCallResultType::ApplyFileDiffs(result)) => {
             let edit_result = match &result.result {
                 Some(api::apply_file_diffs_result::Result::Success(success)) => {
@@ -1269,9 +1230,7 @@ fn create_cancelled_result_for_tool_call(
             )
         }
         ToolType::ReadFiles(_) => AIAgentActionResultType::ReadFiles(ReadFilesResult::Cancelled),
-        ToolType::SearchCodebase(_) => {
-            AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Cancelled)
-        }
+        ToolType::SearchCodebase(_) => return None,
         ToolType::ApplyFileDiffs(_) => {
             AIAgentActionResultType::RequestFileEdits(RequestFileEditsResult::Cancelled)
         }

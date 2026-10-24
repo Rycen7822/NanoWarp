@@ -9,8 +9,7 @@ use warp_graphql::billing::{
     BillingMetadata as GqlBillingMetadata, BonusGrant as GqlBonusGrant,
     BonusGrantScope as GqlBonusGrantScope, ByoApiKeyPolicy as GqlByoApiKeyPolicy,
     ByoEndpointPolicy as GqlByoEndpointPolicy, ChargeUnit as GqlChargeUnit,
-    CodebaseContextPolicy as GqlCodebaseContextPolicy, CustomerType as GqlCustomerType,
-    DelinquencyStatus as GqlDelinquencyStatus,
+    CustomerType as GqlCustomerType, DelinquencyStatus as GqlDelinquencyStatus,
     EnterpriseCreditsAutoReloadPolicy as GqlEnterpriseCreditsAutoReloadPolicy,
     EnterprisePayAsYouGoPolicy as GqlEnterprisePayAsYouGoPolicy, InstanceShape as GqlInstanceShape,
     ManagedByokByoePolicy as GqlManagedByokByoePolicy, MultiAdminPolicy as GqlMultiAdminPolicy,
@@ -49,12 +48,12 @@ use super::user_workspaces::WorkspacesMetadataResponse;
 use super::workspace::{
     AIAutonomyPolicy, AddonCreditsSettings, AdminEnablementSetting, AiAutonomySettings,
     AiPermissionsSettings, AmbientAgentsPolicy, BillingMetadata, ByoEndpointMetadata,
-    ByoEndpointModelMetadata, ByoFirstPartyKey, CloudConversationStorageSettings,
-    CodebaseContextSettings, CustomerType, DelinquencyStatus, EmailInvite, EnforceableSetting,
-    EnterpriseSecretRegex, HostEnablementSetting, InstanceShape, InviteLinkDomainRestriction,
-    LinkSharingSettings, LlmSettings, SandboxedAgentSettings, SecretRedactionSettings,
-    SessionSharingPolicy, SharedNotebooksPolicy, SharedWorkflowsPolicy, SplitListSetting,
-    TeamAiAutonomySettings, TeamAiPermissionsSettings, TeamByoSettings, TeamLinkSharingSettings,
+    ByoEndpointModelMetadata, ByoFirstPartyKey, CloudConversationStorageSettings, CustomerType,
+    DelinquencyStatus, EmailInvite, EnforceableSetting, EnterpriseSecretRegex,
+    HostEnablementSetting, InstanceShape, InviteLinkDomainRestriction, LinkSharingSettings,
+    LlmSettings, SandboxedAgentSettings, SecretRedactionSettings, SessionSharingPolicy,
+    SharedNotebooksPolicy, SharedWorkflowsPolicy, SplitListSetting, TeamAiAutonomySettings,
+    TeamAiPermissionsSettings, TeamByoSettings, TeamLinkSharingSettings,
     TeamSandboxedAgentSettings, TeamSecretRedactionSettings, TeamSettings,
     TelemetryDataCollectionPolicy, TelemetrySettings, Tier, UgcCollectionEnablementSetting,
     UgcCollectionSettings, UgcDataCollectionPolicy, UsageBasedPricingPolicy, WarpAiPolicy,
@@ -72,8 +71,8 @@ use crate::server::ids::ServerId;
 use crate::settings::AgentModeCommandExecutionPredicate;
 use crate::workspaces::workspace::{
     AiOverages, BonusGrantsPurchased, ByoApiKeyPolicy, ByoEndpointPolicy, ChargeUnit,
-    CodebaseContextPolicy, EnterpriseCreditsAutoReloadPolicy, EnterprisePayAsYouGoPolicy,
-    ManagedByokByoePolicy, MultiAdminPolicy, NativeWorkspacesPolicy, PurchaseAddOnCreditsPolicy,
+    EnterpriseCreditsAutoReloadPolicy, EnterprisePayAsYouGoPolicy, ManagedByokByoePolicy,
+    MultiAdminPolicy, NativeWorkspacesPolicy, PurchaseAddOnCreditsPolicy,
     UsageBasedPricingSettings, UserTier, WorkspaceUid,
 };
 
@@ -467,20 +466,6 @@ impl From<GqlAddonCreditsSettings> for AddonCreditsSettings {
     }
 }
 
-impl From<GqlCodebaseContextPolicy> for CodebaseContextPolicy {
-    fn from(gql_codebase_context_policy: GqlCodebaseContextPolicy) -> CodebaseContextPolicy {
-        Self {
-            toggleable: gql_codebase_context_policy.toggleable,
-            index_limit: if gql_codebase_context_policy.is_unlimited_indices {
-                None
-            } else {
-                Some(gql_codebase_context_policy.max_indices as u32)
-            },
-            max_files_per_repo: gql_codebase_context_policy.max_files_per_repo as u32,
-        }
-    }
-}
-
 impl From<GqlByoApiKeyPolicy> for ByoApiKeyPolicy {
     fn from(gql_byo_api_key_policy: GqlByoApiKeyPolicy) -> ByoApiKeyPolicy {
         Self {
@@ -594,7 +579,6 @@ impl From<GqlTier> for Tier {
                 .map(From::from),
             ugc_data_collection_policy: gql_tier.ugc_data_collection_policy.map(From::from),
             usage_based_pricing_policy: gql_tier.usage_based_pricing_policy.map(From::from),
-            codebase_context_policy: gql_tier.codebase_context_policy.map(From::from),
             byo_api_key_policy: gql_tier.byo_api_key_policy.map(From::from),
             byo_endpoint_policy: gql_tier.byo_endpoint_policy.map(From::from),
             managed_byok_byoe_policy: gql_tier.managed_byok_byoe_policy.map(From::from),
@@ -975,12 +959,6 @@ impl From<GqlWorkspaceSettings> for WorkspaceSettings {
                     }),
             },
             addon_credits_settings: gql_workspace_settings.addon_credits_settings.into(),
-            codebase_context_settings: CodebaseContextSettings {
-                setting: gql_workspace_settings
-                    .codebase_context_settings
-                    .setting
-                    .into(),
-            },
             sandboxed_agent_settings: gql_workspace_settings.sandboxed_agent_settings.map(|s| {
                 SandboxedAgentSettings {
                     execute_commands_denylist: s
@@ -1032,12 +1010,6 @@ impl From<GqlTeamSettings> for TeamSettings {
                 value: gql_team_settings.cloud_conversation_storage.value.into(),
                 is_enforced_by_workspace: gql_team_settings
                     .cloud_conversation_storage
-                    .is_enforced_by_workspace,
-            },
-            codebase_context: EnforceableSetting {
-                value: gql_team_settings.codebase_context.value.into(),
-                is_enforced_by_workspace: gql_team_settings
-                    .codebase_context
                     .is_enforced_by_workspace,
             },
             ai_permissions: TeamAiPermissionsSettings {

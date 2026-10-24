@@ -92,20 +92,6 @@ pub fn current_scope() -> PersistenceScope {
         .unwrap_or(PersistenceScope::App)
 }
 
-/// Which subsets of [`PersistedData`] a launch mode actually consumes.
-///
-/// Loading everything unconditionally is expensive (GUI session-restore
-/// payloads dominate startup on large databases), so headless launch modes
-/// opt out of the data they never read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersistedDataScope {
-    /// The GUI app: everything, including window/tab/block session
-    /// restoration and command history.
-    Full,
-    /// The remote server daemon: only codebase index metadata.
-    CodebaseIndicesOnly,
-}
-
 /// A conversation whose `summary` column had to be derived from its task
 /// snapshot at read time (rows written before the column existed, or rows
 /// whose stored summary failed to parse). Sent to the SQLite writer thread
@@ -134,14 +120,13 @@ pub struct ConversationSummaryBackfill {
 pub fn initialize(
     ctx: &mut AppContext,
     scope: PersistenceScope,
-    data_scope: PersistedDataScope,
 ) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
     // Record the scope for ad-hoc read-only connections; keep the first value
     // if this is ever called more than once in a process (e.g. tests).
     let _ = CURRENT_SCOPE.set(scope.clone());
     cfg_if::cfg_if! {
         if #[cfg(feature = "local_fs")] {
-            sqlite::initialize(ctx, scope, data_scope)
+            sqlite::initialize(ctx, scope)
         } else {
             (None, None)
         }
@@ -247,8 +232,7 @@ impl SingletonEntity for PersistenceWriter {}
 ///
 /// For now, to address the global scoping here, we clear all persisted data on logout.
 pub struct PersistedData {
-    /// Session restoration data. `None` when the launch mode's
-    /// [`PersistedDataScope`] excludes it entirely (the daemon).
+    /// Session restoration data.
     pub app_state: Option<AppState>,
 
     /// Shareable objects.
@@ -262,7 +246,7 @@ pub struct PersistedData {
     pub experiments: Vec<ServerExperiment>,
     pub ai_queries: Vec<PersistedAIInput>,
     pub nld_prompts: Vec<(String, DateTime<Local>)>,
-    pub codebase_indices: Vec<CodeWorkspaceMetadata>,
+    pub workspace_metadata: Vec<CodeWorkspaceMetadata>,
     pub workspace_language_servers: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>,
     pub multi_agent_conversations: Vec<AgentConversation>,
     pub projects: Vec<Project>,
@@ -404,11 +388,8 @@ pub enum ModelEvent {
     UpsertCurrentUserInformation {
         user_information: PersistedCurrentUserInformation,
     },
-    UpsertCodebaseIndexMetadata {
-        index_metadata: Box<CodeWorkspaceMetadata>,
-    },
-    DeleteCodebaseIndexMetadata {
-        repo_path: PathBuf,
+    UpsertWorkspaceMetadata {
+        metadata: Box<CodeWorkspaceMetadata>,
     },
     UpsertProject {
         project: Project,
