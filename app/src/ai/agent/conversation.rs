@@ -78,28 +78,6 @@ use crate::ui_components::icons::Icon;
 use crate::workspaces::user_profiles::UserProfileWithUID;
 use crate::{BlocklistAIHistoryModel, GlobalResourceHandlesProvider};
 
-/// How a conversation's status should synchronize to the server `ai_tasks` row via
-/// `LocalAgentTaskSyncModel` (REMOTE-2661).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TaskSyncMode {
-    /// Ordinary conversation: its status drives the task's state and status message.
-    #[default]
-    Normal,
-    /// A debug conversation bootstrapped into a retained setup-failure session. Its
-    /// conversation ID is still reported, but its status must never construct a new task
-    /// status message — the original failure record is preserved. Defense in depth: the
-    /// server independently guards this by comparing the active execution ID.
-    PreserveTerminalSetupFailure,
-}
-
-impl TaskSyncMode {
-    /// Whether conversation status updates should be suppressed from constructing a new task
-    /// state or status message for this conversation.
-    pub fn suppresses_task_lifecycle_updates(self) -> bool {
-        matches!(self, TaskSyncMode::PreserveTerminalSetupFailure)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TodoStatus {
     Pending,
@@ -374,7 +352,6 @@ pub struct AIConversation {
     /// How this conversation's status synchronizes to the server task row. Not persisted: it
     /// only matters for the live process that bootstrapped the conversation, and a restored
     /// conversation resumes ordinary synchronization.
-    task_sync_mode: TaskSyncMode,
 
     /// Whether the user chose Warp-funded inference for this conversation after a ChatGPT
     /// token-sharing failure. Sticky for the rest of the conversation and inherited by forks.
@@ -396,11 +373,11 @@ pub(crate) fn artifact_from_fork_proto(
 }
 
 impl AIConversation {
-    pub fn new(is_viewing_shared_session: bool, is_cli_agent_transcript: bool) -> Self {
-        let driver = match (is_viewing_shared_session, is_cli_agent_transcript) {
-            (true, _) => ConversationDriver::SharedSessionViewer,
-            (false, true) => ConversationDriver::CliAgentTranscript,
-            (false, false) => ConversationDriver::Native,
+    pub fn new(is_viewing_shared_session: bool) -> Self {
+        let driver = if is_viewing_shared_session {
+            ConversationDriver::SharedSessionViewer
+        } else {
+            ConversationDriver::Native
         };
         Self::with_driver(driver)
     }
@@ -431,7 +408,6 @@ impl AIConversation {
             total_token_usage_by_model: Default::default(),
             has_usage_metadata: false,
             artifacts: Vec::new(),
-            task_sync_mode: TaskSyncMode::default(),
             use_warp_credits_instead_of_chatgpt: false,
         }
     }
@@ -650,7 +626,6 @@ impl AIConversation {
             has_usage_metadata,
             optimistic_cli_subagent_subtask_id: None,
             artifacts,
-            task_sync_mode: TaskSyncMode::default(),
             use_warp_credits_instead_of_chatgpt,
         })
     }
@@ -695,12 +670,6 @@ impl AIConversation {
         } else if self.is_viewing_shared_session() {
             self.driver = ConversationDriver::Native;
         }
-    }
-
-    /// Whether the conversation is a [`ConversationDriver::CliAgentTranscript`]. Prefer
-    /// [`ConversationDriver::is_read_only_ui`] where that is the question being asked.
-    pub fn is_cli_agent_transcript(&self) -> bool {
-        matches!(self.driver, ConversationDriver::CliAgentTranscript)
     }
 
     pub fn was_summarized(&self) -> bool {
@@ -1170,17 +1139,6 @@ impl AIConversation {
         self.use_warp_credits_instead_of_chatgpt = true;
     }
 
-    /// Returns how this conversation's status synchronizes to the server task row.
-    pub fn task_sync_mode(&self) -> TaskSyncMode {
-        self.task_sync_mode
-    }
-
-    /// Sets how this conversation's status synchronizes to the server task row. Called once,
-    /// right after creating a debug-turn bootstrap conversation with no prior token.
-    pub fn set_task_sync_mode(&mut self, mode: TaskSyncMode) {
-        self.task_sync_mode = mode;
-    }
-
     /// Returns a flat list of linearized messages across all tasks, interpolating subtask messages
     /// in between subagent tool calls and results, effectively corresponding to the order in which
     /// the messages were created and added to the conversation.
@@ -1328,9 +1286,6 @@ impl AIConversation {
             // Shared session viewer conversations are excluded because the shared session itself
             // is visible/represented elsewhere.
             || self.is_viewing_shared_session()
-            // 3p transcript viewers create an internal conversation only so agent-view
-            // filtering can associate the restored block snapshot with an active conversation.
-            || self.is_cli_agent_transcript()
     }
 
     pub fn is_exchange_hidden(&self, exchange_id: AIAgentExchangeId) -> bool {
@@ -4321,14 +4276,6 @@ impl From<AIConversationAutoexecuteMode> for PersistedAutoexecuteMode {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum StatusColorStyle {
-    /// Foreground-blend colors (`ansi_fg`) used by the regular status badge.
-    Standard,
-    /// Background-blend colors (`ansi_bg`) used by the cloud overlay badge.
-    Cloud,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConversationStatus {
     /// Agent is running.
@@ -4378,48 +4325,14 @@ impl ConversationStatus {
         }
     }
 
-    pub fn status_icon_and_color(
-        &self,
-        theme: &WarpTheme,
-        color_style: StatusColorStyle,
-    ) -> (Icon, ColorU) {
+    pub fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
         match self {
-            ConversationStatus::InProgress => (
-                Icon::ClockLoader,
-                match color_style {
-                    StatusColorStyle::Standard => theme.ansi_fg_magenta(),
-                    StatusColorStyle::Cloud => theme.ansi_bg_magenta(),
-                },
-            ),
-            ConversationStatus::Success => (
-                Icon::Check,
-                match color_style {
-                    StatusColorStyle::Standard => theme.ansi_fg_green(),
-                    StatusColorStyle::Cloud => theme.ansi_bg_green(),
-                },
-            ),
-            ConversationStatus::Error => (
-                Icon::Triangle,
-                match color_style {
-                    StatusColorStyle::Standard => theme.ansi_fg_red(),
-                    StatusColorStyle::Cloud => theme.ansi_bg_red(),
-                },
-            ),
-            ConversationStatus::TransientError => (
-                Icon::ClockLoader,
-                match color_style {
-                    StatusColorStyle::Standard => theme.ansi_fg_yellow(),
-                    StatusColorStyle::Cloud => theme.ansi_bg_yellow(),
-                },
-            ),
+            ConversationStatus::InProgress => (Icon::ClockLoader, theme.ansi_fg_magenta()),
+            ConversationStatus::Success => (Icon::Check, theme.ansi_fg_green()),
+            ConversationStatus::Error => (Icon::Triangle, theme.ansi_fg_red()),
+            ConversationStatus::TransientError => (Icon::ClockLoader, theme.ansi_fg_yellow()),
             ConversationStatus::Cancelled => (Icon::StopFilled, internal_colors::neutral_5(theme)),
-            ConversationStatus::Blocked { .. } => (
-                Icon::StopFilled,
-                match color_style {
-                    StatusColorStyle::Standard => theme.ansi_fg_yellow(),
-                    StatusColorStyle::Cloud => theme.ansi_bg_yellow(),
-                },
-            ),
+            ConversationStatus::Blocked { .. } => (Icon::StopFilled, theme.ansi_fg_yellow()),
         }
     }
 

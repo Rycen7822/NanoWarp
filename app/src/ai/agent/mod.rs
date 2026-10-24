@@ -729,11 +729,6 @@ pub enum RenderableAIError {
     AgentExitedShell {
         command: String,
     },
-    /// A cloud-mode startup failure. Carries the raw server error message and
-    /// surfaces it without the generic apology prefix, matching the dedicated
-    /// GUI error card (`render_cloud_mode_error_screen`) which shows the
-    /// message directly.
-    CloudStartupFailed(String),
     /// A request funded by the user's ChatGPT subscription was rejected by OpenAI's
     /// token-sharing checks. The server authors the copy and the recovery actions; the client
     /// renders them generically and never branches on `code`. Always a terminal failure (FAILED).
@@ -999,7 +994,6 @@ impl Display for RenderableAIError {
                  could not continue. Ensure the agent is not asked to run commands or source \
                  scripts that can exit the shell."
             ),
-            Self::CloudStartupFailed(msg) => write!(f, "{msg}"),
             Self::ChatGPTSubscriptionError {
                 title,
                 message,
@@ -1273,12 +1267,6 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                         "\n```bash\n{command}\n```\n\n**Current Output:**\n```\n{grid_contents}\n```"
                     )
                 }
-                RequestCommandOutputResult::ShellRecovered {
-                    command, output, ..
-                } => write!(
-                    f,
-                    "\n**Command Interrupted:**\n```bash\n{command}\n```\n\n**Output:**\n```\n{output}\n```"
-                ),
                 RequestCommandOutputResult::CancelledBeforeExecution => {
                     write!(f, "\n_Command cancelled_")
                 }
@@ -1416,8 +1404,7 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 CreateDocumentsResult::Cancelled => write!(f, "\n_Create documents cancelled_"),
             },
             AIAgentActionResultType::ReadShellCommandOutput(result) => match result {
-                ReadShellCommandOutputResult::CommandFinished { output, .. }
-                | ReadShellCommandOutputResult::ShellRecovered { output, .. } => {
+                ReadShellCommandOutputResult::CommandFinished { output, .. } => {
                     write!(f, "\n```\n{output}\n```")
                 }
                 ReadShellCommandOutputResult::LongRunningCommandSnapshot {
@@ -2758,20 +2745,6 @@ pub enum AIAgentInput {
         user_query: Option<InvokeSkillUserQuery>,
     },
 
-    /// Start a conversation using the prompt stored for an ambient agent run.
-    /// The server resolves the prompt from the run's latest known prompt.
-    /// If runtime_skill is provided, the server will create an InvokeSkill message. The skill
-    /// instructions are sent to the LLM but not displayed in the UI query bubble.
-    StartFromAmbientRunPrompt {
-        ambient_run_id: String,
-        context: Arc<[AIAgentContext]>,
-        /// Optional skill to use as base context (content hidden from user in UI).
-        runtime_skill: Option<ai::skills::ParsedSkill>,
-        /// Optional directory path where the client downloaded task attachments.
-        /// Passed to the server so it can construct correct file paths for the LLM.
-        attachments_dir: Option<String>,
-    },
-
     /// The result of an `AIAgentAction`, relayed back to the LLM for it to continue answering a
     /// user query.
     ActionResult {
@@ -2818,7 +2791,6 @@ impl Display for AIAgentInput {
                     write!(f, "InvokeSkill: {}", skill.name)
                 }
             }
-            Self::StartFromAmbientRunPrompt { .. } => write!(f, "StartFromAmbientRunPrompt"),
         }
     }
 }
@@ -2847,8 +2819,7 @@ impl AIAgentInput {
             }
             Self::ActionResult { .. }
             | Self::ResumeConversation { .. }
-            | Self::SummarizeConversation { .. }
-            | Self::StartFromAmbientRunPrompt { .. } => None,
+            | Self::SummarizeConversation { .. } => None,
         }
     }
 
@@ -2878,7 +2849,6 @@ impl AIAgentInput {
             | Self::ResumeConversation { context, .. }
             | Self::CodeReview { context, .. }
             | Self::InvokeSkill { context, .. }
-            | Self::StartFromAmbientRunPrompt { context, .. }
             | Self::SummarizeConversation { context, .. } => Some(context),
         }
     }
@@ -2899,8 +2869,7 @@ impl AIAgentInput {
             | Self::ResumeConversation { .. }
             | Self::CodeReview { .. }
             | Self::SummarizeConversation { .. }
-            | Self::InvokeSkill { .. }
-            | Self::StartFromAmbientRunPrompt { .. } => None,
+            | Self::InvokeSkill { .. } => None,
         }
     }
 }

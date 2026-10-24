@@ -105,7 +105,6 @@ impl ConversationListViewModel {
                     created_on: CreatedOnFilter::All,
                     creator: CreatorFilter::All,
                     artifact: ArtifactFilter::All,
-                    environment: Default::default(),
                     harness: Default::default(),
                 },
                 &scope,

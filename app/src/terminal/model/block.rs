@@ -352,7 +352,6 @@ pub struct Block {
 
     /// `true` if this command block corresponds to a startup command in an oz environment executed
     /// in cloud mode.
-    is_oz_environment_startup_command: bool,
 
     /// Blocklist Env var metadata associated with this block, if any.
     env_var_metadata: Option<BlocklistEnvVarMetadata>,
@@ -968,7 +967,6 @@ impl Block {
                 None => AgentViewVisibility::new_from_terminal(),
             },
             nld_overridden: false,
-            is_oz_environment_startup_command: false,
             visible_bootstrap_block_event_sent: false,
         }
     }
@@ -1393,14 +1391,6 @@ impl Block {
     /// Prevent the block from showing in the blocklist.
     pub fn hide(&mut self) {
         self.hidden = true;
-    }
-
-    pub fn is_oz_environment_startup_command(&self) -> bool {
-        self.is_oz_environment_startup_command
-    }
-
-    pub(super) fn set_is_oz_environment_startup_command(&mut self, is_startup_command: bool) {
-        self.is_oz_environment_startup_command = is_startup_command;
     }
 
     /// Reset the block so it's no longer hidden. Undoes the effects of Self::hide().

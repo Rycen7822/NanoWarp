@@ -659,7 +659,7 @@ fn exchange_without_any_request_messages_is_not_eligible() {
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
         let terminal_surface_id = EntityId::new();
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         let optimistic_task_id = conversation.get_root_task_id().clone();
 
         // The turn's initiating request, sent the live way: its exchange starts with no

@@ -6,15 +6,14 @@ use warpui::{AppContext, SingletonEntity};
 
 use super::{
     AgentManagementFilters, AgentRunDisplayStatus, ArtifactFilter, ConversationMetadata,
-    CreatedOnFilter, CreatorFilter, EnvironmentFilter, HarnessFilter, OwnerFilter, SessionStatus,
-    SourceFilter, StatusFilter, artifacts_match_filter,
+    CreatedOnFilter, CreatorFilter, HarnessFilter, OwnerFilter, SessionStatus, SourceFilter,
+    StatusFilter, artifacts_match_filter,
 };
-use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
+use crate::ai::active_agent_views_model::ConversationOrTaskId;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::{
-    AgentSource, AmbientAgentLiveSessionState, AmbientAgentTask, AmbientAgentTaskId,
-    ExecutionLocation,
+    AgentSource, AmbientAgentTask, AmbientAgentTaskId, ExecutionLocation,
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::history_model::{AIConversationMetadata, BlocklistAIHistoryModel};
@@ -105,7 +104,6 @@ pub struct AgentConversationDisplayData {
     pub session_status: Option<SessionStatus>,
     pub source: Option<AgentSource>,
     pub working_directory: Option<String>,
-    pub environment_id: Option<String>,
     pub harness: Option<Harness>,
     pub artifacts: Vec<Artifact>,
 }
@@ -171,19 +169,6 @@ pub struct AgentConversationCapabilities {
 }
 
 impl AgentConversationEntry {
-    /// Returns whether this entry represents a cloud agent run.
-    pub fn is_cloud_agent_run(&self) -> bool {
-        match self.execution_location {
-            Some(ExecutionLocation::Local) => false,
-            Some(ExecutionLocation::Remote) => true,
-            None => {
-                matches!(self.provenance, AgentConversationProvenance::AmbientRun)
-                    || self.backing.has_ambient_run
-                    || self.identity.ambient_agent_task_id.is_some()
-            }
-        }
-    }
-
     pub(super) fn matches_filters(
         &self,
         filters: &AgentManagementFilters,
@@ -194,7 +179,6 @@ impl AgentConversationEntry {
             && self.matches_source(&filters.source)
             && self.matches_created_on(&filters.created_on)
             && self.matches_artifact(&filters.artifact)
-            && self.matches_environment(&filters.environment)
             && self.matches_harness(&filters.harness)
     }
 
@@ -264,14 +248,6 @@ impl AgentConversationEntry {
 
     fn matches_artifact(&self, artifact_filter: &ArtifactFilter) -> bool {
         artifacts_match_filter(&self.display.artifacts, artifact_filter)
-    }
-
-    fn matches_environment(&self, environment_filter: &EnvironmentFilter) -> bool {
-        match environment_filter {
-            EnvironmentFilter::All => true,
-            EnvironmentFilter::NoEnvironment => self.display.environment_id.is_none(),
-            EnvironmentFilter::Specific(id) => self.display.environment_id.as_ref() == Some(id),
-        }
     }
 
     fn matches_harness(&self, harness_filter: &HarnessFilter) -> bool {
@@ -492,17 +468,7 @@ pub(super) fn entry_for_task(
             })
         });
     let status = AgentRunDisplayStatus::from_task(task, app);
-    let has_attachable_live_session = matches!(
-        task.active_live_session_state(),
-        AmbientAgentLiveSessionState::Attachable { .. }
-    );
-    let has_open_ambient_session = ActiveAgentViewsModel::as_ref(app)
-        .get_terminal_view_id_for_ambient_task(task.task_id)
-        .is_some();
-    let can_open = has_open_ambient_session
-        || has_attachable_live_session
-        || local_conversation_id.is_some()
-        || server_conversation_token.is_some();
+    let can_open = local_conversation_id.is_some() || server_conversation_token.is_some();
     let can_copy_link = task.has_active_execution()
         && task.active_run_execution().session_link.is_some()
         || server_conversation_token.is_some();
@@ -546,10 +512,6 @@ pub(super) fn entry_for_task(
             source: task.source.clone(),
             working_directory: conversation_metadata
                 .and_then(|metadata| metadata.initial_working_directory.clone()),
-            environment_id: task
-                .agent_config_snapshot
-                .as_ref()
-                .and_then(|snapshot| snapshot.environment_id.clone()),
             harness: task_harness(task),
             artifacts: task.artifacts.clone(),
         },
@@ -658,7 +620,6 @@ fn entry_for_conversation_parts(
                 .latest_working_directory
                 .clone()
                 .or_else(|| metadata.nav_data.initial_working_directory.clone()),
-            environment_id: None,
             harness: conversation_metadata
                 .and_then(|metadata| metadata.server_conversation_metadata.as_ref())
                 .map(|metadata| Harness::from(metadata.harness))

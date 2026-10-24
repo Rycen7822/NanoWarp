@@ -15,7 +15,6 @@ pub use selection::SelectionRange;
 use sum_tree::{Dimension, Item, SeekBias, SumTree};
 use warp_core::command::ExitCode;
 use warp_core::features::FeatureFlag;
-use warp_terminal::event::ObservedExitStatus;
 use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use warpui::r#async::executor::Background;
 use warpui::color::ColorU;
@@ -73,7 +72,6 @@ pub(super) enum ActiveBlockCompletion {
 #[derive(Clone, Copy, Debug)]
 struct ActiveConversationContext {
     conversation_id: AIConversationId,
-    is_cloud: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -394,7 +392,6 @@ pub struct BlockList {
     /// of the blocklist. After any other insertion, this item is automatically
     /// removed and re-appended so it stays last.
     pinned_to_bottom: Option<EntityId>,
-    is_executing_oz_environment_startup_commands: bool,
 }
 
 #[cfg(debug_assertions)]
@@ -712,7 +709,6 @@ impl BlockList {
             transcript_scope: TranscriptScope::Terminal,
             active_conversation_context: None,
             pinned_to_bottom: None,
-            is_executing_oz_environment_startup_commands: false,
         }
     }
 
@@ -779,50 +775,6 @@ impl BlockList {
             );
         } else {
             self.ensure_active_block_after_shared_session_scrollback();
-        }
-    }
-
-    pub(super) fn append_followup_shared_session_scrollback(
-        &mut self,
-        scrollback: &[SerializedBlock],
-    ) {
-        self.set_bootstrapped();
-        let mut processor = Processor::new();
-        let scrollback_blocks = SharedSessionScrollbackBlocks::new(scrollback);
-
-        for block in scrollback_blocks.completed_blocks {
-            if self.block_index_for_id(&block.id).is_some() {
-                continue;
-            }
-            if block.start_ts.is_some() && block.completed_ts.is_some() {
-                self.finish_active_block_before_followup_append();
-                self.restore_block(block, BootstrapStage::PostBootstrapPrecmd, &mut processor);
-            } else {
-                log::warn!(
-                    "A non-active follow-up scrollback block was either not started or not completed"
-                );
-            }
-        }
-
-        match scrollback_blocks.active_block {
-            Some(active_block) if self.block_index_for_id(&active_block.id).is_none() => {
-                self.finish_active_block_before_followup_append();
-                self.restore_block(
-                    active_block,
-                    BootstrapStage::PostBootstrapPrecmd,
-                    &mut processor,
-                );
-            }
-            Some(_) | None => {
-                self.ensure_active_block_after_shared_session_scrollback();
-            }
-        }
-    }
-
-    fn finish_active_block_before_followup_append(&mut self) {
-        if !self.active_block().finished() {
-            self.active_block_mut().finish(0);
-            self.update_active_block_height();
         }
     }
 
@@ -1129,12 +1081,6 @@ impl BlockList {
         self.pinned_to_bottom = Some(view_id);
     }
 
-    pub(in crate::terminal) fn unpin_rich_content_from_bottom(&mut self, view_id: EntityId) {
-        if self.pinned_to_bottom == Some(view_id) {
-            self.pinned_to_bottom = None;
-        }
-    }
-
     /// If a rich content item is pinned to the bottom, removes it from its
     /// current position and re-appends it so it remains last in the blocklist.
     fn maintain_pinned_to_bottom(&mut self) {
@@ -1433,47 +1379,6 @@ impl BlockList {
         self.event_proxy.send_wakeup_event();
     }
 
-    pub fn is_executing_oz_environment_startup_commands(&self) -> bool {
-        self.is_executing_oz_environment_startup_commands
-    }
-
-    pub fn set_is_executing_oz_environment_startup_commands(
-        &mut self,
-        is_executing_startup_commands: bool,
-    ) {
-        self.is_executing_oz_environment_startup_commands = is_executing_startup_commands;
-        if is_executing_startup_commands {
-            self.active_block_mut().hide();
-            self.active_block_mut()
-                .set_is_oz_environment_startup_command(true);
-        } else {
-            self.active_block_mut().unhide();
-            self.active_block_mut()
-                .set_is_oz_environment_startup_command(false);
-        }
-    }
-
-    pub fn finish_oz_environment_startup_commands_at_block(
-        &mut self,
-        block_id: &BlockId,
-        conversation_id: Option<AIConversationId>,
-    ) {
-        self.is_executing_oz_environment_startup_commands = false;
-        if let Some(block_index) = self.block_index_for_id(block_id) {
-            for block in self.blocks.iter_mut().skip(block_index.0) {
-                if block.is_background() || block.is_static() {
-                    continue;
-                }
-                block.unhide();
-                block.set_is_oz_environment_startup_command(false);
-                if let Some(conversation_id) = conversation_id {
-                    block.add_attached_conversation_id(conversation_id);
-                }
-            }
-        }
-        self.update_blocks_and_sumtree(None, None, |_| {}, |_| {});
-    }
-
     /// Resets the internal block object's index to its actual index in the block list.
     /// This does not move the block, but is necessary to be called after a move (inserting or removing blocks).
     /// Also updates the block ID to block index mapping.
@@ -1702,12 +1607,6 @@ impl BlockList {
             .map(|context| context.conversation_id)
     }
 
-    /// Returns whether the active conversation executes in a cloud context.
-    pub fn is_cloud_conversation_context(&self) -> bool {
-        self.active_conversation_context
-            .is_some_and(|context| context.is_cloud)
-    }
-
     /// Updates the transcript membership used by the cached block-height layout.
     pub fn set_transcript_scope(&mut self, scope: TranscriptScope) {
         if self.transcript_scope == scope {
@@ -1722,13 +1621,9 @@ impl BlockList {
     pub fn set_active_conversation_context(
         &mut self,
         conversation_id: AIConversationId,
-        is_cloud: bool,
         attach_to_terminal: bool,
     ) {
-        self.active_conversation_context = Some(ActiveConversationContext {
-            conversation_id,
-            is_cloud,
-        });
+        self.active_conversation_context = Some(ActiveConversationContext { conversation_id });
         if !self.active_block().finished() {
             if attach_to_terminal {
                 self.active_block_mut()
@@ -1757,9 +1652,8 @@ impl BlockList {
         &mut self,
         conversation_id: AIConversationId,
         is_inline: bool,
-        is_cloud: bool,
     ) {
-        self.set_active_conversation_context(conversation_id, is_cloud, is_inline);
+        self.set_active_conversation_context(conversation_id, is_inline);
         let scope = if is_inline {
             TranscriptScope::Terminal
         } else {
@@ -1822,31 +1716,6 @@ impl BlockList {
         modified_blocks
     }
 
-    /// Attaches every non-oz-startup block in the list to `conversation_id` so each block is
-    /// visible while that conversation is the active one in agent view. Skips blocks flagged
-    /// as `is_oz_environment_startup_command` since those are hidden by their own mechanism.
-    pub fn attach_non_startup_blocks_to_conversation(&mut self, conversation_id: AIConversationId) {
-        for block in &mut self.blocks {
-            if block.is_oz_environment_startup_command() {
-                continue;
-            }
-            if let AgentViewVisibility::Agent {
-                origin_conversation_id,
-                ..
-            } = block.agent_view_visibility()
-                && *origin_conversation_id == conversation_id
-            {
-                continue;
-            }
-            block.add_attached_conversation_id(conversation_id);
-        }
-
-        self.mark_agent_view_rich_content_dirty();
-        self.update_blocks_and_sumtree(None, None, |_| {}, |_| {});
-    }
-
-    /// Removes the conversation association from the given blocks, making them disappear from that conversation's agent view.
-    /// Returns a Vec of (block_id, visibility) for blocks that were modified.
     pub fn remove_pending_context_assocation_for_blocks<'a>(
         &mut self,
         block_ids: impl Iterator<Item = &'a BlockId>,
@@ -2888,11 +2757,6 @@ impl BlockList {
             block.set_prompt_grids_from_cached_data(prompt_grid, rprompt_grid);
         }
 
-        if self.is_executing_oz_environment_startup_commands {
-            block.set_is_oz_environment_startup_command(true);
-            block.hide();
-        }
-
         self.block_heights.push(BlockHeightItem::Block(
             block.height(&self.transcript_scope).into(),
         ));
@@ -3023,9 +2887,9 @@ impl BlockList {
         }
     }
 
-    pub fn reinit_shell(&mut self, interrupted_status: Option<ObservedExitStatus>) {
+    pub fn reinit_shell(&mut self) {
         let active_block = self.active_block_mut();
-        active_block.finish(interrupted_status.map_or(0, ObservedExitStatus::exit_code));
+        active_block.finish(0);
         self.update_active_block_height();
 
         self.create_warp_input_block();

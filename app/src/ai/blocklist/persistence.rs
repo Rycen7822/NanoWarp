@@ -70,8 +70,7 @@ impl TryFrom<&AIAgentInput> for PersistedAIInputType {
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::CodeReview { .. }
             | AIAgentInput::SummarizeConversation { .. }
-            | AIAgentInput::InvokeSkill { .. }
-            | AIAgentInput::StartFromAmbientRunPrompt { .. } => Err(anyhow::anyhow!(
+            | AIAgentInput::InvokeSkill { .. } => Err(anyhow::anyhow!(
                 "This input type is not persisted. Only Query inputs are persisted for up-arrow history."
             )),
         }
@@ -112,7 +111,6 @@ impl TryFrom<PersistedAIInputType> for AIAgentInput {
 pub fn maybe_build_ai_query_upsert_event(
     event: &BlocklistAIHistoryEvent,
     terminal_surface_id: EntityId,
-    is_shared_ambient_agent_session: bool,
     app: &AppContext,
 ) -> Option<ModelEvent> {
     if event
@@ -148,7 +146,7 @@ pub fn maybe_build_ai_query_upsert_event(
         return None;
     };
 
-    if is_hidden || is_shared_ambient_agent_session {
+    if is_hidden {
         return None;
     }
 

@@ -18,23 +18,12 @@ use crate::terminal::model::block::AgentInteractionMetadata;
 use crate::terminal::shared_session::ai_agent::decode_agent_response_event;
 use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
 use crate::terminal::shared_session::{SharedSessionStatus, decode_scrollback};
-use crate::terminal::view::ambient_agent::is_cloud_agent_pre_first_exchange;
 use crate::terminal::{TerminalModel, TerminalView};
 
 /// If we end up buffering more than this many events,
 /// this is an indication that we're too far ahead and
 /// could indicate an issue.
 const TOO_MANY_BUFFERED_EVENTS: usize = 50;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SharedSessionInitialLoadMode {
-    /// Replace the viewer's placeholder block list with the scrollback snapshot from the session
-    /// being joined.
-    ReplaceFromSessionScrollback,
-    /// Add only the new blocks from a follow-up session while preserving the existing shared
-    /// ambient-agent transcript.
-    AppendFollowupScrollback,
-}
 
 /// The event loop is used to process a stream of events
 /// originating from the sender.
@@ -69,8 +58,6 @@ pub struct EventLoop {
 
     /// A buffer to maintain events we receive from the server that are unordered.
     buffer: HashMap<usize, OrderedTerminalEventType>,
-
-    should_suppress_existing_agent_conversation_replay: bool,
 }
 
 impl EventLoop {
@@ -82,7 +69,6 @@ impl EventLoop {
         window_size: WindowSize,
         scrollback: Scrollback,
         catching_up_to_event_no: Option<usize>,
-        load_mode: SharedSessionInitialLoadMode,
         remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -90,15 +76,7 @@ impl EventLoop {
         let is_alt_screen_active = scrollback.is_alt_screen_active;
         {
             let mut terminal_model = terminal_model.lock();
-            match load_mode {
-                SharedSessionInitialLoadMode::ReplaceFromSessionScrollback => {
-                    terminal_model.load_shared_session_scrollback(scrollback_blocks.as_slice());
-                }
-                SharedSessionInitialLoadMode::AppendFollowupScrollback => {
-                    terminal_model
-                        .append_followup_shared_session_scrollback(scrollback_blocks.as_slice());
-                }
-            }
+            terminal_model.load_shared_session_scrollback(scrollback_blocks.as_slice());
             if is_alt_screen_active {
                 terminal_model.enter_alt_screen(true);
             }
@@ -123,28 +101,6 @@ impl EventLoop {
                 });
         }
 
-        let should_suppress_existing_agent_conversation_replay = matches!(
-            load_mode,
-            SharedSessionInitialLoadMode::AppendFollowupScrollback
-        );
-        // Append mode means the local conversation already contains the prior
-        // transcript. Arm both halves of the replay gate before this event
-        // loop can dispatch its first ordered response event: some sessions
-        // deliver replayed Init/CreateTask events before (or without) the
-        // explicit ReplayStarted marker. The request-aware controller gate
-        // still allows new live request IDs through.
-        if should_suppress_existing_agent_conversation_replay {
-            terminal_model
-                .lock()
-                .set_is_receiving_agent_conversation_replay(true);
-            if let Some(view) = terminal_view.upgrade(ctx) {
-                view.update(ctx, |view, ctx| {
-                    view.ai_controller().update(ctx, |controller, _ctx| {
-                        controller.set_should_suppress_existing_agent_conversation_replay(true);
-                    });
-                });
-            }
-        }
         let mut event_loop = Self {
             terminal_model,
             terminal_view,
@@ -156,7 +112,6 @@ impl EventLoop {
             next_event_no: 0,
             buffer: HashMap::new(),
             catching_up_to_event_no,
-            should_suppress_existing_agent_conversation_replay,
         };
 
         // Respect the sharer's window size.
@@ -273,21 +228,7 @@ impl EventLoop {
                         // follow-up.
                         if should_clear_input && let Some(view) = self.terminal_view.upgrade(ctx) {
                             view.update(ctx, |view, ctx| {
-                                // Skip during cloud setup: clearing on every setup command would
-                                // wipe a follow-up the viewer is composing. Mirrors the
-                                // `InputUpdated` guard.
-                                let skip_clear_during_setup =
-                                    FeatureFlag::CloudModeSetupV2.is_enabled() && {
-                                        let model = view.model.lock();
-                                        is_cloud_agent_pre_first_exchange(
-                                            view.ambient_agent_view_model(),
-                                            view.agent_view_controller(),
-                                            &model,
-                                            ctx,
-                                        )
-                                    };
-                                if skip_clear_during_setup || view.has_queued_command_in_flight(ctx)
-                                {
+                                if view.has_queued_command_in_flight(ctx) {
                                     return;
                                 }
                                 view.input().update(ctx, |input, ctx| {
@@ -376,45 +317,13 @@ impl EventLoop {
                     self.terminal_model
                         .lock()
                         .set_is_receiving_agent_conversation_replay(true);
-                    if let Some(view) = self.terminal_view.upgrade(ctx) {
-                        let should_suppress_existing_replay =
-                            self.should_suppress_existing_agent_conversation_replay;
-                        view.update(ctx, |view, ctx| {
-                            view.ai_controller().update(ctx, |controller, _| {
-                                controller.set_should_suppress_existing_agent_conversation_replay(
-                                    should_suppress_existing_replay,
-                                );
-                            });
-                        });
-                    }
                 }
                 OrderedTerminalEventType::AgentConversationReplayEnded => {
                     self.terminal_model
                         .lock()
                         .set_is_receiving_agent_conversation_replay(false);
-                    if let Some(view) = self.terminal_view.upgrade(ctx) {
-                        view.update(ctx, |view, ctx| {
-                            view.ai_controller().update(ctx, |controller, _| {
-                                controller
-                                    .set_should_suppress_existing_agent_conversation_replay(false);
-                            });
-                        });
-                    }
                 }
-                OrderedTerminalEventType::CloudModeSetupPhaseEnded => {
-                    // Canonical setup-complete signal from the sharer. Legacy
-                    // AppendedExchange-driven teardowns remain idempotently as
-                    // a fallback for pre-feature sharers.
-                    if let Some(view) = self.terminal_view.upgrade(ctx) {
-                        view.update(ctx, |view, ctx| {
-                            view.tear_down_cloud_mode_setup_phase(ctx);
-                            // A promptless handoff run never fires a first turn,
-                            // so this is the only point a prompt queued during
-                            // setup can be auto-sent.
-                            view.maybe_drain_queue_after_promptless_setup(ctx);
-                        });
-                    }
-                }
+                OrderedTerminalEventType::CloudModeSetupPhaseEnded => {}
             }
 
             if Some(self.next_event_no) == self.catching_up_to_event_no

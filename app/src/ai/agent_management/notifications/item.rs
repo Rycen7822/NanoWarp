@@ -41,20 +41,10 @@ impl NotificationFilter {
     }
 }
 
-/// Identifies the agent that produced a notification, including whether the run was
-/// ambient (cloud) or local. The `is_ambient` flag drives the cloud-lobe rendering in
-/// [`render_agent_avatar`].
+/// Identifies the agent that produced a notification.
 #[derive(Debug, Clone, Copy)]
 pub enum NotificationSourceAgent {
-    Oz { is_ambient: bool },
-}
-
-impl NotificationSourceAgent {
-    pub fn is_ambient(&self) -> bool {
-        match self {
-            NotificationSourceAgent::Oz { is_ambient } => *is_ambient,
-        }
-    }
+    Oz,
 }
 
 /// Identifies the conversation a notification belongs to.

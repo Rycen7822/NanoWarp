@@ -52,14 +52,10 @@ impl AgentToolbarItemKind {
     /// Whether this item should be visible to session viewers.
     /// Items that control host settings or initiate actions on the host's
     /// behalf are hidden from viewers.
-    pub fn available_to_session_viewer(
-        &self,
-        status: &SharedSessionStatus,
-        is_cloud_mode: bool,
-    ) -> bool {
+    pub fn available_to_session_viewer(&self, status: &SharedSessionStatus) -> bool {
         match self {
             Self::ShareSession | Self::FileExplorer => !status.is_viewer(),
-            Self::FileAttach => !status.is_viewer() || is_cloud_mode,
+            Self::FileAttach => !status.is_viewer(),
             Self::FastForwardToggle => !status.is_viewer() || status.is_executor(),
             Self::ContextChip(_)
             | Self::NLDToggle

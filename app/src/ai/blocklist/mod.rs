@@ -26,8 +26,7 @@ pub(crate) mod telemetry_banner;
 pub(crate) mod view_util;
 
 pub use action_model::{
-    BlocklistAIActionEvent, BlocklistAIActionModel, ShellCommandExecutor,
-    ShellCommandExecutorEvent, ShellRecoveryResult,
+    BlocklistAIActionEvent, BlocklistAIActionModel, ShellCommandExecutor, ShellCommandExecutorEvent,
 };
 #[cfg_attr(target_family = "wasm", allow(unused_imports))]
 pub(crate) use action_model::{ReadFileContextResult, read_local_file_context};

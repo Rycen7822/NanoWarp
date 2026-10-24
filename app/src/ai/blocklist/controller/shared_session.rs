@@ -14,7 +14,7 @@ use warpui::{AppContext, ModelContext, SingletonEntity};
 
 use super::response_stream::ResponseStreamId;
 use super::{BlocklistAIController, RequestInput, SessionContext};
-use crate::ai::agent::conversation::{AIConversationId, ConversationStatus, TaskSyncMode};
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::{AIAgentActionId, AIAgentAttachment, BaseUserQuery, EntrypointType};
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -38,13 +38,6 @@ pub(super) enum SharedSessionPromptTarget {
 pub(super) struct SharedSessionState {
     // The current active request id for the shared session (used if subsequent events do not provide a request id)
     current_response_id: Option<ResponseStreamId>,
-    /// `true` if shared response streams should be ignored, used to skip processing MAA response streams that
-    /// originate from session sharing replay when joining a new shared session for a follow-up on an existing
-    /// ambient agent conversation.
-    should_suppress_replayed_response_for_existing_conversation: bool,
-    /// Per-stream latch derived from the gate above once we decide the current replay should be
-    /// ignored.
-    should_skip_current_replayed_response: bool,
     // The participant who initiated the current response stream
     current_response_initiator: Option<ParticipantId>,
     // The sharer's participant ID (set when session sharing starts)
@@ -52,13 +45,6 @@ pub(super) struct SharedSessionState {
 }
 
 impl BlocklistAIController {
-    /// Controls whether replayed events for an already-restored shared-session conversation should
-    /// be ignored to avoid duplicating content appended from follow-up scrollback.
-    pub fn set_should_suppress_existing_agent_conversation_replay(&mut self, value: bool) {
-        self.shared_session_state
-            .should_suppress_replayed_response_for_existing_conversation = value;
-    }
-
     /// Returns the current conversation ID for the active shared session stream.
     /// Returns None if there's no active shared session conversation.
     pub(crate) fn get_current_shared_session_conversation_id(
@@ -122,8 +108,6 @@ impl BlocklistAIController {
     ) {
         let stream_id = ResponseStreamId::for_shared_session(&init_event);
         self.shared_session_state.current_response_id = None;
-        self.shared_session_state
-            .should_skip_current_replayed_response = false;
         let terminal_surface_id = self.terminal_surface_id;
         let history = BlocklistAIHistoryModel::handle(ctx);
 
@@ -169,20 +153,9 @@ impl BlocklistAIController {
             })
             .unwrap_or_else(|| {
                 history.update(ctx, |h, ctx| {
-                    h.start_new_conversation(terminal_surface_id, false, true, false, ctx)
+                    h.start_new_conversation(terminal_surface_id, false, true, ctx)
                 })
             });
-        if self.should_skip_replayed_response_for_existing_conversation(
-            existing_conversation_id,
-            &init_event.request_id,
-            ctx,
-        ) {
-            self.shared_session_state.current_response_id = Some(stream_id);
-            self.shared_session_state
-                .should_skip_current_replayed_response = true;
-            return;
-        }
-
         self.shared_session_state.current_response_id = Some(stream_id.clone());
         if existing_conversation_id.is_some() {
             history.update(ctx, |history, ctx| {
@@ -254,64 +227,11 @@ impl BlocklistAIController {
         });
     }
 
-    /// Returns whether replayed events for an already-populated shared-session conversation should
-    /// be ignored to avoid duplicating content that was restored from scrollback.
-    fn should_skip_replayed_response_for_existing_conversation(
-        &self,
-        existing_conversation_id: Option<AIConversationId>,
-        init_request_id: &str,
-        ctx: &mut ModelContext<Self>,
-    ) -> bool {
-        let Some(conversation_id) = existing_conversation_id else {
-            log::info!(
-                "should_skip_replayed_response: no existing conversation id, not skipping \
-                 (request_id={init_request_id})"
-            );
-            return false;
-        };
-        let is_receiving_replay = self
-            .terminal_model
-            .lock()
-            .is_receiving_agent_conversation_replay();
-        let suppress_enabled = self
-            .shared_session_state
-            .should_suppress_replayed_response_for_existing_conversation;
-        if !is_receiving_replay || !suppress_enabled {
-            log::info!(
-                "should_skip_replayed_response: not skipping \
-                 (request_id={init_request_id}, conversation_id={conversation_id:?}, \
-                 is_receiving_replay={is_receiving_replay}, suppress_enabled={suppress_enabled})"
-            );
-            return false;
-        }
-
-        // Only skip the replayed response when our local task already has the given request_id.
-        // New exchanges (e.g. the user's first post-handoff prompt) carry unseen request_ids and must flow through normally.
-        let history = BlocklistAIHistoryModel::as_ref(ctx);
-        let found = history.conversation(&conversation_id).is_some_and(|conv| {
-            conv.all_tasks()
-                .any(|task| task.messages().any(|msg| msg.request_id == init_request_id))
-        });
-        if !found {
-            log::info!(
-                "should_skip_replayed_response: not skipping, request_id not found in local \
-                 conversation (request_id={init_request_id}, conversation_id={conversation_id:?})"
-            );
-        }
-        found
-    }
-
     fn on_shared_client_actions(
         &mut self,
         actions: warp_multi_agent_api::response_event::ClientActions,
         ctx: &mut ModelContext<Self>,
     ) {
-        if self
-            .shared_session_state
-            .should_skip_current_replayed_response
-        {
-            return;
-        }
         let Some(stream_id) = self.shared_session_state.current_response_id.clone() else {
             log::warn!("Received shared session client actions with no active response stream id.");
             return;
@@ -427,15 +347,6 @@ impl BlocklistAIController {
         finished: warp_multi_agent_api::response_event::StreamFinished,
         ctx: &mut ModelContext<Self>,
     ) {
-        if self
-            .shared_session_state
-            .should_skip_current_replayed_response
-        {
-            self.shared_session_state.current_response_id.take();
-            self.shared_session_state
-                .should_skip_current_replayed_response = false;
-            return;
-        }
         let Some(stream_id) = self.shared_session_state.current_response_id.take() else {
             log::warn!("Shared Finished missing request_id");
             return;
@@ -754,18 +665,6 @@ impl BlocklistAIController {
         );
     }
 
-    /// Whether a no-token shared-session prompt landing right now would bootstrap a debug
-    /// conversation into a retained environment-setup-failure session (REMOTE-2661). Getting
-    /// this wrong only costs a misleading lifecycle update; the server guards against reopening.
-    fn is_open_for_setup_failure_debug_bootstrap(&self, ctx: &AppContext) -> bool {
-        let task_id = self.terminal_model.lock().ambient_agent_task_id();
-        task_id.is_some_and(|task_id| {
-            AgentConversationsModel::as_ref(ctx)
-                .get_task_data(&task_id)
-                .is_some_and(|task| task.is_open_for_setup_failure_debug_bootstrap())
-        })
-    }
-
     /// Returns a task whose configuration uses a third-party harness.
     fn cli_harness_backed_task_id(&self, ctx: &AppContext) -> Option<AmbientAgentTaskId> {
         let task_id = self.terminal_model.lock().ambient_agent_task_id();
@@ -774,26 +673,6 @@ impl BlocklistAIController {
                 .get_task_data(task_id)
                 .is_some_and(|task| task.is_third_party_harness())
         })
-    }
-
-    /// Tags `conversation_id` as a setup-failure debug bootstrap so `LocalAgentTaskSyncModel`
-    /// stops deriving task lifecycle updates from it. Must run before the first exchange can
-    /// report a server token, which would otherwise trigger an erroneous `IN_PROGRESS` report.
-    fn tag_conversation_as_setup_failure_debug_bootstrap(
-        &self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _ctx| {
-            let Some(conversation) = history.conversation_mut(&conversation_id) else {
-                report_error!(
-                    "Tried to tag non-existent conversation as a setup-failure debug bootstrap",
-                    extra: { "conversation_id" => ?conversation_id }
-                );
-                return;
-            };
-            conversation.set_task_sync_mode(TaskSyncMode::PreserveTerminalSetupFailure);
-        });
     }
 
     /// Helper to send a prompt against Warp's native Oz harness, used both for immediate sends
@@ -830,14 +709,7 @@ impl BlocklistAIController {
                 ctx,
             );
         } else {
-            // Check before any conversation exists, so the tag lands before the first status
-            // update can fire (REMOTE-2661).
-            let bootstraps_setup_failure_debug =
-                self.is_open_for_setup_failure_debug_bootstrap(ctx);
-
-            if !bootstraps_setup_failure_debug
-                && let Some(task_id) = self.cli_harness_backed_task_id(ctx)
-            {
+            if let Some(task_id) = self.cli_harness_backed_task_id(ctx) {
                 report_error!(
                     "Refused to create a native conversation for a third-party harness task",
                     extra: { "task_id" => %task_id }
@@ -874,10 +746,6 @@ impl BlocklistAIController {
                     return;
                 };
 
-                if bootstraps_setup_failure_debug {
-                    self.tag_conversation_as_setup_failure_debug_bootstrap(conversation_id, ctx);
-                }
-
                 self.send_user_query_in_conversation_with_attachments(
                     prompt,
                     conversation_id,
@@ -900,20 +768,6 @@ impl BlocklistAIController {
                 file_attachments,
                 ctx,
             );
-
-            if bootstraps_setup_failure_debug {
-                // The legacy (non-AgentView) path doesn't hand back the new conversation ID
-                // directly; it becomes this surface's active conversation synchronously above.
-                if let Some(conversation_id) = BlocklistAIHistoryModel::as_ref(ctx)
-                    .active_conversation_id(self.terminal_surface_id)
-                {
-                    self.tag_conversation_as_setup_failure_debug_bootstrap(conversation_id, ctx);
-                } else {
-                    report_error!(
-                        "Could not resolve the bootstrapped debug conversation to tag it"
-                    );
-                }
-            }
         }
     }
 }

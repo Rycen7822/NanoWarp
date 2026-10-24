@@ -5,7 +5,6 @@ use futures::executor::block_on;
 use mockito::{Matcher, Mock};
 use serde_json::json;
 use vec1::vec1;
-use warp_graphql::ai::AgentHarness;
 use warp_graphql::managed_secrets::ManagedSecretType;
 use warp_managed_secrets::client::{IdentityTokenOptions, ManagedSecretsClient as _, SecretOwner};
 use warp_server_client::base_client::TEAM_UID_HEADER;
@@ -172,10 +171,6 @@ fn scoped_managed_secret_requests_send_selected_team_header() {
     assert_request_sent(
         mock_graphql_request("ListManagedSecrets", Some(&team_uid_header)),
         server_api.list_secrets(Some(&request_scope)),
-    );
-    assert_request_sent(
-        mock_graphql_request("ListHarnessAuthSecrets", Some(&team_uid_header)),
-        server_api.list_harness_auth_secrets(&request_scope, AgentHarness::ClaudeCode),
     );
 }
 

@@ -1,27 +1,15 @@
-//! CLI agent detection and configuration.
+//! CLI agent brand metadata.
 //!
-//! This module provides types for detecting and working with CLI-based AI agents
+//! This module provides display metadata for CLI-based AI agents
 //! like Claude Code, Gemini CLI, Codex, Amp, Droid, OpenCode, Grok Build, and Muse Code.
-
-use std::borrow::Cow;
-use std::collections::HashMap;
 
 use enum_iterator::Sequence;
 use pathfinder_color::ColorU;
 use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
 use warp_cli::agent::Harness;
-use warp_completer::parsers::simple::top_level_command;
-use warp_util::path::EscapeChar;
-use warpui::{AppContext, SingletonEntity};
 
 use crate::ai::blocklist::CLAUDE_ORANGE;
 use crate::ui_components::icons::Icon;
-use crate::workspaces::user_workspaces::UserWorkspaces;
-
-/// UID for the Uber team.
-/// See https://warp.metabaseapp.com/dashboard/1454?team_id=46347
-const UBER_TEAM_UID: &str = "BdVbYjy9LRZcZrYBemSfAF";
 
 /// Gemini brand blue color
 pub(crate) const GEMINI_BLUE: ColorU = ColorU {
@@ -207,7 +195,7 @@ impl CLIAgent {
         self.command_prefixes().first().copied().unwrap_or_default()
     }
 
-    /// Returns the [`CLIAgent`] corresponding to a cloud-agent [`Harness`] when it represents a
+    /// Returns the [`CLIAgent`] corresponding to a [`Harness`] when it represents a
     /// third-party agent. Returns `None` for [`Harness::Oz`] (Warp's built-in harness has no
     /// distinct CLI agent identity).
     pub fn from_harness(harness: Harness) -> Option<Self> {
@@ -309,89 +297,6 @@ impl CLIAgent {
             | CLIAgent::Antigravity => ColorU::new(0, 0, 0, 255),
             _ => ColorU::white(),
         }
-    }
-
-    /// Extracts the first meaningful command token from a command string.
-    ///
-    /// When `escape_char` is provided, uses shell parsing to skip leading
-    /// env-var assignments (e.g. `FOO=1 claude` → `claude`).
-    /// Otherwise falls back to a simple whitespace split.
-    fn extract_first_command(command: &str, escape_char: Option<EscapeChar>) -> Option<String> {
-        match escape_char {
-            Some(esc) => top_level_command(command, esc),
-            None => command.split_whitespace().next().map(String::from),
-        }
-    }
-
-    /// Returns whether the command's executable name identifies this CLI agent.
-    pub(super) fn matches_command(&self, command: &str, escape_char: Option<EscapeChar>) -> bool {
-        let Some(first_word) = Self::extract_first_command(command.trim_start(), escape_char)
-        else {
-            return false;
-        };
-        let basename = first_word.rsplit(['/', '\\']).next().unwrap_or(&first_word);
-        self.command_prefixes().contains(&basename)
-    }
-
-    /// Detects the CLI agent from a command string.
-    ///
-    /// When `escape_char` is provided, full shell parsing is used to skip leading
-    /// env-var assignments (e.g. `FOO=1 claude`). Otherwise falls back to a simple
-    /// whitespace split.
-    ///
-    /// If `aliases` is provided, the first word of the command will be looked up
-    /// in the alias map. If found, the alias value replaces the first word to
-    /// produce the resolved command used for detection.
-    ///
-    /// Returns `Some(CLIAgent)` if the command matches a known CLI agent, `None` otherwise.
-    pub fn detect(
-        command: &str,
-        escape_char: Option<EscapeChar>,
-        aliases: Option<&HashMap<SmolStr, String>>,
-        ctx: &AppContext,
-    ) -> Option<CLIAgent> {
-        let trimmed = command.trim_start();
-        let first_word = Self::extract_first_command(trimmed, escape_char)?;
-
-        // Resolve the full command through aliases. If the first word matches an
-        // alias, replace it with the alias value to produce the resolved command.
-        let resolved_command: Cow<'_, str> = aliases
-            .and_then(|a| a.get(first_word.as_str()))
-            .map(|alias_value| {
-                let rest = trimmed
-                    .find(first_word.as_str())
-                    .map(|pos| &trimmed[pos + first_word.len()..])
-                    .unwrap_or("");
-                Cow::Owned(format!("{}{}", alias_value.trim(), rest))
-            })
-            .unwrap_or(Cow::Borrowed(trimmed));
-
-        // Check if resolved command matches any known CLI agent.
-        // Also matches `aifx agent run claude` as Claude for Uber employees.
-        enum_iterator::all::<CLIAgent>()
-            .filter(|agent| !matches!(agent, CLIAgent::Unknown))
-            .find(|agent| {
-                agent.matches_command(&resolved_command, escape_char)
-                    || (matches!(agent, CLIAgent::Claude)
-                        && Self::is_aifx_agent_run_claude(&resolved_command, ctx))
-            })
-    }
-
-    /// Returns true if the resolved command is `aifx agent run claude` (Uber's
-    /// internal wrapper around Claude) and the user is on the Uber team.
-    /// We special-case this so Uber employees get the toolbar without needing
-    /// to configure anything.
-    fn is_aifx_agent_run_claude(resolved_command: &str, ctx: &AppContext) -> bool {
-        resolved_command.starts_with("aifx agent run claude")
-            && Self::is_on_uber_team(UserWorkspaces::as_ref(ctx))
-    }
-
-    fn is_on_uber_team(user_workspaces: &UserWorkspaces) -> bool {
-        user_workspaces
-            .workspaces()
-            .iter()
-            .flat_map(|workspace| workspace.teams.iter())
-            .any(|team| team.uid.uid() == UBER_TEAM_UID)
     }
 }
 

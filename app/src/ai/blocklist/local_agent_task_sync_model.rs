@@ -156,20 +156,9 @@ impl LocalAgentTaskSyncModel {
                     }
                 }
 
-                // A debug conversation still reports its conversation ID, but must not derive
-                // task state/status from its own status — that would overwrite the original
-                // failure record. See `TaskSyncMode::PreserveTerminalSetupFailure`.
-                let (task_state, status_message) = if conversation
-                    .task_sync_mode()
-                    .suppresses_task_lifecycle_updates()
-                {
-                    (None, None)
-                } else {
-                    let (task_state, status_message) = map_conversation_status(conversation);
-                    (Some(task_state), status_message)
-                };
+                let (task_state, status_message) = map_conversation_status(conversation);
                 Some(LocalTaskUpdate {
-                    task_state,
+                    task_state: Some(task_state),
                     server_conversation_token: conversation
                         .server_conversation_token()
                         .map(|token| token.as_str().to_string()),
@@ -238,8 +227,6 @@ impl LocalAgentTaskSyncModel {
                         session_id,
                         server_conversation_token.clone(),
                         status_message,
-                        None,
-                        None,
                     )
                     .await;
                 if let Err(err) = &result {
@@ -460,13 +447,6 @@ pub(crate) fn classify_renderable_error(
             Some(TaskStatusUpdate::with_error_code(
                 error.to_string(),
                 PlatformErrorCode::InvalidRequest,
-            )),
-        ),
-        RenderableAIError::CloudStartupFailed(msg) => (
-            AgentTaskState::Error,
-            Some(TaskStatusUpdate::with_error_code(
-                msg,
-                PlatformErrorCode::InternalError,
             )),
         ),
         RenderableAIError::ChatGPTSubscriptionError { .. } => (

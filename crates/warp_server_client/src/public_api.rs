@@ -7,7 +7,7 @@ use warp_core::channel::ChannelState;
 use warp_errors::{ErrorExt, register_error};
 use warp_graphql::platform_error::{PlatformErrorInfo, PlatformErrorMessageFormat};
 
-use crate::base_client::{AmbientHeaderPolicy, BaseClient, TEAM_UID_HEADER};
+use crate::base_client::{BaseClient, TEAM_UID_HEADER};
 
 #[derive(serde::Deserialize)]
 pub struct PresignedDownloadResponse {
@@ -145,10 +145,7 @@ impl BaseClient {
         if let Some(token) = auth_token.as_bearer_token() {
             request = request.bearer_auth(token);
         }
-        for (name, value) in self
-            .ambient_headers(AmbientHeaderPolicy::inherit_all())
-            .await?
-        {
+        for (name, value) in self.ambient_headers().await? {
             request = request.header(name, value);
         }
         if let Some(team_uid) = team_uid {

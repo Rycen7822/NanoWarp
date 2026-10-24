@@ -8,9 +8,7 @@ use warpui::App;
 
 use super::super::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use super::{LocalAgentTaskSyncModel, classify_renderable_error, map_conversation_status};
-use crate::ai::agent::conversation::{
-    AIConversation, AIConversationId, ConversationStatus, TaskSyncMode,
-};
+use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentExchange, AIAgentExchangeId, AIAgentOutputStatus, FinishedAIAgentOutput,
     RenderableAIError, TransientNetworkErrorKind,
@@ -206,7 +204,7 @@ fn agent_exited_shell_is_failed_with_invalid_request() {
 
 #[test]
 fn map_conversation_status_in_progress_reports_in_progress_with_no_message() {
-    let conversation = AIConversation::new(false, false);
+    let conversation = AIConversation::new(false);
     assert_eq!(
         conversation.status(),
         &ConversationStatus::InProgress,
@@ -223,7 +221,7 @@ fn map_conversation_status_in_progress_reports_in_progress_with_no_message() {
 fn transient_error_status_maps_to_in_progress_with_no_message() {
     // Recovery stays IN_PROGRESS with no status message; see the rationale in
     // `map_conversation_status`.
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_status_for_test(ConversationStatus::TransientError);
     assert_update(
         map_conversation_status(&conversation),
@@ -264,7 +262,7 @@ fn error_exchange(error: RenderableAIError) -> AIAgentExchange {
 /// extract the `RenderableAIError` from the last root exchange and classify it.
 #[test]
 fn map_conversation_status_error_classifies_exchange_error() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.append_root_exchange_for_test(error_exchange(RenderableAIError::QuotaLimit {
         user_display_message: None,
     }));
@@ -280,7 +278,7 @@ fn map_conversation_status_error_classifies_exchange_error() {
 /// The `will_attempt_resume` rendering hint must not affect terminal classification.
 #[test]
 fn map_conversation_status_error_ignores_will_attempt_resume() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.append_root_exchange_for_test(error_exchange(RenderableAIError::Other {
         error_message: "connection reset".into(),
         will_attempt_resume: true,
@@ -299,7 +297,7 @@ fn map_conversation_status_error_ignores_will_attempt_resume() {
 /// An `Error` status with no extractable exchange error falls back to a generic message.
 #[test]
 fn map_conversation_status_error_without_exchange_error_is_generic() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_status_for_test(ConversationStatus::Error);
     assert_update(
         map_conversation_status(&conversation),
@@ -313,7 +311,7 @@ fn map_conversation_status_error_without_exchange_error_is_generic() {
 /// the shell-exit message — the run must not report "Cancelled by user".
 #[test]
 fn map_conversation_status_error_classifies_agent_exited_shell() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.append_root_exchange_for_test(error_exchange(
         RenderableAIError::AgentExitedShell {
             command: "exit 1".into(),
@@ -337,7 +335,7 @@ fn map_conversation_status_error_classifies_status_error_via_setter() {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        let conversation = AIConversation::new(false, false);
+        let conversation = AIConversation::new(false);
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {
@@ -373,7 +371,7 @@ fn map_conversation_status_error_classifies_status_error_via_setter() {
 /// skill-resolution failure) classifies as ERROR and surfaces its message.
 #[test]
 fn map_conversation_status_error_classifies_status_error_other_as_error() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_status_for_test(ConversationStatus::Error);
     conversation.set_status_error_for_test(Some(RenderableAIError::other(
         "Out of credits. Upgrade your Warp plan to continue running cloud agents.",
@@ -392,7 +390,7 @@ fn map_conversation_status_error_classifies_status_error_other_as_error() {
 /// not the generic ERROR fallback.
 #[test]
 fn map_conversation_status_error_classifies_status_error() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_status_for_test(ConversationStatus::Error);
     conversation.set_status_error_for_test(Some(RenderableAIError::AgentExitedShell {
         command: "exit 1".into(),
@@ -439,7 +437,7 @@ fn install_model_with_call_counter(
     let counter_for_mock = counter.clone();
     let mut mock = MockAIClient::new();
     mock.expect_update_agent_task()
-        .returning(move |_, _, _, _, _, _, _| {
+        .returning(move |_, _, _, _, _| {
             counter_for_mock.fetch_add(1, Ordering::SeqCst);
             Ok(())
         });
@@ -458,7 +456,7 @@ fn shared_session_link_fires_update_agent_task_with_session_id() {
 
         // A local conversation owned by this client: not a
         // viewer, and has a `task_id`.
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         let task_id = fixed_task_id();
         conversation.set_task_id(task_id);
         let conversation_id = conversation.id();
@@ -493,7 +491,7 @@ fn shared_session_link_uses_correct_argument_order() {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         let task_id = fixed_task_id();
         conversation.set_task_id(task_id);
         let conversation_id = conversation.id();
@@ -508,7 +506,7 @@ fn shared_session_link_uses_correct_argument_order() {
         let mut mock = MockAIClient::new();
         mock.expect_update_agent_task()
             .withf(
-                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg, _, _| {
+                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg| {
                     *arg_task_id == task_id
                         && task_state.is_none()
                         && *arg_session_id == Some(session_id)
@@ -517,7 +515,7 @@ fn shared_session_link_uses_correct_argument_order() {
                 },
             )
             .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _| Ok(()));
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let _model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
@@ -543,8 +541,7 @@ fn shared_session_link_skips_viewer_conversations() {
 
         // A viewer-side conversation: even if it carries a task_id, this
         // client does not own the task and must not link.
-        let mut conversation =
-            AIConversation::new(/* is_viewing_shared_session */ true, false);
+        let mut conversation = AIConversation::new(/* is_viewing_shared_session */ true);
         conversation.set_task_id(fixed_task_id());
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
@@ -578,7 +575,7 @@ fn shared_session_link_skips_when_task_id_missing() {
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
         // No set_run_id call: the conversation has no task_id yet.
-        let conversation = AIConversation::new(false, false);
+        let conversation = AIConversation::new(false);
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();
         history_model.update(&mut app, |model, ctx| {
@@ -638,7 +635,7 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         let task_id = fixed_task_id();
         conversation.set_task_id(task_id);
         conversation.set_server_conversation_token("server-conversation-id".to_string());
@@ -653,7 +650,7 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
         let mut mock = MockAIClient::new();
         mock.expect_update_agent_task()
             .withf(
-                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg, _, _| {
+                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg| {
                     *arg_task_id == task_id
                         && task_state.is_some()
                         && arg_session_id.is_none()
@@ -662,7 +659,7 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
                 },
             )
             .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
+            .returning(|_, _, _, _, _| Ok(()));
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let _model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
@@ -686,8 +683,7 @@ fn conversation_server_token_assigned_skips_viewer_conversations() {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        let mut conversation =
-            AIConversation::new(/* is_viewing_shared_session */ true, false);
+        let mut conversation = AIConversation::new(/* is_viewing_shared_session */ true);
         conversation.set_task_id(fixed_task_id());
         conversation.set_server_conversation_token("server-conversation-id".to_string());
         let conversation_id = conversation.id();
@@ -715,72 +711,13 @@ fn conversation_server_token_assigned_skips_viewer_conversations() {
     });
 }
 
-/// A debug conversation bootstrapped into a retained setup-failure session
-/// (`TaskSyncMode::PreserveTerminalSetupFailure`) must keep reporting its conversation ID —
-/// live injection and transcript APIs depend on it — but must never drive task state or a
-/// status message from its own status, since that would overwrite the original setup-failure
-/// record the server is preserving for the retained execution's lifetime.
-#[test]
-fn preserve_terminal_setup_failure_conversation_reports_token_without_task_state() {
-    App::test((), |mut app| async move {
-        let history_model =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut conversation = AIConversation::new(false, false);
-        let task_id = fixed_task_id();
-        conversation.set_task_id(task_id);
-        conversation.set_task_sync_mode(TaskSyncMode::PreserveTerminalSetupFailure);
-        conversation.set_server_conversation_token("debug-conversation-token".to_string());
-        let conversation_id = conversation.id();
-        let terminal_view_id = warpui::EntityId::new();
-        history_model.update(&mut app, |model, ctx| {
-            model.restore_conversations(terminal_view_id, vec![conversation], ctx);
-        });
-
-        let mut mock = MockAIClient::new();
-        mock.expect_update_agent_task()
-            .withf(
-                move |arg_task_id, task_state, _, conv_id, status_msg, _, _| {
-                    *arg_task_id == task_id
-                        && task_state.is_none()
-                        && conv_id.is_some()
-                        && status_msg.is_none()
-                },
-            )
-            .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
-        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
-        let _model = app.add_singleton_model(|ctx| {
-            LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
-        });
-
-        // A debug turn running to a terminal Error status must not construct a task-state
-        // update, even though an ordinary conversation would report FAILED/ERROR here.
-        history_model.update(&mut app, |model, ctx| {
-            let conv = model
-                .conversation_mut(&conversation_id)
-                .expect("conversation was just restored");
-            conv.update_status_with_error(
-                ConversationStatus::Error,
-                Some(RenderableAIError::other("debug turn failed", false)),
-                terminal_view_id,
-                ctx,
-            );
-        });
-
-        pump_spawned_tasks().await;
-        // Mock drop verifies `.times(1)` and the predicate: exactly one update, carrying only
-        // the conversation token.
-    });
-}
-
 #[test]
 fn conversation_server_token_assigned_skips_without_task_id() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         conversation.set_server_conversation_token("server-conversation-id".to_string());
         let conversation_id = conversation.id();
         let terminal_view_id = warpui::EntityId::new();

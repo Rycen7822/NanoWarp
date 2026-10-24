@@ -56,7 +56,6 @@ pub enum OpenSettingsArgs {
 
 /// Source query parameter value indicating auth was initiated from cloud agent setup.
 /// Used to skip opening settings page after GitHub auth completes.
-pub const CLOUD_SETUP_SOURCE: &str = "cloud_setup";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UriHost {

@@ -63,7 +63,6 @@ fn add_saved_plan_notebook(app: &mut App, document_id: AIDocumentId, content: &s
             is_welcome_object: false,
             creator_uid: None,
             last_editor_uid: None,
-            last_task_run_ts: None,
         },
         CloudObjectPermissions {
             owner: Owner::mock_current_user(),
@@ -84,9 +83,9 @@ fn execute_lazily_hydrates_missing_saved_plan() {
         let executor = app.add_model(|_| ReadDocumentsExecutor::new());
         let document_id = AIDocumentId::new();
         add_saved_plan_notebook(&mut app, document_id, "# Saved plan");
-        let conversation_id =
-            BlocklistAIHistoryModel::handle(&app).update(&mut app, |history, ctx| {
-                history.start_new_conversation(EntityId::new(), false, false, false, ctx)
+        let conversation_id = BlocklistAIHistoryModel::handle(&app)
+            .update(&mut app, |history, ctx| {
+                history.start_new_conversation(EntityId::new(), false, false, ctx)
             });
         let action = read_action(document_id);
 

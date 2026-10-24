@@ -26,8 +26,6 @@ impl QueuedQueryId {
 /// The origin is informational for telemetry; FIFO ordering and firing semantics are uniform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueuedQueryOrigin {
-    /// Filed while the initial Cloud Mode prompt waits to be handed off.
-    InitialCloudMode,
     /// Filed via the `/queue <prompt>` slash command.
     QueueSlashCommand,
     /// Filed via the auto-queue toggle in the warping indicator.
@@ -51,7 +49,7 @@ enum QueuedQueryKind {
     /// An agent prompt, with any image/file attachments captured from the input when it was
     /// queued. The attachments fire with the prompt and are dropped when the row is removed.
     Prompt { attachments: Vec<PendingAttachment> },
-    /// A shell command run in the terminal (or via the shared session for cloud panes).
+    /// A shell command run in the terminal.
     Command,
 }
 
@@ -118,13 +116,9 @@ impl QueuedQuery {
 
     /// Returns true if this row is locked from user mutation, reorder, and auto-fire.
     /// Locked rows cannot be edited, deleted, reordered, pushed manually, or auto-fired by
-    /// the drain mechanism. The initial Cloud Mode row is locked permanently; PendingLrcAutoQueue
-    /// rows are locked only until the action snapshot fires.
+    /// the drain mechanism. PendingLrcAutoQueue rows unlock when the action snapshot fires.
     pub fn is_locked(&self) -> bool {
-        matches!(
-            self.origin,
-            QueuedQueryOrigin::InitialCloudMode | QueuedQueryOrigin::PendingLrcAutoQueue
-        )
+        matches!(self.origin, QueuedQueryOrigin::PendingLrcAutoQueue)
     }
 }
 
@@ -558,8 +552,7 @@ impl QueuedQueryModel {
     /// Pops the first row in `conversation_id`'s queue and returns it.
     /// Used by the non-clean drain path (Error / Cancelled) to restore a single popped
     /// prompt to the input editor. No-ops when the head is locked
-    /// ([`QueuedQuery::is_locked`]) so a status-transition arriving before the lifecycle
-    /// cleanup events cannot clobber the locked initial Cloud Mode row.
+    /// ([`QueuedQuery::is_locked`]) until its action snapshot fires.
     pub fn pop_front(
         &mut self,
         conversation_id: AIConversationId,
@@ -651,31 +644,6 @@ impl QueuedQueryModel {
         });
     }
 
-    /// Restores a fired row when submission fails after the row was removed.
-    pub(crate) fn restore_fired_row(
-        &mut self,
-        conversation_id: AIConversationId,
-        insert_index: usize,
-        query: QueuedQuery,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let state = self.queues.entry(conversation_id).or_default();
-        let query_id = query.id;
-        if state.queue.iter().any(|queued| queued.id == query_id) {
-            return;
-        }
-        let insert_index = insert_index.min(state.queue.len());
-        log::warn!(
-            "event=restored_after_failed_send conversation_id={conversation_id} query_id={query_id:?} index={insert_index} queue_len_after={}",
-            state.queue.len() + 1,
-        );
-        state.queue.insert(insert_index, query);
-        ctx.emit(QueuedQueryEvent::Appended {
-            conversation_id,
-            query_id,
-        });
-    }
-
     /// Returns the attachments captured on the queued row `query_id` within `conversation_id`'s
     /// queue, or an empty slice if no such row exists. Used by the send path to attach a fired
     /// queued prompt's images/files without removing the row first.
@@ -692,9 +660,7 @@ impl QueuedQueryModel {
     }
 
     /// Removes a specific row by id within `conversation_id`'s queue, if present. Returns the
-    /// removed row. No-ops when the target row is locked ([`QueuedQuery::is_locked`]); the
-    /// locked initial Cloud Mode row is only removable via
-    /// [`Self::remove_initial_cloud_mode_row`].
+    /// removed row. No-ops when the target row is locked ([`QueuedQuery::is_locked`]).
     pub fn remove_by_id(
         &mut self,
         conversation_id: AIConversationId,
@@ -717,32 +683,6 @@ impl QueuedQueryModel {
         ctx.emit(QueuedQueryEvent::Removed {
             conversation_id,
             query_id,
-        });
-        Some(removed)
-    }
-
-    /// Removes the locked initial Cloud Mode row from `conversation_id`'s queue, if it is still
-    /// at the queue head.
-    pub fn remove_initial_cloud_mode_row(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<QueuedQuery> {
-        let state = self.queues.get_mut(&conversation_id)?;
-        if !state
-            .queue
-            .first()
-            .is_some_and(|row| row.origin == QueuedQueryOrigin::InitialCloudMode)
-        {
-            return None;
-        }
-        let removed = state.queue.remove(0);
-        if state.editing == Some(removed.id) {
-            state.editing = None;
-        }
-        ctx.emit(QueuedQueryEvent::Removed {
-            conversation_id,
-            query_id: removed.id,
         });
         Some(removed)
     }

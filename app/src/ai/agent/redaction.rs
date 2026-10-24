@@ -25,8 +25,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                     .values_mut()
                     .for_each(redact_attachment);
             }
-            AIAgentInput::ResumeConversation { context }
-            | AIAgentInput::StartFromAmbientRunPrompt { context, .. } => {
+            AIAgentInput::ResumeConversation { context } => {
                 redact_context(Arc::make_mut(context));
             }
             AIAgentInput::SummarizeConversation { prompt, context } => {
@@ -64,8 +63,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                 redact_context(Arc::make_mut(context));
                 match &mut result.result {
                     AIAgentActionResultType::RequestCommandOutput(output) => match output {
-                        RequestCommandOutputResult::Completed { output, .. }
-                        | RequestCommandOutputResult::ShellRecovered { output, .. } => {
+                        RequestCommandOutputResult::Completed { output, .. } => {
                             redact_secrets(output);
                         }
                         RequestCommandOutputResult::LongRunningCommandSnapshot {
@@ -87,9 +85,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                     AIAgentActionResultType::ReadShellCommandOutput(result) => {
                         use crate::ai::agent::ReadShellCommandOutputResult::*;
                         match result {
-                            CommandFinished { output, .. } | ShellRecovered { output, .. } => {
-                                redact_secrets(output)
-                            }
+                            CommandFinished { output, .. } => redact_secrets(output),
                             LongRunningCommandSnapshot { grid_contents, .. } => {
                                 redact_secrets(grid_contents)
                             }

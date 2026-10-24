@@ -359,14 +359,12 @@ pub enum TerminalAction {
     ToggleLongRunningCommandControl,
     ToggleHideCliResponses,
     ExitAgentView,
-    EnterCloudAgentView,
     StartNewAgentConversation {
         origin: AgentViewEntryOrigin,
     },
     /// Toggle the cloud mode conversation details panel
     ToggleConversationDetailsPanel,
     /// Cancel the ambient agent task while it's loading
-    CancelAmbientAgentTask,
     AwsBedrockLoginBanner(AwsBedrockLoginBannerAction),
     AwsCliNotInstalledBanner(AwsCliNotInstalledBannerAction),
     /// Toggle the usage footer on the last AI block in the active conversation.
@@ -604,12 +602,10 @@ impl fmt::Debug for TerminalAction {
             }
             ToggleHideCliResponses => write!(f, "ToggleHideCliResponses"),
             ExitAgentView => write!(f, "ExitAgentView"),
-            EnterCloudAgentView => write!(f, "EnterCloudAgentView"),
             StartNewAgentConversation { origin } => {
                 write!(f, "StartNewAgentConversation {{ origin: {origin:?} }}")
             }
             ToggleConversationDetailsPanel => write!(f, "ToggleConversationDetailsPanel"),
-            CancelAmbientAgentTask => write!(f, "CancelAmbientAgentTask"),
             AwsBedrockLoginBanner(action) => write!(f, "AwsBedrockLoginBanner({action:?})"),
             AwsCliNotInstalledBanner(action) => write!(f, "AwsCliNotInstalledBanner({action:?})"),
             ToggleUsageFooter => write!(f, "ToggleUsageFooter"),

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{Local, Utc};
+use cloud_object_models::HarnessConfig;
 use persistence::model::{AgentConversationData, ChargedUsageTotals, ConversationUsageMetadata};
 use warp_cli::agent::Harness;
 use warp_multi_agent_api as api;
@@ -11,9 +12,7 @@ use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{
     AIAgentHarness, AIConversation, AIConversationId, ServerAIConversationMetadata,
 };
-use crate::ai::ambient_agents::task::{
-    AgentConfigSnapshot, HarnessConfig, RequestUsage, TaskPrincipalInfo,
-};
+use crate::ai::ambient_agents::task::{AgentConfigSnapshot, RequestUsage, TaskPrincipalInfo};
 use crate::ai::ambient_agents::{AmbientAgentTask, AmbientAgentTaskState};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::auth::UserUid;
@@ -48,7 +47,6 @@ fn create_test_task(task_id: &str) -> AmbientAgentTask {
         agent_config_snapshot: None,
         artifacts: vec![],
         is_sandbox_running: false,
-        debug_agent_available: false,
         scope: None,
     }
 }
@@ -414,7 +412,7 @@ fn test_from_conversation_populates_local_conversation_fields() {
 #[test]
 fn test_from_conversation_uses_charged_usage_dollar_total() {
     App::test((), |mut app| async move {
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         conversation.set_charged_usage_for_test(Some(ChargedUsageTotals {
             input_cost_in_cents: 10.0,
             output_cost_in_cents: 12.0,
@@ -436,7 +434,7 @@ fn test_from_conversation_uses_charged_usage_dollar_total() {
 #[test]
 fn test_from_conversation_falls_back_to_the_billed_snapshot() {
     App::test((), |mut app| async move {
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         conversation.set_billed_cost_in_cents_for_test(Some(250.0));
 
         app.update(|ctx| {
@@ -554,84 +552,6 @@ fn test_from_task_includes_linked_directory_when_server_token_matches() {
                     ..
                 } if task_directory == directory
             ));
-        });
-    });
-}
-
-#[test]
-fn test_from_task_carries_the_runner_the_run_named() {
-    App::test((), |mut app| async move {
-        app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut task = create_test_task("550e8400-e29b-41d4-a716-000000005001");
-        task.agent_config_snapshot = Some(AgentConfigSnapshot {
-            environment_id: Some("env-1".to_string()),
-            runner_id: Some("runner-macos".to_string()),
-            ..Default::default()
-        });
-
-        app.update(|ctx| {
-            let data = ConversationDetailsData::from_task(&task, None, None, ctx);
-            assert!(matches!(
-                data.mode,
-                PanelMode::Task {
-                    runner_id: Some(ref runner_id),
-                    ..
-                } if runner_id == "runner-macos"
-            ));
-        });
-    });
-}
-
-#[test]
-fn test_from_task_leaves_the_runner_absent_when_the_run_names_none() {
-    App::test((), |mut app| async move {
-        app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
-
-        let mut task = create_test_task("550e8400-e29b-41d4-a716-000000005002");
-        task.agent_config_snapshot = Some(AgentConfigSnapshot {
-            environment_id: Some("env-1".to_string()),
-            ..Default::default()
-        });
-
-        app.update(|ctx| {
-            let data = ConversationDetailsData::from_task(&task, None, None, ctx);
-            assert!(matches!(
-                data.mode,
-                PanelMode::Task {
-                    runner_id: None,
-                    ..
-                }
-            ));
-        });
-    });
-}
-
-// A local conversation has no runner to report, so the panel must not carry
-// one into the platform row.
-#[test]
-fn test_conversation_mode_carries_no_runner() {
-    App::test((), |mut app| async move {
-        let conversation_id = AIConversationId::new();
-        let conversation = create_restored_conversation(
-            conversation_id,
-            "root-task",
-            "/tmp/local-conversation",
-            AgentConversationData {
-                server_conversation_token: None,
-                conversation_usage_metadata: None,
-                reverted_action_ids: None,
-                forked_from_server_conversation_token: None,
-                artifacts_json: None,
-                run_id: None,
-                autoexecute_override: None,
-                use_warp_credits_instead_of_chatgpt: false,
-            },
-        );
-
-        app.update(|ctx| {
-            let data = ConversationDetailsData::from_conversation(&conversation, ctx);
-            assert!(matches!(data.mode, PanelMode::Conversation { .. }));
         });
     });
 }

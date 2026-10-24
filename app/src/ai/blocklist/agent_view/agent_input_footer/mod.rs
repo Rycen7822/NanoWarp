@@ -1,6 +1,5 @@
 pub(super) mod chips;
 pub mod editor;
-mod environment_selector;
 pub mod toolbar_item;
 
 use std::sync::Arc;
@@ -29,9 +28,7 @@ use warpui::{
     ViewHandle,
 };
 
-pub(crate) use self::environment_selector::{EnvironmentSelector, EnvironmentSelectorEvent};
 use crate::ai::AIRequestUsageModel;
-use crate::ai::blocklist::agent_view::is_in_cloud_context;
 use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::blocklist::prompt::prompt_alert::{PromptAlertEvent, PromptAlertView};
 use crate::ai::blocklist::usage::icon_for_context_window_usage;
@@ -58,9 +55,8 @@ use crate::terminal::session_settings::{
     SessionSettings, SessionSettingsChangedEvent, ToolbarChipSelection,
 };
 use crate::terminal::shared_session::SharedSessionStatus;
-use crate::terminal::view::ambient_agent::AmbientAgentViewModel;
+use crate::terminal::view::TerminalAction;
 use crate::terminal::view::init::ATTACH_FILE_KEYBINDING;
-use crate::terminal::view::{CloudRoutingIndicator, TerminalAction, resolve_ai_query_routing};
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource, TooltipAlignment,
@@ -74,16 +70,9 @@ const DISABLE_NLD_TOOLTIP: &str = "Disable terminal command autodetection";
 
 const FAST_FORWARD_ON_TOOLTIP: &str = "Turn off auto-approve all agent actions";
 const FAST_FORWARD_OFF_TOOLTIP: &str = "Auto-approve all agent actions for this task";
-const FAST_FORWARD_LOCKED_TOOLTIP: &str =
-    "Fast forward is always enabled for cloud agent conversations";
 
 const START_REMOTE_CONTROL_TOOLTIP: &str = "Start remote control";
 const START_REMOTE_CONTROL_LOGIN_REQUIRED_TOOLTIP: &str = "Log in to use /remote-control";
-
-const LIVE_REMOTE_VM_INDICATOR_TOOLTIP: &str = "Connected to a live cloud agent session. Your next prompt continues on the running remote machine.";
-const NEW_CLOUD_VM_INDICATOR_TOOLTIP: &str = "Not connected to cloud agent. Your next prompt starts a new cloud machine to continue this conversation.";
-
-const CLOUD_MODE_V2_FOOTER_GAP: f32 = 4.;
 
 /// id for the conversation usage popover's trigger button to anchor the popover overlay
 const USAGE_BUTTON_SAVE_POSITION_ID: &str = "agent_input_footer::usage_button";
@@ -108,14 +97,7 @@ pub struct AgentInputFooter {
     stop_remote_control_button: ViewHandle<ActionButton>,
     context_window_button: ViewHandle<ActionButton>,
     usage_button: ViewHandle<ActionButton>,
-    /// Non-interactive indicators for a cloud follow-up pane: one shown when attached to a live
-    /// remote VM, one when the next follow-up will start a new cloud VM. See
-    /// [`AIQueryRouting`].
-    live_session_indicator: ViewHandle<ActionButton>,
-    new_cloud_vm_indicator: ViewHandle<ActionButton>,
-    environment_selector: Option<ViewHandle<EnvironmentSelector>>,
     prompt_alert: ViewHandle<PromptAlertView>,
-    ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
     left_display_chips: Vec<ViewHandle<DisplayChip>>,
     right_display_chips: Vec<ViewHandle<DisplayChip>>,
     display_chip_config: DisplayChipConfig,
@@ -145,56 +127,10 @@ pub struct AgentInputFooter {
 }
 
 impl AgentInputFooter {
-    /// Attaches an ambient agent view model to an already-constructed footer. Used when a
-    /// shared-session viewer only learns at `SessionJoined` that the session is an ambient
-    /// run (e.g. a raw `shared_session` link): the footer was built with `None` at
-    /// construction, so it must be given the model now to render the cloud environment
-    /// selector and re-render on model events. Mirrors the ambient wiring in [`Self::new`].
-    /// `menu_positioning_provider` is passed in because the footer does not retain it.
-    /// Idempotent: a no-op when a model is already present.
-    pub fn set_ambient_agent_view_model(
-        &mut self,
-        ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
-        menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.ambient_agent_view_model.is_some() {
-            return;
-        }
-        self.ambient_agent_view_model = Some(ambient_agent_view_model.clone());
-        self.display_chip_config.ambient_agent_view_model = Some(ambient_agent_view_model.clone());
-
-        // Build the environment selector now that the model exists (mirrors `new`).
-        let environment_selector = ctx.add_typed_action_view(|ctx| {
-            EnvironmentSelector::new(
-                menu_positioning_provider.clone(),
-                ambient_agent_view_model.clone(),
-                ctx,
-            )
-        });
-        ctx.subscribe_to_view(&environment_selector, |_, _, event, ctx| match event {
-            EnvironmentSelectorEvent::MenuVisibilityChanged { open } => {
-                ctx.emit(AgentInputFooterEvent::ToggledChipMenu { open: *open });
-                if !*open {
-                    ctx.emit(AgentInputFooterEvent::EnvironmentSelectorClosed);
-                }
-            }
-        });
-        self.environment_selector = Some(environment_selector);
-
-        ctx.subscribe_to_model(&ambient_agent_view_model, |_, _, _, ctx| {
-            ctx.notify();
-        });
-
-        ctx.notify();
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
         terminal_view_id: EntityId,
         terminal_model: Arc<FairMutex<TerminalModel>>,
-        ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
         prompt: ModelHandle<PromptType>,
         display_chip_config: DisplayChipConfig,
         ctx: &mut ViewContext<Self>,
@@ -260,7 +196,6 @@ impl AgentInputFooter {
                 .with_tooltip(FAST_FORWARD_OFF_TOOLTIP)
                 .with_size(button_size)
                 .with_tooltip_alignment(TooltipAlignment::Left)
-                .with_disabled_theme(FastForwardLockedTheme)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(TerminalAction::ToggleAutoexecuteMode);
                 })
@@ -329,27 +264,6 @@ impl AgentInputFooter {
                 ctx.notify();
             }
         });
-
-        // Non-interactive cloud follow-up indicators. Only one is rendered at a time, chosen by
-        // `AIQueryRouting` at render time.
-        let live_session_indicator = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", AgentInputButtonTheme)
-                .with_icon(Icon::CloudFilled)
-                .with_tooltip(LIVE_REMOTE_VM_INDICATOR_TOOLTIP)
-                .with_size(button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-        });
-        let new_cloud_vm_indicator = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("", AgentInputButtonTheme)
-                .with_icon(Icon::CloudOffline)
-                .with_icon_ansi_color(AnsiColorIdentifier::Yellow)
-                .with_tooltip(NEW_CLOUD_VM_INDICATOR_TOOLTIP)
-                .with_size(button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-        });
-
-        // Built by the ambient setter (construction + lazy viewer path share that single point).
-        let environment_selector: Option<ViewHandle<EnvironmentSelector>> = None;
 
         let prompt_alert = ctx.add_typed_action_view(PromptAlertView::new);
         ctx.subscribe_to_view(&prompt_alert, |_, _, event, ctx| {
@@ -487,7 +401,6 @@ impl AgentInputFooter {
 
         let mut me = Self {
             terminal_view_id,
-            ambient_agent_view_model: None,
             nld_button,
             file_button,
             file_explorer_button,
@@ -495,9 +408,6 @@ impl AgentInputFooter {
             stop_remote_control_button,
             context_window_button,
             usage_button,
-            live_session_indicator,
-            new_cloud_vm_indicator,
-            environment_selector,
             prompt_alert,
             terminal_model,
             left_display_chips: vec![],
@@ -515,15 +425,6 @@ impl AgentInputFooter {
         me.update_context_window_button(ctx);
         me.update_usage_button(ctx);
         me.update_display_chips(&prompt, ctx);
-        // Route ambient wiring through the setter so construction and the lazy shared-session
-        // viewer path share one implementation.
-        if let Some(ambient_agent_view_model) = ambient_agent_view_model {
-            me.set_ambient_agent_view_model(
-                ambient_agent_view_model,
-                menu_positioning_provider,
-                ctx,
-            );
-        }
         me
     }
 
@@ -536,59 +437,6 @@ impl AgentInputFooter {
         // Chips will be rebuilt on the next GitRepoStatusEvent::MetadataChanged.
         // Notify to ensure any existing chips reflect the change.
         ctx.notify();
-    }
-
-    pub fn is_v2_environment_selector_open(&self, app: &AppContext) -> bool {
-        self.environment_selector
-            .as_ref()
-            .is_some_and(|s| s.as_ref(app).is_menu_open())
-    }
-
-    pub fn open_v2_environment_selector(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(selector) = self.environment_selector.clone() {
-            selector.update(ctx, |s, ctx| s.open_menu(ctx));
-        }
-    }
-
-    fn should_render_cloud_mode_v2(&self, app: &AppContext) -> bool {
-        FeatureFlag::CloudModeInputV2.is_enabled()
-            && FeatureFlag::CloudMode.is_enabled()
-            && self
-                .ambient_agent_view_model
-                .as_ref()
-                .is_some_and(|ambient_agent_model| {
-                    ambient_agent_model
-                        .as_ref(app)
-                        .is_configuring_ambient_agent()
-                })
-    }
-
-    fn render_cloud_mode_v2_footer(&self) -> Box<dyn Element> {
-        let mut left = Flex::row()
-            .with_main_axis_size(MainAxisSize::Min)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(CLOUD_MODE_V2_FOOTER_GAP);
-        if let Some(environment_selector) = self.environment_selector.as_ref() {
-            left = left.with_child(ChildView::new(environment_selector).finish());
-        }
-
-        let mut right = Flex::row()
-            .with_main_axis_size(MainAxisSize::Min)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(CLOUD_MODE_V2_FOOTER_GAP);
-
-        right = right.with_child(ChildView::new(&self.file_button).finish());
-
-        let content = Flex::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(CLOUD_MODE_V2_FOOTER_GAP)
-            .with_child(left.finish())
-            .with_child(right.finish())
-            .finish();
-
-        Clipped::new(content).finish()
     }
 
     fn all_display_chips(&self) -> impl Iterator<Item = &ViewHandle<DisplayChip>> {
@@ -614,63 +462,25 @@ impl AgentInputFooter {
         ctx.emit(AgentInputFooterEvent::SelectFile);
     }
 
-    fn cloud_routing_indicator_view(
-        &self,
-        terminal_model: &TerminalModel,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        match resolve_ai_query_routing(
-            self.terminal_view_id,
-            self.ambient_agent_view_model.as_ref(),
-            terminal_model,
-            app,
-        )
-        .cloud_routing_indicator()
-        {
-            Some(CloudRoutingIndicator::LiveSession) => {
-                Some(ChildView::new(&self.live_session_indicator).finish())
-            }
-            Some(CloudRoutingIndicator::NewCloudVm) => {
-                Some(ChildView::new(&self.new_cloud_vm_indicator).finish())
-            }
-            None => None,
-        }
-    }
-
     pub fn has_open_chip_menu(&self, app: &AppContext) -> bool {
-        let has_open_display_chip = self
-            .all_display_chips()
-            .any(|chip| chip.as_ref(app).display_chip_kind().has_open_menu());
-
-        let has_open_env_selector = self
-            .environment_selector
-            .as_ref()
-            .is_some_and(|selector| selector.as_ref(app).is_menu_open());
-        has_open_display_chip || has_open_env_selector
+        self.all_display_chips()
+            .any(|chip| chip.as_ref(app).display_chip_kind().has_open_menu())
     }
 
     fn sync_fast_forward_button(&self, ctx: &mut ViewContext<Self>) {
-        // In cloud agent conversations fast forward is force-enabled.
-        let terminal_model = self.terminal_model.lock();
-        let is_force_enabled = is_in_cloud_context(&terminal_model);
-        drop(terminal_model);
-
         // Read directly from the conversation, same data source as the warping
         // indicator footer's auto-approve chip.
         let is_active = BlocklistAIHistoryModel::as_ref(ctx)
             .active_conversation(self.terminal_view_id)
             .map(|c| c.autoexecute_any_action())
-            .unwrap_or(false)
-            || is_force_enabled;
+            .unwrap_or(false);
 
         let icon = if is_active {
             Icon::FastForwardFilled
         } else {
             Icon::FastForward
         };
-        let tooltip = if is_force_enabled {
-            FAST_FORWARD_LOCKED_TOOLTIP
-        } else if is_active {
+        let tooltip = if is_active {
             FAST_FORWARD_ON_TOOLTIP
         } else {
             FAST_FORWARD_OFF_TOOLTIP
@@ -680,7 +490,6 @@ impl AgentInputFooter {
             button.set_icon(Some(icon), ctx);
             button.set_tooltip(Some(tooltip), ctx);
             button.set_active(is_active, ctx);
-            button.set_disabled(is_force_enabled, ctx);
         });
     }
 
@@ -814,14 +623,7 @@ impl AgentInputFooter {
         is_conversation_transcript_context: bool,
         app: &AppContext,
     ) -> Option<Box<dyn Element>> {
-        let is_cloud_mode = FeatureFlag::CloudModeImageContext.is_enabled()
-            && self
-                .ambient_agent_view_model
-                .as_ref()
-                .is_some_and(|ambient_agent_model| {
-                    ambient_agent_model.as_ref(app).is_ambient_agent()
-                });
-        if !item.available_to_session_viewer(shared_status, is_cloud_mode) {
+        if !item.available_to_session_viewer(shared_status) {
             return None;
         }
 
@@ -980,21 +782,11 @@ impl AgentInputFooter {
     }
 
     #[cfg(test)]
-    pub fn live_session_indicator_id(&self) -> EntityId {
-        self.live_session_indicator.id()
-    }
-
-    #[cfg(test)]
     pub fn usage_tooltip_for_test(&self, app: &AppContext) -> Option<String> {
         self.usage_button
             .as_ref(app)
             .tooltip_for_test()
             .map(str::to_string)
-    }
-
-    #[cfg(test)]
-    pub fn new_cloud_vm_indicator_id(&self) -> EntityId {
-        self.new_cloud_vm_indicator.id()
     }
 }
 
@@ -1004,9 +796,6 @@ impl View for AgentInputFooter {
     }
 
     fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
-        if self.should_render_cloud_mode_v2(app) {
-            return self.render_cloud_mode_v2_footer();
-        }
         let session_settings = SessionSettings::as_ref(app);
         let left_items = session_settings.agent_footer_chip_selection.left_items();
         let right_items = session_settings.agent_footer_chip_selection.right_items();
@@ -1018,31 +807,15 @@ impl View for AgentInputFooter {
             .with_run_spacing(4.)
             .with_spacing(4.);
 
-        let is_ambient_agent = FeatureFlag::CloudMode.is_enabled()
-            && self
-                .ambient_agent_view_model
-                .as_ref()
-                .is_some_and(|ambient_agent_model| {
-                    ambient_agent_model.as_ref(app).is_ambient_agent()
-                });
-        if is_ambient_agent && let Some(environment_selector) = self.environment_selector.as_ref() {
-            left_buttons = left_buttons.with_child(ChildView::new(environment_selector).finish());
-        }
-
         // The lock is released before rendering toolbar items: the usage popover's menu
         // positioning provider re-locks the same non-reentrant model.
-        let (shared_status, is_conversation_transcript_context, cloud_routing_indicator) = {
+        let (shared_status, is_conversation_transcript_context) = {
             let terminal_model = self.terminal_model.lock();
             (
                 terminal_model.shared_session_status().clone(),
                 is_conversation_transcript_context(self.terminal_view_id, &terminal_model, app),
-                self.cloud_routing_indicator_view(&terminal_model, app),
             )
         };
-
-        if let Some(indicator) = cloud_routing_indicator {
-            left_buttons.add_child(indicator);
-        }
 
         for item in &left_items {
             if let Some(element) = self.render_toolbar_item(
@@ -1180,7 +953,6 @@ pub enum AgentInputFooterEvent {
     },
     TryExecuteChipCommand(PromptChipShellCommand),
     PromptAlert(PromptAlertEvent),
-    EnvironmentSelectorClosed,
     OpenSettings(SettingsSection),
     OpenCodeReview,
     OpenAIDocument {
@@ -1233,17 +1005,6 @@ impl ActionButtonTheme for AgentInputButtonTheme {
 
     fn should_opt_out_of_contrast_adjustment(&self) -> bool {
         true
-    }
-
-    fn font_properties(&self) -> Option<warpui::fonts::Properties> {
-        if crate::features::FeatureFlag::CloudModeInputV2.is_enabled() {
-            Some(warpui::fonts::Properties {
-                weight: warpui::fonts::Weight::Semibold,
-                ..Default::default()
-            })
-        } else {
-            None
-        }
     }
 }
 
@@ -1298,38 +1059,6 @@ impl ActionButtonTheme for FastForwardButtonTheme {
 
     fn should_opt_out_of_contrast_adjustment(&self) -> bool {
         true
-    }
-}
-
-/// Disabled-state theme used by the fast-forward chip when fast-forward is
-/// locked on (cloud agent conversations). Delegates entirely to
-/// `FastForwardButtonTheme`, but forces `hovered=true` on the background so
-/// the chip still reads as "on" while the underlying button is disabled
-/// (which gives us the arrow cursor and no-op click handler for free).
-struct FastForwardLockedTheme;
-
-impl ActionButtonTheme for FastForwardLockedTheme {
-    fn background(&self, _hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        // Force the active (hovered) background so the disabled chip still
-        // visually looks like fast-forward is on.
-        FastForwardButtonTheme.background(true, appearance)
-    }
-
-    fn text_color(
-        &self,
-        hovered: bool,
-        background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        FastForwardButtonTheme.text_color(hovered, background, appearance)
-    }
-
-    fn border(&self, appearance: &Appearance) -> Option<ColorU> {
-        FastForwardButtonTheme.border(appearance)
-    }
-
-    fn should_opt_out_of_contrast_adjustment(&self) -> bool {
-        FastForwardButtonTheme.should_opt_out_of_contrast_adjustment()
     }
 }
 

@@ -358,13 +358,4 @@ pub trait ObjectClient: 'static + Send + Sync {
         object_id: ServerId,
         guest: GuestIdentifier,
     ) -> Result<ServerPermissions>;
-
-    /// Fetches the last-used timestamps for all cloud environments.
-    ///
-    /// This is derived from `CloudEnvironment.lastTaskCreated.createdAt`, not `lastTaskRunTimestamp`, so that "Last used" reflects the most recently created task.
-    ///
-    /// Returns a map from environment UID to timestamp.
-    async fn fetch_environment_last_task_run_timestamps(
-        &self,
-    ) -> Result<HashMap<String, DateTime<Utc>>>;
 }

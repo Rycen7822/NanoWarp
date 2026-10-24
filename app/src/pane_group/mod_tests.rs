@@ -9,7 +9,6 @@ use persistence::model::{AgentConversation, ConversationUsageMetadata};
 use repo_metadata::RepoMetadataModel;
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
-use session_sharing_protocol::common::SessionId;
 use shared_session::permissions_manager::SessionPermissionsManager;
 use uuid::Uuid;
 use warp_core::features::FeatureFlag;
@@ -27,13 +26,9 @@ use crate::ai::agent::conversation::{
     AIAgentHarness, AIConversation, ServerAIConversationMetadata,
 };
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::ambient_agents::task::TaskPrincipalInfo;
-use crate::ai::ambient_agents::{
-    AgentSource, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
-};
+use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
 use crate::ai::blocklist::{BlocklistAIHistoryModel, QueuedQueryModel};
-use crate::ai::cloud_environments::CloudEnvironmentCatalog;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
@@ -42,7 +37,6 @@ use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::ai::restored_conversations::RestoredAgentConversations;
 use crate::ai::skills::SkillManager;
 use crate::auth::auth_manager::AuthManager;
-use crate::auth::user::TEST_USER_UID;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
 use crate::context_chips::prompt::Prompt;
@@ -104,7 +98,6 @@ fn initialize_app_with_history(app: &mut App, conversations: Vec<AgentConversati
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(CloudEnvironmentCatalog::new);
     app.add_singleton_model(UserWorkspaces::default_mock);
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(TeamUpdateManager::mock);
@@ -232,37 +225,6 @@ fn new_notebook(ctx: &mut ViewContext<PaneGroup>) -> ViewHandle<NotebookView> {
 fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
     Uuid::new_v4().to_string().parse().unwrap()
 }
-fn ambient_agent_task_for_current_user(task_id: AmbientAgentTaskId) -> AmbientAgentTask {
-    let now = Utc::now();
-    AmbientAgentTask {
-        task_id,
-        title: "Owned task".to_string(),
-        state: AmbientAgentTaskState::Succeeded,
-        prompt: "test".to_string(),
-        created_at: now,
-        started_at: Some(now),
-        updated_at: now,
-        run_time: Some("PT1S".parse().unwrap()),
-        status_message: None,
-        source: Some(AgentSource::CloudMode),
-        execution_location: None,
-        session_id: None,
-        session_link: None,
-        executor: None,
-        creator: Some(TaskPrincipalInfo {
-            creator_type: "USER".to_string(),
-            uid: TEST_USER_UID.to_string(),
-            display_name: None,
-        }),
-        conversation_id: None,
-        request_usage: None,
-        is_sandbox_running: false,
-        agent_config_snapshot: None,
-        artifacts: vec![],
-        debug_agent_available: false,
-        scope: None,
-    }
-}
 
 fn mock_server_metadata() -> ServerMetadata {
     ServerMetadata {
@@ -317,7 +279,7 @@ fn test_server_conversation_metadata(
 }
 
 fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> Box<AIConversation> {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_task_id(task_id);
     conversation.set_server_metadata(test_server_conversation_metadata(Some(task_id)));
     Box::new(conversation)
@@ -445,62 +407,7 @@ fn test_pane_focus_on_close() {
 }
 
 #[test]
-fn test_ambient_transcript_restore_creates_cloud_mode_pane_when_handoff_enabled() {
-    let _agent_view = FeatureFlag::AgentView.override_enabled(true);
-    let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
-    let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
-    let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-        let task_id = new_ambient_agent_task_id();
-
-        pane_group.update(&mut app, |panes, ctx| {
-            AgentConversationsModel::handle(ctx).update(ctx, |model, _| {
-                model.insert_task_for_test(ambient_agent_task_for_current_user(task_id));
-            });
-            panes.load_data_into_conversation_transcript_viewer(
-                cloud_conversation_with_ambient_task(task_id),
-                Some(task_id),
-                ctx,
-            );
-        });
-
-        pane_group.read(&app, |panes, ctx| {
-            let terminal_view = panes
-                .active_session_view(ctx)
-                .expect("restored pane should have an active terminal view");
-            let view = terminal_view.as_ref(ctx);
-            let ambient_model = view
-                .ambient_agent_view_model()
-                .expect("ambient restore should create a Cloud Mode view")
-                .as_ref(ctx);
-
-            assert_eq!(ambient_model.task_id(), Some(task_id));
-            assert!(ambient_model.is_agent_running());
-            assert_eq!(
-                view.ambient_agent_task_id_for_details_panel(ctx),
-                Some(task_id)
-            );
-            assert!(view.active_conversation_id(ctx).is_some());
-
-            let model = view.model.lock();
-            assert!(!model.is_conversation_transcript_viewer());
-            assert!(!model.is_read_only());
-            assert!(matches!(
-                model.shared_session_status(),
-                SharedSessionStatus::NotShared
-            ));
-        });
-    });
-}
-
-#[test]
-fn test_ambient_transcript_restore_uses_generic_viewer_when_handoff_disabled() {
-    let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(false);
-    let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
-
+fn task_transcript_restore_uses_read_only_viewer() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let pane_group = mock_pane_group(&mut app, Default::default());
@@ -519,7 +426,6 @@ fn test_ambient_transcript_restore_uses_generic_viewer_when_handoff_disabled() {
                 .active_session_view(ctx)
                 .expect("fallback viewer should have an active terminal view");
             let view = terminal_view.as_ref(ctx);
-            assert!(view.ambient_agent_view_model().is_none());
 
             let model = view.model.lock();
             assert!(model.is_conversation_transcript_viewer());
@@ -527,155 +433,6 @@ fn test_ambient_transcript_restore_uses_generic_viewer_when_handoff_disabled() {
             assert_eq!(
                 model.conversation_transcript_viewer_status(),
                 Some(&ConversationTranscriptViewerStatus::ViewingAmbientConversation(task_id))
-            );
-        });
-    });
-}
-
-/// REMOTE-2208: attaching a live execution session to a read-only conversation transcript
-/// viewer is impossible (it is backed by a mock manager with no network), so the attach must
-/// report failure. Reporting success left the caller focused on a transcript with no input box
-/// — the "session opens but the terminal is not interactive" symptom — instead of falling back
-/// to opening a fresh, writable shared-session tab.
-#[test]
-fn attach_execution_session_refuses_read_only_transcript_viewer_pane() {
-    let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(false);
-    let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-        let task_id = new_ambient_agent_task_id();
-
-        pane_group.update(&mut app, |panes, ctx| {
-            panes.load_data_into_conversation_transcript_viewer(
-                cloud_conversation_with_ambient_task(task_id),
-                Some(task_id),
-                ctx,
-            );
-        });
-
-        pane_group.update(&mut app, |panes, ctx| {
-            let terminal_view = panes
-                .active_session_view(ctx)
-                .expect("transcript viewer should have an active terminal view");
-            let pane_id = panes
-                .find_pane_id_for_terminal_view(terminal_view.id(), ctx)
-                .expect("transcript viewer pane should be found");
-            assert!(
-                terminal_view.as_ref(ctx).model.lock().is_read_only(),
-                "precondition: the transcript viewer pane is read-only",
-            );
-
-            assert!(
-                !panes.attach_execution_session_to_ambient_pane(pane_id, SessionId::new(), ctx),
-                "a read-only transcript viewer must not report a successful live-session attach",
-            );
-        });
-    });
-}
-
-/// REMOTE-2208: the read-only state is cleared as part of reattaching, so it must only be
-/// cleared when a join actually starts. A caller that gets `false` opens a fresh pane instead,
-/// and clearing eagerly would leave this pane looking writable while attached to nothing.
-#[test]
-fn attach_execution_session_keeps_read_only_state_when_the_attach_fails() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-
-        pane_group.update(&mut app, |panes, ctx| {
-            let terminal_view = panes
-                .active_session_view(ctx)
-                .expect("mock pane group should have an active terminal view");
-            let pane_id = panes
-                .find_pane_id_for_terminal_view(terminal_view.id(), ctx)
-                .expect("active terminal view should have a pane");
-
-            // A plain terminal pane's manager is not a shared-session viewer, so the attach below
-            // fails at the downcast — the same shape as a manager that is already connecting.
-            terminal_view.update(ctx, |view, _| {
-                view.model
-                    .lock()
-                    .set_shared_session_status(SharedSessionStatus::FinishedViewer);
-            });
-            assert!(
-                terminal_view.as_ref(ctx).model.lock().is_read_only(),
-                "precondition: the pane is in a finished, read-only state",
-            );
-
-            assert!(
-                !panes.attach_execution_session_to_ambient_pane(pane_id, SessionId::new(), ctx),
-                "precondition: this attach cannot succeed",
-            );
-            assert!(
-                terminal_view.as_ref(ctx).model.lock().is_read_only(),
-                "a failed attach must leave the pane read-only so the caller's fresh-tab fallback \
-                 is not shadowed by a pane that looks writable but joined nothing",
-            );
-        });
-    });
-}
-
-/// Pins the contract that cloud-mode shared-session viewers (the local pane
-/// of a cloud run) get an `ambient_agent_view_model` so
-/// the snapshot path in `TerminalPane::snapshot` can emit
-/// `LeafContents::AmbientAgent` with the task id preserved. Without this,
-/// the snapshot falls through to an empty `LeafContents::Terminal` and the
-/// pane restores as a stray local terminal on the next launch.
-#[test]
-fn create_shared_session_viewer_with_cloud_mode_populates_ambient_agent_view_model() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-
-        pane_group.update(&mut app, |panes, ctx| {
-            let resources = TerminalViewResources {
-                tips_completed: panes.tips_completed.clone(),
-                server_api: panes.server_api.clone(),
-                model_event_sender: panes.model_event_sender.clone(),
-            };
-            let (terminal_view, _terminal_manager) = PaneGroup::create_shared_session_viewer(
-                SessionId::new(),
-                resources,
-                Vector2F::new(800., 600.),
-                true,  // is_cloud_mode
-                ctx,
-            );
-            assert!(
-                terminal_view.as_ref(ctx).ambient_agent_view_model().is_some(),
-                "cloud-mode shared-session viewer must construct an ambient_agent_view_model so the snapshot path emits LeafContents::AmbientAgent on restart",
-            );
-        });
-    });
-}
-
-/// Pins the existing behavior of the non-cloud-mode branch so callers that
-/// rely on it (e.g. `new_for_shared_session_viewer`) keep getting a
-/// `TerminalView` without an `ambient_agent_view_model`.
-/// Future changes that would flip this default are loud.
-#[test]
-fn create_shared_session_viewer_without_cloud_mode_does_not_populate_ambient_agent_view_model() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-
-        pane_group.update(&mut app, |panes, ctx| {
-            let resources = TerminalViewResources {
-                tips_completed: panes.tips_completed.clone(),
-                server_api: panes.server_api.clone(),
-                model_event_sender: panes.model_event_sender.clone(),
-            };
-            let (terminal_view, _terminal_manager) = PaneGroup::create_shared_session_viewer(
-                SessionId::new(),
-                resources,
-                Vector2F::new(800., 600.),
-                false, // is_cloud_mode
-                ctx,
-            );
-            assert!(
-                terminal_view.as_ref(ctx).ambient_agent_view_model().is_none(),
-                "non-cloud-mode shared-session viewer must not construct an ambient_agent_view_model; existing callers depend on this",
             );
         });
     });

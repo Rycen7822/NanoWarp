@@ -13,61 +13,10 @@ use warp_isolation_platform::{IsolationPlatformError, WorkloadToken};
 use warp_server_auth::auth_state::AuthState;
 
 use super::{
-    AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_DURATION, AMBIENT_WORKLOAD_TOKEN_HEADER,
-    AmbientHeaderPolicy, AuthenticatedGraphqlConfig, BaseClient, CLOUD_AGENT_ID_HEADER,
-    GraphqlRoutingConfig, HeaderOverride, PREWARMED_SANDBOX_ID_HEADER,
-    PREWARMED_SANDBOX_WORKLOAD_TOKEN_HEADER, TEAM_UID_HEADER,
+    AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_DURATION, AuthenticatedGraphqlConfig, BaseClient,
+    GraphqlRoutingConfig, TEAM_UID_HEADER,
 };
 use crate::auth::{AuthClient, AuthClientImpl};
-
-#[test]
-fn graphql_identity_transitions_between_standby_and_run() {
-    let client = client();
-    client.set_ambient_workload_token_for_test("proof".to_string(), None);
-    client.set_ambient_agent_task_id(Some("previous-run".to_string()));
-    client.set_prewarmed_sandbox_id("sandbox".to_string());
-    let standby = block_on(client.graphql_request_options(None)).unwrap();
-    assert_eq!(
-        standby
-            .headers
-            .get(PREWARMED_SANDBOX_ID_HEADER)
-            .map(String::as_str),
-        Some("sandbox")
-    );
-    assert_eq!(
-        standby
-            .headers
-            .get(PREWARMED_SANDBOX_WORKLOAD_TOKEN_HEADER)
-            .map(String::as_str),
-        Some("proof")
-    );
-    assert!(!standby.headers.contains_key(AMBIENT_WORKLOAD_TOKEN_HEADER));
-    assert!(!standby.headers.contains_key(CLOUD_AGENT_ID_HEADER));
-    assert!(
-        client
-            .graphql_request_options_with_token(Some("bootstrap".to_string()))
-            .headers
-            .is_empty()
-    );
-
-    client.set_ambient_agent_task_id(Some("claimed-run".to_string()));
-    let run = block_on(client.graphql_request_options(None)).unwrap();
-    assert_eq!(
-        run.headers.get(CLOUD_AGENT_ID_HEADER).map(String::as_str),
-        Some("claimed-run")
-    );
-    assert_eq!(
-        run.headers
-            .get(AMBIENT_WORKLOAD_TOKEN_HEADER)
-            .map(String::as_str),
-        Some("proof")
-    );
-    assert!(!run.headers.contains_key(PREWARMED_SANDBOX_ID_HEADER));
-    assert!(
-        !run.headers
-            .contains_key(PREWARMED_SANDBOX_WORKLOAD_TOKEN_HEADER)
-    );
-}
 
 fn client() -> BaseClient {
     let (event_sender, _) = async_channel::unbounded();
@@ -91,87 +40,12 @@ fn client() -> BaseClient {
 #[test]
 fn explicit_token_graphql_options_route_without_authenticated_headers() {
     let client = client();
-    client.set_ambient_agent_task_id(Some("ambient-task".to_string()));
 
     let options = client.graphql_request_options_with_token(Some("token".to_string()));
 
     assert_eq!(options.path_prefix.as_deref(), Some("/routing-only"));
     assert_eq!(options.auth_token.as_deref(), Some("token"));
     assert!(options.headers.is_empty());
-}
-
-#[test]
-fn ambient_policy_supports_inherit_override_and_omit() {
-    let client = client();
-    client.set_ambient_agent_task_id(Some("ambient-task".to_string()));
-
-    let inherited = block_on(client.ambient_headers(AmbientHeaderPolicy {
-        workload_token: HeaderOverride::Set("workload".to_string()),
-        cloud_agent_id: HeaderOverride::Inherit,
-        agent_source: HeaderOverride::Inherit,
-    }))
-    .unwrap();
-    assert!(inherited.contains(&(
-        AMBIENT_WORKLOAD_TOKEN_HEADER.to_string(),
-        "workload".to_string(),
-    )));
-    assert!(inherited.contains(&(
-        CLOUD_AGENT_ID_HEADER.to_string(),
-        "ambient-task".to_string()
-    )));
-    assert!(inherited.contains(&(AGENT_SOURCE_HEADER.to_string(), "cloud_mode".to_string())));
-
-    let task_scoped = block_on(client.ambient_headers(AmbientHeaderPolicy {
-        workload_token: HeaderOverride::Set("workload".to_string()),
-        ..AmbientHeaderPolicy::for_task("specific-task")
-    }))
-    .unwrap();
-    assert!(task_scoped.contains(&(
-        CLOUD_AGENT_ID_HEADER.to_string(),
-        "specific-task".to_string(),
-    )));
-    assert!(!task_scoped.contains(&(
-        CLOUD_AGENT_ID_HEADER.to_string(),
-        "ambient-task".to_string()
-    )));
-
-    let omitted = block_on(client.ambient_headers(AmbientHeaderPolicy::omit_all())).unwrap();
-    assert!(omitted.is_empty());
-}
-
-#[test]
-fn pinned_workload_token_is_withheld_unless_it_outlives_the_deadline() {
-    let client = client();
-    let deadline = chrono::Utc::now() + chrono::Duration::hours(6);
-
-    client.set_ambient_workload_token_for_test(
-        "long-lived".to_string(),
-        Some(deadline + chrono::Duration::hours(1)),
-    );
-    assert_eq!(
-        block_on(client.get_ambient_workload_token_valid_until(deadline)).unwrap(),
-        Some("long-lived".to_string()),
-    );
-
-    // A token that expires mid-run must never be handed out for pinning, even though it is
-    // valid right now. Asserted as an inequality rather than `None` because a
-    // `WARP_WORKLOAD_TOKEN` in the ambient environment legitimately yields a non-expiring
-    // replacement here.
-    client.set_ambient_workload_token_for_test(
-        "expires-mid-run".to_string(),
-        Some(deadline - chrono::Duration::hours(1)),
-    );
-    assert_ne!(
-        block_on(client.get_ambient_workload_token_valid_until(deadline)).unwrap(),
-        Some("expires-mid-run".to_string()),
-    );
-
-    // Platforms that issue non-expiring tokens outlive every deadline.
-    client.set_ambient_workload_token_for_test("never-expires".to_string(), None);
-    assert_eq!(
-        block_on(client.get_ambient_workload_token_valid_until(deadline)).unwrap(),
-        Some("never-expires".to_string()),
-    );
 }
 
 #[test]
@@ -274,7 +148,6 @@ fn cached_workload_token_does_not_wait_for_refresh() {
 #[test]
 fn authenticated_graphql_options_include_configured_and_ambient_headers() {
     let client = client();
-    client.set_ambient_agent_task_id(Some("ambient-task".to_string()));
 
     let options = block_on(client.graphql_request_options(None)).unwrap();
 
@@ -285,13 +158,6 @@ fn authenticated_graphql_options_include_configured_and_ambient_headers() {
             .get("X-Test-Authenticated")
             .map(String::as_str),
         Some("true")
-    );
-    assert_eq!(
-        options
-            .headers
-            .get(CLOUD_AGENT_ID_HEADER)
-            .map(String::as_str),
-        Some("ambient-task")
     );
     assert_eq!(
         options.headers.get(AGENT_SOURCE_HEADER).map(String::as_str),
@@ -310,19 +176,7 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
         http::header::PROXY_AUTHORIZATION.as_str().to_string(),
         "malicious".to_string(),
     );
-    headers.insert(
-        CLOUD_AGENT_ID_HEADER.to_ascii_lowercase(),
-        "malicious".to_string(),
-    );
     headers.insert("x-eval-user-id".to_string(), "1234".to_string());
-    headers.insert(
-        PREWARMED_SANDBOX_ID_HEADER.to_ascii_lowercase(),
-        "malicious".to_string(),
-    );
-    headers.insert(
-        PREWARMED_SANDBOX_WORKLOAD_TOKEN_HEADER.to_ascii_lowercase(),
-        "malicious".to_string(),
-    );
     let client = BaseClient::new(
         Arc::new(http_client::Client::new()),
         Arc::new(http_client::Client::new_external()),
@@ -343,24 +197,9 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
             .headers
             .contains_key(http::header::PROXY_AUTHORIZATION.as_str())
     );
-    assert!(
-        !options
-            .headers
-            .contains_key(&CLOUD_AGENT_ID_HEADER.to_ascii_lowercase())
-    );
     assert_eq!(
         options.headers.get("x-eval-user-id").map(String::as_str),
         Some("1234")
-    );
-    assert!(
-        !options
-            .headers
-            .contains_key(&PREWARMED_SANDBOX_ID_HEADER.to_ascii_lowercase())
-    );
-    assert!(
-        !options
-            .headers
-            .contains_key(&PREWARMED_SANDBOX_WORKLOAD_TOKEN_HEADER.to_ascii_lowercase())
     );
 }
 

@@ -98,7 +98,7 @@ fn agent_footer_usage_tooltip_updates_on_usage_events() {
         let conversation_id = app.update(|ctx| {
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, ctx| {
                 let conversation_id =
-                    model.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    model.start_new_conversation(terminal.id(), false, false, ctx);
                 model.set_active_conversation_id(conversation_id, terminal.id(), ctx);
                 let mut metadata = native_conversation_metadata();
                 metadata.usage.total_billed_cost_in_cents = Some(250.0);
@@ -149,7 +149,7 @@ fn agent_footer_usage_tooltip_follows_the_tier_charge_unit() {
         app.update(|ctx| {
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, ctx| {
                 let conversation_id =
-                    model.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    model.start_new_conversation(terminal.id(), false, false, ctx);
                 model.set_active_conversation_id(conversation_id, terminal.id(), ctx);
                 model.update_conversation_cost_and_usage_for_request(
                     conversation_id,
@@ -195,7 +195,7 @@ fn agent_footer_usage_popover_renders_with_terminal_positioning_provider() {
         app.update(|ctx| {
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, ctx| {
                 let conversation_id =
-                    model.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    model.start_new_conversation(terminal.id(), false, false, ctx);
                 model.set_active_conversation_id(conversation_id, terminal.id(), ctx);
                 model.update_conversation_cost_and_usage_for_request(
                     conversation_id,

@@ -2,8 +2,8 @@ use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 
 use super::{
-    AgentConfigSnapshot, AgentSource, AmbientAgentLiveSessionState, AmbientAgentTask,
-    AmbientAgentTaskState, ExecutionLocation, TaskStatusErrorCode, TaskStatusMessage,
+    AgentConfigSnapshot, AgentSource, AmbientAgentTask, AmbientAgentTaskState, ExecutionLocation,
+    TaskStatusErrorCode, TaskStatusMessage,
 };
 
 fn make_task(snapshot_name: Option<&str>, title: &str) -> AmbientAgentTask {
@@ -33,7 +33,6 @@ fn make_task(snapshot_name: Option<&str>, title: &str) -> AmbientAgentTask {
         is_sandbox_running: false,
         agent_config_snapshot,
         artifacts: vec![],
-        debug_agent_available: false,
         scope: None,
     }
 }
@@ -199,7 +198,6 @@ fn ambient_agent_task_deserializes_github_webhook_source() {
     let task: AmbientAgentTask = serde_json::from_value(task).unwrap();
 
     assert_eq!(task.source, Some(AgentSource::GitHubWebhook));
-    assert!(task.blocks_cloud_followups());
 }
 
 #[test]
@@ -210,7 +208,6 @@ fn ambient_agent_task_deserializes_orchestration_source() {
     let task: AmbientAgentTask = serde_json::from_value(task).unwrap();
 
     assert_eq!(task.source, Some(AgentSource::Orchestration));
-    assert!(!task.blocks_cloud_followups());
 }
 
 #[test]
@@ -224,13 +221,6 @@ fn retained_failed_and_error_tasks_have_attachable_live_sessions() {
         task.is_sandbox_running = true;
 
         assert!(task.has_active_execution());
-        assert!(!task.can_submit_cloud_followup());
-        assert!(matches!(
-            task.active_live_session_state(),
-            AmbientAgentLiveSessionState::Attachable {
-                session_id: resolved_session_id
-            } if resolved_session_id.to_string() == session_id
-        ));
     }
 }
 
@@ -243,12 +233,7 @@ fn ended_failed_task_with_stale_session_metadata_is_inactive() {
         Some("https://app.warp.dev/session/22222222-2222-2222-2222-222222222222".to_string());
     task.is_sandbox_running = false;
 
-    assert_eq!(
-        task.active_live_session_state(),
-        AmbientAgentLiveSessionState::Inactive
-    );
     assert!(!task.has_active_execution());
-    assert!(task.can_submit_cloud_followup());
 }
 
 #[test]
@@ -258,9 +243,5 @@ fn succeeded_task_does_not_become_attachable_from_stale_running_metadata() {
     task.session_id = Some("22222222-2222-2222-2222-222222222222".to_string());
     task.is_sandbox_running = true;
 
-    assert_eq!(
-        task.active_live_session_state(),
-        AmbientAgentLiveSessionState::Inactive
-    );
     assert!(!task.has_active_execution());
 }

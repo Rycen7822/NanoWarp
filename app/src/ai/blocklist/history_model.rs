@@ -1060,11 +1060,9 @@ impl BlocklistAIHistoryModel {
         terminal_surface_id: EntityId,
         is_autoexecute_override: bool,
         is_viewing_shared_session: bool,
-        is_cli_agent_transcript: bool,
         ctx: &mut ModelContext<Self>,
     ) -> AIConversationId {
-        let mut new_conversation =
-            AIConversation::new(is_viewing_shared_session, is_cli_agent_transcript);
+        let mut new_conversation = AIConversation::new(is_viewing_shared_session);
         if is_autoexecute_override {
             new_conversation.toggle_autoexecute_override();
         }
@@ -1225,7 +1223,7 @@ impl BlocklistAIHistoryModel {
         );
 
         let new_conversation_id =
-            self.start_new_conversation(terminal_surface_id, false, false, false, ctx);
+            self.start_new_conversation(terminal_surface_id, false, false, ctx);
         for exchange_id in exchange_ids_to_transfer {
             let old_conversation = self
                 .conversations_by_id

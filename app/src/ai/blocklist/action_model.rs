@@ -25,7 +25,7 @@ pub use execute::{
     AskUserQuestionExecutor, EditAcceptClickedEvent, EditResolvedEvent, EditStats,
     NewConversationDecision, ReadFileContextResult, RequestFileEditsExecutor,
     RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent, ShellCommandExecutor,
-    ShellCommandExecutorEvent, ShellRecoveryResult, read_local_file_context,
+    ShellCommandExecutorEvent, read_local_file_context,
 };
 use futures::future::{BoxFuture, join_all};
 use itertools::Itertools;

@@ -25,16 +25,6 @@ pub enum ActiveAgentViewsEvent {
     ConversationClosed { conversation_id: AIConversationId },
     /// A conversation was entered within a terminal view.
     TerminalViewFocused,
-    /// An ambient agent session was opened in a tab.
-    AmbientSessionOpened {
-        #[allow(dead_code)]
-        task_id: AmbientAgentTaskId,
-    },
-    /// An ambient agent session tab was closed.
-    AmbientSessionClosed {
-        #[allow(dead_code)]
-        task_id: AmbientAgentTaskId,
-    },
     /// A window was closed and its focused state was removed.
     WindowClosed,
 }
@@ -74,15 +64,12 @@ struct FocusedTerminalState {
 
 /// ActiveAgentViewsModel tracks which agent conversations are currently "active" - meaning either:
 /// - An interactive conversation whose agent view is expanded in a pane
-/// - An ambient conversation that is open in a tab
 /// This model also tracks which conversation is focused (i.e. active in the currently focused pane).
 pub struct ActiveAgentViewsModel {
     /// Per-window focused terminal state, keyed by WindowId.
     focused_terminal_states: HashMap<WindowId, FocusedTerminalState>,
     /// Map from terminal_view_id to agent view handles (for interactive conversations).
     agent_view_handles: HashMap<EntityId, ActiveAgentViewHandles>,
-    /// Map from terminal_view_id to ambient task ID (for open ambient sessions).
-    ambient_sessions: HashMap<EntityId, AmbientAgentTaskId>,
     /// Tracks when each conversation was last opened/focused for sorting purposes.
     last_opened_times: HashMap<ConversationOrTaskId, DateTime<Utc>>,
 }
@@ -98,7 +85,6 @@ impl ActiveAgentViewsModel {
         Self {
             focused_terminal_states: HashMap::new(),
             agent_view_handles: HashMap::new(),
-            ambient_sessions: HashMap::new(),
             last_opened_times: HashMap::new(),
         }
     }
@@ -298,40 +284,6 @@ impl ActiveAgentViewsModel {
         }
     }
 
-    /// Register an ambient session (open in a tab).
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub fn register_ambient_session(
-        &mut self,
-        terminal_view_id: EntityId,
-        task_id: AmbientAgentTaskId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.ambient_sessions
-            .retain(|view_id, id| *view_id == terminal_view_id || *id != task_id);
-        let existing = self.ambient_sessions.insert(terminal_view_id, task_id);
-        if existing != Some(task_id) {
-            self.last_opened_times
-                .insert(ConversationOrTaskId::TaskId(task_id), Utc::now());
-            ctx.emit(ActiveAgentViewsEvent::AmbientSessionOpened { task_id });
-        }
-    }
-
-    /// Unregister an ambient session when the tab is closed.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub fn unregister_ambient_session(
-        &mut self,
-        terminal_view_id: EntityId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let Some(task_id) = self.ambient_sessions.remove(&terminal_view_id)
-            && !self.ambient_sessions.values().any(|id| *id == task_id)
-        {
-            self.last_opened_times
-                .remove(&ConversationOrTaskId::TaskId(task_id));
-            ctx.emit(ActiveAgentViewsEvent::AmbientSessionClosed { task_id });
-        }
-    }
-
     /// Returns the terminal view ID for a conversation if it's currently active
     /// (i.e., has an expanded agent view in some pane).
     pub fn terminal_view_id_for_conversation(
@@ -413,16 +365,6 @@ impl ActiveAgentViewsModel {
         self.last_opened_times.get(id).copied()
     }
 
-    /// Returns the terminal view ID that has an active ambient session with the given task ID.
-    pub fn get_terminal_view_id_for_ambient_task(
-        &self,
-        task_id: AmbientAgentTaskId,
-    ) -> Option<EntityId> {
-        self.ambient_sessions
-            .iter()
-            .find_map(|(view_id, id)| (*id == task_id).then_some(*view_id))
-    }
-
     /// Returns the terminal view ID that has an active conversation with the given ID.
     pub fn get_terminal_view_id_for_conversation(
         &self,
@@ -451,12 +393,6 @@ impl ActiveAgentViewsModel {
         entry: &AgentConversationEntry,
         ctx: &AppContext,
     ) -> Option<EntityId> {
-        if let Some(task_id) = entry.identity.ambient_agent_task_id
-            && let Some(terminal_view_id) = self.get_terminal_view_id_for_ambient_task(task_id)
-        {
-            return Some(terminal_view_id);
-        }
-
         if let Some(conversation_id) = entry.identity.local_conversation_id {
             return self.get_terminal_view_id_for_conversation(conversation_id, ctx);
         }
@@ -465,7 +401,7 @@ impl ActiveAgentViewsModel {
     }
     /// Get all currently active conversation IDs.
     /// A conversation is active if it is open and a query has been sent since it was last opened.
-    /// New (empty) conversations and ambient sessions are always considered active when open.
+    /// New (empty) conversations are always considered active when open.
     pub fn get_all_active_conversation_ids(
         &self,
         ctx: &AppContext,
@@ -487,11 +423,6 @@ impl ActiveAgentViewsModel {
             }
         }
 
-        // Ambient sessions are always considered active when open.
-        for task_id in self.ambient_sessions.values() {
-            ids.insert(ConversationOrTaskId::TaskId(*task_id));
-        }
-
         ids
     }
 
@@ -510,11 +441,6 @@ impl ActiveAgentViewsModel {
             {
                 ids.insert(ConversationOrTaskId::ConversationId(conversation_id));
             }
-        }
-
-        // Collect from ambient sessions (open in tabs)
-        for task_id in self.ambient_sessions.values() {
-            ids.insert(ConversationOrTaskId::TaskId(*task_id));
         }
 
         ids

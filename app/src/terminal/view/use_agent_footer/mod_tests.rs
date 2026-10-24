@@ -16,7 +16,6 @@ use crate::ai::llms::LLMId;
 use crate::features::FeatureFlag;
 use crate::settings::AISettings;
 use crate::terminal::model::ansi::{BootstrappedValue, Handler as _, InitShellValue};
-use crate::terminal::shared_session::SharedSessionSource;
 use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::initialize_app_for_terminal_view;
 
@@ -155,7 +154,6 @@ fn insert_pending_ai_block(
             &view.cli_subagent_controller,
             &view.model_events_handle,
             view.agent_view_controller.clone(),
-            view.ambient_agent_view_model.clone(),
             view.view_handle.clone(),
             view.id(),
             ctx,
@@ -271,43 +269,6 @@ fn use_agent_footer_renders_for_manual_handoff_when_unfinished_ai_block_remains(
                 .last_non_hidden_rich_content_block_after_block(Some(active_block_index))
                 .map(|(_, item)| item.view_id);
             assert_eq!(rendered_footer_view_id, Some(view.use_agent_footer.id()));
-        });
-    })
-}
-
-/// During the setup phase of a cloud agent (ambient) shared session — LRCs
-/// running before the task is ready — the use-agent footer must stay hidden.
-#[test]
-fn use_agent_footer_hidden_during_cloud_agent_setup_lrc() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        terminal.update(&mut app, |view, ctx| {
-            simulate_user_started_long_running_command(view);
-
-            // Cloud agent setup phase: ambient source type set, LRC running,
-            view.model
-                .lock()
-                .set_shared_session_source(SharedSessionSource::ambient_agent(None));
-            assert!(view.model.lock().is_shared_ambient_agent_session());
-
-            view.maybe_show_use_agent_footer_in_blocklist(ctx);
-
-            let model = view.model.lock();
-            assert!(
-                !view.should_render_use_agent_footer(&model, ctx),
-                "footer should be hidden during cloud agent setup LRCs",
-            );
-            let active_block_index = model.block_list().active_block_index();
-            assert!(
-                model
-                    .block_list()
-                    .last_non_hidden_rich_content_block_after_block(Some(active_block_index))
-                    .is_none(),
-                "footer rich content should not be in the blocklist during cloud setup",
-            );
         });
     })
 }

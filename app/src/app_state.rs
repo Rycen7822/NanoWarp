@@ -140,6 +140,7 @@ pub enum LeafContents {
     CustomRouterEditor,
     ExecutionProfileEditor,
     CodeReview(CodeReviewPaneSnapshot),
+    /// Native task transcript history; restoration is always read-only.
     AmbientAgent(AmbientAgentPaneSnapshot),
     /// The in-app network log pane. Not persisted across restarts because the
     /// backing log is an in-memory ring buffer that starts empty on launch.
@@ -178,13 +179,12 @@ impl LeafContents {
     }
 }
 
-/// Snapshot of an ambient agent pane.
+/// Persisted identity of a read-only Native task transcript.
+/// The legacy type name matches the existing SQLite leaf type.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AmbientAgentPaneSnapshot {
     pub uuid: Vec<u8>,
-    // `task_id` is purposefully optional,
-    // as you can have a valid state (i.e. an empty cloud mode pane) where it is None.
-    pub task_id: Option<AmbientAgentTaskId>,
+    pub task_id: AmbientAgentTaskId,
 }
 
 /// Snapshot of the contents of a terminal pane.

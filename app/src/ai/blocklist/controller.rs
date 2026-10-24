@@ -1475,7 +1475,6 @@ impl BlocklistAIController {
                 self.terminal_surface_id,
                 is_autoexecute_override,
                 false,
-                false,
                 ctx,
             )
         });

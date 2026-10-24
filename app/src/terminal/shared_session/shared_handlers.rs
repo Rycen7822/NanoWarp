@@ -142,44 +142,6 @@ pub(crate) fn apply_selected_conversation_update(
         return;
     };
 
-    // In shared ambient agent sessions, we can temporarily receive "none/new" selected_conversation
-    // updates (e.g. before a server conversation token exists).
-    //
-    // If we already have an active local conversation selected (typically created/selected by the
-    // incoming shared-session init event), treating these updates as authoritative can create an
-    // extra empty conversation on the viewer.
-    //
-    // To avoid that, ignore "none/new" updates once there is already an active *empty* conversation.
-    if view.as_ref(ctx).is_shared_ambient_agent_session()
-        && matches!(
-            selected_conversation,
-            SelectedConversation::NewConversation | SelectedConversation::NoConversation
-        )
-    {
-        let active_conversation_id = if FeatureFlag::AgentView.is_enabled() {
-            view.as_ref(ctx)
-                .agent_view_controller()
-                .as_ref(ctx)
-                .agent_view_state()
-                .active_conversation_id()
-        } else {
-            view.as_ref(ctx)
-                .ai_context_model()
-                .as_ref(ctx)
-                .selected_conversation_id(ctx)
-        };
-
-        let history_model = BlocklistAIHistoryModel::handle(ctx);
-        let has_empty_active_conversation = active_conversation_id
-            .as_ref()
-            .and_then(|conversation_id| history_model.as_ref(ctx).conversation(conversation_id))
-            .is_some_and(|c| c.exchange_count() == 0);
-
-        if has_empty_active_conversation {
-            return;
-        }
-    }
-
     match selected_conversation {
         SelectedConversation::ExistingConversation(server_conversation_token) => {
             // Convert server token to local conversation ID using the AI controller

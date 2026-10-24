@@ -36,13 +36,10 @@ use warpui::ui_components::text_input::TextInput;
 use warpui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
 
 use super::{render_group_member_icon_collage, select_unique_pane_kinds};
-use crate::ai::agent::conversation::{ConversationStatus, StatusColorStyle};
+use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent_management::AgentNotificationsModel;
-use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::conversation_status_ui::render_status_element;
 use crate::appearance::Appearance;
-use crate::cloud_object::CloudObjectLookup as _;
-use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::code::editor::{add_color, remove_color};
 use crate::code::icon_from_file_path;
 use crate::context_chips::display_chip::GitLineChanges;
@@ -124,7 +121,7 @@ const ICON_WITH_STATUS_GAP: f32 = 8.;
 pub(super) const VERTICAL_TABS_DETAIL_SIDECAR_POSITION_ID: &str = "vertical_tabs:detail_sidecar";
 
 /// Total size of the icon-with-status component rendered for each vertical-tabs row.
-/// Sub-components (circle, badge, cloud) are derived inside `render_icon_with_status`.
+/// Sub-components (circle and badge) are derived inside `render_icon_with_status`.
 const VERTICAL_TABS_ICON_SIZE: f32 = 24.;
 
 /// Icon size for the per-line conversation status pill in Summary mode. Pairs with
@@ -893,8 +890,8 @@ enum VerticalTabsResolvedMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SummaryPaneKind {
     Terminal,
-    OzAgent { is_ambient: bool },
-    CLIAgent { agent: CLIAgent, is_ambient: bool },
+    OzAgent,
+    CLIAgent { agent: CLIAgent },
     Code { title: String },
     CodeDiff,
     File,
@@ -1045,17 +1042,15 @@ fn normalize_summary_text(text: &str) -> Option<String> {
 
 /// Returns the conversation status for a terminal pane, used to render the per-line status
 /// pill prefix in Summary mode. Mirrors the status sources used by `render_detail_status_pill`
-/// in the detail sidecar — Warp Agent conversations or
-/// ambient agent sessions. Returns `None` for plain terminals or conversations without status.
+/// in the detail sidecar. Returns `None` for plain terminals or conversations without status.
 fn summary_conversation_status_for_terminal(
     terminal_view: &TerminalView,
     app: &AppContext,
 ) -> Option<ConversationStatus> {
-    let is_ambient = terminal_view.is_ambient_agent_session(app);
     let has_conversation = terminal_view
         .selected_conversation_display_title(app)
         .is_some();
-    (has_conversation || is_ambient)
+    has_conversation
         .then(|| terminal_view.selected_conversation_status_for_display(app))
         .flatten()
 }
@@ -1444,9 +1439,7 @@ fn render_detail_kind_badge_icon(
         TypedPane::Terminal(terminal_pane) => {
             let terminal_view = terminal_pane.terminal_view(app);
             let terminal_view = terminal_view.as_ref(app);
-            let icon = if terminal_view.is_ambient_agent_session(app) {
-                WarpIcon::CloudFilled
-            } else if terminal_view
+            let icon = if terminal_view
                 .selected_conversation_display_title(app)
                 .is_some()
             {
@@ -1457,7 +1450,6 @@ fn render_detail_kind_badge_icon(
                 WarpIcon::Terminal
             };
             let color = match icon {
-                WarpIcon::CloudFilled => theme.main_text_color(theme.background()),
                 // Theme-adaptive fill: no black chip behind this glyph in the
                 // sidecar context, so use the main text color to stay visible
                 // on both dark and light themes.
@@ -3614,12 +3606,10 @@ impl TypedPane<'_> {
                 // Route through the shared helper so summary mode agrees with
                 // `resolve_icon_with_status_variant` on what the tab represents.
                 match terminal_view_agent_icon_variant(terminal_view, app) {
-                    Some(IconWithStatusVariant::OzAgent { is_ambient, .. }) => {
-                        SummaryPaneKind::OzAgent { is_ambient }
+                    Some(IconWithStatusVariant::OzAgent { .. }) => SummaryPaneKind::OzAgent,
+                    Some(IconWithStatusVariant::CLIAgent { agent, .. }) => {
+                        SummaryPaneKind::CLIAgent { agent }
                     }
-                    Some(IconWithStatusVariant::CLIAgent {
-                        agent, is_ambient, ..
-                    }) => SummaryPaneKind::CLIAgent { agent, is_ambient },
                     Some(_) | None => SummaryPaneKind::Terminal,
                 }
             }
@@ -4302,8 +4292,7 @@ fn preferred_agent_tab_titles(
 
 fn terminal_agent_text(terminal_view: &TerminalView, app: &AppContext) -> TerminalAgentText {
     let conversation_display_title = terminal_view.selected_conversation_display_title(app);
-    let is_oz_agent =
-        conversation_display_title.is_some() || terminal_view.is_ambient_agent_session(app);
+    let is_oz_agent = conversation_display_title.is_some();
     TerminalAgentText {
         conversation_display_title,
         conversation_latest_user_prompt: terminal_view
@@ -4372,7 +4361,7 @@ impl PaneGroup {
 
 /// Returns the [`SummaryPaneKind`] representing how the given pane should
 /// be rendered visually, matching the treatment used by vertical tabs
-/// Summary mode. For Terminal panes, distinguishes Oz vs Oz cloud vs each
+/// Summary mode. For Terminal panes, distinguishes Warp Agent and each
 /// known CLI agent (Claude, Codex, …) by routing through
 /// `terminal_view_agent_icon_variant`; for other pane types it falls back
 /// to `TypedPane::summary_pane_kind`. Returns `None` when `pane_id` does
@@ -4392,45 +4381,14 @@ pub(super) fn pane_summary_kind(
     Some(typed.summary_pane_kind(title, app))
 }
 
-/// Returns the best available working-directory string for a terminal pane,
-/// incorporating cloud environment name and setup status for ambient agent sessions.
+/// Returns the working-directory string for a terminal pane when available.
 fn resolved_terminal_working_directory(
     terminal_view: &TerminalView,
     app: &AppContext,
 ) -> Option<String> {
-    let working_directory = terminal_view
+    terminal_view
         .display_working_directory(app)
-        .filter(|wd| !wd.trim().is_empty());
-    cloud_agent_working_directory_and_env(terminal_view, working_directory.as_deref(), app)
-        .or(working_directory)
-}
-
-/// For cloud agent panes, builds a composite string from the environment name,
-/// setup status, and/or working directory. Returns `None` for non-cloud sessions.
-fn cloud_agent_working_directory_and_env(
-    terminal_view: &TerminalView,
-    working_directory: Option<&str>,
-    app: &AppContext,
-) -> Option<String> {
-    if !terminal_view.is_ambient_agent_session(app) {
-        return None;
-    }
-    let model_ref = terminal_view.ambient_agent_view_model()?.as_ref(app);
-
-    let env_name = model_ref
-        .selected_environment_id()
-        .and_then(|id| CloudAmbientAgentEnvironment::get_by_id(id, app))
-        .map(|env| env.model().string_model.display_name());
-
-    let setup_status: Option<&str> = model_ref.agent_progress().map(|p| p.setup_status_text());
-
-    match (env_name, setup_status, working_directory) {
-        (Some(env), Some(status), _) => Some(format!("{env} · {status}")),
-        (Some(env), None, Some(wd)) => Some(format!("{env} · {wd}")),
-        (Some(env), None, None) => Some(env),
-        (None, Some(status), _) => Some(status.to_string()),
-        (None, None, _) => None,
-    }
+        .filter(|wd| !wd.trim().is_empty())
 }
 
 fn render_terminal_row_content(
@@ -5055,16 +5013,14 @@ pub(super) fn render_summary_pane_kind_icon_circle(
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     let theme = appearance.theme();
-    // Route all Warp agent kinds, plus ambient CLI agents, through
-    // `render_icon_with_status` so their circle and cloud treatment stays consistent
-    // with the pane row.
-    if let Some(variant) = ambient_agent_variant(&kind) {
+    // Route Warp agents through the shared renderer to match the pane row.
+    if let Some(variant) = warp_agent_variant(&kind) {
         return render_icon_with_status(variant, total_size, 0., theme, theme.background());
     }
     let icon_size = total_size * SUMMARY_INLINE_ICON_RATIO;
     let padding = total_size * SUMMARY_INLINE_PADDING_RATIO;
     let (icon_element, background): (Box<dyn Element>, ElementFill) = match kind {
-        SummaryPaneKind::OzAgent { .. } => unreachable!("handled by ambient_agent_variant"),
+        SummaryPaneKind::OzAgent => unreachable!("handled by warp_agent_variant"),
         SummaryPaneKind::CLIAgent { agent, .. } => {
             let icon_color = agent.brand_icon_color();
             let icon_element = agent
@@ -5127,22 +5083,10 @@ pub(super) fn render_summary_pane_kind_icon_circle(
     .finish()
 }
 
-/// Maps Warp agents and ambient CLI agents to the shared icon-with-status renderer.
-/// Non-ambient CLI agents and non-agent kinds fall back to inline summary rendering.
-fn ambient_agent_variant(kind: &SummaryPaneKind) -> Option<IconWithStatusVariant> {
+/// Maps Warp agents to the shared status renderer. CLI agents retain inline summary icons.
+fn warp_agent_variant(kind: &SummaryPaneKind) -> Option<IconWithStatusVariant> {
     match kind {
-        SummaryPaneKind::OzAgent { is_ambient } => Some(IconWithStatusVariant::OzAgent {
-            status: None,
-            is_ambient: *is_ambient,
-        }),
-        SummaryPaneKind::CLIAgent {
-            agent,
-            is_ambient: true,
-        } => Some(IconWithStatusVariant::CLIAgent {
-            agent: *agent,
-            status: None,
-            is_ambient: true,
-        }),
+        SummaryPaneKind::OzAgent => Some(IconWithStatusVariant::OzAgent { status: None }),
         _ => None,
     }
 }
@@ -5165,7 +5109,7 @@ fn summary_pane_kind_icon(
         // Note: this arm is currently unreachable — OzAgent is matched by the dedicated arm in
         // render_summary_pane_kind_icon_circle before summary_pane_kind_icon is called.
         // Kept for completeness in case callers change.
-        SummaryPaneKind::OzAgent { .. } => (WarpIcon::Agent, main_text),
+        SummaryPaneKind::OzAgent => (WarpIcon::Agent, main_text),
         SummaryPaneKind::CLIAgent { agent, .. } => (
             agent.icon().unwrap_or(WarpIcon::Terminal),
             WarpThemeFill::Solid(agent.brand_icon_color()),
@@ -6699,7 +6643,7 @@ fn render_detail_status_pill(
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     let theme = appearance.theme();
-    let (icon, color) = status.status_icon_and_color(theme, StatusColorStyle::Standard);
+    let (icon, color) = status.status_icon_and_color(theme);
     Container::new(
         Flex::row()
             .with_main_axis_size(MainAxisSize::Min)

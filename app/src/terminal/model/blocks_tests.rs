@@ -1806,7 +1806,7 @@ fn test_agent_origin_block_can_be_attached_to_other_conversation() {
     let expected_origin_conversation_id = AIConversationId::new();
     let other_conversation_id = AIConversationId::new();
 
-    block_list.enter_conversation_context(expected_origin_conversation_id, false, false);
+    block_list.enter_conversation_context(expected_origin_conversation_id, false);
     let user_block_index = insert_block(&mut block_list, "user", "output");
     let user_block_id = block_list.block_at(user_block_index).unwrap().id().clone();
 
@@ -1830,7 +1830,7 @@ fn test_agent_origin_block_can_be_attached_to_other_conversation() {
         _ => panic!("Expected agent visibility for agent-origin block"),
     }
 
-    block_list.enter_conversation_context(other_conversation_id, false, false);
+    block_list.enter_conversation_context(other_conversation_id, false);
     let user_block_index = block_list.block_index_for_id(&user_block_id).unwrap();
     let user_block = block_list.block_at(user_block_index).unwrap();
     assert!(!user_block.is_empty(block_list.transcript_scope()));
@@ -1883,69 +1883,6 @@ fn unfiltered_transcript_scope_shows_restored_conversation_command_blocks() {
         AgentViewVisibility::Agent { .. }
     ));
     assert!(restored_block.is_visible(block_list.transcript_scope()));
-}
-
-#[test]
-fn test_finish_startup_commands_at_block_attaches_and_unhides_command_blocks_since_target_block() {
-    let _agent_view_flag = FeatureFlag::AgentView.override_enabled(true);
-    let mut block_list =
-        new_bootstrapped_block_list(None, None, ChannelEventListener::new_for_test());
-    block_list.set_is_executing_oz_environment_startup_commands(true);
-
-    let setup_block_index = insert_block(&mut block_list, "setup", "output");
-    let harness_block_index = insert_block(&mut block_list, "claude", "output");
-    let followup_block_index = insert_block(&mut block_list, "pwd", "output");
-    let setup_block_id = block_list.block_at(setup_block_index).unwrap().id().clone();
-    let harness_block_id = block_list
-        .block_at(harness_block_index)
-        .unwrap()
-        .id()
-        .clone();
-    let followup_block_id = block_list
-        .block_at(followup_block_index)
-        .unwrap()
-        .id()
-        .clone();
-    let conversation_id = AIConversationId::new();
-
-    block_list.enter_conversation_context(conversation_id, false, true);
-
-    block_list
-        .finish_oz_environment_startup_commands_at_block(&harness_block_id, Some(conversation_id));
-
-    assert!(!block_list.is_executing_oz_environment_startup_commands());
-
-    for block_id in [&harness_block_id, &followup_block_id] {
-        let block = block_list
-            .block_with_id(block_id)
-            .expect("block should still exist");
-        assert!(!block.is_hidden());
-        assert!(!block.is_oz_environment_startup_command());
-        assert!(!block.should_hide_block(block_list.transcript_scope()));
-        match block.agent_view_visibility() {
-            AgentViewVisibility::Terminal {
-                pending_conversation_ids,
-                conversation_ids,
-            } => {
-                assert!(pending_conversation_ids.is_empty());
-                assert!(conversation_ids.contains(&conversation_id));
-            }
-            AgentViewVisibility::Agent {
-                origin_conversation_id,
-                pending_other_conversation_ids,
-                other_conversation_ids,
-            } => panic!(
-                "expected terminal visibility, got agent visibility: {origin_conversation_id:?}, {pending_other_conversation_ids:?}, {other_conversation_ids:?}"
-            ),
-        }
-    }
-
-    let setup_block = block_list
-        .block_with_id(&setup_block_id)
-        .expect("setup block should still exist");
-    assert!(setup_block.is_hidden());
-    assert!(setup_block.is_oz_environment_startup_command());
-    assert!(setup_block.should_hide_block(block_list.transcript_scope()));
 }
 
 #[test]
@@ -2542,7 +2479,7 @@ fn agent_transcript_navigable_items_include_prompts_and_user_shell_blocks() {
     let mut block_list =
         new_bootstrapped_block_list(None, None, ChannelEventListener::new_for_test());
     let conversation_id = AIConversationId::new();
-    block_list.enter_conversation_context(conversation_id, false, false);
+    block_list.enter_conversation_context(conversation_id, false);
 
     // User-query AI segment (navigable).
     let prompt_1 = EntityId::new();

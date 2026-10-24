@@ -35,8 +35,6 @@ use crate::ai::agent::{
 };
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::{BlocklistAIPermissions, ResponseStreamId};
-use crate::ai::cloud_agent_settings::{AuthSecretPreference, CloudAgentSettings};
-use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::llms::{LLMId, LLMPreferences};
@@ -97,11 +95,9 @@ use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::workspace::{ActiveSession, OneTimeModalModel, ToastStack, WorkspaceRegistry};
-use crate::workspaces::team::Team;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
-use crate::workspaces::user_workspaces::{TeamContextForOperation, UserWorkspaces};
-use crate::workspaces::workspace::Workspace;
+use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{
     AgentNotificationsModel, GlobalResourceHandles, GlobalResourceHandlesProvider, experiments,
 };
@@ -269,7 +265,6 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| Prompt::mock());
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(crate::ai::cloud_environments::CloudEnvironmentCatalog::new);
     app.add_singleton_model(ImportedConfigModel::new);
     app.add_singleton_model(UserWorkspaces::default_mock);
     app.add_singleton_model(TeamTesterStatus::mock);
@@ -299,7 +294,6 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(LLMPreferences::new);
     app.add_singleton_model(HarnessAvailabilityModel::new);
-    app.add_singleton_model(ConnectedSelfHostedWorkersModel::new);
     app.add_singleton_model(SessionPermissionsManager::new);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(|_| DetectedRepositories::default());
@@ -1293,32 +1287,6 @@ fn maybe_route_ai_query_to_remote_target_blocks_read_only_viewer() {
 }
 
 #[test]
-fn unresolved_ambient_task_blocks_submission() {
-    // REMOTE-2661: eligibility that is merely unresolved (the ambient task is not in
-    // `AgentConversationsModel` yet) must fail closed for every submission path, rather than
-    // fall back to the direct viewer path or a new local conversation.
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        let task_id: crate::ai::ambient_agents::AmbientAgentTaskId =
-            "550e8400-e29b-41d4-a716-000000000099".parse().unwrap();
-
-        let blocked = input.update(&mut app, |input, ctx| {
-            input.block_submission_while_ambient_task_unresolved(Some(task_id), ctx)
-        });
-        assert!(
-            blocked,
-            "an uncached ambient task must block the submission instead of resolving eligibility"
-        );
-    });
-}
-
-#[test]
 fn maybe_route_ai_query_to_remote_target_forwards_executor_viewer_prompt() {
     // An executor viewer forwards the prompt to the sharer (SendAgentPrompt) instead of running
     // it on the viewer's local machine.
@@ -1364,321 +1332,6 @@ fn maybe_route_ai_query_to_remote_target_forwards_executor_viewer_prompt() {
             ["continue please"],
             "an executor viewer must forward the prompt to the sharer"
         );
-    });
-}
-
-#[test]
-fn attach_ambient_view_model_builds_composer_selectors_for_fresh_cloud_pane_in_view_pending() {
-    // Regression: a fresh cloud-mode composer pane is created in `ViewPending` (see
-    // `TerminalModel::new_for_cloud_mode_shared_session_viewer`), which
-    // `SharedSessionStatus::is_viewer()` reports as a viewer. Such a pane is a dummy cloud-mode
-    // session composing a new run, not an actual shared-session viewer, so the composer-only
-    // host / auth-secret / FTUX selectors must still be built for it.
-    App::test((), |mut app| async move {
-        let _cloud_mode_input_v2 = FeatureFlag::CloudModeInputV2.override_enabled(true);
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        let terminal_view_id = terminal.read(&app, |view, _| view.id());
-
-        // Simulate the initial cloud composer state: a dummy cloud-mode session in `ViewPending`.
-        terminal.update(&mut app, |view, _| {
-            let mut model = view.model.lock();
-            model.set_shared_session_status(SharedSessionStatus::ViewPending);
-            model.set_is_dummy_cloud_mode_session(true);
-        });
-
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        let weak_terminal = terminal.downgrade();
-        input.update(&mut app, |input, ctx| {
-            let view_model = ctx
-                .add_model(|ctx| AmbientAgentViewModel::new(terminal_view_id, weak_terminal, ctx));
-            input.attach_ambient_agent_view_model(view_model, ctx);
-
-            assert!(
-                input.host_selector().is_some(),
-                "the initial cloud composer state must build the host selector"
-            );
-            assert!(
-                input.auth_secret_selector().is_some(),
-                "the initial cloud composer state must build the auth-secret selector"
-            );
-            assert!(
-                input.auth_secret_ftux_view().is_some(),
-                "the initial cloud composer state must build the auth-secret FTUX view"
-            );
-        });
-    });
-}
-
-#[test]
-fn attach_ambient_view_model_skips_composer_selectors_for_actual_shared_session_viewer() {
-    // An actual shared-session viewer (NOT a dummy cloud-mode session) that lazily discovers it is
-    // viewing an ambient run must not build the composer-only selectors, even though its ambient VM
-    // is still `Composing` and the model is in a viewer status when the model is attached.
-    App::test((), |mut app| async move {
-        let _cloud_mode_input_v2 = FeatureFlag::CloudModeInputV2.override_enabled(true);
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        let terminal_view_id = terminal.read(&app, |view, _| view.id());
-
-        // An actual shared-session viewer is in a viewer status but is not a dummy cloud-mode
-        // session (its model is created via `new_for_shared_session_viewer`).
-        terminal.update(&mut app, |view, _| {
-            view.model
-                .lock()
-                .set_shared_session_status(SharedSessionStatus::ViewPending);
-        });
-
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        let weak_terminal = terminal.downgrade();
-        input.update(&mut app, |input, ctx| {
-            let view_model = ctx
-                .add_model(|ctx| AmbientAgentViewModel::new(terminal_view_id, weak_terminal, ctx));
-            input.attach_ambient_agent_view_model(view_model, ctx);
-
-            assert!(
-                input.host_selector().is_none(),
-                "an actual shared-session viewer must not build the host selector"
-            );
-            assert!(
-                input.auth_secret_selector().is_none(),
-                "an actual shared-session viewer must not build the auth-secret selector"
-            );
-            assert!(
-                input.auth_secret_ftux_view().is_none(),
-                "an actual shared-session viewer must not build the auth-secret FTUX view"
-            );
-        });
-    });
-}
-
-#[test]
-fn auth_secret_selectors_follow_their_own_window_team() {
-    App::test((), |mut app| async move {
-        let _cloud_mode_input_v2 = FeatureFlag::CloudModeInputV2.override_enabled(true);
-        initialize_app(&mut app);
-
-        let team_a = Team::from_local_cache(1.into(), "Team A".to_string(), None, None, None, None);
-        let team_b = Team::from_local_cache(2.into(), "Team B".to_string(), None, None, None, None);
-        let workspace = Workspace::from_local_cache(
-            "workspace_uid123456789".to_string().into(),
-            "Workspace".to_string(),
-            Some(vec![team_a.clone(), team_b.clone()]),
-            None,
-        );
-        let workspace_uid = workspace.uid;
-        app.update(|ctx| {
-            UserWorkspaces::handle(ctx).update(ctx, |workspaces, ctx| {
-                workspaces.update_workspaces(vec![workspace], ctx);
-                workspaces.set_current_workspace_uid(workspace_uid, ctx);
-            });
-            CloudAgentSettings::handle(ctx).update(ctx, |settings, ctx| {
-                settings.persist_auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_a.uid),
-                    Harness::Claude,
-                    Some(AuthSecretPreference::Named("team-a-key".to_string())),
-                    ctx,
-                );
-                settings.persist_auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_b.uid),
-                    Harness::Claude,
-                    Some(AuthSecretPreference::Named("team-b-key".to_string())),
-                    ctx,
-                );
-            });
-        });
-
-        let tips_a = app.add_model(|_| TipsCompleted::default());
-        let (window_a, terminal_a) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_a, None, ctx)
-        });
-        let tips_b = app.add_model(|_| TipsCompleted::default());
-        let (window_b, terminal_b) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_b, None, ctx)
-        });
-        terminal_a.update(&mut app, |view, _| {
-            view.model.lock().set_is_dummy_cloud_mode_session(true);
-        });
-        terminal_b.update(&mut app, |view, _| {
-            view.model.lock().set_is_dummy_cloud_mode_session(true);
-        });
-        UserWorkspaces::handle(&app).update(&mut app, |workspaces, ctx| {
-            workspaces.switch_window_to_team(window_a, team_a.uid, ctx);
-            workspaces.switch_window_to_team(window_b, team_a.uid, ctx);
-        });
-
-        let input_a = terminal_a.read(&app, |view, _| view.input().clone());
-        let terminal_a_id = terminal_a.read(&app, |view, _| view.id());
-        let weak_terminal_a = terminal_a.downgrade();
-        let view_model_a = input_a.update(&mut app, |input, ctx| {
-            let view_model = ctx
-                .add_model(|ctx| AmbientAgentViewModel::new(terminal_a_id, weak_terminal_a, ctx));
-            view_model.update(ctx, |model, ctx| model.set_harness(Harness::Claude, ctx));
-            input.attach_ambient_agent_view_model(view_model.clone(), ctx);
-            view_model
-        });
-
-        let input_b = terminal_b.read(&app, |view, _| view.input().clone());
-        let terminal_b_id = terminal_b.read(&app, |view, _| view.id());
-        let weak_terminal_b = terminal_b.downgrade();
-        let view_model_b = input_b.update(&mut app, |input, ctx| {
-            let view_model = ctx
-                .add_model(|ctx| AmbientAgentViewModel::new(terminal_b_id, weak_terminal_b, ctx));
-            view_model.update(ctx, |model, ctx| model.set_harness(Harness::Claude, ctx));
-            input.attach_ambient_agent_view_model(view_model.clone(), ctx);
-            view_model
-        });
-
-        assert_eq!(
-            view_model_a.read(&app, |model, _| {
-                model.selected_harness_auth_secret_name().map(str::to_owned)
-            }),
-            Some("team-a-key".to_string())
-        );
-        assert_eq!(
-            view_model_b.read(&app, |model, _| {
-                model.selected_harness_auth_secret_name().map(str::to_owned)
-            }),
-            Some("team-a-key".to_string())
-        );
-        let ftux_a = input_a.read(&app, |input, _| {
-            input
-                .auth_secret_ftux_view()
-                .cloned()
-                .expect("cloud composer should have an auth-secret FTUX view")
-        });
-        ftux_a.update(&mut app, |_, ctx| {
-            ctx.emit(AuthSecretFtuxViewEvent::SecretSelected {
-                harness: Harness::Claude,
-                name: "team-a-ftux-key".to_string(),
-            });
-        });
-        assert_eq!(
-            view_model_a.read(&app, |model, _| {
-                model.selected_harness_auth_secret_name().map(str::to_owned)
-            }),
-            Some("team-a-ftux-key".to_string())
-        );
-        app.read(|ctx| {
-            let settings = CloudAgentSettings::as_ref(ctx);
-            assert_eq!(
-                settings.auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_a.uid),
-                    Harness::Claude,
-                ),
-                Some(AuthSecretPreference::Named("team-a-ftux-key".to_string()))
-            );
-            assert_eq!(
-                settings.auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_b.uid),
-                    Harness::Claude,
-                ),
-                Some(AuthSecretPreference::Named("team-b-key".to_string()))
-            );
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |workspaces, ctx| {
-            workspaces.switch_window_to_team(window_a, team_b.uid, ctx);
-        });
-
-        assert_eq!(
-            view_model_a.read(&app, |model, _| {
-                model.selected_harness_auth_secret_name().map(str::to_owned)
-            }),
-            Some("team-b-key".to_string())
-        );
-        assert_eq!(
-            view_model_b.read(&app, |model, _| {
-                model.selected_harness_auth_secret_name().map(str::to_owned)
-            }),
-            Some("team-a-key".to_string())
-        );
-
-        ftux_a.update(&mut app, |_, ctx| {
-            ctx.emit(AuthSecretFtuxViewEvent::Skipped {
-                harness: Harness::Claude,
-            });
-        });
-        app.read(|ctx| {
-            let settings = CloudAgentSettings::as_ref(ctx);
-            assert_eq!(
-                settings.auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_a.uid),
-                    Harness::Claude,
-                ),
-                Some(AuthSecretPreference::Named("team-a-ftux-key".to_string()))
-            );
-            assert_eq!(
-                settings.auth_secret_preference(
-                    &TeamContextForOperation::new_for_test(team_b.uid),
-                    Harness::Claude,
-                ),
-                Some(AuthSecretPreference::Inherit)
-            );
-        });
-    });
-}
-
-#[test]
-fn teamless_cloud_mode_host_selector_ignores_team_worker_cache() {
-    // A personal/teamless window must not surface connected workers cached for a team.
-    App::test((), |mut app| async move {
-        let _cloud_mode_input_v2 = FeatureFlag::CloudModeInputV2.override_enabled(true);
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        let terminal_view_id = terminal.read(&app, |view, _| view.id());
-
-        // Fresh cloud-mode composer: a dummy cloud-mode session in `ViewPending`.
-        terminal.update(&mut app, |view, _| {
-            let mut model = view.model.lock();
-            model.set_shared_session_status(SharedSessionStatus::ViewPending);
-            model.set_is_dummy_cloud_mode_session(true);
-        });
-
-        let input = terminal.read(&app, |view, _| view.input().clone());
-        let weak_terminal = terminal.downgrade();
-        input.update(&mut app, |input, ctx| {
-            let view_model = ctx
-                .add_model(|ctx| AmbientAgentViewModel::new(terminal_view_id, weak_terminal, ctx));
-            input.attach_ambient_agent_view_model(view_model, ctx);
-        });
-
-        // No workspace default host and no connected workers -> the dropdown stays hidden.
-        input.read(&app, |input, ctx| {
-            assert!(
-                input.host_selector().is_some(),
-                "the cloud composer must build the host selector"
-            );
-            assert!(
-                input.visible_host_selector(ctx).is_none(),
-                "host selector must be hidden with no default host and no connected workers"
-            );
-        });
-
-        // A worker connected under an unrelated team must not leak into this teamless window.
-        let team_scope = TeamContextForOperation::new_for_test(123_i64.into());
-        ConnectedSelfHostedWorkersModel::handle(&app).update(&mut app, |model, ctx| {
-            model.set_workers_for_test(&team_scope, &["oz-k8s-worker"], ctx);
-        });
-
-        input.read(&app, |input, ctx| {
-            assert!(
-                input.visible_host_selector(ctx).is_none(),
-                "a teamless window must not show another team's connected worker"
-            );
-        });
     });
 }
 
@@ -1827,7 +1480,7 @@ fn queued_command_completion_preserves_draft() {
         let terminal_view_id = terminal.read(&app, |view, _| view.id());
         let conversation_id =
             BlocklistAIHistoryModel::handle(&app).update(&mut app, |history, ctx| {
-                let id = history.start_new_conversation(terminal_view_id, false, false, false, ctx);
+                let id = history.start_new_conversation(terminal_view_id, false, false, ctx);
                 history.set_active_conversation_id(id, terminal_view_id, ctx);
                 id
             });
@@ -2208,7 +1861,7 @@ fn row_deleted_event_preserves_existing_draft() {
 /// prompts panel (and the empty-buffer Enter path) can resolve it.
 fn seed_active_conversation(app: &mut App, terminal_view_id: EntityId) -> AIConversationId {
     BlocklistAIHistoryModel::handle(app).update(app, |history, ctx| {
-        let id = history.start_new_conversation(terminal_view_id, false, false, false, ctx);
+        let id = history.start_new_conversation(terminal_view_id, false, false, ctx);
         history.set_active_conversation_id(id, terminal_view_id, ctx);
         id
     })
@@ -2350,10 +2003,10 @@ fn enter_with_nonempty_buffer_does_not_send_queued_row() {
     });
 }
 
-/// The locked initial cloud-mode head row never fires on Enter, and the locked head blocks the
+/// A locked pending LRC head row never fires on Enter, and the locked head blocks the
 /// rows behind it (only the head row is Enter-sendable).
 #[test]
-fn empty_buffer_enter_skips_locked_initial_cloud_mode_head() {
+fn empty_buffer_enter_skips_locked_pending_lrc_head() {
     App::test((), |mut app| async move {
         let _queue_flag = FeatureFlag::QueueSlashCommand.override_enabled(true);
         initialize_app(&mut app);
@@ -2366,7 +2019,7 @@ fn empty_buffer_enter_skips_locked_initial_cloud_mode_head() {
         QueuedQueryModel::handle(&app).update(&mut app, |model, ctx| {
             model.append(
                 conversation_id,
-                QueuedQuery::new("initial".to_owned(), QueuedQueryOrigin::InitialCloudMode),
+                QueuedQuery::new("initial".to_owned(), QueuedQueryOrigin::PendingLrcAutoQueue),
                 ctx,
             );
             model.append(
@@ -8331,143 +7984,6 @@ fn unfreeze_agent_input_does_not_clear_buffer() {
             viewer_input.read(&app, |i, ctx| i.buffer_text(ctx)),
             "follow-up question",
             "unfreeze_agent_input must not clear the viewer's buffer"
-        );
-    });
-}
-
-/// Directly exercises `restore_cloud_followup_input_after_upload_failure`:
-/// after the editor is frozen into the loading state, calling the restore
-/// function must put the exact original prompt text back and leave the
-/// editor editable.
-#[test]
-fn restore_cloud_followup_input_after_upload_failure_restores_prompt() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        terminal.update(&mut app, |view, _| {
-            view.model.lock().block_list_mut().set_bootstrapped();
-        });
-        let input = terminal.read(&app, |view, _| view.input().clone());
-
-        // Write a prompt that should survive a failed upload.
-        input.update(&mut app, |input, ctx| {
-            input.replace_buffer_content("cloud follow-up prompt", ctx);
-        });
-
-        // Freeze the editor (simulates the upload-in-progress loading state).
-        input.update(&mut app, |input, ctx| {
-            input.freeze_input_in_loading_state(ctx);
-        });
-        let frozen_text = input.read(&app, |i, ctx| i.buffer_text(ctx));
-        assert!(
-            frozen_text.contains("cloud follow-up prompt"),
-            "frozen text must contain the original prompt; got: {frozen_text:?}"
-        );
-        assert!(
-            frozen_text.contains('◌'),
-            "frozen text must contain the loading indicator '◌'; got: {frozen_text:?}"
-        );
-
-        // Simulate an upload failure restoring the input.
-        input.update(&mut app, |input, ctx| {
-            input.restore_cloud_followup_input_after_upload_failure("cloud follow-up prompt", ctx);
-        });
-
-        // The buffer must be restored to the original prompt without the loading marker.
-        assert_eq!(
-            input.read(&app, |i, ctx| i.buffer_text(ctx)),
-            "cloud follow-up prompt",
-            "restore must set the buffer back to the original prompt after upload failure"
-        );
-    });
-}
-
-#[test]
-fn should_upload_cloud_followup_attachments_matches_cloud_mode_image_context_flag() {
-    use base64::Engine as _;
-
-    let attachment = PendingAttachment::Image(ImageContext {
-        data: base64::engine::general_purpose::STANDARD.encode(b"fake image"),
-        mime_type: "image/png".to_string(),
-        file_name: "test.png".to_string(),
-    });
-
-    assert!(
-        !Input::should_upload_cloud_followup_attachments(&[]),
-        "no pending attachments should submit the text-only follow-up immediately"
-    );
-
-    let flag_guard = FeatureFlag::CloudModeImageContext.override_enabled(false);
-    assert!(
-        !Input::should_upload_cloud_followup_attachments(std::slice::from_ref(&attachment)),
-        "follow-up attachments should not upload while CloudModeImageContext is disabled"
-    );
-    drop(flag_guard);
-    let _flag_guard = FeatureFlag::CloudModeImageContext.override_enabled(true);
-    assert!(
-        Input::should_upload_cloud_followup_attachments(&[attachment]),
-        "follow-up attachments should upload when CloudModeImageContext is enabled"
-    );
-}
-
-/// Exercises the async failure path of `upload_files_then_submit_cloud_followup`:
-/// when the server API rejects the attachment upload (the test HTTP client never
-/// connects to a real server), the callback must restore the prompt text so the
-/// user can retry.
-#[test]
-fn upload_files_then_submit_cloud_followup_restores_input_on_upload_error() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
-        let (_, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-            TerminalView::new_for_test(tips_model, None, ctx)
-        });
-        terminal.update(&mut app, |view, _| {
-            view.model.lock().block_list_mut().set_bootstrapped();
-        });
-        let input = terminal.read(&app, |view, _| view.input().clone());
-
-        let prompt = "attach and follow up".to_string();
-        input.update(&mut app, |input, ctx| {
-            input.replace_buffer_content(&prompt, ctx);
-        });
-
-        // A tiny base64-encoded image used as the test attachment.  The decode
-        // succeeds in the async task, but `prepare_attachments_for_upload` then
-        // fails because the test HTTP client has no real server to contact.
-        use base64::Engine as _;
-        let attachment = PendingAttachment::Image(ImageContext {
-            data: base64::engine::general_purpose::STANDARD.encode(b"fake image"),
-            mime_type: "image/png".to_string(),
-            file_name: "test.png".to_string(),
-        });
-        let task_id: crate::ai::ambient_agents::AmbientAgentTaskId =
-            "11111111-1111-1111-1111-111111111111".parse().unwrap();
-
-        // Spawn the upload and await the completion of its foreground callback
-        // (which runs after the background tokio task finishes — immediately
-        // with an error in this test environment).
-        let await_future = input.update(&mut app, |input, ctx| {
-            let handle = input.upload_files_then_submit_cloud_followup(
-                task_id,
-                prompt.clone(),
-                vec![attachment],
-                ctx,
-            );
-            ctx.await_spawned_future(handle.future_id())
-        });
-        await_future.await;
-
-        // After the upload error, the callback must have restored the prompt.
-        assert_eq!(
-            input.read(&app, |i, ctx| i.buffer_text(ctx)),
-            prompt,
-            "input must be restored to the original prompt after a failed attachment upload"
         );
     });
 }

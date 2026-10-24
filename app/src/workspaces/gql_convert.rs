@@ -971,10 +971,6 @@ impl From<GqlWorkspaceSettings> for WorkspaceSettings {
                 .as_ref()
                 .map(|s| s.enable_warp_attribution.clone().into())
                 .unwrap_or_default(),
-            default_host_slug: gql_workspace_settings
-                .ambient_agent_settings
-                .as_ref()
-                .and_then(|s| s.default_host_slug.clone()),
         }
     }
 }
@@ -1158,10 +1154,6 @@ impl From<GqlTeamSettings> for TeamSettings {
                 .as_ref()
                 .map(|s| s.enable_warp_attribution.clone().into())
                 .unwrap_or_default(),
-            default_host_slug: gql_team_settings
-                .ambient_agent_settings
-                .as_ref()
-                .and_then(|s| s.default_host_slug.clone()),
             team_byo: gql_team_settings.team_byo.map(From::from),
         }
     }

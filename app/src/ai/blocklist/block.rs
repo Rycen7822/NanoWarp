@@ -159,7 +159,6 @@ use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::safe_mode_settings::{
     SafeModeSettings, SafeModeSettingsChangedEvent, get_secret_obfuscation_mode,
 };
-use crate::terminal::view::ambient_agent::{AmbientAgentViewModel, AmbientAgentViewModelEvent};
 use crate::terminal::view::{RichContentLink, RichContentLinkTooltipInfo, TerminalAction};
 use crate::terminal::{ShellLaunchData, TerminalModel, TerminalView};
 use crate::ui_components::icons::Icon;
@@ -950,7 +949,6 @@ pub struct AIBlock {
     ///
     /// Only used when `FeatureFlag::AgentView` is enabled.
     agent_view_controller: ModelHandle<AgentViewController>,
-    ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
 
     /// View for AWS Bedrock credentials error, created lazily when the error occurs.
     aws_bedrock_credentials_error_view: Option<ViewHandle<AwsBedrockCredentialsErrorView>>,
@@ -998,7 +996,6 @@ impl AIBlock {
         cli_subagent_controller: &ModelHandle<CLISubagentController>,
         model_event_dispatcher: &ModelHandle<ModelEventDispatcher>,
         agent_view_controller: ModelHandle<AgentViewController>,
-        ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
         terminal_view_handle: WeakViewHandle<TerminalView>,
         terminal_view_id: EntityId,
         ctx: &mut ViewContext<Self>,
@@ -1193,23 +1190,6 @@ impl AIBlock {
             ctx.subscribe_to_model(&agent_view_controller, |_, _, _, ctx| ctx.notify());
         }
 
-        // Handoff prep emits ambient-agent events before submit, while still composing.
-        // Only the run lifecycle events can change `is_cloud_agent_pre_first_exchange`
-        // for this block's footer.
-        if let Some(ambient_agent_view_model) = ambient_agent_view_model.as_ref() {
-            ctx.subscribe_to_model(ambient_agent_view_model, |_, _, event, ctx| match event {
-                AmbientAgentViewModelEvent::DispatchedAgent
-                | AmbientAgentViewModelEvent::FollowupDispatched
-                | AmbientAgentViewModelEvent::SessionReady { .. }
-                | AmbientAgentViewModelEvent::ExecutionSessionReady { .. }
-                | AmbientAgentViewModelEvent::Failed { .. }
-                | AmbientAgentViewModelEvent::NeedsGithubAuth
-                | AmbientAgentViewModelEvent::Cancelled
-                | AmbientAgentViewModelEvent::HarnessCommandStarted { .. } => ctx.notify(),
-                _ => {}
-            });
-        }
-
         ctx.subscribe_to_model(&context_model, |_, _, event, ctx| {
             if let BlocklistAIContextEvent::UpdatedPendingContext { .. } = event {
                 ctx.notify();
@@ -1334,7 +1314,6 @@ impl AIBlock {
             is_turn_panel_expanded: false,
             turn_panel_view: None,
             agent_view_controller,
-            ambient_agent_view_model,
             aws_bedrock_credentials_error_view: None,
             gemini_enterprise_credentials_error_view: None,
             imported_comments: Default::default(),

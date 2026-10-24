@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -235,10 +235,6 @@ fn mock_object_client_with_base_expectations() -> MockObjectClient {
     server_api
         .expect_fetch_changed_objects()
         .returning(|_, _| Err(anyhow::anyhow!("Ignoring background refresh in tests")));
-    // Mock environment timestamps fetch - called during mock_initial_load
-    server_api
-        .expect_fetch_environment_last_task_run_timestamps()
-        .returning(|| Ok(HashMap::new()));
     server_api
 }
 

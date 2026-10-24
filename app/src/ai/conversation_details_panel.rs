@@ -13,7 +13,6 @@ use warp_cli::agent::Harness;
 use warp_cli::skill::SkillSpec;
 use warp_core::channel::ChannelState;
 use warp_core::ui::color::coloru_with_opacity;
-use warp_graphql::queries::get_runners::Runner;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{NewScrollable, SingleAxisConfig};
 use warpui::elements::{
@@ -33,9 +32,7 @@ use warpui::{
 
 use crate::ai::agent::api::ServerConversationToken;
 #[cfg(not(target_family = "wasm"))]
-use crate::ai::agent::conversation::{
-    AIConversation, AIConversationId, ConversationStatus, StatusColorStyle,
-};
+use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent_conversations_model::entry::PrincipalType;
 use crate::ai::agent_conversations_model::{
     AgentConversationEntry, AgentRunDisplayStatus, TaskFetchError,
@@ -51,19 +48,13 @@ use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::view_util::{
     UsageLabelKind, effective_usage_unit, format_usage, usage_label,
 };
-use crate::ai::cloud_environments::{AmbientAgentEnvironment, CloudAmbientAgentEnvironment};
 use crate::ai::harness_availability::HarnessAvailabilityModel;
 use crate::ai::harness_display;
-use crate::ai::runner_display::{self, RunnerPlatform};
 use crate::appearance::Appearance;
 use crate::auth::UserUid;
-use crate::cloud_object::CloudObjectLookup as _;
 use crate::notebooks::NotebookId;
 use crate::send_telemetry_from_ctx;
-use crate::server::ids::{ServerId, SyncId};
-use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::AmbientAgentTask;
-use crate::server::team_scope::RequestTeamScope;
 use crate::settings::ai::{AISettings, AISettingsChangedEvent};
 use crate::ui_components::avatar::{Avatar, AvatarContent};
 use crate::ui_components::blended_colors;
@@ -80,14 +71,12 @@ use crate::view_components::copyable_text_field::{
 };
 use crate::workspace::{ForkedConversationDestination, ToastStack, WorkspaceAction};
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const FIELD_SPACING: f32 = 16.0;
 const HEADER_SPACING: f32 = 12.0;
 const STATUS_ICON_SIZE: f32 = 12.0;
 const HARNESS_CIRCLE_SIZE: f32 = 16.0;
 const HARNESS_ICON_IN_CIRCLE: f32 = 9.0;
-const PLATFORM_ICON_SIZE: f32 = 14.0;
 const LABEL_VALUE_GAP: f32 = 4.0;
 const SECTION_HEADER_GAP: f32 = 8.0;
 const RUN_METADATA_ACCESS_DENIED_TITLE: &str = "Run metadata is not available";
@@ -115,11 +104,6 @@ enum PanelMode {
         display_status: Option<AgentRunDisplayStatus>,
         /// Error message, if we have one.
         error_message: Option<String>,
-        /// Environment ID.
-        environment_id: Option<String>,
-        /// Runner the run named, if any. Absent runs fall back to the
-        /// environment's default runner.
-        runner_id: Option<String>,
         /// Server conversation ID (for copy link).
         conversation_id: Option<String>,
     },
@@ -143,11 +127,8 @@ struct PanelMouseStates {
     copy_directory: MouseStateHandle,
     copy_conversation_id: MouseStateHandle,
     copy_run_id: MouseStateHandle,
-    copy_environment_id: MouseStateHandle,
-    copy_docker_image: MouseStateHandle,
     copy_fetch_error: MouseStateHandle,
     copy_error: MouseStateHandle,
-    copy_setup_commands: MouseStateHandle,
     copy_initial_query: MouseStateHandle,
     skill_link: MouseStateHandle,
     skill_source_link: MouseStateHandle,
@@ -161,11 +142,8 @@ enum CopyButtonKind {
     Directory,
     ConversationId,
     RunId,
-    EnvironmentId,
-    DockerImage,
     FetchError,
     Error,
-    SetupCommands,
     InitialQuery,
 }
 
@@ -390,16 +368,6 @@ impl ConversationDetailsData {
             None
         };
 
-        let environment_id = task
-            .agent_config_snapshot
-            .as_ref()
-            .and_then(|config| config.environment_id.clone());
-
-        let runner_id = task
-            .agent_config_snapshot
-            .as_ref()
-            .and_then(|config| config.runner_id.clone());
-
         let credits = task.credits_used();
 
         let skill_spec = task
@@ -422,8 +390,6 @@ impl ConversationDetailsData {
                 directory: Self::directory_for_task(task, app),
                 display_status: Some(AgentRunDisplayStatus::from_task(task, app)),
                 error_message,
-                environment_id,
-                runner_id,
                 conversation_id: task.conversation_id().map(str::to_string),
             },
             // Intentionally uses task.title; revisit when product decides
@@ -501,10 +467,6 @@ impl ConversationDetailsData {
                     directory: entry.display.working_directory.clone(),
                     display_status: Some(entry.display.status.clone()),
                     error_message,
-                    environment_id: entry.display.environment_id.clone(),
-                    runner_id: task
-                        .and_then(|task| task.agent_config_snapshot.as_ref())
-                        .and_then(|config| config.runner_id.clone()),
                     conversation_id: entry
                         .identity
                         .server_conversation_token
@@ -568,11 +530,9 @@ impl ConversationDetailsData {
                 directory: None,
                 display_status: None,
                 error_message: None,
-                environment_id: None,
-                runner_id: None,
                 conversation_id: None,
             },
-            title: "Cloud agent run".to_string(),
+            title: "Agent run".to_string(),
             creator: None,
             executor: None,
             created_at: None,
@@ -647,11 +607,8 @@ pub enum ConversationDetailsPanelAction {
     CopyDirectory,
     CopyConversationId,
     CopyRunId,
-    CopyEnvironmentId,
-    CopyDockerImage,
     CopyFetchError,
     CopyError,
-    CopySetupCommands(String),
     CopyInitialQuery,
     Focus,
     CopySelectedText,
@@ -691,10 +648,6 @@ pub struct ConversationDetailsPanel {
     /// Selection state for cmd+C copy.
     selection_handle: SelectionHandle,
     selected_text: Arc<RwLock<Option<String>>>,
-    /// Runner compute by UID. Runners are not synced as cloud objects, so the
-    /// panel fetches them on demand to report the platform a run executes on.
-    runner_platforms: HashMap<String, RunnerPlatform>,
-    runners_loading: bool,
 }
 
 fn trimmed_initial_query(source_prompt: &Option<String>) -> Option<&str> {
@@ -757,8 +710,6 @@ impl ConversationDetailsPanel {
             copy_feedback_times: HashMap::new(),
             selection_handle: SelectionHandle::default(),
             selected_text: Default::default(),
-            runner_platforms: HashMap::new(),
-            runners_loading: false,
         }
     }
 
@@ -770,87 +721,7 @@ impl ConversationDetailsPanel {
         self.set_artifacts(&data, ctx);
         self.set_action_buttons(&data, ctx);
         self.data = data;
-        self.ensure_runner_platforms(ctx);
         ctx.notify();
-    }
-
-    /// The runner backing this run, by the precedence the server resolves with.
-    fn referenced_runner_uid(&self, app: &AppContext) -> Option<String> {
-        let PanelMode::Task {
-            runner_id,
-            environment_id,
-            ..
-        } = &self.data.mode
-        else {
-            return None;
-        };
-
-        if let Some(runner_id) = runner_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-        {
-            return Some(runner_id.to_string());
-        }
-
-        Self::environment_model(environment_id.as_deref(), app)?
-            .default_runner_uid
-            .as_deref()
-            .map(str::trim)
-            .filter(|uid| !uid.is_empty())
-            .map(str::to_string)
-    }
-
-    /// Looks up the synced environment for this run.
-    fn environment_model(
-        environment_id: Option<&str>,
-        app: &AppContext,
-    ) -> Option<AmbientAgentEnvironment> {
-        let sync_id = SyncId::ServerId(ServerId::try_from(environment_id?).ok()?);
-        let environment = CloudAmbientAgentEnvironment::get_by_id(&sync_id, app)?;
-        Some(environment.model().string_model.clone())
-    }
-
-    /// Loads the runners needed to name this run's platform. Runs that
-    /// reference no runner need no fetch: their compute is the system default.
-    fn ensure_runner_platforms(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.runners_loading {
-            return;
-        }
-        let Some(runner_uid) = self.referenced_runner_uid(ctx) else {
-            return;
-        };
-        if self.runner_platforms.contains_key(&runner_uid) {
-            return;
-        }
-        self.runners_loading = true;
-        let client = ServerApiProvider::as_ref(ctx).get_factory_client();
-        let team_scope = RequestTeamScope::from_scope(
-            &UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx),
-        );
-        ctx.spawn(
-            async move { client.get_runners(None, Some(team_scope)).await },
-            |me, result: anyhow::Result<Vec<Runner>>, ctx| {
-                me.runners_loading = false;
-                match result {
-                    Ok(runners) => {
-                        me.runner_platforms = runner_display::platforms_by_uid(&runners);
-                    }
-                    Err(err) => {
-                        log::warn!("Failed to fetch runners for the run details panel: {err}");
-                    }
-                }
-                ctx.notify();
-            },
-        );
-    }
-
-    #[cfg(test)]
-    pub(crate) fn task_display_status_for_test(&self) -> Option<AgentRunDisplayStatus> {
-        match &self.data.mode {
-            PanelMode::Task { display_status, .. } => display_status.clone(),
-            PanelMode::Conversation { .. } => None,
-        }
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -1389,7 +1260,7 @@ impl ConversationDetailsPanel {
             }
             PanelMode::Conversation { status, .. } => {
                 let status = status.as_ref()?;
-                let (icon, color) = status.status_icon_and_color(theme, StatusColorStyle::Standard);
+                let (icon, color) = status.status_icon_and_color(theme);
                 (icon, color, status.to_string())
             }
         };
@@ -1687,224 +1558,6 @@ impl ConversationDetailsPanel {
         )
     }
 
-    fn format_setup_commands_for_copy(commands: &[String]) -> String {
-        let wrapped: Vec<String> = commands.iter().map(|cmd| format!("({cmd})")).collect();
-        wrapped.join(" && \n")
-    }
-
-    fn render_setup_commands_section(
-        &self,
-        setup_commands: &[String],
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        if setup_commands.is_empty() {
-            return None;
-        }
-
-        let theme = appearance.theme();
-        let ui_font_size = appearance.ui_font_size();
-
-        let header_text = Text::new(
-            "Environment setup commands".to_string(),
-            appearance.ui_font_family(),
-            ui_font_size,
-        )
-        .with_color(blended_colors::text_sub(theme, theme.surface_1()))
-        .finish();
-
-        let commands_text = setup_commands
-            .iter()
-            .enumerate()
-            .map(|(i, cmd)| format!("{}. {cmd}", i + 1))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let field = render_copyable_text_field(
-            CopyableTextFieldConfig::new(commands_text)
-                .with_font_size(ui_font_size)
-                .with_text_color(theme.foreground().into())
-                .with_icon_size(16.)
-                .with_wrap_text(true)
-                .with_mouse_state(self.mouse_state_for_copy_button(CopyButtonKind::SetupCommands))
-                .with_last_copied_at(self.copy_feedback_times.get(&CopyButtonKind::SetupCommands)),
-            {
-                let copy_text = Self::format_setup_commands_for_copy(setup_commands);
-                move |ctx| {
-                    ctx.dispatch_typed_action(ConversationDetailsPanelAction::CopySetupCommands(
-                        copy_text.clone(),
-                    ));
-                }
-            },
-            app,
-        );
-
-        Some(
-            Flex::column()
-                .with_cross_axis_alignment(CrossAxisAlignment::Start)
-                .with_child(
-                    Container::new(header_text)
-                        .with_margin_bottom(SECTION_HEADER_GAP)
-                        .finish(),
-                )
-                .with_child(
-                    Container::new(field)
-                        .with_margin_bottom(FIELD_SPACING)
-                        .finish(),
-                )
-                .finish(),
-        )
-    }
-
-    fn render_environment_section(
-        &self,
-        environment_id: &str,
-        env_model: &AmbientAgentEnvironment,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let environment_name = &env_model.name;
-        let docker_image = env_model.base_image_display();
-
-        let theme = appearance.theme();
-        let ui_font_size = appearance.ui_font_size();
-
-        // Section header
-        let header = Text::new(
-            "Environment details".to_string(),
-            appearance.ui_font_family(),
-            ui_font_size,
-        )
-        .with_color(blended_colors::text_sub(theme, theme.surface_1()))
-        .finish();
-
-        let mut section = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-        section.add_child(
-            Container::new(header)
-                .with_margin_bottom(LABEL_VALUE_GAP)
-                .finish(),
-        );
-
-        // Helper to render a copyable field with "Label: Value" format
-        let render_copyable_field =
-            |label: &str,
-             value: &str,
-             copy_button_kind: CopyButtonKind,
-             action: ConversationDetailsPanelAction| {
-                render_copyable_text_field(
-                    CopyableTextFieldConfig::new(format!("{label}: {value}"))
-                        .with_font_size(ui_font_size)
-                        .with_text_color(theme.foreground().into())
-                        .with_icon_size(16.)
-                        .with_mouse_state(self.mouse_state_for_copy_button(copy_button_kind))
-                        .with_last_copied_at(self.copy_feedback_times.get(&copy_button_kind)),
-                    move |ctx| {
-                        ctx.dispatch_typed_action(action.clone());
-                    },
-                    app,
-                )
-            };
-
-        let name_text = Text::new(
-            format!("Name: {environment_name}"),
-            appearance.ui_font_family(),
-            ui_font_size,
-        )
-        .with_color(theme.foreground().into())
-        .with_selectable(true)
-        .finish();
-        section.add_child(
-            Container::new(name_text)
-                .with_vertical_padding(4.)
-                .with_margin_bottom(LABEL_VALUE_GAP)
-                .finish(),
-        );
-
-        section.add_child(
-            Container::new(render_copyable_field(
-                "ID",
-                environment_id,
-                CopyButtonKind::EnvironmentId,
-                ConversationDetailsPanelAction::CopyEnvironmentId,
-            ))
-            .with_margin_bottom(LABEL_VALUE_GAP)
-            .finish(),
-        );
-
-        section.add_child(
-            Container::new(render_copyable_field(
-                "Image",
-                &docker_image,
-                CopyButtonKind::DockerImage,
-                ConversationDetailsPanelAction::CopyDockerImage,
-            ))
-            .with_margin_bottom(LABEL_VALUE_GAP)
-            .finish(),
-        );
-
-        if let Some(platform_row) = self.render_platform_row(env_model, appearance) {
-            section.add_child(
-                Container::new(platform_row)
-                    .with_margin_bottom(LABEL_VALUE_GAP)
-                    .finish(),
-            );
-        }
-
-        Container::new(section.finish())
-            .with_margin_bottom(FIELD_SPACING)
-            .finish()
-    }
-
-    /// Renders the compute this run executes on, so a run's platform is
-    /// visible without opening the runner it came from.
-    ///
-    /// Absent when a referenced runner cannot be resolved — naming the wrong
-    /// platform would be worse than naming none.
-    fn render_platform_row(
-        &self,
-        env_model: &AmbientAgentEnvironment,
-        appearance: &Appearance,
-    ) -> Option<Box<dyn Element>> {
-        let PanelMode::Task { runner_id, .. } = &self.data.mode else {
-            return None;
-        };
-
-        let platform = runner_display::resolve_run_platform(
-            runner_id.as_deref(),
-            env_model.default_runner_uid.as_deref(),
-            &self.runner_platforms,
-        )?;
-
-        let theme = appearance.theme();
-        let ui_font_size = appearance.ui_font_size();
-
-        let icon = ConstrainedBox::new(platform.icon().to_warpui_icon(theme.foreground()).finish())
-            .with_width(PLATFORM_ICON_SIZE)
-            .with_height(PLATFORM_ICON_SIZE)
-            .finish();
-
-        let label = Text::new(
-            platform.summary(),
-            appearance.ui_font_family(),
-            ui_font_size,
-        )
-        .with_color(theme.foreground().into())
-        .with_selectable(true)
-        .finish();
-
-        Some(
-            Container::new(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_child(Container::new(icon).with_margin_right(4.).finish())
-                    .with_child(Shrinkable::new(1., label).finish())
-                    .finish(),
-            )
-            .with_vertical_padding(4.)
-            .finish(),
-        )
-    }
-
     // Render a simple field with a button to copy the field's contents.
     fn render_field_with_copy(
         &self,
@@ -1981,11 +1634,8 @@ impl ConversationDetailsPanel {
             CopyButtonKind::Directory => self.mouse_states.copy_directory.clone(),
             CopyButtonKind::ConversationId => self.mouse_states.copy_conversation_id.clone(),
             CopyButtonKind::RunId => self.mouse_states.copy_run_id.clone(),
-            CopyButtonKind::EnvironmentId => self.mouse_states.copy_environment_id.clone(),
-            CopyButtonKind::DockerImage => self.mouse_states.copy_docker_image.clone(),
             CopyButtonKind::FetchError => self.mouse_states.copy_fetch_error.clone(),
             CopyButtonKind::Error => self.mouse_states.copy_error.clone(),
-            CopyButtonKind::SetupCommands => self.mouse_states.copy_setup_commands.clone(),
             CopyButtonKind::InitialQuery => self.mouse_states.copy_initial_query.clone(),
         }
     }
@@ -2297,31 +1947,14 @@ impl View for ConversationDetailsPanel {
             );
         }
 
-        // Task-only fields
-        if let PanelMode::Task { environment_id, .. } = &self.data.mode {
-            if let Some((eid, env)) = environment_id.as_deref().and_then(|eid| {
-                let server_id = ServerId::try_from(eid).ok()?;
-                let sync_id = SyncId::ServerId(server_id);
-                let env = CloudAmbientAgentEnvironment::get_by_id(&sync_id, app).cloned()?;
-                Some((eid, env))
-            }) {
-                let env_model = &env.model().string_model;
-                content.add_child(self.render_environment_section(eid, env_model, appearance, app));
-
-                if let Some(setup_commands_section) =
-                    self.render_setup_commands_section(&env_model.setup_commands, appearance, app)
-                {
-                    content.add_child(setup_commands_section);
-                }
-            }
-
-            if let Some(error_field) = self.render_error_field(appearance, app) {
-                content.add_child(
-                    Container::new(error_field)
-                        .with_margin_bottom(FIELD_SPACING)
-                        .finish(),
-                );
-            }
+        if let PanelMode::Task { .. } = &self.data.mode
+            && let Some(error_field) = self.render_error_field(appearance, app)
+        {
+            content.add_child(
+                Container::new(error_field)
+                    .with_margin_bottom(FIELD_SPACING)
+                    .finish(),
+            );
         }
 
         if let Some(source_section) = self.render_source_section(appearance, app) {
@@ -2437,35 +2070,7 @@ impl TypedActionView for ConversationDetailsPanel {
                     self.record_copy(CopyButtonKind::RunId, ctx);
                 }
             }
-            ConversationDetailsPanelAction::CopyEnvironmentId => {
-                if let PanelMode::Task {
-                    environment_id: Some(env_id),
-                    ..
-                } = &self.data.mode
-                {
-                    ctx.clipboard()
-                        .write(ClipboardContent::plain_text(env_id.clone()));
-                    self.record_copy(CopyButtonKind::EnvironmentId, ctx);
-                }
-            }
-            ConversationDetailsPanelAction::CopyDockerImage => {
-                if let PanelMode::Task {
-                    environment_id: Some(env_id),
-                    ..
-                } = &self.data.mode
-                {
-                    // Fetch docker image from environment
-                    if let Ok(server_id) = ServerId::try_from(env_id.as_str()) {
-                        let sync_id = SyncId::ServerId(server_id);
-                        if let Some(env) = CloudAmbientAgentEnvironment::get_by_id(&sync_id, ctx) {
-                            let docker_image = env.model().string_model.base_image_display();
-                            ctx.clipboard()
-                                .write(ClipboardContent::plain_text(docker_image));
-                            self.record_copy(CopyButtonKind::DockerImage, ctx);
-                        }
-                    }
-                }
-            }
+
             ConversationDetailsPanelAction::CopyFetchError => {
                 if let Some(error) = &self.data.fetch_error {
                     ctx.clipboard()
@@ -2484,13 +2089,7 @@ impl TypedActionView for ConversationDetailsPanel {
                     self.record_copy(CopyButtonKind::Error, ctx);
                 }
             }
-            ConversationDetailsPanelAction::CopySetupCommands(text) => {
-                if !text.is_empty() {
-                    ctx.clipboard()
-                        .write(ClipboardContent::plain_text(text.clone()));
-                    self.record_copy(CopyButtonKind::SetupCommands, ctx);
-                }
-            }
+
             ConversationDetailsPanelAction::CopyInitialQuery => {
                 if let Some(trimmed) = trimmed_initial_query(&self.data.source_prompt) {
                     ctx.clipboard()

@@ -26,7 +26,6 @@ use crate::ai::agent_conversations_model::{
     AgentConversationEntry, AgentConversationEntryId, AgentConversationProvenance,
     AgentRunDisplayStatus,
 };
-use crate::ai::ambient_agents::ExecutionLocation;
 use crate::terminal::CLIAgent;
 use crate::ui_components::icon_with_status::IconWithStatusVariant;
 
@@ -38,27 +37,20 @@ struct AgentIconFields {
     is_cli: bool,
     cli_agent: Option<CLIAgent>,
     status: Option<ConversationStatus>,
-    is_ambient: bool,
 }
 
 impl AgentIconFields {
     fn from_variant(variant: &IconWithStatusVariant) -> Option<Self> {
         match variant {
-            IconWithStatusVariant::OzAgent { status, is_ambient } => Some(Self {
+            IconWithStatusVariant::OzAgent { status } => Some(Self {
                 is_cli: false,
                 cli_agent: None,
                 status: status.clone(),
-                is_ambient: *is_ambient,
             }),
-            IconWithStatusVariant::CLIAgent {
-                agent,
-                status,
-                is_ambient,
-            } => Some(Self {
+            IconWithStatusVariant::CLIAgent { agent, status } => Some(Self {
                 is_cli: true,
                 cli_agent: Some(*agent),
                 status: status.clone(),
-                is_ambient: *is_ambient,
             }),
             IconWithStatusVariant::Neutral { .. }
             | IconWithStatusVariant::NeutralElement { .. } => None,
@@ -74,31 +66,12 @@ enum CanonicalRunState {
     PlainTerminal,
     /// Local Warp-native (Oz) conversation, in-progress.
     LocalOzInProgress,
-    /// Cloud-mode Oz run, in-progress.
-    CloudOzInProgress,
-    /// Cloud Claude harness selected, pre-dispatch (no session, no status yet).
-    /// This is the state the pre-setup icon bug regressed on — the tab must already render
-    /// the Claude brand circle before dispatch.
-    CloudClaudePreDispatch,
-    /// Cloud Claude harness selected, dispatch in flight (status = InProgress, no session).
-    CloudClaudeInProgress,
-    /// Viewing a finished cloud Codex transcript whose VM has shut down. No live ambient
-    /// model exists, so the harness comes from the conversation's server metadata; the icon
-    /// must still render as cloud Codex.
-    ViewingCloudCodexTranscript,
 }
 
 impl CanonicalRunState {
     fn all() -> &'static [Self] {
         use CanonicalRunState::*;
-        &[
-            PlainTerminal,
-            LocalOzInProgress,
-            CloudOzInProgress,
-            CloudClaudePreDispatch,
-            CloudClaudeInProgress,
-            ViewingCloudCodexTranscript,
-        ]
+        &[PlainTerminal, LocalOzInProgress]
     }
 
     /// The canonical [`AgentIconFields`] for this state. `None` means no agent icon renders.
@@ -111,31 +84,6 @@ impl CanonicalRunState {
                 is_cli: false,
                 cli_agent: None,
                 status: Some(ConversationStatus::InProgress),
-                is_ambient: false,
-            }),
-            CloudOzInProgress => Some(AgentIconFields {
-                is_cli: false,
-                cli_agent: None,
-                status: Some(ConversationStatus::InProgress),
-                is_ambient: true,
-            }),
-            CloudClaudePreDispatch => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Claude),
-                status: None,
-                is_ambient: true,
-            }),
-            CloudClaudeInProgress => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Claude),
-                status: Some(ConversationStatus::InProgress),
-                is_ambient: true,
-            }),
-            ViewingCloudCodexTranscript => Some(AgentIconFields {
-                is_cli: true,
-                cli_agent: Some(CLIAgent::Codex),
-                status: Some(ConversationStatus::Success),
-                is_ambient: true,
             }),
         }
     }
@@ -145,59 +93,13 @@ impl CanonicalRunState {
         use CanonicalRunState::*;
         match self {
             PlainTerminal => TerminalIconInputs {
-                is_ambient: false,
-                selected_third_party_cli_agent: None,
                 selected_conversation_status: None,
                 has_selected_conversation: false,
             },
             LocalOzInProgress => TerminalIconInputs {
-                is_ambient: false,
-                selected_third_party_cli_agent: None,
                 selected_conversation_status: Some(ConversationStatus::InProgress),
                 has_selected_conversation: true,
             },
-            CloudOzInProgress => TerminalIconInputs {
-                is_ambient: true,
-                selected_third_party_cli_agent: None,
-                selected_conversation_status: Some(ConversationStatus::InProgress),
-                has_selected_conversation: false,
-            },
-            CloudClaudePreDispatch => TerminalIconInputs {
-                is_ambient: true,
-                selected_third_party_cli_agent: Some(CLIAgent::Claude),
-                selected_conversation_status: None,
-                has_selected_conversation: false,
-            },
-            CloudClaudeInProgress => TerminalIconInputs {
-                is_ambient: true,
-                selected_third_party_cli_agent: Some(CLIAgent::Claude),
-                selected_conversation_status: Some(ConversationStatus::InProgress),
-                has_selected_conversation: false,
-            },
-            ViewingCloudCodexTranscript => TerminalIconInputs {
-                // VM has shut down: the caller resolves these fields from the conversation's
-                // server metadata, so the waterfall sees the same shape as a live run.
-                is_ambient: true,
-                selected_third_party_cli_agent: Some(CLIAgent::Codex),
-                selected_conversation_status: Some(ConversationStatus::Success),
-                has_selected_conversation: true,
-            },
-        }
-    }
-
-    /// Run-card inputs for this state, if it can surface as a run card.
-    /// Cards only exist for cloud/ambient runs; local states return `None`.
-    fn run_inputs(&self) -> Option<(Harness, ConversationStatus, bool)> {
-        use CanonicalRunState::*;
-        match self {
-            CloudOzInProgress => Some((Harness::Oz, ConversationStatus::InProgress, true)),
-            CloudClaudePreDispatch | CloudClaudeInProgress => {
-                Some((Harness::Claude, ConversationStatus::InProgress, true))
-            }
-            ViewingCloudCodexTranscript => {
-                Some((Harness::Codex, ConversationStatus::Success, true))
-            }
-            PlainTerminal | LocalOzInProgress => None,
         }
     }
 }
@@ -215,38 +117,6 @@ fn every_canonical_state_produces_consistent_icon_across_surfaces() {
         assert_eq!(
             terminal_actual, expected,
             "terminal surface disagreed for {state:?}"
-        );
-
-        if let Some((harness, status, is_ambient)) = state.run_inputs() {
-            let run_variant = agent_icon_variant_for_run(harness, status.clone(), is_ambient);
-            let run_actual = AgentIconFields::from_variant(&run_variant);
-            // Run cards always populate status (they derive it from `ConversationOrTask::status`).
-            let expected_for_run = expected.clone().map(|mut fields| {
-                fields.status = Some(status);
-                fields
-            });
-            assert_eq!(
-                run_actual, expected_for_run,
-                "run-card surface disagreed for {state:?}"
-            );
-        }
-    }
-}
-
-/// Structural invariant: the `is_ambient` flag on the rendered variant must match the
-/// `is_ambient` flag on the terminal inputs. Catches accidental drift in the waterfall.
-#[test]
-fn terminal_is_ambient_matches_inputs_for_every_state() {
-    for state in CanonicalRunState::all() {
-        let inputs = state.terminal_inputs();
-        let Some(variant) = agent_icon_variant_from_terminal_inputs(&inputs) else {
-            continue;
-        };
-        let fields = AgentIconFields::from_variant(&variant)
-            .expect("terminal helper must only return agent variants");
-        assert_eq!(
-            fields.is_ambient, inputs.is_ambient,
-            "is_ambient drifted for {state:?}"
         );
     }
 }
@@ -271,21 +141,19 @@ fn cli_agent_from_harness_maps_known_harnesses() {
 #[test]
 fn run_card_with_oz_or_unknown_harness_renders_as_oz() {
     // Oz harness explicitly: local Oz is the spec-defined fallback.
-    let variant = agent_icon_variant_for_run(Harness::Oz, ConversationStatus::Success, true);
+    let variant = agent_icon_variant_for_run(Harness::Oz, ConversationStatus::Success);
     let fields = AgentIconFields::from_variant(&variant).unwrap();
     assert!(!fields.is_cli);
-    assert!(fields.is_ambient);
 
     // Unknown harness (e.g. server surfaced a future variant): also falls back to Oz so we
     // don't render an unbranded gray circle.
-    let variant = agent_icon_variant_for_run(Harness::Unknown, ConversationStatus::Success, true);
+    let variant = agent_icon_variant_for_run(Harness::Unknown, ConversationStatus::Success);
     let fields = AgentIconFields::from_variant(&variant).unwrap();
     assert!(!fields.is_cli);
-    assert!(fields.is_ambient);
 }
 
 #[test]
-fn entry_icon_uses_harness_and_execution_location() {
+fn entry_icon_uses_harness() {
     let conversation_id = AIConversationId::new();
     let entry = AgentConversationEntry {
         id: AgentConversationEntryId::Conversation(conversation_id),
@@ -311,7 +179,6 @@ fn entry_icon_uses_harness_and_execution_location() {
             session_status: None,
             source: None,
             working_directory: None,
-            environment_id: None,
             harness: Some(Harness::Codex),
             artifacts: Vec::new(),
         },
@@ -338,26 +205,6 @@ fn entry_icon_uses_harness_and_execution_location() {
             is_cli: true,
             cli_agent: Some(CLIAgent::Codex),
             status: Some(ConversationStatus::Success),
-            is_ambient: false,
         }
     );
-    assert!(!entry.is_cloud_agent_run());
-
-    let mut task_backed_local = entry.clone();
-    task_backed_local.provenance = AgentConversationProvenance::AmbientRun;
-    task_backed_local.backing.has_ambient_run = true;
-    task_backed_local.identity.ambient_agent_task_id =
-        Some("00000000-0000-0000-0000-000000000001".parse().unwrap());
-    assert!(task_backed_local.is_cloud_agent_run());
-
-    task_backed_local.execution_location = Some(ExecutionLocation::Local);
-    let variant = agent_conversation_entry_icon_variant(&task_backed_local);
-    assert!(!AgentIconFields::from_variant(&variant).unwrap().is_ambient);
-    assert!(!task_backed_local.is_cloud_agent_run());
-
-    let mut remote_task = task_backed_local;
-    remote_task.execution_location = Some(ExecutionLocation::Remote);
-    let variant = agent_conversation_entry_icon_variant(&remote_task);
-    assert!(AgentIconFields::from_variant(&variant).unwrap().is_ambient);
-    assert!(remote_task.is_cloud_agent_run());
 }

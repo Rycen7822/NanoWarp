@@ -178,9 +178,6 @@ pub(crate) struct Props<'a> {
     pub(super) thinking_display_mode: crate::settings::ThinkingDisplayMode,
     pub(super) conversation_has_imported_comments: bool,
     pub(super) ask_user_question_view: Option<&'a ViewHandle<AskUserQuestionView>>,
-    /// `true` when this block belongs to a cloud agent pane that is still in its setup phase
-    /// (running environment startup commands before the first agent turn).
-    pub(super) is_cloud_agent_pre_first_exchange: bool,
 }
 
 pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
@@ -228,7 +225,6 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                     props.model.is_latest_visible_exchange_in_root_task(app)
                         && !has_expanded_last_requested_command
                         && !is_conversation_in_progress
-                        && !props.is_cloud_agent_pre_first_exchange
                         && !status.error().is_some_and(|e| {
                             e.is_invalid_api_key() || e.is_chatgpt_subscription_error()
                         });
@@ -934,79 +930,69 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
     }
 
     if let AIBlockOutputStatus::Failed { error, .. } = &status {
-        // While an automatic resume is still in flight, keep the failed exchange
-        // quiet: skip the error banner, the "won't count towards usage" notice, and
-        // the debug footer. The full failure UI is surfaced only once recovery has
-        // actually failed. Dogfood builds (Local/Dev) opt out so developers still see
-        // every transport failure aggressively.
-        if !error.should_suppress_during_recovery() {
-            let conversation_uses_warp_credits_instead_of_chatgpt = props
-                .model
-                .conversation(app)
-                .is_some_and(AIConversation::use_warp_credits_instead_of_chatgpt);
+        let conversation_uses_warp_credits_instead_of_chatgpt = props
+            .model
+            .conversation(app)
+            .is_some_and(AIConversation::use_warp_credits_instead_of_chatgpt);
+        output_items.add_child(
+            render_failed_output(
+                FailedOutputProps {
+                    error,
+                    is_ai_input_enabled: props.is_ai_input_enabled,
+                    invalid_api_key_button_handle: &props
+                        .state_handles
+                        .invalid_api_key_button_handle,
+                    subscribe_button_handle: &props.state_handles.subscribe_button_handle,
+                    aws_bedrock_credentials_error_view: props.aws_bedrock_credentials_error_view,
+                    gemini_enterprise_credentials_error_view: props
+                        .gemini_enterprise_credentials_error_view,
+                    chatgpt_subscription_actions: Some(ChatGPTSubscriptionActionProps {
+                        handles: &props.state_handles.chatgpt_subscription_action_handles,
+                        on_click: dispatch_chatgpt_subscription_action,
+                    }),
+                    conversation_uses_warp_credits_instead_of_chatgpt,
+                    icon_right_margin: 16.,
+                },
+                app,
+            )
+            .with_content_item_spacing()
+            .finish(),
+        );
+
+        if should_show_failed_output_usage_notice(
+            error,
+            props.model.is_latest_visible_exchange_in_root_task(app),
+            has_expanded_last_requested_command,
+            props.model.is_restored(),
+        ) {
             output_items.add_child(
-                render_failed_output(
-                    FailedOutputProps {
-                        error,
-                        is_ai_input_enabled: props.is_ai_input_enabled,
-                        invalid_api_key_button_handle: &props
-                            .state_handles
-                            .invalid_api_key_button_handle,
-                        subscribe_button_handle: &props.state_handles.subscribe_button_handle,
-                        aws_bedrock_credentials_error_view: props
-                            .aws_bedrock_credentials_error_view,
-                        gemini_enterprise_credentials_error_view: props
-                            .gemini_enterprise_credentials_error_view,
-                        chatgpt_subscription_actions: Some(ChatGPTSubscriptionActionProps {
-                            handles: &props.state_handles.chatgpt_subscription_action_handles,
-                            on_click: dispatch_chatgpt_subscription_action,
-                        }),
-                        conversation_uses_warp_credits_instead_of_chatgpt,
-                        icon_right_margin: 16.,
-                    },
-                    app,
-                )
-                .with_content_item_spacing()
-                .finish(),
-            );
-
-            if should_show_failed_output_usage_notice(
-                error,
-                props.model.is_latest_visible_exchange_in_root_task(app),
-                has_expanded_last_requested_command,
-                props.model.is_restored(),
-            ) {
-                output_items.add_child(
-                    render_informational_footer(app, FAILED_OUTPUT_USAGE_NOTICE_TEXT.to_string())
-                        .with_agent_output_item_spacing(app)
-                        .finish(),
-                );
-
-                output_items.add_child(
-                    render_debug_footer(
-                        DebugFooterProps {
-                            conversation: props.model.conversation(app),
-                            model: props.model,
-                            debug_copy_button_handle: props
-                                .state_handles
-                                .debug_copy_button_handle
-                                .clone(),
-                            submit_issue_button_handle: props
-                                .state_handles
-                                .submit_issue_button_handle
-                                .clone(),
-                            should_render_feedback_below: false,
-                        },
-                        |debug_id, ctx| {
-                            ctx.dispatch_typed_action(AIBlockAction::CopyDebugId(debug_id))
-                        },
-                        |ctx| ctx.dispatch_typed_action(AIBlockAction::OpenFeedbackDocs),
-                        app,
-                    )
+                render_informational_footer(app, FAILED_OUTPUT_USAGE_NOTICE_TEXT.to_string())
                     .with_agent_output_item_spacing(app)
                     .finish(),
-                );
-            }
+            );
+
+            output_items.add_child(
+                render_debug_footer(
+                    DebugFooterProps {
+                        conversation: props.model.conversation(app),
+                        model: props.model,
+                        debug_copy_button_handle: props
+                            .state_handles
+                            .debug_copy_button_handle
+                            .clone(),
+                        submit_issue_button_handle: props
+                            .state_handles
+                            .submit_issue_button_handle
+                            .clone(),
+                        should_render_feedback_below: false,
+                    },
+                    |debug_id, ctx| ctx.dispatch_typed_action(AIBlockAction::CopyDebugId(debug_id)),
+                    |ctx| ctx.dispatch_typed_action(AIBlockAction::OpenFeedbackDocs),
+                    app,
+                )
+                .with_agent_output_item_spacing(app)
+                .finish(),
+            );
         }
     }
 

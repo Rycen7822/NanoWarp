@@ -54,7 +54,7 @@ fn running_requested_command(
         })
     });
     let conversation_id = BlocklistAIHistoryModel::handle(app).update(app, |history, ctx| {
-        history.start_new_conversation(terminal_surface_id, false, false, false, ctx)
+        history.start_new_conversation(terminal_surface_id, false, false, ctx)
     });
     terminal.update(app, |view, _| {
         let mut model = view.model.lock();

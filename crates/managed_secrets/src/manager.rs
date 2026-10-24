@@ -215,20 +215,6 @@ where
         }
     }
 
-    pub fn list_harness_auth_secrets(
-        &self,
-        request_scope: RequestScope,
-        harness: warp_graphql::ai::AgentHarness,
-    ) -> impl Future<Output = anyhow::Result<Vec<ManagedSecret>>> + use<RequestScope> {
-        let client = self.client.clone();
-        async move {
-            let secrets = client
-                .list_harness_auth_secrets(&request_scope, harness)
-                .await?;
-            Ok(secrets)
-        }
-    }
-
     /// Get Warp-managed secrets scoped to the currently-executing task.
     ///
     /// This will fail if not in an ambient agent.

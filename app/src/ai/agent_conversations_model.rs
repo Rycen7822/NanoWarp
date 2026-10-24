@@ -32,32 +32,29 @@ use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::ambient_agents::{
-    AgentSource, AmbientAgentLiveSessionState, AmbientAgentTask, AmbientAgentTaskId,
-    AmbientAgentTaskState,
+    AgentSource, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState, ExecutionLocation,
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, ConversationStatusUpdate,
 };
-use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
-use crate::cloud_object::CloudObjectLookup as _;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::server::cloud_objects::update_manager::{UpdateManager, UpdateManagerEvent};
-use crate::server::ids::{ServerId, SyncId};
+use crate::server::ids::ServerId;
 use crate::server::retry_strategies::{
     OUT_OF_BAND_REQUEST_RETRY_STRATEGY, PERIODIC_POLL_RETRY_STRATEGY, is_transient_http_error,
 };
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::TaskListFilter;
-use crate::server::server_api::presigned_upload::HttpStatusError;
 use crate::server::team_scope::RequestTeamScope;
 use crate::settings::AISettings;
 use crate::ui_components::icons::Icon;
 use crate::workspace::{RestoreConversationLayout, WorkspaceAction};
 use crate::workspaces::user_workspaces::{TeamContextResolver, TeamScope};
+use warp_server_client::HttpStatusError;
 
 const POLLING_INTERVAL: Duration = Duration::from_secs(30);
 const RTC_TASK_REFRESH_THROTTLE: Duration = Duration::from_secs(5);
@@ -271,14 +268,6 @@ pub enum CreatedOnFilter {
     LastWeek,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum EnvironmentFilter {
-    #[default]
-    All,
-    NoEnvironment,
-    Specific(String),
-}
-
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OwnerFilter {
     All,
@@ -321,8 +310,6 @@ pub struct AgentManagementFilters {
     pub creator: CreatorFilter,
     pub artifact: ArtifactFilter,
     #[serde(default)]
-    pub environment: EnvironmentFilter,
-    #[serde(default)]
     pub harness: HarnessFilter,
 }
 
@@ -352,7 +339,6 @@ impl AgentManagementFilters {
         self.created_on = CreatedOnFilter::default();
         self.creator = CreatorFilter::default();
         self.artifact = ArtifactFilter::default();
-        self.environment = EnvironmentFilter::default();
         self.harness = HarnessFilter::default();
     }
 
@@ -362,7 +348,6 @@ impl AgentManagementFilters {
             || self.created_on != CreatedOnFilter::default()
             || self.creator != CreatorFilter::default() && self.owners != OwnerFilter::PersonalOnly
             || self.artifact != ArtifactFilter::default()
-            || self.environment != EnvironmentFilter::default()
             || self.harness != HarnessFilter::default()
     }
 }
@@ -803,9 +788,11 @@ impl AgentConversationsModel {
             // (a) If management view or conversation list is open, throttled list-fetch.
             self.handle_rtc_for_list_views(*timestamp, ctx);
         } else {
-            let has_open_tab = ActiveAgentViewsModel::as_ref(ctx)
-                .get_terminal_view_id_for_ambient_task(*task_id)
-                .is_some();
+            let has_open_tab = BlocklistAIHistoryModel::as_ref(ctx)
+                .find_conversation_id_by_task_id(task_id)
+                .is_some_and(|conversation_id| {
+                    ActiveAgentViewsModel::as_ref(ctx).is_conversation_open(conversation_id, ctx)
+                });
             if has_open_tab {
                 // (b) If this task has an open tab (any window), force a re-fetch.
                 self.async_fetch_task(task_id, ctx);
@@ -896,6 +883,7 @@ impl AgentConversationsModel {
                         .list_ambient_agent_tasks(
                             INITIAL_TASK_AMOUNT,
                             TaskListFilter {
+                                execution_location: Some(ExecutionLocation::Local),
                                 updated_after: Some(updated_after),
                                 ..Default::default()
                             },
@@ -977,6 +965,7 @@ impl AgentConversationsModel {
                             .list_ambient_agent_tasks(
                                 INITIAL_TASK_AMOUNT,
                                 TaskListFilter {
+                                    execution_location: Some(ExecutionLocation::Local),
                                     creator_uid: Some(creator_uid),
                                     ..Default::default()
                                 },
@@ -1222,7 +1211,10 @@ impl AgentConversationsModel {
                     ai_client
                         .list_ambient_agent_tasks(
                             100,
-                            TaskListFilter::default(),
+                            TaskListFilter {
+                                execution_location: Some(ExecutionLocation::Local),
+                                ..Default::default()
+                            },
                             Some(request_team_scope),
                         )
                         .await
@@ -1270,28 +1262,6 @@ impl AgentConversationsModel {
         if has_new_tasks {
             ctx.emit(AgentConversationsModelEvent::NewTasksReceived);
         } else if has_updated_tasks {
-            ctx.emit(AgentConversationsModelEvent::TasksUpdated);
-        }
-    }
-
-    /// Seeds the task cache so tests can exercise cache-hit paths without a
-    /// server round trip.
-    #[cfg(test)]
-    pub(crate) fn insert_task_for_test(&mut self, task: AmbientAgentTask) {
-        self.tasks.insert(task.task_id, task);
-    }
-
-    pub(crate) fn mark_task_execution_ended(
-        &mut self,
-        task_id: AmbientAgentTaskId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let Some(task) = self.tasks.get_mut(&task_id) else {
-            return;
-        };
-        let was_active = task.has_active_execution();
-        task.is_sandbox_running = false;
-        if was_active {
             ctx.emit(AgentConversationsModelEvent::TasksUpdated);
         }
     }
@@ -1345,6 +1315,14 @@ impl AgentConversationsModel {
         let mut emitted_conversation_ids = HashSet::new();
 
         for task in self.tasks.values() {
+            if task.execution_location == Some(ExecutionLocation::Remote) {
+                if let Some(conversation_id) =
+                    entry::conversation_id_shadowed_by_task(task, history_model)
+                {
+                    attached_conversation_ids.insert(conversation_id);
+                }
+                continue;
+            }
             let entry = entry::entry_for_task(task, history_model, app);
             if let Some(conversation_id) = entry.identity.local_conversation_id {
                 attached_conversation_ids.insert(conversation_id);
@@ -1387,10 +1365,20 @@ impl AgentConversationsModel {
         app: &AppContext,
     ) -> Option<AgentConversationEntry> {
         let history_model = BlocklistAIHistoryModel::as_ref(app);
+        if let AgentConversationEntryId::Conversation(conversation_id) = id
+            && self.tasks.values().any(|task| {
+                task.execution_location == Some(ExecutionLocation::Remote)
+                    && entry::conversation_id_shadowed_by_task(task, history_model)
+                        == Some(*conversation_id)
+            })
+        {
+            return None;
+        }
         match id {
             AgentConversationEntryId::AmbientRun(task_id) => self
                 .tasks
                 .get(task_id)
+                .filter(|task| task.execution_location != Some(ExecutionLocation::Remote))
                 .map(|task| entry::entry_for_task(task, history_model, app)),
             AgentConversationEntryId::Conversation(conversation_id) => self
                 .conversations
@@ -1425,15 +1413,15 @@ impl AgentConversationsModel {
             AgentConversationNavigationSubject::Entry(id) => model
                 .get_entry_by_id(&id, app)
                 .and_then(|entry| model.resolve_entry_open_action(&entry, restore_layout, app)),
-            AgentConversationNavigationSubject::ServerToken(server_token) => model
-                .entry_for_server_token(&server_token, app)
-                .and_then(|entry| model.resolve_entry_open_action(&entry, restore_layout, app))
-                .or_else(|| {
-                    Some(WorkspaceAction::OpenConversationTranscriptViewer {
-                        ambient_agent_task_id: model.task_id_for_server_token(&server_token),
-                        conversation_id: server_token,
-                    })
-                }),
+            AgentConversationNavigationSubject::ServerToken(server_token) => {
+                if let Some(entry) = model.entry_for_server_token(&server_token, app) {
+                    return model.resolve_entry_open_action(&entry, restore_layout, app);
+                }
+                Some(WorkspaceAction::OpenConversationTranscriptViewer {
+                    ambient_agent_task_id: model.task_id_for_server_token(&server_token),
+                    conversation_id: server_token,
+                })
+            }
         }
     }
 
@@ -1461,35 +1449,8 @@ impl AgentConversationsModel {
     ) -> Option<WorkspaceAction> {
         let active_views_model = ActiveAgentViewsModel::as_ref(app);
 
-        if let Some(task_id) = entry.identity.ambient_agent_task_id {
-            match self
-                .tasks
-                .get(&task_id)
-                .map(AmbientAgentTask::active_live_session_state)
-            {
-                Some(AmbientAgentLiveSessionState::Attachable { session_id }) => {
-                    return Some(WorkspaceAction::OpenOrAttachAmbientAgentConversation {
-                        session_id,
-                        task_id,
-                    });
-                }
-                Some(AmbientAgentLiveSessionState::ActiveUnattachable) => {
-                    return active_views_model
-                        .get_terminal_view_id_for_ambient_task(task_id)
-                        .map(
-                            |terminal_view_id| WorkspaceAction::FocusTerminalViewInWorkspace {
-                                terminal_view_id,
-                            },
-                        );
-                }
-                Some(AmbientAgentLiveSessionState::Inactive) | None => {}
-            }
-
-            if let Some(terminal_view_id) =
-                active_views_model.get_terminal_view_id_for_ambient_task(task_id)
-            {
-                return Some(WorkspaceAction::FocusTerminalViewInWorkspace { terminal_view_id });
-            }
+        if entry.execution_location == Some(ExecutionLocation::Remote) {
+            return None;
         }
 
         if let Some(conversation_id) = entry.identity.local_conversation_id
@@ -1867,54 +1828,6 @@ impl AgentConversationsModel {
         creators
     }
 
-    /// Returns a mapping of environment IDs to display names.
-    ///
-    /// When multiple environments share the same name, each is disambiguated
-    /// as "<name> (<id>)".
-    pub fn get_all_environment_ids_and_names<S: TeamScope + ?Sized>(
-        &self,
-        scope: &S,
-        ctx: &AppContext,
-    ) -> HashMap<String, String> {
-        let mut envs = HashMap::<String, String>::new();
-        for task in self
-            .tasks
-            .values()
-            .filter(|task| Self::task_matches_team(task, scope.team_uid()))
-        {
-            let Some(environment_id) = task
-                .agent_config_snapshot
-                .as_ref()
-                .and_then(|s| s.environment_id.as_deref())
-            else {
-                continue;
-            };
-
-            let Some(server_id) = ServerId::try_from(environment_id).ok() else {
-                continue;
-            };
-            let sync_id = SyncId::ServerId(server_id);
-            let Some(env) = CloudAmbientAgentEnvironment::get_by_id(&sync_id, ctx) else {
-                continue;
-            };
-            let env_model = &env.model().string_model;
-            envs.insert(environment_id.to_string(), env_model.name.clone());
-        }
-
-        // Disambiguate duplicate names by appending the environment ID.
-        let mut name_counts = HashMap::<String, usize>::new();
-        for name in envs.values() {
-            *name_counts.entry(name.clone()).or_default() += 1;
-        }
-        for (id, name) in &mut envs {
-            if name_counts.get(name.as_str()).copied().unwrap_or(0) > 1 {
-                *name = format!("{name} ({id})");
-            }
-        }
-
-        envs
-    }
-
     /// Converts AgentManagementFilters to TaskListFilter for server API calls.
     pub fn build_task_list_filter(
         &self,
@@ -1964,17 +1877,12 @@ impl AgentConversationsModel {
             },
         };
 
-        let environment_id = match &filters.environment {
-            EnvironmentFilter::All | EnvironmentFilter::NoEnvironment => None,
-            EnvironmentFilter::Specific(id) => Some(id.clone()),
-        };
-
         TaskListFilter {
+            execution_location: Some(ExecutionLocation::Local),
             creator_uid,
             states,
             source,
             created_after,
-            environment_id,
             ..TaskListFilter::default()
         }
     }

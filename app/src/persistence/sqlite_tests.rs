@@ -16,8 +16,9 @@ use super::{
     save_app_state, save_workspace_metadata, setup_database, start_writer,
 };
 use crate::app_state::{
-    AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot,
-    TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    AmbientAgentPaneSnapshot, AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot,
+    LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, SplitDirection, TabGroupSnapshot,
+    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::auth::UserUid;
 use crate::cloud_object::{CloudObjectPermissions, Owner};
@@ -121,8 +122,25 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
     let database_path = tempdir.path().join("warp.sqlite");
     let mut conn = setup_database(&database_path).expect("database should initialize");
 
+    let mut window = test_terminal_window_snapshot(false);
+    let first = window.tabs[0].root.clone();
+    let task_id = "00000000-0000-0000-0000-000000000055"
+        .parse()
+        .expect("valid task ID");
+    let second = PaneNodeSnapshot::Leaf(LeafSnapshot {
+        is_focused: false,
+        custom_vertical_tabs_title: None,
+        contents: LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
+            uuid: vec![2],
+            task_id,
+        }),
+    });
+    window.tabs[0].root = PaneNodeSnapshot::Branch(BranchSnapshot {
+        direction: SplitDirection::Horizontal,
+        children: vec![(PaneFlex(1.0), first), (PaneFlex(1.0), second)],
+    });
     let app_state = AppState {
-        windows: vec![test_terminal_window_snapshot(false)],
+        windows: vec![window],
         active_window_index: Some(0),
         block_lists: Default::default(),
     };
@@ -135,6 +153,21 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
     assert_eq!(restored_app_state.windows.len(), 1);
     assert_eq!(restored.workspace_metadata.len(), 1);
     assert_eq!(restored.workspace_metadata[0].path, metadata.path);
+    assert_eq!(
+        restored_app_state.windows[0].tabs[0].root,
+        app_state.windows[0].tabs[0].root
+    );
+
+    // A retired cloud leaf must not discard the ordinary terminal beside it.
+    conn.batch_execute("UPDATE ambient_agent_panes SET task_id = NULL;")
+        .expect("legacy empty cloud pane should lose its task identity");
+    let restored = read_sqlite_data(&mut conn, None).expect("supported sibling should restore");
+    let state = restored.app_state.expect("ordinary tab should remain");
+    assert!(matches!(
+        &state.windows[0].tabs[0].root,
+        PaneNodeSnapshot::Leaf(LeafSnapshot { contents: LeafContents::Terminal(pane), .. })
+            if pane.uuid == vec![1]
+    ));
 }
 
 #[test]

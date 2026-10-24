@@ -7,7 +7,8 @@ use cloud_objects::cloud_object::{
 use cloud_objects::ids::GenericStringObjectId;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use warp_cli::agent::Harness;
 use warp_core::features::FeatureFlag;
 
 use crate::{JsonModel, JsonSerializer};
@@ -401,3 +402,150 @@ pub type CloudAIExecutionProfile =
 pub type CloudAIExecutionProfileModel = GenericStringModel<AIExecutionProfile, JsonSerializer>;
 pub type ServerAIExecutionProfile =
     GenericServerObject<GenericStringObjectId, CloudAIExecutionProfileModel>;
+
+/// Runtime configuration snapshot for agent execution.
+///
+/// This is the merged/resolved config used when spawning or running an agent.
+/// It combines settings from config files and CLI args.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct AgentConfigSnapshot {
+    /// Config name for searchability/traceability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_prompt: Option<String>,
+    /// Profile ID for local agent runs. This configures the terminal session
+    /// with the specified execution profile. Only used for local runs, not cloud runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    /// Skill spec to use as the base prompt for the agent.
+    /// Format: "skill_name", "repo:skill_name", or "org/repo:skill_name".
+    /// The skill is resolved at runtime in the agent environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_spec: Option<String>,
+    /// Execution harness for the agent run.
+    /// If None, we use Warp's default ("oz").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<HarnessConfig>,
+    /// Extra repositories the worker should clone in addition to the environment's repos.
+    /// This is server-populated for per-task sources such as a GitHub webhook's origin repo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_source_repos: Option<Vec<SourceRepo>>,
+}
+
+/// Configuration for a third-party execution harness.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct HarnessConfig {
+    /// The harness type, e.g. [`Harness::Claude`].
+    #[serde(
+        rename = "type",
+        serialize_with = "serialize_harness",
+        deserialize_with = "deserialize_harness"
+    )]
+    pub harness_type: Harness,
+    /// The model to use with this harness. None means use the harness default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Optional reasoning level for harnesses that support it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_level: Option<String>,
+}
+
+impl HarnessConfig {
+    /// Builds a harness config from just the harness type.
+    pub fn from_harness_type(harness_type: Harness) -> Self {
+        Self {
+            harness_type,
+            model_id: None,
+            reasoning_level: None,
+        }
+    }
+}
+
+fn serialize_harness<S: Serializer>(harness: &Harness, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(harness.config_name())
+}
+
+fn deserialize_harness<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Harness, D::Error> {
+    let name = String::deserialize(deserializer)?;
+    Ok(Harness::from_config_name(&name).unwrap_or_else(|| {
+        log::warn!("Unknown harness config name: {name:?}; treating as Unknown");
+        Harness::Unknown
+    }))
+}
+
+/// Source-control provider hosting an environment's repositories.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum CodeForge {
+    #[default]
+    #[serde(rename = "GITHUB")]
+    GitHub,
+    #[serde(rename = "GITLAB")]
+    GitLab,
+    /// Azure DevOps (Azure Repos). `owner` carries the
+    /// `organization/project` pair, mirroring GitLab's nested namespaces.
+    #[serde(rename = "AZURE_DEVOPS")]
+    AzureDevOps,
+    /// Explicit "no code forge" container value: a repo-less environment
+    /// that clones nothing and relies entirely on `setup_commands`.
+    #[serde(rename = "NONE")]
+    None,
+    // Catches a forge value this client build doesn't recognize yet (e.g. the
+    // server adds one before this client updates), so the rest of the
+    // environment still deserializes instead of the whole object failing.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Identifies a repository and the source-control provider that hosts it.
+///
+/// For GitLab, `owner` contains the full, potentially nested namespace.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceRepo {
+    /// The repository's explicit source-control provider.
+    ///
+    /// When absent, a single-forge environment fills this from the container
+    /// primary. A mixed environment leaves it unset so clone fails closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_forge: Option<CodeForge>,
+    pub owner: String,
+    pub repo: String,
+    /// Ref to check out after cloning this repository (commit SHA, branch, or
+    /// tag). Absent leaves the clone on the default branch. Benchmark trials
+    /// use it to start from a pinned base commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_ref: Option<String>,
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn additional_source_repos_round_trip_and_is_optional() {
+        let snapshot = AgentConfigSnapshot {
+            additional_source_repos: Some(vec![SourceRepo {
+                code_forge: Some(CodeForge::GitHub),
+                owner: "warpdotdev".to_string(),
+                repo: "warp".to_string(),
+                checkout_ref: None,
+            }]),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(
+            json["additional_source_repos"][0],
+            serde_json::json!({
+                "code_forge": "GITHUB",
+                "owner": "warpdotdev",
+                "repo": "warp"
+            })
+        );
+        let decoded: AgentConfigSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded, snapshot);
+        let legacy: AgentConfigSnapshot = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(legacy.additional_source_repos.is_none());
+    }
+}

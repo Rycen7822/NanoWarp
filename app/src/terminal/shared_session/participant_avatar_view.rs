@@ -624,7 +624,6 @@ pub fn render_participants_and_role_elements(
     mouse_state_handle: MouseStateHandle,
     menu_handle: Option<ViewHandle<Menu<PaneHeaderAction<TerminalAction, TerminalAction>>>>,
     is_menu_open: bool,
-    hide_role_change_button: bool,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
@@ -660,7 +659,7 @@ pub fn render_participants_and_role_elements(
 
     // Only render button for viewer, unless hide_role_change_button is true
     // (e.g., in cloud mode conversations where role changes are not supported)
-    if role.is_some() && !hide_role_change_button {
+    if role.is_some() {
         row.add_child(render_viewer_role_button(
             role,
             mouse_state_handle.clone(),

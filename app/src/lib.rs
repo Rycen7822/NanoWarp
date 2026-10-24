@@ -203,8 +203,6 @@ use workspace::sync_inputs::SyncedInputState;
 use self::features::FeatureFlag;
 use crate::ai::AIRequestUsageModel;
 #[cfg(not(target_family = "wasm"))]
-use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::facts::manager::AIFactManager;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
@@ -983,19 +981,6 @@ pub(crate) fn initialize_app(
     });
 
     let server_api = server_api_provider.as_ref(ctx).get();
-    // Parse the ambient-agent task ID once; malformed values identify no task.
-    #[cfg(not(target_family = "wasm"))]
-    let ambient_agent_task_id: Option<AmbientAgentTaskId> = std::env::var(warp_cli::OZ_RUN_ID_ENV)
-        .ok()
-        .and_then(|run_id| match run_id.parse() {
-            Ok(task_id) => Some(task_id),
-            Err(err) => {
-                log::warn!("Ignoring invalid {}: {err}", warp_cli::OZ_RUN_ID_ENV);
-                None
-            }
-        });
-    #[cfg(not(target_family = "wasm"))]
-    server_api.set_ambient_agent_task_id(ambient_agent_task_id);
     let ai_client = server_api_provider.as_ref(ctx).get_ai_client();
 
     ctx.add_singleton_model(|_ctx| AuthStateProvider::new(auth_state.clone()));
@@ -1505,7 +1490,6 @@ pub(crate) fn initialize_app(
             time_of_next_force_object_refresh,
         )
     });
-    ctx.add_singleton_model(ai::cloud_environments::CloudEnvironmentCatalog::new);
 
     let unsynced_actions: Vec<(CloudObjectTypeAndId, ObjectAction)> = object_actions
         .iter()
@@ -1660,7 +1644,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(LLMPreferences::new);
     ctx.add_singleton_model(HarnessAvailabilityModel::new);
-    ctx.add_singleton_model(ConnectedSelfHostedWorkersModel::new);
 
     timer.mark_interval_end("SINGLETON_MODELS_REGISTERED");
 
@@ -2118,16 +2101,7 @@ fn on_close_window_cancelled(
     }
 }
 
-fn is_cloud_agent_web_home_launch_url(url: &Url) -> bool {
-    url.scheme() == ChannelState::url_scheme()
-        && url.host_str() == Some("action")
-        && url.path() == "/new_cloud_agent_conversation"
-        && url
-            .query_pairs()
-            .any(|(key, value)| key == "source" && value == "web_home")
-}
-
-#[::tracing::instrument(skip_all, fields(tags.cloud_agent = true))]
+#[::tracing::instrument(skip_all)]
 fn launch(ctx: &mut warpui::AppContext, app_state: Option<AppState>, launch_mode: LaunchMode) {
     IntervalTimer::handle(ctx).update(ctx, |timer, _ctx| {
         timer.mark_interval_end("APP_LAUNCHED");
@@ -2145,12 +2119,6 @@ fn launch(ctx: &mut warpui::AppContext, app_state: Option<AppState>, launch_mode
 
     match launch_mode {
         LaunchMode::App { .. } | LaunchMode::Test { .. } => {
-            let should_skip_restore = launch_mode
-                .args()
-                .urls
-                .iter()
-                .any(is_cloud_agent_web_home_launch_url);
-            let app_state = if should_skip_restore { None } else { app_state };
             // Attempt to restore windows from the persisted application state.
             let arg = OpenFromRestoredArg { app_state };
             ctx.dispatch_global_action("root_view:open_from_restored", &arg);

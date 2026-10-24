@@ -12,9 +12,8 @@ use diesel::result::Error;
 
 use crate::{
     CloudAIExecutionProfile, CloudAIExecutionProfileModel, CloudAIFact, CloudAIFactModel,
-    CloudAmbientAgentEnvironment, CloudAmbientAgentEnvironmentModel, CloudEnvVarCollection,
-    CloudEnvVarCollectionModel, CloudPreference, CloudPreferenceModel, CloudScheduledAmbientAgent,
-    CloudScheduledAmbientAgentModel, CloudWorkflowEnum, CloudWorkflowEnumModel,
+    CloudEnvVarCollection, CloudEnvVarCollectionModel, CloudPreference, CloudPreferenceModel,
+    CloudWorkflowEnum, CloudWorkflowEnumModel,
 };
 
 pub enum PersistedGenericStringObject {
@@ -23,8 +22,6 @@ pub enum PersistedGenericStringObject {
     WorkflowEnum(CloudWorkflowEnum),
     AIFact(CloudAIFact),
     AIExecutionProfile(CloudAIExecutionProfile),
-    CloudEnvironment(CloudAmbientAgentEnvironment),
-    ScheduledAmbientAgent(CloudScheduledAmbientAgent),
 }
 
 pub fn read_generic_string_objects(
@@ -107,34 +104,9 @@ pub fn read_generic_string_objects(
                         )
                     })
                 }
-                JsonObjectType::CloudEnvironment => {
-                    let model = CloudAmbientAgentEnvironmentModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::CloudEnvironment(
-                            CloudAmbientAgentEnvironment::new(
-                                object_id,
-                                model,
-                                to_cloud_object_metadata(metadata),
-                                cloud_object_permissions,
-                            ),
-                        )
-                    })
-                }
-                JsonObjectType::ScheduledAmbientAgent => {
-                    let model = CloudScheduledAmbientAgentModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::ScheduledAmbientAgent(
-                            CloudScheduledAmbientAgent::new(
-                                object_id,
-                                model,
-                                to_cloud_object_metadata(metadata),
-                                cloud_object_permissions,
-                            ),
-                        )
-                    })
-                }
-                // TODO: Implement CloudAgentConfig model when full sync support is added
-                JsonObjectType::CloudAgentConfig => None,
+                JsonObjectType::CloudEnvironment
+                | JsonObjectType::ScheduledAmbientAgent
+                | JsonObjectType::CloudAgentConfig => None,
             }
         })
         .collect())

@@ -1302,14 +1302,13 @@ fn save_pane_state(
             }
         },
         LeafContents::AmbientAgent(snapshot) => {
-            let ambient_agent_pane = model::NewAmbientAgentPane {
+            let pane = model::NewAmbientAgentPane {
                 id,
                 uuid: snapshot.uuid.clone(),
-                task_id: snapshot.task_id.map(|t| t.to_string()),
+                task_id: Some(snapshot.task_id.to_string()),
             };
-
             diesel::insert_into(schema::ambient_agent_panes::dsl::ambient_agent_panes)
-                .values(ambient_agent_pane)
+                .values(pane)
                 .execute(conn)?;
         }
         LeafContents::NetworkLog => {
@@ -1935,11 +1934,14 @@ fn read_root_node(conn: &mut SqliteConnection, tab_id_val: i32) -> Result<PaneNo
         .filter(tab_id.eq(tab_id_val))
         .filter(parent_pane_node_id.is_null())
         .first(conn)?;
-    read_node(conn, pane_node)
+    read_node(conn, pane_node)?.context("Saved tab contains no supported panes")
 }
 
 /// Reads a saved node back into a snapshot.
-fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneNodeSnapshot> {
+fn read_node(
+    conn: &mut SqliteConnection,
+    node: model::PaneNode,
+) -> Result<Option<PaneNodeSnapshot>> {
     match node.is_leaf {
         true => {
             let pane = schema::pane_leaves::dsl::pane_leaves
@@ -2115,12 +2117,18 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                     let pane = schema::ambient_agent_panes::dsl::ambient_agent_panes
                         .find(node.id)
                         .select(model::AmbientAgentPane::as_select())
-                        .first(conn)?;
-
-                    let task_id = pane
-                        .task_id
-                        .and_then(|id_str| id_str.parse::<AmbientAgentTaskId>().ok());
-
+                        .first(conn)
+                        .optional()?;
+                    let Some((pane, task_id)) = pane.and_then(|pane| {
+                        let task_id = pane
+                            .task_id
+                            .as_deref()?
+                            .parse::<AmbientAgentTaskId>()
+                            .ok()?;
+                        Some((pane, task_id))
+                    }) else {
+                        return Ok(None);
+                    };
                     LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
                         uuid: pane.uuid,
                         task_id,
@@ -2129,11 +2137,11 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                 other => bail!("Unrecognized pane kind: {other}"),
             };
 
-            Ok(PaneNodeSnapshot::Leaf(LeafSnapshot {
+            Ok(Some(PaneNodeSnapshot::Leaf(LeafSnapshot {
                 is_focused: pane.is_focused,
                 custom_vertical_tabs_title: pane.custom_vertical_tabs_title,
                 contents,
-            }))
+            })))
         }
         false => {
             let pane_branch = schema::pane_branches::dsl::pane_branches
@@ -2145,22 +2153,30 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                 .order(schema::pane_nodes::columns::id.asc())
                 .load::<model::PaneNode>(conn)?;
 
+            let original_child_count = child_nodes.len();
             let mut children = Vec::new();
             for child_node in child_nodes {
-                children.push((
-                    PaneFlex(child_node.flex.unwrap_or(1.)),
-                    read_node(conn, child_node)?,
-                ));
+                let flex = PaneFlex(child_node.flex.unwrap_or(1.));
+                if let Some(child) = read_node(conn, child_node)? {
+                    children.push((flex, child));
+                }
             }
 
             let direction = match pane_branch.horizontal {
                 true => SplitDirection::Horizontal,
                 false => SplitDirection::Vertical,
             };
-            Ok(PaneNodeSnapshot::Branch(BranchSnapshot {
+            if children.len() != original_child_count {
+                match children.len() {
+                    0 => return Ok(None),
+                    1 => return Ok(children.pop().map(|(_, child)| child)),
+                    _ => {}
+                }
+            }
+            Ok(Some(PaneNodeSnapshot::Branch(BranchSnapshot {
                 direction,
                 children,
-            }))
+            })))
         }
     }
 }
@@ -2174,8 +2190,6 @@ fn box_persisted_generic_string_object(
         PersistedGenericStringObject::WorkflowEnum(object) => Box::new(object),
         PersistedGenericStringObject::AIFact(object) => Box::new(object),
         PersistedGenericStringObject::AIExecutionProfile(object) => Box::new(object),
-        PersistedGenericStringObject::CloudEnvironment(object) => Box::new(object),
-        PersistedGenericStringObject::ScheduledAmbientAgent(object) => Box::new(object),
     }
 }
 

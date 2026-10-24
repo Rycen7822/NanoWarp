@@ -6,7 +6,6 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 use markdown_parser::FormattedTextFragment;
 use session_sharing_protocol::common::{ParticipantId, ParticipantList, Role, SessionId};
-use session_sharing_protocol::sharer::SessionSourceType;
 use warp_core::features::FeatureFlag;
 use warpui::elements::MouseStateHandle;
 use warpui::{AppContext, Element, ModelHandle, ViewContext, ViewHandle};
@@ -93,7 +92,6 @@ pub struct Adapter {
     is_reconnecting_banner_open: bool,
     session_id: SessionId,
     started_at: DateTime<Local>,
-    source_type: SessionSourceType,
 }
 
 impl Adapter {
@@ -102,7 +100,6 @@ impl Adapter {
         presence_manager: ModelHandle<PresenceManager>,
         session_id: SessionId,
         started_at: DateTime<Local>,
-        source_type: SessionSourceType,
         ctx: &mut ViewContext<TerminalView>,
     ) -> Self {
         let reconnecting_banner = ctx.add_typed_action_view(|_| {
@@ -124,7 +121,6 @@ impl Adapter {
             is_reconnecting_banner_open: false,
             session_id,
             started_at,
-            source_type,
         }
     }
 
@@ -134,21 +130,13 @@ impl Adapter {
         participant_list: Box<ParticipantList>,
         session_id: SessionId,
         started_at: DateTime<Local>,
-        source_type: SessionSourceType,
         ctx: &mut ViewContext<TerminalView>,
     ) -> Self {
         let presence_manager = ctx.add_model(|ctx| {
             PresenceManager::new_for_viewer(viewer_id, firebase_uid, *participant_list, ctx)
         });
         let viewer = Kind::Viewer(Viewer::new(ctx));
-        Self::new(
-            viewer,
-            presence_manager,
-            session_id,
-            started_at,
-            source_type,
-            ctx,
-        )
+        Self::new(viewer, presence_manager, session_id, started_at, ctx)
     }
 
     pub fn new_for_sharer(
@@ -156,34 +144,22 @@ impl Adapter {
         firebase_uid: UserUid,
         session_id: SessionId,
         started_at: DateTime<Local>,
-        source_type: SessionSourceType,
         ctx: &mut ViewContext<TerminalView>,
     ) -> Self {
         let presence_manager =
             ctx.add_model(|_| PresenceManager::new_for_sharer(sharer_id, firebase_uid));
 
-        // The inactivity timer is reset every 10 seconds
-        // as long as sharer activity was detected during the interval.
-        // For ambient agent sessions, we skip the inactivity timer entirely.
+        // The inactivity timer is reset every 10 seconds while sharer activity continues.
         let (activity_tx, activity_rx) = async_channel::unbounded();
-        if !matches!(source_type, SessionSourceType::AmbientAgent { .. }) {
-            let throttled_activity_rx = throttle(Duration::from_secs(10), activity_rx);
-            ctx.spawn_stream_local(
-                throttled_activity_rx,
-                |view, _, ctx| view.reset_sharer_inactivity_timer(ctx),
-                |_, _| {},
-            );
-        }
+        let throttled_activity_rx = throttle(Duration::from_secs(10), activity_rx);
+        ctx.spawn_stream_local(
+            throttled_activity_rx,
+            |view, _, ctx| view.reset_sharer_inactivity_timer(ctx),
+            |_, _| {},
+        );
 
         let sharer = Kind::Sharer(Sharer::new(activity_tx, ctx));
-        Self::new(
-            sharer,
-            presence_manager,
-            session_id,
-            started_at,
-            source_type,
-            ctx,
-        )
+        Self::new(sharer, presence_manager, session_id, started_at, ctx)
     }
 
     pub fn started_at(&self) -> &DateTime<Local> {
@@ -354,10 +330,6 @@ impl Adapter {
 
     pub fn session_id(&self) -> &SessionId {
         &self.session_id
-    }
-
-    pub fn source_type(&self) -> &SessionSourceType {
-        &self.source_type
     }
 
     /// Retrieves the viewer avatars we want to render on the right side of the

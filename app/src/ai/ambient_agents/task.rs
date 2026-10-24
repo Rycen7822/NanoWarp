@@ -1,11 +1,9 @@
 //! Ambient agent task types and utilities.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-pub use cloud_object_models::{AgentConfigSnapshot, HarnessAuthSecretsConfig, HarnessConfig};
+pub use cloud_object_models::AgentConfigSnapshot;
 use iso8601_duration::Duration as Iso8601Duration;
 use serde::{Deserialize, Serialize};
-use session_sharing_protocol::common::SessionId;
-use url::Url;
 use warp_cli::agent::Harness;
 use warp_core::ui::theme::WarpTheme;
 use warp_errors::report_error;
@@ -20,22 +18,6 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
 
-fn parse_session_id_from_link(session_link: &str) -> Option<SessionId> {
-    Url::parse(session_link).ok().and_then(|url| {
-        url.path_segments()
-            .into_iter()
-            .flatten()
-            .last()
-            .and_then(|segment| segment.parse().ok())
-    })
-}
-
-fn parse_execution_session_id(execution: RunExecution<'_>) -> Option<SessionId> {
-    execution
-        .session_id
-        .and_then(|id| id.parse().ok())
-        .or_else(|| execution.session_link.and_then(parse_session_id_from_link))
-}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentSource {
     Linear,
@@ -99,28 +81,6 @@ impl AgentSource {
             AgentSource::RunScorer => "Scorer",
             AgentSource::Autofix => "Self-improvement",
             AgentSource::BenchmarkTrial => "Benchmark",
-        }
-    }
-
-    /// Returns true when tasks from this source must not accept user-triggered cloud follow-ups.
-    pub fn blocks_cloud_followups(&self) -> bool {
-        match self {
-            AgentSource::GitHubAction
-            | AgentSource::GitHubWebhook
-            | AgentSource::GitLabWebhook
-            | AgentSource::RunScorer
-            | AgentSource::Autofix
-            | AgentSource::BenchmarkTrial => true,
-            AgentSource::Linear
-            | AgentSource::AgentWebhook
-            | AgentSource::Slack
-            | AgentSource::Cli
-            | AgentSource::ScheduledAgent
-            | AgentSource::Interactive
-            | AgentSource::WebApp
-            | AgentSource::CloudMode
-            | AgentSource::Orchestration
-            | AgentSource::Jira => false,
         }
     }
 
@@ -248,12 +208,6 @@ pub struct AmbientAgentTask {
     #[serde(default, deserialize_with = "deserialize_artifacts")]
     pub artifacts: Vec<Artifact>,
 
-    /// Server-computed: whether a debug agent may be bootstrapped into this run's retained
-    /// environment-setup-failure session right now (REMOTE-2661). `#[serde(default)]` so an
-    /// older or ineligible server deserializes to `false`.
-    #[serde(default)]
-    pub debug_agent_available: bool,
-
     /// This run's ownership scope. `#[serde(default)]` for an older server that never sends
     /// it, in which case only the literal creator is recognized as authorized.
     #[serde(default)]
@@ -268,17 +222,6 @@ pub struct RunExecution<'a> {
     pub is_sandbox_running: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AmbientAgentLiveSessionState {
-    /// The task does not currently have a running execution with a joinable session signal.
-    Inactive,
-    /// The task has a running execution, but this client does not have a parsed
-    /// shared-session id it can attach to.
-    ActiveUnattachable,
-    /// The task has a running execution and this client can attach to its shared session.
-    Attachable { session_id: SessionId },
-}
-
 impl RunExecution<'_> {
     pub fn has_joinable_session(&self) -> bool {
         self.session_id.is_some() || self.session_link.is_some()
@@ -287,14 +230,6 @@ impl RunExecution<'_> {
     pub fn is_active(&self) -> bool {
         self.is_sandbox_running && self.has_joinable_session()
     }
-}
-
-/// Represents a single attachment input from the client (e.g., file upload)
-#[derive(Clone, Debug, Serialize)]
-pub struct AttachmentInput {
-    pub file_name: String,
-    pub mime_type: String,
-    pub data: String, // base64-encoded data
 }
 
 impl AmbientAgentTask {
@@ -326,20 +261,6 @@ impl AmbientAgentTask {
         self.conversation_id.as_deref()
     }
 
-    /// Whether this run is a retained environment-setup-failure session whose debug window is
-    /// still usable, so a debug prompt may be routed into it (REMOTE-2661). The server is the
-    /// sole authority here and re-verifies eligibility before accepting a follow-up; this only
-    /// decides what the client presents and where a submission goes.
-    pub fn is_setup_failure_debug_session_open(&self) -> bool {
-        self.debug_agent_available
-    }
-
-    /// Whether a debug conversation may still be *bootstrapped* into this session, i.e. none
-    /// exists yet. A later prompt reuses the persisted conversation instead.
-    pub fn is_open_for_setup_failure_debug_bootstrap(&self) -> bool {
-        self.is_setup_failure_debug_session_open() && self.conversation_id().is_none()
-    }
-
     /// The third-party CLI harness this task is configured to run, if any. `None` means the
     /// task runs on Warp's native Oz harness (the default when no harness is configured), whose
     /// conversations are represented locally in `BlocklistAIHistoryModel`. A `Some` task has no
@@ -360,13 +281,6 @@ impl AmbientAgentTask {
         self.third_party_harness_type().is_some()
     }
 
-    /// Returns true when this task's source must not accept user-triggered cloud follow-ups.
-    pub fn blocks_cloud_followups(&self) -> bool {
-        self.source
-            .as_ref()
-            .is_some_and(AgentSource::blocks_cloud_followups)
-    }
-
     pub fn active_run_execution(&self) -> RunExecution<'_> {
         RunExecution {
             session_id: self.session_id.as_deref(),
@@ -385,42 +299,8 @@ impl AmbientAgentTask {
         }
     }
 
-    /// Returns the canonical live-session state for this task from the client's perspective.
-    ///
-    /// This separates task liveness from attachability: an in-progress task can have an active
-    /// execution without a usable shared-session id. FAILED/ERROR tasks may also remain live while
-    /// their sandbox is retained for debugging. Callers should not treat either case as a completed
-    /// transcript/follow-up state.
-    pub fn active_live_session_state(&self) -> AmbientAgentLiveSessionState {
-        let execution = self.active_run_execution();
-        if !self.supports_live_session() || !execution.is_active() {
-            return AmbientAgentLiveSessionState::Inactive;
-        }
-
-        match parse_execution_session_id(execution) {
-            Some(session_id) => AmbientAgentLiveSessionState::Attachable { session_id },
-            None => AmbientAgentLiveSessionState::ActiveUnattachable,
-        }
-    }
-
-    pub fn active_execution_conversation_id(&self) -> Option<&str> {
-        if self.has_active_execution() {
-            self.conversation_id()
-        } else {
-            None
-        }
-    }
-
     pub fn has_active_execution(&self) -> bool {
         self.supports_live_session() && self.active_run_execution().is_active()
-    }
-
-    pub fn is_terminal_run_state(&self) -> bool {
-        self.state.is_terminal()
-    }
-
-    pub fn can_submit_cloud_followup(&self) -> bool {
-        self.is_terminal_run_state() && !self.has_active_execution()
     }
 
     /// Total credits used (inference + compute + platform).
@@ -458,11 +338,6 @@ impl AmbientAgentTask {
     /// Principal the run executed as, formatted for user-facing surfaces.
     pub fn executor_display_name(&self) -> Option<String> {
         self.executor.as_ref().and_then(|e| e.display_name.clone())
-    }
-
-    /// Returns true if the underlying session for the ambient agent is no longer running.
-    pub fn is_no_longer_running(&self) -> bool {
-        !self.active_run_execution().is_sandbox_running && !self.state.is_working()
     }
 
     fn supports_live_session(&self) -> bool {

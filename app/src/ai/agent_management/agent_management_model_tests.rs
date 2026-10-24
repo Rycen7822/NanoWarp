@@ -123,7 +123,7 @@ fn add_notification_tracks_unread_activity_when_in_app_notifications_are_hidden(
                 "Agent task".to_owned(),
                 "Task completed.".to_owned(),
                 NotificationCategory::Complete,
-                NotificationSourceAgent::Oz { is_ambient: false },
+                NotificationSourceAgent::Oz,
                 NotificationOrigin::Conversation(conversation_id),
                 terminal_view_id,
                 vec![],
@@ -324,7 +324,7 @@ fn seed_stale_notification(
             "Agent task".to_owned(),
             "Task completed.".to_owned(),
             NotificationCategory::Complete,
-            NotificationSourceAgent::Oz { is_ambient: false },
+            NotificationSourceAgent::Oz,
             NotificationOrigin::Conversation(conversation_id),
             terminal_view_id,
             vec![],
@@ -341,7 +341,7 @@ fn in_progress_resume_clears_stale_notification_and_adds_none() {
         let (history, notifications) = setup_app(&mut app);
         disable_telemetry_path(&mut app);
 
-        let conversation = AIConversation::new(false, false);
+        let conversation = AIConversation::new(false);
         let conversation_id = conversation.id();
         let terminal_view_id = EntityId::new();
         history.update(&mut app, |model, ctx| {

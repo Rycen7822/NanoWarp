@@ -37,9 +37,8 @@ use session_sharing_protocol::sharer::InitPayload;
 use session_sharing_protocol::sharer::{
     AddGuestsResponse, DownstreamMessage, FailedToAddGuestsReason, FailedToInitializeSessionReason,
     Lifetime, LinkAccessLevelUpdateResponse, ReconnectPayload, ReconnectToken, RemoveGuestResponse,
-    RoleUpdateReason, SessionEndedReason, SessionRetentionReason, SessionSourceType,
-    SessionTerminatedReason, TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
-    UpstreamMessage,
+    RoleUpdateReason, SessionEndedReason, SessionTerminatedReason, TeamAccessLevelUpdateResponse,
+    UpdatePendingUserRoleResponse, UpstreamMessage,
 };
 use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
@@ -71,9 +70,6 @@ const PTY_READS_BATCH_THRESHOLD: Duration = Duration::from_millis(50);
 #[cfg(any(test, feature = "integration_tests"))]
 const PTY_READS_BATCH_THRESHOLD: Duration = Duration::from_millis(250);
 #[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-const CREATE_SESSION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-const AMBIENT_CREATE_SESSION_MAX_ATTEMPTS: usize = 3;
 const RECONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 const RECONNECT_CYCLE_TIMEOUT: Duration = Duration::from_secs(128);
 const MAX_NO_PROGRESS_RECONNECTS: usize = 5;
@@ -214,7 +210,7 @@ macro_rules! sharer_error {
 #[derive(Debug)]
 enum Stage {
     /// The server is not ready to receive messages from us.
-    BeforeStarted { startup_retry: StartupRetryState },
+    BeforeStarted { startup_retry: StartupState },
     /// The server is ready to receive messages from us.
     StartedSuccessfully { startup_attempt: Option<usize> },
     /// The server disconnected after the session was started successfully and we are trying to reconnect.
@@ -261,20 +257,16 @@ struct StartupConfig {
 }
 
 #[derive(Debug)]
-struct StartupRetryState {
+struct StartupState {
     current_attempt: usize,
-    max_attempts: usize,
-    timeout_abort_handle: Option<AbortHandle>,
     transport_abort_handle: Option<AbortHandle>,
 }
 
-impl StartupRetryState {
+impl StartupState {
     #[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-    fn new(max_attempts: usize) -> Self {
+    fn new() -> Self {
         Self {
             current_attempt: 0,
-            max_attempts,
-            timeout_abort_handle: None,
             transport_abort_handle: None,
         }
     }
@@ -288,26 +280,10 @@ enum StartupFailure {
     InitializeTooLarge,
     WebsocketClosedBeforeStarted,
     WebsocketError,
-    Timeout,
     ServerRejected(FailedToInitializeSessionReason),
 }
 
 impl StartupFailure {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Transport
-            | Self::InitializeSend
-            | Self::WebsocketClosedBeforeStarted
-            | Self::WebsocketError
-            | Self::Timeout => true,
-            Self::InitializeTooLarge => false,
-            Self::ServerRejected(reason) => matches!(
-                reason,
-                FailedToInitializeSessionReason::InternalServerError { .. }
-            ),
-        }
-    }
-
     fn failed_reason(&self) -> FailedToInitializeSessionReason {
         match self {
             Self::ServerRejected(reason) => reason.clone(),
@@ -316,9 +292,6 @@ impl StartupFailure {
                     details: "Websocket closed before starting session".to_string(),
                 }
             }
-            Self::Timeout => FailedToInitializeSessionReason::InternalServerError {
-                details: "Timed out creating shared session".to_string(),
-            },
             Self::Transport
             | Self::InitializeSend
             | Self::InitializeTooLarge
@@ -335,7 +308,6 @@ impl StartupFailure {
             Self::InitializeTooLarge => "initialize_too_large",
             Self::WebsocketClosedBeforeStarted => "websocket_closed_before_started",
             Self::WebsocketError => "websocket_error",
-            Self::Timeout => "timeout",
             Self::ServerRejected(FailedToInitializeSessionReason::InternalServerError {
                 ..
             }) => "server_internal_error",
@@ -359,15 +331,6 @@ fn share_with_team_uid_for_init_payload(
     crate::workspaces::user_workspaces::ResolvedTeamScope::from_scope(scope)
         .team_uid()
         .map(String::from)
-}
-
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-fn startup_max_attempts(source: &SharedSessionSource) -> usize {
-    if matches!(source.source_type, SessionSourceType::AmbientAgent { .. }) {
-        AMBIENT_CREATE_SESSION_MAX_ATTEMPTS
-    } else {
-        1
-    }
 }
 
 pub struct Network {
@@ -451,7 +414,7 @@ impl Network {
                 universal_developer_input_context: None,
             },
             stage: Stage::BeforeStarted {
-                startup_retry: StartupRetryState::new(1),
+                startup_retry: StartupState::new(),
             },
             connection_generation: 0,
             session_id: None,
@@ -523,7 +486,7 @@ impl Network {
             .id
             .clone()
             .into();
-        let startup_retry = StartupRetryState::new(startup_max_attempts(&source));
+        let startup_retry = StartupState::new();
         let startup_config = StartupConfig {
             scrollback: scrollback.clone(),
             window_size,
@@ -898,27 +861,15 @@ impl Network {
         let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
         self.ws_proxy_tx = ws_proxy_tx;
         self.ws_proxy_rx = ws_proxy_rx.clone();
-        let (attempt, max_attempts) = match &mut self.stage {
+        let attempt = match &mut self.stage {
             Stage::BeforeStarted { startup_retry } => {
                 startup_retry.current_attempt += 1;
-                (startup_retry.current_attempt, startup_retry.max_attempts)
+                startup_retry.current_attempt
             }
             Stage::StartedSuccessfully { .. } | Stage::Reconnecting { .. } | Stage::Finished => {
                 return;
             }
         };
-
-        if max_attempts > 1 {
-            let timeout_handle = ctx.spawn(
-                async move { Timer::after(CREATE_SESSION_ATTEMPT_TIMEOUT).await },
-                move |network, _, ctx| {
-                    network.handle_startup_attempt_timeout(attempt, ctx);
-                },
-            );
-            if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
-                startup_retry.timeout_abort_handle = Some(timeout_handle.abort_handle());
-            }
-        }
 
         let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
         let anonymous_id = AuthStateProvider::as_ref(ctx).get().anonymous_id();
@@ -1010,13 +961,6 @@ impl Network {
         }
     }
 
-    #[cfg(not(any(test, feature = "integration_tests")))]
-    fn handle_startup_attempt_timeout(&mut self, attempt: usize, ctx: &mut ModelContext<Self>) {
-        if !self.is_active_startup_attempt_callback(attempt) {
-            return;
-        }
-        self.handle_startup_failure(StartupFailure::Timeout, ctx);
-    }
     /// Returns true only while `attempt` is still the active startup attempt.
     ///
     /// Use this for one-shot startup callbacks that are only valid while the session is
@@ -1062,23 +1006,11 @@ impl Network {
             })
     }
 
-    fn should_retry_startup_failure(&self, failure: &StartupFailure) -> bool {
-        failure.is_retryable()
-            && matches!(
-                &self.stage,
-                Stage::BeforeStarted { startup_retry }
-                    if startup_retry.current_attempt < startup_retry.max_attempts
-            )
-    }
-
     fn abort_startup_handles(&mut self) {
-        if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
-            if let Some(handle) = startup_retry.timeout_abort_handle.take() {
-                handle.abort();
-            }
-            if let Some(handle) = startup_retry.transport_abort_handle.take() {
-                handle.abort();
-            }
+        if let Stage::BeforeStarted { startup_retry } = &mut self.stage
+            && let Some(handle) = startup_retry.transport_abort_handle.take()
+        {
+            handle.abort();
         }
     }
 
@@ -1112,37 +1044,17 @@ impl Network {
         };
 
         let attempt = startup_retry.current_attempt;
-        let max_attempts = startup_retry.max_attempts;
         let reason = failure.diagnostic_label();
-        if self.should_retry_startup_failure(&failure) {
-            if let Some(cause) = cause.as_ref() {
-                sharer_warn!(
-                    self,
-                    "Shared session creation attempt failed, will retry; attempt={attempt} max_attempts={max_attempts} reason={reason} cause={cause:#}"
-                );
-            } else {
-                sharer_warn!(
-                    self,
-                    "Shared session creation attempt failed, will retry; attempt={attempt} max_attempts={max_attempts} reason={reason}"
-                );
-            }
-            self.abort_startup_handles();
-            self.close_startup_transport();
-
-            #[cfg(not(any(test, feature = "integration_tests")))]
-            self.start_create_session_attempt(ctx);
-            return;
-        }
 
         if let Some(cause) = cause.as_ref() {
             sharer_warn!(
                 self,
-                "Shared session creation failed, retries exhausted; attempt={attempt} max_attempts={max_attempts} reason={reason} cause={cause:#}"
+                "Shared session creation failed; attempt={attempt} reason={reason} cause={cause:#}"
             );
         } else {
             sharer_warn!(
                 self,
-                "Shared session creation failed, retries exhausted; attempt={attempt} max_attempts={max_attempts} reason={reason}"
+                "Shared session creation failed; attempt={attempt} reason={reason}"
             );
         }
         self.abort_startup_handles();
@@ -1507,13 +1419,12 @@ impl Network {
                     return;
                 };
                 let attempt = startup_retry.current_attempt;
-                let max_attempts = startup_retry.max_attempts;
                 self.session_id = Some(session_id);
                 self.reconnect_token = Some(reconnect_token);
                 self.sharer_id = Some(sharer_id.clone());
                 sharer_info!(
                     self,
-                    "Successfully created shared session; attempt={attempt} max_attempts={max_attempts}"
+                    "Successfully created shared session; attempt={attempt}"
                 );
                 self.abort_startup_handles();
                 self.startup_config = None;
@@ -1893,14 +1804,6 @@ impl Network {
                 "Failed to send message over ws_proxy channel in session sharer: {e}"
             );
         }
-    }
-
-    pub fn extend_session_retention(&mut self, reason: SessionRetentionReason) {
-        sharer_info!(
-            self,
-            "Requesting extended shared session retention: {reason:?}"
-        );
-        self.send_message_to_server(UpstreamMessage::ExtendSessionRetention { reason });
     }
 
     /// Sends all input updates buffered during disconnection to the server, then clears the buffer.

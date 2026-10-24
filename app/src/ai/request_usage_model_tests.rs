@@ -334,44 +334,6 @@ fn test_has_any_ai_remaining_true_with_remaining_requests() {
 }
 
 #[test]
-fn test_ambient_credits_banner_dismissal_is_persisted() {
-    App::test((), |mut app| async move {
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, ctx| {
-            assert!(!model.is_ambient_credits_banner_dismissed());
-            model.dismiss_ambient_credits_banner(ctx);
-            assert!(model.is_ambient_credits_banner_dismissed());
-        });
-
-        app.update(|ctx| {
-            let stored_value = ctx
-                .private_user_preferences()
-                .read_value(AMBIENT_CREDITS_BANNER_DISMISSED_KEY)
-                .unwrap();
-            assert_eq!(stored_value, Some("true".to_owned()));
-        });
-    });
-}
-
-#[test]
-fn test_ambient_credits_banner_dismissal_loads_from_preferences() {
-    App::test((), |mut app| async move {
-        register_user_preferences_for_tests(&mut app);
-        app.update(|ctx| {
-            ctx.private_user_preferences()
-                .write_value(AMBIENT_CREDITS_BANNER_DISMISSED_KEY, "true".to_owned())
-                .unwrap();
-        });
-
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, _ctx| {
-            assert!(model.is_ambient_credits_banner_dismissed());
-        });
-    });
-}
-#[test]
 fn test_has_any_ai_remaining_false_when_no_requests_or_bonus() {
     App::test((), |mut app| async move {
         app.add_singleton_model(UserWorkspaces::default_mock);
@@ -523,7 +485,7 @@ fn test_total_workspace_and_team_bonus_credits_counts_both_scopes() {
 }
 
 #[test]
-fn test_ambient_usage_cents_remaining_requires_all_grants_to_have_dollar_values() {
+fn test_workspace_and_team_bonus_credits_ignore_ambient_grants() {
     App::test((), |mut app| async move {
         let (uid, workspace) = create_test_workspace();
         add_user_workspaces_with_workspace(&mut app, workspace);
@@ -543,7 +505,6 @@ fn test_ambient_usage_cents_remaining_requires_all_grants_to_have_dollar_values(
                 usage_cents_remaining,
                 scope,
             };
-            // Ambient usage reports server-supplied cents regardless of the billing unit.
             model.request_limit_info = RequestLimitInfo::new_for_test(10, 0);
             model.bonus_grants = vec![
                 make(BonusGrantScope::User, BonusGrantType::Any, 5, Some(9.0)),
@@ -567,9 +528,6 @@ fn test_ambient_usage_cents_remaining_requires_all_grants_to_have_dollar_values(
                 ),
             ];
 
-            assert_eq!(model.ambient_only_usage_cents_remaining(), Some(180.0));
-
-            // A grant without a dollar value makes its total fall back to credits.
             model.bonus_grants.push(make(
                 BonusGrantScope::Team(uid),
                 BonusGrantType::Any,
@@ -586,25 +544,6 @@ fn test_ambient_usage_cents_remaining_requires_all_grants_to_have_dollar_values(
                 model.total_workspace_and_team_bonus_credits_remaining(uid),
                 21
             );
-            assert_eq!(model.ambient_only_usage_cents_remaining(), None);
-            assert_eq!(model.ambient_only_credits_remaining(), Some(103));
-        });
-    });
-}
-
-#[test]
-fn test_ambient_usage_cents_remaining_without_grants() {
-    App::test((), |mut app| async move {
-        let (_uid, workspace) = create_test_workspace();
-        add_user_workspaces_with_workspace(&mut app, workspace);
-        let request_usage_model = add_request_usage_model(&mut app);
-
-        request_usage_model.update(&mut app, |model, _ctx| {
-            model.bonus_grants.clear();
-
-            // No ambient grants leaves usage unknown, like its credit counterpart.
-            assert_eq!(model.ambient_only_usage_cents_remaining(), None);
-            assert_eq!(model.ambient_only_credits_remaining(), None);
         });
     });
 }

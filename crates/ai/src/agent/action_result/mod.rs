@@ -9,7 +9,6 @@ use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use warp_core::command::ExitCode;
 use warp_multi_agent_api::apply_file_diffs_result::success::UpdatedFileContent;
-use warp_terminal::event::ObservedExitStatus;
 use warp_terminal::model::BlockId;
 
 use crate::agent::FileLocations;
@@ -94,16 +93,10 @@ impl AIAgentActionResultType {
                 RequestCommandOutputResult::Completed { command, .. },
             )
             | AIAgentActionResultType::RequestCommandOutput(
-                RequestCommandOutputResult::ShellRecovered { command, .. },
-            )
-            | AIAgentActionResultType::RequestCommandOutput(
                 RequestCommandOutputResult::LongRunningCommandSnapshot { command, .. },
             )
             | AIAgentActionResultType::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::CommandFinished { command, .. },
-            )
-            | AIAgentActionResultType::ReadShellCommandOutput(
-                ReadShellCommandOutputResult::ShellRecovered { command, .. },
             )
             | AIAgentActionResultType::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::LongRunningCommandSnapshot { command, .. },
@@ -217,16 +210,6 @@ pub enum RequestCommandOutputResult {
         is_alt_screen_active: bool,
         activity: Option<LrcActivity>,
     },
-    ShellRecovered {
-        block_id: BlockId,
-        command: String,
-        output: String,
-        status: ObservedExitStatus,
-        restored_working_directory: String,
-        used_fallback_directory: bool,
-        start_ts: Option<DateTime<Local>>,
-        completed_ts: Option<DateTime<Local>>,
-    },
     /// A running command canceled via ctrl-c
     /// would have Completed result with exit code 130.
     CancelledBeforeExecution,
@@ -241,8 +224,7 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { exit_code, .. } => exit_code.was_successful(),
             Self::LongRunningCommandSnapshot { .. } => true,
-            Self::ShellRecovered { .. }
-            | Self::CancelledBeforeExecution
+            Self::CancelledBeforeExecution
             | Self::Denylisted { .. }
             | Self::TerminalBusy { .. } => false,
         }
@@ -251,9 +233,7 @@ impl RequestCommandOutputResult {
     pub fn failed(&self) -> bool {
         match self {
             Self::Completed { exit_code, .. } => !exit_code.was_successful(),
-            Self::ShellRecovered { .. } | Self::Denylisted { .. } | Self::TerminalBusy { .. } => {
-                true
-            }
+            Self::Denylisted { .. } | Self::TerminalBusy { .. } => true,
             Self::CancelledBeforeExecution | Self::LongRunningCommandSnapshot { .. } => false,
         }
     }
@@ -279,12 +259,6 @@ impl Display for RequestCommandOutputResult {
             RequestCommandOutputResult::LongRunningCommandSnapshot { command, .. } => {
                 write!(f, "Command '{command}' is long-running")
             }
-            RequestCommandOutputResult::ShellRecovered {
-                command, status, ..
-            } => write!(
-                f,
-                "Command '{command}' terminated the persistent cloud shell ({status})"
-            ),
             RequestCommandOutputResult::CancelledBeforeExecution => {
                 write!(f, "Command output cancelled")
             }
@@ -603,14 +577,6 @@ pub enum ReadShellCommandOutputResult {
         is_preempted: bool,
         activity: Option<LrcActivity>,
     },
-    ShellRecovered {
-        command: String,
-        block_id: BlockId,
-        output: String,
-        status: ObservedExitStatus,
-        start_ts: Option<DateTime<Local>>,
-        completed_ts: Option<DateTime<Local>>,
-    },
     Cancelled,
     Error(ShellCommandError),
 }
@@ -629,12 +595,6 @@ impl Display for ReadShellCommandOutputResult {
             }
             ReadShellCommandOutputResult::LongRunningCommandSnapshot { .. } => {
                 write!(f, "Sent snapshot of long-running shell command to agent")
-            }
-            ReadShellCommandOutputResult::ShellRecovered { output, status, .. } => {
-                write!(
-                    f,
-                    "Shell command terminated the persistent shell ({status}):\n{output}"
-                )
             }
             ReadShellCommandOutputResult::Cancelled => {
                 write!(f, "Read shell command output cancelled")
@@ -795,9 +755,6 @@ impl AIAgentActionResultType {
             | Self::ReadDocuments(ReadDocumentsResult::Error(_))
             | Self::EditDocuments(EditDocumentsResult::Error(_))
             | Self::CreateDocuments(CreateDocumentsResult::Error(_))
-            | Self::ReadShellCommandOutput(ReadShellCommandOutputResult::ShellRecovered {
-                ..
-            })
             | Self::InsertReviewComments(InsertReviewCommentsResult::Error { .. })
             | Self::FetchConversation(FetchConversationResult::Error(_))
             | Self::AskUserQuestion(AskUserQuestionResult::Error(_))

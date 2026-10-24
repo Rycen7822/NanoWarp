@@ -20,7 +20,7 @@ use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;
 use crate::appearance::Appearance;
 use crate::pane_group::pane::DetachType;
 use crate::settings::{BlockVisibilitySettings, DebugSettings, InputModeSettings};
-use crate::terminal::shell_recovery::{CloudShellRecoveryRequest, ShellReplacementRequest};
+use crate::terminal::shell_recovery::ShellReplacementRequest;
 
 pub trait TerminalManager: Any {
     /// Returns the backing terminal model.
@@ -33,13 +33,6 @@ pub trait TerminalManager: Any {
     /// Implementations should preserve state on [`DetachType::HiddenForClose`] or
     /// [`DetachType::Moved`] and clean up only on [`DetachType::Closed`].
     fn on_view_detached(&self, _detach_type: DetachType, _app: &mut AppContext) {}
-    fn recover_cloud_shell(
-        &mut self,
-        _request: CloudShellRecoveryRequest,
-        _ctx: &mut ModelContext<Box<dyn TerminalManager>>,
-    ) -> bool {
-        false
-    }
 
     fn replace_shell(
         &mut self,

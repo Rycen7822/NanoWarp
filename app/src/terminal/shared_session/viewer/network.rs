@@ -44,9 +44,7 @@ use crate::server::telemetry::telemetry_context;
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
-use crate::terminal::shared_session::viewer::event_loop::{
-    EventLoop, SharedSessionInitialLoadMode,
-};
+use crate::terminal::shared_session::viewer::event_loop::EventLoop;
 use crate::terminal::shared_session::{
     EventNumber, SELECTION_THROTTLE_PERIOD, SharedSessionSource, connect_endpoint,
 };
@@ -115,7 +113,6 @@ pub struct Network {
 
     channel_event_proxy: ChannelEventListener,
     terminal_model: Arc<FairMutex<TerminalModel>>,
-    initial_load_mode: SharedSessionInitialLoadMode,
     remote_update_guard: RemoteUpdateGuard,
 
     stage: Stage,
@@ -156,7 +153,6 @@ impl Network {
         terminal_view: WeakViewHandle<TerminalView>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         write_to_pty_events_rx: Receiver<Vec<u8>>,
-        initial_load_mode: SharedSessionInitialLoadMode,
         remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -171,7 +167,6 @@ impl Network {
             ws_proxy_rx: ws_proxy_rx.clone(),
             channel_event_proxy,
             terminal_model,
-            initial_load_mode,
             remote_update_guard,
             terminal_view,
             stage: Stage::BeforeJoined,
@@ -233,7 +228,6 @@ impl Network {
             ws_proxy_rx,
             channel_event_proxy,
             terminal_model,
-            initial_load_mode: SharedSessionInitialLoadMode::ReplaceFromSessionScrollback,
             remote_update_guard,
             terminal_view,
             stage: Stage::BeforeJoined,
@@ -546,6 +540,16 @@ impl Network {
                     source_type,
                     source_task_id,
                 };
+                if matches!(
+                    source.source_type,
+                    session_sharing_protocol::sharer::SessionSourceType::AmbientAgent { .. }
+                ) {
+                    self.close_without_reconnection();
+                    ctx.emit(NetworkEvent::FailedToJoin {
+                        reason: FailedToJoinReason::SessionNotAccessible,
+                    });
+                    return;
+                }
                 if matches!(self.stage, Stage::JoinedSuccessfully) {
                     log::warn!(
                         "Received unexpected JoinedSuccessfully message when we've already joined"
@@ -569,7 +573,6 @@ impl Network {
                         window_size,
                         *scrollback,
                         latest_event_no,
-                        self.initial_load_mode,
                         self.remote_update_guard.clone(),
                         ctx,
                     )

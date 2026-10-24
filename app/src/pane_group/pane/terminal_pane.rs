@@ -27,7 +27,6 @@ use crate::code::buffer_location::LocalOrRemotePath;
 use crate::pane_group::CodeSource;
 use crate::pane_group::{self, Direction, PaneGroup};
 use crate::persistence::{BlockCompleted, ModelEvent};
-use crate::server::telemetry::CloudAgentShellRecoveryFailureClass;
 use crate::session_management::SessionNavigationData;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::shared_session::manager::{Manager, ManagerEvent};
@@ -238,22 +237,11 @@ impl PaneContent for TerminalPane {
                         return;
                     };
 
-                    let is_shared_ambient_agent_session = group
-                        .terminal_view_from_pane_id(terminal_pane_id, ctx)
-                        .map(|view| {
-                            view.as_ref(ctx)
-                                .model
-                                .lock()
-                                .is_shared_ambient_agent_session()
-                        })
-                        .unwrap_or(false);
-
                     handle_ai_history_event(
                         event,
                         terminal_view_id,
                         terminal_pane_id,
                         model_event_sender,
-                        is_shared_ambient_agent_session,
                         ctx,
                     );
                 },
@@ -269,11 +257,6 @@ impl PaneContent for TerminalPane {
             controller.set_pane_group_id(pane_group_id);
         });
         let active_session = terminal_view.as_ref(ctx).active_session().clone();
-        let active_stack_view = pane_stack.as_ref(ctx).active_view().clone();
-        let active_ambient_session_registration = active_stack_view
-            .as_ref(ctx)
-            .ambient_agent_task_id_for_details_panel(ctx)
-            .map(|task_id| (active_stack_view.id(), task_id));
         ActiveAgentViewsModel::handle(ctx).update(ctx, |model, ctx| {
             model.register_agent_view_controller(
                 &agent_view_controller,
@@ -281,9 +264,6 @@ impl PaneContent for TerminalPane {
                 terminal_view_id,
                 ctx,
             );
-            if let Some((terminal_view_id, task_id)) = active_ambient_session_registration {
-                model.register_ambient_session(terminal_view_id, task_id, ctx);
-            }
         });
     }
 
@@ -329,7 +309,6 @@ impl PaneContent for TerminalPane {
         ActiveAgentViewsModel::handle(ctx).update(ctx, |model, ctx| {
             for terminal_view_id in terminal_view_ids {
                 model.unregister_agent_view_controller(terminal_view_id, ctx);
-                model.unregister_ambient_session(terminal_view_id, ctx);
             }
         });
 
@@ -359,19 +338,25 @@ impl PaneContent for TerminalPane {
         // Capture the current input_config from the AI input model
         let current_input_config = view.input_config(app.as_ref());
 
-        if view.model.lock().shared_session_status().is_viewer() {
-            // We save and restore ambient agent sessions
-            // (restoring the shared session if it's still open and the conversation transcript otherwise).
-            if let Some(ambient_model) = view.ambient_agent_view_model() {
-                let ambient_model = ambient_model.as_ref(app);
-                let task_id = ambient_model.task_id();
+        let (task_id, is_shared_viewer, is_transcript_viewer) = {
+            let model = view.model.lock();
+            let is_transcript_viewer = model.is_conversation_transcript_viewer();
+            (
+                is_transcript_viewer
+                    .then(|| model.ambient_agent_task_id())
+                    .flatten(),
+                model.shared_session_status().is_viewer(),
+                is_transcript_viewer,
+            )
+        };
+        if let Some(task_id) = task_id {
+            return LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
+                uuid: self.uuid.clone(),
+                task_id,
+            });
+        }
 
-                return LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
-                    uuid: self.uuid.clone(),
-                    task_id,
-                });
-            }
-
+        if is_shared_viewer || is_transcript_viewer {
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),
                 cwd: None,
@@ -384,37 +369,6 @@ impl PaneContent for TerminalPane {
                 conversation_ids_to_restore: vec![],
                 active_conversation_id: None,
             })
-        } else if let Some(task_id) = view
-            .ambient_agent_view_model()
-            .and_then(|ambient_model| ambient_model.as_ref(app).task_id())
-        {
-            LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
-                uuid: self.uuid.clone(),
-                task_id: Some(task_id),
-            })
-        } else if view.model.lock().is_conversation_transcript_viewer() {
-            // Conversation transcript viewers (opened from the conversation list)
-            // can be restored via the ambient agent task if one exists.
-            let task_id = view.model.lock().ambient_agent_task_id();
-            if task_id.is_some() {
-                LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
-                    uuid: self.uuid.clone(),
-                    task_id,
-                })
-            } else {
-                LeafContents::Terminal(TerminalPaneSnapshot {
-                    uuid: self.uuid.clone(),
-                    cwd: None,
-                    is_active,
-                    is_read_only: false,
-                    shell_launch_data: None,
-                    input_config: None,
-                    llm_model_override: None,
-                    active_profile_id: None,
-                    conversation_ids_to_restore: vec![],
-                    active_conversation_id: None,
-                })
-            }
         } else {
             let llm_model_override =
                 LLMPreferences::as_ref(app).get_base_llm_override(self.terminal_view(app).id());
@@ -740,27 +694,6 @@ fn handle_terminal_view_event(
                     });
                 }
             }
-            Event::RecoverCloudShell(request) => {
-                let terminal_manager = group
-                    .terminal_session_by_id(pane_id)
-                    .and_then(|pane| pane.terminal_manager_for_view(terminal_view, ctx));
-                let accepted = terminal_manager.is_some_and(|manager| {
-                    manager.update(ctx, |manager, ctx| {
-                        manager.recover_cloud_shell(request.clone(), ctx)
-                    })
-                });
-                // The view is waiting on this event; it must always learn the outcome, or the
-                // deferred exit would never be finalized.
-                if !accepted && let Some(terminal_view) = terminal_view.upgrade(ctx) {
-                    terminal_view.update(ctx, |view, ctx| {
-                        view.fail_cloud_shell_recovery(
-                            CloudAgentShellRecoveryFailureClass::Unsupported,
-                            anyhow::anyhow!("this shell cannot be respawned"),
-                            ctx,
-                        );
-                    });
-                }
-            }
             Event::Exited => {
                 // If the shell process exited before it successfully bootstrapped,
                 // keep the pane open.  There might be useful information visible
@@ -980,11 +913,6 @@ fn handle_terminal_view_event(
                 group.terminal_with_open_summarization_dialog = is_open.then_some(terminal_pane_id);
                 ctx.notify();
             }
-            Event::AuthSecretDeleteConfirmationDialogToggled { is_open } => {
-                group.pane_with_open_auth_secret_delete_confirmation_dialog =
-                    is_open.then_some(pane_id);
-                ctx.notify();
-            }
             Event::AnonymousUserSignup => ctx.emit(pane_group::Event::AnonymousUserSignup),
             #[cfg(feature = "local_fs")]
             Event::OpenFileWithTarget {
@@ -1167,9 +1095,6 @@ fn handle_terminal_view_event(
                     open_code_review: open_code_review.clone(),
                 });
             }
-            Event::ShowCloudAgentCapacityModal { variant } => {
-                ctx.emit(pane_group::Event::ShowCloudAgentCapacityModal { variant: *variant });
-            }
             Event::StopAgentConversation { conversation_id } => {
                 stop_agent_conversation(group, *conversation_id, ctx);
             }
@@ -1186,7 +1111,6 @@ fn handle_ai_history_event(
     terminal_view_id: EntityId,
     terminal_pane_id: TerminalPaneId,
     model_event_sender: SyncSender<ModelEvent>,
-    is_shared_ambient_agent_session: bool,
     ctx: &mut ViewContext<PaneGroup>,
 ) {
     use crate::ai::blocklist::maybe_build_ai_query_upsert_event;
@@ -1207,12 +1131,9 @@ fn handle_ai_history_event(
             {
                 return;
             }
-            let Some(upsert_ai_query_event) = maybe_build_ai_query_upsert_event(
-                event,
-                terminal_view_id,
-                is_shared_ambient_agent_session,
-                ctx,
-            ) else {
+            let Some(upsert_ai_query_event) =
+                maybe_build_ai_query_upsert_event(event, terminal_view_id, ctx)
+            else {
                 return;
             };
             let _ = ctx.spawn(

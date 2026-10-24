@@ -347,9 +347,9 @@ impl SharingDialog {
                 CloudModelEvent::ObjectPermissionsUpdated { type_and_id, .. } => type_and_id,
                 CloudModelEvent::ObjectDeleted { .. } => return,
                 CloudModelEvent::ObjectForceExpanded { .. } => return,
-                CloudModelEvent::ObjectSynced { .. }
-                | CloudModelEvent::InitialLoadCompleted
-                | CloudModelEvent::EnvironmentLastTaskRunTimestampsUpdated => return,
+                CloudModelEvent::ObjectSynced { .. } | CloudModelEvent::InitialLoadCompleted => {
+                    return;
+                }
             };
 
             if event_object_id.sync_id().into_server() == Some(target_server_id) {

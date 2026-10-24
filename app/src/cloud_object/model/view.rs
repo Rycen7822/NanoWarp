@@ -362,8 +362,7 @@ impl CloudViewModel {
             CloudModelEvent::NotebookEditorChangedFromServer { .. }
             | CloudModelEvent::ObjectForceExpanded { .. }
             | CloudModelEvent::ObjectSynced { .. }
-            | CloudModelEvent::InitialLoadCompleted
-            | CloudModelEvent::EnvironmentLastTaskRunTimestampsUpdated => (),
+            | CloudModelEvent::InitialLoadCompleted => (),
         }
     }
 

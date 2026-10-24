@@ -374,9 +374,6 @@ pub enum FeatureFlag {
     /// Enables auto-opening code review pane on first agent change and its setting UI.
     AutoOpenCodeReviewPane,
 
-    /// Enables the ambient agents command-line interface.
-    AmbientAgentsCommandLine,
-
     /// Enables inline code review functionality
     InlineCodeReview,
 
@@ -436,22 +433,10 @@ pub enum FeatureFlag {
     /// Agent Management Details View - enables new details panel on card click.
     AgentManagementDetailsView,
 
-    /// Enables scheduled ambient agents.
-    ScheduledAmbientAgents,
-
     AgentView,
 
     /// Enables block context functionality in Agent View.
     AgentViewBlockContext,
-
-    /// Enables cloud mode functionality for ambient agents.
-    CloudMode,
-
-    /// Enables starting cloud mode from a local session.
-    CloudModeFromLocalSession,
-
-    /// Enables host selection in cloud mode.
-    CloudModeHostSelector,
 
     /// Enables Warp Managed Secrets functionality.
     WarpManagedSecrets,
@@ -514,12 +499,6 @@ pub enum FeatureFlag {
     OzPlatformSkills,
     /// Enables Oz identity federation commands.
     OzIdentityFederation,
-
-    /// Enables image upload for ambient agents.
-    AmbientAgentsImageUpload,
-
-    /// Enables image attachment support for cloud mode conversations.
-    CloudModeImageContext,
 
     /// Enables loading and returning bundled skills in the SkillManager.
     BundledSkills,
@@ -619,25 +598,15 @@ pub enum FeatureFlag {
     /// for command execution.
     SshRemoteServer,
 
-    /// Redux of the setup/initial user query UI for cloud mode.
-    CloudModeSetupV2,
-
     /// Enables summary mode in vertical tabs, showing condensed tab summaries
     /// instead of individual pane rows.
     VerticalTabsSummaryMode,
-
-    CloudModeInputV2,
-
-    /// Enables continuing cloud mode conversations in the cloud after an execution ends.
-    HandoffCloudCloud,
 
     /// Enables creating API keys scoped to named agents in the API key
     /// management UI. When enabled the "Team" option in the key-type
     /// selector is replaced with "Agent" and users can pick which agent
     /// identity the key authenticates as.
     NamedAgents,
-    /// Loads server-owned execution settings for paired cloud agent launches.
-    CloudAgentExecutionConfig,
     /// Gates the driver behavior that writes GitHub credentials to disk
     /// (`~/.git-credentials`, `~/.config/gh/hosts.yaml`) and runs the
     /// background refresh loop that keeps them fresh during a task run.
@@ -647,9 +616,6 @@ pub enum FeatureFlag {
     BillingAndUsagePageV2,
     /// Enables configurable expanded context windows for eligible GPT models.
     GPTConfigurableContextWindow,
-
-    /// Replaces the raw harness CLI command with a styled header showing CLI name + status icon.
-    HarnessSessionHeader,
 
     /// Enables the code review view for remote sessions.
     RemoteCodeReview,
@@ -687,9 +653,6 @@ pub enum FeatureFlag {
 
     /// Enables state-mutating recovery for abnormal terminal lifecycle sequences.
     TerminalLifecycleRecovery,
-
-    /// Recovers native cloud agent commands that terminate their persistent shell.
-    CloudAgentShellRespawn,
 
     /// Shows a warning in the agent view when the active conversation's
     /// provider-side prompt cache has expired.

@@ -426,7 +426,6 @@ mod team_settings_conversion {
             },
             ambient_agent_settings: Some(gqlws::AmbientAgentSettings {
                 enable_warp_attribution: gqlws::AdminEnablementSetting::Enable,
-                default_host_slug: Some("my-host".to_string()),
             }),
             team_byo: None,
         }
@@ -519,12 +518,11 @@ mod team_settings_conversion {
         );
         assert!(settings.addon_credits_settings.auto_reload_enabled);
 
-        // Ambient agent settings surface attribution + default host slug.
+        // Preserve the effective agent attribution setting.
         assert_eq!(
             settings.enable_warp_attribution,
             AdminEnablementSetting::Enable
         );
-        assert_eq!(settings.default_host_slug.as_deref(), Some("my-host"));
 
         // Sandboxed agent denylist is populated from the effective list.
         assert_eq!(

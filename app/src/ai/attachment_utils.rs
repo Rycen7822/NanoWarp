@@ -1,11 +1,8 @@
-//! Shared-session attachment context and file size limits.
+//! Shared-session attachment context.
 
 use session_sharing_protocol::common::AgentAttachment;
 
 use crate::terminal::model::BlockId;
-
-/// Max file attachment size is 10 MB.
-pub(crate) const MAX_ATTACHMENT_SIZE_BYTES: usize = 10 * 1024 * 1024;
 
 /// Splits shared-session attachments into block references and selected text for the context model.
 /// File references remain in the original user-query metadata.

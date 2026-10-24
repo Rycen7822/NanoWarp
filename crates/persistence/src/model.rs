@@ -642,6 +642,7 @@ pub struct NewAIFactPane {
     pub id: i32,
 }
 
+// Native task transcript panes retain their own identity and cannot restore as a shell.
 #[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = ambient_agent_panes)]
 #[diesel(primary_key(id))]

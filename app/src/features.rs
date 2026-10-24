@@ -71,8 +71,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellSelector,
         #[cfg(feature = "integration_command")]
         FeatureFlag::IntegrationCommand,
-        #[cfg(feature = "cloud_agent_execution_config")]
-        FeatureFlag::CloudAgentExecutionConfig,
         #[cfg(feature = "account_first_onboarding")]
         FeatureFlag::AccountFirstOnboarding,
         #[cfg(feature = "session_sharing_acls")]
@@ -207,12 +205,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::FileTree,
         #[cfg(feature = "allow_ignoring_input_suggestions")]
         FeatureFlag::AllowIgnoringInputSuggestions,
-        #[cfg(feature = "ambient_agents_command_line")]
-        FeatureFlag::AmbientAgentsCommandLine,
-        #[cfg(feature = "ambient_agents_image_upload")]
-        FeatureFlag::AmbientAgentsImageUpload,
-        #[cfg(feature = "scheduled_ambient_agents")]
-        FeatureFlag::ScheduledAmbientAgents,
         #[cfg(feature = "conversation_api")]
         FeatureFlag::ConversationApi,
         #[cfg(feature = "code_launch_modal")]
@@ -287,12 +279,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::NativeShellCompletions,
         #[cfg(feature = "agent_view_conversation_list_view")]
         FeatureFlag::AgentViewConversationListView,
-        #[cfg(feature = "cloud_mode")]
-        FeatureFlag::CloudMode,
-        #[cfg(feature = "cloud_mode_from_local_session")]
-        FeatureFlag::CloudModeFromLocalSession,
-        #[cfg(feature = "cloud_mode_image_context")]
-        FeatureFlag::CloudModeImageContext,
         #[cfg(feature = "summarization_via_message_replacement")]
         FeatureFlag::SummarizationViaMessageReplacement,
         #[cfg(feature = "pluggable_notifications")]
@@ -365,12 +351,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::GitOperationsInCodeReview,
         #[cfg(feature = "hoa_remote_control")]
         FeatureFlag::HOARemoteControl,
-        #[cfg(feature = "cloud_mode_setup_v2")]
-        FeatureFlag::CloudModeSetupV2,
-        #[cfg(feature = "cloud_mode_input_v2")]
-        FeatureFlag::CloudModeInputV2,
-        #[cfg(feature = "handoff_cloud_cloud")]
-        FeatureFlag::HandoffCloudCloud,
         #[cfg(feature = "git_credential_refresh")]
         FeatureFlag::GitCredentialRefresh,
         #[cfg(feature = "remote_code_review")]
@@ -395,8 +375,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellWidgetHandoff,
         #[cfg(feature = "history_search_ranking_v2")]
         FeatureFlag::HistorySearchRankingV2,
-        #[cfg(feature = "cloud_agent_shell_respawn")]
-        FeatureFlag::CloudAgentShellRespawn,
         #[cfg(feature = "acp_harness")]
         FeatureFlag::AcpHarness,
     ]);

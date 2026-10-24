@@ -24,7 +24,7 @@ use crate::terminal::model::image_map::StoredImageMetadata;
 use crate::terminal::model::index::Side;
 use crate::terminal::model::selection::ExpandedSelectionRange;
 use crate::terminal::model::test_utils::block_size;
-use crate::terminal::shared_session::{SharedSessionSource, SharedSessionStatus};
+use crate::terminal::shared_session::SharedSessionStatus;
 
 /// Helper function to create a SerializedBlock with default values,
 /// including the new is_local field.
@@ -108,53 +108,6 @@ fn take_typeahead_for_input_is_none_when_typeahead_is_empty() {
 
     assert_eq!(model.take_typeahead_for_input(), None);
 }
-#[test]
-fn cloud_mode_deferred_terminal_model_starts_view_pending() {
-    let mut model = TerminalModel::new_for_cloud_mode_shared_session_viewer(
-        block_size(),
-        color::List::from(&color::Colors::default()),
-        ChannelEventListener::new_for_test(),
-        Arc::new(Background::default()),
-        false,
-        false,
-        false,
-        ObfuscateSecrets::No,
-    );
-
-    assert!(matches!(
-        model.shared_session_status(),
-        SharedSessionStatus::ViewPending
-    ));
-    assert!(model.shared_session_status().is_viewer());
-    assert!(model.is_dummy_cloud_mode_session());
-    assert!(
-        !model
-            .block_list()
-            .is_executing_oz_environment_startup_commands()
-    );
-
-    let restored_block = SerializedBlock {
-        id: BlockId::new(),
-        stylized_command: str_to_byte_vec("setup-looking-command"),
-        stylized_output: str_to_byte_vec("output"),
-        did_execute: true,
-        start_ts: Some(Local::now()),
-        completed_ts: Some(Local::now()),
-        ..Default::default()
-    };
-    model
-        .block_list_mut()
-        .insert_restored_block(&restored_block);
-
-    let restored_command_block = model
-        .block_list()
-        .blocks()
-        .iter()
-        .find(|block| block.command_to_string() == "setup-looking-command")
-        .expect("restored command block should exist");
-    assert!(!restored_command_block.is_hidden());
-    assert!(!restored_command_block.is_oz_environment_startup_command());
-}
 
 #[test]
 fn generic_shared_session_viewer_model_starts_view_pending() {
@@ -174,48 +127,6 @@ fn generic_shared_session_viewer_model_starts_view_pending() {
         SharedSessionStatus::ViewPending
     ));
     assert!(model.shared_session_status().is_viewer());
-}
-
-#[test]
-fn is_cloud_agent_conversation_only_true_for_genuine_ambient_sessions() {
-    use std::str::FromStr;
-
-    let make_model = || {
-        TerminalModel::new_for_shared_session_viewer(
-            block_size(),
-            color::List::from(&color::Colors::default()),
-            ChannelEventListener::new_for_test(),
-            Arc::new(Background::default()),
-            false,
-            false,
-            false,
-            ObfuscateSecrets::No,
-        )
-    };
-    let task_id = "123e4567-e89b-12d3-a456-426614174000";
-
-    // Baseline: no shared session source and not viewing a transcript.
-    let mut model = make_model();
-    assert!(!model.is_cloud_agent_conversation());
-
-    // A manually shared *local* (`User`) session carries an orchestrator task id on its
-    // `source_task_id` sidecar (QUALITY-726) but is NOT a cloud agent conversation. This is the
-    // regression: before the fix, this task id leaked into the cloud agent icon check.
-    model.set_shared_session_source(SharedSessionSource::user(Some(task_id.to_owned())));
-    assert!(!model.is_cloud_agent_conversation());
-
-    // A shared *ambient* (cloud) session is a cloud agent conversation.
-    model.set_shared_session_source(SharedSessionSource::ambient_agent(Some(task_id.to_owned())));
-    assert!(model.is_cloud_agent_conversation());
-
-    // Viewing an ambient conversation transcript is a cloud agent conversation.
-    let mut model = make_model();
-    model.set_conversation_transcript_viewer_status(Some(
-        ConversationTranscriptViewerStatus::ViewingAmbientConversation(
-            AmbientAgentTaskId::from_str(task_id).expect("valid task id"),
-        ),
-    ));
-    assert!(model.is_cloud_agent_conversation());
 }
 
 fn iterm_file_osc(name: &str, inline: bool, payload: &[u8]) -> String {
@@ -1995,80 +1906,18 @@ fn terminal_exit_absorbs_later_lifecycle_inputs() {
     assert_eq!(terminal.pending_session_id(), pending_session_id);
 }
 #[test]
-fn observed_shell_exit_is_finalized_once_after_recovery_decision() {
-    let _respawn_enabled = FeatureFlag::CloudAgentShellRespawn.override_enabled(true);
+fn observed_shell_exit_is_finalized_once() {
     let mut terminal = TerminalModel::mock(None, None);
     terminal.simulate_long_running_block("exit 42", "");
     let reason = ExitReason::ShellProcessExited {
         status: ObservedExitStatus::Code(42),
     };
-
     terminal.exit(reason);
-    assert!(terminal.is_read_only());
-
-    let mut terminal = TerminalModel::mock(None, None);
-    terminal.set_shared_session_source(SharedSessionSource::ambient_agent(None));
-    terminal.simulate_long_running_block("exit 42", "");
-    terminal.exit(reason);
-
-    assert!(!terminal.is_read_only());
-    assert!(!terminal.block_list().active_block().finished());
-    assert!(terminal.finalize_exit(reason));
     assert!(terminal.is_read_only());
     assert!(terminal.block_list().active_block().finished());
     assert!(!terminal.finalize_exit(reason));
 }
 
-#[test]
-fn shell_recovery_finishes_interrupted_block_and_starts_fresh_input() {
-    let mut terminal = TerminalModel::mock(None, None);
-    terminal.simulate_long_running_block("exit 42", "");
-    let interrupted_block_id = terminal.active_block_id().clone();
-    let replacement_session_id = 456.into();
-
-    terminal.prepare_shell_recovery(ObservedExitStatus::Code(42));
-    terminal.register_session_id(replacement_session_id);
-    terminal.init_shell(InitShellValue {
-        session_id: replacement_session_id,
-        shell: "bash".to_owned(),
-        hostname: "cloud-agent".to_owned(),
-        ..Default::default()
-    });
-
-    let interrupted_block = terminal
-        .block_list()
-        .block_with_id(&interrupted_block_id)
-        .expect("interrupted block should remain in the block list");
-    assert!(interrupted_block.finished());
-    assert_eq!(interrupted_block.exit_code(), ExitCode::from(42));
-    assert_ne!(terminal.active_block_id(), &interrupted_block_id);
-    assert!(!terminal.is_read_only());
-}
-
-#[test]
-fn shell_recovery_without_exit_code_reports_failure() {
-    let mut terminal = TerminalModel::mock(None, None);
-    terminal.simulate_long_running_block("kill $$", "");
-    let interrupted_block_id = terminal.active_block_id().clone();
-    let replacement_session_id = 456.into();
-
-    terminal.prepare_shell_recovery(ObservedExitStatus::Signal(9));
-    terminal.register_session_id(replacement_session_id);
-    terminal.init_shell(InitShellValue {
-        session_id: replacement_session_id,
-        shell: "bash".to_owned(),
-        hostname: "cloud-agent".to_owned(),
-        ..Default::default()
-    });
-
-    let interrupted_block = terminal
-        .block_list()
-        .block_with_id(&interrupted_block_id)
-        .expect("interrupted block should remain addressable");
-    assert!(interrupted_block.finished());
-    assert_eq!(interrupted_block.exit_code(), ExitCode::from(137));
-    assert_ne!(terminal.active_block_id(), &interrupted_block_id);
-}
 #[test]
 fn test_alt_screen_selection_tracks_scroll() {
     let mut terminal: TerminalModel = TerminalModel::mock(None, None);
@@ -2375,37 +2224,4 @@ fn test_synchronized_output_sharing_session_split_batch() {
         panic!("Expected PtyBytesRead, got {:?}", events[3]);
     };
     assert_eq!(bytes.as_slice(), b"after");
-}
-
-#[test]
-fn cloud_mode_setup_phase_ended_emits_when_sharing() {
-    let mut terminal: TerminalModel = TerminalModel::mock(None, None);
-    terminal.set_shared_session_status(SharedSessionStatus::ActiveSharer);
-    let (tx, rx) = async_channel::unbounded();
-    terminal.set_ordered_terminal_events_for_shared_session_tx(tx);
-
-    terminal.send_cloud_mode_setup_phase_ended_for_shared_session();
-
-    rx.close();
-    let events: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
-    assert_eq!(events.len(), 1);
-    assert!(matches!(
-        events[0],
-        OrderedTerminalEventType::CloudModeSetupPhaseEnded
-    ));
-}
-
-#[test]
-fn cloud_mode_setup_phase_ended_does_not_emit_when_not_sharing() {
-    let mut terminal: TerminalModel = TerminalModel::mock(None, None);
-    // No `set_shared_session_status(ActiveSharer)` here — the helper must
-    // bail before reaching the channel.
-    let (tx, rx) = async_channel::unbounded();
-    terminal.set_ordered_terminal_events_for_shared_session_tx(tx);
-
-    terminal.send_cloud_mode_setup_phase_ended_for_shared_session();
-
-    rx.close();
-    let events: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
-    assert!(events.is_empty());
 }

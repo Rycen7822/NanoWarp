@@ -11,7 +11,7 @@ use super::{HttpStatusError, PresignedDownloadResponse};
 use crate::auth::AuthEvent;
 use crate::base_client::{
     AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_HEADER, AuthenticatedGraphqlConfig, BaseClient,
-    CLOUD_AGENT_ID_HEADER, GraphqlRoutingConfig,
+    GraphqlRoutingConfig,
 };
 
 #[test]
@@ -35,7 +35,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         "authorization",
         "proxy-authorization",
         "cookie",
-        CLOUD_AGENT_ID_HEADER,
         AMBIENT_WORKLOAD_TOKEN_HEADER,
     ] {
         storage_request = storage_request.match_header(header, mockito::Matcher::Missing);
@@ -56,7 +55,6 @@ fn presigned_download_keeps_api_context_off_storage() {
             .match_header("x-warp-os-category", mockito::Matcher::Any)
             .match_header("x-warp-os-name", mockito::Matcher::Any)
             .match_header(AGENT_SOURCE_HEADER, "cloud-mode")
-            .match_header(CLOUD_AGENT_ID_HEADER, "ambient-task")
             .match_header(AMBIENT_WORKLOAD_TOKEN_HEADER, "test-workload-token")
             .match_header("cookie", "session=test-default-cookie")
             .match_header("proxy-authorization", "Bearer test-default-proxy")
@@ -78,7 +76,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         ("x-warp-os-name", "test-default-os-name"),
         ("x-oz-api-source", "test-default-source"),
         (AMBIENT_WORKLOAD_TOKEN_HEADER, "test-default-workload"),
-        (CLOUD_AGENT_ID_HEADER, "test-default-task"),
         ("x-test-client-default", "api-only"),
     ] {
         defaults.insert(
@@ -101,7 +98,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         AuthenticatedGraphqlConfig::default(),
     );
     client.set_ambient_workload_token_for_test("test-workload-token".into(), None);
-    client.set_ambient_agent_task_id(Some("ambient-task".into()));
     let bytes = block_on(async {
         let download = client
             .get_public_api::<PresignedDownloadResponse>(
@@ -180,7 +176,6 @@ fn public_api_get_inherits_ambient_headers() {
         let mut server = ChannelState::mock_server();
         server
             .mock("GET", "/api/v1/test/ambient-headers")
-            .match_header(CLOUD_AGENT_ID_HEADER, "ambient-task")
             .match_header(AGENT_SOURCE_HEADER, "cloud-mode")
             .with_status(200)
             .with_body(r#"{"value":"success"}"#)
@@ -188,7 +183,6 @@ fn public_api_get_inherits_ambient_headers() {
     };
     let (base_client, _) =
         base_client_with_auth(AuthState::new_for_test(), Some("cloud-mode".to_string()));
-    base_client.set_ambient_agent_task_id(Some("ambient-task".to_string()));
 
     block_on(base_client.get_public_api::<serde_json::Value>("test/ambient-headers")).unwrap();
 }

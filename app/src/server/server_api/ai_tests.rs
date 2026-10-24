@@ -1,29 +1,20 @@
 use chrono::{TimeZone, Utc};
 use futures::executor::block_on;
-use itertools::Itertools;
-use mockito::{Matcher, Server};
+use mockito::Matcher;
 use warp_graphql::ai::PlatformErrorCode;
 use warp_graphql::platform_error::{PlatformErrorInfo, PlatformErrorMessageFormat};
 use warp_server_client::base_client::TEAM_UID_HEADER;
 
 use super::super::ServerApi;
 use super::{
-    AIClient, AgentSource, AmbientAgentTaskState, Artifact, ArtifactDownloadResponse,
-    CONNECTED_SELF_HOSTED_WORKERS_PATH, ConnectedSelfHostedWorker, ExecutionLocation,
-    ForkConversationResponse, ListConnectedSelfHostedWorkersResponse, ListRunsResponse,
-    PrepareAttachmentUploadsResponse, RunFollowupRequest, SpawnAgentRequest, TaskListFilter,
-    TaskStatusUpdate, UserQueryMode, agent_task_status_message_input, build_fork_conversation_url,
-    build_list_agent_runs_url, build_run_followup_url,
+    AgentSource, AmbientAgentTaskState, Artifact, ArtifactDownloadResponse, ExecutionLocation,
+    ListRunsResponse, TaskListFilter, TaskStatusUpdate, agent_task_status_message_input,
+    build_list_agent_runs_url,
 };
 use crate::notebooks::NotebookId;
 use crate::server::ids::ServerId;
-use crate::server::server_api::presigned_upload::{UploadFieldValue, upload_to_target};
 use crate::server::team_scope::RequestTeamScope;
 use crate::workspaces::user_workspaces::{TeamContextForOperation, TeamlessScopeForTest};
-
-fn request_scope_for_team(team_uid: ServerId) -> RequestTeamScope {
-    RequestTeamScope::from_scope(&TeamContextForOperation::new_for_test(team_uid))
-}
 
 #[test]
 fn task_status_message_input_preserves_full_platform_error() {
@@ -117,149 +108,6 @@ fn list_agent_runs_omits_team_header_for_teamless_scope() {
         server_api.get_public_api_with_team_scope::<serde_json::Value>("agent/runs", Some(scope)),
     )
     .unwrap();
-}
-
-#[test]
-fn spawn_agent_request_serializes_explicit_personal_ownership() {
-    let request = SpawnAgentRequest {
-        metadata: Default::default(),
-        prompt: Some("hello".to_string()),
-        mode: UserQueryMode::Normal,
-        config: None,
-        title: None,
-        team: Some(false),
-        agent_identity_uid: None,
-        skill: None,
-        attachments: vec![],
-        interactive: None,
-        runtime_skills: vec![],
-        referenced_attachments: vec![],
-        snapshot_disabled: None,
-    };
-    let value = serde_json::to_value(request).unwrap();
-    assert_eq!(
-        value.get("team").and_then(|value| value.as_bool()),
-        Some(false)
-    );
-}
-
-#[test]
-fn spawn_agent_request_serializes_agent_uid_as_agent_identity_uid() {
-    let request = SpawnAgentRequest {
-        metadata: Default::default(),
-        prompt: Some("hello".to_string()),
-        mode: UserQueryMode::Normal,
-        config: None,
-        title: None,
-        team: None,
-        agent_identity_uid: Some("agent_123".to_string()),
-        skill: None,
-        attachments: vec![],
-        interactive: None,
-        runtime_skills: vec![],
-        referenced_attachments: vec![],
-        snapshot_disabled: None,
-    };
-
-    let value = serde_json::to_value(&request).unwrap();
-
-    assert_eq!(
-        value.get("agent_identity_uid").and_then(|v| v.as_str()),
-        Some("agent_123")
-    );
-    assert!(value.get("agent_uid").is_none());
-}
-
-#[test]
-fn connected_self_hosted_workers_path_uses_public_api_route() {
-    assert_eq!(
-        CONNECTED_SELF_HOSTED_WORKERS_PATH,
-        "agent/connected-self-hosted-workers"
-    );
-}
-
-#[test]
-fn list_connected_self_hosted_workers_sends_selected_team_header() {
-    let team_uid = ServerId::from(124);
-    let _request = {
-        let mut server = warp_core::channel::ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/agent/connected-self-hosted-workers")
-            .match_header(TEAM_UID_HEADER, team_uid.to_string().as_str())
-            .with_status(200)
-            .with_body(r#"{"workers":[]}"#)
-            .create()
-    };
-    let server_api = ServerApi::new_for_test();
-
-    let response =
-        block_on(server_api.list_connected_self_hosted_workers(request_scope_for_team(team_uid)))
-            .unwrap();
-
-    assert!(response.workers.is_empty());
-}
-
-#[test]
-fn deserialize_connected_self_hosted_workers_response() {
-    let json = r#"{
-        "workers": [
-            {
-                "worker_host": "worker-2",
-                "connection_count": 2,
-                "connected_at": "2026-05-18T19:00:00Z",
-                "last_seen_at": "2026-05-18T19:05:00Z"
-            },
-            {
-                "worker_host": "worker-1",
-                "connection_count": 1,
-                "connected_at": "2026-05-18T18:00:00Z",
-                "last_seen_at": "2026-05-18T18:05:00Z"
-            }
-        ]
-    }"#;
-
-    let response: ListConnectedSelfHostedWorkersResponse = serde_json::from_str(json).unwrap();
-
-    assert_eq!(
-        response.workers,
-        vec![
-            ConnectedSelfHostedWorker {
-                worker_host: "worker-2".to_string(),
-                connection_count: 2,
-                connected_at: "2026-05-18T19:00:00Z".to_string(),
-                last_seen_at: "2026-05-18T19:05:00Z".to_string(),
-            },
-            ConnectedSelfHostedWorker {
-                worker_host: "worker-1".to_string(),
-                connection_count: 1,
-                connected_at: "2026-05-18T18:00:00Z".to_string(),
-                last_seen_at: "2026-05-18T18:05:00Z".to_string(),
-            },
-        ]
-    );
-}
-
-#[test]
-fn spawn_agent_request_omits_prompt_when_none() {
-    let request = SpawnAgentRequest {
-        metadata: Default::default(),
-        prompt: None,
-        mode: UserQueryMode::Normal,
-        config: None,
-        title: None,
-        team: None,
-        agent_identity_uid: None,
-        skill: None,
-        attachments: vec![],
-        interactive: None,
-        runtime_skills: vec![],
-        referenced_attachments: vec![],
-        snapshot_disabled: None,
-    };
-
-    let value = serde_json::to_value(&request).unwrap();
-
-    assert!(value.get("prompt").is_none());
 }
 
 #[test]
@@ -1055,9 +903,7 @@ fn build_list_agent_runs_url_all_fields() {
         ]),
         source: Some(AgentSource::AgentWebhook),
         execution_location: Some(ExecutionLocation::Remote),
-        environment_id: Some("env-123".to_string()),
         skill_spec: Some("owner/repo:SKILL.md".to_string()),
-        schedule_id: Some("sched-1".to_string()),
         config_name: Some("nightly".to_string()),
         model_id: Some("claude-4-5".to_string()),
         search_query: Some("oz run".to_string()),
@@ -1076,9 +922,7 @@ fn build_list_agent_runs_url_all_fields() {
          &state=ERROR\
          &source=API\
          &execution_location=REMOTE\
-         &environment_id=env-123\
          &skill_spec=owner%2Frepo%3ASKILL.md\
-         &schedule_id=sched-1\
          &name=nightly\
          &model_id=claude-4-5\
          &q=oz%20run\
@@ -1123,188 +967,6 @@ fn build_list_agent_runs_url_routes_to_runs_not_tasks() {
     let url = build_list_agent_runs_url(10, &TaskListFilter::default());
     assert!(url.starts_with("agent/runs?"));
     assert!(!url.starts_with("agent/tasks"));
-}
-
-#[test]
-fn build_run_followup_url_routes_to_run_followups() {
-    let run_id = "550e8400-e29b-41d4-a716-446655440000".parse().unwrap();
-    assert_eq!(
-        build_run_followup_url(&run_id),
-        "agent/runs/550e8400-e29b-41d4-a716-446655440000/followups"
-    );
-}
-
-#[test]
-fn serialize_run_followup_request() {
-    let request = RunFollowupRequest {
-        message: "continue from here".to_string(),
-    };
-
-    let json = serde_json::to_value(request).unwrap();
-
-    assert_eq!(
-        json,
-        serde_json::json!({
-            "message": "continue from here",
-        })
-    );
-}
-
-#[test]
-fn build_fork_conversation_url_routes_to_conversation_fork() {
-    assert_eq!(
-        build_fork_conversation_url("550e8400-e29b-41d4-a716-446655440000"),
-        "agent/conversations/550e8400-e29b-41d4-a716-446655440000/fork"
-    );
-}
-
-#[test]
-fn build_fork_conversation_url_escapes_path_param() {
-    assert_eq!(
-        build_fork_conversation_url("conversation/with spaces"),
-        "agent/conversations/conversation%2Fwith%20spaces/fork"
-    );
-}
-
-#[test]
-fn deserialize_fork_conversation_response() {
-    let response: ForkConversationResponse = serde_json::from_value(serde_json::json!({
-        "forked_conversation_id": "abcdef01-2345-6789-abcd-ef0123456789",
-    }))
-    .unwrap();
-    assert_eq!(
-        response.forked_conversation_id,
-        "abcdef01-2345-6789-abcd-ef0123456789"
-    );
-}
-
-/// Verbatim prepare-upload response bodies, captured by marshalling the
-/// handler's own `PrepareAttachmentUploadsResponse` in warp-server. Hand-written
-/// approximations hid two mismatches that the real bytes exposed, so keep these
-/// literal rather than rebuilding them with `serde_json::json!`.
-const S3_FORM_PREPARE_RESPONSE: &str = r#"{"attachments":[{"attachment_id":"7b1f1f6c-2f5c-4c3e-9c3a-6a1a3d9f0001","upload_target":{"fields":[{"name":"key","value":{"kind":"static","value":"task-1/7b1f1f6c-2f5c-4c3e-9c3a-6a1a3d9f0001"}},{"name":"x-amz-checksum-crc32c","value":{"kind":"content_crc32c"}},{"name":"file","value":{"kind":"content_data"}}],"headers":null,"method":"POST","url":"UPLOAD_URL"},"upload_url":"UPLOAD_URL"}]}"#;
-
-const PUT_PREPARE_RESPONSE: &str = r#"{"attachments":[{"attachment_id":"7b1f1f6c-2f5c-4c3e-9c3a-6a1a3d9f0001","upload_target":{"fields":[],"headers":{"Content-Type":"image/png"},"method":"PUT","url":"UPLOAD_URL"},"upload_url":"UPLOAD_URL"}]}"#;
-
-/// What a server that predates `upload_target` returns.
-const LEGACY_PREPARE_RESPONSE: &str = r#"{"attachments":[{"attachment_id":"7b1f1f6c-2f5c-4c3e-9c3a-6a1a3d9f0001","upload_url":"UPLOAD_URL"}]}"#;
-
-fn parse_prepare_response(body: &str, upload_url: &str) -> PrepareAttachmentUploadsResponse {
-    serde_json::from_str(&body.replace("UPLOAD_URL", upload_url)).unwrap()
-}
-
-#[test]
-fn prepare_attachment_uploads_response_parses_s3_form_upload_target() {
-    let response = parse_prepare_response(S3_FORM_PREPARE_RESPONSE, "https://s3.test/bucket");
-
-    let target = response.attachments[0].resolve_upload_target("image/png");
-    assert_eq!(target.method, "POST");
-    assert_eq!(target.url, "https://s3.test/bucket");
-    assert!(target.headers.is_empty());
-    assert_eq!(
-        target
-            .fields
-            .iter()
-            .map(|field| field.name.as_str())
-            .collect_vec(),
-        vec!["key", "x-amz-checksum-crc32c", "file"]
-    );
-    assert!(matches!(
-        target.fields[1].value,
-        UploadFieldValue::ContentCrc32C
-    ));
-    assert!(matches!(
-        target.fields[2].value,
-        UploadFieldValue::ContentData
-    ));
-}
-
-#[test]
-fn prepare_attachment_uploads_response_prefers_upload_target_over_upload_url() {
-    let response = parse_prepare_response(PUT_PREPARE_RESPONSE, "https://gcs.test/bucket/file");
-
-    let target = response.attachments[0].resolve_upload_target("application/octet-stream");
-    assert_eq!(target.method, "PUT");
-    assert_eq!(target.url, "https://gcs.test/bucket/file");
-    // The presigned URL is only valid for the type it was signed with, so the
-    // server's header wins over the caller's content type.
-    assert_eq!(target.headers.get("Content-Type").unwrap(), "image/png");
-}
-
-#[test]
-fn prepare_attachment_uploads_response_falls_back_to_upload_url() {
-    let response = parse_prepare_response(LEGACY_PREPARE_RESPONSE, "https://gcs.test/bucket/file");
-
-    let attachment = &response.attachments[0];
-    assert!(attachment.upload_target.is_none());
-
-    let target = attachment.resolve_upload_target("image/png");
-    assert_eq!(target.method, "PUT");
-    assert_eq!(target.url, "https://gcs.test/bucket/file");
-    assert_eq!(target.headers.get("Content-Type").unwrap(), "image/png");
-    assert!(target.fields.is_empty());
-}
-
-/// Upload `b"attachment bytes"` to the target the response's first attachment
-/// resolves to, the way the attachment upload path does.
-fn upload_first_attachment(body: &str, upload_url: &str) {
-    let response = parse_prepare_response(body, upload_url);
-    let target = response.attachments[0].resolve_upload_target("image/png");
-
-    block_on(upload_to_target(
-        &http_client::Client::new_for_test(),
-        &target,
-        b"attachment bytes".to_vec(),
-    ))
-    .unwrap();
-}
-
-/// A form-POST target must be uploaded as a multipart form. Uploading its URL
-/// with a plain PUT — what the client did before it read `upload_target` — is
-/// rejected by S3, so self-hosted S3 teams could not attach files at all.
-#[test]
-fn s3_form_upload_target_is_uploaded_as_a_multipart_post() {
-    let mut server = Server::new();
-    let storage = server
-        .mock("POST", "/s3/bucket")
-        .match_header(
-            "content-type",
-            Matcher::Regex("^multipart/form-data; boundary=.+".to_string()),
-        )
-        .match_body(Matcher::AllOf(vec![
-            Matcher::Regex(
-                r#"name="key"\r\n\r\ntask-1/7b1f1f6c-2f5c-4c3e-9c3a-6a1a3d9f0001\r\n"#.to_string(),
-            ),
-            Matcher::Regex(r#"name="x-amz-checksum-crc32c""#.to_string()),
-            Matcher::Regex(r#"name="file"[\s\S]*attachment bytes"#.to_string()),
-        ]))
-        .with_status(204)
-        .create();
-
-    upload_first_attachment(
-        S3_FORM_PREPARE_RESPONSE,
-        &format!("{}/s3/bucket", server.url()),
-    );
-
-    storage.assert();
-}
-
-#[test]
-fn upload_url_fallback_is_uploaded_as_a_put_with_its_content_type() {
-    let mut server = Server::new();
-    let storage = server
-        .mock("PUT", "/gcs/task-1/file")
-        .match_header("content-type", "image/png")
-        .match_body("attachment bytes")
-        .with_status(200)
-        .create();
-
-    upload_first_attachment(
-        LEGACY_PREPARE_RESPONSE,
-        &format!("{}/gcs/task-1/file", server.url()),
-    );
-
-    storage.assert();
 }
 
 /// Assert that shared `Artifact`s serialize to the expected server wire format.

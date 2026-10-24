@@ -103,10 +103,7 @@ impl AgentNotificationsModel {
                     ctx.emit(AgentManagementEvent::NotificationUpdated);
                 }
             }
-            ActiveAgentViewsEvent::TerminalViewFocused
-            | ActiveAgentViewsEvent::WindowClosed
-            | ActiveAgentViewsEvent::AmbientSessionOpened { .. }
-            | ActiveAgentViewsEvent::AmbientSessionClosed { .. } => {}
+            ActiveAgentViewsEvent::TerminalViewFocused | ActiveAgentViewsEvent::WindowClosed => {}
         }
     }
 
@@ -225,9 +222,7 @@ impl AgentNotificationsModel {
 
         let title = latest_query.unwrap_or_else(|| "Agent task".to_owned());
         let metadata = TerminalViewMetadata::lookup(terminal_view_id, ctx);
-        let oz_agent = NotificationSourceAgent::Oz {
-            is_ambient: metadata.is_ambient,
-        };
+        let oz_agent = NotificationSourceAgent::Oz;
 
         match status {
             // When the agent resumes its work (or is automatically recovering from a
@@ -433,21 +428,16 @@ fn window_and_tab_idx_id_for_conversation(
 /// are read on the same emit path, so we resolve the view once and pass the projection
 /// down rather than walking the workspace tree for each.
 struct TerminalViewMetadata {
-    is_ambient: bool,
     branch: Option<String>,
 }
 
 impl TerminalViewMetadata {
     fn lookup(terminal_view_id: EntityId, app: &AppContext) -> Self {
         let Some(terminal_view) = find_terminal_view_by_id(terminal_view_id, app) else {
-            return Self {
-                is_ambient: false,
-                branch: None,
-            };
+            return Self { branch: None };
         };
         let view = terminal_view.as_ref(app);
         Self {
-            is_ambient: view.is_ambient_agent_session(app),
             branch: view.current_git_branch(app),
         }
     }

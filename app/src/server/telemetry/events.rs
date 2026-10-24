@@ -348,7 +348,7 @@ pub enum NotificationAgentVariant {
 impl From<NotificationSourceAgent> for NotificationAgentVariant {
     fn from(agent: NotificationSourceAgent) -> Self {
         match agent {
-            NotificationSourceAgent::Oz { .. } => Self::Oz,
+            NotificationSourceAgent::Oz => Self::Oz,
         }
     }
 }
@@ -658,7 +658,6 @@ pub enum AIAgentInput {
     CodeReview,
     SummarizeConversation,
     InvokeSkill { skill_name: String },
-    StartFromAmbientRunPrompt,
 }
 
 impl From<FullAIAgentInput> for AIAgentInput {
@@ -674,7 +673,6 @@ impl From<FullAIAgentInput> for AIAgentInput {
             FullAIAgentInput::InvokeSkill { skill, .. } => Self::InvokeSkill {
                 skill_name: skill.name.clone(),
             },
-            FullAIAgentInput::StartFromAmbientRunPrompt { .. } => Self::StartFromAmbientRunPrompt,
         }
     }
 }
@@ -693,7 +691,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     SharedSessionSelection,
     AgentRequestedNewConversation,
     InlineCodeReview,
-    AmbientAgent,
     Cli,
     Tui,
     ImageAdded,
@@ -708,7 +705,6 @@ pub enum TelemetryAgentViewEntryOrigin {
     Keybinding,
     ClearBuffer,
     LinearDeepLink,
-    ThirdPartyCloudAgent,
     JumpToLatestAgentMessage,
 }
 
@@ -731,8 +727,6 @@ impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
                 Self::AgentRequestedNewConversation
             }
             AgentViewEntryOrigin::InlineCodeReview => Self::InlineCodeReview,
-            AgentViewEntryOrigin::CloudAgent => Self::AmbientAgent,
-            AgentViewEntryOrigin::ThirdPartyCloudAgent => Self::ThirdPartyCloudAgent,
             AgentViewEntryOrigin::Cli => Self::Cli,
             AgentViewEntryOrigin::Tui => Self::Tui,
             AgentViewEntryOrigin::ImageAdded => Self::ImageAdded,
@@ -764,7 +758,6 @@ pub enum LoginEventSource {
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TelemetryQueuedQueryOrigin {
-    InitialCloudMode,
     QueueSlashCommand,
     AutoQueueToggle,
     LrcAutoQueue,
@@ -776,7 +769,6 @@ pub enum TelemetryQueuedQueryOrigin {
 impl From<QueuedQueryOrigin> for TelemetryQueuedQueryOrigin {
     fn from(origin: QueuedQueryOrigin) -> Self {
         match origin {
-            QueuedQueryOrigin::InitialCloudMode => Self::InitialCloudMode,
             QueuedQueryOrigin::QueueSlashCommand => Self::QueueSlashCommand,
             QueuedQueryOrigin::AutoQueueToggle => Self::AutoQueueToggle,
             QueuedQueryOrigin::LrcAutoQueue => Self::LrcAutoQueue,
@@ -802,34 +794,6 @@ pub enum CLISubagentControlState {
     UserInControl,
     AgentTaggedIn,
     AgentTaggedOut,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudAgentShellRecoveryOutcome {
-    Started,
-    Succeeded,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudAgentShellExitDetection {
-    ExitCode,
-    Signal,
-    Unavailable,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudAgentShellRecoveryFailureClass {
-    EventLoopJoin,
-    PtySpawn,
-    BootstrapTimeout,
-    ReplacementShellExit,
-    /// The terminal's shell starter (e.g. a Docker sandbox) cannot produce a replacement shell.
-    Unsupported,
-    SharedSessionRebind,
 }
 
 #[derive(Clone, EnumDiscriminants)]
@@ -1765,16 +1729,6 @@ pub enum TelemetryEvent {
         command: String,
         server_output_id: Option<ServerOutputId>,
     },
-    CloudAgentShellRecovery {
-        outcome: CloudAgentShellRecoveryOutcome,
-        detection: CloudAgentShellExitDetection,
-        status_available: bool,
-        exit_code: Option<i32>,
-        signal: Option<i32>,
-        duration_ms: Option<u32>,
-        used_fallback_directory: Option<bool>,
-        failure_class: Option<CloudAgentShellRecoveryFailureClass>,
-    },
     /// Emitted when an agent notification is shown (toast or mailbox notification).
     AgentNotificationShown {
         /// Which agent variant produced the notification.
@@ -1806,10 +1760,6 @@ pub enum TelemetryEvent {
     },
     /// Emitted when the Codex modal is opened.
     /// Emitted when the user clicks "Use Codex" in the Codex modal.
-    /// Emitted when the cloud agent capacity modal is opened.
-    CloudAgentCapacityModalOpened,
-    /// Emitted when the cloud agent capacity modal is dismissed.
-    CloudAgentCapacityModalDismissed,
     /// Emitted when a warp://linear deeplink is opened.
     /// Emitted when the remote server binary check completes.
     RemoteServerBinaryCheck {
@@ -3012,25 +2962,6 @@ impl TelemetryEvent {
                 "command": command,
                 "server_output_id": server_output_id,
             })),
-            TelemetryEvent::CloudAgentShellRecovery {
-                outcome,
-                detection,
-                status_available,
-                exit_code,
-                signal,
-                duration_ms,
-                used_fallback_directory,
-                failure_class,
-            } => Some(json!({
-                "outcome": outcome,
-                "detection": detection,
-                "status_available": status_available,
-                "exit_code": exit_code,
-                "signal": signal,
-                "duration_ms": duration_ms,
-                "used_fallback_directory": used_fallback_directory,
-                "failure_class": failure_class,
-            })),
             TelemetryEvent::AgentNotificationShown { agent_variant } => Some(json!({
                 "agent_variant": agent_variant,
             })),
@@ -3051,8 +2982,6 @@ impl TelemetryEvent {
             TelemetryEvent::AgentShortcutsViewToggled { is_visible } => Some(json!({
                 "is_visible": is_visible,
             })),
-            TelemetryEvent::CloudAgentCapacityModalOpened => None,
-            TelemetryEvent::CloudAgentCapacityModalDismissed => None,
             TelemetryEvent::LoginButtonClicked { source }
             | TelemetryEvent::LoginLaterButtonClicked { source }
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { source }
@@ -3383,11 +3312,8 @@ impl TelemetryEvent {
             | TelemetryEvent::AgentManagementViewOpenedSession
             | TelemetryEvent::AgentManagementViewCopiedSessionLink
             | TelemetryEvent::DetectedIsolationPlatform { .. }
-            | TelemetryEvent::CloudAgentShellRecovery { .. }
             | TelemetryEvent::AgentNotificationShown { .. }
             | TelemetryEvent::ToggleUseAgentToolbarSetting { .. }
-            | TelemetryEvent::CloudAgentCapacityModalOpened
-            | TelemetryEvent::CloudAgentCapacityModalDismissed
             | TelemetryEvent::RemoteServerBinaryCheck { .. }
             | TelemetryEvent::RemoteServerInstallation { .. }
             | TelemetryEvent::RemoteServerInitialization { .. }
@@ -3764,16 +3690,10 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::DetectedIsolationPlatform { .. } => EnablementState::Always,
             Self::AgentExitedShellProcess { .. } => EnablementState::Always,
-            Self::CloudAgentShellRecovery { .. } => {
-                EnablementState::Flag(FeatureFlag::CloudAgentShellRespawn)
-            }
             Self::AgentNotificationShown { .. } => {
                 EnablementState::Flag(FeatureFlag::HOANotifications)
             }
             Self::ToggleUseAgentToolbarSetting { .. } => EnablementState::Always,
-            Self::CloudAgentCapacityModalOpened | Self::CloudAgentCapacityModalDismissed => {
-                EnablementState::Flag(FeatureFlag::CloudMode)
-            }
             Self::RemoteServerBinaryCheck
             | Self::RemoteServerInstallation
             | Self::RemoteServerInitialization
@@ -4150,11 +4070,8 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::DetectedIsolationPlatform { .. } => "Isolation.DetectedIsolationPlatform",
             Self::AgentExitedShellProcess => "AgentMode.ExitedShellProcess",
-            Self::CloudAgentShellRecovery { .. } => "AgentMode.CloudShellRecovery",
             Self::AgentNotificationShown { .. } => "AgentNotification.Shown",
             Self::ToggleUseAgentToolbarSetting { .. } => "UseAgentToolbar.SettingToggled",
-            Self::CloudAgentCapacityModalOpened => "AmbientAgent.ConcurrencyModal.Opened",
-            Self::CloudAgentCapacityModalDismissed => "AmbientAgent.ConcurrencyModal.Dismissed",
         }
     }
 
@@ -4723,18 +4640,11 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AgentExitedShellProcess => {
                 "An agent-requested command caused the shell process to exit"
             }
-            Self::CloudAgentShellRecovery { .. } => {
-                "A cloud agent persistent shell recovery changed state"
-            }
             Self::AgentNotificationShown { .. } => {
                 "An agent notification was shown to the user (toast or mailbox)"
             }
             Self::ToggleUseAgentToolbarSetting { .. } => {
                 "User toggled the Use Agent footer setting"
-            }
-            Self::CloudAgentCapacityModalOpened => "User opened the cloud agent capacity modal",
-            Self::CloudAgentCapacityModalDismissed => {
-                "User dismissed the cloud agent capacity modal"
             }
             Self::RemoteServerBinaryCheck => {
                 "Remote server binary check completed (found, not found, or error)"

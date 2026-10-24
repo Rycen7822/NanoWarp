@@ -45,9 +45,9 @@ use crate::cloud_object::{
     CloudObjectSyncStatus, GenericCloudObject, GenericServerObject, GenericStringObjectFormat,
     JsonObjectType, NumInFlightRequests, ObjectDeleteResult, ObjectIdType,
     ObjectMetadataUpdateResult, ObjectPermissionsUpdateData, ObjectType, Owner, Revision,
-    RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment,
-    ServerCloudAgentConfig, ServerCloudObject, ServerEnvVarCollection, ServerMetadata,
-    ServerPermissions, ServerPreference, ServerScheduledAmbientAgent, ServerWorkflowEnum, Space,
+    RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerCloudObject,
+    ServerEnvVarCollection, ServerMetadata, ServerPermissions, ServerPreference,
+    ServerWorkflowEnum, Space,
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::drive_helpers::{
@@ -888,51 +888,11 @@ impl UpdateManager {
                         ctx,
                     ));
                 }
-                GenericStringObjectFormat::Json(JsonObjectType::CloudEnvironment) => {
-                    let typed_objects = objects
-                        .iter()
-                        .filter_map(|obj| {
-                            let server_obj: Option<&ServerAmbientAgentEnvironment> = obj.into();
-                            server_obj.cloned()
-                        })
-                        .collect::<Vec<_>>();
-                    sqlite_events.push(Self::handle_object_updates(
-                        typed_objects,
-                        force_refresh,
-                        !is_first_load,
-                        ctx,
-                    ));
-                }
-                GenericStringObjectFormat::Json(JsonObjectType::ScheduledAmbientAgent) => {
-                    let typed_objects = objects
-                        .iter()
-                        .filter_map(|obj| {
-                            let server_obj: Option<&ServerScheduledAmbientAgent> = obj.into();
-                            server_obj.cloned()
-                        })
-                        .collect::<Vec<_>>();
-                    sqlite_events.push(Self::handle_object_updates(
-                        typed_objects,
-                        force_refresh,
-                        !is_first_load,
-                        ctx,
-                    ));
-                }
-                GenericStringObjectFormat::Json(JsonObjectType::CloudAgentConfig) => {
-                    let typed_objects = objects
-                        .iter()
-                        .filter_map(|obj| {
-                            let server_obj: Option<&ServerCloudAgentConfig> = obj.into();
-                            server_obj.cloned()
-                        })
-                        .collect::<Vec<_>>();
-                    sqlite_events.push(Self::handle_object_updates(
-                        typed_objects,
-                        force_refresh,
-                        !is_first_load,
-                        ctx,
-                    ));
-                }
+                GenericStringObjectFormat::Json(
+                    JsonObjectType::CloudEnvironment
+                    | JsonObjectType::ScheduledAmbientAgent
+                    | JsonObjectType::CloudAgentConfig,
+                ) => {}
             }
         }
 
@@ -1001,11 +961,6 @@ impl UpdateManager {
             });
         }
 
-        // Fetch environment "last used" timestamps separately and merge them into the environments.
-        // This is done as a separate call because the timestamps come from GetCloudEnvironments query
-        // rather than the generic object sync.
-        self.fetch_and_merge_environment_timestamps(ctx);
-
         if !updated_preferences.is_empty() {
             ctx.emit(UpdateManagerEvent::CloudPreferencesUpdated {
                 updated: updated_preferences,
@@ -1037,29 +992,6 @@ impl UpdateManager {
             }
         };
         ctx.emit(UpdateManagerEvent::AmbientTaskUpdated { task_id, timestamp });
-    }
-
-    /// Fetches environment "last used" timestamps from the server and merges them
-    /// into the in-memory environment objects.
-    fn fetch_and_merge_environment_timestamps(&mut self, ctx: &mut ModelContext<UpdateManager>) {
-        let object_client = self.object_client.clone();
-        let future = ctx.spawn(
-            async move {
-                object_client
-                    .fetch_environment_last_task_run_timestamps()
-                    .await
-            },
-            |_update_manager, result, ctx| {
-                if let Ok(timestamps) = result {
-                    CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                        cloud_model.update_environment_last_task_run_timestamps(timestamps, ctx);
-                    });
-                } else if let Err(e) = result {
-                    log::warn!("Failed to fetch environment last task run timestamps: {e:#}");
-                }
-            },
-        );
-        self.spawned_futures.push(future.future_id());
     }
 
     /// Generic handler updating all objects of a given model type from the server (e.g. all updated/deleted notebooks or workflows).
@@ -1778,10 +1710,7 @@ impl UpdateManager {
             // TODO: Figure out how to deal with conflicts for AI rules INT-759
             ServerCloudObject::Folder(_)
             | ServerCloudObject::Preference(_)
-            | ServerCloudObject::AIFact(_)
-            | ServerCloudObject::AmbientAgentEnvironment(_)
-            | ServerCloudObject::ScheduledAmbientAgent(_)
-            | ServerCloudObject::CloudAgentConfig(_) => {}
+            | ServerCloudObject::AIFact(_) => {}
         }
     }
 
@@ -2127,16 +2056,6 @@ impl UpdateManager {
                         ObjectType::Folder => {
                             log::info!("Moving a folder to a new space is not supported yet.");
                             Ok(false)
-                        }
-                        ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                            JsonObjectType::CloudEnvironment,
-                        )) => {
-                            object_client
-                                .transfer_generic_string_object_owner(
-                                    GenericStringObjectId::from(server_id),
-                                    destination_owner,
-                                )
-                                .await
                         }
                         ObjectType::GenericStringObject(_) => {
                             log::info!("Moving a generic string object to a new space is not supported yet.");

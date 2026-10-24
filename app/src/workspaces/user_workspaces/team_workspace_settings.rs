@@ -340,17 +340,6 @@ impl UserWorkspaces {
         )
     }
 
-    /// The self-hosted worker host slug configured as the default for `scope`'s team. See
-    /// [`Self::scoped_or_workspace_setting`] for the no-team fallback.
-    pub(crate) fn default_host_slug<S: TeamScope + ?Sized>(&self, scope: &S) -> Option<&str> {
-        self.scoped_or_workspace_setting(
-            scope,
-            |team| team.settings.default_host_slug.as_deref(),
-            |workspace| workspace.settings.default_host_slug.as_deref(),
-            None,
-        )
-    }
-
     /// The agent attribution policy for `scope`'s team: `Enable` and `Disable` lock the user's
     /// attribution toggle, `RespectUserSetting` leaves it editable. See
     /// [`Self::scoped_or_workspace_setting`] for the no-team fallback.

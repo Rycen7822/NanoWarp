@@ -13,7 +13,6 @@ use crate::terminal::block_list_viewport::ScrollPositionUpdate;
 use crate::terminal::model::blocks::{RemovableBlocklistItem, RichContentItem};
 use crate::terminal::model::rich_content::RichContentType;
 use crate::terminal::model::terminal_model::BlockIndex;
-use crate::terminal::view::ambient_agent::AmbientAgentEntryBlock;
 use crate::terminal::view::ssh_remote_server_choice_view::SshRemoteServerChoiceView;
 use crate::terminal::view::ssh_remote_server_failed_banner::SshRemoteServerFailedBanner;
 use crate::terminal::view::ssh_tmux_deprecation_banner::SshTmuxDeprecationBanner;
@@ -115,14 +114,6 @@ impl RichContent {
         new_agent_view_conversation_id: AIConversationId,
     ) {
         self.agent_view_conversation_id = Some(new_agent_view_conversation_id);
-    }
-
-    /// Sets the associated agent view conversation id for this rich content item.
-    pub fn set_agent_view_conversation_id(
-        &mut self,
-        agent_view_conversation_id: Option<AIConversationId>,
-    ) {
-        self.agent_view_conversation_id = agent_view_conversation_id;
     }
 
     /// Build a new `ChildView` element for this rich content
@@ -229,16 +220,12 @@ pub enum RichContentMetadata {
         telemetry_banner_handle: ViewHandle<TelemetryBanner>,
     },
     AgentViewEntry(AgentViewEntryMetadata),
-    AmbientAgentBlock {
-        block_handle: ViewHandle<AmbientAgentEntryBlock>,
-    },
     InlineAgentViewHeader,
     AgentViewZeroState,
     TerminalViewZeroState,
     PendingUserQuery {
         pending_user_query_block_handle: ViewHandle<PendingUserQueryBlock>,
     },
-    HarnessSessionHeader,
 }
 
 impl TerminalView {

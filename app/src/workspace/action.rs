@@ -243,7 +243,6 @@ pub enum WorkspaceAction {
         shell: AvailableShell,
         source: AddTabWithShellSource,
     },
-    AddAmbientAgentTab,
     /// Add a new tab that immediately enters agent view with a new conversation.
     AddAgentTab,
     OpenNewSessionMenu {
@@ -615,9 +614,6 @@ pub enum WorkspaceAction {
         select_first: bool,
     },
     ToggleAgentManagementView,
-    ViewAgentRunsForEnvironment {
-        environment_id: String,
-    },
     /// Show the rewind confirmation dialog before rewinding an AI conversation
     ShowRewindConfirmationDialog {
         ai_block_view_id: EntityId,
@@ -635,13 +631,7 @@ pub enum WorkspaceAction {
         conversation_id: AIConversationId,
         terminal_view_id: Option<EntityId>,
     },
-    /// Open the canonical ambient agent conversation pane and attach it to a live session.
-    OpenOrAttachAmbientAgentConversation {
-        session_id: SessionId,
-        task_id: AmbientAgentTaskId,
-    },
-    /// Load cloud conversation data into a transcript viewer.
-    /// Used when CloudConversations is enabled and the sandbox is not running.
+    /// Load stored conversation data into a readonly transcript viewer.
     OpenConversationTranscriptViewer {
         conversation_id: ServerConversationToken,
         ambient_agent_task_id: Option<AmbientAgentTaskId>,
@@ -811,7 +801,6 @@ impl WorkspaceAction {
             | AddTerminalTab { .. }
             | AddTabWithShell { .. }
             | AddAgentTab
-            | AddAmbientAgentTab
             | AddWindow
             | AddWindowWithShell { .. }
             | CloseWindow
@@ -976,14 +965,12 @@ impl WorkspaceAction {
             | ToggleNotificationMailbox { .. }
             | ToggleAgentManagementView
             | OpenAgentManagementView
-            | ViewAgentRunsForEnvironment { .. }
             | ToggleAIDocumentPane { .. }
             | HideAIDocumentPanes
             | OpenAIDocumentPane { .. }
             | ShowRewindConfirmationDialog { .. }
             | ExecuteRewindAIConversation { .. }
             | ExecuteDeleteConversation { .. }
-            | OpenOrAttachAmbientAgentConversation { .. }
             | OpenConversationTranscriptViewer { .. }
             | OpenLightbox { .. }
             | UpdateLightboxImage { .. }

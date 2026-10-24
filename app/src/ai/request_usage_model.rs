@@ -23,9 +23,6 @@ use crate::settings::AISettings;
 use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces};
 use crate::workspaces::workspace::WorkspaceUid;
 
-/// Threshold of ambient-only credits at which we surface upgrade/CTA UI.
-pub const AMBIENT_AGENT_TRIAL_CREDIT_THRESHOLD: i32 = 20;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BonusGrantScope {
     User,
@@ -63,7 +60,6 @@ pub struct BonusGrant {
 
 /// The key for the corresponding entry in UserDefaults.
 const REQUEST_LIMIT_INFO_CACHE_KEY: &str = "AIRequestLimitInfo";
-const AMBIENT_CREDITS_BANNER_DISMISSED_KEY: &str = "AmbientCreditsBannerDismissed";
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum RequestLimitRefreshDuration {
@@ -154,21 +150,6 @@ fn get_cached_request_limit_info(app_mut: &mut AppContext) -> Option<RequestLimi
         .and_then(|serialized| serde_json::from_str(serialized.as_str()).ok())
 }
 
-fn cache_ambient_credits_banner_dismissed(dismissed: bool, app_mut: &mut AppContext) {
-    let _ = app_mut
-        .private_user_preferences()
-        .write_value(AMBIENT_CREDITS_BANNER_DISMISSED_KEY, dismissed.to_string());
-}
-
-fn get_cached_ambient_credits_banner_dismissed(app_mut: &mut AppContext) -> bool {
-    app_mut
-        .private_user_preferences()
-        .read_value(AMBIENT_CREDITS_BANNER_DISMISSED_KEY)
-        .unwrap_or_default()
-        .and_then(|value| value.parse::<bool>().ok())
-        .unwrap_or_default()
-}
-
 #[derive(Default)]
 struct ServerAvailabilityState {
     /// Last successful decision; retained across transient refresh failures.
@@ -189,9 +170,6 @@ pub struct AIRequestUsageModel {
     bonus_grants: Vec<BonusGrant>,
 
     server_availability: ServerAvailabilityState,
-
-    /// Whether the ambient trial credits banner has been dismissed by the user.
-    ambient_credits_banner_dismissed: bool,
 }
 
 impl Entity for AIRequestUsageModel {
@@ -202,7 +180,6 @@ pub enum AIRequestUsageModelEvent {
     RequestUsageUpdated,
     /// The server-authoritative credit availability decision was updated.
     CreditAvailabilityUpdated,
-    AmbientCreditsBannerDismissed,
     RequestBonusRefunded {
         requests_refunded: i32,
         server_conversation_id: String,
@@ -216,7 +193,6 @@ impl AIRequestUsageModel {
         // This is only used to show the latest known value before we finish refreshing from the server below.
         let cached_request_limit_info = get_cached_request_limit_info(ctx);
         let request_limit_info = cached_request_limit_info.unwrap_or_default();
-        let ambient_credits_banner_dismissed = get_cached_ambient_credits_banner_dismissed(ctx);
 
         Self {
             ai_client,
@@ -224,19 +200,17 @@ impl AIRequestUsageModel {
             last_update_time: None,
             bonus_grants: vec![],
             server_availability: ServerAvailabilityState::default(),
-            ambient_credits_banner_dismissed,
         }
     }
 
     #[cfg(test)]
-    pub fn new_for_test(ai_client: Arc<dyn AIClient>, ctx: &mut ModelContext<Self>) -> Self {
+    pub fn new_for_test(ai_client: Arc<dyn AIClient>, _ctx: &mut ModelContext<Self>) -> Self {
         Self {
             ai_client,
             last_update_time: None,
             request_limit_info: RequestLimitInfo::default(),
             bonus_grants: vec![],
             server_availability: ServerAvailabilityState::default(),
-            ambient_credits_banner_dismissed: get_cached_ambient_credits_banner_dismissed(ctx),
         }
     }
 
@@ -634,41 +608,6 @@ impl AIRequestUsageModel {
 
     pub fn bonus_grants(&self) -> &[BonusGrant] {
         &self.bonus_grants
-    }
-
-    fn ambient_only_grants(&self) -> impl Iterator<Item = &BonusGrant> {
-        self.bonus_grants
-            .iter()
-            .filter(|g| g.grant_type == BonusGrantType::AmbientOnly)
-    }
-
-    /// Returns the total remaining ambient-only credits for the user.
-    /// Returns None if the user has never received any ambient-only grants.
-    pub fn ambient_only_credits_remaining(&self) -> Option<i32> {
-        let mut ambient_grants = self.ambient_only_grants().peekable();
-        ambient_grants.peek()?;
-        Some(ambient_grants.map(|g| g.request_credits_remaining).sum())
-    }
-
-    /// The dollar value of [`Self::ambient_only_credits_remaining`], in cents. `None` unless
-    /// every ambient-only grant carries a dollar value.
-    pub fn ambient_only_usage_cents_remaining(&self) -> Option<f64> {
-        let mut ambient_grants = self.ambient_only_grants().peekable();
-        ambient_grants.peek()?;
-        ambient_grants.map(|g| g.usage_cents_remaining).sum()
-    }
-
-    pub fn is_ambient_credits_banner_dismissed(&self) -> bool {
-        self.ambient_credits_banner_dismissed
-    }
-
-    pub fn dismiss_ambient_credits_banner(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.ambient_credits_banner_dismissed {
-            return;
-        }
-        self.ambient_credits_banner_dismissed = true;
-        cache_ambient_credits_banner_dismissed(true, ctx);
-        ctx.emit(AIRequestUsageModelEvent::AmbientCreditsBannerDismissed);
     }
 
     fn workspace_and_team_bonus_grants(

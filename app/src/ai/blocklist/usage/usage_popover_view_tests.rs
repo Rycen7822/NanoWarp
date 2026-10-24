@@ -717,7 +717,7 @@ fn format_tool_call_count_uses_plural_for_zero_calls() {
 /// conversation has no billed total until the server reports one.
 #[test]
 fn conversation_total_text_shows_em_dash_without_usage_data() {
-    let conversation = AIConversation::new(false, false);
+    let conversation = AIConversation::new(false);
     assert_eq!(
         conversation_total_text(&conversation, UsageDisplayUnit::Credits),
         EM_DASH
@@ -732,7 +732,7 @@ fn conversation_total_text_shows_em_dash_without_usage_data() {
 /// still shows that snapshot as its dollar total; the provider cost is never shown.
 #[test]
 fn conversation_total_text_falls_back_to_the_billed_snapshot() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_billed_cost_in_cents_for_test(Some(250.0));
 
     assert_eq!(
@@ -750,7 +750,7 @@ fn popover_unit_follows_the_display_unit() {
         set_charge_unit(&mut app, ChargeUnit::Cents);
         set_usage_display_unit(&mut app, UsageDisplayUnit::Dollars);
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         conversation.set_credits_spent_for_test(2.5);
         app.read(|ctx| {
             let unit = conversation_usage_display_unit(&conversation, ctx);
@@ -780,7 +780,7 @@ fn popover_unit_stays_credits_for_credit_charged_viewers() {
         set_charge_unit(&mut app, ChargeUnit::Credits);
         set_usage_display_unit(&mut app, UsageDisplayUnit::Dollars);
 
-        let mut conversation = AIConversation::new(false, false);
+        let mut conversation = AIConversation::new(false);
         conversation.set_charged_usage_for_test(Some(ChargedUsageTotals {
             input_cost_in_cents: 25.0,
             input_cost_in_credits: 2.5,
@@ -829,7 +829,7 @@ fn conversation_total_text_shows_em_dash_for_token_only_metadata() {
 /// conversation's credits total.
 #[test]
 fn conversation_total_text_falls_back_to_credits_spent() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_credits_spent_for_test(12.5);
 
     assert_eq!(
@@ -840,7 +840,7 @@ fn conversation_total_text_falls_back_to_credits_spent() {
 
 #[test]
 fn conversation_total_text_uses_the_charged_usage_totals() {
-    let mut conversation = AIConversation::new(false, false);
+    let mut conversation = AIConversation::new(false);
     conversation.set_credits_spent_for_test(12.5);
     conversation.set_charged_usage_for_test(Some(ChargedUsageTotals {
         input_cost_in_cents: 21.0,
@@ -1039,9 +1039,9 @@ fn usage_popover_reacts_to_its_conversations_usage_events() {
         let (conversation_id, other_conversation_id) = app.update(|ctx| {
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |model, ctx| {
                 let conversation_id =
-                    model.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    model.start_new_conversation(terminal.id(), false, false, ctx);
                 let other_conversation_id =
-                    model.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    model.start_new_conversation(terminal.id(), false, false, ctx);
                 (conversation_id, other_conversation_id)
             })
         });

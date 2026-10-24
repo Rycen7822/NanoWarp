@@ -8,11 +8,10 @@ use cloud_objects::ids::{GenericStringObjectId, ObjectUid, ServerId, SyncId};
 use warp_graphql::object::CloudObjectWithDescendants;
 
 use crate::{
-    AIExecutionProfile, AIFact, AmbientAgentEnvironment, CloudFolderModel, CloudNotebookModel,
-    CloudWorkflowModel, EnvVarCollection, JsonSerializer, Preference, ScheduledAmbientAgent,
-    ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment, ServerCloudAgentConfig,
-    ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
-    ServerScheduledAmbientAgent, ServerWorkflow, ServerWorkflowEnum, WorkflowEnum,
+    AIExecutionProfile, AIFact, CloudFolderModel, CloudNotebookModel, CloudWorkflowModel,
+    EnvVarCollection, JsonSerializer, Preference, ServerAIExecutionProfile, ServerAIFact,
+    ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference, ServerWorkflow,
+    ServerWorkflowEnum, WorkflowEnum,
 };
 
 /// A cloud object from the server.
@@ -26,9 +25,6 @@ pub enum ServerCloudObject {
     WorkflowEnum(ServerWorkflowEnum),
     AIFact(ServerAIFact),
     AIExecutionProfile(ServerAIExecutionProfile),
-    AmbientAgentEnvironment(ServerAmbientAgentEnvironment),
-    ScheduledAmbientAgent(ServerScheduledAmbientAgent),
-    CloudAgentConfig(ServerCloudAgentConfig),
 }
 
 impl ServerCloudObject {
@@ -44,13 +40,6 @@ impl ServerCloudObject {
             ServerCloudObject::AIExecutionProfile(ai_execution_profile) => {
                 &ai_execution_profile.metadata
             }
-            ServerCloudObject::AmbientAgentEnvironment(ambient_agent_environment) => {
-                &ambient_agent_environment.metadata
-            }
-            ServerCloudObject::ScheduledAmbientAgent(scheduled_ambient_agent) => {
-                &scheduled_ambient_agent.metadata
-            }
-            ServerCloudObject::CloudAgentConfig(cloud_agent_config) => &cloud_agent_config.metadata,
         }
     }
 
@@ -66,13 +55,6 @@ impl ServerCloudObject {
             ServerCloudObject::AIExecutionProfile(ai_execution_profile) => {
                 ai_execution_profile.id.uid()
             }
-            ServerCloudObject::AmbientAgentEnvironment(ambient_agent_environment) => {
-                ambient_agent_environment.id.uid()
-            }
-            ServerCloudObject::ScheduledAmbientAgent(scheduled_ambient_agent) => {
-                scheduled_ambient_agent.id.uid()
-            }
-            ServerCloudObject::CloudAgentConfig(cloud_agent_config) => cloud_agent_config.id.uid(),
         }
     }
 }
@@ -104,18 +86,6 @@ where
             value.downcast_ref::<ServerAIExecutionProfile>()
         {
             ServerCloudObject::AIExecutionProfile(server_ai_execution_profile.clone())
-        } else if let Some(server_ambient_agent_environment) =
-            value.downcast_ref::<ServerAmbientAgentEnvironment>()
-        {
-            ServerCloudObject::AmbientAgentEnvironment(server_ambient_agent_environment.clone())
-        } else if let Some(server_scheduled_ambient_agent) =
-            value.downcast_ref::<ServerScheduledAmbientAgent>()
-        {
-            ServerCloudObject::ScheduledAmbientAgent(server_scheduled_ambient_agent.clone())
-        } else if let Some(server_cloud_agent_config) =
-            value.downcast_ref::<ServerCloudAgentConfig>()
-        {
-            ServerCloudObject::CloudAgentConfig(server_cloud_agent_config.clone())
         } else {
             panic!("Unknown server object type");
         }
@@ -281,16 +251,10 @@ fn server_gso_to_cloud_object(
                 GenericServerObject::<GenericStringObjectId, GenericStringModel<AIExecutionProfile, JsonSerializer>>::try_from_gql(gso)?,
             ))
         }
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonCloudEnvironment => {
-            Ok(ServerCloudObject::AmbientAgentEnvironment(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<AmbientAgentEnvironment, JsonSerializer>>::try_from_gql(gso)?,
-            ))
-        }
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonScheduledAmbientAgent => {
-            Ok(ServerCloudObject::ScheduledAmbientAgent(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<ScheduledAmbientAgent, JsonSerializer>>::try_from_gql(gso)?,
-            ))
-        }
+        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonCloudEnvironment
+        | warp_graphql::generic_string_object::GenericStringObjectFormat::JsonScheduledAmbientAgent => Err(anyhow::anyhow!(
+            "unsupported generic string object format"
+        )),
         // Formats unknown to this client build (e.g. the server-only `JsonRunner`).
         // Returning an error lets callers skip the object rather than failing.
         warp_graphql::generic_string_object::GenericStringObjectFormat::Unknown => Err(anyhow::anyhow!(

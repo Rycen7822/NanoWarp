@@ -4,7 +4,7 @@ use futures::StreamExt as _;
 use prost::Message as _;
 use tracing_futures::Instrument as _;
 use warp_core::channel::ChannelState;
-use warp_server_client::base_client::{AmbientHeaderPolicy, BaseClient, TEAM_UID_HEADER};
+use warp_server_client::base_client::{AMBIENT_WORKLOAD_TOKEN_HEADER, BaseClient, TEAM_UID_HEADER};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -65,12 +65,12 @@ pub async fn generate_multi_agent_output(
         request_builder = request_builder.bearer_auth(token);
     }
 
-    for (name, value) in client
-        .ambient_headers(AmbientHeaderPolicy::workload_only())
+    if let Some(token) = client
+        .get_or_create_ambient_workload_token()
         .await
         .map_err(Error::AmbientHeaders)?
     {
-        request_builder = request_builder.header(name, value);
+        request_builder = request_builder.header(AMBIENT_WORKLOAD_TOKEN_HEADER, token);
     }
     if let Some(team_uid) = team_uid {
         request_builder = request_builder.header(TEAM_UID_HEADER, team_uid);

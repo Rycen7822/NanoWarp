@@ -103,18 +103,11 @@ pub enum FailedOutputPresentation {
 ///
 /// `conversation_uses_warp_credits_instead_of_chatgpt` is the owning conversation's
 /// per-conversation ChatGPT opt-out; it only affects ChatGPT subscription errors.
-///
-/// Recovery-pending failures are intentionally suppressed so callers cannot accidentally render
-/// an alarming terminal error while an automatic resume is still in flight.
 pub fn failed_output_presentation(
     error: &RenderableAIError,
     conversation_uses_warp_credits_instead_of_chatgpt: bool,
     app: &AppContext,
 ) -> Option<FailedOutputPresentation> {
-    if error.should_suppress_during_recovery() {
-        return None;
-    }
-
     Some(match error {
         RenderableAIError::QuotaLimit {
             user_display_message,
@@ -186,11 +179,7 @@ pub fn failed_output_presentation(
         RenderableAIError::AgentExitedShell { .. } => {
             FailedOutputPresentation::Message(format!("{ERROR_APOLOGY_TEXT}\n\n{error}"))
         }
-        // Cloud startup failures surface the raw server message directly, matching the
-        // dedicated GUI error card which shows the message without an apology prefix.
-        RenderableAIError::CloudStartupFailed(msg) => {
-            FailedOutputPresentation::Message(msg.clone())
-        }
+
         RenderableAIError::ChatGPTSubscriptionError { .. }
             if conversation_uses_warp_credits_instead_of_chatgpt =>
         {
@@ -238,8 +227,7 @@ pub fn should_show_failed_output_usage_notice(
     has_expanded_last_requested_command: bool,
     is_restored: bool,
 ) -> bool {
-    !error.should_suppress_during_recovery()
-        && is_latest_visible_exchange_in_root_task
+    is_latest_visible_exchange_in_root_task
         && !has_expanded_last_requested_command
         && !is_restored
         && !error.is_invalid_api_key()

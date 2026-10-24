@@ -69,7 +69,7 @@ fn query_exchange_event_builds_persistence_upsert() {
             response_stream_id: None,
         };
         let persistence_event = app
-            .read(|ctx| maybe_build_ai_query_upsert_event(&event, terminal_surface_id, false, ctx))
+            .read(|ctx| maybe_build_ai_query_upsert_event(&event, terminal_surface_id, ctx))
             .expect("query exchange should produce a persistence event");
         let ModelEvent::UpsertAIQuery { query } = persistence_event else {
             panic!("query exchange should produce an AI-query upsert");

@@ -96,8 +96,6 @@ pub enum CloudModelEvent {
     },
     /// The initial bulk load of cloud objects from the server has completed.
     InitialLoadCompleted,
-    /// Environment last-task timestamps fetched outside the generic cloud-object sync were merged.
-    EnvironmentLastTaskRunTimestampsUpdated,
 }
 
 enum FolderOpenState {
@@ -520,15 +518,6 @@ impl CloudModel {
             ServerCloudObject::AIExecutionProfile(ai_execution_profile) => {
                 self.upsert_from_server_object(ai_execution_profile, ctx);
             }
-            ServerCloudObject::AmbientAgentEnvironment(ambient_agent_environment) => {
-                self.upsert_from_server_object(ambient_agent_environment, ctx);
-            }
-            ServerCloudObject::ScheduledAmbientAgent(scheduled_ambient_agent) => {
-                self.upsert_from_server_object(scheduled_ambient_agent, ctx);
-            }
-            ServerCloudObject::CloudAgentConfig(cloud_agent_config) => {
-                self.upsert_from_server_object(cloud_agent_config, ctx);
-            }
         }
     }
 
@@ -752,23 +741,6 @@ impl CloudModel {
             ctx.emit(CloudModelEvent::NotebookEditorChangedFromServer { notebook_id });
             ctx.notify();
         }
-    }
-
-    /// Updates the per-environment "last used" timestamp.
-    ///
-    /// This timestamp is derived from `CloudEnvironment.lastTaskCreated.createdAt`.
-    pub fn update_environment_last_task_run_timestamps(
-        &mut self,
-        timestamps: HashMap<String, DateTime<Utc>>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        for (uid, timestamp) in timestamps {
-            if let Some(object) = self.objects_by_id.get_mut(&uid) {
-                object.metadata_mut().last_task_run_ts = Some(timestamp.into());
-            }
-        }
-        ctx.emit(CloudModelEvent::EnvironmentLastTaskRunTimestampsUpdated);
-        ctx.notify();
     }
 
     pub fn update_object_metadata_last_updated_ts(

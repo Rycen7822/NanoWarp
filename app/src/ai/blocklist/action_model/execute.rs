@@ -40,7 +40,7 @@ pub use request_file_edits::{
     RequestFileEditsFormatKind, RequestFileEditsTelemetryEvent,
 };
 use serde::{Deserialize, Serialize};
-pub use shell_command::{ShellCommandExecutor, ShellCommandExecutorEvent, ShellRecoveryResult};
+pub use shell_command::{ShellCommandExecutor, ShellCommandExecutorEvent};
 pub use suggest_new_conversation::NewConversationDecision;
 use suggest_new_conversation::SuggestNewConversationExecutor;
 use warp_core::execution_mode::AppExecutionMode;
