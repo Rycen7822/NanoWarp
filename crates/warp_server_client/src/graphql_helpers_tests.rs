@@ -9,6 +9,7 @@ use futures::executor::block_on;
 use http::StatusCode;
 use warp_graphql::client::{GraphQLError, RequestOptions};
 use warp_server_auth::auth_state::AuthState;
+use warp_server_auth::credentials::Credentials;
 
 use super::{send_graphql_request, send_team_scoped_graphql_request};
 use crate::auth::AuthEvent;
@@ -59,7 +60,7 @@ fn externally_authenticated_base_client(
     bearer_token: &str,
 ) -> (BaseClient, async_channel::Receiver<AuthEvent>) {
     let auth_state = AuthState::new_logged_out_for_test();
-    auth_state.set_remote_server_bearer_token(bearer_token.to_string());
+    auth_state.set_credentials(Some(Credentials::Bearer(bearer_token.to_string())));
     base_client(auth_state)
 }
 
