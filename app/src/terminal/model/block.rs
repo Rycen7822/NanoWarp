@@ -187,14 +187,6 @@ pub struct Block {
 
     filter_query: Option<BlockFilterQuery>,
 
-    /// The last time this block was painted (i.e.: visible in the window),
-    /// if ever.
-    ///
-    /// While [`Block`] is ultimately owned by `TerminalModel`, which is shared
-    /// across threads, this field will only be updated or read from the main
-    /// thread, so using a [`RefCell`] is safe.
-    last_painted_at: std::cell::RefCell<Option<DateTime<Local>>>,
-
     /// `true` if the command corresponding to this block (whether it utilized the alt screen or
     /// not) has received user input (e.g. keystroke).
     ///
@@ -742,7 +734,6 @@ impl Block {
             prompt_snapshot: None,
             home_dir: None,
             filter_query: None,
-            last_painted_at: None.into(),
             has_received_user_input: false,
             hidden: false,
             should_hide_output_grid: false,
@@ -2356,21 +2347,6 @@ impl Block {
         }
     }
 
-    pub fn estimated_heap_usage_bytes(&self) -> usize {
-        // For now, we're only factoring in heap allocations in grids, and not
-        // in other fields.
-        self.all_grids_iter()
-            .map(|grid| grid.estimated_memory_usage_bytes())
-            .sum()
-    }
-
-    pub fn estimated_memory_usage_bytes(&self) -> usize {
-        // size of struct on the stack
-        std::mem::size_of_val(self)
-            // size of heap-allocated data
-            + self.estimated_heap_usage_bytes()
-    }
-
     pub fn grid_storage_lines(&self) -> usize {
         use warp_terminal::model::grid::Dimensions as _;
 
@@ -2395,15 +2371,6 @@ impl Block {
         self.all_grids_iter()
             .map(|grid| grid.flat_storage_bytes())
             .sum()
-    }
-
-    pub fn last_painted_at(&self) -> Option<DateTime<Local>> {
-        *self.last_painted_at.borrow()
-    }
-
-    /// Updates the block's last-painted-at time.
-    pub fn update_last_painted_at(&self, last_painted_at: DateTime<Local>) {
-        self.last_painted_at.borrow_mut().replace(last_painted_at);
     }
 
     pub(super) fn set_marked_text(&mut self, marked_text: &str, selected_range: &Range<usize>) {

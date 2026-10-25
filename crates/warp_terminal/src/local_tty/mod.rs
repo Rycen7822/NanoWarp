@@ -5,7 +5,6 @@
 
 pub mod event_loop;
 pub mod mio_channel;
-pub mod recorder;
 #[cfg(unix)]
 pub mod server;
 pub mod shell;

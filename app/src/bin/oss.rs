@@ -14,7 +14,6 @@ fn main() -> Result<()> {
             app_id: AppId::new("dev", "nanowarp", "NanoWarp"),
             logfile_name: "nanowarp.log".into(),
             server_config: WarpServerConfig::production(),
-            telemetry_config: None,
         },
     );
     if cfg!(debug_assertions) {

@@ -35,7 +35,6 @@ use crate::auth::AuthManager;
 use crate::network::NetworkStatus;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::{MockTeamClient, TeamClient};
-use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings::CodeSettings;
 use crate::system::SystemStats;
 use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
@@ -99,7 +98,7 @@ fn initialize_app_with_auth(
     app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| auth_state_provider);
     app.add_singleton_model(AuthManager::new_for_test);
-    app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
+
     app.add_singleton_model(|_| {
         PublicPreferences::new(Box::<user_preferences::in_memory::InMemoryPreferences>::default())
     });

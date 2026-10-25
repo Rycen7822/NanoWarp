@@ -29,7 +29,7 @@ pub mod terminal_model;
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_utils;
 
-pub use lifecycle::{LifecycleRecoveryRecord, StartCommandOutcome};
+pub use lifecycle::StartCommandOutcome;
 pub use warp_terminal::model::grid::cell;
 pub use warp_terminal::model::secrets::{
     ObfuscateSecrets, RespectObfuscatedSecrets, Secret, SecretHandle,

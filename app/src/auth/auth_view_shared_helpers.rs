@@ -1,5 +1,4 @@
 use pathfinder_color::ColorU;
-use warp_core::channel::ChannelState;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::builder::UiBuilder;
 use warp_core::ui::color::{darken, lighten};
@@ -7,18 +6,14 @@ use warp_core::ui::theme::ColorScheme;
 use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::{
     Border, CacheOption, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,
-    Image, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
+    Image, MouseStateHandle, ParentElement, Radius,
 };
 use warpui::fonts::Weight;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::ui_components::switch::SwitchStateHandle;
-use warpui::{Action, AppContext, Element, SingletonEntity as _};
+use warpui::{Action, Element};
 
-use crate::settings::PrivacySettings;
 use crate::themes::theme::ThemeKind;
-
-const PRIVACY_URL: &str = "https://warp.dev/privacy";
 
 pub const AUTH_MODAL_GAP: f32 = 16.;
 const MODAL_CORNER_RADIUS: Radius = Radius::Pixels(8.);
@@ -302,191 +297,4 @@ pub fn render_overlay(overlay_body: Box<dyn Element>, appearance: &Appearance) -
         .with_corner_radius(CornerRadius::with_all(MODAL_CORNER_RADIUS))
         .with_uniform_padding(32.)
         .finish()
-}
-
-// ---------------------------------------------------------------------------
-// Privacy settings overlay for AuthViewBody
-// ---------------------------------------------------------------------------
-
-/// Handles needed to render the privacy settings overlay.
-#[derive(Default)]
-pub struct PrivacySettingsHandles {
-    pub telemetry_switch: SwitchStateHandle,
-    pub close_button_mouse: MouseStateHandle,
-    pub telemetry_docs_mouse: MouseStateHandle,
-}
-
-/// Actions dispatched by the privacy settings overlay toggles.
-pub struct PrivacySettingsActions<A: Action + Clone> {
-    pub toggle_telemetry: A,
-    pub hide_overlay: A,
-}
-
-/// Renders the full privacy settings overlay body (logo + header + toggles + done button).
-/// This is the content that goes inside `render_overlay()`.
-///
-pub fn render_privacy_settings_overlay_body<A: Action + Clone + 'static>(
-    appearance: &Appearance,
-    app: &AppContext,
-    handles: &PrivacySettingsHandles,
-    actions: &PrivacySettingsActions<A>,
-) -> Box<dyn Element> {
-    let ui_builder = appearance.ui_builder();
-
-    let header_styles = UiComponentStyles {
-        font_family_id: Some(appearance.header_font_family()),
-        font_color: Some(appearance.theme().active_ui_text_color().into()),
-        font_size: Some(20.),
-        font_weight: Some(Weight::Semibold),
-        ..Default::default()
-    };
-
-    Container::new(
-        Flex::column()
-            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .with_child(
-                Container::new(render_square_logo(appearance))
-                    .with_margin_bottom(AUTH_MODAL_GAP)
-                    .finish(),
-            )
-            .with_child(
-                Container::new(
-                    ui_builder
-                        .span("Privacy Settings")
-                        .with_style(header_styles)
-                        .build()
-                        .finish(),
-                )
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-            )
-            .with_child(render_privacy_settings_toggles(
-                appearance, app, handles, actions,
-            ))
-            .with_child(render_close_overlay_button(
-                appearance,
-                ui_builder,
-                "Done".into(),
-                handles.close_button_mouse.clone(),
-                actions.hide_overlay.clone(),
-            ))
-            .finish(),
-    )
-    .with_background(appearance.theme().surface_1())
-    .finish()
-}
-
-fn render_privacy_settings_section_header(
-    text: impl Into<String>,
-    appearance: &Appearance,
-) -> Container {
-    let section_header_styles = UiComponentStyles {
-        font_family_id: Some(appearance.header_font_family()),
-        font_color: Some(appearance.theme().active_ui_text_color().into()),
-        font_size: Some(14.),
-        font_weight: Some(Weight::Bold),
-        ..Default::default()
-    };
-
-    Container::new(
-        appearance
-            .ui_builder()
-            .span(text.into())
-            .with_style(section_header_styles)
-            .build()
-            .finish(),
-    )
-}
-
-/// Renders the stack of privacy toggles shown in the privacy settings overlay.
-///
-pub fn render_privacy_settings_toggles<A: Action + Clone + 'static>(
-    appearance: &Appearance,
-    app: &AppContext,
-    handles: &PrivacySettingsHandles,
-    actions: &PrivacySettingsActions<A>,
-) -> Box<dyn Element> {
-    fn render_description(appearance: &Appearance, text: String) -> Box<dyn Element> {
-        let disclaimer_styles = UiComponentStyles {
-            font_color: Some(
-                appearance
-                    .theme()
-                    .sub_text_color(appearance.theme().background())
-                    .into(),
-            ),
-            ..Default::default()
-        };
-
-        appearance
-            .ui_builder()
-            .paragraph(text)
-            .with_style(disclaimer_styles)
-            .build()
-            .finish()
-    }
-
-    let toggle_telemetry = actions.toggle_telemetry.clone();
-    let telemetry_toggle = Flex::row()
-        .with_main_axis_size(MainAxisSize::Max)
-        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(
-            Shrinkable::new(
-                1.,
-                render_privacy_settings_section_header("Help improve Warp", appearance).finish(),
-            )
-            .finish(),
-        )
-        .with_child(
-            appearance
-                .ui_builder()
-                .switch(handles.telemetry_switch.clone())
-                .check(PrivacySettings::as_ref(app).is_telemetry_enabled)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(toggle_telemetry.clone());
-                })
-                .finish(),
-        )
-        .finish();
-
-    let telemetry_description = render_description(
-        appearance,
-        "High-level feature usage data helps Warp's product team prioritize the roadmap.".into(),
-    );
-
-    let telemetry_link = Flex::row()
-        .with_child(
-            appearance
-                .ui_builder()
-                .link(
-                    "Learn more".into(),
-                    Some(PRIVACY_URL.into()),
-                    None,
-                    handles.telemetry_docs_mouse.clone(),
-                )
-                .soft_wrap(false)
-                .build()
-                .finish(),
-        )
-        .finish();
-
-    let mut col = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-
-    // Builds without a telemetry config cannot ship events, so hide the toggle
-    // when its backing config is absent.
-    if ChannelState::is_telemetry_available() {
-        col.add_children(vec![
-            Container::new(telemetry_toggle)
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-            Container::new(telemetry_description)
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-            Container::new(telemetry_link)
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-        ]);
-    }
-
-    col.finish()
 }

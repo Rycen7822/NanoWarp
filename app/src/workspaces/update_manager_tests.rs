@@ -3,7 +3,6 @@ use crate::auth::AuthManager;
 use crate::server::ids::ServerId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::MockTeamClient;
-use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings::PrivacySettings;
 use crate::system::SystemStats;
 use crate::workspaces::team::Team;
@@ -19,7 +18,7 @@ fn initialize_app(workspaces: Vec<Workspace>, app: &mut App) {
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-    app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
+
     app.add_singleton_model(AuthManager::new_for_test);
 }
 

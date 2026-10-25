@@ -38,11 +38,8 @@ use crate::appearance::Appearance;
 use crate::auth::auth_manager::AuthManager;
 use crate::channel::ChannelState;
 use crate::modal::{Modal, ModalEvent, ModalViewState};
-use crate::send_telemetry_from_ctx;
-use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{CustomSecretRegex, PrivacySettings, RegexDisplayInfo};
 use crate::settings_view::privacy::AddRegexModalViewState;
-use crate::settings_view::render_body_item_label;
 use crate::terminal::safe_mode_settings::{
     SafeModeSettings, SecretDisplayMode, get_effective_secret_display_mode,
 };
@@ -65,10 +62,6 @@ const USER_SECRET_REGEX_TITLE: &str = "Custom secret redaction";
 const USER_SECRET_REGEX_DESCRIPTION: &str = "Use regex to define additional secrets or data you'd like to redact. This will take effect \
     when the next command runs. You can use the inline (?i) flag as a prefix to your regex \
     to make it case-insensitive.";
-const TELEMETRY_DESCRIPTION_OLD: &str = "App analytics help us make the product better for you. We only collect \
-    app usage metadata, never console input or output.";
-const TELEMETRY_TITLE: &str = "Help improve Warp";
-const TELEMETRY_DOCS_URL: &str = "https://docs.warp.dev/support-and-community/privacy-and-security/privacy#what-telemetry-data-does-warp-collect-and-why";
 
 const DATA_MANAGEMENT_TITLE: &str = "Manage your data";
 const DATA_MANAGEMENT_DESCRIPTION: &str = "At any time, you may choose to delete your Warp account permanently. \
@@ -207,10 +200,8 @@ impl PrivacyPageView {
     }
 
     fn build_page() -> PageType<Self> {
-        let mut widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-            Box::new(SecretRedactionWidget::default()),
-            Box::new(AppAnalyticsWidget::default()),
-        ];
+        let mut widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
+            vec![Box::new(SecretRedactionWidget::default())];
         if ContextFlag::NetworkLogConsole.is_enabled() {
             widgets.push(Box::new(NetworkLogWidget::default()));
         }
@@ -235,11 +226,6 @@ impl PrivacyPageView {
     fn toggle_safe_mode(&mut self, ctx: &mut ViewContext<Self>) {
         let safe_mode_settings = SafeModeSettings::handle(ctx);
         let new_value = { !*safe_mode_settings.as_ref(ctx).safe_mode_enabled.value() };
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::ToggleSecretRedaction { enabled: new_value },
-            ctx
-        );
 
         ctx.update_model(&safe_mode_settings, move |safe_mode_settings, ctx| {
             report_if_error!(
@@ -275,15 +261,6 @@ impl PrivacyPageView {
 
         ctx.update_model(&safe_mode_settings, move |safe_mode_settings, ctx| {
             report_if_error!(safe_mode_settings.secret_display_mode.set_value(mode, ctx));
-        });
-        ctx.notify();
-    }
-
-    fn toggle_telemetry(&mut self, ctx: &mut ViewContext<Self>) {
-        let privacy_settings_handle = PrivacySettings::handle(ctx);
-        let old_value = privacy_settings_handle.as_ref(ctx).is_telemetry_enabled;
-        ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
-            privacy_settings.set_is_telemetry_enabled(!old_value, ctx);
         });
         ctx.notify();
     }
@@ -458,7 +435,6 @@ pub enum PrivacyPageAction {
     ToggleSafeMode,
     ToggleHideSecretsInBlockList,
     SetSecretDisplayMode(SecretDisplayMode),
-    ToggleTelemetry,
     LaunchNetworkLogging,
     RemoveCustomRegex(usize),
     OpenDataManagementWebpage,
@@ -537,7 +513,6 @@ impl TypedActionView for PrivacyPageView {
             PrivacyPageAction::SetSecretDisplayMode(mode) => {
                 self.set_secret_display_mode(*mode, ctx)
             }
-            PrivacyPageAction::ToggleTelemetry => self.toggle_telemetry(ctx),
             PrivacyPageAction::LaunchNetworkLogging => self.launch_network_logging(ctx),
             PrivacyPageAction::RemoveCustomRegex(idx) => {
                 self.queue_regex_removal(*idx, ctx);
@@ -1309,97 +1284,6 @@ impl SettingsWidget for SecretRedactionWidget {
 }
 
 #[derive(Default)]
-struct AppAnalyticsWidget {
-    switch_state: SwitchStateHandle,
-    docs_link_mouse_state: MouseStateHandle,
-}
-
-impl SettingsWidget for AppAnalyticsWidget {
-    type View = PrivacyPageView;
-
-    fn search_terms(&self) -> &str {
-        "telemetry usage analytics data collection"
-    }
-
-    fn should_render(&self, app: &AppContext) -> bool {
-        // Builds without a telemetry config (e.g. OpenWarp) cannot ship
-        // telemetry, so the toggle would be a no-op. Hide it in that case.
-        if !ChannelState::is_telemetry_available() {
-            return false;
-        }
-        let privacy_settings = PrivacySettings::as_ref(app);
-        !privacy_settings.is_telemetry_force_enabled()
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let privacy_settings = PrivacySettings::as_ref(app);
-        let ui_builder = appearance.ui_builder();
-        let description_text_color = description_text_color(appearance.theme()).into_solid();
-
-        let label = render_body_item_label::<PrivacyPageAction>(
-            TELEMETRY_TITLE.into(),
-            None,
-            None,
-            ToggleState::Enabled,
-            appearance,
-        );
-        let switch = ui_builder
-            .switch(self.switch_state.clone())
-            .check(privacy_settings.is_telemetry_enabled)
-            .build()
-            .on_click(move |ctx, _, _| {
-                ctx.dispatch_typed_action(PrivacyPageAction::ToggleTelemetry)
-            })
-            .finish();
-
-        let mut column = Flex::column();
-        column.add_child(super::settings_page::build_toggle_element(
-            label, switch, appearance, None,
-        ));
-        column.add_child(
-            ui_builder
-                .paragraph(TELEMETRY_DESCRIPTION_OLD)
-                .with_style(UiComponentStyles {
-                    font_color: Some(description_text_color),
-                    margin: Some(
-                        Coords::default()
-                            .top(styles::DESCRIPTION_NEGATIVE_MARGIN_OFFSET)
-                            .bottom(styles::DESCRIPTION_LINE_MARGIN_BOTTOM),
-                    ),
-                    ..Default::default()
-                })
-                .build()
-                .finish(),
-        );
-
-        column.add_child(
-            Align::new(
-                ui_builder
-                    .link(
-                        "Read more about Warp's use of data".into(),
-                        Some(TELEMETRY_DOCS_URL.into()),
-                        None,
-                        self.docs_link_mouse_state.clone(),
-                    )
-                    .soft_wrap(false)
-                    .build()
-                    .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
-                    .finish(),
-            )
-            .left()
-            .finish(),
-        );
-
-        column.finish()
-    }
-}
-
-#[derive(Default)]
 struct NetworkLogWidget {
     link_mouse_state: MouseStateHandle,
 }
@@ -1603,23 +1487,14 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    let mut toggle_binding_pairs = vec![ToggleSettingActionPair::new(
-        "app analytics",
-        builder(SettingsAction::PrivacyPageToggle(
-            PrivacyPageAction::ToggleTelemetry,
-        )),
-        context,
-        flags::TELEMETRY_FLAG,
-    )];
-
-    toggle_binding_pairs.push(ToggleSettingActionPair::new(
+    let toggle_binding_pairs = vec![ToggleSettingActionPair::new(
         "secret redaction",
         builder(SettingsAction::PrivacyPageToggle(
             PrivacyPageAction::ToggleSafeMode,
         )),
         context,
         flags::SAFE_MODE_FLAG,
-    ));
+    )];
 
     ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(toggle_binding_pairs, app);
 }

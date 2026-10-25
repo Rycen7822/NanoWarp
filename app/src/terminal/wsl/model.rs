@@ -5,9 +5,6 @@ use warpui_extras::user_preferences::registry_backed::KEY_NOT_FOUND_ERR;
 use windows_registry::CURRENT_USER;
 use windows_result::Error as WindowsError;
 
-use crate::send_telemetry_from_ctx;
-use crate::server::telemetry::TelemetryEvent;
-
 const DOCKER_DESKTOP_WSL_DISTRO_PREFIX: &str = "docker-desktop";
 const RANCHER_DESKTOP_WSL_DISTRO_PREFIX: &str = "rancher-desktop";
 
@@ -30,13 +27,12 @@ pub(crate) struct Distribution {
 }
 
 impl WslInfo {
-    pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
+    pub(crate) fn new(_ctx: &mut ModelContext<Self>) -> Self {
         let distributions = match Self::find_available_distributions() {
             Ok(distributions) => distributions,
             // This error merely occurs when the user doesn't have WSL installed/enabled.
             Err(Error::MainKey(err)) => {
                 log::info!("{err:#}");
-                send_telemetry_from_ctx!(TelemetryEvent::WSLRegistryError, ctx);
                 Vec::new()
             }
             Err(err @ Error::DistributionIterator(_)) => {

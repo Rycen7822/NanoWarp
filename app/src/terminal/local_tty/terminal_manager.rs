@@ -18,24 +18,18 @@ use uuid::Uuid;
 use warp_core::SessionId;
 use warp_errors::report_error;
 use warpui::r#async::Timer;
-use warpui::r#async::executor::Background;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, ViewHandle};
 
 use super::event_loop::EventLoop;
+use super::mio_channel;
 use super::shell::{ShellStarter, ShellStarterSource};
-use super::spawner::{PtySpawnHooks, PtySpawnMode};
 #[cfg(unix)]
 use super::terminal_attributes::TerminalAttributesPoller;
-use super::{mio_channel, recorder};
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_state::AuthState;
 use crate::banner::BannerState;
 use crate::context_chips::ContextChipKind;
 use crate::context_chips::prompt::Prompt;
-use crate::features::FeatureFlag;
 use crate::persistence::ModelEvent;
-use crate::send_telemetry_on_executor;
-use crate::server::telemetry::{PtySpawnMode as TelemetryPtySpawnMode, TelemetryEvent};
+
 use crate::settings::{DebugSettings, SshSettings};
 use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::color::List as ColorList;
@@ -69,19 +63,6 @@ use crate::terminal::{
 type PtyController = writeable_pty::PtyController<mio_channel::Sender<Message>>;
 type RemoteServerController =
     writeable_pty::remote_server_controller::RemoteServerController<mio_channel::Sender<Message>>;
-
-struct AppPtySpawnHooks;
-
-impl PtySpawnHooks for AppPtySpawnHooks {
-    fn spawned(&self, mode: PtySpawnMode, ctx: &mut AppContext) {
-        let mode = match mode {
-            PtySpawnMode::TerminalServer => TelemetryPtySpawnMode::TerminalServer,
-            PtySpawnMode::FallbackToDirect => TelemetryPtySpawnMode::FallbackToDirect,
-            PtySpawnMode::Direct => TelemetryPtySpawnMode::Direct,
-        };
-        crate::send_telemetry_from_app_ctx!(TelemetryEvent::PtySpawned { mode }, ctx);
-    }
-}
 
 /// Owns a local terminal session: the terminal model, PTY event loop, PTY
 /// controller, and a terminal surface.
@@ -299,30 +280,6 @@ impl<S> TerminalManager<S> {
         );
         let colors = model.colors();
         let model = Arc::new(FairMutex::new(model));
-
-        // This is purely for measuring throughput on WarpDev.
-        if FeatureFlag::RecordPtyThroughput.is_enabled() {
-            let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-            let telemetry_executor = Arc::clone(ctx.background_executor());
-            recorder::record_pty_throughput(
-                inactive_pty_reads_rx.clone().activate(),
-                model.clone(),
-                |model| {
-                    !model.is_receiving_in_band_command_output()
-                        && model.is_active_block_bootstrapped()
-                },
-                move |max_bytes_per_second| {
-                    send_telemetry_on_executor!(
-                        auth_state,
-                        TelemetryEvent::PtyThroughput {
-                            max_bytes_per_second,
-                        },
-                        telemetry_executor
-                    );
-                },
-                ctx.background_executor().to_owned(),
-            );
-        }
 
         // Initialize the PtyController.
         let pty_controller = init_pty_controller_model(
@@ -736,15 +693,12 @@ fn on_shell_determined<S: TerminalSurface>(
     }
 
     log::debug!("Using shell starter source {shell_starter_source:?}");
-    let bg_executor = ctx.background_executor();
-    let auth_state = AuthStateProvider::as_ref(ctx).get();
 
     let is_fallback_shell = matches!(
         shell_starter_source,
         Some(ShellStarterSource::Fallback { .. })
     );
-    let shell_starter = shell_starter_source
-        .map(|source| get_shell_starter_internal(source, bg_executor, auth_state));
+    let shell_starter = shell_starter_source.map(ShellStarter::from);
     let shell_starter = match shell_starter {
         Some(shell_starter) => shell_starter,
         None => {
@@ -980,10 +934,8 @@ impl<S> TerminalManager<S> {
             close_fds: true,
         };
 
-        let hooks = AppPtySpawnHooks;
         Pty::new(
             options,
-            &hooks,
             #[cfg(windows)]
             event_loop_tx,
             ctx,
@@ -1114,59 +1066,6 @@ fn wire_up_terminal_attribute_poller_with_surface<S: TerminalSurface>(
             }
         },
     );
-}
-
-pub fn get_shell_starter(
-    chosen_shell: Option<AvailableShell>,
-    auth_state: &AuthState,
-    ctx: &mut AppContext,
-) -> Option<ShellStarter> {
-    let preferred_shell = chosen_shell.unwrap_or_else(|| {
-        AvailableShells::handle(ctx).read(ctx, |shells, ctx| shells.get_user_preferred_shell(ctx))
-    });
-    let shell_starter_or_wsl_name = ShellStarter::init(preferred_shell);
-
-    // TODO(alokedesai): Further refactor this function to make it clear that it's expensive.
-    shell_starter_or_wsl_name
-        .and_then(|starter| {
-            warpui::r#async::block_on(async { starter.to_shell_starter_source().await })
-        })
-        .map(|starter_source| {
-            get_shell_starter_internal(
-                starter_source,
-                ctx.background_executor().clone(),
-                auth_state,
-            )
-        })
-}
-
-fn get_shell_starter_internal(
-    shell_starter_source: ShellStarterSource,
-    background_executor: Arc<Background>,
-    auth_state: &AuthState,
-) -> ShellStarter {
-    match shell_starter_source {
-        ShellStarterSource::Override(shell_starter) => shell_starter,
-        ShellStarterSource::Environment(starter) | ShellStarterSource::UserDefault(starter) => {
-            ShellStarter::Direct(starter)
-        }
-        ShellStarterSource::Fallback {
-            unsupported_shell,
-            starter,
-        } => {
-            if let Some(unsupported_shell) = unsupported_shell {
-                send_telemetry_on_executor!(
-                    auth_state,
-                    TelemetryEvent::UnsupportedShell {
-                        shell: unsupported_shell
-                    },
-                    background_executor
-                );
-            }
-
-            ShellStarter::Direct(starter)
-        }
-    }
 }
 
 impl EventLoopSender for mio_channel::Sender<Message> {

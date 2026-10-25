@@ -17,7 +17,7 @@ use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 use super::protocol::RequestId;
 use super::server_model::ConnectionId;
 use crate::code_review::diff_state::{
-    BackendOrigin, DiffMetadata, DiffMode, DiffState, DiffStateModelEvent, FileDiffAndContent,
+    DiffMetadata, DiffMode, DiffState, DiffStateModelEvent, FileDiffAndContent,
     GitDiffWithBaseContent, LocalDiffStateModel,
 };
 
@@ -279,9 +279,8 @@ impl RemoteDiffStateManager {
             let repo_path_str = key.repo_path.to_string();
             let mode = key.mode.clone();
             let model = ctx.add_model(|ctx| {
-                let mut m =
-                    LocalDiffStateModel::new(Some(repo_path_str), BackendOrigin::RemoteDaemon, ctx);
-                m.set_diff_mode(mode, false, false, ctx);
+                let mut m = LocalDiffStateModel::new(Some(repo_path_str), ctx);
+                m.set_diff_mode(mode, false, ctx);
                 m.set_code_review_metadata_refresh_enabled(true, ctx);
                 m
             });

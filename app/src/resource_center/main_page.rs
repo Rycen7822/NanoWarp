@@ -24,8 +24,7 @@ use crate::appearance::Appearance;
 use crate::channel::ChannelState;
 use crate::features::FeatureFlag;
 use crate::resource_center::skip_tips_and_write_to_user_defaults;
-use crate::send_telemetry_from_ctx;
-use crate::server::telemetry::TelemetryEvent;
+
 use crate::workspace::WorkspaceAction;
 
 #[derive(Default)]
@@ -357,7 +356,6 @@ impl TypedActionView for ResourceCenterMainView {
                 ctx.emit(ResourceCenterMainEvent::Close);
             }
             SkipTips => {
-                send_telemetry_from_ctx!(TelemetryEvent::ResourceCenterTipsSkipped, ctx);
                 self.tips_completed.update(ctx, |tips_completed, ctx| {
                     skip_tips_and_write_to_user_defaults(tips_completed, ctx);
                     ctx.notify();

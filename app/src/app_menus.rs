@@ -24,7 +24,7 @@ use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::default_terminal::DefaultTerminal;
 use crate::features::{FeatureFlag, runtime_flags_menu_items};
 use crate::root_view::OpenLaunchConfigArg;
-use crate::server::telemetry::LaunchConfigUiLocation;
+
 use crate::settings::{BlockVisibilitySettings, DebugSettings, SelectionSettings};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::session_settings::SessionSettings;
@@ -852,7 +852,6 @@ fn make_launch_config_menu_items(ctx: &mut AppContext) -> Vec<MenuItem> {
                     "root_view:open_launch_config",
                     &OpenLaunchConfigArg {
                         launch_config: config.clone(),
-                        ui_location: LaunchConfigUiLocation::AppMenu,
                         open_in_active_window: false,
                     }
                 );

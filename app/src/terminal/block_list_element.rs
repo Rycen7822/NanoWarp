@@ -3445,8 +3445,6 @@ impl Element for BlockListElement {
 
                     draw_border_above_block = true;
                     ctx.scene.stop_layer();
-
-                    model.block_list().record_block_painted(*block_index);
                 }
                 VisibleItem::Gap {
                     height_px: height, ..

@@ -12502,7 +12502,6 @@ dependencies = [
  "getset",
  "http",
  "instant",
- "inventory",
  "itertools 0.14.0",
  "lazy_static",
  "line-ending",

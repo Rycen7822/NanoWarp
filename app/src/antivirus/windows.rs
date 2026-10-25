@@ -1,4 +1,3 @@
-use warp_core::send_telemetry_from_ctx;
 use warpui::ModelContext;
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
@@ -6,7 +5,6 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::SecurityCenter::*;
 
 use crate::antivirus::AntivirusInfo;
-use crate::antivirus::telemetry::AntivirusInfoTelemetryEvent;
 
 impl AntivirusInfo {
     #[cfg(windows)]
@@ -37,7 +35,7 @@ impl AntivirusInfo {
     pub(super) fn on_scan_complete(
         &mut self,
         software: anyhow::Result<Option<String>>,
-        ctx: &mut ModelContext<Self>,
+        _ctx: &mut ModelContext<Self>,
     ) {
         let software = match software {
             Ok(software) => software,
@@ -53,16 +51,8 @@ impl AntivirusInfo {
             }
             Some(software) => {
                 log::info!("Detected antivirus / EDR software {software:#?}");
-                send_telemetry_from_ctx!(
-                    AntivirusInfoTelemetryEvent::AntivirusDetected {
-                        name: software.into()
-                    },
-                    ctx
-                );
             }
         }
-
-        self.0 = software;
     }
 }
 

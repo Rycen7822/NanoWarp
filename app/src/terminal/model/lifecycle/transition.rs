@@ -77,7 +77,7 @@ pub(in crate::terminal) enum LifecycleInput {
 
 /// Identifies a lifecycle input without retaining its input-specific evidence.
 ///
-/// Diagnostics use this bounded vocabulary so telemetry remains structured and non-UGC.
+/// Diagnostics use this bounded vocabulary to identify the observed lifecycle input.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::terminal) enum LifecycleInputKind {
     StartCommand,
@@ -164,7 +164,7 @@ impl LifecycleAction {
 
 /// Contains the complete plan for handling one lifecycle input.
 ///
-/// Callers apply `action`, emit any attached diagnostic, and then commit `next_phase`.
+/// Callers apply `action`, log any attached diagnostic, and then commit `next_phase`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::terminal) struct LifecycleTransition {
     pub previous_phase: LifecyclePhase,

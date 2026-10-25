@@ -25,11 +25,8 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 #[cfg(feature = "local_fs")]
 use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
-#[cfg(feature = "local_fs")]
-use crate::code::lsp_telemetry::LspTelemetryEvent;
+
 use crate::persistence::ModelEvent;
-#[cfg(feature = "local_fs")]
-use crate::send_telemetry_from_ctx;
 #[cfg(feature = "local_fs")]
 use crate::server::server_api::ServerApiProvider;
 #[cfg(feature = "local_fs")]
@@ -802,34 +799,17 @@ impl PersistedWorkspace {
 
         for server in servers {
             let workspace_root_display = workspace_root_display.clone();
-            let server_type_name = server.as_ref(ctx).server_name();
-            ctx.subscribe_to_model(&server, move |_me, _, event, ctx| match event {
-                LspEvent::Started => {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerStarted {
-                            server_type: server_type_name.clone(),
-                        },
-                        ctx
-                    );
+            ctx.subscribe_to_model(&server, move |_me, _, event, ctx| {
+                if let LspEvent::Failed(e) = event
+                    && let Some(window_id) = WindowManager::as_ref(ctx).active_window()
+                {
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        let toast = DismissibleToast::error(format!(
+                            "Failed to start LSP server for {workspace_root_display} with error {e}",
+                        ));
+                        toast_stack.add_ephemeral_toast(toast, window_id, ctx);
+                    });
                 }
-                LspEvent::Failed(e) => {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerFailed {
-                            server_type: server_type_name.clone(),
-                        },
-                        ctx
-                    );
-                    if let Some(window_id) = WindowManager::as_ref(ctx).active_window()
-                    {
-                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                            let toast = DismissibleToast::error(format!(
-                                "Failed to start LSP server for {workspace_root_display} with error {e}",
-                            ));
-                            toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                        });
-                    }
-                }
-                _ => {}
             });
         }
 

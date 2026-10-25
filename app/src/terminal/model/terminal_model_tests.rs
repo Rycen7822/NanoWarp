@@ -1145,8 +1145,7 @@ fn completion_replacement_span_saturates_an_out_of_range_pair_rather_than_panick
 }
 
 #[test]
-fn precmd_with_completion_metadata_records_completion_mismatch_without_overwriting_completed_block()
-{
+fn precmd_with_completion_metadata_preserves_completed_block_without_duplicate_events() {
     let (event_tx, event_rx) = async_channel::unbounded();
     let event_proxy = ChannelEventListener::builder_for_test()
         .with_terminal_events_tx(event_tx)
@@ -1188,12 +1187,6 @@ fn precmd_with_completion_metadata_records_completion_mismatch_without_overwriti
         matches!(
             event,
             Event::BlockCompleted(_) | Event::Handler(HandlerEvent::CommandFinished { .. })
-        )
-    }));
-    assert!(events.iter().any(|event| {
-        matches!(
-            event,
-            Event::LifecycleRecovery(record) if record.completion_mismatch
         )
     }));
 }

@@ -36,7 +36,7 @@ pub use sqlite::database_file_path_for_scope;
 pub use sqlite::establish_ro_connection;
 use warp_core::command::ExitCode;
 use warp_errors::report_error;
-use warpui::{AppContext, Entity, SingletonEntity};
+use warpui::{Entity, SingletonEntity};
 
 use crate::app_state::AppState;
 use crate::auth::auth_manager::PersistedCurrentUserInformation;
@@ -80,18 +80,15 @@ pub fn current_scope() -> PersistenceScope {
 /// Returns the previously-persisted data, if any, and handles for
 /// writing updated data to persist, if the persistence subsystem is
 /// available.
-#[tracing::instrument(name = "persistence::initialize", skip_all, fields(tags.cloud_agent = true))]
+#[tracing::instrument(name = "persistence::initialize", skip_all)]
 #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-pub fn initialize(
-    ctx: &mut AppContext,
-    scope: PersistenceScope,
-) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
+pub fn initialize(scope: PersistenceScope) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
     // Record the scope for ad-hoc read-only connections; keep the first value
     // if this is ever called more than once in a process (e.g. tests).
     let _ = CURRENT_SCOPE.set(scope.clone());
     cfg_if::cfg_if! {
         if #[cfg(feature = "local_fs")] {
-            sqlite::initialize(ctx, scope)
+            sqlite::initialize(scope)
         } else {
             (None, None)
         }

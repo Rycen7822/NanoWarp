@@ -548,7 +548,6 @@ pluggable_notifications = []
 # generated profile will be written to profile.pb in the current directory.
 # NOTE: This may slow down program execution.
 pprof_cpu_profiling = ["dep:pprof"]
-record_app_active_events = []
 recording_mode = []
 
 # This feature should only be enabled when building a release bundle with
@@ -600,7 +599,6 @@ code_find_replace = []
 command_palette_file_search = []
 preview_channel = []
 tabbed_editor_view = []
-send_telemetry_to_file = []
 vim_code_editor = []
 allow_opening_file_links_using_editor_env = []
 undo_closed_panes = []

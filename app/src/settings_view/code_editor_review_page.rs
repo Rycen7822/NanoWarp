@@ -19,11 +19,11 @@ use super::settings_page::{
     render_body_item, render_dropdown_item,
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, ToggleState, flags};
+
 use crate::appearance::Appearance;
 use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings};
 use crate::view_components::{Dropdown, DropdownItem};
 use crate::workspace::tab_settings::TabSettings;
-use crate::{TelemetryEvent, send_telemetry_from_ctx};
 
 const PAGE_TITLE: &str = "Editor and Code Review";
 
@@ -212,13 +212,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
                     );
                     ctx.notify();
                 });
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::FeaturesPageAction {
-                        action: "SetCodeEditorLineNumberMode".to_string(),
-                        value: format!("{mode:?}"),
-                    },
-                    ctx
-                );
             }
         }
     }

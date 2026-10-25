@@ -11,16 +11,14 @@
 //! A [`DiffStateError`] pairs a sanitized [`DiffStateErrorKind`] with the raw
 //! underlying error, but only the sanitized half is ever emitted off-device:
 //! - [`std::fmt::Display`] renders only the sanitized `kind`, so passing this
-//!   through [`warp_errors::report_error!`] or code-review telemetry keeps logs,
-//!   Sentry, and analytics free of repo paths, refs, command output, or
+//!   through [`warp_errors::report_error!`] keeps logs and Sentry
+//!   free of repo paths, refs, command output, or
 //!   secrets. The raw cause is never exposed via `Display` or `source`.
 //!
 //! For [`DiffStateErrorKind::Unknown`] the raw cause is additionally consulted
 //! via [`AnyhowErrorExt::is_actionable`] so registered non-actionable causes
 //! (transient I/O, network, etc.) auto-demote it to a warning instead of a
 //! Sentry capture.
-//!
-//! Use the operation tag [`super::DiffOperation`] alongside this error in telemetry to distinguish where a given failure originated.
 
 use warp_core::sync_queue::IsTransientError;
 use warp_errors::{AnyhowErrorExt, ErrorExt};
@@ -68,7 +66,7 @@ pub(crate) enum DiffStateErrorKind {
 
     // ── Unclassified ────────────────────────────────────────────────────
     /// Unrecognized error. Add a dedicated variant once a new pattern is
-    /// identified from the raw text recorded in telemetry.
+    /// identified during diagnosis.
     #[error("unknown diff state error")]
     Unknown,
 }
@@ -116,14 +114,14 @@ impl DiffStateErrorKind {
 
 /// A diff-state failure: a sanitized [`DiffStateErrorKind`] paired with the
 /// raw underlying error. See the module docs for how the two halves are
-/// routed to telemetry vs. logs / Sentry.
+/// routed to logs / Sentry.
 #[derive(Debug, thiserror::Error)]
 #[error("{kind}")]
 pub(crate) struct DiffStateError {
     kind: DiffStateErrorKind,
     /// Raw underlying error. Consulted only for [`DiffStateErrorKind::Unknown`]
-    /// actionability and never exposed via `Display`, `source`, or telemetry,
-    /// so logs, Sentry, and analytics only ever see the sanitized `kind`.
+    /// actionability and never exposed via `Display` or `source`,
+    /// so logs and Sentry only ever see the sanitized `kind`.
     cause: anyhow::Error,
 }
 

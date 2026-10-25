@@ -8,7 +8,6 @@ use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::{
     validate_block_output, wait_until_bootstrapped_single_pane_for_tab,
 };
-use warp::integration_testing::type_getters::get_launch_config_ui_location;
 use warp::integration_testing::window::assert_num_windows_open;
 use warp::integration_testing::workspace::{assert_focused_tab_index, assert_tab_count};
 use warp::integration_testing::{self};
@@ -101,7 +100,6 @@ pub fn test_with_launch_config() -> Builder {
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config:
                                 warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -200,7 +198,6 @@ pub fn test_launch_config_single_child_branch() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -233,7 +230,6 @@ pub fn test_open_launch_config_with_custom_size() -> Builder {
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config:
                                 warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     )
@@ -273,7 +269,6 @@ pub fn test_open_launch_config_in_active_window() -> Builder {
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config:
                                 warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: true,
                         },
                     )
@@ -338,7 +333,6 @@ pub fn test_with_launch_config_with_active_tab_index() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -418,7 +412,6 @@ pub fn test_with_launch_config_with_active_pane() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -499,7 +492,6 @@ pub fn test_with_launch_config_with_no_active_pane() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -601,7 +593,6 @@ pub fn test_launch_config_restores_tab_groups() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -710,7 +701,6 @@ pub fn test_launch_config_restores_tab_groups_into_active_window() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: ungrouped_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -728,7 +718,6 @@ pub fn test_launch_config_restores_tab_groups_into_active_window() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: grouped_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: true,
                         },
                     );
@@ -836,7 +825,6 @@ pub fn test_launch_config_restores_pinned_tab_group_into_pinned_prefix() -> Buil
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: ungrouped_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -854,7 +842,6 @@ pub fn test_launch_config_restores_pinned_tab_group_into_pinned_prefix() -> Buil
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: pinned_group_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: true,
                         },
                     );
@@ -955,7 +942,6 @@ pub fn test_launch_config_restore_keeps_existing_group_contiguous() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: grouped_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
                     );
@@ -973,7 +959,6 @@ pub fn test_launch_config_restore_keeps_existing_group_contiguous() -> Builder {
                         "root_view:open_launch_config",
                         warp::root_view::OpenLaunchConfigArg {
                             launch_config: ungrouped_config(),
-                            ui_location: get_launch_config_ui_location(),
                             open_in_active_window: true,
                         },
                     );

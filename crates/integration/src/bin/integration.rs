@@ -45,7 +45,6 @@ pub fn main() -> Result<()> {
                 rtc_server_url: "ws://192.0.2.0:9/graphql/v2".into(),
                 session_sharing_server_url: None,
             },
-            telemetry_config: None,
         },
     ));
 

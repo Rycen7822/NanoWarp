@@ -35,8 +35,7 @@ use warpui::{
 use super::context_menu::{ContextMenuAction, ContextMenuState, show_rich_editor_context_menu};
 use super::editor::view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorView};
 use super::link::{NotebookLinks, SessionSource};
-use super::telemetry::NotebookTelemetryAction;
-use super::{NotebookLocation, styles};
+use super::styles;
 use crate::appearance::Appearance;
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -51,7 +50,6 @@ use crate::pane_group::pane::view::header::components::{
     render_three_column_header,
 };
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
-use crate::server::telemetry::{NotebookActionEvent, NotebookTelemetryMetadata, TelemetryEvent};
 use crate::settings::FontSettings;
 use crate::terminal::model::session::Session;
 use crate::ui_components::icons::Icon;
@@ -67,7 +65,7 @@ pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
 use crate::workflows::Workflow;
 use crate::workspace::ActiveSession;
-use crate::{cmd_or_ctrl_shift, safe_warn, send_telemetry_from_ctx};
+use crate::{cmd_or_ctrl_shift, safe_warn};
 
 /// Display mode for markdown files shown via the header segmented control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -399,17 +397,6 @@ impl FileNotebookView {
         });
     }
 
-    #[cfg(feature = "local_fs")]
-    fn open_telemetry_metadata(&self, ctx: &ViewContext<Self>) -> NotebookTelemetryMetadata {
-        NotebookTelemetryMetadata::new(NotebookLocation::LocalFile).with_markdown_table_count(
-            self.editor
-                .as_ref(ctx)
-                .model()
-                .as_ref(ctx)
-                .markdown_table_count(ctx),
-        )
-    }
-
     fn set_context(&mut self, path: &Path, session: Arc<Session>, ctx: &mut ViewContext<Self>) {
         self.location = Some(FileLocation::new(path, session.home_dir()));
         let title = self.title();
@@ -500,10 +487,6 @@ impl FileNotebookView {
                     match event {
                         FileModelEvent::FileLoaded { content, .. } => {
                             me.set_content(content, ctx);
-                            send_telemetry_from_ctx!(
-                                TelemetryEvent::OpenNotebook(me.open_telemetry_metadata(ctx)),
-                                ctx
-                            );
 
                             // Record the canonical path instead of the input path when available.
                             if let Some(canonical_path) = file_model.as_ref(ctx).file_path(file_id)
@@ -599,16 +582,6 @@ impl FileNotebookView {
             pane_config.refresh_pane_header_overflow_menu_items(ctx);
         });
         self.file_state = FileState::Loaded(SourceFile::Static { title });
-    }
-
-    fn send_telemetry_action(&self, action: NotebookTelemetryAction, ctx: &mut ViewContext<Self>) {
-        send_telemetry_from_ctx!(
-            TelemetryEvent::NotebookAction(NotebookActionEvent {
-                action,
-                metadata: NotebookTelemetryMetadata::new(NotebookLocation::LocalFile)
-            }),
-            ctx
-        );
     }
 
     /// Reload the file that was most recently opened (or attempted to open).
@@ -808,27 +781,6 @@ impl FileNotebookView {
                     workflow: workflow_type,
                 });
             }
-            EditorViewEvent::OpenedBlockInsertionMenu(source) => self.send_telemetry_action(
-                NotebookTelemetryAction::OpenBlockInsertionMenu { source: *source },
-                ctx,
-            ),
-            EditorViewEvent::OpenedFindBar => {
-                self.send_telemetry_action(NotebookTelemetryAction::OpenFindBar, ctx)
-            }
-            EditorViewEvent::CopiedBlock { block, entrypoint } => self.send_telemetry_action(
-                NotebookTelemetryAction::CopyBlock {
-                    block: *block,
-                    entrypoint: *entrypoint,
-                },
-                ctx,
-            ),
-            EditorViewEvent::NavigatedCommands => {
-                self.send_telemetry_action(NotebookTelemetryAction::CommandKeyboardNavigation, ctx)
-            }
-            EditorViewEvent::ChangedSelectionMode(mode) => self.send_telemetry_action(
-                NotebookTelemetryAction::ChangeSelectionMode { mode: *mode },
-                ctx,
-            ),
             EditorViewEvent::Navigate(_)
             | EditorViewEvent::Edited
             | EditorViewEvent::CmdEnter
@@ -1114,7 +1066,6 @@ impl TypedActionView for FileNotebookView {
             FileNotebookAction::OpenAsCode => self.open_as_code(ctx),
             FileNotebookAction::ContextMenu(action) => {
                 if matches!(action, ContextMenuAction::Open(_)) {
-                    self.send_telemetry_action(NotebookTelemetryAction::OpenContextMenu, ctx);
                     let copy_file_path = self.file_state.path().map(|p| p.display_path());
                     self.context_menu.set_copy_file_path(copy_file_path);
                 }

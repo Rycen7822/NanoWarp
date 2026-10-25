@@ -2,7 +2,6 @@ pub mod auth;
 pub mod team;
 
 use std::ops::Deref;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +10,6 @@ use anyhow::Result;
 use auth::AuthClient;
 use team::TeamClient;
 use warp_core::context_flag::ContextFlag;
-use warp_core::telemetry::TelemetryEvent;
 use warp_errors::report_error;
 use warp_server_client::auth::{AuthClientImpl, AuthEvent, EXPERIMENT_ID_HEADER};
 use warp_server_client::base_client::{
@@ -24,8 +22,6 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 use crate::ChannelState;
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
-use crate::server::telemetry::TelemetryApi;
-use crate::settings::PrivacySettingsSnapshot;
 
 impl Deref for ServerApi {
     type Target = BaseClient;
@@ -42,8 +38,6 @@ impl Deref for ServerApi {
 /// with disparate types of calls, and allows you to mock methods in tests.
 pub struct ServerApi {
     base_client: Arc<BaseClient>,
-    // TODO(jeff): Make `TelemetryApi` another type of client, and move it off `ServerApi`.
-    telemetry_api: TelemetryApi,
 }
 
 impl ServerApi {
@@ -54,13 +48,9 @@ impl ServerApi {
     ) -> Self {
         let mut client = http_client::Client::new();
         let mut external_client = http_client::Client::new_external();
-        let mut telemetry_api = TelemetryApi::new();
         if ContextFlag::NetworkLogConsole.is_enabled() {
             NetworkLogModel::handle(ctx).update(ctx, |model, model_ctx| {
-                model.install_on_clients(
-                    [&mut client, &mut external_client, &mut telemetry_api.client],
-                    model_ctx,
-                );
+                model.install_on_clients([&mut client, &mut external_client], model_ctx);
             });
         }
         Self::new_with_parts(
@@ -68,7 +58,6 @@ impl ServerApi {
             Arc::new(external_client),
             auth_state,
             event_sender,
-            telemetry_api,
         )
     }
 
@@ -77,7 +66,6 @@ impl ServerApi {
         external_client: Arc<http_client::Client>,
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
-        telemetry_api: TelemetryApi,
     ) -> Self {
         let graphql_routing = GraphqlRoutingConfig::default();
         let authenticated_graphql = AuthenticatedGraphqlConfig::default();
@@ -90,10 +78,7 @@ impl ServerApi {
             authenticated_graphql,
         ));
 
-        Self {
-            base_client,
-            telemetry_api,
-        }
+        Self { base_client }
     }
 
     #[cfg(test)]
@@ -107,7 +92,6 @@ impl ServerApi {
             Arc::new(http_client::Client::new_external()),
             auth_state,
             tx,
-            TelemetryApi::new(),
         )
     }
 
@@ -125,7 +109,6 @@ impl ServerApi {
             Arc::new(http_client::Client::new_external()),
             auth_state,
             event_sender,
-            TelemetryApi::new(),
         )
     }
 
@@ -176,59 +159,6 @@ impl ServerApi {
                 );
             }
         }
-    }
-
-    /// Synchronously sends a [`TelemetryEvent`] to the Rudderstack API. Prefer not to call this
-    /// directly, use the macros defined in crate::server::telemetry::macros. If telemetry is
-    /// disabled, this is a no-op.
-    pub async fn send_telemetry_event(
-        &self,
-        event: impl TelemetryEvent,
-        settings_snapshot: PrivacySettingsSnapshot,
-    ) -> Result<()> {
-        let user_id = self.user_id();
-        let anonymous_id = self.anonymous_id();
-        self.telemetry_api
-            .send_telemetry_event(user_id, anonymous_id, event, settings_snapshot)
-            .await
-    }
-
-    /// Drains all queued [`TelemetryEvent`]s into Rudderstack requests containing the corresponding
-    /// batch of events. Events are queued using the [`send_telemetry_from_ctx`] or
-    /// [`send_telemetry_from_app_ctx`] macros. If telemetry is disabled for the user, this flushes
-    /// the UI framework event queue and does nothing with them (no request is made).
-    ///
-    /// Returns the number of events that were flushed.
-    pub async fn flush_telemetry_events(
-        &self,
-        settings_snapshot: PrivacySettingsSnapshot,
-    ) -> Result<usize> {
-        self.telemetry_api.flush_events(settings_snapshot).await
-    }
-
-    /// Sends a batched Rudder request containing events written to the file at `path`. This is a
-    /// no-op if telemetry is disabled.
-    pub async fn flush_persisted_events_to_rudder(
-        &self,
-        path: &Path,
-        settings_snapshot: PrivacySettingsSnapshot,
-    ) -> Result<()> {
-        self.telemetry_api
-            .flush_persisted_events_to_rudder(path, settings_snapshot)
-            .await
-    }
-
-    /// Writes all queued [`TelemetryEvent`]s to a file, limiting the number of written
-    /// events to `max_events`. Events are queued using the [`send_telemetry_from_ctx`] or
-    /// [`send_telemetry_from_app_ctx`] macros. If telemetry is disabled, no events are written to
-    /// disk.
-    pub fn persist_telemetry_events(
-        &self,
-        max_event_count: usize,
-        settings_snapshot: PrivacySettingsSnapshot,
-    ) -> Result<()> {
-        self.telemetry_api
-            .flush_and_persist_events(max_event_count, settings_snapshot)
     }
 }
 

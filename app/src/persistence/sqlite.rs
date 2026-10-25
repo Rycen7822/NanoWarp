@@ -23,7 +23,6 @@ use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 use persistence::model::AMBIENT_AGENT_PANE_KIND;
 use warp_errors::{report_error, report_if_error};
-use warpui::AppContext;
 use warpui::platform::FullscreenState;
 use warpui::windowing::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
@@ -51,8 +50,9 @@ use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::EnablementState;
 use crate::persistence::block_list::get_all_restored_blocks;
 use crate::persistence::model::{CODE_REVIEW_PANE_KIND, NewTeamSettings};
+use crate::safe_info;
 use crate::server::ids::ServerId;
-use crate::server::telemetry::TelemetryEvent;
+
 use crate::settings_view::SettingsSection;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::tab::SelectedTabColor;
@@ -62,7 +62,6 @@ use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::tab_group::TabGroupId;
 use crate::workspaces::team::Team as TeamMetadata;
 use crate::workspaces::workspace::{Workspace as WorkspaceMetadata, WorkspaceUid};
-use crate::{safe_info, send_telemetry_from_app_ctx};
 
 // Choose a power of 2 that seems to be a reasonable upper bound for how many
 // events to queue.
@@ -74,10 +73,7 @@ const WARP_SQLITE_FILE_NAME: &str = "warp.sqlite";
 /// Runs any migrations and creates the Sqlite database if it doesn't exist.
 /// Reads from the sqlite database to get the app state for session restoration.
 /// Starts a writer thread that listens for ModelEvents and processes them.
-pub fn initialize(
-    ctx: &mut AppContext,
-    scope: PersistenceScope,
-) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
+pub fn initialize(scope: PersistenceScope) -> (Option<Box<PersistedData>>, Option<WriterHandles>) {
     unsafe {
         // Set up logging before any SQLite calls.
         init_logging();
@@ -86,17 +82,13 @@ pub fn initialize(
     match init_db(&scope) {
         Ok(mut conn) => {
             let persisted_data = match scope {
-                PersistenceScope::App => read_persisted_data(&mut conn, ctx),
+                PersistenceScope::App => read_persisted_data(&mut conn),
                 PersistenceScope::RemoteServerDaemon { .. } => None,
             };
 
             let writer_handles = match start_writer(conn, database_path.clone()) {
                 Ok(writer_handles) => Some(writer_handles),
                 Err(err) => {
-                    send_telemetry_from_app_ctx!(
-                        TelemetryEvent::DatabaseWriteError(err.to_string()),
-                        ctx
-                    );
                     report_db_error("starting writer", err, &database_path);
                     None
                 }
@@ -105,24 +97,16 @@ pub fn initialize(
             (persisted_data, writer_handles)
         }
         Err(err) => {
-            send_telemetry_from_app_ctx!(
-                TelemetryEvent::DatabaseStartUpError(err.to_string()),
-                ctx
-            );
             report_db_error("initialization", err, &database_path);
             (None, None)
         }
     }
 }
 
-fn read_persisted_data(
-    conn: &mut SqliteConnection,
-    ctx: &mut AppContext,
-) -> Option<Box<PersistedData>> {
+fn read_persisted_data(conn: &mut SqliteConnection) -> Option<Box<PersistedData>> {
     match read_sqlite_data(conn) {
         Ok(app_state) => Some(Box::new(app_state)),
         Err(err) => {
-            send_telemetry_from_app_ctx!(TelemetryEvent::DatabaseReadError(err.to_string()), ctx);
             report_error!(anyhow::Error::new(err).context("Failed to read persisted data"));
             None
         }

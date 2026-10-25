@@ -233,11 +233,6 @@ pub enum Command {
         /// Write the schema to this path instead of standard output.
         output_path: Option<std::path::PathBuf>,
     },
-
-    /// Print telemetry events in production and exit.
-    #[clap(long_flag = "print-telemetry-events", hide = true)]
-    #[cfg(not(target_family = "wasm"))]
-    PrintTelemetryEvents,
 }
 
 impl Command {
@@ -248,8 +243,6 @@ impl Command {
             Command::DumpDebugInfo => true,
             #[cfg(not(target_family = "wasm"))]
             Command::DumpSettingsSchema { output_path } => output_path.is_none(),
-            #[cfg(not(target_family = "wasm"))]
-            Command::PrintTelemetryEvents => true,
         }
     }
 }

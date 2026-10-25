@@ -1,3 +1,4 @@
+use crate::palette::PaletteSource;
 pub mod auth_manager;
 mod auth_override_warning_body;
 pub mod auth_override_warning_modal;
@@ -17,23 +18,21 @@ pub use auth_state::AuthStateProvider;
 use itertools::Itertools;
 pub use user_uid::UserUid;
 use warp_core::channel::ChannelState;
-use warp_core::user_preferences::GetUserPreferences as _;
-use warp_errors::{report_error, report_if_error};
+use warp_errors::report_if_error;
 use warpui::modals::{AlertDialogWithCallbacks, ModalButton};
 use warpui::{AppContext, SingletonEntity};
 
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
 use crate::palette::PaletteMode;
 use crate::root_view::RootView;
-use crate::server::telemetry::{PaletteSource, TelemetryEvent};
+
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
-use crate::settings::{PrivacySettings, TELEMETRY_ENABLED_DEFAULTS_KEY};
+use crate::settings::PrivacySettings;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::workspace::{Workspace, WorkspaceAction};
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::{
     GlobalResourceHandlesProvider, focus_running_window_and_show_native_modal, persistence,
-    send_telemetry_sync_from_app_ctx,
 };
 
 pub fn init(app: &mut AppContext) {
@@ -56,8 +55,6 @@ pub fn web_logout_url() -> String {
 /// If the app has running processes or dirty objects, we'll show a confirmation modal before logging out.
 /// If the user aborts, the user will not be logged out.
 pub fn maybe_log_out(app: &mut AppContext) {
-    send_telemetry_sync_from_app_ctx!(TelemetryEvent::UserInitiatedLogOut, app);
-
     let sessions = SessionNavigationData::all_sessions(app).collect_vec();
     let num_long_running_commands = RunningSessionSummary::new(&sessions)
         .long_running_cmds
@@ -72,7 +69,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
         .show_warning_before_quitting
         .value();
     if show_warning_before_log_out && (num_long_running_commands > 0 || num_unsaved_files > 0) {
-        send_telemetry_sync_from_app_ctx!(TelemetryEvent::LogOutModalShown, app);
         let mut button_data = vec![ModalButton::for_app("Yes, log out", |ctx| {
             log_out_and_open_web(ctx);
         })];
@@ -89,10 +85,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
             ));
 
             button_data.push(ModalButton::for_app("Show running processes", move |ctx| {
-                send_telemetry_sync_from_app_ctx!(
-                    TelemetryEvent::LogOutModalCancel { nav_palette: true },
-                    ctx
-                );
                 let windowing_model = ctx.windows();
                 let window_id = if let Some(active_window_id) = windowing_model.active_window() {
                     active_window_id
@@ -132,12 +124,7 @@ pub fn maybe_log_out(app: &mut AppContext) {
             ));
         }
 
-        button_data.push(ModalButton::for_app("Cancel", move |ctx| {
-            send_telemetry_sync_from_app_ctx!(
-                TelemetryEvent::LogOutModalCancel { nav_palette: false },
-                ctx
-            );
-        }));
+        button_data.push(ModalButton::for_app("Cancel", move |_| {}));
 
         let alert_data = AlertDialogWithCallbacks::for_app(
             "Log out?",
@@ -181,8 +168,6 @@ pub fn log_out_and_open_web(app: &mut AppContext) {
 
 // Log out the user, clears workspace state, stops running processes, and deletes database.
 pub fn log_out(app: &mut AppContext) {
-    send_telemetry_sync_from_app_ctx!(TelemetryEvent::LogOut, app);
-
     let global_resource_handles = GlobalResourceHandlesProvider::as_ref(app).get();
 
     // As part of Logout v0, we remove sqlite3 so sessions and cloud objects don't persist between accounts.
@@ -224,16 +209,6 @@ pub fn log_out(app: &mut AppContext) {
 // This is so they do not experience the old settings when they log in with a different account.
 // Partial deletion of user defaults is a stopgap for Logout v0. The correct solution is:
 fn remove_cloud_persisted_settings(app: &mut AppContext) {
-    if let Err(e) = app
-        .private_user_preferences()
-        .remove_value(TELEMETRY_ENABLED_DEFAULTS_KEY)
-    {
-        report_error!(
-            anyhow::Error::new(e)
-                .context("Failed to remove Telemetry Enabled Defaults Key from user defaults")
-        );
-    }
-
     // Reset the Privacy Settings in the login screen to default values.
     PrivacySettings::handle(app).update(app, |privacy_settings, _| {
         privacy_settings.refresh_to_default();

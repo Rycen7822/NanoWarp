@@ -34,7 +34,7 @@ use crate::input_suggestions::Item;
 use crate::network::NetworkStatus;
 use crate::search::files::model::FileSearchModel;
 use crate::server::server_api::ServerApiProvider;
-use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
+
 use crate::settings::import::model::ImportedConfigModel;
 use crate::settings::{AliasExpansionSettings, AppEditorSettings, PrivacySettings};
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -234,7 +234,7 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(|_| ActiveSession::default());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-    app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
+
     app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(|_| DetectedRepositories::default());
@@ -302,14 +302,12 @@ fn bootstrap_terminal(
             let BootstrappedEvent {
                 session_info,
                 restored_block_commands,
-                rcfiles_duration_seconds,
                 spawning_command,
             } = bootstrapped_event;
             sessions.initialize_bootstrapped_session(
                 *session_info,
                 spawning_command,
                 restored_block_commands,
-                rcfiles_duration_seconds,
                 ctx,
             );
         });
@@ -371,7 +369,6 @@ pub async fn add_window_with_bootstrapped_terminal_and_window_id(
             .into_iter()
             .map(|command| HistoryEntry::command_at_time(command, Local::now(), None, true))
             .collect_vec(),
-        rcfiles_duration_seconds: None,
         spawning_command: "test command".to_string(),
     };
     bootstrap_terminal(&terminal, bootstrapped_event, app);
@@ -1665,7 +1662,6 @@ fn aborting_native_completions_after_empty_specs_cancels_session_commands() {
                 session_info,
                 "test command".to_string(),
                 Vec::new(),
-                None,
                 ctx,
             );
         });

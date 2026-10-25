@@ -8,23 +8,22 @@ use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
 use warpui::clipboard::ClipboardContent;
 use warpui::color::ColorU;
 use warpui::elements::{
-    Align, Border, Container, CornerRadius, CrossAxisAlignment, Dismiss, Fill, Flex,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Stack,
+    Border, Container, CornerRadius, CrossAxisAlignment, Dismiss, Fill, Flex, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, ParentElement, Radius, Stack,
 };
 use warpui::fonts::Weight;
 use warpui::keymap::FixedBinding;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{
-    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, UpdateModel, View,
-    ViewContext, ViewHandle,
+    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 
 use super::AuthStateProvider;
 use super::auth_manager::AuthManager;
 use super::auth_view_modal::AuthViewVariant;
 use super::auth_view_shared_helpers::{
-    PrivacySettingsActions, PrivacySettingsHandles, action_button_color_and_variant,
-    render_offline_info_overlay_body, render_overlay, render_privacy_settings_overlay_body,
+    action_button_color_and_variant, render_offline_info_overlay_body, render_overlay,
     render_square_logo,
 };
 use crate::appearance::Appearance;
@@ -35,11 +34,9 @@ use crate::editor::{
 use crate::experiments::{AuthFlowInstructions, Experiment};
 use crate::modal::MODAL_CORNER_RADIUS;
 use crate::network::NetworkStatus;
-use crate::server::telemetry::{AnonymousUserSignupEntrypoint, LoginEventSource, TelemetryEvent};
-use crate::settings::PrivacySettings;
+
 use crate::themes::theme::Fill as ThemeFill;
 use crate::util::color::{darken, lighten};
-use crate::{send_telemetry_from_ctx, send_telemetry_sync_from_ctx};
 
 const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 
@@ -86,21 +83,14 @@ struct MouseStateHandles {
     tos_mouse_state_handle: MouseStateHandle,
     sign_up_mouse_state_handle: MouseStateHandle,
     learn_more_mouse_state_handle: MouseStateHandle,
-    privacy_settings_mouse_state_handle: MouseStateHandle,
+    offline_info_close_button_mouse_state_handle: MouseStateHandle,
     close_button_mouse_state_handle: MouseStateHandle,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum AuthViewOverlay {
-    PrivacySettings,
-    OfflineInfo,
 }
 
 pub struct AuthViewBody {
     variant: AuthViewVariant,
     mouse_state_handles: MouseStateHandles,
-    privacy_settings_handles: PrivacySettingsHandles,
-    active_overlay: Option<AuthViewOverlay>,
+    show_offline_info: bool,
     auth_token_input: ViewHandle<EditorView>,
     show_auth_token_input: bool,
     auth_step: AuthStep,
@@ -131,9 +121,8 @@ pub enum AuthViewBodyAction {
     CopyLoginUrl,
     Signup,
     SignupAnonymousUser,
-    ShowOverlay(AuthViewOverlay),
+    ShowOfflineInfo,
     HideOverlay,
-    ToggleTelemetry,
     Close,
 }
 
@@ -190,8 +179,7 @@ impl AuthViewBody {
         AuthViewBody {
             variant,
             mouse_state_handles: Default::default(),
-            privacy_settings_handles: Default::default(),
-            active_overlay: None,
+            show_offline_info: false,
             auth_token_input,
             show_auth_token_input: false,
             auth_step: AuthStep::SelectAuthPathway,
@@ -238,13 +226,6 @@ impl AuthViewBody {
     fn emit_token_entered(&self, ctx: &mut ViewContext<Self>) {
         let text = self.auth_token_input.as_ref(ctx).buffer_text(ctx);
         ctx.emit(AuthViewBodyEvent::AuthTokenEntered(text));
-    }
-
-    fn privacy_settings_actions(&self) -> PrivacySettingsActions<AuthViewBodyAction> {
-        PrivacySettingsActions {
-            toggle_telemetry: AuthViewBodyAction::ToggleTelemetry,
-            hide_overlay: AuthViewBodyAction::HideOverlay,
-        }
     }
 
     fn render_auth_token_suggest(&self, ui_builder: &UiBuilder) -> Box<dyn Element> {
@@ -349,28 +330,7 @@ impl AuthViewBody {
         .with_margin_bottom(8.)
         .finish();
 
-        let disclaimer_line_2 = Align::new(
-            ui_builder
-                .link(
-                    "Privacy Settings".into(),
-                    None,
-                    Some(Box::new(|ctx| {
-                        ctx.dispatch_typed_action(AuthViewBodyAction::ShowOverlay(
-                            AuthViewOverlay::PrivacySettings,
-                        ));
-                    })),
-                    self.mouse_state_handles
-                        .privacy_settings_mouse_state_handle
-                        .clone(),
-                )
-                .soft_wrap(false)
-                .build()
-                .finish(),
-        )
-        .left()
-        .finish();
-
-        vec![disclaimer_line_1, disclaimer_line_2]
+        vec![disclaimer_line_1]
     }
 
     fn render_sign_up_button(
@@ -643,10 +603,10 @@ impl AuthViewBody {
                         self.mouse_state_handles
                             .learn_more_mouse_state_handle
                             .clone(),
-                        AuthViewBodyAction::ShowOverlay(AuthViewOverlay::OfflineInfo),
+                        AuthViewBodyAction::ShowOfflineInfo,
                     );
                     vec![logo, header, offline_contents]
-                } else if self.active_overlay.is_none() {
+                } else if !self.show_offline_info {
                     let mut contents = if self.allow_loginless {
                         let sign_up_later_row = match self.loginless_step {
                             LoginlessStep::Start => self.render_sign_up_later_row(ui_builder),
@@ -773,12 +733,6 @@ impl TypedActionView for AuthViewBody {
     fn handle_action(&mut self, action: &AuthViewBodyAction, ctx: &mut ViewContext<Self>) {
         match action {
             AuthViewBodyAction::Login => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::LoginButtonClicked {
-                        source: LoginEventSource::AuthModal,
-                    },
-                    ctx
-                );
                 self.auth_step = AuthStep::BrowserOpen;
 
                 AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
@@ -787,23 +741,9 @@ impl TypedActionView for AuthViewBody {
                 });
             }
             AuthViewBodyAction::InitiateLoginLater => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::LoginLaterButtonClicked {
-                        source: LoginEventSource::AuthModal,
-                    },
-                    ctx
-                );
                 self.loginless_step = LoginlessStep::Initiated;
             }
             AuthViewBodyAction::LoginLater => {
-                // Send synchronously since this is an important event in the sign up funnel and we
-                // don't want to lose events if the user quits before the event queue is flushed.
-                send_telemetry_sync_from_ctx!(
-                    TelemetryEvent::LoginLaterConfirmationButtonClicked {
-                        source: LoginEventSource::AuthModal,
-                    },
-                    ctx
-                );
                 ctx.emit(AuthViewBodyEvent::LoginLaterClicked);
             }
             AuthViewBodyAction::EnterToken => {
@@ -835,9 +775,6 @@ impl TypedActionView for AuthViewBody {
                 }
             }
             AuthViewBodyAction::Signup => {
-                // Send synchronously since this is an important event in the sign up funnel and we
-                // don't want to lose events if the user quits before the event queue is flushed.
-                send_telemetry_sync_from_ctx!(TelemetryEvent::SignUpButtonClicked, ctx);
                 self.auth_step = AuthStep::BrowserOpen;
 
                 AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
@@ -846,46 +783,24 @@ impl TypedActionView for AuthViewBody {
                 });
             }
             AuthViewBodyAction::SignupAnonymousUser => {
-                let entrypoint = match self.variant {
-                    AuthViewVariant::RequireLoginCloseable => {
-                        AnonymousUserSignupEntrypoint::LoginGatedFeature
-                    }
-                    AuthViewVariant::Initial => {
-                        report_error!(anyhow!(
-                            "Anonymous user initiated sign-up from unexpected AuthView variant"
-                        ));
-                        AnonymousUserSignupEntrypoint::Unknown
-                    }
-                };
+                if matches!(self.variant, AuthViewVariant::Initial) {
+                    report_error!(anyhow!(
+                        "Anonymous user initiated sign-up from unexpected AuthView variant"
+                    ));
+                }
 
                 AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                    auth_manager.initiate_anonymous_user_linking(entrypoint, ctx);
+                    auth_manager.initiate_anonymous_user_linking(ctx);
                 });
                 self.auth_step = AuthStep::BrowserOpen;
                 ctx.emit(AuthViewBodyEvent::SignUpButtonClicked);
             }
-            AuthViewBodyAction::ShowOverlay(overlay) => {
-                if let AuthViewOverlay::PrivacySettings = overlay {
-                    send_telemetry_sync_from_ctx!(
-                        TelemetryEvent::OpenAuthPrivacySettings {
-                            source: LoginEventSource::AuthModal,
-                        },
-                        ctx
-                    );
-                }
-                self.active_overlay = Some(*overlay);
+            AuthViewBodyAction::ShowOfflineInfo => {
+                self.show_offline_info = true;
                 ctx.notify();
             }
             AuthViewBodyAction::HideOverlay => {
-                self.active_overlay = None;
-                ctx.notify();
-            }
-            AuthViewBodyAction::ToggleTelemetry => {
-                let privacy_settings_handle = PrivacySettings::handle(ctx);
-                ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
-                    privacy_settings
-                        .set_is_telemetry_enabled(!privacy_settings.is_telemetry_enabled, ctx);
-                });
+                self.show_offline_info = false;
                 ctx.notify();
             }
             AuthViewBodyAction::Close => {
@@ -949,42 +864,21 @@ impl View for AuthViewBody {
                 .finish(),
         );
 
-        if let Some(overlay) = &self.active_overlay {
-            match overlay {
-                AuthViewOverlay::PrivacySettings => {
-                    stack.add_child(
-                        Dismiss::new(render_overlay(
-                            render_privacy_settings_overlay_body(
-                                appearance,
-                                app,
-                                &self.privacy_settings_handles,
-                                &self.privacy_settings_actions(),
-                            ),
-                            appearance,
-                        ))
-                        .on_dismiss(|ctx, _app| {
-                            ctx.dispatch_typed_action(AuthViewBodyAction::HideOverlay)
-                        })
-                        .finish(),
-                    );
-                }
-                AuthViewOverlay::OfflineInfo => {
-                    stack.add_child(
-                        Dismiss::new(render_overlay(
-                            render_offline_info_overlay_body(
-                                appearance,
-                                self.privacy_settings_handles.close_button_mouse.clone(),
-                                AuthViewBodyAction::HideOverlay,
-                            ),
-                            appearance,
-                        ))
-                        .on_dismiss(|ctx, _app| {
-                            ctx.dispatch_typed_action(AuthViewBodyAction::HideOverlay)
-                        })
-                        .finish(),
-                    );
-                }
-            }
+        if self.show_offline_info {
+            stack.add_child(
+                Dismiss::new(render_overlay(
+                    render_offline_info_overlay_body(
+                        appearance,
+                        self.mouse_state_handles
+                            .offline_info_close_button_mouse_state_handle
+                            .clone(),
+                        AuthViewBodyAction::HideOverlay,
+                    ),
+                    appearance,
+                ))
+                .on_dismiss(|ctx, _app| ctx.dispatch_typed_action(AuthViewBodyAction::HideOverlay))
+                .finish(),
+            );
         }
 
         stack.finish()

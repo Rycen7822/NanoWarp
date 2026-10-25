@@ -1,4 +1,3 @@
-use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -52,7 +51,6 @@ use crate::features::FeatureFlag;
 use crate::menu::MenuItemFields;
 use crate::notebooks::file::MarkdownDisplayMode;
 use crate::notebooks::styles::block_footer_action_button;
-use crate::notebooks::telemetry::{ActionEntrypoint, BlockInfo};
 use crate::settings::FontSettings;
 use crate::terminal::input::DEBOUNCE_INPUT_DECORATION_PERIOD;
 use crate::terminal::input::decorations::{
@@ -594,8 +592,8 @@ impl NotebookCommand {
     }
 
     /// Set whether or not this block is selected.
-    pub fn set_selected(&mut self, selected: bool) -> bool {
-        mem::replace(&mut self.is_selected, selected)
+    pub fn set_selected(&mut self, selected: bool) {
+        self.is_selected = selected;
     }
 
     /// Promotes this notebook command into a [`Workflow`]. If the workflow is anonymous, the
@@ -785,8 +783,6 @@ impl RunnableCommandModel for NotebookCommand {
                     {
                         ctx.dispatch_typed_action(EditorViewAction::CopyTextToClipboard {
                             text: UserInput::new(block_content.trim()),
-                            block: BlockInfo::CodeBlock,
-                            entrypoint: ActionEntrypoint::Button,
                         });
                     }
                 })

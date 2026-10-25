@@ -28,16 +28,12 @@ use crate::server::server_api::auth::{
     AnonymousUserCreationError, AuthClient, FetchUserResult, MintCustomTokenError,
     UserAuthenticationError,
 };
-use crate::server::telemetry::AnonymousUserSignupEntrypoint;
-use crate::settings::PrivacySettings;
+
 use crate::terminal::general_settings::GeneralSettings;
 #[cfg(target_family = "wasm")]
 use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
 use crate::workspaces::team_tester::TeamTesterStatus;
-use crate::{
-    GlobalResourceHandlesProvider, TelemetryEvent, persistence, send_telemetry_from_ctx,
-    send_telemetry_sync_from_ctx,
-};
+use crate::{GlobalResourceHandlesProvider, persistence};
 
 #[derive(Debug)]
 pub enum AuthManagerEvent {
@@ -161,7 +157,6 @@ impl AuthManager {
                 ctx.emit(AuthManagerEvent::LoginOverrideDetected(auth_payload));
                 return;
             }
-            send_telemetry_from_ctx!(TelemetryEvent::AnonymousUserLinkedFromBrowser, ctx);
         }
 
         let _ = ctx.spawn(
@@ -301,48 +296,8 @@ impl AuthManager {
                     );
                 };
 
-                let privacy_settings_handle = PrivacySettings::handle(ctx);
-                let privacy_settings_snapshot =
-                    privacy_settings_handle.as_ref(ctx).get_snapshot(ctx);
-
                 let server_api = self.server_api.clone();
-                let user_id = self.auth_state.user_id().unwrap_or_default();
-                let anonymous_id = self.auth_state.anonymous_id();
-                let _ = ctx.spawn(
-                    // Synchronously add the identify and login event to the telemetry event queue and
-                    // then flush the queue to ensure the events get to Rudderstack. We need to do this
-                    // one-off because the login event happens only once for the user and we don't want
-                    // to drop the event if the user quits the app before the next flush of the queue.
-                    // TODO(alokedesai): Investigate a more robust way of handling events
-                    // that don't get flushed to Rudderstack outside of this event specifically.
-                    async move {
-                        warpui::telemetry::record_identify_user_event(
-                            user_id.as_string(),
-                            anonymous_id.clone(),
-                            warpui::time::get_current_time(),
-                        );
-                        warpui::telemetry::record_event(
-                            Some(user_id.as_string()),
-                            anonymous_id,
-                            TelemetryEvent::Login.name().into(),
-                            TelemetryEvent::Login.payload(),
-                            TelemetryEvent::Login.contains_ugc(),
-                            warpui::time::get_current_time(),
-                        );
-
-                        // Note that this snapshot might get overwritten to disabled after the server fetch.
-                        // However, it is still fine to flush to Rudderstack here as the login event is low-risk
-                        // and it is better to err on the side of over-reporting than under-reporting.
-                        if let Err(e) = server_api
-                            .flush_telemetry_events(privacy_settings_snapshot)
-                            .await
-                        {
-                            log::info!("Failed to flush events from Telemetry queue: {e}");
-                        }
-                        server_api.notify_login().await;
-                    },
-                    |_, _, _| {},
-                );
+                let _ = ctx.spawn(async move { server_api.notify_login().await }, |_, _, _| {});
 
                 ctx.emit(AuthManagerEvent::AuthComplete);
             }
@@ -423,7 +378,6 @@ impl AuthManager {
         let became_true = self.auth_state.set_needs_reauth(needs_reauth);
 
         if became_true {
-            send_telemetry_from_ctx!(TelemetryEvent::NeedsReauth, ctx);
             ctx.emit(AuthManagerEvent::NeedsReauth);
         }
     }
@@ -479,11 +433,7 @@ impl AuthManager {
         }
     }
 
-    pub fn initiate_anonymous_user_linking(
-        &self,
-        entrypoint: AnonymousUserSignupEntrypoint,
-        ctx: &mut ModelContext<Self>,
-    ) {
+    pub fn initiate_anonymous_user_linking(&self, ctx: &mut ModelContext<Self>) {
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
             async move { auth_client.fetch_new_custom_token().await },
@@ -492,12 +442,6 @@ impl AuthManager {
 
                 match custom_token {
                     Ok(custom_token) => {
-                        // Send synchronously since this is an important event in the sign up funnel and we
-                        // don't want to lose events if the user quits before the event queue is flushed.
-                        send_telemetry_sync_from_ctx!(
-                            TelemetryEvent::InitiateAnonymousUserSignup { entrypoint },
-                            ctx
-                        );
                         let login_options_url = me.login_options_url(&custom_token);
                         if cfg!(target_family = "wasm") {
                             #[cfg(target_family = "wasm")]

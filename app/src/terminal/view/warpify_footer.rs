@@ -8,7 +8,6 @@ use warpui::prelude::Empty;
 use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 use super::{RichContentInsertionPosition, TerminalAction, TerminalView};
-use crate::server::telemetry::TelemetryEvent;
 use crate::settings::InputModeSettings;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::view::{PADDING_LEFT, TerminalModel};
@@ -17,7 +16,7 @@ use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource, TooltipAlignment,
 };
 use pathfinder_color::ColorU;
-use warp_core::send_telemetry_from_ctx;
+
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_core::ui::theme::color::internal_colors;
@@ -208,10 +207,6 @@ impl TerminalView {
             me.hide_warpify_footer_in_blocklist(ctx);
             if matches!(event, WarpifyFooterViewEvent::Warpify) {
                 me.handle_action(&TerminalAction::TriggerSubshellBootstrap, ctx);
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::WarpifyFooterAcceptedWarpify { is_ssh: false },
-                    ctx
-                );
             }
             ctx.notify();
         });

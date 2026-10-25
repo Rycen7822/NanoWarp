@@ -7,7 +7,7 @@
 //! identically. Git ops are host-scoped and not tied to a diff-state model, so
 //! this logic lives here rather than on a model.
 //!
-//! Callers own everything *around* the action: UI (toasts, telemetry, dialog
+//! Callers own everything *around* the action: UI (toasts, dialog
 //! lifecycle), transport/model (applying the returned delta to a
 //! `DiffStateModel`, building wire responses), and any execution-time guards
 //! (e.g. the daemon's `git_operation_in_progress` backstop).
