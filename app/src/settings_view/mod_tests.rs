@@ -43,10 +43,6 @@ fn subpage_display_names_are_correct() {
         SettingsSection::EditorAndCodeReview.to_string(),
         "Editor and Code Review"
     );
-    assert_eq!(
-        SettingsSection::WarpCloudAgentAPIKeys.to_string(),
-        "API keys"
-    );
 }
 
 // ── slug / from_slug ───────────────────────────────────────────────
@@ -64,14 +60,7 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Warpify,
     SettingsSection::Projects,
     SettingsSection::EditorAndCodeReview,
-    SettingsSection::WarpCloudAgentAPIKeys,
 ];
-
-/// Sections whose user-facing Display label has deliberately diverged from the
-/// slug it was seeded from, because the slug is a stored contract that the
-/// rename must not follow.
-const SECTIONS_WITH_RENAMED_DISPLAY_LABELS: &[SettingsSection] =
-    &[SettingsSection::WarpCloudAgentAPIKeys];
 
 #[test]
 fn all_sections_list_is_exhaustive() {
@@ -84,8 +73,7 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Privacy
             | SettingsSection::Warpify
             | SettingsSection::Projects
-            | SettingsSection::EditorAndCodeReview
-            | SettingsSection::WarpCloudAgentAPIKeys => section,
+            | SettingsSection::EditorAndCodeReview => section,
         };
         ALL_SECTIONS.contains(&known)
     }
@@ -117,35 +105,14 @@ fn slugs_are_unique_across_sections() {
 
 #[test]
 fn slugs_were_seeded_from_the_display_labels_they_replaced() {
-    // Slugs were seeded from the Display strings that used to double as the
-    // persistence key, so no data migration was needed. Display is now free to
-    // diverge; when it does, list the section in
-    // SECTIONS_WITH_RENAMED_DISPLAY_LABELS rather than moving the slug, which
-    // is a stored contract.
+    // Slugs retain the Display strings that used to double as the persistence key.
     for section in ALL_SECTIONS {
-        if SECTIONS_WITH_RENAMED_DISPLAY_LABELS.contains(section) {
-            continue;
-        }
         assert_eq!(
             section.slug(),
             section.to_string(),
             "{section:?} slug diverged from the Display label it was seeded from"
         );
     }
-}
-
-#[test]
-fn renamed_sections_keep_the_slug_they_were_seeded_with() {
-    // The section dropped "Oz" from what the user reads, but persisted sessions
-    // still use the original slug.
-    assert_eq!(
-        SettingsSection::WarpCloudAgentAPIKeys.to_string(),
-        "API keys"
-    );
-    assert_eq!(
-        SettingsSection::WarpCloudAgentAPIKeys.slug(),
-        "Oz Cloud API Keys"
-    );
 }
 
 #[test]
@@ -157,14 +124,6 @@ fn from_slug_accepts_legacy_spellings() {
     assert_eq!(
         SettingsSection::from_slug("EditorAndCodeReview"),
         Some(SettingsSection::EditorAndCodeReview)
-    );
-    assert_eq!(
-        SettingsSection::from_slug("OzCloudAPIKeys"),
-        Some(SettingsSection::WarpCloudAgentAPIKeys)
-    );
-    assert_eq!(
-        SettingsSection::from_slug("Oz Cloud API Keys"),
-        Some(SettingsSection::WarpCloudAgentAPIKeys)
     );
 }
 
@@ -201,10 +160,6 @@ fn nav_items_fixture() -> Vec<SettingsNavItem> {
                 SettingsSection::EditorAndCodeReview,
             ],
         )),
-        SettingsNavItem::Umbrella(SettingsUmbrella::new(
-            "Cloud platform",
-            vec![SettingsSection::WarpCloudAgentAPIKeys],
-        )),
         SettingsNavItem::Page(SettingsSection::Keybindings),
     ]
 }
@@ -224,9 +179,8 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
     // All umbrellas default to collapsed.
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Expect: Appearance, <General umbrella>, <Code umbrella>,
-    // <Cloud platform umbrella>, Keybindings.
-    assert_eq!(stops.len(), 5);
+    // Expect: Appearance, <General umbrella>, <Code umbrella>, Keybindings.
+    assert_eq!(stops.len(), 4);
     assert!(matches!(
         stops[0],
         NavStop::Section(SettingsSection::Appearance)
@@ -249,14 +203,6 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
     ));
     assert!(matches!(
         stops[3],
-        NavStop::CollapsedUmbrella {
-            nav_index: 3,
-            first_subpage: SettingsSection::WarpCloudAgentAPIKeys,
-            last_subpage: SettingsSection::WarpCloudAgentAPIKeys,
-        }
-    ));
-    assert!(matches!(
-        stops[4],
         NavStop::Section(SettingsSection::Keybindings)
     ));
 }
@@ -269,9 +215,7 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
 
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Expect: Appearance, Features, Warpify, Privacy,
-    // <Code umbrella>,
-    // <Cloud platform umbrella>, Keybindings.
+    // Expect: Appearance, Features, Warpify, Privacy, <Code umbrella>, Keybindings.
     let sections: Vec<_> = stops
         .iter()
         .map(|s| match s {
@@ -287,7 +231,6 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
             "Warpify",
             "Privacy",
             "Umbrella@2",
-            "Umbrella@3",
             "Keybindings",
         ]
     );
@@ -344,16 +287,11 @@ fn umbrella_with_no_visible_subpages_is_skipped_entirely() {
             .all(|s| !matches!(s, NavStop::CollapsedUmbrella { nav_index: 1, .. })),
         "General umbrella should not appear when none of its subpages are visible"
     );
-    // The still-visible Code / Cloud platform umbrellas remain as stops.
+    // The still-visible Code umbrella remains as a stop.
     assert!(
         stops
             .iter()
             .any(|s| matches!(s, NavStop::CollapsedUmbrella { nav_index: 2, .. }))
-    );
-    assert!(
-        stops
-            .iter()
-            .any(|s| matches!(s, NavStop::CollapsedUmbrella { nav_index: 3, .. }))
     );
 }
 
@@ -387,7 +325,7 @@ fn current_stop_index_matches_section_stop() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     let idx = current_stop_index(&stops, &nav_items, SettingsSection::Keybindings);
-    assert_eq!(idx, Some(4));
+    assert_eq!(idx, Some(3));
 }
 
 #[test]
@@ -540,7 +478,7 @@ fn arrow_down_from_expanded_last_subpage_leaves_umbrella() {
 #[test]
 fn arrow_down_across_adjacent_collapsed_umbrellas() {
     let nav_items = nav_items_fixture();
-    // Both Code and Cloud platform umbrellas are collapsed.
+    // Both General and Code umbrellas are collapsed.
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // From the collapsed General stop, Down should land on the first Code subpage
@@ -555,14 +493,14 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
 
     // From the Code umbrella stop (i.e. the user is "on" Projects which
     // maps back to the collapsed umbrella), pressing Down again should land
-    // on the Cloud platform umbrella's first subpage.
+    // on the next top-level page, Keybindings.
     let next_after_code = simulate_cycle(
         &nav_items,
         &stops,
         SettingsSection::Projects,
         CycleDirection::Down,
     );
-    assert_eq!(next_after_code, SettingsSection::WarpCloudAgentAPIKeys);
+    assert_eq!(next_after_code, SettingsSection::Keybindings);
 }
 
 #[test]

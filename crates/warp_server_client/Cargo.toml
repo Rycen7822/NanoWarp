@@ -16,7 +16,6 @@ anyhow.workspace = true
 async-channel.workspace = true
 async-trait.workspace = true
 bounded-vec-deque.workspace = true
-bytes.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
 cloud_objects.workspace = true

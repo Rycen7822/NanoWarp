@@ -1,3 +1,4 @@
+use super::team_workspace_settings::TeamScope;
 use crate::auth::AuthStateProvider;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -459,46 +460,9 @@ fn two_teams() -> (Team, Team) {
     (team_a, team_b)
 }
 
+/// Reconciliation updates the team used by a view's live render context.
 #[test]
-fn test_team_context_for_operation_resolves_each_windows_own_team() {
-    let (team_a, team_b) = two_teams();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        let context_a = view_a.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        let context_b = view_b.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        assert_eq!(
-            context_a.team_uid(),
-            Some(team_a.uid),
-            "the view in window A should mint a context resolving to team A"
-        );
-        assert_eq!(
-            context_b.team_uid(),
-            Some(team_b.uid),
-            "the view in window B should mint a context resolving to team B"
-        );
-    })
-}
-
-/// A window only changes teams by reconciling away from a team that left the workspace, so
-/// that is also the only way to observe a captured context and a live render diverging.
-#[test]
-fn test_window_team_reconciliation_moves_rendering_but_not_a_captured_context() {
+fn test_window_team_reconciliation_moves_rendering_to_the_new_team() {
     let (team_a, team_b) = two_teams();
     let mut workspace = workspace_for_test(&team_a);
     workspace.teams.push(team_b.clone());
@@ -510,10 +474,6 @@ fn test_window_team_reconciliation_moves_rendering_but_not_a_captured_context() 
         let weak_view = view.downgrade();
         UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
             user_workspaces.set_team_for_window(window_id, team_a.uid, ctx);
-        });
-
-        let context_a = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
         });
 
         app.read(|ctx| {
@@ -538,12 +498,6 @@ fn test_window_team_reconciliation_moves_rendering_but_not_a_captured_context() 
                 "a freshly resolved render context should follow the window to team B"
             );
         });
-        assert_eq!(
-            context_a.team_uid(),
-            Some(team_a.uid),
-            "a context captured for team A should keep pointing at team A rather than follow \
-             the window onto team B"
-        );
     })
 }
 
@@ -779,11 +733,6 @@ fn test_team_contexts_represent_a_registered_teamless_window() {
         UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
             user_workspaces.register_window(window_id, None, ctx);
         });
-
-        let context = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        assert_eq!(context.team_uid(), None);
 
         let weak_view = view.downgrade();
         app.read(|ctx| {

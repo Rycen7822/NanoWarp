@@ -21,7 +21,6 @@ fn base_client(auth_state: AuthState) -> (BaseClient, async_channel::Receiver<Au
     (
         BaseClient::new(
             Arc::new(http_client::Client::new()),
-            Arc::new(http_client::Client::new_external()),
             Arc::new(auth_state),
             event_sender,
             GraphqlRoutingConfig::default(),

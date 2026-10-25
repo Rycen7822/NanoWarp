@@ -12781,7 +12781,6 @@ dependencies = [
  "async-channel",
  "async-trait",
  "bounded-vec-deque",
- "bytes",
  "cfg-if",
  "chrono",
  "cloud_objects",

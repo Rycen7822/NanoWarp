@@ -190,9 +190,6 @@ pub enum FeatureFlag {
     /// Enables the one-time modal on app startup for existing users for the Code launch.
     CodeLaunchModal,
 
-    /// Enables API key management UI in settings
-    APIKeyManagement,
-
     /// Enables file- and diff set-level comments in the code review header.
     FileAndDiffSetComments,
 
@@ -230,9 +227,6 @@ pub enum FeatureFlag {
 
     /// Enables embedded code review comments.
     EmbeddedCodeReviewComments,
-
-    /// Enables team API key creation in the API key management UI.
-    TeamApiKeys,
 
     /// Enables configuring header toolbar item order, side placement, and visibility.
     ConfigurableToolbar,
@@ -293,12 +287,6 @@ pub enum FeatureFlag {
     /// Enables summary mode in vertical tabs, showing condensed tab summaries
     /// instead of individual pane rows.
     VerticalTabsSummaryMode,
-
-    /// Enables creating API keys scoped to named agents in the API key
-    /// management UI. When enabled the "Team" option in the key-type
-    /// selector is replaced with "Agent" and users can pick which agent
-    /// identity the key authenticates as.
-    NamedAgents,
 
     /// Enables the code review view for remote sessions.
     RemoteCodeReview,

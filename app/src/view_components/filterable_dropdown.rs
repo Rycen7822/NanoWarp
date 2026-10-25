@@ -56,7 +56,6 @@ pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     /// the footer remains visible even when the item list is empty.
     has_pinned_footer: bool,
     menu_width: Option<f32>,
-    match_menu_width_to_top_bar: bool,
     _action_type: PhantomData<A>,
 }
 
@@ -110,7 +109,6 @@ where
             hovered_style_override: None,
             has_pinned_footer: false,
             menu_width: None,
-            match_menu_width_to_top_bar: false,
             _action_type: PhantomData,
         }
     }
@@ -226,22 +224,6 @@ where
         })
     }
 
-    /// When enabled, the open menu sizes itself to the last rendered width of
-    /// the dropdown's top bar. This is useful for flexible dropdowns whose
-    /// trigger width is determined by parent layout rather than a fixed max.
-    pub fn set_match_menu_width_to_top_bar(
-        &mut self,
-        match_width: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.match_menu_width_to_top_bar = match_width;
-        let top_bar_label = self.top_bar_label();
-        self.dropdown.update(ctx, |menu, _ctx| {
-            menu.set_width_match_position_id(match_width.then_some(top_bar_label));
-        });
-        ctx.notify();
-    }
-
     pub fn set_disabled(&mut self, ctx: &mut ViewContext<Self>) {
         self.disabled = true;
         ctx.notify();
@@ -316,11 +298,6 @@ where
     pub(crate) fn toggle_expanded(&mut self, ctx: &mut ViewContext<Self>) {
         self.is_expanded = !self.is_expanded;
         if self.is_expanded {
-            if self.match_menu_width_to_top_bar
-                && let Some(bounds) = ctx.element_position_by_id(self.top_bar_label())
-            {
-                self.set_menu_width(bounds.width(), ctx);
-            }
             ctx.focus(&self.filter_editor);
             ctx.emit(FilterableDropdownEvent::ToggleExpanded);
         }
@@ -621,32 +598,8 @@ where
         self.dropdown.as_ref(ctx).items_len()
     }
 
-    pub fn clear_filter(&mut self, ctx: &mut ViewContext<Self>) {
-        self.filter_editor.update(ctx, |editor, ctx| {
-            editor.clear_buffer(ctx);
-            ctx.notify();
-        });
-    }
-
     pub fn set_menu_header_to_static(&mut self, header: &'static str) {
         self.static_menu_header = Some(header);
-    }
-
-    /// Test-only: drive the filter input with `query` and re-filter the list,
-    /// mirroring what happens when a user types into the search field.
-    #[cfg(test)]
-    pub(crate) fn set_filter_query_for_test(&mut self, query: &str, ctx: &mut ViewContext<Self>) {
-        self.filter_editor.update(ctx, |editor, ctx| {
-            editor.select_all(ctx);
-            editor.insert_selected_text(query, ctx);
-        });
-        self.set_filtered_items(ctx);
-    }
-
-    /// Test-only: the number of items currently visible after filtering.
-    #[cfg(test)]
-    pub(crate) fn visible_items_len_for_test(&self, ctx: &AppContext) -> usize {
-        self.dropdown_items_len(ctx)
     }
 }
 

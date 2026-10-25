@@ -92,7 +92,6 @@ pub enum SettingsPageViewHandle {
     About(ViewHandle<AboutPageView>),
     Projects(ViewHandle<ProjectsPageView>),
     EditorAndCodeReview(ViewHandle<EditorAndCodeReviewPageView>),
-    WarpCloudAgentAPIKeys(ViewHandle<super::platform_page::PlatformPageView>),
     Privacy(ViewHandle<PrivacyPageView>),
     Warpify(ViewHandle<WarpifyPageView>),
 }
@@ -107,7 +106,6 @@ impl SettingsPageViewHandle {
             About(view_handle) => ChildView::new(view_handle).finish(),
             Projects(view_handle) => ChildView::new(view_handle).finish(),
             EditorAndCodeReview(view_handle) => ChildView::new(view_handle).finish(),
-            WarpCloudAgentAPIKeys(view_handle) => ChildView::new(view_handle).finish(),
             Privacy(view_handle) => ChildView::new(view_handle).finish(),
             Warpify(view_handle) => ChildView::new(view_handle).finish(),
         }

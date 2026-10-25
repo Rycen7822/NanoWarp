@@ -6,37 +6,19 @@ use crate::server::ids::ServerId;
 use crate::workspaces::team::Team;
 use crate::workspaces::workspace::Workspace;
 use regex::Regex;
-use warpui::{AppContext, Entity, ViewContext, WeakViewHandle};
+use warpui::{AppContext, Entity, WeakViewHandle};
 
 mod sealed {
     pub trait Sealed {}
 }
 
-/// Reads a [`TeamContextForOperation`] or [`TeamContext`]'s team.
-///
-/// Application code obtains a [`TeamContext`] or [`TeamContextForOperation`] from a view-bound
-/// context, handle, or window. Neither type can be copied or cloned. `TeamContext` is borrow-bound
-/// to an immediate read, while `TeamContextForOperation` is owned so one operation can move it
-/// across an asynchronous boundary without re-resolving against a different window team.
+/// Reads the team of a view-bound [`TeamContext`] during an immediate read.
 ///
 /// Sealed: only this module implements [`sealed::Sealed`], so a scope can never be minted
 /// outside [`UserWorkspaces`].
 #[allow(private_bounds)]
 pub trait TeamScope: sealed::Sealed {
     fn team_uid(&self) -> Option<ServerId>;
-}
-
-/// The team selected when a view-scoped operation starts.
-pub struct TeamContextForOperation {
-    team_uid: Option<ServerId>,
-}
-
-impl sealed::Sealed for TeamContextForOperation {}
-
-impl TeamScope for TeamContextForOperation {
-    fn team_uid(&self) -> Option<ServerId> {
-        self.team_uid
-    }
 }
 
 /// The team a view renders as, borrowed for the duration of a single read.
@@ -55,18 +37,6 @@ impl TeamScope for TeamContext<'_> {
 }
 
 impl UserWorkspaces {
-    /// Captures the team selected in `ctx`'s window as an operation's
-    /// [`TeamContextForOperation`]. Always succeeds -- a window with no team selected still yields
-    /// a scope whose `team_uid()` is `None`.
-    pub fn team_context_for_operation<T: Entity>(
-        &self,
-        ctx: &ViewContext<T>,
-    ) -> TeamContextForOperation {
-        TeamContextForOperation {
-            team_uid: self.team_uid_for_window(ctx.window_id()),
-        }
-    }
-
     pub(crate) fn team_context<'a, T: Entity>(
         &'a self,
         view: &WeakViewHandle<T>,

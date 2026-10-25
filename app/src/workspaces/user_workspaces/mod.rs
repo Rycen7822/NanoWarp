@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use warp_core::settings::ChangeEventReason;
 use warpui::{
-    AppContext, Entity, ModelContext, SingletonEntity, Tracked, ViewContext, WeakViewHandle,
-    WindowId,
+    AppContext, Entity, ModelContext, SingletonEntity, Tracked, WeakViewHandle, WindowId,
 };
 
 #[cfg(test)]
@@ -21,7 +20,6 @@ use crate::workspaces::workspace::{
     BillingMetadata, CustomerType, WorkspaceMember, WorkspaceSettings,
 };
 pub(crate) mod team_workspace_settings;
-pub use team_workspace_settings::TeamScope;
 
 const STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX: &str = "/upgrade";
 
@@ -163,9 +161,6 @@ impl UserWorkspaces {
     pub fn team_for_window(&self, window_id: WindowId) -> Option<&Team> {
         self.team_uid_for_window(window_id)
             .and_then(|team_uid| self.team_from_uid(team_uid))
-    }
-    pub fn team_for_view<T: Entity>(&self, ctx: &ViewContext<T>) -> Option<&Team> {
-        self.team_for_window(ctx.window_id())
     }
 
     pub fn team_for_view_handle<T: Entity>(

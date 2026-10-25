@@ -31,7 +31,6 @@ pub struct AuthenticatedGraphqlConfig {
 /// Owns shared transport, authentication, and authenticated request decoration.
 pub struct BaseClient {
     client: Arc<http_client::Client>,
-    external_client: Arc<http_client::Client>,
     auth_state: Arc<AuthState>,
     event_sender: async_channel::Sender<AuthEvent>,
     auth_session: Arc<AuthSession>,
@@ -42,7 +41,6 @@ pub struct BaseClient {
 impl BaseClient {
     pub fn new(
         client: Arc<http_client::Client>,
-        external_client: Arc<http_client::Client>,
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
         graphql_routing: GraphqlRoutingConfig,
@@ -63,7 +61,6 @@ impl BaseClient {
         ));
         Self {
             client,
-            external_client,
             auth_state,
             event_sender,
             auth_session,
@@ -88,11 +85,6 @@ impl BaseClient {
     /// Returns the shared HTTP client for request construction.
     pub fn http_client(&self) -> &http_client::Client {
         self.client.as_ref()
-    }
-
-    /// Returns the pooled external HTTP client.
-    pub fn external_http_client(&self) -> &http_client::Client {
-        self.external_client.as_ref()
     }
 
     /// Returns an owned handle to the shared HTTP client for GraphQL operations.

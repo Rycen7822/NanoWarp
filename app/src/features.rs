@@ -117,8 +117,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::AllowIgnoringInputSuggestions,
         #[cfg(feature = "code_launch_modal")]
         FeatureFlag::CodeLaunchModal,
-        #[cfg(feature = "api_key_management")]
-        FeatureFlag::APIKeyManagement,
         #[cfg(feature = "discard_per_file_and_all_changes")]
         FeatureFlag::DiscardPerFileAndAllChanges,
         #[cfg(feature = "code_review_find")]
@@ -133,10 +131,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::EmbeddedCodeReviewComments,
         #[cfg(feature = "file_and_diff_set_comments")]
         FeatureFlag::FileAndDiffSetComments,
-        #[cfg(feature = "team_api_keys")]
-        FeatureFlag::TeamApiKeys,
-        #[cfg(feature = "named_agents")]
-        FeatureFlag::NamedAgents,
         #[cfg(feature = "configurable_toolbar")]
         FeatureFlag::ConfigurableToolbar,
         #[cfg(feature = "classic_completions")]

@@ -12,9 +12,6 @@ const SERVER_ID_LENGTH: usize = 22;
 #[schemars(description = "A server-assigned unique identifier.")]
 pub struct ServerId([char; SERVER_ID_LENGTH]);
 
-/// UID for API keys.
-pub type ApiKeyUid = String;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ParseServerIdError {
     #[error("ServerId must be exactly {SERVER_ID_LENGTH} characters, got {len}")]

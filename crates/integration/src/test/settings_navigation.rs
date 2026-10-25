@@ -81,8 +81,8 @@ pub fn test_settings_keyboard_navigation_down_into_collapsed_umbrella() -> Build
 pub fn test_settings_keyboard_navigation_up_into_collapsed_umbrella() -> Builder {
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        // Cloud platform follows the Code umbrella.
-        .with_step(open_settings_page(SettingsSection::WarpCloudAgentAPIKeys))
+        // Features follows the Code umbrella.
+        .with_step(open_settings_page(SettingsSection::Features))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
         .with_step(press_settings_nav_up())
         .with_step(assert_settings_section(
@@ -107,9 +107,7 @@ pub fn test_settings_keyboard_navigation_after_manual_collapse() -> Builder {
         ))
         // Down should continue past the umbrella, not restart from the top.
         .with_step(press_settings_nav_down())
-        .with_step(assert_settings_section(
-            SettingsSection::WarpCloudAgentAPIKeys,
-        ))
+        .with_step(assert_settings_section(SettingsSection::Features))
 }
 
 // ---------------------------------------------------------------------------

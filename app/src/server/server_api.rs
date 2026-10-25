@@ -47,23 +47,16 @@ impl ServerApi {
         ctx: &mut ModelContext<ServerApiProvider>,
     ) -> Self {
         let mut client = http_client::Client::new();
-        let mut external_client = http_client::Client::new_external();
         if ContextFlag::NetworkLogConsole.is_enabled() {
             NetworkLogModel::handle(ctx).update(ctx, |model, model_ctx| {
-                model.install_on_clients([&mut client, &mut external_client], model_ctx);
+                model.install_on_clients([&mut client], model_ctx);
             });
         }
-        Self::new_with_parts(
-            Arc::new(client),
-            Arc::new(external_client),
-            auth_state,
-            event_sender,
-        )
+        Self::new_with_parts(Arc::new(client), auth_state, event_sender)
     }
 
     fn new_with_parts(
         client: Arc<http_client::Client>,
-        external_client: Arc<http_client::Client>,
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
     ) -> Self {
@@ -71,7 +64,6 @@ impl ServerApi {
         let authenticated_graphql = AuthenticatedGraphqlConfig::default();
         let base_client = Arc::new(BaseClient::new(
             client,
-            external_client,
             auth_state,
             event_sender,
             graphql_routing,
@@ -87,12 +79,7 @@ impl ServerApi {
         let auth_state = Arc::new(AuthState::new_for_test());
         let client = Arc::new(http_client::Client::new_for_test());
 
-        Self::new_with_parts(
-            client,
-            Arc::new(http_client::Client::new_external()),
-            auth_state,
-            tx,
-        )
+        Self::new_with_parts(client, auth_state, tx)
     }
 
     #[cfg(all(test, feature = "skip_login"))]
@@ -106,7 +93,6 @@ impl ServerApi {
         }
         Self::new_with_parts(
             Arc::new(http_client::Client::new_for_test()),
-            Arc::new(http_client::Client::new_external()),
             auth_state,
             event_sender,
         )

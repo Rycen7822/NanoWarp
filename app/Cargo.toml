@@ -447,7 +447,6 @@ default = [
     "vim_code_editor",
     "code_launch_modal",
     "allow_ignoring_input_suggestions",
-    "api_key_management",
     "ui_zoom",
     "discard_per_file_and_all_changes",
     "inline_code_review",
@@ -455,8 +454,6 @@ default = [
     "async_find",
     "classic_completions",
     "force_classic_completions",
-    "team_api_keys",
-    "named_agents",
     "pluggable_notifications",
     "global_search",
     "new_tab_styling",
@@ -607,15 +604,12 @@ code_review_save_changes = []
 remote_code_review = []
 file_tree = []
 code_launch_modal = []
-api_key_management = []
 discard_per_file_and_all_changes = []
 ui_zoom = []
 code_review_find = []
 inline_code_review = []
 global_search = []
 file_and_diff_set_comments = []
-team_api_keys = []
-named_agents = []
 classic_completions = []
 native_shell_completions = []
 force_classic_completions = []
