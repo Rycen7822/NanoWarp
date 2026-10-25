@@ -177,8 +177,8 @@ impl RemoteServerErrorKind {
 ///   binary so the next reconnect reinstalls.
 /// - Client has no version (`None`): always compatible. This covers two
 ///   dev-loop scenarios:
-///   1. `cargo run` + `script/deploy_remote_server` — neither side
-///      reports a release tag (server string is empty).
+///   1. An untagged OSS dev GUI + an artifact from `script/prepare_remote_server`
+///      — neither side reports a release tag (server string is empty).
 ///   2. `cargo run` against a remote that has a release-tagged binary
 ///      already installed — the client has no tag but the server does.
 ///      Treating this as compatible avoids tearing down and deleting a
@@ -186,8 +186,8 @@ impl RemoteServerErrorKind {
 ///      doesn't carry a release tag.
 /// - Client has a version but server reports empty: incompatible. A
 ///   release-tagged client should not accept an untagged server — it
-///   likely means the binary was deployed via the dev script rather
-///   than the release channel.
+///   likely means the artifact was prepared from an untagged dev build
+///   rather than the matching release.
 #[cfg(not(target_family = "wasm"))]
 fn version_is_compatible(client: Option<&str>, server: &str) -> bool {
     match (client, server.is_empty()) {

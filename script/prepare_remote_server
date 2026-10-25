@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Prepare the native OSS daemon artifact consumed by the GUI's SSH installer.
+set -euo pipefail
+
+if [[ $# -eq 1 && "$1" == "--help" ]]; then
+  cat <<'USAGE'
+Usage: script/prepare_remote_server
+
+Builds warp-oss with standalone and the dev-remote profile on native Linux/macOS.
+Requires the repository's Rust 1.92.0 toolchain, Cargo and Python3.
+No SSH, deployment, bundled resources or Warp downloads are performed.
+
+The artifact is prepared only for this development runtime:
+  .work/runtime/cache/remote-server/binaries/warp-oss/<version>/<os>-<arch>/nanowarp-server
+Version is the existing GIT_RELEASE_TAG when set, otherwise remote_server's
+Cargo package version. An explicitly empty tag is an error.
+
+Use a GUI built for the same OSS channel and version, with NANOWARP_DATA_DIR
+set to this repository's .work/runtime (the existing app-env runtime root).
+The GUI handles remote installation through its normal SSH connection.
+USAGE
+  exit 0
+fi
+if [[ $# -ne 0 ]]; then
+  printf '%s\n' 'Error: no arguments are accepted; use --help for usage.' >&2
+  exit 1
+fi
+
+native_os="$(uname -s)"
+case "$native_os" in
+  Linux|Darwin) ;;
+  *) printf '%s\n' 'Error: prepare_remote_server requires native Linux or macOS.' >&2; exit 1 ;;
+esac
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+workspace_root="$(pwd -P)"
+export CARGO_HOME="$workspace_root/.work/cargo-home"
+export RUSTUP_HOME="$workspace_root/.work/rustup-unix"
+export CARGO_TARGET_DIR="$workspace_root/.work/target"
+export TEMP="$workspace_root/.work/tmp"
+export TMP="$TEMP"
+export TMPDIR="$TEMP"
+export SCCACHE_DIR="$workspace_root/.work/sccache"
+export NANOWARP_DATA_DIR="$workspace_root/.work/runtime"
+export CARGO_BUILD_JOBS=2
+export CARGO_INCREMENTAL=0
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TEMP" "$SCCACHE_DIR" "$NANOWARP_DATA_DIR" "$workspace_root/.work/archived"
+
+host="$(rustc +1.92.0 -vV | sed -n 's/^host: //p')"
+case "$native_os:$host" in
+  Linux:x86_64-unknown-linux-gnu|Linux:x86_64-unknown-linux-musl) platform=linux-x86_64 ;;
+  Linux:aarch64-unknown-linux-gnu|Linux:aarch64-unknown-linux-musl) platform=linux-aarch64 ;;
+  Darwin:x86_64-apple-darwin) platform=macos-x86_64 ;;
+  Darwin:aarch64-apple-darwin) platform=macos-aarch64 ;;
+  *) printf 'Error: unsupported native Rust host: %s\n' "$host" >&2; exit 1 ;;
+esac
+
+if [[ ${GIT_RELEASE_TAG+x} ]]; then
+  version="$GIT_RELEASE_TAG"
+else
+  version="$(cargo +1.92.0 metadata --locked --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "remote_server"))')"
+fi
+if [[ -z "$version" || "$version" == . || "$version" == .. || "$version" == */* || "$version" == *\\* || "$version" =~ [[:cntrl:]] ]]; then
+  printf '%s\n' 'Error: version must be a non-empty, safe single path component.' >&2
+  exit 1
+fi
+
+cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features standalone --profile dev-remote --target "$host"
+built_binary="$CARGO_TARGET_DIR/$host/dev-remote/warp-oss"
+"$built_binary" --version
+
+artifact_dir="$NANOWARP_DATA_DIR/cache/remote-server/binaries/warp-oss/$version/$platform"
+artifact="$artifact_dir/nanowarp-server"
+mkdir -p "$artifact_dir"
+if [[ -d "$artifact" ]]; then
+  printf 'Error: artifact destination is a directory: %s\n' "$artifact" >&2
+  exit 1
+fi
+
+staged_binary=''
+trap 'prepare_status=$?
+if [[ -n "$staged_binary" && -e "$staged_binary" ]]; then
+  if unfinished_dir="$(mktemp -d "$workspace_root/.work/archived/a78-unfinished-XXXXXX")" && mv "$staged_binary" "$unfinished_dir/nanowarp-server"; then
+    printf "Unfinished artifact retained at %s\n" "$unfinished_dir/nanowarp-server" >&2
+  else
+    printf "Warning: unfinished artifact remains at %s\n" "$staged_binary" >&2
+  fi
+fi
+exit "$prepare_status"' EXIT
+staged_binary="$(mktemp "$artifact_dir/.nanowarp-server.XXXXXX")"
+cp "$built_binary" "$staged_binary"
+chmod 755 "$staged_binary"
+mv -f "$staged_binary" "$artifact"
+staged_binary=''
+printf 'Prepared %s\n' "$artifact"
