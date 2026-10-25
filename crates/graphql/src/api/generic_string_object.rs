@@ -17,8 +17,6 @@ pub enum GenericStringObjectFormat {
     JsonEnvVarCollection,
     #[cynic(rename = "JsonPreference")]
     JsonPreference,
-    #[cynic(rename = "JsonWorkflowEnum")]
-    JsonWorkflowEnum,
     /// Fallback for GSO formats this client build does not recognize (for example
     /// server-only formats such as `JsonRunner`). Without this, decoding a Drive
     /// sync response that contains an unknown format fails for the entire response.
@@ -44,7 +42,6 @@ impl std::fmt::Display for GenericStringObjectFormat {
         let s = match self {
             GenericStringObjectFormat::JsonEnvVarCollection => "JsonEnvVarCollection",
             GenericStringObjectFormat::JsonPreference => "JsonPreference",
-            GenericStringObjectFormat::JsonWorkflowEnum => "JsonWorkflowEnum",
             GenericStringObjectFormat::Unknown => "Unknown",
         };
         write!(f, "{s}")

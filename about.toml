@@ -45,5 +45,3 @@ workarounds = [
 #   - session-sharing-protocol
 #   - warp-command-signatures
 #   - warp-completion-metadata
-#   - warp-workflows
-#   - warp-workflows-types

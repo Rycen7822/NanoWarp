@@ -9,7 +9,6 @@ use warp::integration_testing::step::{
 use warp::integration_testing::tab::assert_pane_title;
 use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
-use warp::integration_testing::workflow::assert_workflow_metadata_revision;
 use warp::integration_testing::{self};
 use warp::settings::Preference;
 use warp::settings_view::{SettingsSection, SettingsView};
@@ -413,9 +412,6 @@ pub fn test_restore_snapshot_with_common_shareable_metadata_ids() -> Builder {
                 ),
             );
         })
-        .with_step(TestStep::new("Verify revision of workflow").add_assertion(
-            assert_workflow_metadata_revision("ftv7on4HwTeixO2xF5hmKf", 1676321629559090),
-        ))
         .with_step(TestStep::new("Verify revision of notebook").add_assertion(
             assert_notebook_metadata_revision("Flbu686H9XDCHZlYRriVpB", 1690991057168223),
         ))

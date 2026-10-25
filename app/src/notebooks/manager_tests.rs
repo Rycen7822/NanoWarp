@@ -94,8 +94,8 @@ fn initialize_app(app: &mut App) -> TestState {
 
     let (sender, receiver) = mpsc::sync_channel(10);
     let objects_client = ServerApiProvider::new_for_test().get_cloud_objects_client();
-    let sync_queue = app
-        .add_singleton_model(|ctx| SyncQueue::new(Default::default(), objects_client.clone(), ctx));
+    let sync_queue =
+        app.add_singleton_model(|_| SyncQueue::new(Default::default(), objects_client.clone()));
     app.add_singleton_model(|ctx| UpdateManager::new(Some(sender), objects_client.clone(), ctx));
     sync_queue.update(app, |queue, ctx| queue.start_dequeueing(ctx));
 

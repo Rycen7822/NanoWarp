@@ -4,9 +4,9 @@ use super::workspace::{
     BillingMetadata, CustomerType, DelinquencyStatus, EmailInvite, EnforceableSetting,
     EnterpriseSecretRegex, InviteLinkDomainRestriction, LinkSharingSettings, MultiAdminPolicy,
     NativeWorkspacesPolicy, SecretRedactionSettings, SessionSharingPolicy, SharedNotebooksPolicy,
-    SharedWorkflowsPolicy, SplitListSetting, TeamLinkSharingSettings, TeamSecretRedactionSettings,
-    TeamSettings, TelemetryDataCollectionPolicy, TelemetrySettings, Tier, Workspace,
-    WorkspaceMember, WorkspaceSettings, WorkspaceSizePolicy,
+    SplitListSetting, TeamLinkSharingSettings, TeamSecretRedactionSettings, TeamSettings,
+    TelemetryDataCollectionPolicy, TelemetrySettings, Tier, Workspace, WorkspaceMember,
+    WorkspaceSettings, WorkspaceSizePolicy,
 };
 use crate::auth::UserUid;
 use crate::convert_to_server_experiment;
@@ -22,8 +22,7 @@ use warp_graphql::billing::{
     DelinquencyStatus as GqlDelinquencyStatus, MultiAdminPolicy as GqlMultiAdminPolicy,
     NativeWorkspacesPolicy as GqlNativeWorkspacesPolicy, ServiceAgreementType,
     SessionSharingPolicy as GqlSessionSharingPolicy,
-    SharedNotebooksPolicy as GqlSharedNotebooksPolicy,
-    SharedWorkflowsPolicy as GqlSharedWorkflowsPolicy, StripeSubscriptionPlan,
+    SharedNotebooksPolicy as GqlSharedNotebooksPolicy, StripeSubscriptionPlan,
     TeamSizePolicy as GqlTeamSizePolicy,
     TelemetryDataCollectionPolicy as GqlTelemetryDataCollectionPolicy, Tier as GqlTier,
 };
@@ -173,15 +172,6 @@ impl From<GqlSharedNotebooksPolicy> for SharedNotebooksPolicy {
     }
 }
 
-impl From<GqlSharedWorkflowsPolicy> for SharedWorkflowsPolicy {
-    fn from(gql_shared_workflows_policy: GqlSharedWorkflowsPolicy) -> SharedWorkflowsPolicy {
-        Self {
-            is_unlimited: gql_shared_workflows_policy.is_unlimited,
-            limit: i64::from(gql_shared_workflows_policy.limit),
-        }
-    }
-}
-
 impl From<GqlSessionSharingPolicy> for SessionSharingPolicy {
     fn from(gql_session_sharing_policy: GqlSessionSharingPolicy) -> SessionSharingPolicy {
         Self {
@@ -226,7 +216,6 @@ impl From<GqlTier> for Tier {
             description: gql_tier.description,
             workspace_size_policy: gql_tier.team_size_policy.map(From::from),
             shared_notebooks_policy: gql_tier.shared_notebooks_policy.map(From::from),
-            shared_workflows_policy: gql_tier.shared_workflows_policy.map(From::from),
             session_sharing_policy: gql_tier.session_sharing_policy.map(From::from),
             telemetry_data_collection_policy: gql_tier
                 .telemetry_data_collection_policy

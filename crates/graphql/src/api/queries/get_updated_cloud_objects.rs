@@ -8,7 +8,6 @@ use crate::response_context::ResponseContext;
 use crate::scalars::Time;
 use crate::schema;
 use crate::user::PublicUserProfile;
-use crate::workflow::Workflow;
 
 #[derive(cynic::QueryVariables, Debug)]
 pub struct GetUpdatedCloudObjectsVariables {
@@ -25,7 +24,6 @@ pub struct UpdatedCloudObjectsOutput {
     pub notebooks: Option<Vec<Notebook>>,
     pub response_context: ResponseContext,
     pub user_profiles: Option<Vec<PublicUserProfile>>,
-    pub workflows: Option<Vec<Workflow>>,
 }
 
 #[derive(cynic::QueryFragment, Debug)]
@@ -46,7 +44,6 @@ pub struct DeletedObjectUids {
     pub folder_uids: Option<Vec<cynic::Id>>,
     pub generic_string_object_uids: Option<Vec<cynic::Id>>,
     pub notebook_uids: Option<Vec<cynic::Id>>,
-    pub workflow_uids: Option<Vec<cynic::Id>>,
 }
 
 #[derive(cynic::InlineFragments, Debug)]
@@ -64,7 +61,6 @@ pub struct UpdatedCloudObjectsInput {
     pub force_refresh: bool,
     pub generic_string_objects: Option<Vec<UpdatedObjectInput>>,
     pub notebooks: Option<Vec<UpdatedObjectInput>>,
-    pub workflows: Option<Vec<UpdatedObjectInput>>,
 }
 
 #[derive(cynic::InputObject, Debug, Clone)]

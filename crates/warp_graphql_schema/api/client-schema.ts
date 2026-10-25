@@ -14,7 +14,6 @@ const clientMutations = [
   'createManagedMcpClientConfig',
   'createManagedSecret',
   'createNotebook',
-  'createWorkflow',
   'deleteConversation',
   'deleteManagedSecret',
   'updateManagedSecret',
@@ -42,7 +41,6 @@ const clientMutations = [
   'setUserIsOnboarded',
   'transferGenericStringObjectOwner',
   'transferNotebookOwner',
-  'transferWorkflowOwner',
   'trashObject',
   'untrashObject',
   'updateAgentTask',
@@ -52,7 +50,6 @@ const clientMutations = [
   'updateMerkleTree',
   'updateObjectGuests',
   'updateUserSettings',
-  'updateWorkflow',
   'updateOnboardingSurveyStatus',
   'createSimpleIntegration',
 ];

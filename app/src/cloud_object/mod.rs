@@ -29,7 +29,6 @@ use crate::server::ids::{HashableId, HashedSqliteId, ObjectUid, ServerId, SyncId
 use crate::server::server_api::object::ObjectClient;
 use crate::server::sync_queue::{QueueItem, SerializedModel};
 use crate::util::time_format::format_approx_duration_from_now_utc;
-use crate::workflows::CloudWorkflow;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
@@ -415,12 +414,12 @@ pub trait CloudObject: Debug {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait CloudModelType: Debug + Clone + Send + Sync {
-    /// The associated CloudObject type for this model (e.g. CloudNotebook, CloudWorkflow, etc)
+    /// The associated CloudObject type for this model (e.g. CloudNotebook or CloudFolder).
     type CloudObjectType: CloudObject + 'static;
     // TODO: @ianhodge - remove for sync ID refactor.
     type IdType: HashableId + ToServerId + Debug + Into<String> + Clone + 'static;
 
-    /// Returns the name of this model type (e.g. Workflow, Folder, Notebook)
+    /// Returns the name of this model type (e.g. Folder or Notebook).
     fn model_type_name(&self) -> &'static str;
 
     /// Returns the CloudObjectTypeAndId for this object.
@@ -647,13 +646,6 @@ where
             SyncId::ClientId(_) => None,
             SyncId::ServerId(id) => {
                 let object_type = self.object_type();
-                if self
-                    .as_any()
-                    .downcast_ref::<CloudWorkflow>()
-                    .is_some_and(|workflow| workflow.model().data.is_agent_mode_workflow())
-                {
-                    return None;
-                }
 
                 let mut link = format!(
                     "{}/drive/{}/{}-{}",
@@ -866,7 +858,7 @@ pub use cloud_object_client::{
 };
 pub use cloud_object_models::{
     ServerCloudObject, ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
-    ServerWorkflow, ServerWorkflowEnum, TryFromGql,
+    TryFromGql,
 };
 use warp_errors::report_error;
 

@@ -18,7 +18,6 @@ pub enum UpdateCloudObjectResult<T> {
 #[derive(Default, Clone)]
 pub struct ObjectsToUpdate {
     pub notebooks: Vec<UpdatedObjectInput>,
-    pub workflows: Vec<UpdatedObjectInput>,
     pub folders: Vec<UpdatedObjectInput>,
     pub generic_string_objects: Vec<UpdatedObjectInput>,
 }

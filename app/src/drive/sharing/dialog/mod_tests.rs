@@ -9,6 +9,7 @@ use crate::cloud_object::Owner;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
 use crate::drive::sharing::{ShareableObject, SharingAccessLevel};
+use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::terminal::TerminalView;
 use crate::terminal::shared_session::SharedSessionStatus;
@@ -17,8 +18,6 @@ use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::{
     add_window_with_id_and_terminal, initialize_app_for_terminal_view,
 };
-use crate::workflows::workflow::Workflow;
-use crate::workflows::{CloudWorkflow, CloudWorkflowModel};
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -265,9 +264,10 @@ fn initialize_app_for_drive_object_dialog(app: &mut App) {
 
 fn add_shareable_object(app: &mut App) -> ServerId {
     let object_uid: ServerId = 789.into();
-    let mut object = CloudWorkflow::new_local(
-        CloudWorkflowModel {
-            data: Workflow::new("shared workflow", "echo shared"),
+    let mut object = CloudNotebook::new_local(
+        CloudNotebookModel {
+            title: "shared notebook".to_string(),
+            data: "echo shared".to_string(),
         },
         Owner::User {
             user_uid: UserUid::new("owner"),

@@ -34,9 +34,6 @@ use warp_graphql::mutations::create_generic_string_object::{
 use warp_graphql::mutations::create_notebook::{
     CreateNotebook, CreateNotebookInput, CreateNotebookResult, CreateNotebookVariables,
 };
-use warp_graphql::mutations::create_workflow::{
-    CreateWorkflow, CreateWorkflowInput, CreateWorkflowResult, CreateWorkflowVariables,
-};
 use warp_graphql::mutations::delete_object::{
     DeleteObject, DeleteObjectInput, DeleteObjectResult, DeleteObjectVariables,
 };
@@ -78,10 +75,6 @@ use warp_graphql::mutations::transfer_notebook_owner::{
     TransferNotebookOwner, TransferNotebookOwnerInput, TransferNotebookOwnerResult,
     TransferNotebookOwnerVariables,
 };
-use warp_graphql::mutations::transfer_workflow_owner::{
-    TransferWorkflowOwner, TransferWorkflowOwnerInput, TransferWorkflowOwnerResult,
-    TransferWorkflowOwnerVariables,
-};
 use warp_graphql::mutations::trash_object::{
     TrashObject, TrashObjectInput, TrashObjectResult, TrashObjectVariables,
 };
@@ -101,10 +94,6 @@ use warp_graphql::mutations::update_notebook::{
 use warp_graphql::mutations::update_object_guests::{
     UpdateObjectGuests, UpdateObjectGuestsInput, UpdateObjectGuestsResult,
     UpdateObjectGuestsVariables,
-};
-use warp_graphql::mutations::update_workflow::{
-    UpdateWorkflow, UpdateWorkflowInput, UpdateWorkflowResult, UpdateWorkflowVariables,
-    WorkflowUpdate,
 };
 use warp_graphql::notebook::{UpdateNotebookEditAccessInput, UpdateNotebookEditAccessResult};
 use warp_graphql::object::CloudObjectWithDescendants;
@@ -128,8 +117,8 @@ use crate::cloud_object::{
     CreateObjectRequest, CreatedCloudObject, GenericCloudObject, GenericServerObject,
     GenericStringObjectFormat, GenericStringObjectUniqueKey, JsonObjectType, ObjectIdType,
     ObjectType, ObjectsToUpdate, Owner, Revision, RevisionAndLastEditor, ServerCloudObject,
-    ServerFolder, ServerMetadata, ServerNotebook, ServerObject, ServerPermissions, ServerWorkflow,
-    TryFromGql as _, UpdateCloudObjectResult,
+    ServerFolder, ServerMetadata, ServerNotebook, ServerObject, ServerPermissions, TryFromGql as _,
+    UpdateCloudObjectResult,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
@@ -144,108 +133,12 @@ use crate::server::ids::{ClientId, HashableId, ServerId, ServerIdAndType, SyncId
 use crate::server::server_api::ServerApi;
 use crate::server::sync_queue::SerializedModel;
 use crate::settings::Preference;
-use crate::workflows::WorkflowId;
-use crate::workflows::workflow_enum::WorkflowEnum;
 use crate::workspaces::gql_convert::object_update_message_from_gql;
 use crate::workspaces::user_profiles::UserProfileWithUID;
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl ObjectClient for ServerApi {
-    async fn create_workflow(
-        &self,
-        request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult> {
-        let model = request
-            .serialized_model
-            .ok_or_else(|| anyhow!("missing model for creating workflow"))?;
-        let variables = CreateWorkflowVariables {
-            input: CreateWorkflowInput {
-                data: model.take(),
-                entrypoint: request.entrypoint.into(),
-                initial_folder_id: request.initial_folder_id.map(|folder_id| folder_id.into()),
-                owner: request.owner.into(),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = CreateWorkflow::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.create_workflow {
-            CreateWorkflowResult::CreateWorkflowOutput(output) => {
-                let metadata = output.workflow.metadata;
-                let workflow_id: WorkflowId = metadata.uid.into_inner().into();
-
-                Ok(CreateCloudObjectResult::Success {
-                    created_cloud_object: CreatedCloudObject {
-                        client_id: request.client_id,
-                        revision_and_editor: RevisionAndLastEditor {
-                            revision: output.revision_ts.into(),
-                            last_editor_uid: metadata.last_editor_uid.map(|uid| uid.into_inner()),
-                        },
-                        metadata_ts: metadata.metadata_last_updated_ts,
-                        server_id_and_type: ServerIdAndType {
-                            id: workflow_id.to_server_id(),
-                            id_type: ObjectIdType::Workflow,
-                        },
-                        creator_uid: metadata.creator_uid.map(|uid| uid.into_inner()),
-                        permissions: output.workflow.permissions.try_into()?,
-                    },
-                })
-            }
-            CreateWorkflowResult::UserFacingError(e) => Ok(
-                CreateCloudObjectResult::UserFacingError(get_user_facing_error_message(e)),
-            ),
-            CreateWorkflowResult::Unknown => {
-                Err(anyhow!("Failed to create workflow due to unknown variant"))
-            }
-        }
-    }
-
-    async fn update_workflow(
-        &self,
-        workflow_id: WorkflowId,
-        data: SerializedModel,
-        revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerWorkflow>> {
-        let variables = UpdateWorkflowVariables {
-            input: UpdateWorkflowInput {
-                data: data.model_as_str().to_owned(),
-                uid: cynic::Id::new(workflow_id),
-                revision_ts: revision.map(|r| r.into()),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = UpdateWorkflow::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.update_workflow {
-            UpdateWorkflowResult::UpdateWorkflowOutput(output) => match output.update {
-                WorkflowUpdate::ObjectUpdateSuccess(success) => {
-                    Ok(UpdateCloudObjectResult::Success {
-                        revision_and_editor: RevisionAndLastEditor {
-                            revision: success.revision_ts.into(),
-                            last_editor_uid: Some(success.last_editor_uid.into_inner()),
-                        },
-                    })
-                }
-                WorkflowUpdate::WorkflowUpdateRejected(rejected) => {
-                    Ok(UpdateCloudObjectResult::Rejected {
-                        object: ServerWorkflow::try_from_gql(rejected.conflicting_workflow)?,
-                    })
-                }
-                WorkflowUpdate::Unknown => Err(anyhow!("WorkflowUpdate has unknown variant")),
-            },
-            UpdateWorkflowResult::UserFacingError(e) => {
-                Err(anyhow!(get_user_facing_error_message(e)))
-            }
-            UpdateWorkflowResult::Unknown => {
-                Err(anyhow!("Failed to update workflow due to unknown variant"))
-            }
-        }
-    }
-
     async fn bulk_create_generic_string_objects(
         &self,
         owner: Owner,
@@ -710,7 +603,6 @@ impl ObjectClient for ServerApi {
                 force_refresh,
                 generic_string_objects: Some(objects_to_update.generic_string_objects),
                 notebooks: Some(objects_to_update.notebooks),
-                workflows: Some(objects_to_update.workflows),
             },
             request_context: get_request_context(),
         };
@@ -726,16 +618,6 @@ impl ObjectClient for ServerApi {
                         notebooks
                             .into_iter()
                             .filter_map(|notebook| ServerNotebook::try_from_gql(notebook).ok())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let updated_workflows = output
-                    .workflows
-                    .map(|workflows| {
-                        workflows
-                            .into_iter()
-                            .filter_map(|workflow| ServerWorkflow::try_from_gql(workflow).ok())
                             .collect()
                     })
                     .unwrap_or_default();
@@ -768,13 +650,6 @@ impl ObjectClient for ServerApi {
                                     gso,
                                 );
                             }
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonWorkflowEnum => {
-                                parse_server_gso::<WorkflowEnum, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::WorkflowEnum),
-                                    gso,
-                                );
-                            }
                             // GSO formats unknown to this client build (e.g. the
                             // server-only `JsonRunner`) are skipped so syncing of
                             // known objects still succeeds instead of failing to
@@ -787,16 +662,6 @@ impl ObjectClient for ServerApi {
                 let deleted_notebooks: Vec<NotebookId> = output
                     .deleted_object_uids
                     .notebook_uids
-                    .map(|uids| {
-                        uids.into_iter()
-                            .map(|uid| uid.into_inner().into())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let deleted_workflows: Vec<WorkflowId> = output
-                    .deleted_object_uids
-                    .workflow_uids
                     .map(|uids| {
                         uids.into_iter()
                             .map(|uid| uid.into_inner().into())
@@ -847,8 +712,6 @@ impl ObjectClient for ServerApi {
                 let response = InitialLoadResponse {
                     updated_notebooks,
                     deleted_notebooks,
-                    updated_workflows,
-                    deleted_workflows,
                     updated_folders,
                     deleted_folders,
                     updated_generic_string_objects,
@@ -924,23 +787,6 @@ impl ObjectClient for ServerApi {
         let response = self.send_graphql_request(operation, None).await?;
         match response.transfer_notebook_owner {
             TransferNotebookOwnerResult::TransferNotebookOwnerOutput(output) => Ok(output.success),
-            _ => Ok(false),
-        }
-    }
-
-    async fn transfer_workflow_owner(&self, workflow_id: WorkflowId, owner: Owner) -> Result<bool> {
-        let variables = TransferWorkflowOwnerVariables {
-            input: TransferWorkflowOwnerInput {
-                uid: cynic::Id::new(workflow_id),
-                owner: owner.into(),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = TransferWorkflowOwner::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.transfer_workflow_owner {
-            TransferWorkflowOwnerResult::TransferWorkflowOwnerOutput(output) => Ok(output.success),
             _ => Ok(false),
         }
     }

@@ -809,14 +809,7 @@ fn test_run_command_from_text_selection() {
                 .as_ref(ctx)
                 .selected_command_workflow(ctx)
                 .unwrap();
-            assert_eq!(
-                selected_command
-                    .workflow
-                    .as_workflow()
-                    .command()
-                    .expect("Workflow is Command Workflow"),
-                "echo hi"
-            );
+            assert_eq!(selected_command.workflow.command(), "echo hi");
 
             // If the text cursor was in one command block, but another is selected, cmd-enter
             // should run the selected command.
@@ -827,14 +820,7 @@ fn test_run_command_from_text_selection() {
                 .as_ref(ctx)
                 .selected_command_workflow(ctx)
                 .unwrap();
-            assert_eq!(
-                selected_command
-                    .workflow
-                    .as_workflow()
-                    .command()
-                    .expect("Workflow is Command Workflow"),
-                "echo hello"
-            );
+            assert_eq!(selected_command.workflow.command(), "echo hello");
         });
     })
 }

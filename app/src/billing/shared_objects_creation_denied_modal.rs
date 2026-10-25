@@ -121,13 +121,6 @@ impl SharedObjectsCreationDeniedModal {
                     DriveObjectType::Notebook,
                 ))),
             ),
-            DriveObjectType::Workflow => (
-                Some(Icon::Workflow),
-                Some(Fill::Solid(warp_drive_icon_color(
-                    appearance,
-                    DriveObjectType::Workflow,
-                ))),
-            ),
             _ => (None, None),
         };
         self.shared_objects_creation_denied_modal

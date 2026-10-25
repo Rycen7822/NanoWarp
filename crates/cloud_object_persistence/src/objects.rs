@@ -118,7 +118,7 @@ pub fn load_cloud_object_read_context(
 pub fn metadata_object_type_key(object_type: ObjectType) -> String {
     match object_type {
         ObjectType::GenericStringObject(_) => GENERIC_STRING_OBJECT_PREFIX.to_owned(),
-        ObjectType::Notebook | ObjectType::Workflow | ObjectType::Folder => {
+        ObjectType::Notebook | ObjectType::Folder => {
             object_type.sqlite_object_type_as_str().to_string()
         }
     }

@@ -18,7 +18,7 @@ use crate::notebooks::link::{LinkEvent, NotebookLinks};
 use crate::notebooks::manager::{NotebookManager, NotebookSource};
 use crate::notebooks::notebook::{NotebookEvent, NotebookView};
 use crate::server::ids::SyncId;
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub struct NotebookPane {
@@ -229,7 +229,7 @@ fn handle_notebook_event(
 }
 
 /// Runs a workflow from a notebook contained in this pane group in the active session.
-fn run_notebook_workflow(workflow: Arc<WorkflowType>, ctx: &mut ViewContext<PaneGroup>) {
+fn run_notebook_workflow(workflow: Arc<Workflow>, ctx: &mut ViewContext<PaneGroup>) {
     // If the notebook was visible, then this pane group is almost certainly the active tab at the
     // workspace level. However, we dispatch to the workspace anyways for consistency (e.g. showing
     // a message if the active session is busy).

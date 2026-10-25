@@ -43,7 +43,6 @@ use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
-use crate::workflows::WorkflowType;
 use crate::workflows::workflow::Workflow;
 use crate::workspace::ActiveSession;
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -177,8 +176,6 @@ async fn initial_load(app: &mut App, updated_notebooks: impl Into<Vec<ServerNote
     let response = InitialLoadResponse {
         updated_notebooks: updated_notebooks.into(),
         deleted_notebooks: Default::default(),
-        updated_workflows: Default::default(),
-        deleted_workflows: Default::default(),
         updated_folders: Default::default(),
         deleted_folders: Default::default(),
         user_profiles: Default::default(),
@@ -274,10 +271,7 @@ echo hello
             let events = &root.as_ref(ctx).events;
             assert!(
                 events.contains(&NotebookEvent::RunWorkflow {
-                    workflow: Arc::new(WorkflowType::Notebook(Box::new(Workflow::new(
-                        "Command from Test Notebook",
-                        "echo hello"
-                    )))),
+                    workflow: Arc::new(Workflow::new("Command from Test Notebook", "echo hello")),
                 }),
                 "No RunWorkflow event in {events:#?}"
             );

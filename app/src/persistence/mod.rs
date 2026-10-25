@@ -55,7 +55,6 @@ use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
 use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::session::SessionId;
-use crate::workflows::CloudWorkflow;
 use crate::workspaces::user_profiles::UserProfileWithUID;
 use crate::workspaces::workspace::{Workspace as WorkspaceMetadata, WorkspaceUid};
 
@@ -259,7 +258,6 @@ pub enum ModelEvent {
     SaveBlock(BlockCompleted),
     DeleteBlocks(Vec<u8>),
     Snapshot(AppState),
-    UpsertWorkflows(Vec<CloudWorkflow>),
     UpsertNotebooks(Vec<CloudNotebook>),
     UpsertFolders(Vec<CloudFolder>),
     MarkObjectAsSynced {
@@ -274,9 +272,6 @@ pub enum ModelEvent {
     UpsertGenericStringObjects(Vec<Box<dyn CloudStringObject>>),
     UpsertNotebook {
         notebook: CloudNotebook,
-    },
-    UpsertWorkflow {
-        workflow: CloudWorkflow,
     },
     UpsertFolder {
         folder: CloudFolder,

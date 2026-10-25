@@ -25,7 +25,6 @@ fn build_argument(
         name: name.into(),
         description: description.into(),
         default_value: default_value.into(),
-        arg_type: Default::default(),
     }
 }
 

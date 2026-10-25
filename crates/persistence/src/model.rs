@@ -9,8 +9,8 @@ use super::schema::{
     ignored_suggestions, notebook_panes, notebooks, object_actions, object_metadata,
     object_permissions, pane_branches, pane_leaves, pane_nodes, panels, server_experiments,
     settings_panes, tab_groups, tabs, team_members, team_settings, teams, terminal_panes,
-    user_profiles, windows, workflows, workspace_language_server, workspace_metadata,
-    workspace_teams, workspaces,
+    user_profiles, windows, workspace_language_server, workspace_metadata, workspace_teams,
+    workspaces,
 };
 
 #[derive(Insertable)]
@@ -47,20 +47,6 @@ pub struct GenericStringObject {
 #[diesel(table_name = generic_string_objects)]
 pub struct NewGenericStringObject<'a> {
     pub data: &'a str,
-}
-
-#[derive(Insertable, Queryable)]
-pub struct Workflow {
-    pub id: i32,
-    pub data: String,
-}
-
-/// A type representing a `Workflow` that is newly created. We purposefully
-/// do not include the `id` here since it is unset.
-#[derive(Insertable)]
-#[diesel(table_name = workflows)]
-pub struct NewWorkflow {
-    pub data: String,
 }
 
 #[derive(Identifiable, Insertable, Queryable)]

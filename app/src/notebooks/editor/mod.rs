@@ -23,7 +23,7 @@ use crate::settings::{FontSettings, derived_notebook_font_size};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 
 mod arguments;
 mod block_insertion_menu;
@@ -323,22 +323,20 @@ impl<'a> From<&'a BufferBlockStyle> for BlockType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NotebookWorkflow {
     /// Definition of the workflow itself.
-    pub workflow: UserInput<Arc<WorkflowType>>,
+    pub workflow: UserInput<Arc<Workflow>>,
 }
 
 impl NotebookWorkflow {
-    /// Extract the [`WorkflowType`], assigning a name using the given callback if needed.
-    pub fn named_workflow<F: FnOnce() -> Option<String>>(&self, name: F) -> Arc<WorkflowType> {
-        match &**self.workflow {
-            WorkflowType::Notebook(workflow) if workflow.name().is_empty() => match name() {
-                Some(name) => {
-                    let mut workflow = workflow.clone();
-                    workflow.set_name(name.as_str());
-                    Arc::new(WorkflowType::Notebook(workflow))
-                }
-                None => (*self.workflow).clone(),
-            },
-            _ => (*self.workflow).clone(),
+    /// Assign the containing notebook's name to an anonymous command.
+    pub fn named_workflow<F: FnOnce() -> Option<String>>(&self, name: F) -> Arc<Workflow> {
+        if self.workflow.name().is_empty()
+            && let Some(name) = name()
+        {
+            let mut workflow = (**self.workflow).clone();
+            workflow.set_name(&name);
+            Arc::new(workflow)
+        } else {
+            (*self.workflow).clone()
         }
     }
 }

@@ -142,8 +142,6 @@ impl CloudObjectNamingDialog {
             DriveObjectType::Notebook => NOTEBOOK_TITLE,
             DriveObjectType::Folder => FOLDER_TITLE,
             DriveObjectType::EnvVarCollection => ENV_VAR_COLLECTION_TITLE,
-            // Workflows are not part of this dialog.
-            DriveObjectType::Workflow => "",
         };
 
         Text::new_inline(

@@ -108,8 +108,6 @@ pub enum ObjectActionSubtype {
 pub struct InitialLoadResponse {
     pub updated_notebooks: Vec<ServerNotebook>,
     pub deleted_notebooks: Vec<cloud_object_models::NotebookId>,
-    pub updated_workflows: Vec<ServerWorkflow>,
-    pub deleted_workflows: Vec<WorkflowId>,
     pub updated_folders: Vec<ServerFolder>,
     pub deleted_folders: Vec<FolderId>,
     pub updated_generic_string_objects:
@@ -192,21 +190,6 @@ pub enum ObjectDeleteResult {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait ObjectClient: 'static + Send + Sync {
-    /// This method saves a workflow for a given owner and returns it on success.
-    async fn create_workflow(
-        &self,
-        request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult>;
-
-    /// Updates a workflow with the new data. The update may be rejected if a revision
-    /// is specified _and_ that revision is not the current revision of the object in storage.
-    async fn update_workflow(
-        &self,
-        workflow_id: WorkflowId,
-        data: SerializedModel,
-        revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerWorkflow>>;
-
     /// Creates n generic string objects in a single graphql request. Use
     /// this rather than calling create_generic_string_object multiple times
     /// in a loop.
@@ -289,11 +272,9 @@ pub trait ObjectClient: 'static + Send + Sync {
         owner: Owner,
     ) -> Result<bool>;
 
-    async fn transfer_workflow_owner(&self, workflow_id: WorkflowId, owner: Owner) -> Result<bool>;
-
     async fn transfer_generic_string_object_owner(
         &self,
-        workflow_id: GenericStringObjectId,
+        object_id: GenericStringObjectId,
         owner: Owner,
     ) -> Result<bool>;
 

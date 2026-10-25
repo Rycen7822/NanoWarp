@@ -14,7 +14,7 @@ use warpui::fonts::{Properties, Weight};
 use warpui::geometry::vector::Vector2F;
 use warpui::keymap::Keystroke;
 use warpui::presenter::ChildView;
-use warpui::text_layout::{ClipConfig, TextStyle};
+use warpui::text_layout::TextStyle;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{
@@ -28,8 +28,6 @@ use super::command_parser::{
 use super::env_var_selector::{EnvVarSelector, EnvVarSelectorEvent};
 use super::workflow::Argument;
 use crate::appearance::Appearance;
-use crate::cloud_object::CloudObjectMetadataExt;
-use crate::cloud_object::model::actions::{ObjectActionType, ObjectActions};
 use crate::server::ids::SyncId;
 use crate::settings::InputModeSettings;
 use crate::terminal::block_list_viewport::InputMode;
@@ -38,7 +36,7 @@ use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons;
 use crate::util::color::coloru_with_opacity;
 use crate::view_components::FilterableDropdownOrientation;
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspace::WorkspaceAction;
 
 const INFO_BOX_PADDING: f32 = 20.;
@@ -107,7 +105,7 @@ impl SelectedWorkflowState {
 }
 
 pub struct WorkflowsMoreInfoView {
-    workflow: WorkflowType,
+    workflow: Workflow,
     /// The workflow command with the argument identifiers replaced with the actual argument.
     command_with_replaced_arguments: String,
     /// Map from workflow argument index to the character indices within the command after the arguments
@@ -118,8 +116,6 @@ pub struct WorkflowsMoreInfoView {
     pub selected_workflow_state: SelectedWorkflowState,
 
     /// View for selecting environment variables to apply to the workflow.
-    ///
-    /// This is `None` for AI workflows.
     environment_variables_dropdown: ViewHandle<EnvVarSelector>,
 
     scroll_state: ClippedScrollStateHandle,
@@ -129,23 +125,18 @@ pub struct WorkflowsMoreInfoView {
 struct ButtonMouseStates {
     close: MouseStateHandle,
     collapse: MouseStateHandle,
-    view_context: MouseStateHandle,
     add_env_var_collection: MouseStateHandle,
 }
 
 impl WorkflowsMoreInfoView {
-    pub fn new(
-        info_box_expanded: bool,
-        workflow: WorkflowType,
-        ctx: &mut ViewContext<Self>,
-    ) -> Self {
-        let num_arguments = workflow.as_workflow().arguments().len();
+    pub fn new(info_box_expanded: bool, workflow: Workflow, ctx: &mut ViewContext<Self>) -> Self {
+        let num_arguments = workflow.arguments().len();
 
         let WorkflowDisplayData {
             command_with_replaced_arguments,
             argument_index_to_char_range_map,
             ..
-        } = compute_workflow_display_data(workflow.as_workflow());
+        } = compute_workflow_display_data(&workflow);
 
         let environment_variables_dropdown = {
             let dropdown = ctx.add_typed_action_view(|ctx| {
@@ -183,7 +174,7 @@ impl WorkflowsMoreInfoView {
         if !self.selected_workflow_state.argument_cycling_enabled {
             return None;
         }
-        let workflow = self.workflow.as_workflow();
+        let workflow = &self.workflow;
         workflow
             .arguments()
             .get(*self.selected_workflow_state.currently_selected_argument)
@@ -327,32 +318,7 @@ impl WorkflowsMoreInfoView {
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         let mut flex_column = Flex::column().with_main_axis_alignment(MainAxisAlignment::Center);
-        let workflow = self.workflow.as_workflow();
-
-        if let Some(description) = workflow.description() {
-            flex_column.add_child(
-                Container::new(
-                    appearance
-                        .ui_builder()
-                        .paragraph(description.clone())
-                        .with_style(UiComponentStyles {
-                            font_family_id: Some(appearance.ui_font_family()),
-                            font_color: Some(
-                                appearance
-                                    .theme()
-                                    .sub_text_color(appearance.theme().surface_2())
-                                    .into(),
-                            ),
-                            font_size: Some(appearance.monospace_font_size()),
-                            ..Default::default()
-                        })
-                        .build()
-                        .finish(),
-                )
-                .with_padding_bottom(ARGUMENT_PADDING)
-                .finish(),
-            )
-        }
+        let workflow = &self.workflow;
 
         flex_column.add_children(workflow.arguments().iter().enumerate().map(|(index, arg)| {
             let is_selected = WorkflowArgumentIndex::from(index)
@@ -520,22 +486,12 @@ impl WorkflowsMoreInfoView {
     ) -> Box<dyn Element> {
         let content_and_args = self.render_content_and_arguments(appearance);
 
-        let workflow = self.workflow.as_workflow();
-        let mut title_line = vec![WorkflowsMoreInfoView::render_workflow_title(
+        let workflow = &self.workflow;
+        let title_line = vec![WorkflowsMoreInfoView::render_workflow_title(
             self,
             WrapText::Yes,
             appearance,
         )];
-
-        if let Some(workflow_source) = workflow.source_url()
-            && !workflow_source.is_empty()
-        {
-            title_line.push(WorkflowsMoreInfoView::render_workflow_source(
-                self,
-                workflow_source.to_string(),
-                appearance,
-            ));
-        }
 
         let collapse_button = self.render_collapse_button(appearance);
 
@@ -543,41 +499,6 @@ impl WorkflowsMoreInfoView {
 
         let mut row_content = Flex::row();
 
-        if let WorkflowType::Cloud(cloud_workflow) = &self.workflow {
-            let editing_history = cloud_workflow.metadata.semantic_editing_history(app);
-
-            let action_history = ObjectActions::as_ref(app)
-                .get_action_history_summary_for_action_type(
-                    &cloud_workflow.id.uid(),
-                    ObjectActionType::Execute,
-                );
-
-            let full_object_history_text = match (editing_history, action_history) {
-                (Some(edits), Some(actions)) => Some(format!("{edits}  |  {actions}")),
-                (Some(edits), None) => Some(edits),
-                _ => None,
-            };
-
-            let metadata_history = full_object_history_text.map(|str| {
-                Container::new(
-                    Text::new_inline(str, appearance.ui_font_family(), 12.)
-                        .with_color(
-                            appearance
-                                .theme()
-                                .sub_text_color(appearance.theme().surface_2())
-                                .into(),
-                        )
-                        .with_clip(ClipConfig::end())
-                        .finish(),
-                )
-                .with_uniform_padding(5.)
-                .finish()
-            });
-
-            if let Some(metadata_history_element) = metadata_history {
-                row_content.add_child(Shrinkable::new(1., metadata_history_element).finish());
-            }
-        }
         row_content.add_children([collapse_button, close_button]);
 
         let workflow_info = Flex::column()
@@ -707,8 +628,8 @@ impl WorkflowsMoreInfoView {
             .with_main_axis_alignment(MainAxisAlignment::Start)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
-        let workflow = self.workflow.as_workflow();
-        if !workflow.arguments().is_empty() || workflow.description().is_some() {
+        let workflow = &self.workflow;
+        if !workflow.arguments().is_empty() {
             workflow_info.add_children([
                 Shrinkable::new(1., vertical_divider).finish(),
                 Shrinkable::new(
@@ -754,7 +675,7 @@ impl WorkflowsMoreInfoView {
         appearance
             .ui_builder()
             .wrappable_text(
-                self.workflow.as_workflow().name().to_owned(),
+                self.workflow.name().to_owned(),
                 matches!(wrap_text, WrapText::Yes),
             )
             .with_style(UiComponentStyles {
@@ -771,40 +692,6 @@ impl WorkflowsMoreInfoView {
             })
             .build()
             .finish()
-    }
-
-    fn render_workflow_source(
-        &self,
-        workflow_source: String,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        Container::new(
-            appearance
-                .ui_builder()
-                .link(
-                    "View Context".into(),
-                    Some(workflow_source),
-                    None,
-                    self.button_mouse_states.view_context.clone(),
-                )
-                .soft_wrap(false)
-                .with_style(UiComponentStyles {
-                    font_family_id: Some(appearance.ui_font_family()),
-                    font_color: Some(
-                        appearance
-                            .theme()
-                            .sub_text_color(appearance.theme().background())
-                            .into(),
-                    ),
-                    font_size: Some(appearance.monospace_font_size()),
-                    font_weight: Some(Weight::Normal),
-                    ..Default::default()
-                })
-                .build()
-                .finish(),
-        )
-        .with_padding_left(10.)
-        .finish()
     }
 }
 

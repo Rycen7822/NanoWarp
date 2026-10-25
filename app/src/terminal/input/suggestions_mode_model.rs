@@ -47,13 +47,6 @@ impl InputSuggestionsModeModel {
             InputSuggestionsMode::CompletionSuggestions { .. }
         )
     }
-
-    pub fn is_static_workflow_enum_suggestions(&self) -> bool {
-        matches!(
-            self.mode,
-            InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-        )
-    }
 }
 
 impl Entity for InputSuggestionsModeModel {

@@ -9,7 +9,7 @@ use warp_graphql::object::ObjectUpdateSuccess;
 
 use crate::cloud_object::{
     RevisionAndLastEditor, ServerEnvVarCollection, ServerFolder, ServerObject, ServerPreference,
-    ServerWorkflowEnum, TryFromGql, UpdateCloudObjectResult,
+    TryFromGql, UpdateCloudObjectResult,
 };
 use crate::server::graphql::get_user_facing_error_message;
 
@@ -48,11 +48,6 @@ pub fn update_generic_string_object_result_to_update_result(
                         }
                         GenericStringObjectFormat::JsonPreference => {
                             boxed_rejected_generic_string_object::<ServerPreference>(
-                                rejected.conflicting_generic_string_object,
-                            )?
-                        }
-                        GenericStringObjectFormat::JsonWorkflowEnum => {
-                            boxed_rejected_generic_string_object::<ServerWorkflowEnum>(
                                 rejected.conflicting_generic_string_object,
                             )?
                         }

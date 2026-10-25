@@ -110,7 +110,7 @@ use crate::util::bindings::{CustomAction, is_binding_pty_compliant};
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
 use crate::view_components::ToastFlavor;
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspace::tab_group::TabGroupId;
 use crate::workspace::{self, CommandSearchOptions, PaneViewLocator, TabBarLocation};
 use crate::{cmd_or_ctrl_shift, send_telemetry_from_ctx};
@@ -462,7 +462,7 @@ pub enum Event {
     ToggleCodeReviewPane(CodeReviewPanelArg),
     /// Tell the workspace to run a workflow in the active tab's active session.
     RunWorkflow {
-        workflow: Arc<WorkflowType>,
+        workflow: Arc<Workflow>,
         argument_override: Option<HashMap<String, String>>,
     },
     /// Invoke env var from pane

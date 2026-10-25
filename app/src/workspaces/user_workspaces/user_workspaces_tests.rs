@@ -36,6 +36,7 @@ use crate::cloud_object::{CloudObject, CloudObjectGuest};
 use crate::drive::sharing::{SharingAccessLevel, Subject, UserKind};
 use crate::features::FeatureFlag;
 use crate::network::NetworkStatus;
+use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::ClientId;
 use crate::server::server_api::ServerApiProvider;
@@ -44,8 +45,6 @@ use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings::CodeSettings;
 use crate::system::SystemStats;
-use crate::workflows::workflow::Workflow;
-use crate::workflows::{CloudWorkflow, CloudWorkflowModel};
 use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -933,9 +932,10 @@ fn test_spaces_for_window_orders_selected_team_shared_and_personal() {
                 .user_id()
                 .expect("test user should be authenticated")
         });
-        let mut shared_object = CloudWorkflow::new_local(
-            CloudWorkflowModel {
-                data: Workflow::new("shared workflow", "echo shared"),
+        let mut shared_object = CloudNotebook::new_local(
+            CloudNotebookModel {
+                title: "shared notebook".to_string(),
+                data: "echo shared".to_string(),
             },
             Owner::User {
                 user_uid: UserUid::new("other-user"),
@@ -1035,9 +1035,10 @@ fn test_joining_team_moves_objects() {
         members: vec![],
     };
 
-    let shared_object = CloudWorkflow::new_local(
-        CloudWorkflowModel {
-            data: Workflow::new("shared workflow", "echo shared"),
+    let shared_object = CloudNotebook::new_local(
+        CloudNotebookModel {
+            title: "shared notebook".to_string(),
+            data: "echo shared".to_string(),
         },
         Owner::Team { team_uid },
         None,
@@ -1166,9 +1167,10 @@ fn test_leaving_team_moves_objects() {
         members: vec![],
     };
 
-    let shared_object = CloudWorkflow::new_local(
-        CloudWorkflowModel {
-            data: Workflow::new("shared workflow", "echo shared"),
+    let shared_object = CloudNotebook::new_local(
+        CloudNotebookModel {
+            title: "shared notebook".to_string(),
+            data: "echo shared".to_string(),
         },
         Owner::Team { team_uid },
         None,
@@ -1251,7 +1253,6 @@ fn gql_tier() -> GqlTier {
         description: "Free tier".to_string(),
         team_size_policy: None,
         shared_notebooks_policy: None,
-        shared_workflows_policy: None,
         session_sharing_policy: None,
         telemetry_data_collection_policy: None,
         multi_admin_policy: None,

@@ -235,9 +235,8 @@ impl ServerId {
     }
 
     /// We need this API for backwards compatibility with local sqlite data.
-    /// In sqlite, objects are stored in object typy, uid pairs of the format
-    /// {sqlite-prefix}-{uid}. For example, for a workflow this would be
-    /// "Workflow-{uid}".
+    /// In sqlite, objects are stored in object type, uid pairs of the format
+    /// {sqlite-prefix}-{uid}. For example, a notebook uses "Notebook-{uid}".
     pub fn sqlite_type_and_uid_hash(&self, object_id_type: ObjectIdType) -> HashedSqliteId {
         format!("{}-{}", object_id_type.sqlite_prefix(), self)
     }

@@ -6,88 +6,21 @@ use super::compute_workflow_display_data;
 use crate::workflows::workflow::{Argument, Workflow};
 
 lazy_static! {
-    static ref WORKFLOW_WITH_ESCAPES: Workflow = Workflow::Command {
-        name: "Workflow with escaped arguments".to_owned(),
-        command:
-            r#"docker history --no-trunc --format {{arg1}} {{{.ID}}}: {{{.CreatedBy}}} {{{arg2}}} {{arg2}}"#
-                .to_owned(),
-        arguments: vec![
-            Argument {
-                name: "arg1".to_owned(),
-                default_value: Some("default1".to_owned()),
-                description: None,
-                arg_type: Default::default()
-            },
-            Argument {
-                name: "arg2".to_owned(),
-                default_value: None,
-                description: None,
-                arg_type: Default::default()
-            }
-        ],
-        description: None,
-        tags: vec![],
-        source_url: None,
-        author: None,
-        author_url: None,
-        shells: vec![
-            warp_workflows::Shell::Zsh,
-            warp_workflows::Shell::Bash,
-            warp_workflows::Shell::Fish,
-        ],
-        environment_variables: None,
-    };
-    static ref WORKFLOW_WITH_DUPLICATES_AND_ESCAPES: Workflow = Workflow::Command {
-        name: "Workflow with escaped arguments".to_owned(),
-        command:
-            r#"{{{hi}}} {{hi}} {{{{{{hi}} {{{{hi}}}} {{{{{hi}}} {{hi}}"#
-                .to_owned(),
-        arguments: vec![
-            Argument {
-                name: "hi".to_owned(),
-                default_value: None,
-                description: None,
-                arg_type: Default::default()
-            },
-        ],
-        description: None,
-        tags: vec![],
-        source_url: None,
-        author: None,
-        author_url: None,
-        shells: vec![
-            warp_workflows::Shell::Zsh,
-            warp_workflows::Shell::Bash,
-            warp_workflows::Shell::Fish,
-        ],
-        environment_variables: None,
-    };
-
-    static ref WORKFLOW_WITH_MULTIBYTE_CHARS: Workflow = Workflow::Command {
-        name: "Workflow with multiyte chars".to_owned(),
-        command:
-            r#"echo "hello 😎{{name}}🤠{{name}}"#
-                .to_owned(),
-        arguments: vec![
-            Argument {
-                name: "name".to_owned(),
-                default_value: None,
-                description: None,
-                arg_type: Default::default()
-            },
-        ],
-        description: None,
-        tags: vec![],
-        source_url: None,
-        author: None,
-        author_url: None,
-        shells: vec![
-            warp_workflows::Shell::Zsh,
-            warp_workflows::Shell::Bash,
-            warp_workflows::Shell::Fish,
-        ],
-        environment_variables: None,
-    };
+    static ref WORKFLOW_WITH_ESCAPES: Workflow = Workflow::new(
+        "Workflow with escaped arguments",
+        r#"docker history --no-trunc --format {{arg1}} {{{.ID}}}: {{{.CreatedBy}}} {{{arg2}}} {{arg2}}"#,
+    ).with_arguments(vec![
+        Argument::new("arg1").with_default("default1"),
+        Argument::new("arg2"),
+    ]);
+    static ref WORKFLOW_WITH_DUPLICATES_AND_ESCAPES: Workflow = Workflow::new(
+        "Workflow with escaped arguments",
+        r#"{{{hi}}} {{hi}} {{{{{{hi}} {{{{hi}}}} {{{{{hi}}} {{hi}}"#,
+    ).with_arguments(vec![Argument::new("hi")]);
+    static ref WORKFLOW_WITH_MULTIBYTE_CHARS: Workflow = Workflow::new(
+        "Workflow with multiyte chars",
+        r#"echo "hello 😎{{name}}🤠{{name}}"#,
+    ).with_arguments(vec![Argument::new("name")]);
 }
 
 #[test]

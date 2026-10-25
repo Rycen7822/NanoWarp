@@ -3,7 +3,6 @@ use crate::generic_string_object::GenericStringObject;
 use crate::notebook::Notebook;
 use crate::scalars::Time;
 use crate::schema;
-use crate::workflow::Workflow;
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct ObjectMetadata {
@@ -27,8 +26,6 @@ pub enum ObjectType {
     GenericStringObject,
     #[cynic(rename = "Notebook")]
     Notebook,
-    #[cynic(rename = "Workflow")]
-    Workflow,
     #[cynic(fallback)]
     Unknown,
 }
@@ -45,7 +42,6 @@ pub enum CloudObject {
     Folder(Folder),
     GenericStringObject(GenericStringObject),
     Notebook(Notebook),
-    Workflow(Workflow),
     #[cynic(fallback)]
     Unknown,
 }
@@ -56,7 +52,6 @@ pub enum CloudObjectWithDescendants {
     FolderWithDescendants(FolderWithDescendants),
     GenericStringObject(GenericStringObject),
     Notebook(Notebook),
-    Workflow(Workflow),
     #[cynic(fallback)]
     Unknown,
 }

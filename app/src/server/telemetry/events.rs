@@ -106,7 +106,6 @@ pub enum DownloadSource {
 // For use when recording what type of cloud object a particular telemetry is for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TelemetryCloudObjectType {
-    Workflow,
     Notebook,
     Folder,
     GenericStringObject(GenericStringObjectFormat),
@@ -116,7 +115,6 @@ impl From<&CloudObjectTypeAndId> for TelemetryCloudObjectType {
     fn from(cloud_object_type_and_id: &CloudObjectTypeAndId) -> Self {
         match cloud_object_type_and_id {
             CloudObjectTypeAndId::Notebook(_) => Self::Notebook,
-            CloudObjectTypeAndId::Workflow(_) => Self::Workflow,
             CloudObjectTypeAndId::Folder(_) => Self::Folder,
             CloudObjectTypeAndId::GenericStringObject { object_type, .. } => {
                 Self::GenericStringObject(*object_type)
@@ -669,7 +667,6 @@ pub enum TelemetryEvent {
         is_settings_sync_enabled: bool,
     },
     RemovedUserFromTeam,
-    DeletedWorkflow,
     DeletedNotebook,
     ToggleApprovalsModal,
     SetLineHeight {
@@ -941,7 +938,6 @@ pub enum TelemetryEvent {
     FileTreeItemCreated,
 
     TierLimitHit(TierLimitHitEvent),
-    SharedObjectLimitHitBannerViewPlansButtonClicked,
     ResourceUsageStats {
         cpu: CpuUsageStats,
         mem: MemoryUsageStats,
@@ -1669,7 +1665,6 @@ impl TelemetryEvent {
             | TelemetryEvent::TeamJoined
             | TelemetryEvent::TeamLeft
             | TelemetryEvent::RemovedUserFromTeam
-            | TelemetryEvent::DeletedWorkflow
             | TelemetryEvent::DeletedNotebook
             | TelemetryEvent::ToggleApprovalsModal
             | TelemetryEvent::ResourceCenterOpened
@@ -1713,7 +1708,6 @@ impl TelemetryEvent {
             | TelemetryEvent::UpdateBlockFilterQuery
             | TelemetryEvent::BlockFilterToolbeltButtonClicked
             | TelemetryEvent::PaneDragInitiated
-            | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::SettingsImportResetButtonClicked
             | TelemetryEvent::ITermMultipleHotkeys
             | TelemetryEvent::DriveSharingOnboardingBlockShown
@@ -1983,7 +1977,6 @@ impl TelemetryEvent {
             | TelemetryEvent::TeamLeft
             | TelemetryEvent::ToggleSettingsSync { .. }
             | TelemetryEvent::RemovedUserFromTeam
-            | TelemetryEvent::DeletedWorkflow
             | TelemetryEvent::DeletedNotebook
             | TelemetryEvent::ToggleApprovalsModal
             | TelemetryEvent::SetLineHeight { .. }
@@ -2089,7 +2082,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ObjectLinkCopied { .. }
             | TelemetryEvent::FileTreeToggled { .. }
             | TelemetryEvent::TierLimitHit(_)
-            | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::ResourceUsageStats { .. }
             | TelemetryEvent::MemoryUsageStats { .. }
             | TelemetryEvent::MemoryUsageHigh { .. }
@@ -2275,7 +2267,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamJoined => EnablementState::Always,
             Self::TeamLeft => EnablementState::Always,
             Self::RemovedUserFromTeam => EnablementState::Always,
-            Self::DeletedWorkflow => EnablementState::Always,
             Self::DeletedNotebook => EnablementState::Always,
             Self::ToggleApprovalsModal => EnablementState::Always,
             Self::SetLineHeight => EnablementState::Always,
@@ -2372,7 +2363,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::WebCloudObjectOpenedOnDesktop => EnablementState::Always,
             Self::ToggleShowBlockDividers => EnablementState::Flag(FeatureFlag::MinimalistUI),
             Self::DriveSharingOnboardingBlockShown => EnablementState::Always,
-            Self::SharedObjectLimitHitBannerViewPlansButtonClicked => EnablementState::Always,
             Self::ResourceUsageStats => EnablementState::Always,
             Self::MemoryUsageStats => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
@@ -2631,13 +2621,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamJoined => "Team Joined",
             Self::TeamLeft => "Team Left",
             Self::RemovedUserFromTeam => "Removed user from team",
-            Self::DeletedWorkflow => "Deleted Workflow",
             Self::DeletedNotebook => "Deleted Notebook",
             Self::ToggleApprovalsModal => "Toggle Approvals Modal",
             Self::TierLimitHit => "Tier Limit Hit",
-            Self::SharedObjectLimitHitBannerViewPlansButtonClicked => {
-                "Shared Object Limit Hit Banner View Plans Button Clicked"
-            }
             Self::ResourceUsageStats => "perf_metrics.resource_usage",
             Self::MemoryUsageStats => "perf_metrics.memory_usage",
             Self::MemoryUsageHigh => "perf_metrics.memory_usage_high",
@@ -2839,7 +2825,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::TeamJoined => "Joined a Warp Drive team",
             Self::TeamLeft => "Left a Warp Drive team",
             Self::RemovedUserFromTeam => "Remove user from Warp Drive team",
-            Self::DeletedWorkflow => "Deleted workflow from Warp Drive team",
             Self::DeletedNotebook => "Deleted notebook from Warp Drive team",
             Self::ToggleApprovalsModal => "Opened or closed teams modal",
             Self::SetLineHeight => "Set line height through Settings -> Appearance",
@@ -3045,9 +3030,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PaneDragInitiated => "Initiated dragging a pane via the header",
             Self::PaneDropped => "Ended dragging a pane via the pane header",
             Self::TierLimitHit => "User hit the tier limit for a feature",
-            Self::SharedObjectLimitHitBannerViewPlansButtonClicked => {
-                "Clicked the 'View Plans' button on the persistent drive banner"
-            }
             Self::ResourceUsageStats => "Periodic report on application resource usage statistics",
             Self::MemoryUsageStats => "Periodic report on application memory usage statistics",
             Self::MemoryUsageHigh => {

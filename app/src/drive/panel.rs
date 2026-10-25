@@ -27,7 +27,6 @@ use crate::notebooks::manager::NotebookSource;
 use crate::server::cloud_objects::update_manager::{InitiatedBy, UpdateManager};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::server::telemetry::SharingDialogSource;
-use crate::workflows::CloudWorkflow;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub const MIN_SIDEBAR_WIDTH: f32 = 250.;
@@ -57,7 +56,6 @@ pub enum DrivePanelAction {
 
 #[derive(Clone, Debug)]
 pub enum DrivePanelEvent {
-    RunWorkflow(Box<CloudWorkflow>),
     InvokeEnvironmentVariables {
         env_var_collection: Box<CloudEnvVarCollection>,
         in_subshell: bool,
@@ -207,11 +205,8 @@ impl DrivePanel {
                 let cloud_model = CloudModel::as_ref(ctx);
                 let object = cloud_model.get_by_uid(&id.uid());
                 if let Some(cloud_object) = object {
-                    let workflow: Option<&CloudWorkflow> = cloud_object.into();
                     let env_var_collection: Option<&CloudEnvVarCollection> = cloud_object.into();
-                    if let Some(workflow) = workflow {
-                        self.run_workflow(workflow.clone(), ctx);
-                    } else if let Some(env_var_collection) = env_var_collection {
+                    if let Some(env_var_collection) = env_var_collection {
                         self.invoke_environment_variables(env_var_collection.clone(), false, ctx);
                     }
                 }
@@ -239,11 +234,6 @@ impl DrivePanel {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Workflow(_)) {
-            report_error!("Duplicating this object type is not supported");
-            return;
-        }
-
         // Check if object being duplicated is in team space, if it is, then check
         // corresponding object limits for that team.
         if let Some(space) =
@@ -325,11 +315,6 @@ impl DrivePanel {
         self.index_view.update(ctx, |index_view, ctx| {
             index_view.set_selected_object(id, ctx);
         });
-    }
-
-    pub fn run_workflow(&mut self, workflow: CloudWorkflow, ctx: &mut ViewContext<Self>) {
-        ctx.emit(DrivePanelEvent::RunWorkflow(Box::new(workflow)));
-        ctx.notify();
     }
 
     pub fn invoke_environment_variables(

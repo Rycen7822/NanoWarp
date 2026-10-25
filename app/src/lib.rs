@@ -1313,7 +1313,6 @@ pub(crate) fn initialize_app(
         SyncQueue::new(
             all_queue_items,
             server_api_provider.as_ref(ctx).get_cloud_objects_client(),
-            ctx,
         )
     });
 

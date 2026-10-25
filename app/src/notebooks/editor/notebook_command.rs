@@ -65,7 +65,6 @@ use crate::util::bindings::CustomAction;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 use crate::view_components::Dropdown;
 use crate::view_components::dropdown::DropdownAction;
-use crate::workflows::WorkflowType;
 use crate::workflows::workflow::Workflow;
 use crate::workspace::WorkspaceAction;
 
@@ -607,7 +606,7 @@ impl NotebookCommand {
         // TODO: Once notebook workflows have their own metadata, we can populate the title here.
         let workflow = Workflow::new(String::new(), command).with_arguments(args_state.arguments);
         Some(NotebookWorkflow {
-            workflow: UserInput::new(Arc::new(WorkflowType::Notebook(Box::new(workflow)))),
+            workflow: UserInput::new(Arc::new(workflow)),
         })
     }
 }

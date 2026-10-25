@@ -379,7 +379,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_close_notebook_window);
     register_test!(test_backspace_inside_raw_mermaid_block_edits_text_without_removing_block);
 
-    // Workflow tests
+    // Block filtering tests
 
     register_test!(test_block_filtering_keybinding);
     register_test!(test_block_filtering_keybinding_with_long_running_command);

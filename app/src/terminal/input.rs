@@ -150,7 +150,7 @@ use crate::util::bindings::{self, CustomAction};
 use crate::util::file::external_editor;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::DismissibleToast;
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workflows::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
     compute_workflow_display_data_with_overrides,
@@ -158,7 +158,6 @@ use crate::workflows::command_parser::{
 use crate::workflows::info_box::{
     WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowsInfoBoxViewEvent, WorkflowsMoreInfoView,
 };
-use crate::workflows::workflow_enum::EnumVariants;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, InitContent, ToastStack, WorkspaceAction};
 
@@ -225,7 +224,6 @@ pub enum TelemetryInputSuggestionsMode {
     CompletionSuggestions,
     HistoryUp,
     NaturalLanguageCommandSearch,
-    StaticWorkflowEnumSuggestions,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -291,20 +289,6 @@ pub enum InputSuggestionsMode {
         menu_position: TabCompletionsMenuPosition,
     },
 
-    StaticWorkflowEnumSuggestions {
-        /// The suggested values for the workflow argument.
-        suggestions: Vec<String>,
-
-        /// Where the menu should be positioned.
-        menu_position: TabCompletionsMenuPosition,
-
-        /// The selected ranges for every instance of the argument.
-        selected_ranges: Vec<Range<ByteOffset>>,
-
-        /// Store the cursor point of the end of the first selected argument.
-        cursor_point: BufferPoint,
-    },
-
     /// Mode indicating that no suggestion UI is being shown.
     #[default]
     Closed,
@@ -327,9 +311,6 @@ impl InputSuggestionsMode {
             } => TelemetryInputSuggestionsMode::HistoryFuzzySearch,
             InputSuggestionsMode::CompletionSuggestions { .. } => {
                 TelemetryInputSuggestionsMode::CompletionSuggestions
-            }
-            InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. } => {
-                TelemetryInputSuggestionsMode::StaticWorkflowEnumSuggestions
             }
             InputSuggestionsMode::Closed => unreachable!(),
         }
@@ -580,10 +561,7 @@ struct SelectedWorkflowState {
     /// select all instances of an argument when a user changes the selected argument.
     argument_index_to_highlight_index: HashMap<WorkflowArgumentIndex, Vec<usize>>,
 
-    /// Map of arguments with enum variants to those variants, which are used as suggested inputs to the argument.
-    argument_index_to_enum_variants: HashMap<WorkflowArgumentIndex, EnumVariants>,
-
-    workflow_type: WorkflowType,
+    workflow_type: Workflow,
 
     /// `true` if the WorkflowsMoreInfoView should be shown for the selected workflow. This is true
     /// when the viewer may display workflow details.
@@ -1498,18 +1476,6 @@ impl Input {
         input
     }
 
-    /// Shows a transient error toast for an input operation that was blocked or redirected.
-    fn show_ephemeral_error_toast(&self, message: &str, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            toast_stack.add_ephemeral_toast(
-                DismissibleToast::error(message.to_string()),
-                window_id,
-                ctx,
-            );
-        });
-    }
-
     pub fn set_shared_session_presence_manager(
         &mut self,
         presence_manager: ModelHandle<PresenceManager>,
@@ -2309,30 +2275,18 @@ impl Input {
         self.workflows_state.selected_workflow_state.is_some()
     }
 
-    pub fn workflows_info_box_open_workflow_cloud_id(&self) -> Option<SyncId> {
-        if let Some(state) = &self.workflows_state.selected_workflow_state {
-            match &state.workflow_type {
-                WorkflowType::Cloud(workflow) => Some(workflow.id),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
     pub fn show_workflows_info_box_on_workflow_selection(
         &mut self,
-        workflow_type: WorkflowType,
+        workflow_type: Workflow,
         argument_override: Option<HashMap<String, String>>,
         ctx: &mut ViewContext<Input>,
     ) {
         // Should not show workflows info box for read-only viewers
         let should_show_more_info_view = !self.model.lock().shared_session_status().is_reader();
-        let env_vars = workflow_type.as_workflow().default_env_vars();
         self.insert_workflow_into_input(
             workflow_type,
             argument_override,
-            env_vars,
+            None,
             should_show_more_info_view,
             ctx,
         );
@@ -2345,17 +2299,12 @@ impl Input {
     /// displayed above the input.
     fn insert_workflow_into_input(
         &mut self,
-        workflow_type: WorkflowType,
+        workflow_type: Workflow,
         argument_overrides: Option<HashMap<String, String>>,
         selected_env_vars: Option<SyncId>,
         should_show_more_info_view: bool,
         ctx: &mut ViewContext<Input>,
     ) {
-        if workflow_type.as_workflow().is_agent_mode_workflow() {
-            self.show_ephemeral_error_toast("Agent workflows are no longer supported.", ctx);
-            return;
-        }
-
         // As the first step, clear the existing buffer so that selecting a workflow
         // is effectively a buffer replacement (not append).
         self.editor.update(ctx, |editor, ctx| {
@@ -2379,15 +2328,11 @@ impl Input {
             command_with_replaced_arguments,
             replaced_ranges,
             argument_index_to_highlight_index_map,
-            argument_index_to_object_id_map,
             ..
         } = if let Some(arguments_to_override) = argument_overrides {
-            compute_workflow_display_data_with_overrides(
-                workflow_type.as_workflow(),
-                arguments_to_override,
-            )
+            compute_workflow_display_data_with_overrides(&workflow_type, arguments_to_override)
         } else {
-            compute_workflow_display_data(workflow_type.as_workflow())
+            compute_workflow_display_data(&workflow_type)
         };
 
         let text_style_ranges = replaced_ranges
@@ -2411,22 +2356,9 @@ impl Input {
             );
         });
 
-        // Get enum variants
-        let cloud_model = CloudModel::as_ref(ctx);
-        let enum_variants_map = argument_index_to_object_id_map
-            .iter()
-            .filter_map(|(index, object_id)| {
-                cloud_model
-                    .get_workflow_enum(object_id)
-                    .map(|workflow_enum| workflow_enum.model().string_model.variants.clone())
-                    .map(|variants| (*index, variants))
-            })
-            .collect();
-
         self.workflows_state.selected_workflow_state = Some(SelectedWorkflowState {
             more_info_view: self.create_workflows_info_view(workflow_type.clone(), ctx),
             argument_index_to_highlight_index: argument_index_to_highlight_index_map,
-            argument_index_to_enum_variants: enum_variants_map,
             workflow_type,
             should_show_more_info_view,
         });
@@ -2496,7 +2428,7 @@ impl Input {
 
     fn create_workflows_info_view(
         &mut self,
-        workflow: WorkflowType,
+        workflow: Workflow,
         ctx: &mut ViewContext<Input>,
     ) -> ViewHandle<WorkflowsMoreInfoView> {
         let workflow_more_info_view = ctx.add_typed_action_view(|ctx| {
@@ -2638,9 +2570,6 @@ impl Input {
         text_style_ranges: Vec<Range<ByteOffset>>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let mut variants = None;
-        let mut selected_ranges = Vec::new();
-
         if let Some(active_workflow_state) = self.workflows_state.selected_workflow_state.as_ref() {
             active_workflow_state
                 .more_info_view
@@ -2655,10 +2584,6 @@ impl Input {
                         ) {
                             selected_workflow_state.set_argument_cycling_enabled(false);
                         } else {
-                            variants = active_workflow_state
-                                .argument_index_to_enum_variants
-                                .get(&selected_workflow_state.currently_selected_argument());
-
                             selected_workflow_state.set_argument_cycling_enabled(true);
                             // Get all of the highlighted ranges for the currently selected argument.
                             let byte_ranges = active_workflow_state
@@ -2671,7 +2596,6 @@ impl Input {
                                 });
 
                             if let Some(byte_ranges) = byte_ranges {
-                                selected_ranges = byte_ranges.clone().collect();
                                 editor.select_ranges_by_byte_offset(byte_ranges, ctx);
                             }
                         }
@@ -2679,50 +2603,9 @@ impl Input {
                 });
         }
 
-        if let Some(enum_variants) = variants {
-            self.populate_enum_suggestions_menu(enum_variants.clone(), selected_ranges, ctx);
-        } else {
-            self.suggestions_mode_model.update(ctx, |m, ctx| {
-                m.set_mode(InputSuggestionsMode::Closed, ctx);
-            });
-        }
-        ctx.notify();
-    }
-
-    fn populate_enum_suggestions_menu(
-        &mut self,
-        enum_variants: EnumVariants,
-        selected_ranges: Vec<Range<ByteOffset>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // If the newly highlighted argument has enum variants, populate the suggestions menu
-        let position = self.editor.as_ref(ctx).first_selection_end_to_point(ctx);
-
-        self.editor.update(ctx, |editor, ctx| {
-            editor.cache_buffer_point(
-                position,
-                COMPLETIONS_START_OF_REPLACEMENT_SPAN_POSITION_ID,
-                ctx,
-            );
-        });
-
-        let EnumVariants::Static(variants) = enum_variants;
         self.suggestions_mode_model.update(ctx, |m, ctx| {
-            m.set_mode(
-                InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                    suggestions: variants.clone(),
-                    menu_position: TabCompletionsMenuPosition::AtFirstCursor,
-                    selected_ranges,
-                    cursor_point: position,
-                },
-                ctx,
-            );
+            m.set_mode(InputSuggestionsMode::Closed, ctx);
         });
-
-        self.input_suggestions.update(ctx, |input, ctx| {
-            input.set_enum_variants(variants, ctx);
-        });
-
         ctx.notify();
     }
 
@@ -2823,9 +2706,6 @@ impl Input {
                             ctx.notify();
                         }
                     }
-                    InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. } => {
-                        // If in the future we want to replace the selected arguments with suggestion options as we cycle, this is where we do it
-                    }
                     InputSuggestionsMode::Closed => {
                         log::warn!("Got a InputSuggestionsEvent::Select when the mode was Closed!");
                     }
@@ -2919,20 +2799,6 @@ impl Input {
                     executing,
                     ctx,
                 );
-                true
-            }
-            InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                selected_ranges, ..
-            } => {
-                let selected_ranges = selected_ranges.clone();
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.select_and_replace(
-                        suggestion,
-                        selected_ranges.iter().cloned(),
-                        PlainTextEditorViewAction::AcceptCompletionSuggestion,
-                        ctx,
-                    );
-                });
                 true
             }
         }
@@ -3739,17 +3605,6 @@ impl Input {
                             }
                         }
                     }
-                    InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                        cursor_point, ..
-                    } => {
-                        let cursor_point = *cursor_point;
-                        let point = self.editor.as_ref(ctx).first_selection_end_to_point(ctx);
-                        let should_close = point != cursor_point;
-
-                        if should_close {
-                            self.close_input_suggestions(/*should_focus_input=*/ true, ctx);
-                        }
-                    }
                     InputSuggestionsMode::HistoryUp { .. } => {
                         // In HistoryUp mode, we replace the buffer as options
                         // are selected.
@@ -3820,20 +3675,6 @@ impl Input {
                                 /*is_user_edit=*/ false,
                                 ctx,
                             );
-
-                            if should_close {
-                                self.close_input_suggestions(
-                                    /*should_focus_input=*/ true, ctx,
-                                );
-                            }
-                        }
-                        InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                            cursor_point,
-                            ..
-                        } => {
-                            let cursor_point = *cursor_point;
-                            let point = self.editor.as_ref(ctx).first_selection_end_to_point(ctx);
-                            let should_close = point != cursor_point;
 
                             if should_close {
                                 self.close_input_suggestions(
@@ -5216,13 +5057,6 @@ impl Input {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
                 suggestions.select_next(ctx);
             });
-        } else if matches!(
-            self.suggestions_mode_model.as_ref(ctx).mode(),
-            InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-        ) {
-            self.input_suggestions.update(ctx, |suggestions, ctx| {
-                suggestions.select_next(ctx);
-            });
         } else if is_tab_bound_to_open_completions && self.cursor_positioned_for_completion(ctx) {
             self.open_completion_suggestions(CompletionsTrigger::Keybinding, ctx);
         } else {
@@ -5387,13 +5221,6 @@ impl Input {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
                 suggestions.confirm(ctx);
             })
-        } else if matches!(
-            self.suggestions_mode_model.as_ref(ctx).mode(),
-            InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-        ) {
-            self.input_suggestions.update(ctx, |suggestions, ctx| {
-                suggestions.confirm(ctx);
-            });
         } else {
             let command = self.get_command(ctx);
             if !self.try_execute_command(&command, ctx) {

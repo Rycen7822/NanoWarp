@@ -32,7 +32,7 @@ use crate::cloud_object::{
     GenericStringObjectUniqueKey, JsonObjectType, ObjectDeleteResult, ObjectIdType,
     ObjectMetadataUpdateResult, ObjectPermissionsUpdateData, ObjectType, ObjectsToUpdate, Owner,
     Revision, RevisionAndLastEditor, ServerFolder, ServerMetadata, ServerNotebook, ServerObject,
-    ServerPermissions, ServerPreference, ServerWorkflow, UpdateCloudObjectResult,
+    ServerPermissions, ServerPreference, UpdateCloudObjectResult,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
@@ -43,7 +43,6 @@ use crate::server::ids::{ServerId, ServerIdAndType, SyncId};
 use crate::server::server_api::object::{GuestIdentifier, ObjectClient};
 use crate::server::sync_queue::SerializedModel;
 use crate::settings::cloud_preferences::{CloudPreferenceModel, Platform, Preference};
-use crate::workflows::WorkflowId;
 
 /// A stateful fake cloud preferences backend.
 #[derive(Clone, Default)]
@@ -276,22 +275,6 @@ impl ObjectClient for FakeObjectClient {
     // misbehave.
     // ───────────────────────────────────────────────────────────────
 
-    async fn create_workflow(
-        &self,
-        _request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult> {
-        unimplemented!("FakeObjectClient::create_workflow")
-    }
-
-    async fn update_workflow(
-        &self,
-        _workflow_id: WorkflowId,
-        _data: SerializedModel,
-        _revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerWorkflow>> {
-        unimplemented!("FakeObjectClient::update_workflow")
-    }
-
     async fn create_generic_string_object(
         &self,
         _format: GenericStringObjectFormat,
@@ -362,14 +345,6 @@ impl ObjectClient for FakeObjectClient {
         _owner: Owner,
     ) -> Result<bool> {
         unimplemented!("FakeObjectClient::transfer_notebook_owner")
-    }
-
-    async fn transfer_workflow_owner(
-        &self,
-        _workflow_id: WorkflowId,
-        _owner: Owner,
-    ) -> Result<bool> {
-        unimplemented!("FakeObjectClient::transfer_workflow_owner")
     }
 
     async fn transfer_generic_string_object_owner(

@@ -3,7 +3,7 @@ use warp_core::ui::appearance::Appearance;
 use warpui::platform::WindowStyle;
 use warpui::{AddSingletonModel, App, SingletonEntity, TypedActionView, ViewHandle};
 
-use super::{DriveIndex, DriveIndexAction, SharedObjectLimitBannerKind};
+use super::{DriveIndex, DriveIndexAction};
 use crate::ASSETS;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
@@ -26,8 +26,6 @@ use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
 use crate::test_util::settings::initialize_settings_for_tests;
-use crate::workflows::workflow::Workflow;
-use crate::workflows::{CloudWorkflow, CloudWorkflowModel};
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -56,25 +54,6 @@ fn initialize_app(app: &mut App) {
 fn create_index(app: &mut App) -> ViewHandle<DriveIndex> {
     let (_, index) = app.add_window(WindowStyle::NotStealFocus, DriveIndex::new);
     index
-}
-
-fn create_workflow(app: &mut App) -> SyncId {
-    CloudModel::handle(app).update(app, |cloud_model, ctx| {
-        let client_id = ClientId::new();
-        let sync_id = SyncId::ClientId(client_id);
-        let workflow = Workflow::new("my workflow", "my command");
-        cloud_model.create_object(
-            sync_id,
-            CloudWorkflow::new_local(
-                CloudWorkflowModel::new(workflow),
-                Owner::mock_current_user(),
-                None,
-                client_id,
-            ),
-            ctx,
-        );
-        sync_id
-    })
 }
 
 fn create_notebook(app: &mut App) -> SyncId {
@@ -119,17 +98,16 @@ fn test_retry_menu_item_visibility() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let index = create_index(&mut app);
-        let sync_id = create_workflow(&mut app);
+        let sync_id = create_notebook(&mut app);
         let cloud_object_type_and_id: CloudObjectTypeAndId =
-            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         let warp_drive_item_id = WarpDriveItemId::Object(cloud_object_type_and_id);
 
         // by default, it doesn't show up
         index.update(&mut app, |index, ctx| {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
             assert_eq!(menu_items.len(), 2);
-            assert_eq!(label_for_menu_item(&menu_items[0]), "Copy workflow text");
-            assert_eq!(label_for_menu_item(&menu_items[1]), "Share");
+            assert_eq!(label_for_menu_item(&menu_items[0]), "Share");
         });
 
         // when the object is in error, it should show up
@@ -138,8 +116,7 @@ fn test_retry_menu_item_visibility() {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
             assert_eq!(menu_items.len(), 3);
             assert_eq!(label_for_menu_item(&menu_items[0]), "Retry");
-            assert_eq!(label_for_menu_item(&menu_items[1]), "Copy workflow text");
-            assert_eq!(label_for_menu_item(&menu_items[2]), "Share");
+            assert_eq!(label_for_menu_item(&menu_items[1]), "Share");
         });
 
         // but if we're offline, it shouldn't show up
@@ -149,8 +126,7 @@ fn test_retry_menu_item_visibility() {
         index.update(&mut app, |index, ctx| {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
             assert_eq!(menu_items.len(), 2);
-            assert_eq!(label_for_menu_item(&menu_items[0]), "Copy workflow text");
-            assert_eq!(label_for_menu_item(&menu_items[1]), "Share");
+            assert_eq!(label_for_menu_item(&menu_items[0]), "Share");
         });
     })
 }
@@ -160,9 +136,9 @@ fn test_retry_menu_item_logic() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let index = create_index(&mut app);
-        let sync_id = create_workflow(&mut app);
+        let sync_id = create_notebook(&mut app);
         let cloud_object_type_and_id: CloudObjectTypeAndId =
-            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
 
         SyncQueue::handle(&app).update(&mut app, |sync_queue, _ctx| {
             sync_queue.stop_dequeueing();
@@ -180,12 +156,12 @@ fn test_retry_menu_item_logic() {
             }
         });
 
-        // with an object not known to the server, we enqueue a CreateWorkflow item
+        // with an object not known to the server, we enqueue a CreateObject item
         SyncQueue::handle(&app).read(&app, |sync_queue, _ctx| {
             assert_eq!(sync_queue.queue().len(), 1);
             assert!(matches!(
                 sync_queue.queue()[0].1,
-                QueueItem::CreateWorkflow { .. }
+                QueueItem::CreateObject { .. }
             ))
         });
 
@@ -193,14 +169,14 @@ fn test_retry_menu_item_logic() {
 
         // make the object known to the server (by giving it a server id instead)
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            if let CloudObjectTypeAndId::Workflow(SyncId::ClientId(client_id)) =
+            if let CloudObjectTypeAndId::Notebook(SyncId::ClientId(client_id)) =
                 cloud_object_type_and_id
                 && let SyncId::ServerId(server_id) = new_sync_id
             {
                 let server_creation_info = ServerCreationInfo {
                     server_id_and_type: ServerIdAndType {
                         id: server_id,
-                        id_type: ObjectIdType::Workflow,
+                        id_type: ObjectIdType::Notebook,
                     },
                     creator_uid: None,
                     permissions: ServerPermissions::mock_personal(),
@@ -215,16 +191,16 @@ fn test_retry_menu_item_logic() {
 
         index.update(&mut app, |index, ctx| {
             let new_cloud_object_type_and_id: CloudObjectTypeAndId =
-                CloudObjectTypeAndId::from_id_and_type(new_sync_id, ObjectType::Workflow);
+                CloudObjectTypeAndId::from_id_and_type(new_sync_id, ObjectType::Notebook);
             index.retry_failed_object(&new_cloud_object_type_and_id, ctx);
         });
 
-        // with an object known to the server, we enqueue an UpdateWorkflow item
+        // with an object known to the server, we enqueue an UpdateNotebook item
         SyncQueue::handle(&app).read(&app, |sync_queue, _ctx| {
             assert_eq!(sync_queue.queue().len(), 2);
             assert!(matches!(
                 sync_queue.queue()[1].1,
-                QueueItem::UpdateWorkflow { .. }
+                QueueItem::UpdateNotebook { .. }
             ))
         });
     })
@@ -259,49 +235,6 @@ fn test_warp_drive_navigation_states() {
                 Some(WarpDriveItemId::Object(cloud_object_type_and_id)),
                 "Expect selected to have correct value"
             );
-        });
-    });
-}
-
-#[test]
-fn test_shared_object_limit_banner_dismissal_persists_per_type() {
-    App::test(ASSETS, |mut app| async move {
-        initialize_app(&mut app);
-        let index = create_index(&mut app);
-
-        // Neither banner is dismissed by default.
-        index.read(&app, |_index, cx| {
-            assert!(!DriveIndex::is_object_limit_banner_dismissed(
-                SharedObjectLimitBannerKind::Notebook,
-                cx,
-            ));
-            assert!(!DriveIndex::is_object_limit_banner_dismissed(
-                SharedObjectLimitBannerKind::Workflow,
-                cx,
-            ));
-        });
-
-        // Dismissing the notebook banner is remembered.
-        index.update(&mut app, |index, ctx| {
-            index.handle_action(
-                &DriveIndexAction::DismissObjectLimitBanner {
-                    banner_kind: SharedObjectLimitBannerKind::Notebook,
-                },
-                ctx,
-            );
-        });
-
-        // The notebook banner stays dismissed, and the workflow banner is
-        // unaffected — dismissal is tracked per object type.
-        index.read(&app, |_index, cx| {
-            assert!(DriveIndex::is_object_limit_banner_dismissed(
-                SharedObjectLimitBannerKind::Notebook,
-                cx,
-            ));
-            assert!(!DriveIndex::is_object_limit_banner_dismissed(
-                SharedObjectLimitBannerKind::Workflow,
-                cx,
-            ));
         });
     });
 }

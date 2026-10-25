@@ -69,17 +69,6 @@
                             'let proto_path = manifest_dir.join("nix-vendored-protos");'
                       ''}
 
-                      ${lib.optionalString (hasCrate "warp-workflows") ''
-                        mkdir -p workflows/nix-vendored-specs
-                        cp -R specs/. workflows/nix-vendored-specs/
-                        substituteInPlace workflows/build.rs \
-                          --replace-fail \
-                            'println!("cargo:rerun-if-changed=../specs");' \
-                            'println!("cargo:rerun-if-changed=nix-vendored-specs");' \
-                          --replace-fail \
-                            'for entry in WalkDir::new("../specs") {' \
-                            'for entry in WalkDir::new("nix-vendored-specs") {'
-                      ''}
                     '';
                   });
               };

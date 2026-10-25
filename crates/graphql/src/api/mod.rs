@@ -14,7 +14,6 @@ pub mod request_context;
 pub mod response_context;
 pub mod subscriptions;
 pub mod user;
-pub mod workflow;
 pub mod workspace;
 
 use cynic::impl_scalar;

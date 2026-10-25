@@ -1,6 +1,5 @@
 use super::{ClientId, ServerId, SyncId};
 use crate::notebooks::NotebookId;
-use crate::workflows::WorkflowId;
 
 #[test]
 pub fn test_client_sync_id_serialization() {
@@ -14,7 +13,7 @@ pub fn test_client_sync_id_serialization() {
 
 #[test]
 pub fn test_server_sync_id_serialization() {
-    let id = SyncId::ServerId(WorkflowId::from(ServerId::from(123)).into());
+    let id = SyncId::ServerId(NotebookId::from(ServerId::from(123)).into());
     let serialized = serde_json::to_string(&id).expect("failed to serialize");
     assert_eq!(serialized, format!("\"{}\"", ServerId::from(123)));
     let deserialized: SyncId =

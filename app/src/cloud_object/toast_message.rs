@@ -72,13 +72,6 @@ impl CloudObjectToastMessage {
                 Some(format!("Failed to leave {object_name}"))
             }
             (
-                ObjectType::Workflow,
-                ObjectOperation::Update,
-                OperationSuccessType::Rejection,
-            ) => {
-                Some("This workflow could not be saved because changes were made while you were editing.".to_string())
-            }
-            (
                 ObjectType::GenericStringObject(GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection)),
                 ObjectOperation::Update,
                 OperationSuccessType::Rejection,

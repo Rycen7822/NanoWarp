@@ -49,7 +49,6 @@ pub struct Tier {
     pub description: String,
     pub team_size_policy: Option<TeamSizePolicy>,
     pub shared_notebooks_policy: Option<SharedNotebooksPolicy>,
-    pub shared_workflows_policy: Option<SharedWorkflowsPolicy>,
     pub session_sharing_policy: Option<SessionSharingPolicy>,
     pub telemetry_data_collection_policy: Option<TelemetryDataCollectionPolicy>,
     pub multi_admin_policy: Option<MultiAdminPolicy>,
@@ -60,12 +59,6 @@ pub struct Tier {
 pub struct SessionSharingPolicy {
     pub enabled: bool,
     pub max_session_bytes_size: i32,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct SharedWorkflowsPolicy {
-    pub is_unlimited: bool,
-    pub limit: i32,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]

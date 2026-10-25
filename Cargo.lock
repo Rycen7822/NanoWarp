@@ -2208,7 +2208,6 @@ dependencies = [
  "settings_value",
  "url",
  "uuid",
- "warp-workflows",
  "warp_cli",
  "warp_core",
  "warp_errors",
@@ -5615,7 +5614,6 @@ dependencies = [
  "version-compare",
  "warp",
  "warp-command-signatures",
- "warp-workflows",
  "warp_cli",
  "warp_core",
  "warpui",
@@ -6681,16 +6679,6 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
-
-[[package]]
-name = "memmap"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6585fd95e7bb50d6cc31e20d4cf9afb4e2ba16c5846fc76793f11218da9c475b"
-dependencies = [
- "libc",
- "winapi",
-]
 
 [[package]]
 name = "memmap2"
@@ -11825,15 +11813,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "uneval"
-version = "0.2.3"
-source = "git+https://github.com/warpdotdev/uneval?rev=df4d9fad372aedc447e6f93ca0f930fabaf9dd1a#df4d9fad372aedc447e6f93ca0f930fabaf9dd1a"
-dependencies = [
- "serde",
- "thiserror 1.0.63",
-]
-
-[[package]]
 name = "unicase"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12471,7 +12450,6 @@ dependencies = [
  "vte",
  "walkdir",
  "warp-command-signatures",
- "warp-workflows",
  "warp_assets",
  "warp_channel_config",
  "warp_cli",
@@ -12535,28 +12513,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
-]
-
-[[package]]
-name = "warp-workflows"
-version = "0.1.0"
-source = "git+https://github.com/warpdotdev/workflows?rev=793a98ddda6ef19682aed66364faebd2829f0e01#793a98ddda6ef19682aed66364faebd2829f0e01"
-dependencies = [
- "anyhow",
- "convert_case 0.4.0",
- "memmap",
- "serde_yaml 0.8.26",
- "uneval",
- "walkdir",
- "warp-workflows-types",
-]
-
-[[package]]
-name = "warp-workflows-types"
-version = "0.1.0"
-source = "git+https://github.com/warpdotdev/workflows?rev=793a98ddda6ef19682aed66364faebd2829f0e01#793a98ddda6ef19682aed66364faebd2829f0e01"
-dependencies = [
- "serde",
 ]
 
 [[package]]

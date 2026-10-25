@@ -27,8 +27,8 @@ use crate::cloud_object::{
     GenericCloudObject, GenericStringObjectFormat, JsonObjectType, ObjectDeleteResult,
     ObjectIdType, ObjectMetadataUpdateResult, ObjectPermissionsUpdateData, ObjectType, Owner,
     Revision, RevisionAndLastEditor, ServerCloudObject, ServerFolder, ServerGuestSubject,
-    ServerNotebook, ServerObject, ServerObjectGuest, ServerPreference, ServerWorkflow,
-    ServerWorkflowEnum, Space, UpdateCloudObjectResult,
+    ServerNotebook, ServerObject, ServerObjectGuest, ServerPreference, Space,
+    UpdateCloudObjectResult,
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::folders::{CloudFolder, CloudFolderModel, FolderId};
@@ -48,11 +48,6 @@ use crate::server::ids::{
 };
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::{CloudPreferenceModel, Preference};
-use crate::workflows::workflow::{Argument, ArgumentType, Workflow};
-use crate::workflows::workflow_enum::{
-    CloudWorkflowEnum, CloudWorkflowEnumModel, EnumVariants, WorkflowEnum,
-};
-use crate::workflows::{CloudWorkflow, CloudWorkflowModel, WorkflowId};
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
 
 fn create_object<K, M>(
@@ -164,140 +159,6 @@ fn mock_server_permissions(owner: Owner) -> ServerPermissions {
     }
 }
 
-fn create_workflow(
-    client_id: ClientId,
-    app: &mut App,
-    update_manager: &ModelHandle<UpdateManager>,
-) {
-    create_workflow_internal(
-        app,
-        update_manager,
-        client_id,
-        "client_workflow".to_string(),
-        "echo client".to_string(),
-        Owner::mock_current_user(),
-        None,
-    )
-}
-
-fn create_workflow_internal(
-    app: &mut App,
-    update_manager: &ModelHandle<UpdateManager>,
-    client_id: ClientId,
-    workflow_name: String,
-    workflow_command: String,
-    owner: Owner,
-    initial_folder_id: Option<SyncId>,
-) {
-    update_manager.update(app, |update_manager, ctx| {
-        update_manager.create_object(
-            CloudWorkflowModel::new(Workflow::new(workflow_name, workflow_command)),
-            owner,
-            client_id,
-            CloudObjectEventEntrypoint::Unknown,
-            true,
-            initial_folder_id,
-            InitiatedBy::User,
-            ctx,
-        );
-    });
-}
-
-fn get_workflow(app: &App, sync_id: SyncId) -> CloudWorkflow {
-    CloudModel::handle(app).read(app, |cloud_model, _ctx| {
-        cloud_model
-            .get_workflow(&sync_id)
-            .expect("workflow should exist")
-            .clone()
-    })
-}
-
-fn create_workflow_enum(
-    client_id: ClientId,
-    app: &mut App,
-    update_manager: &ModelHandle<UpdateManager>,
-) {
-    create_workflow_enum_internal(
-        app,
-        update_manager,
-        client_id,
-        "workflow_enum".to_string(),
-        vec!["variant 1".to_string(), "variant 2".to_string()],
-        Owner::mock_current_user(),
-    )
-}
-
-fn create_workflow_enum_internal(
-    app: &mut App,
-    update_manager: &ModelHandle<UpdateManager>,
-    client_id: ClientId,
-    enum_name: String,
-    enum_variants: Vec<String>,
-    owner: Owner,
-) {
-    update_manager.update(app, |update_manager, ctx| {
-        update_manager.create_object(
-            CloudWorkflowEnumModel::new(WorkflowEnum {
-                name: enum_name,
-                variants: EnumVariants::Static(enum_variants),
-                is_shared: false,
-            }),
-            owner,
-            client_id,
-            CloudObjectEventEntrypoint::Unknown,
-            true,
-            None,
-            InitiatedBy::User,
-            ctx,
-        );
-    });
-}
-
-fn mock_server_workflow(id: WorkflowId, owner: Owner, metadata: ServerMetadata) -> ServerWorkflow {
-    ServerWorkflow::new(
-        SyncId::ServerId(id.into()),
-        CloudWorkflowModel::new(Workflow::new(format!("w{id}"), format!("c{id}"))),
-        metadata,
-        mock_server_permissions(owner),
-    )
-}
-
-fn mock_server_workflow_with_enum(
-    id: WorkflowId,
-    enum_id: GenericStringObjectId,
-    owner: Owner,
-    metadata: ServerMetadata,
-) -> (ServerWorkflow, ServerWorkflowEnum) {
-    let workflow = ServerWorkflow::new(
-        SyncId::ServerId(id.into()),
-        CloudWorkflowModel::new(
-            Workflow::new(format!("w{id}"), format!("c{id}")).with_arguments(vec![Argument {
-                name: format!("e{enum_id}"),
-                default_value: None,
-                description: None,
-                arg_type: ArgumentType::Enum {
-                    enum_id: SyncId::ServerId(enum_id.into()),
-                },
-            }]),
-        ),
-        metadata.clone(),
-        mock_server_permissions(owner),
-    );
-
-    let workflow_enum = ServerWorkflowEnum::new(
-        SyncId::ServerId(enum_id.into()),
-        CloudWorkflowEnumModel::new(WorkflowEnum {
-            name: format!("e{id}"),
-            is_shared: false,
-            variants: EnumVariants::Static(vec!["v1".to_string(), "v2".to_string()]),
-        }),
-        metadata,
-        mock_server_permissions(owner),
-    );
-
-    (workflow, workflow_enum)
-}
-
 fn mock_server_notebook(id: NotebookId, owner: Owner, metadata: ServerMetadata) -> ServerNotebook {
     ServerNotebook::new(
         SyncId::ServerId(id.into()),
@@ -331,17 +192,6 @@ fn update_notebook(
 ) {
     update_manager.update(app, |update_manager, ctx| {
         update_manager.update_notebook_title(Arc::new(title), SyncId::ClientId(client_id), ctx);
-    });
-}
-
-fn update_workflow(app: &mut App, update_manager: &ModelHandle<UpdateManager>, sync_id: SyncId) {
-    update_manager.update(app, |update_manager, ctx| {
-        update_manager.update_workflow(
-            Workflow::new("client workflow 2", "echo client 2"),
-            sync_id,
-            None,
-            ctx,
-        )
     });
 }
 
@@ -486,11 +336,6 @@ fn assert_revision_for_object(app: &App, uid: &ObjectUid, revision: impl Into<Re
     });
 }
 
-fn assert_workflow_name(app: &mut App, sync_id: SyncId, expected_name: &str) {
-    let workflow = get_workflow(app, sync_id);
-    assert_eq!(workflow.model().data.name(), expected_name);
-}
-
 fn assert_notebook_data(app: &App, sync_id: SyncId, expected_data: &str) {
     CloudModel::handle(app).read(app, |cloud_model, _| {
         match cloud_model.get_notebook(&sync_id) {
@@ -556,13 +401,13 @@ fn add_folder(id: FolderId, owner: Owner, cloud_model: &mut CloudModel) {
     )
 }
 
-fn mock_create_workflow(
+fn mock_create_notebook(
     client_id: ClientId,
     server_api: &mut MockObjectClient,
-    workflow_id: WorkflowId,
+    notebook_id: NotebookId,
 ) {
     server_api
-        .expect_create_workflow()
+        .expect_create_notebook()
         .times(1)
         .return_once(move |_| {
             Ok(CreateCloudObjectResult::Success {
@@ -574,8 +419,8 @@ fn mock_create_workflow(
                     },
                     metadata_ts: DateTime::<Utc>::default().into(),
                     server_id_and_type: ServerIdAndType {
-                        id: workflow_id.to_server_id(),
-                        id_type: ObjectIdType::Workflow,
+                        id: notebook_id.to_server_id(),
+                        id_type: ObjectIdType::Notebook,
                     },
                     creator_uid: None,
                     permissions: ServerPermissions::mock_personal(),
@@ -586,7 +431,7 @@ fn mock_create_workflow(
 
 fn mock_fetch_single_cloud_object(
     server_api: &mut MockObjectClient,
-    workflow_id: WorkflowId,
+    notebook_id: NotebookId,
     server_id: ServerId,
 ) {
     server_api
@@ -594,9 +439,12 @@ fn mock_fetch_single_cloud_object(
         .times(1)
         .return_once(move |_| {
             Ok(GetCloudObjectResponse {
-                object: ServerCloudObject::Workflow(Box::new(ServerWorkflow::new(
-                    SyncId::ServerId(workflow_id.into()),
-                    CloudWorkflowModel::new(Workflow::new("server workflow", "echo server")),
+                object: ServerCloudObject::Notebook(ServerNotebook::new(
+                    SyncId::ServerId(notebook_id.into()),
+                    CloudNotebookModel {
+                        title: "server notebook".to_string(),
+                        data: "server notebook".to_string(),
+                    },
                     ServerMetadata {
                         uid: server_id,
                         revision: Revision::now(),
@@ -614,11 +462,11 @@ fn mock_fetch_single_cloud_object(
                         anyone_link_sharing: None,
                         permissions_last_updated_ts: Utc::now().into(),
                     },
-                ))),
+                )),
                 descendants: vec![],
                 action_histories: vec![ObjectActionHistory {
                     uid: server_id.uid(),
-                    hashed_sqlite_id: server_id.sqlite_type_and_uid_hash(ObjectIdType::Workflow),
+                    hashed_sqlite_id: server_id.sqlite_type_and_uid_hash(ObjectIdType::Notebook),
                     latest_processed_at_timestamp: Utc::now(),
                     actions: vec![],
                 }],
@@ -647,34 +495,6 @@ fn test_sync_state_after_creation_item_not_in_sync_queue_folder() {
             app,
             object_id.into(),
             CloudFolderModel::new("test folder", false),
-            client_id,
-            server_api,
-        )
-        .await;
-    })
-}
-
-#[test]
-fn test_sync_state_after_creation_item_not_in_sync_queue_workflow() {
-    App::test(ASSETS, |mut app| async move {
-        let client_id = ClientId::new();
-        initialize_app(&mut app);
-        let object_id: WorkflowId = 123.into();
-        let mut server_api = mock_server_api();
-        server_api
-            .expect_create_workflow()
-            .times(1)
-            .return_once(move |_| {
-                Ok(create_object_result(
-                    client_id,
-                    object_id,
-                    ObjectIdType::Workflow,
-                ))
-            });
-        run_sync_state_after_creation_item_not_in_sync_queue(
-            app,
-            object_id.into(),
-            CloudWorkflowModel::new(Workflow::new("name".to_owned(), "cmd".to_owned())),
             client_id,
             server_api,
         )
@@ -918,17 +738,17 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let client_id = ClientId::new();
-        let workflow_id: WorkflowId = 123.into();
-        let server_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let server_id = SyncId::ServerId(notebook_id.into());
         let team_uid: ServerId = ServerId::from(789);
 
-        let mut create_workflow_calls = 0;
+        let mut create_notebook_calls = 0;
         server_api
-            .expect_create_workflow()
+            .expect_create_notebook()
             .times(2)
             .returning(move |_| {
-                create_workflow_calls += 1;
-                match create_workflow_calls {
+                create_notebook_calls += 1;
+                match create_notebook_calls {
                     // Return an over limit user error on the first attempt.
                     1 => Ok(CreateCloudObjectResult::UserFacingError(
                         "limit exceeded".to_string(),
@@ -943,8 +763,8 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
                             },
                             metadata_ts: DateTime::<Utc>::default().into(),
                             server_id_and_type: ServerIdAndType {
-                                id: workflow_id.to_server_id(),
-                                id_type: ObjectIdType::Workflow,
+                                id: notebook_id.to_server_id(),
+                                id_type: ObjectIdType::Notebook,
                             },
                             creator_uid: None,
                             permissions: ServerPermissions::mock_personal(),
@@ -956,12 +776,15 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
 
-        // create a workflow in team space
+        // create a notebook in team space
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
                 update_manager.create_object(
-                    CloudWorkflowModel::new(Workflow::new("workflow_name", "echo hello world")),
+                    CloudNotebookModel {
+                        title: "notebook title".to_string(),
+                        data: "echo hello world".to_string(),
+                    },
                     Owner::Team { team_uid },
                     client_id,
                     CloudObjectEventEntrypoint::Unknown,
@@ -975,14 +798,14 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
         // verify it's pending
         assert_pending_status_for_object(&mut app, &client_id.to_string(), true);
 
-        // complete the workflow create request (this should fail due to limit hit)
+        // complete the notebook create request (this should fail due to limit hit)
         SyncQueue::handle(&app)
             .update(&mut app, |sync_queue, ctx| {
                 ctx.await_spawned_future(sync_queue.spawned_futures()[0])
             })
             .await;
 
-        // complete the second workflow create request (in personal space)
+        // complete the second notebook create request (in personal space)
         SyncQueue::handle(&app)
             .update(&mut app, |sync_queue, ctx| {
                 ctx.await_spawned_future(sync_queue.spawned_futures()[1])
@@ -997,21 +820,21 @@ fn test_sync_state_after_creation_fails_due_to_limit() {
 
         assert_eq!(events.len(), 5);
 
-        // We created a workflow in the db.
+        // We created a notebook in the db.
         match &events[0] {
-            ModelEvent::UpsertWorkflow { workflow } => {
-                // Verify initial location of workflow is the shared drive.
-                assert_eq!(workflow.permissions.owner, Owner::Team { team_uid });
+            ModelEvent::UpsertNotebook { notebook } => {
+                // Verify initial location of notebook is the shared drive.
+                assert_eq!(notebook.permissions.owner, Owner::Team { team_uid });
             }
-            _ => panic!("Expected an UpsertWorkflow event"),
+            _ => panic!("Expected an UpsertNotebook event"),
         }
         // We also triggered an update event in the db when moving it from team to personal drive.
         match &events[1] {
-            ModelEvent::UpsertWorkflow { workflow } => {
-                // Verify new location of workflow is the personal drive.
-                assert_eq!(workflow.permissions.owner, Owner::mock_current_user());
+            ModelEvent::UpsertNotebook { notebook } => {
+                // Verify new location of notebook is the personal drive.
+                assert_eq!(notebook.permissions.owner, Owner::mock_current_user());
             }
-            _ => panic!("Expected an UpsertWorkflow event"),
+            _ => panic!("Expected an UpsertNotebook event"),
         }
         // when we got the correct response back from the server,
         // we updated the db with the server id
@@ -1801,174 +1624,23 @@ fn test_sync_state_after_update_failure_item_in_sync_queue() {
 }
 
 #[test]
-fn test_sync_state_after_object_with_dependencies_created() {
-    App::test(ASSETS, |mut app| async move {
-        initialize_app(&mut app);
-        let mut server_api = mock_server_api();
-
-        let enum_client_id = ClientId::new();
-        let enum_server_id: ServerId = 456.into();
-        let enum_id: GenericStringObjectId = enum_server_id.into();
-        let workflow_client_id = ClientId::new();
-        let workflow = Workflow::new("workflow_name".to_string(), "description".to_string())
-            .with_arguments(vec![Argument {
-                name: "enum".to_string(),
-                arg_type: ArgumentType::Enum {
-                    enum_id: SyncId::ClientId(enum_client_id),
-                },
-                default_value: None,
-                description: None,
-            }]);
-        // workflow object, replaced with enum server ID
-        let updated_workflow =
-            Workflow::new("workflow_name".to_string(), "description".to_string()).with_arguments(
-                vec![Argument {
-                    name: "enum".to_string(),
-                    arg_type: ArgumentType::Enum {
-                        enum_id: SyncId::ServerId(enum_id.into()),
-                    },
-                    default_value: None,
-                    description: None,
-                }],
-            );
-
-        server_api
-            .expect_create_generic_string_object()
-            .times(1)
-            .return_once(move |_, _, _| {
-                Ok(CreateCloudObjectResult::Success {
-                    created_cloud_object: CreatedCloudObject {
-                        client_id: enum_client_id,
-                        revision_and_editor: RevisionAndLastEditor {
-                            revision: Revision::now(),
-                            last_editor_uid: Some("34jkaosdfj".to_string()),
-                        },
-                        metadata_ts: DateTime::<Utc>::default().into(),
-                        server_id_and_type: ServerIdAndType {
-                            id: enum_id.to_server_id(),
-                            id_type: ObjectIdType::GenericStringObject,
-                        },
-                        creator_uid: None,
-                        permissions: ServerPermissions::mock_personal(),
-                    },
-                })
-            });
-
-        let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
-
-        // create an enum
-        create_workflow_enum(
-            enum_client_id,
-            &mut app,
-            &update_manager_struct.update_manager,
-        );
-
-        // create a workflow with a dependency on the enum
-
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                update_manager.create_object(
-                    CloudWorkflowModel::new(workflow),
-                    Owner::mock_current_user(),
-                    workflow_client_id,
-                    CloudObjectEventEntrypoint::Unknown,
-                    true,
-                    None,
-                    InitiatedBy::User,
-                    ctx,
-                );
-            });
-
-        // complete the workflow enum create request
-        SyncQueue::handle(&app)
-            .update(&mut app, |sync_queue, ctx| {
-                // stop dequeueing so we only execute the first request
-                sync_queue.stop_dequeueing();
-
-                ctx.await_spawned_future(sync_queue.spawned_futures()[0])
-            })
-            .await;
-
-        // check that we updated cloud events
-        let cloud_events = cloud_events(&update_manager_struct);
-        assert_eq!(cloud_events.len(), 6);
-        assert!(matches!(
-            &cloud_events[0],
-            CloudModelEvent::ObjectCreated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[1],
-            CloudModelEvent::ObjectForceExpanded { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[2],
-            CloudModelEvent::ObjectCreated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[3],
-            CloudModelEvent::ObjectForceExpanded { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[4],
-            CloudModelEvent::ObjectSynced { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[5],
-            CloudModelEvent::ObjectUpdated { .. }
-        ));
-
-        // check db update events
-        let db_events = db_events(&update_manager_struct);
-        assert_eq!(db_events.len(), 6);
-        assert!(matches!(
-            &db_events[0],
-            ModelEvent::UpsertGenericStringObject { .. }
-        ));
-        assert!(matches!(&db_events[1], ModelEvent::UpsertWorkflow { .. }));
-        assert!(matches!(
-            &db_events[2],
-            ModelEvent::UpdateObjectAfterServerCreation { .. }
-        ));
-        assert!(matches!(
-            &db_events[3],
-            ModelEvent::MarkObjectAsSynced { .. }
-        ));
-        assert!(matches!(&db_events[4], ModelEvent::UpsertWorkflow { .. }));
-        assert!(matches!(
-            &db_events[5],
-            ModelEvent::SyncObjectActions { .. }
-        ));
-
-        // assert that we properly updated the dependency after the enum completed
-        assert!({
-            if let ModelEvent::UpsertWorkflow { workflow } = &db_events[4] {
-                workflow.model().data == updated_workflow
-            } else {
-                false
-            }
-        });
-    })
-}
-
-#[test]
 fn test_fetch_single_cloud_object_not_pending_no_overwrite() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let client_id = ClientId::new();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
-        mock_create_workflow(client_id, &mut server_api, workflow_id);
-        mock_fetch_single_cloud_object(&mut server_api, workflow_id, server_id);
+        mock_create_notebook(client_id, &mut server_api, notebook_id);
+        mock_fetch_single_cloud_object(&mut server_api, notebook_id, server_id);
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
 
-        // create a workflow
-        create_workflow(client_id, &mut app, &update_manager_struct.update_manager);
-        // complete the workflow create request
+        // create a notebook
+        create_notebook(&mut app, &update_manager_struct.update_manager, client_id);
+        // complete the notebook create request
         SyncQueue::handle(&app)
             .update(&mut app, |sync_queue, ctx| {
                 ctx.await_spawned_future(sync_queue.spawned_futures()[0])
@@ -1979,7 +1651,7 @@ fn test_fetch_single_cloud_object_not_pending_no_overwrite() {
         let _ = cloud_events(&update_manager_struct);
 
         // call to fetch the server's representation of this object.
-        // because our in-memory workflow doesn't have any pending changes,
+        // because our in-memory notebook doesn't have any pending changes,
         // this will simply overwrite it with the server version.
         update_manager_struct
             .update_manager
@@ -1994,15 +1666,15 @@ fn test_fetch_single_cloud_object_not_pending_no_overwrite() {
             })
             .await;
 
-        assert_workflow_name(&mut app, sync_id, "server workflow");
+        assert_notebook_data(&app, sync_id, "server notebook");
 
         let events = db_events(&update_manager_struct);
 
         assert_eq!(events.len(), 6);
-        // we created a workflow in the db
+        // we created a notebook in the db
         assert!(matches!(
             &events[0],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         // the successful create triggered a set of the server id
         assert!(matches!(
@@ -2025,22 +1697,22 @@ fn test_fetch_single_cloud_object_not_pending_no_overwrite() {
             &events[3],
             ModelEvent::SyncObjectActions { actions_to_sync: _ }
         ));
-        // lastly, we upserted the workflow when we got the server version back
+        // lastly, we upserted the notebook when we got the server version back
         assert!(matches!(
             &events[4],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         assert!(matches!(
             &events[5],
             ModelEvent::SyncObjectActions { actions_to_sync: _ }
         ));
 
-        // We emitted an event that the workflow changed.
+        // We emitted an event that the notebook changed.
         let events = cloud_events(&update_manager_struct);
         assert_eq!(
             events,
             vec![CloudModelEvent::ObjectUpdated {
-                type_and_id: CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow),
+                type_and_id: CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook),
                 source: UpdateSource::Server
             }]
         );
@@ -2053,18 +1725,18 @@ fn test_fetch_single_cloud_object_pending_no_overwrite() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
+        let notebook_id: NotebookId = server_id.into();
         let client_id = ClientId::new();
         let sync_id = SyncId::ServerId(server_id);
 
-        mock_create_workflow(client_id, &mut server_api, workflow_id);
-        mock_fetch_single_cloud_object(&mut server_api, workflow_id, server_id);
+        mock_create_notebook(client_id, &mut server_api, notebook_id);
+        mock_fetch_single_cloud_object(&mut server_api, notebook_id, server_id);
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
 
-        // create a workflow
-        create_workflow(client_id, &mut app, &update_manager_struct.update_manager);
-        // complete the workflow create request
+        // create a notebook
+        create_notebook(&mut app, &update_manager_struct.update_manager, client_id);
+        // complete the notebook create request
         SyncQueue::handle(&app)
             .update(&mut app, |sync_queue, ctx| {
                 // stop dequeueing so we have time afterwards to assert the proper state
@@ -2073,14 +1745,22 @@ fn test_fetch_single_cloud_object_pending_no_overwrite() {
                 ctx.await_spawned_future(sync_queue.spawned_futures()[0])
             })
             .await;
-        // update the workflow (but keep the request in flight)
-        update_workflow(&mut app, &update_manager_struct.update_manager, sync_id);
+        // update the notebook (but keep the request in flight)
+        update_manager_struct
+            .update_manager
+            .update(&mut app, |update_manager, ctx| {
+                update_manager.update_notebook_data(
+                    "client notebook 2".to_string().into(),
+                    sync_id,
+                    ctx,
+                );
+            });
 
         // Flush cloud model events.
         let _ = cloud_events(&update_manager_struct);
 
         // call to fetch the server's representation of this object.
-        // our in-memory workflow has a pending change, so this will simply set its conflict_status
+        // our in-memory notebook has a pending change, so this will simply set its conflict_status
         // with the server's object, as we specified not to force an overwrite.
         update_manager_struct
             .update_manager
@@ -2095,7 +1775,7 @@ fn test_fetch_single_cloud_object_pending_no_overwrite() {
             })
             .await;
 
-        assert_workflow_name(&mut app, sync_id, "client workflow 2");
+        assert_notebook_data(&app, sync_id, "client notebook 2");
 
         // Because the change wasn't overwritten, no event is emitted.
         assert!(cloud_events(&update_manager_struct).is_empty());
@@ -2103,10 +1783,10 @@ fn test_fetch_single_cloud_object_pending_no_overwrite() {
         let events = db_events(&update_manager_struct);
 
         assert_eq!(events.len(), 7);
-        // we created a workflow in the db
+        // we created a notebook in the db
         assert!(matches!(
             &events[0],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         // the successful create triggered a set of the server id
         assert!(matches!(
@@ -2129,16 +1809,16 @@ fn test_fetch_single_cloud_object_pending_no_overwrite() {
             &events[3],
             ModelEvent::SyncObjectActions { actions_to_sync: _ }
         ));
-        // updating the workflow caused another upsert in the db
+        // updating the notebook caused another upsert in the db
         assert!(matches!(
             &events[4],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
-        // lastly, we upserted the workflow when we got the server version back
+        // lastly, we upserted the notebook when we got the server version back
         // (though it's basically a no-op)
         assert!(matches!(
             &events[5],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         assert!(matches!(
             &events[6],
@@ -2154,17 +1834,17 @@ fn test_fetch_single_cloud_object_pending_with_overwrite() {
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
         let client_id = ClientId::new();
-        let workflow_id: WorkflowId = server_id.into();
+        let notebook_id: NotebookId = server_id.into();
         let sync_id = SyncId::ServerId(server_id);
 
-        mock_create_workflow(client_id, &mut server_api, workflow_id);
-        mock_fetch_single_cloud_object(&mut server_api, workflow_id, server_id);
+        mock_create_notebook(client_id, &mut server_api, notebook_id);
+        mock_fetch_single_cloud_object(&mut server_api, notebook_id, server_id);
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
 
-        // create a workflow
-        create_workflow(client_id, &mut app, &update_manager_struct.update_manager);
-        // complete the workflow create request
+        // create a notebook
+        create_notebook(&mut app, &update_manager_struct.update_manager, client_id);
+        // complete the notebook create request
         SyncQueue::handle(&app)
             .update(&mut app, |sync_queue, ctx| {
                 // stop dequeueing so we have time afterwards to assert the proper state
@@ -2173,14 +1853,22 @@ fn test_fetch_single_cloud_object_pending_with_overwrite() {
                 ctx.await_spawned_future(sync_queue.spawned_futures()[0])
             })
             .await;
-        // update the workflow (but keep the request in flight)
-        update_workflow(&mut app, &update_manager_struct.update_manager, sync_id);
+        // update the notebook (but keep the request in flight)
+        update_manager_struct
+            .update_manager
+            .update(&mut app, |update_manager, ctx| {
+                update_manager.update_notebook_data(
+                    "client notebook 2".to_string().into(),
+                    sync_id,
+                    ctx,
+                );
+            });
 
         // Flush cloud events.
         let _ = cloud_events(&update_manager_struct);
 
         // call to fetch the server's representation of this object.
-        // our in-memory workflow has a pending change, but since we specified to force overwrite,
+        // our in-memory notebook has a pending change, but since we specified to force overwrite,
         // those changes will be lost and we'll reset back to the server object.
         update_manager_struct
             .update_manager
@@ -2195,13 +1883,13 @@ fn test_fetch_single_cloud_object_pending_with_overwrite() {
             })
             .await;
 
-        assert_workflow_name(&mut app, sync_id, "server workflow");
+        assert_notebook_data(&app, sync_id, "server notebook");
 
         // There should be an update event for the overwritten data.
         assert_eq!(
             cloud_events(&update_manager_struct),
             vec![CloudModelEvent::ObjectUpdated {
-                type_and_id: CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow),
+                type_and_id: CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook),
                 source: UpdateSource::Server
             }]
         );
@@ -2209,10 +1897,10 @@ fn test_fetch_single_cloud_object_pending_with_overwrite() {
         let events = db_events(&update_manager_struct);
 
         assert_eq!(events.len(), 7);
-        // we created a workflow in the db
+        // we created a notebook in the db
         assert!(matches!(
             &events[0],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         // the successful create triggered a set of the server id
         assert!(matches!(
@@ -2235,16 +1923,16 @@ fn test_fetch_single_cloud_object_pending_with_overwrite() {
             &events[3],
             ModelEvent::SyncObjectActions { actions_to_sync: _ }
         ));
-        // updating the workflow caused another upsert in the db
+        // updating the notebook caused another upsert in the db
         assert!(matches!(
             &events[4],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
-        // lastly, we upserted the workflow when we got the server version back
+        // lastly, we upserted the notebook when we got the server version back
         // (though it's basically a no-op)
         assert!(matches!(
             &events[5],
-            ModelEvent::UpsertWorkflow { workflow: _ }
+            ModelEvent::UpsertNotebook { notebook: _ }
         ));
         assert!(matches!(
             &events[6],
@@ -2259,10 +1947,10 @@ fn test_metadata_after_trash_item_success() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
-        let workflow_metadata = ServerMetadata {
+        let notebook_metadata = ServerMetadata {
             uid: ServerId::default(),
             revision: Revision::now(),
             metadata_last_updated_ts: Utc::now().into(),
@@ -2273,14 +1961,14 @@ fn test_metadata_after_trash_item_success() {
             last_editor_uid: None,
             current_editor_uid: None,
         };
-        let workflow: ServerWorkflow = mock_server_workflow(
-            workflow_id,
+        let notebook: ServerNotebook = mock_server_notebook(
+            notebook_id,
             Owner::mock_current_user(),
-            workflow_metadata.clone(),
+            notebook_metadata.clone(),
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(sync_id, CloudWorkflow::new_from_server(workflow));
+            cloud_model.add_object(sync_id, CloudNotebook::new_from_server(notebook));
         });
 
         server_api
@@ -2291,8 +1979,8 @@ fn test_metadata_after_trash_item_success() {
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), false);
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
-        // trash the workflow
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        // trash the notebook
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
@@ -2534,10 +2222,10 @@ fn test_metadata_after_trash_item_failure() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
-        let workflow_metadata = ServerMetadata {
+        let notebook_metadata = ServerMetadata {
             uid: ServerId::default(),
             revision: Revision::now(),
             metadata_last_updated_ts: Utc::now().into(),
@@ -2549,11 +2237,11 @@ fn test_metadata_after_trash_item_failure() {
             current_editor_uid: None,
         };
 
-        let workflow: ServerWorkflow =
-            mock_server_workflow(workflow_id, Owner::mock_current_user(), workflow_metadata);
+        let notebook: ServerNotebook =
+            mock_server_notebook(notebook_id, Owner::mock_current_user(), notebook_metadata);
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(sync_id, CloudWorkflow::new_from_server(workflow));
+            cloud_model.add_object(sync_id, CloudNotebook::new_from_server(notebook));
         });
 
         server_api
@@ -2564,8 +2252,8 @@ fn test_metadata_after_trash_item_failure() {
 
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), false);
 
-        // trash the workflow
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        // trash the notebook
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
@@ -2694,8 +2382,6 @@ fn test_pending_metadata_update_with_polling() {
                 mock_server_permissions(Owner::mock_current_user()),
             )],
             deleted_notebooks: vec![],
-            updated_workflows: vec![],
-            deleted_workflows: vec![],
             updated_folders: vec![],
             deleted_folders: vec![],
             user_profiles: vec![],
@@ -2741,9 +2427,8 @@ fn test_pending_metadata_update_with_polling() {
         // All the upserts from polling
         assert!(matches!(&events[0], ModelEvent::SyncObjectActions { .. }));
         assert!(matches!(&events[1], ModelEvent::UpsertNotebooks(_)));
-        assert!(matches!(&events[2], ModelEvent::UpsertWorkflows(_)));
-        assert!(matches!(&events[3], ModelEvent::UpsertFolders(_)));
-        assert!(matches!(&events[4], ModelEvent::DeleteObjects { ids: _ }));
+        assert!(matches!(&events[2], ModelEvent::UpsertFolders(_)));
+        assert!(matches!(&events[3], ModelEvent::DeleteObjects { ids: _ }));
     });
 }
 
@@ -2808,8 +2493,6 @@ fn test_metadata_update_with_polling_no_pending() {
                 mock_server_permissions(Owner::mock_current_user()),
             )],
             deleted_notebooks: vec![],
-            updated_workflows: vec![],
-            deleted_workflows: vec![],
             updated_folders: vec![],
             deleted_folders: vec![],
             user_profiles: vec![],
@@ -2855,9 +2538,8 @@ fn test_metadata_update_with_polling_no_pending() {
         // All the upserts from polling
         assert!(matches!(&events[0], ModelEvent::SyncObjectActions { .. }));
         assert!(matches!(&events[1], ModelEvent::UpsertNotebooks(_)));
-        assert!(matches!(&events[2], ModelEvent::UpsertWorkflows(_)));
-        assert!(matches!(&events[3], ModelEvent::UpsertFolders(_)));
-        assert!(matches!(&events[4], ModelEvent::DeleteObjects { ids: _ }));
+        assert!(matches!(&events[2], ModelEvent::UpsertFolders(_)));
+        assert!(matches!(&events[3], ModelEvent::DeleteObjects { ids: _ }));
     });
 }
 
@@ -2867,10 +2549,10 @@ fn test_metadata_after_untrash_item_success() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
-        let workflow_metadata = ServerMetadata {
+        let notebook_metadata = ServerMetadata {
             uid: ServerId::default(),
             revision: Revision::now(),
             metadata_last_updated_ts: Utc::now().into(),
@@ -2881,17 +2563,17 @@ fn test_metadata_after_untrash_item_success() {
             last_editor_uid: None,
             current_editor_uid: None,
         };
-        let workflow: ServerWorkflow = mock_server_workflow(
-            workflow_id,
+        let notebook: ServerNotebook = mock_server_notebook(
+            notebook_id,
             Owner::mock_current_user(),
-            workflow_metadata.clone(),
+            notebook_metadata.clone(),
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(sync_id, CloudWorkflow::new_from_server(workflow));
+            cloud_model.add_object(sync_id, CloudNotebook::new_from_server(notebook));
         });
 
-        let mut untrashed_metadata = workflow_metadata;
+        let mut untrashed_metadata = notebook_metadata;
         untrashed_metadata.trashed_ts = None;
 
         server_api
@@ -2907,8 +2589,8 @@ fn test_metadata_after_untrash_item_success() {
 
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), true);
 
-        // untrash the workflow
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        // untrash the notebook
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
@@ -2937,11 +2619,11 @@ fn test_metadata_after_untrash_item_and_move_to_root() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
         let folder_id: FolderId = 456.into();
 
-        let workflow_metadata = ServerMetadata {
+        let notebook_metadata = ServerMetadata {
             uid: ServerId::default(),
             revision: Revision::now(),
             metadata_last_updated_ts: Utc::now().into(),
@@ -2952,17 +2634,17 @@ fn test_metadata_after_untrash_item_and_move_to_root() {
             last_editor_uid: None,
             current_editor_uid: None,
         };
-        let workflow: ServerWorkflow = mock_server_workflow(
-            workflow_id,
+        let notebook: ServerNotebook = mock_server_notebook(
+            notebook_id,
             Owner::mock_current_user(),
-            workflow_metadata.clone(),
+            notebook_metadata.clone(),
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(sync_id, CloudWorkflow::new_from_server(workflow));
+            cloud_model.add_object(sync_id, CloudNotebook::new_from_server(notebook));
         });
 
-        let mut untrashed_metadata = workflow_metadata.clone();
+        let mut untrashed_metadata = notebook_metadata.clone();
         untrashed_metadata.trashed_ts = None;
         untrashed_metadata.folder_id = None;
 
@@ -2980,8 +2662,8 @@ fn test_metadata_after_untrash_item_and_move_to_root() {
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), true);
         assert_root_level_for_object(&mut app, &sync_id.uid(), false);
 
-        // untrash the workflow
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        // untrash the notebook
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
@@ -3010,10 +2692,10 @@ fn test_metadata_after_untrash_item_failure() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
-        let workflow_metadata = ServerMetadata {
+        let notebook_metadata = ServerMetadata {
             uid: ServerId::default(),
             revision: Revision::now(),
             metadata_last_updated_ts: Utc::now().into(),
@@ -3024,11 +2706,11 @@ fn test_metadata_after_untrash_item_failure() {
             last_editor_uid: None,
             current_editor_uid: None,
         };
-        let workflow: ServerWorkflow =
-            mock_server_workflow(workflow_id, Owner::mock_current_user(), workflow_metadata);
+        let notebook: ServerNotebook =
+            mock_server_notebook(notebook_id, Owner::mock_current_user(), notebook_metadata);
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(sync_id, CloudWorkflow::new_from_server(workflow));
+            cloud_model.add_object(sync_id, CloudNotebook::new_from_server(notebook));
         });
 
         // mock an unsuccessful untrashing attempt
@@ -3039,8 +2721,8 @@ fn test_metadata_after_untrash_item_failure() {
 
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
 
-        // unsuccessfully attempt to untrash the workflow
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        // unsuccessfully attempt to untrash the notebook
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
@@ -3343,8 +3025,6 @@ fn test_report_initial_load() {
             InitialLoadResponse {
                 updated_notebooks: Default::default(),
                 deleted_notebooks: Default::default(),
-                updated_workflows: Default::default(),
-                deleted_workflows: Default::default(),
                 updated_folders: Default::default(),
                 deleted_folders: Default::default(),
                 user_profiles: Default::default(),
@@ -3401,86 +3081,6 @@ fn test_get_duplicate_object_name() {
         get_duplicate_object_name("my object name (18446744073709551616)"),
         "my object name (18446744073709551616) (1)"
     );
-}
-
-#[test]
-fn test_duplicate_workflow_not_pending_no_overwrite() {
-    App::test(ASSETS, |mut app| async move {
-        initialize_app(&mut app);
-
-        let mut server_api = mock_server_api();
-        let workflow_id: WorkflowId = WorkflowId::from(ServerId::from(123));
-        let client_id = ClientId::new();
-        let sync_id = SyncId::ServerId(workflow_id.into());
-        let duplicate_workflow_id: WorkflowId = WorkflowId::from(ServerId::from(456));
-        let duplicate_sync_id = SyncId::ServerId(duplicate_workflow_id.into());
-
-        // Mock return two workflows from server_api:
-        // - one for when original workflow is created
-        // - another for when duplicate workflow is created
-        mock_create_workflow(client_id, &mut server_api, workflow_id);
-        mock_create_workflow(client_id, &mut server_api, duplicate_workflow_id);
-        let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
-
-        // create a workflow, workflow values here are used to validate the duplicate.
-        let workflow_name = "original workflow";
-        let workflow_command = "echo original workflow";
-        let owner_id = Owner::Team {
-            team_uid: ServerId::from(789),
-        };
-        let initial_folder_id = Some(SyncId::from(FolderId::from(101)));
-        create_workflow_internal(
-            &mut app,
-            &update_manager_struct.update_manager,
-            client_id,
-            workflow_name.to_string(),
-            workflow_command.to_string(),
-            owner_id,
-            initial_folder_id,
-        );
-        // complete the workflow create request
-        SyncQueue::handle(&app)
-            .update(&mut app, |sync_queue, ctx| {
-                ctx.await_spawned_future(sync_queue.spawned_futures()[0])
-            })
-            .await;
-        assert_workflow_name(&mut app, sync_id, workflow_name);
-
-        // Duplicate the first workflow
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                update_manager.duplicate_object(&CloudObjectTypeAndId::Workflow(sync_id), ctx);
-            });
-        // complete the duplicate workflow create request
-        SyncQueue::handle(&app)
-            .update(&mut app, |sync_queue, ctx| {
-                ctx.await_spawned_future(sync_queue.spawned_futures()[1])
-            })
-            .await;
-
-        // Verify that duplicated workflow has expected contents/owner/folder_id
-        let duplicate_workflow = get_workflow(&app, duplicate_sync_id);
-        assert_eq!(
-            duplicate_workflow.model().data.name(),
-            format!("{workflow_name} (1)").as_str()
-        );
-        assert_eq!(
-            duplicate_workflow.model().data.command(),
-            Some(workflow_command)
-        );
-        assert_eq!(
-            duplicate_workflow.permissions.owner,
-            Owner::mock_current_user()
-        );
-        assert_eq!(duplicate_workflow.metadata.folder_id, initial_folder_id);
-
-        let events = db_events(&update_manager_struct);
-
-        // Just sanity check # of expected events (3 for each workflow creation - UpsertWorkflow, SetServerId, MarkObjectAsSynced)
-        // Detailed checks of events on workflow creation is already covered in other tests.
-        assert_eq!(events.len(), 8);
-    });
 }
 
 #[test]
@@ -4105,8 +3705,6 @@ fn test_accepts_new_metadata_with_force_refresh() {
                 mock_server_permissions(Owner::mock_current_user()),
             )],
             deleted_notebooks: vec![],
-            updated_workflows: vec![],
-            deleted_workflows: vec![],
             updated_folders: vec![],
             deleted_folders: vec![],
             user_profiles: vec![],
@@ -4137,9 +3735,8 @@ fn test_accepts_new_metadata_with_force_refresh() {
         // All the upserts from polling
         assert!(matches!(&events[0], ModelEvent::SyncObjectActions { .. }));
         assert!(matches!(&events[1], ModelEvent::UpsertNotebooks(_)));
-        assert!(matches!(&events[2], ModelEvent::UpsertWorkflows(_)));
-        assert!(matches!(&events[3], ModelEvent::UpsertFolders(_)));
-        assert!(matches!(&events[4], ModelEvent::DeleteObjects { ids: _ }));
+        assert!(matches!(&events[2], ModelEvent::UpsertFolders(_)));
+        assert!(matches!(&events[3], ModelEvent::DeleteObjects { ids: _ }));
     });
 }
 
@@ -4240,31 +3837,10 @@ fn test_empty_trash() {
         let notebook =
             mock_server_notebook(notebook_id, Owner::mock_current_user(), notebook_metadata);
 
-        let workflow_server_id: ServerId = 456.into();
-        let workflow_id: WorkflowId = workflow_server_id.into();
-        let workflow_sync_id = SyncId::ServerId(workflow_id.into());
-        let workflow_metadata = ServerMetadata {
-            uid: workflow_server_id,
-            revision: Revision::now(),
-            metadata_last_updated_ts: ts.into(),
-            trashed_ts: Some(ts.into()),
-            folder_id: None,
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-            current_editor_uid: None,
-        };
-        let workflow =
-            mock_server_workflow(workflow_id, Owner::mock_current_user(), workflow_metadata);
-
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 notebook_sync_id,
                 CloudNotebook::new_from_server(notebook.clone()),
-            );
-            cloud_model.add_object(
-                workflow_sync_id,
-                CloudWorkflow::new_from_server(workflow.clone()),
             );
         });
 
@@ -4274,10 +3850,7 @@ fn test_empty_trash() {
             .times(1)
             .return_once(move |_| {
                 Ok(ObjectDeleteResult::Success {
-                    deleted_ids: vec![
-                        SyncId::ServerId(workflow_id.into()),
-                        SyncId::ServerId(notebook_id.into()),
-                    ],
+                    deleted_ids: vec![SyncId::ServerId(notebook_id.into())],
                 })
             });
 
@@ -4297,32 +3870,19 @@ fn test_empty_trash() {
                 !cloud_model.check_if_object_is_in_cloudmodel(notebook_id.to_server_id().uid()),
                 "Deleted notebook should not be in CloudModel anymore"
             );
-            assert!(
-                !cloud_model.check_if_object_is_in_cloudmodel(workflow_id.to_server_id().uid()),
-                "Deleted workflow should not be in CloudModel anymore"
-            );
         });
 
         // Check that we reported the deletions.
 
         assert_eq!(
             cloud_events(&update_manager_struct),
-            vec![
-                CloudModelEvent::ObjectDeleted {
-                    type_and_id: CloudObjectTypeAndId::from_id_and_type(
-                        workflow_sync_id,
-                        ObjectType::Workflow
-                    ),
-                    folder_id: None
-                },
-                CloudModelEvent::ObjectDeleted {
-                    type_and_id: CloudObjectTypeAndId::from_id_and_type(
-                        notebook_sync_id,
-                        ObjectType::Notebook
-                    ),
-                    folder_id: None
-                },
-            ]
+            vec![CloudModelEvent::ObjectDeleted {
+                type_and_id: CloudObjectTypeAndId::from_id_and_type(
+                    notebook_sync_id,
+                    ObjectType::Notebook
+                ),
+                folder_id: None
+            },]
         );
     });
 }
@@ -4442,7 +4002,7 @@ fn test_record_object_action() {
 
         let timestamp = Utc::now();
 
-        let hashed_object_id = "Workflow-asdfasdfasdfasdfasdf21".to_string();
+        let hashed_object_id = "Notebook-asdfasdfasdfasdfasdf21".to_string();
         let hashed_object_id_clone = hashed_object_id.clone();
 
         let actions: Vec<ObjectAction> = vec![
@@ -4498,7 +4058,7 @@ fn test_record_object_action() {
             .update_manager
             .update(&mut app, |update_manager, ctx| {
                 update_manager.record_object_action(
-                    CloudObjectTypeAndId::Workflow(SyncId::ServerId(ServerId::from_string_lossy(
+                    CloudObjectTypeAndId::Notebook(SyncId::ServerId(ServerId::from_string_lossy(
                         "asdfasdfasdfasdfasdf21",
                     ))),
                     ObjectActionType::Execute,
@@ -4529,7 +4089,7 @@ fn test_overwrite_object_action_history_no_actions_on_client() {
 
         let timestamp = Utc::now();
 
-        let hashed_object_id = "Workflow-asdf".to_string();
+        let hashed_object_id = "Notebook-asdf".to_string();
         let hashed_object_id_clone = hashed_object_id.clone();
 
         let actions: Vec<ObjectAction> = vec![
@@ -4597,7 +4157,7 @@ fn test_overwrite_object_action_history_reject() {
 
         let timestamp = Utc::now();
 
-        let hashed_object_id = "Workflow-asdf".to_string();
+        let hashed_object_id = "Notebook-asdf".to_string();
         let hashed_object_id_clone = hashed_object_id.clone();
 
         // the server's most recent action was 1 minute ago
@@ -4751,7 +4311,7 @@ fn test_overwrite_object_action_history_ignores_pending_local_actions() {
 
         let timestamp = Utc::now();
 
-        let hashed_object_id = "Workflow-asdf".to_string();
+        let hashed_object_id = "Notebook-asdf".to_string();
         let hashed_object_id_clone = hashed_object_id.clone();
 
         let server_actions: Vec<ObjectAction> = vec![
@@ -4903,11 +4463,11 @@ fn test_object_action_histories_with_initial_load() {
         initialize_app(&mut app);
         let server_api = mock_server_api();
 
-        let workflow_id_a: SyncId =
+        let notebook_id_a: SyncId =
             SyncId::ServerId(ServerId::from_string_lossy("JLKS23FSJLKS23FSJLKS23"));
-        let workflow_id_b: SyncId =
+        let notebook_id_b: SyncId =
             SyncId::ServerId(ServerId::from_string_lossy("LSJLK23fZDLSJLK23fZDLS"));
-        let workflow_id_c: SyncId =
+        let notebook_id_c: SyncId =
             SyncId::ServerId(ServerId::from_string_lossy("SDFlJ23SDfSDFlJ23SDfSD"));
 
         let timestamp = Utc::now();
@@ -4917,8 +4477,8 @@ fn test_object_action_histories_with_initial_load() {
 
         let actions_a = vec![ObjectAction {
             action_type: ObjectActionType::Execute,
-            uid: workflow_id_a.uid(),
-            hashed_sqlite_id: workflow_id_a.uid(),
+            uid: notebook_id_a.uid(),
+            hashed_sqlite_id: notebook_id_a.uid(),
             action_subtype: ObjectActionSubtype::SingleAction {
                 timestamp: timestamp_old,
                 processed_at_timestamp: Some(timestamp_old),
@@ -4928,8 +4488,8 @@ fn test_object_action_histories_with_initial_load() {
         }];
         let actions_b = vec![ObjectAction {
             action_type: ObjectActionType::Execute,
-            uid: workflow_id_a.uid(),
-            hashed_sqlite_id: workflow_id_a.uid(),
+            uid: notebook_id_a.uid(),
+            hashed_sqlite_id: notebook_id_a.uid(),
             action_subtype: ObjectActionSubtype::SingleAction {
                 timestamp: timestamp_older,
                 processed_at_timestamp: Some(timestamp_older),
@@ -4940,13 +4500,13 @@ fn test_object_action_histories_with_initial_load() {
 
         ObjectActions::handle(&app).update(&mut app, |object_actions, ctx| {
             object_actions.overwrite_action_history_for_object(
-                &workflow_id_a.uid(),
+                &notebook_id_a.uid(),
                 actions_a,
                 ctx,
             );
 
             object_actions.overwrite_action_history_for_object(
-                &workflow_id_b.uid(),
+                &notebook_id_b.uid(),
                 actions_b,
                 ctx,
             );
@@ -4955,8 +4515,8 @@ fn test_object_action_histories_with_initial_load() {
         let actions_a_server = vec![
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: workflow_id_a.uid(),
-                hashed_sqlite_id: workflow_id_a.uid(),
+                uid: notebook_id_a.uid(),
+                hashed_sqlite_id: notebook_id_a.uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp,
                     processed_at_timestamp: Some(timestamp),
@@ -4966,8 +4526,8 @@ fn test_object_action_histories_with_initial_load() {
             },
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: workflow_id_a.uid(),
-                hashed_sqlite_id: workflow_id_a.uid(),
+                uid: notebook_id_a.uid(),
+                hashed_sqlite_id: notebook_id_a.uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp: timestamp_old,
                     processed_at_timestamp: Some(timestamp_old),
@@ -4980,8 +4540,8 @@ fn test_object_action_histories_with_initial_load() {
         let actions_b_server = vec![
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: workflow_id_a.uid(),
-                hashed_sqlite_id: workflow_id_a.uid(),
+                uid: notebook_id_a.uid(),
+                hashed_sqlite_id: notebook_id_a.uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp: timestamp_old,
                     processed_at_timestamp: Some(timestamp_old),
@@ -4991,8 +4551,8 @@ fn test_object_action_histories_with_initial_load() {
             },
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: workflow_id_a.uid(),
-                hashed_sqlite_id: workflow_id_a.uid(),
+                uid: notebook_id_a.uid(),
+                hashed_sqlite_id: notebook_id_a.uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp: timestamp_older,
                     processed_at_timestamp: Some(timestamp_older),
@@ -5004,8 +4564,8 @@ fn test_object_action_histories_with_initial_load() {
 
         let actions_c_server = vec![ObjectAction {
             action_type: ObjectActionType::Execute,
-            uid: workflow_id_a.uid(),
-            hashed_sqlite_id: workflow_id_a.uid(),
+            uid: notebook_id_a.uid(),
+            hashed_sqlite_id: notebook_id_a.uid(),
             action_subtype: ObjectActionSubtype::SingleAction {
                 timestamp: timestamp_oldest,
                 processed_at_timestamp: Some(timestamp_oldest),
@@ -5016,20 +4576,20 @@ fn test_object_action_histories_with_initial_load() {
 
         let server_action_histories = vec![
             ObjectActionHistory {
-                uid: workflow_id_a.uid(),
-                hashed_sqlite_id: workflow_id_a.uid(),
+                uid: notebook_id_a.uid(),
+                hashed_sqlite_id: notebook_id_a.uid(),
                 latest_processed_at_timestamp: timestamp,
                 actions: actions_a_server,
             },
             ObjectActionHistory {
-                uid: workflow_id_b.uid(),
-                hashed_sqlite_id: workflow_id_b.uid(),
+                uid: notebook_id_b.uid(),
+                hashed_sqlite_id: notebook_id_b.uid(),
                 latest_processed_at_timestamp: timestamp_old,
                 actions: actions_b_server,
             },
             ObjectActionHistory {
-                uid: workflow_id_c.uid(),
-                hashed_sqlite_id: workflow_id_c.uid(),
+                uid: notebook_id_c.uid(),
+                hashed_sqlite_id: notebook_id_c.uid(),
                 latest_processed_at_timestamp: timestamp_oldest,
                 actions: actions_c_server,
             },
@@ -5039,8 +4599,6 @@ fn test_object_action_histories_with_initial_load() {
         let mocked_response = InitialLoadResponse {
             updated_notebooks: vec![],
             deleted_notebooks: vec![],
-            updated_workflows: vec![],
-            deleted_workflows: vec![],
             updated_folders: vec![],
             deleted_folders: vec![],
             user_profiles: vec![],
@@ -5058,15 +4616,15 @@ fn test_object_action_histories_with_initial_load() {
         // Assert new ObjectAction state
         ObjectActions::handle(&app).update(&mut app, |object_actions, _| {
             assert_eq!(
-                object_actions.count_actions_for_object(&workflow_id_a.uid()),
+                object_actions.count_actions_for_object(&notebook_id_a.uid()),
                 2
             );
             assert_eq!(
-                object_actions.count_actions_for_object(&workflow_id_b.uid()),
+                object_actions.count_actions_for_object(&notebook_id_b.uid()),
                 2
             );
             assert_eq!(
-                object_actions.count_actions_for_object(&workflow_id_c.uid()),
+                object_actions.count_actions_for_object(&notebook_id_c.uid()),
                 1
             );
         });
@@ -5076,9 +4634,8 @@ fn test_object_action_histories_with_initial_load() {
         // All the upserts from polling
         assert!(matches!(&events[0], ModelEvent::SyncObjectActions { .. }));
         assert!(matches!(&events[1], ModelEvent::UpsertNotebooks(_)));
-        assert!(matches!(&events[2], ModelEvent::UpsertWorkflows(_)));
-        assert!(matches!(&events[3], ModelEvent::UpsertFolders(_)));
-        assert!(matches!(&events[4], ModelEvent::DeleteObjects { ids: _ }));
+        assert!(matches!(&events[2], ModelEvent::UpsertFolders(_)));
+        assert!(matches!(&events[3], ModelEvent::DeleteObjects { ids: _ }));
     });
 }
 
@@ -5088,10 +4645,10 @@ fn test_delete_single_object_with_actions() {
         initialize_app(&mut app);
         let mut server_api = mock_server_api();
 
-        // Create workflow object
+        // Create notebook object
         let server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = server_id.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = server_id.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
         let ts = Utc::now();
 
         let server_metadata = ServerMetadata {
@@ -5105,12 +4662,12 @@ fn test_delete_single_object_with_actions() {
             last_editor_uid: None,
             current_editor_uid: None,
         };
-        let server_workflow =
-            mock_server_workflow(workflow_id, Owner::mock_current_user(), server_metadata);
+        let server_notebook =
+            mock_server_notebook(notebook_id, Owner::mock_current_user(), server_metadata);
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(server_workflow.clone()),
+                CloudNotebook::new_from_server(server_notebook.clone()),
             );
         });
 
@@ -5119,8 +4676,8 @@ fn test_delete_single_object_with_actions() {
         let actions_on_object = vec![
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: SyncId::ServerId(workflow_id.into()).uid(),
-                hashed_sqlite_id: SyncId::ServerId(workflow_id.into()).uid(),
+                uid: SyncId::ServerId(notebook_id.into()).uid(),
+                hashed_sqlite_id: SyncId::ServerId(notebook_id.into()).uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp,
                     processed_at_timestamp: Some(timestamp),
@@ -5130,8 +4687,8 @@ fn test_delete_single_object_with_actions() {
             },
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: SyncId::ServerId(workflow_id.into()).uid(),
-                hashed_sqlite_id: SyncId::ServerId(workflow_id.into()).uid(),
+                uid: SyncId::ServerId(notebook_id.into()).uid(),
+                hashed_sqlite_id: SyncId::ServerId(notebook_id.into()).uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp,
                     processed_at_timestamp: Some(timestamp),
@@ -5141,8 +4698,8 @@ fn test_delete_single_object_with_actions() {
             },
             ObjectAction {
                 action_type: ObjectActionType::Execute,
-                uid: SyncId::ServerId(workflow_id.into()).uid(),
-                hashed_sqlite_id: SyncId::ServerId(workflow_id.into()).uid(),
+                uid: SyncId::ServerId(notebook_id.into()).uid(),
+                hashed_sqlite_id: SyncId::ServerId(notebook_id.into()).uid(),
                 action_subtype: ObjectActionSubtype::SingleAction {
                     timestamp,
                     processed_at_timestamp: Some(timestamp),
@@ -5153,7 +4710,7 @@ fn test_delete_single_object_with_actions() {
         ];
         ObjectActions::handle(&app).update(&mut app, |object_actions, ctx| {
             object_actions.overwrite_action_history_for_object(
-                &SyncId::ServerId(workflow_id.into()).uid(),
+                &SyncId::ServerId(notebook_id.into()).uid(),
                 actions_on_object,
                 ctx,
             )
@@ -5165,27 +4722,27 @@ fn test_delete_single_object_with_actions() {
             .times(1)
             .return_once(move |_| {
                 Ok(ObjectDeleteResult::Success {
-                    deleted_ids: vec![SyncId::ServerId(workflow_id.into())],
+                    deleted_ids: vec![SyncId::ServerId(notebook_id.into())],
                 })
             });
 
-        // Delete workflow
+        // Delete notebook
         let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
         update_manager_struct
             .update_manager
             .update(&mut app, |update_manager, ctx| {
                 update_manager.delete_object_by_user(
-                    CloudObjectTypeAndId::Workflow(SyncId::ServerId(workflow_id.into())),
+                    CloudObjectTypeAndId::Notebook(SyncId::ServerId(notebook_id.into())),
                     ctx,
                 );
                 ctx.await_spawned_future(update_manager.spawned_futures[0])
             })
             .await;
 
-        // Check that workflow is not in CloudModel anymore
+        // Check that notebook is not in CloudModel anymore
         CloudModel::handle(&app).update(&mut app, |cloud_model, _ctx| {
             assert!(
-                !cloud_model.check_if_object_is_in_cloudmodel(workflow_id.to_server_id().uid()),
+                !cloud_model.check_if_object_is_in_cloudmodel(notebook_id.to_server_id().uid()),
                 "Deleted object should not be in CloudModel anymore"
             );
         });
@@ -5194,7 +4751,7 @@ fn test_delete_single_object_with_actions() {
         ObjectActions::handle(&app).update(&mut app, |object_actions, _| {
             assert_eq!(
                 object_actions
-                    .count_actions_for_object(&SyncId::ServerId(workflow_id.into()).uid()),
+                    .count_actions_for_object(&SyncId::ServerId(notebook_id.into()).uid()),
                 0
             );
         });
@@ -5410,297 +4967,6 @@ fn test_move_object_personal_to_team_failure() {
     });
 }
 
-/// Test successfully moving a workflow with workflow enums from a user's personal space to a team drive.
-/// This test checks that when we move from personal to team space, we create a new enum in the new space
-/// and change the reference stored within the workflow to point to that enum.
-#[test]
-fn test_move_workflow_with_enums_personal_to_team_success() {
-    App::test(ASSETS, |mut app| async move {
-        initialize_app(&mut app);
-        let mut server_api = mock_server_api();
-        let team = Space::Team {
-            team_uid: ServerId::from(789),
-        };
-
-        let workflow_server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = workflow_server_id.into();
-        let workflow_sync_id = SyncId::ServerId(workflow_id.into());
-
-        let enum_server_id: ServerId = 456.into();
-        let enum_id: GenericStringObjectId = enum_server_id.into();
-        let enum_sync_id = SyncId::ServerId(enum_id.into());
-
-        let object_metadata = ServerMetadata {
-            uid: ServerId::default(),
-            revision: Revision::now(),
-            metadata_last_updated_ts: Utc::now().into(),
-            trashed_ts: None,
-            folder_id: None,
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-            current_editor_uid: None,
-        };
-
-        let (workflow, workflow_enum) = mock_server_workflow_with_enum(
-            workflow_id,
-            enum_id,
-            Owner::mock_current_user(),
-            object_metadata,
-        );
-
-        CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(workflow_sync_id, CloudWorkflow::new_from_server(workflow));
-            cloud_model.add_object(
-                enum_sync_id,
-                CloudWorkflowEnum::new_from_server(workflow_enum),
-            );
-        });
-
-        server_api
-            .expect_transfer_workflow_owner()
-            .times(1)
-            .return_once(move |_, _| Ok(true));
-
-        assert_space_for_object(&app, &workflow_sync_id.uid(), Space::Personal);
-        assert_space_for_object(&app, &enum_sync_id.uid(), Space::Personal);
-
-        let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
-
-        // Move the workflow from a personal folder to the team space.
-        let type_and_id =
-            CloudObjectTypeAndId::from_id_and_type(workflow_sync_id, ObjectType::Workflow);
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                update_manager.move_object_to_location(
-                    type_and_id,
-                    CloudObjectLocation::Space(team),
-                    ctx,
-                );
-            });
-
-        // Wait for the move to complete.
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                ctx.await_spawned_future(update_manager.spawned_futures[0])
-            })
-            .await;
-
-        assert_pending_online_only_change_for_object(&mut app, &workflow_sync_id.uid(), false);
-        assert_space_for_object(&app, &workflow_sync_id.uid(), team);
-
-        // Assert cloud events: expect to move the workflow, create a new enum, and update the workflow
-        let cloud_events = cloud_events(&update_manager_struct);
-        assert_eq!(cloud_events.len(), 4);
-        assert!(matches!(
-            &cloud_events[0],
-            CloudModelEvent::ObjectMoved { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[1],
-            CloudModelEvent::ObjectCreated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[2],
-            CloudModelEvent::ObjectForceExpanded { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[3],
-            CloudModelEvent::ObjectUpdated { .. }
-        ));
-
-        // Assert database events: expect to see the workflow enum creation, them workflow move, then the workflow update
-        let events = db_events(&update_manager_struct);
-        assert_eq!(events.len(), 3);
-        let ModelEvent::UpsertGenericStringObject { object } = &events[0] else {
-            panic!("Expected upsert of workflow enum, got {:?}", &events[0])
-        };
-        let new_enum_id = object.id();
-        assert!(
-            matches!(&events[1], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
-            "Expected upsert of workflow, got {:?}",
-            &events[0]
-        );
-        assert!(
-            matches!(&events[2], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
-            "Expected upsert of workflow, got {:?}",
-            &events[2]
-        );
-
-        // Assert that the new enum ID is in the team space, but the old one remains in the personal space
-        assert_space_for_object(&app, &new_enum_id.uid(), team);
-        assert_space_for_object(&app, &enum_sync_id.uid(), Space::Personal);
-
-        // Assert that the workflow update references the new enum ID
-        assert!(
-            {
-                if let ModelEvent::UpsertWorkflow { workflow } = &events[2] {
-                    workflow.model().data.arguments()[0].arg_type
-                        == ArgumentType::Enum {
-                            enum_id: new_enum_id,
-                        }
-                } else {
-                    false
-                }
-            },
-            "The workflow update should reference the new enum ID"
-        );
-    });
-}
-
-#[test]
-fn test_move_workflow_with_enums_personal_to_team_failure() {
-    App::test(ASSETS, |mut app| async move {
-        initialize_app(&mut app);
-        let mut server_api = mock_server_api();
-        let team = Space::Team {
-            team_uid: ServerId::from(789),
-        };
-
-        let workflow_server_id: ServerId = 123.into();
-        let workflow_id: WorkflowId = workflow_server_id.into();
-        let workflow_sync_id = SyncId::ServerId(workflow_id.into());
-
-        let enum_server_id: ServerId = 456.into();
-        let enum_id: GenericStringObjectId = enum_server_id.into();
-        let enum_sync_id = SyncId::ServerId(enum_id.into());
-
-        let object_metadata = ServerMetadata {
-            uid: ServerId::default(),
-            revision: Revision::now(),
-            metadata_last_updated_ts: Utc::now().into(),
-            trashed_ts: None,
-            folder_id: None,
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-            current_editor_uid: None,
-        };
-
-        let (workflow, workflow_enum) = mock_server_workflow_with_enum(
-            workflow_id,
-            enum_id,
-            Owner::mock_current_user(),
-            object_metadata,
-        );
-
-        CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
-            cloud_model.add_object(workflow_sync_id, CloudWorkflow::new_from_server(workflow));
-            cloud_model.add_object(
-                enum_sync_id,
-                CloudWorkflowEnum::new_from_server(workflow_enum),
-            );
-        });
-
-        server_api
-            .expect_transfer_workflow_owner()
-            .returning(move |_, _| Err(anyhow::anyhow!("move failed")));
-
-        assert_space_for_object(&app, &workflow_sync_id.uid(), Space::Personal);
-        assert_space_for_object(&app, &enum_sync_id.uid(), Space::Personal);
-
-        let update_manager_struct = create_update_manager_struct(&mut app, Arc::new(server_api));
-
-        // Move the workflow from a personal folder to the team space.
-        let type_and_id =
-            CloudObjectTypeAndId::from_id_and_type(workflow_sync_id, ObjectType::Workflow);
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                update_manager.move_object_to_location(
-                    type_and_id,
-                    CloudObjectLocation::Space(team),
-                    ctx,
-                );
-            });
-
-        // Wait for the move to fail.
-        update_manager_struct
-            .update_manager
-            .update(&mut app, |update_manager, ctx| {
-                ctx.await_spawned_future(update_manager.spawned_futures[0])
-            })
-            .await;
-
-        // await long enough that all the move object retries are exhausted
-        warpui::r#async::Timer::after(Duration::from_secs(10)).await;
-
-        // The workflow and enum should remain in the personal space
-        assert_pending_online_only_change_for_object(&mut app, &workflow_sync_id.uid(), false);
-        assert_space_for_object(&app, &workflow_sync_id.uid(), Space::Personal);
-        assert_space_for_object(&app, &enum_sync_id.uid(), Space::Personal);
-
-        // Assert cloud events: expect to move the workflow, create a new enum, and update the workflow,
-        // then update it again and move it back to its original space
-        let cloud_events = cloud_events(&update_manager_struct);
-        assert_eq!(cloud_events.len(), 6);
-        assert!(matches!(
-            &cloud_events[0],
-            CloudModelEvent::ObjectMoved { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[1],
-            CloudModelEvent::ObjectCreated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[2],
-            CloudModelEvent::ObjectForceExpanded { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[3],
-            CloudModelEvent::ObjectUpdated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[4],
-            CloudModelEvent::ObjectUpdated { .. }
-        ));
-        assert!(matches!(
-            &cloud_events[5],
-            CloudModelEvent::ObjectMoved { .. }
-        ));
-
-        // Assert database events
-        let events = db_events(&update_manager_struct);
-        assert_eq!(events.len(), 3);
-        assert!(
-            matches!(&events[0], ModelEvent::UpsertGenericStringObject { .. }),
-            "Expected upsert of GSO, got {:?}",
-            &events[0]
-        );
-        assert!(
-            matches!(&events[1], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
-            "Expected upsert of workflow, got {:?}",
-            &events[0]
-        );
-
-        assert!(
-            matches!(&events[2], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
-            "Expected upsert of workflow, got {:?}",
-            &events[2]
-        );
-
-        // Assert that the workflow update references the old enum ID
-        assert!(
-            {
-                if let ModelEvent::UpsertWorkflow { workflow } = &events[2] {
-                    workflow.model().data.arguments()[0].arg_type
-                        == ArgumentType::Enum {
-                            enum_id: enum_sync_id,
-                        }
-                } else {
-                    false
-                }
-            },
-            "The workflow update should reference the new enum ID"
-        );
-    });
-}
-
-/// Test moving an object from the root of a space into a folder. This covers the metadata state
-/// before, during, and after a move where the object's parent folder changes from `None` to
-/// `Some`.
 #[test]
 fn test_move_object_root_to_folder_success() {
     App::test(ASSETS, |mut app| async move {
@@ -6286,8 +5552,8 @@ fn test_trash_object_over_rtc() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let server_api = mock_server_api();
-        let workflow_id: WorkflowId = 123.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
         let current_metadata_ts = Utc::now();
         let current_metadata = ServerMetadata {
@@ -6305,8 +5571,8 @@ fn test_trash_object_over_rtc() {
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(mock_server_workflow(
-                    workflow_id,
+                CloudNotebook::new_from_server(mock_server_notebook(
+                    notebook_id,
                     Owner::mock_current_user(),
                     current_metadata,
                 )),
@@ -6319,7 +5585,7 @@ fn test_trash_object_over_rtc() {
 
         let new_metadata_ts = current_metadata_ts + chrono::Duration::seconds(1);
         let new_metadata = ServerMetadata {
-            uid: workflow_id.into(),
+            uid: notebook_id.into(),
             revision: Revision::now(),
             metadata_last_updated_ts: new_metadata_ts.into(),
             trashed_ts: Some(new_metadata_ts.into()),
@@ -6338,7 +5604,7 @@ fn test_trash_object_over_rtc() {
         );
 
         // The metadata changes should be applied in-memory and to the database.
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), true);
         assert_eq!(
             cloud_events(&update_manager_struct),
@@ -6351,7 +5617,7 @@ fn test_trash_object_over_rtc() {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Workflow)
+            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Notebook)
         ));
     });
 }
@@ -6363,8 +5629,8 @@ fn test_untrash_object_over_rtc() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let server_api = mock_server_api();
-        let workflow_id: WorkflowId = 123.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
 
         let current_metadata_ts = Utc::now();
         let current_metadata = ServerMetadata {
@@ -6382,8 +5648,8 @@ fn test_untrash_object_over_rtc() {
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(mock_server_workflow(
-                    workflow_id,
+                CloudNotebook::new_from_server(mock_server_notebook(
+                    notebook_id,
                     Owner::mock_current_user(),
                     current_metadata,
                 )),
@@ -6396,7 +5662,7 @@ fn test_untrash_object_over_rtc() {
 
         let new_metadata_ts = current_metadata_ts + chrono::Duration::seconds(1);
         let new_metadata = ServerMetadata {
-            uid: workflow_id.into(),
+            uid: notebook_id.into(),
             revision: Revision::now(),
             metadata_last_updated_ts: new_metadata_ts.into(),
             trashed_ts: None,
@@ -6415,7 +5681,7 @@ fn test_untrash_object_over_rtc() {
         );
 
         // The metadata changes should be applied in-memory and to the database.
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         assert_trashed_status_for_object(&mut app, &sync_id.uid(), false);
         assert_eq!(
             cloud_events(&update_manager_struct),
@@ -6428,7 +5694,7 @@ fn test_untrash_object_over_rtc() {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Workflow)
+            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Notebook)
         ));
     });
 }
@@ -6440,8 +5706,8 @@ fn test_move_object_from_folder_to_folder_over_rtc() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let server_api = mock_server_api();
-        let workflow_id: WorkflowId = 123.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
         let folder_a_id: FolderId = 456.into();
         let folder_b_id: FolderId = 789.into();
 
@@ -6461,8 +5727,8 @@ fn test_move_object_from_folder_to_folder_over_rtc() {
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(mock_server_workflow(
-                    workflow_id,
+                CloudNotebook::new_from_server(mock_server_notebook(
+                    notebook_id,
                     Owner::mock_current_user(),
                     current_metadata,
                 )),
@@ -6475,7 +5741,7 @@ fn test_move_object_from_folder_to_folder_over_rtc() {
 
         let new_metadata_ts = current_metadata_ts + chrono::Duration::seconds(1);
         let new_metadata = ServerMetadata {
-            uid: workflow_id.into(),
+            uid: notebook_id.into(),
             revision: Revision::now(),
             metadata_last_updated_ts: new_metadata_ts.into(),
             trashed_ts: None,
@@ -6494,7 +5760,7 @@ fn test_move_object_from_folder_to_folder_over_rtc() {
         );
 
         // The metadata changes should be applied in-memory and to the database.
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         assert_folder_for_object(&app, &sync_id.uid(), Some(folder_b_id.into()));
         assert_eq!(
             cloud_events(&update_manager_struct),
@@ -6509,7 +5775,7 @@ fn test_move_object_from_folder_to_folder_over_rtc() {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Workflow)
+            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Notebook)
         ));
     });
 }
@@ -6521,8 +5787,8 @@ fn test_move_object_from_folder_to_root_over_rtc() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let server_api = mock_server_api();
-        let workflow_id: WorkflowId = 123.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
         let folder_id: FolderId = 456.into();
 
         let current_metadata_ts = Utc::now();
@@ -6541,8 +5807,8 @@ fn test_move_object_from_folder_to_root_over_rtc() {
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(mock_server_workflow(
-                    workflow_id,
+                CloudNotebook::new_from_server(mock_server_notebook(
+                    notebook_id,
                     Owner::mock_current_user(),
                     current_metadata,
                 )),
@@ -6555,7 +5821,7 @@ fn test_move_object_from_folder_to_root_over_rtc() {
 
         let new_metadata_ts = current_metadata_ts + chrono::Duration::seconds(1);
         let new_metadata = ServerMetadata {
-            uid: workflow_id.into(),
+            uid: notebook_id.into(),
             revision: Revision::now(),
             metadata_last_updated_ts: new_metadata_ts.into(),
             trashed_ts: None,
@@ -6574,7 +5840,7 @@ fn test_move_object_from_folder_to_root_over_rtc() {
         );
 
         // The metadata changes should be applied in-memory and to the database.
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         assert_folder_for_object(&app, &sync_id.uid(), None);
         assert_eq!(
             cloud_events(&update_manager_struct),
@@ -6589,7 +5855,7 @@ fn test_move_object_from_folder_to_root_over_rtc() {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Workflow)
+            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Notebook)
         ));
     });
 }
@@ -6601,8 +5867,8 @@ fn test_move_object_from_root_to_folder_over_rtc() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let server_api = mock_server_api();
-        let workflow_id: WorkflowId = 123.into();
-        let sync_id = SyncId::ServerId(workflow_id.into());
+        let notebook_id: NotebookId = 123.into();
+        let sync_id = SyncId::ServerId(notebook_id.into());
         let folder_id: FolderId = 456.into();
 
         let current_metadata_ts = Utc::now();
@@ -6621,8 +5887,8 @@ fn test_move_object_from_root_to_folder_over_rtc() {
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(
                 sync_id,
-                CloudWorkflow::new_from_server(mock_server_workflow(
-                    workflow_id,
+                CloudNotebook::new_from_server(mock_server_notebook(
+                    notebook_id,
                     Owner::mock_current_user(),
                     current_metadata,
                 )),
@@ -6635,7 +5901,7 @@ fn test_move_object_from_root_to_folder_over_rtc() {
 
         let new_metadata_ts = current_metadata_ts + chrono::Duration::seconds(1);
         let new_metadata = ServerMetadata {
-            uid: workflow_id.into(),
+            uid: notebook_id.into(),
             revision: Revision::now(),
             metadata_last_updated_ts: new_metadata_ts.into(),
             trashed_ts: None,
@@ -6654,7 +5920,7 @@ fn test_move_object_from_root_to_folder_over_rtc() {
         );
 
         // The metadata changes should be applied in-memory and to the database.
-        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Workflow);
+        let type_and_id = CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
         assert_folder_for_object(&app, &sync_id.uid(), Some(folder_id.into()));
         assert_eq!(
             cloud_events(&update_manager_struct),
@@ -6669,7 +5935,7 @@ fn test_move_object_from_root_to_folder_over_rtc() {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0],
-            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Workflow)
+            ModelEvent::UpdateObjectMetadata { id, .. } if id == &sync_id.sqlite_uid_hash(ObjectIdType::Notebook)
         ));
     });
 }

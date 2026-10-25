@@ -65,7 +65,7 @@ use crate::util::openable_file_type::FileTarget;
 pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspace::ActiveSession;
 use crate::{cmd_or_ctrl_shift, safe_warn, send_telemetry_from_ctx};
 
@@ -107,7 +107,7 @@ pub struct FileNotebookView {
 #[derive(Debug, Clone)]
 pub enum FileNotebookEvent {
     RunWorkflow {
-        workflow: Arc<WorkflowType>,
+        workflow: Arc<Workflow>,
     },
     TitleUpdated,
     FileLoaded,

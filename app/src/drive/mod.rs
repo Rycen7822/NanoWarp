@@ -27,7 +27,6 @@ type SortByComparator<'a> = dyn FnMut(&&dyn CloudObject, &&dyn CloudObject) -> O
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DriveObjectType {
-    Workflow,
     Notebook,
     Folder,
     EnvVarCollection,
@@ -36,7 +35,6 @@ pub enum DriveObjectType {
 impl From<DriveObjectType> for Icon {
     fn from(cloud_object_type: DriveObjectType) -> Icon {
         match cloud_object_type {
-            DriveObjectType::Workflow => Icon::Workflow,
             DriveObjectType::Notebook => Icon::Notebook,
             DriveObjectType::Folder => Icon::Folder,
             DriveObjectType::EnvVarCollection => Icon::EnvVarCollection,
@@ -48,7 +46,6 @@ impl fmt::Display for DriveObjectType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DriveObjectType::Notebook => write!(f, "notebook"),
-            DriveObjectType::Workflow => write!(f, "workflow"),
             DriveObjectType::Folder => write!(f, "folder"),
             DriveObjectType::EnvVarCollection => write!(f, "env var collection"),
         }
@@ -142,7 +139,6 @@ impl DriveSortOrder {
                         ObjectType::Folder => 0,
                         ObjectType::GenericStringObject(_) => 1,
                         ObjectType::Notebook => 2,
-                        ObjectType::Workflow => 3,
                     };
 
                     // First compare by object type ordering, then by display name alphabetically if equal

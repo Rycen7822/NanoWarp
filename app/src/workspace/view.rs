@@ -316,7 +316,7 @@ use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink}
 #[cfg(target_family = "wasm")]
 use crate::wasm_nux_dialog::WasmNUXDialog;
 use crate::window_settings::{WindowSettings, WindowSettingsChangedEvent, ZoomLevel};
-use crate::workflows::{CloudWorkflow, WorkflowType};
+use crate::workflows::Workflow;
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::cross_window_tab_drag::{
     AttachTarget, CrossWindowTabDrag, DragResult, DropResult, GhostState,
@@ -6134,7 +6134,7 @@ impl Workspace {
                     notebook_manager.create_pane(&NotebookSource::Existing(sync_id), window_id, ctx)
                 }),
             )),
-            CloudObjectTypeAndId::Workflow(_) | CloudObjectTypeAndId::Folder(_) => None,
+            CloudObjectTypeAndId::Folder(_) => None,
             CloudObjectTypeAndId::GenericStringObject {
                 object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
                 id,
@@ -8366,47 +8366,6 @@ impl Workspace {
                 view.is_input_box_visible(&terminal_model.lock(), ctx)
             }),
             _ => false,
-        }
-    }
-
-    fn maybe_refresh_workflow_info_box_and_input(
-        &mut self,
-        workflow_id: &SyncId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let Some(terminal_view_handle) = self
-            .active_tab_pane_group()
-            .as_ref(ctx)
-            .active_session_view(ctx)
-        else {
-            return;
-        };
-        let terminal_input =
-            terminal_view_handle.read(ctx, |terminal_view, _| terminal_view.input().clone());
-
-        if self.is_input_box_visible(ctx) {
-            let open_workflow_id = terminal_input.update(ctx, |input, _| {
-                // We only care to refresh if workflow info box is visible
-                if input.is_workflows_info_box_open() {
-                    input.workflows_info_box_open_workflow_cloud_id()
-                } else {
-                    None
-                }
-            });
-
-            // Check if workflow displayed in info box matches the one that was just updated.
-            if open_workflow_id == Some(*workflow_id) {
-                // Fetch latest version of workflow and update info box with fresh contents
-                let cloud_model = CloudModel::as_ref(ctx);
-                if let Some(workflow) = cloud_model.get_workflow(workflow_id) {
-                    // Proc same behavior as DrivePanelEvent::RunWorkflow
-                    self.run_cloud_workflow_in_active_input(
-                        workflow.clone(),
-                        TerminalSessionFallbackBehavior::default(),
-                        ctx,
-                    );
-                }
-            }
         }
     }
 
@@ -10978,33 +10937,6 @@ impl Workspace {
                 self.update_pane_dimming_for_current_focus_region(ctx);
 
                 let mut active_object_open_in_pane = false;
-                // Case 1: if workflow, get workflow ID via TerminalView input
-                if let Some(terminal_view) = self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .active_session_view(ctx)
-                {
-                    // Get the ID of the workflow that's active in the pane, if there is one.
-                    let active_workflow_id = terminal_view
-                        .read(ctx, |terminal_view, _| terminal_view.input().clone())
-                        .read(ctx, |input, _| {
-                            input.workflows_info_box_open_workflow_cloud_id()
-                        });
-
-                    if let Some(workflow_id) = active_workflow_id {
-                        self.set_selected_object(
-                            Some(WarpDriveItemId::Object(
-                                CloudObjectTypeAndId::from_id_and_type(
-                                    workflow_id,
-                                    ObjectType::Workflow,
-                                ),
-                            )),
-                            ctx,
-                        );
-                        active_object_open_in_pane = true;
-                    }
-                }
-
                 // Case 2: if notebook, get notebook ID via NotebookPane
                 let pane_group = self.active_tab_pane_group().as_ref(ctx);
                 let focused_pane_id = Some(pane_group.focused_pane_id(ctx));
@@ -11949,13 +11881,6 @@ impl Workspace {
 
     fn handle_warp_drive_event(&mut self, event: &DrivePanelEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            DrivePanelEvent::RunWorkflow(workflow) => {
-                self.run_cloud_workflow_in_active_input(
-                    workflow.as_ref().clone(),
-                    TerminalSessionFallbackBehavior::default(),
-                    ctx,
-                );
-            }
             DrivePanelEvent::InvokeEnvironmentVariables {
                 env_var_collection,
                 in_subshell,
@@ -11977,27 +11902,6 @@ impl Workspace {
                 self.open_shared_objects_creation_denied_modal(*object_type, *team_uid, ctx)
             }
         }
-    }
-
-    /// Runs a cloud workflow in whichever input is currently active.
-    fn run_cloud_workflow_in_active_input(
-        &mut self,
-        workflow: CloudWorkflow,
-        fallback_behavior: TerminalSessionFallbackBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.run_workflow_in_active_input(
-            &WorkflowType::Cloud(Box::new(workflow.clone())),
-            None,
-            fallback_behavior,
-            ctx,
-        );
-        ctx.focus_self();
-        ctx.notify();
-        self.set_selected_object(
-            Some(WarpDriveItemId::Object(workflow.cloud_object_type_and_id())),
-            ctx,
-        );
     }
 
     /// Focus and return the active terminal input. If there is no active terminal input (either
@@ -12105,7 +12009,7 @@ impl Workspace {
     /// No-ops if the active session is long-running.
     fn run_workflow_in_active_input(
         &mut self,
-        workflow: &WorkflowType,
+        workflow: &Workflow,
         argument_override: Option<HashMap<String, String>>,
         fallback_behavior: TerminalSessionFallbackBehavior,
         ctx: &mut ViewContext<Self>,
@@ -12114,11 +12018,7 @@ impl Workspace {
         if self.is_readonly_shared_session_active(ctx) {
             return;
         }
-        if workflow.as_workflow().is_agent_mode_workflow() {
-            return;
-        }
-        if let Some(terminal_view_handle) =
-            self.focus_terminal_input(workflow.object_id(), fallback_behavior, ctx)
+        if let Some(terminal_view_handle) = self.focus_terminal_input(None, fallback_behavior, ctx)
         {
             let terminal_input =
                 terminal_view_handle.read(ctx, |terminal_view, _| terminal_view.input().clone());
@@ -12294,8 +12194,6 @@ impl Workspace {
                 &result.success_type,
                 ctx,
             ) {
-                let workflow: Option<&CloudWorkflow> = object.into();
-                let cloned_workflow = workflow.cloned();
                 let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
                 let cloned_env_var_collection = env_var_collection.cloned();
 
@@ -12304,20 +12202,6 @@ impl Workspace {
                         OperationSuccessType::Success => {
                             let mut new_toast =
                                 DismissibleToast::success(message).with_object_id(object_id);
-                            if let Some(workflow) = cloned_workflow
-                                && (matches!(result.operation, ObjectOperation::Create { .. })
-                                    || result.operation == ObjectOperation::Update)
-                            {
-                                new_toast = new_toast.with_link(
-                                    ToastLink::new("View".to_string()).with_onclick_action(
-                                        WorkspaceAction::ViewObjectInWarpDrive(
-                                            WarpDriveItemId::Object(
-                                                CloudObjectTypeAndId::Workflow(workflow.id),
-                                            ),
-                                        ),
-                                    ),
-                                )
-                            }
 
                             if result.operation == ObjectOperation::Trash {
                                 new_toast = new_toast.with_link(
@@ -12335,34 +12219,27 @@ impl Workspace {
                             view.add_persistent_toast(new_toast, ctx);
                         }
                         OperationSuccessType::Rejection => {
-                            let new_toast = if cloned_workflow.is_some() {
-                                DismissibleToast::error(message).with_object_id(object_id)
-                            } else if let Some(env_var_collection) = cloned_env_var_collection {
-                                DismissibleToast::error(message)
-                                    .with_link(
-                                        ToastLink::new(
-                                            "Check out the latest version and try again."
-                                                .to_string(),
-                                        )
-                                        .with_onclick_action(
-                                            WorkspaceAction::HandleConflictingEnvVarCollection(
-                                                env_var_collection.id,
+                            let new_toast =
+                                if let Some(env_var_collection) = cloned_env_var_collection {
+                                    DismissibleToast::error(message)
+                                        .with_link(
+                                            ToastLink::new(
+                                                "Check out the latest version and try again."
+                                                    .to_string(),
+                                            )
+                                            .with_onclick_action(
+                                                WorkspaceAction::HandleConflictingEnvVarCollection(
+                                                    env_var_collection.id,
+                                                ),
                                             ),
-                                        ),
-                                    )
-                                    .with_object_id(object_id)
-                            } else {
-                                return;
-                            };
+                                        )
+                                        .with_object_id(object_id)
+                                } else {
+                                    return;
+                                };
                             view.add_persistent_toast(new_toast, ctx);
                         }
-                        OperationSuccessType::FeatureNotAvailable => {
-                            if cloned_workflow.is_some() {
-                                report_error!(
-                                    "Getting feature not available message for workflows"
-                                );
-                            }
-                        }
+                        OperationSuccessType::FeatureNotAvailable => {}
                         OperationSuccessType::Denied(_) => {
                             let new_toast =
                                 DismissibleToast::error(message).with_object_id(object_id);
@@ -12406,21 +12283,6 @@ impl Workspace {
                             view.add_ephemeral_toast(new_toast, ctx);
                         },
                     })
-        }
-
-        // If this was a successful update on a workflow - caused by this client - then we may need
-        // to update the contents of the workflow info box to represent the new synced state.
-        if result.success_type == OperationSuccessType::Success
-            && result.operation == ObjectOperation::Update
-        {
-            let cloud_model = CloudModel::as_ref(ctx);
-            let updated_object = cloud_model
-                .get_by_uid(&result.server_id.expect("Expect server id on success").uid());
-            if let Some(CloudObjectTypeAndId::Workflow(workflow_id)) =
-                updated_object.map(|o| o.cloud_object_type_and_id())
-            {
-                self.maybe_refresh_workflow_info_box_and_input(&workflow_id, ctx)
-            }
         }
 
         // If this was a successful personal object creation, then potentially show the sharing

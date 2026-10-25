@@ -59,7 +59,6 @@ impl TryFrom<warp_graphql::mutations::create_anonymous_user::AnonymousUserType>
 pub struct PersonalObjectLimits {
     pub env_var_limit: usize,
     pub notebook_limit: usize,
-    pub workflow_limit: usize,
 }
 
 impl TryFrom<warp_graphql::queries::get_user::AnonymousUserPersonalObjectLimits>
@@ -72,7 +71,6 @@ impl TryFrom<warp_graphql::queries::get_user::AnonymousUserPersonalObjectLimits>
         Ok(Self {
             env_var_limit: value.env_var_limit as usize,
             notebook_limit: value.notebook_limit as usize,
-            workflow_limit: value.workflow_limit as usize,
         })
     }
 }

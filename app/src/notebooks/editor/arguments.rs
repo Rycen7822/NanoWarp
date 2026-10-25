@@ -84,7 +84,7 @@ impl ArgumentsState {
                     Some(prev_argument) => {
                         ArgumentsState::new_argument_with_previous_data(name, prev_argument)
                     }
-                    None => Argument::new(name, Default::default()),
+                    None => Argument::new(name),
                 };
 
                 word_index_to_arg_index_map.insert(*word_index, arg_index);
@@ -123,7 +123,6 @@ impl ArgumentsState {
             name: new_argument_name.to_string(),
             description: prev_argument.description.clone(),
             default_value: prev_argument.default_value.clone(),
-            arg_type: Default::default(),
         }
     }
 }

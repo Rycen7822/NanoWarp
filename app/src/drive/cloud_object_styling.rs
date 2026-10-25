@@ -12,15 +12,6 @@ pub fn warp_drive_icon_color(
     cloud_object_type: DriveObjectType,
 ) -> ColorU {
     match cloud_object_type {
-        DriveObjectType::Workflow => {
-            let color: Fill = appearance.theme().terminal_colors().normal.red.into();
-            color
-                .on_background(
-                    appearance.theme().surface_1(),
-                    MinimumAllowedContrast::NonText,
-                )
-                .into()
-        }
         DriveObjectType::Notebook => {
             let color: Fill = appearance.theme().terminal_colors().normal.blue.into();
             color

@@ -85,7 +85,7 @@ use crate::ui_components::icons::{self, Icon};
 use crate::uri::web_intent_parser::open_url_on_desktop;
 use crate::util::bindings::{self, CustomAction};
 use crate::view_components::{DismissibleToast, ToastType};
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{cmd_or_ctrl_shift, safe_info, send_telemetry_from_ctx};
@@ -242,7 +242,7 @@ pub struct NotebookView {
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotebookEvent {
     RunWorkflow {
-        workflow: Arc<WorkflowType>,
+        workflow: Arc<Workflow>,
     },
     ViewInWarpDrive(WarpDriveItemId),
     Pane(PaneEvent),

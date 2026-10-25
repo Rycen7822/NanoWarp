@@ -10,7 +10,6 @@ use crate::cloud_object::model::persistence::CloudModel;
 #[derive(Clone, Copy)]
 enum AnonymousUserObjectLimit {
     Notebook,
-    Workflow,
     EnvVarCollection,
 }
 
@@ -18,7 +17,6 @@ impl AnonymousUserObjectLimit {
     fn is_exceeded(self, limits: PersonalObjectLimits, num_objects: usize) -> bool {
         match self {
             Self::Notebook => num_objects > limits.notebook_limit,
-            Self::Workflow => num_objects > limits.workflow_limit,
             Self::EnvVarCollection => num_objects > limits.env_var_limit,
         }
     }
@@ -90,19 +88,6 @@ pub fn has_feature_gated_anonymous_user_reached_notebook_limit(ctx: &mut AppCont
         ctx,
         count + 1,
         AnonymousUserObjectLimit::Notebook,
-    )
-}
-
-pub fn has_feature_gated_anonymous_user_reached_workflow_limit(ctx: &mut AppContext) -> bool {
-    let count = CloudModel::handle(ctx).read(ctx, |model, ctx| {
-        model
-            .active_non_welcome_workflows_in_space(Space::Personal, ctx)
-            .count()
-    });
-    has_feature_gated_anonymous_user_reached_limit(
-        ctx,
-        count + 1,
-        AnonymousUserObjectLimit::Workflow,
     )
 }
 

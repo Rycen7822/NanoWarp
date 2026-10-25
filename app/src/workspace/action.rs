@@ -32,7 +32,7 @@ use crate::tab_configs::TabConfig;
 use crate::terminal::available_shells::AvailableShell;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::themes::theme_chooser::ThemeChooserMode;
-use crate::workflows::WorkflowType;
+use crate::workflows::Workflow;
 use crate::workspace::PaneViewLocator;
 use crate::workspace::tab_group::TabGroupId;
 
@@ -450,7 +450,7 @@ pub enum WorkspaceAction {
         id: SyncId,
     },
     RunWorkflow {
-        workflow: Arc<WorkflowType>,
+        workflow: Arc<Workflow>,
         argument_override: Option<HashMap<String, String>>,
     },
     ScrollToSettingsWidget {

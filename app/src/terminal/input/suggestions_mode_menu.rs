@@ -3,7 +3,6 @@
 //! This module contains all rendering functions for the various input suggestion modes:
 //! - HistoryUp
 //! - CompletionSuggestions
-//! - StaticWorkflowEnumSuggestions
 
 use warpui::elements::{
     Border, ConstrainedBox, Container, CornerRadius, DragBarSide, DropShadow, Element, Empty, Flex,
@@ -98,29 +97,6 @@ impl Input {
 
         self.render_suggestions_container(
             0.,
-            corner_radius,
-            theme,
-            SuggestionsResizeConfig::WidthAndHeight,
-            menu_positioning,
-            content,
-        )
-    }
-
-    pub(super) fn render_workflow_enum_suggestions_menu(
-        &self,
-        appearance: &Appearance,
-        menu_positioning: MenuPositioning,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let corner_radius = CornerRadius::with_all(Radius::Pixels(6.));
-
-        // Same styling as CompletionSuggestions
-        let margin = 0.;
-
-        let content = ChildView::new(&self.input_suggestions).finish();
-
-        self.render_suggestions_container(
-            margin,
             corner_radius,
             theme,
             SuggestionsResizeConfig::WidthAndHeight,
