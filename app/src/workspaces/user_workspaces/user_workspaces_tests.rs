@@ -1,14 +1,8 @@
 use super::team_workspace_settings::TeamScope;
-use crate::auth::AuthStateProvider;
+use regex::Regex;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::time::Duration;
-
-use mockall::Sequence;
-use regex::Regex;
-use settings::{PrivatePreferences, PublicPreferences};
 use warp_graphql::billing::{
     BillingMetadata as GqlBillingMetadata, CustomerType as GqlCustomerType,
     DelinquencyStatus as GqlDelinquencyStatus, Tier as GqlTier,
@@ -29,19 +23,10 @@ use warp_graphql::workspace::{
 use warpui::elements::Empty;
 use warpui::platform::WindowStyle;
 use warpui::{AddSingletonModel, App, Element, TypedActionView, View, ViewHandle, WindowId};
-use warpui_extras::user_preferences;
 
 use super::*;
-use crate::auth::AuthManager;
-use crate::network::NetworkStatus;
-use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::team::{MockTeamClient, TeamClient};
-use crate::settings::CodeSettings;
-use crate::system::SystemStats;
 use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
 use crate::workspaces::team::{Team, TeamVisibility};
-use crate::workspaces::team_tester::TeamTesterStatus;
-use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::Workspace;
 
@@ -69,141 +54,9 @@ impl UserWorkspaces {
     }
 }
 
-#[derive(Default)]
-struct CachedResources {
-    workspaces: Vec<Workspace>,
-}
-
-fn initialize_app(app: &mut App, resources: CachedResources, team_client: Arc<dyn TeamClient>) {
-    initialize_app_with_auth(
-        app,
-        resources,
-        team_client,
-        AuthStateProvider::new_for_test(),
-    );
-}
-
-fn initialize_app_with_auth(
-    app: &mut App,
-    resources: CachedResources,
-    team_client: Arc<dyn TeamClient>,
-    auth_state_provider: AuthStateProvider,
-) {
-    // Add the necessary singleton models to the App
-    app.add_singleton_model(|_| NetworkStatus::new());
-    app.add_singleton_model(|_| SystemStats::new());
-    app.add_singleton_model(TeamTesterStatus::new);
-    app.add_singleton_model(|ctx| UserWorkspaces::mock(resources.workspaces, ctx));
-    app.add_singleton_model(|ctx| TeamUpdateManager::new(team_client.clone(), None, ctx));
-    app.add_singleton_model(PrivacySettings::mock);
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
-    app.add_singleton_model(|_| auth_state_provider);
-    app.add_singleton_model(AuthManager::new_for_test);
-
-    app.add_singleton_model(|_| {
-        PublicPreferences::new(Box::<user_preferences::in_memory::InMemoryPreferences>::default())
-    });
-    app.add_singleton_model(|_| {
-        PrivatePreferences::new(Box::<user_preferences::in_memory::InMemoryPreferences>::default())
-    });
-
-    app.add_singleton_model(CodeSettings::new_with_defaults);
-}
-
 fn initialize_window_team_test_app(app: &mut App, workspaces: Vec<Workspace>) {
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(|ctx| UserWorkspaces::mock(workspaces, ctx));
-}
-
-#[test]
-fn test_loading_all_spaces_after_switching_from_offline() {
-    let team = Team {
-        uid: 123.into(),
-        name: "test".to_string(),
-        color: None,
-        invite_link: None,
-        members: vec![],
-        pending_email_invites: vec![],
-        invite_link_domain_restrictions: vec![],
-        billing_metadata: Default::default(),
-        stripe_customer_id: None,
-        settings: Default::default(),
-        is_eligible_for_discovery: false,
-        visibility: TeamVisibility::Open,
-    };
-
-    let workspace = Workspace {
-        uid: "workspace_uid123456789".to_string().into(),
-        name: "test".to_string(),
-        stripe_customer_id: None,
-        teams: vec![team.clone()],
-        billing_metadata: Default::default(),
-        settings: Default::default(),
-        invite_link_domain_restrictions: vec![],
-        pending_email_invites: vec![],
-        is_eligible_for_discovery: false,
-        members: vec![],
-    };
-
-    App::test((), |mut app| async move {
-        // Sequences used for ordering requests (so first call will return something different than
-        // next etc.)
-        let mut team_sequence = Sequence::new();
-
-        // Lets start by initializing the server api mock
-        let mut team_client = MockTeamClient::new();
-
-        // On first call to workspaces_metadata we return no workspaces (and expect it to be called just once)
-        team_client
-            .expect_workspaces_metadata()
-            .times(1)
-            .in_sequence(&mut team_sequence)
-            .returning(|| Ok(vec![]));
-
-        // Second call will return list of teams (one team specifically) and we also expect only 1
-        team_client
-            .expect_workspaces_metadata()
-            .times(1)
-            .in_sequence(&mut team_sequence)
-            .returning(move || Ok(vec![workspace.clone()]));
-
-        initialize_app(
-            &mut app,
-            CachedResources { workspaces: vec![] },
-            Arc::new(team_client),
-        );
-
-        // Polling normally starts after authentication; this case exercises that lifecycle.
-        TeamTesterStatus::handle(&app).update(&mut app, |team_tester, ctx| {
-            team_tester.initiate_data_pollers(false, ctx);
-        });
-
-        // We also ensure that UserWorkspaces stores no teams.
-        UserWorkspaces::handle(&app).read(&app, |teams, _| {
-            assert!(!teams.has_teams());
-        });
-
-        // Spend time waiting for the initial load to finish etc.
-        warpui::r#async::Timer::after(Duration::from_secs(1)).await;
-
-        // Lets go offline
-        NetworkStatus::handle(&app).update(&mut app, |network_status, ctx| {
-            network_status.reachability_changed(false, ctx);
-        });
-
-        // Lets go back online
-        NetworkStatus::handle(&app).update(&mut app, |network_status, ctx| {
-            network_status.reachability_changed(true, ctx);
-        });
-
-        // Spend time waiting for the load to finish etc.
-        warpui::r#async::Timer::after(Duration::from_secs(1)).await;
-
-        // We also ensure that UserWorkspaces stores a team
-        UserWorkspaces::handle(&app).read(&app, |teams, _| {
-            assert!(teams.has_teams());
-        });
-    })
 }
 
 fn team_for_test() -> Team {

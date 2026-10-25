@@ -30,7 +30,6 @@ use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::PrivacySettings;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::workspace::{Workspace, WorkspaceAction};
-use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::{
     GlobalResourceHandlesProvider, focus_running_window_and_show_native_modal, persistence,
 };
@@ -176,9 +175,6 @@ pub fn log_out(app: &mut AppContext) {
 
     AuthManager::handle(app).update(app, |auth_manager, ctx| {
         auth_manager.log_out(ctx);
-    });
-    TeamUpdateManager::handle(app).update(app, |manager, _| {
-        manager.stop_polling_for_workspace_metadata_updates();
     });
     remove_cloud_persisted_settings(app);
 

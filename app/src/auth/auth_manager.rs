@@ -32,7 +32,6 @@ use crate::server::server_api::auth::{
 use crate::terminal::general_settings::GeneralSettings;
 #[cfg(target_family = "wasm")]
 use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
-use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::{GlobalResourceHandlesProvider, persistence};
 
 #[derive(Debug)]
@@ -259,13 +258,6 @@ impl AuthManager {
                 self.complete_authentication(user.clone(), credentials, ctx);
 
                 self.set_needs_reauth(false, ctx);
-
-                // Now that we have a user, start polling for team information.
-                // The polling loop's first tick fires immediately, so there is no need for a
-                // separate out-of-band refresh here.
-                TeamTesterStatus::handle(ctx).update(ctx, |model, ctx| {
-                    model.initiate_data_pollers(false, ctx);
-                });
 
                 if !user.is_user_anonymous() {
                     GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {

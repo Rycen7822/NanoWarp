@@ -43,8 +43,6 @@ use crate::user_config::tab_configs_dir;
 #[cfg(windows)]
 use crate::util::traffic_lights::windows::RendererState;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
-use crate::workspaces::team_tester::TeamTesterStatus;
-use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{GlobalResourceHandlesProvider, experiments, workspace};
 pub(crate) fn initialize_app(app: &mut App) {
@@ -61,8 +59,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(|_| crate::tab::TabShortcutModifierState::new());
     app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
-    app.add_singleton_model(TeamTesterStatus::mock);
-    app.add_singleton_model(TeamUpdateManager::mock);
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(AppearanceManager::new);
     app.add_singleton_model(|_| DisplayCount::mock());

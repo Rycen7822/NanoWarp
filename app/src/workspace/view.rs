@@ -293,7 +293,6 @@ use crate::workspace::view::left_panel::{
     LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
 };
 use crate::workspace::view::right_panel::{RightPanelEvent, RightPanelView};
-use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 /// The padding that should be applied to the workspace as a whole.
@@ -15326,9 +15325,6 @@ impl TypedActionView for Workspace {
             }
             OpenNewWindowForTeam { team_uid } => {
                 let team_uid = *team_uid;
-                TeamUpdateManager::handle(ctx).update(ctx, |manager, ctx| {
-                    std::mem::drop(manager.refresh_workspace_metadata(ctx));
-                });
                 #[cfg(target_family = "wasm")]
                 {
                     // WASM hosts a single window; creating another replaces #wasm-container

@@ -514,7 +514,7 @@ impl From<GqlWorkspace> for Workspace {
     }
 }
 
-/// Converts the `GetWorkspacesMetadataForUser` response into the current workspaces.
+/// Converts user workspace metadata into the current workspaces.
 ///
 /// `is_service_account` controls whether [`retain_authenticated_teams`] filters each
 /// workspace's teams down to the caller's own human memberships; see that function's doc
