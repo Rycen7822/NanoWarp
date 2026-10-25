@@ -1,18 +1,18 @@
 mod glibc;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
 pub use glibc::{GlibcVersion, RemoteLibc};
 use warp_core::channel::{Channel, ChannelState};
-pub const REMOTE_SERVER_ARTIFACT_VERSION_UNPINNED: &str = "unversioned";
 
 /// State machine for the remote server install → launch → initialize flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemoteServerSetupState {
     /// Checking if the binary exists on remote.
     Checking,
-    /// Downloading and installing the binary for the first time on this host.
+    /// Uploading and installing the binary for the first time on this host.
     Installing { progress_percent: Option<u8> },
     /// Replacing an existing install with a differently-versioned binary.
     /// Rendered as "Updating..." in the UI so the user understands this
@@ -456,30 +456,13 @@ pub fn daemon_pid_name() -> String {
     }
 }
 
-/// Returns the binary name, keyed by channel.
-///
-/// Matches the CLI command names: `oz` (stable), `oz-preview`, `oz-dev`.
+/// Returns the NanoWarp remote server executable name.
 pub fn binary_name() -> &'static str {
-    ChannelState::channel().cli_command_name()
+    "nanowarp-server"
 }
 
-/// Returns the full remote binary path for the current channel and client
-/// version.
-///
-/// The path-versioning rule is keyed strictly off [`Channel`]:
-///
-/// - [`Channel::Local`] and [`Channel::Oss`] always use the bare
-///   `{binary_name}` path. For `Local` this is the slot
-///   `script/deploy_remote_server` writes to; `Oss` is treated the
-///   same way because it has no release-pinned CDN artifact and is
-///   expected to be deployed/managed locally.
-/// - Every other channel always uses `{binary_name}-{version}`, where
-///   `version` is the baked-in `GIT_RELEASE_TAG` when present and falls
-///   back to `CARGO_PKG_VERSION` otherwise. The fallback keeps the path
-///   deterministic for misconfigured `cargo run --bin {dev,preview,...}`
-///   builds; the resulting `&version=...` query is expected to 404 against
-///   `/download/cli` and surface a clean `SetupFailed` rather than silently
-///   writing to a path that doesn't follow the rule.
+/// Returns the remote binary path for the current channel and client version.
+/// Local/Oss use the bare name; other channels retain a version suffix.
 pub fn remote_server_binary() -> String {
     let dir = remote_server_dir();
     let name = binary_name();
@@ -503,164 +486,51 @@ pub fn binary_check_command() -> String {
 }
 
 /// Returns the shell command to remove the current remote-server binary.
-///
-/// The global bundled resources directory is deliberately left in place:
-/// the next install overwrites it, and an older daemon that is still
-/// running parsed its skills at startup.
 pub fn remote_server_removal_command() -> String {
     format!("rm -f {}", remote_server_binary())
 }
 
-/// Returns the version string used to pin remote-server installs on
-/// channels that take the versioned path (i.e. everything except
-/// [`Channel::Local`] and [`Channel::Oss`]). Prefers the baked-in
-/// `GIT_RELEASE_TAG` from [`ChannelState::app_version`]; falls back to
-/// `CARGO_PKG_VERSION` so the path / install URL is deterministic even on
-/// dev `cargo run` builds without a release tag. The `CARGO_PKG_VERSION`
-/// fallback is not expected to map to a real `/download/cli` artifact —
-/// it exists to produce a clean install-time failure rather than silently
-/// fall through to the unversioned (Local/Oss-only) path.
+/// Version used for local artifacts and versioned remote executable paths.
 fn pinned_version() -> &'static str {
     ChannelState::app_version().unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
-/// Returns the version key used to identify remote-server download artifacts.
-///
-/// This must match the versioning used by [`download_tarball_url`] and
-/// [`install_script`], so versioned download URLs do not reuse stale tarballs
-/// from a previous client version.
-pub fn remote_server_artifact_version() -> &'static str {
-    match ChannelState::channel() {
-        Channel::Local | Channel::Oss => REMOTE_SERVER_ARTIFACT_VERSION_UNPINNED,
-        Channel::Stable | Channel::Preview | Channel::Dev | Channel::Integration => {
-            pinned_version()
-        }
-    }
+/// Local prebuilt binary matching this channel, version and remote platform.
+pub fn local_artifact_path(platform: &RemotePlatform) -> PathBuf {
+    warp_core::paths::cache_dir()
+        .join("remote-server")
+        .join("binaries")
+        .join(ChannelState::channel().to_string())
+        .join(pinned_version())
+        .join(format!(
+            "{}-{}",
+            platform.os.as_str(),
+            platform.arch.as_str()
+        ))
+        .join(binary_name())
 }
 
-/// Name of the global, version-independent resources directory inside
-/// [`remote_server_dir`], populated by the install script from the
-/// artifact's `resources/` tree (bundled skills, settings schema).
-pub const BUNDLED_RESOURCES_DIR_NAME: &str = "bundled_resources";
-
-/// Returns the global, version-independent directory where the install
-/// script places the artifact's `resources/` tree. Shell-form path
-/// (`~/...`); the daemon expands it against its own home directory.
-///
-/// Deliberately not version-scoped: the last install wins, and slight
-/// version skew between the resources and a running daemon is accepted
-/// (the daemon parses its skills once at startup).
-pub fn remote_server_bundled_resources_dir() -> String {
-    format!("{}/{}", remote_server_dir(), BUNDLED_RESOURCES_DIR_NAME)
-}
-
-/// The install script template, loaded from a standalone `.sh` file for
-/// readability. Placeholders like `{download_base_url}` are substituted by
-/// [`install_script`].
+/// The staged-binary install script template.
 const INSTALL_SCRIPT_TEMPLATE: &str = include_str!("install_remote_server.sh");
 
-/// Returns the install script that downloads and installs the CLI binary
-/// at the current client version.
-///
-/// The script detects the remote architecture via `uname -m`, downloads
-/// the correct Oz CLI tarball from the download URL, and installs it at
-/// the path returned by [`remote_server_binary`] so repeat invocations
-/// are idempotent. The `version_query` / `version_suffix` substitutions
-/// follow the same rule as [`remote_server_binary`]: empty on
-/// [`Channel::Local`] and [`Channel::Oss`] (so the install lands at
-/// the unversioned path used by `script/deploy_remote_server`); pinned to
-/// `&version={v}` / `-{v}` on every other channel, where `v` falls back
-/// to `CARGO_PKG_VERSION` when no release tag is baked in.
-pub fn install_script(staging_tarball_path: Option<&str>) -> String {
-    let (vq, version_suffix) = match ChannelState::channel() {
-        Channel::Local | Channel::Oss => (String::new(), String::new()),
-        Channel::Stable | Channel::Preview | Channel::Dev | Channel::Integration => {
-            let v = pinned_version();
-            (format!("&version={v}"), format!("-{v}"))
-        }
-    };
+/// Installs an already-uploaded binary after validating it with `--version`.
+pub fn install_script(staging_binary_path: &str) -> String {
     INSTALL_SCRIPT_TEMPLATE
-        .replace("{download_base_url}", &download_url())
-        .replace("{channel}", download_channel())
-        .replace("{install_dir}", &remote_server_dir())
-        .replace("{binary_name}", binary_name())
-        .replace("{version_query}", &vq)
-        .replace("{version_suffix}", &version_suffix)
-        .replace("{bundled_resources_dir_name}", BUNDLED_RESOURCES_DIR_NAME)
+        .replace("{install_dir}", &remote_server_dir().replace('\'', "'\\''"))
         .replace(
-            "{no_http_client_exit_code}",
-            &NO_HTTP_CLIENT_EXIT_CODE.to_string(),
+            "{binary_path}",
+            &remote_server_binary().replace('\'', "'\\''"),
         )
-        .replace("{staging_tarball_path}", staging_tarball_path.unwrap_or(""))
+        .replace(
+            "{staging_binary_path}",
+            &staging_binary_path.replace('\'', "'\\''"),
+        )
 }
-
-/// Construct the download URL from the server root URL.
-///
-/// For example, given `https://app.warp.dev`, returns
-/// `https://app.warp.dev/download/cli`.
-fn download_url() -> String {
-    let base = ChannelState::server_root_url();
-    let base = base.trim_end_matches('/');
-    format!("{base}/download/cli")
-}
-
-/// Maps the client's [`Channel`] to the server's download channel parameter.
-///
-/// The server recognises `"stable"`, `"preview"`, and `"dev"`.  Local and
-/// Integration builds map to `"dev"` so they fetch dogfood artifacts.
-fn download_channel() -> &'static str {
-    match ChannelState::channel() {
-        Channel::Stable => "stable",
-        Channel::Preview => "preview",
-        Channel::Dev | Channel::Local | Channel::Integration => "dev",
-        Channel::Oss => {
-            // TODO(alokedesai): need to figure out how remote server works with warp-oss
-            // For now, return what Dev returns.
-            "dev"
-        }
-    }
-}
-
-/// Returns the version query string for the download URL (e.g.
-/// `"&version=v0.2026.01.01"` on release channels, empty on Local/Oss).
-fn version_query() -> String {
-    match ChannelState::channel() {
-        Channel::Local | Channel::Oss => String::new(),
-        Channel::Stable | Channel::Preview | Channel::Dev | Channel::Integration => {
-            format!("&version={}", pinned_version())
-        }
-    }
-}
-
-/// Returns the full download URL for the remote server tarball,
-/// parameterized by the remote platform. Used by the SCP upload
-/// fallback to download the same artifact the shell script would fetch.
-pub fn download_tarball_url(platform: &RemotePlatform) -> String {
-    format!(
-        "{}?package=tar&os={}&arch={}&channel={}{}",
-        download_url(),
-        platform.os.as_str(),
-        platform.arch.as_str(),
-        download_channel(),
-        version_query(),
-    )
-}
-
-/// Exit code the install script uses when neither curl nor wget is
-/// available on the remote host. The Rust side matches on this to
-/// trigger the SCP upload fallback.
-pub const NO_HTTP_CLIENT_EXIT_CODE: i32 = 3;
 
 /// Timeout for the binary existence check.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Timeout for the install script (curl/wget path).
-pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
-
-/// Timeout for the SCP upload fallback path (local download + SCP +
-/// extraction). Higher than [`INSTALL_TIMEOUT`] because SCP transfers
-/// the tarball over the user's SSH link, which is typically slower than
-/// the remote host's direct internet connection.
+/// Timeout for SCP upload and staged-binary installation over the SSH link.
 pub const SCP_INSTALL_TIMEOUT: Duration = Duration::from_secs(240);
 
 #[cfg(test)]

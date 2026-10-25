@@ -36,7 +36,7 @@ use crate::setup::UnsupportedReason;
 use crate::setup::{PreinstallCheckResult, RemotePlatform, RemoteServerSetupState};
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::{Connection, ControlPath};
-use crate::transport::{Error, InstallSource, RemoteTransport};
+use crate::transport::{Error, RemoteTransport};
 
 /// Maximum number of reconnection attempts after a spontaneous disconnect.
 pub const MAX_RECONNECT_ATTEMPTS: u32 = 2;
@@ -532,10 +532,6 @@ pub enum RemoteServerManagerEvent {
         session_id: SessionId,
         /// Whether the install succeeded or failed.
         result: Result<(), Arc<Error>>,
-        /// Which install path was attempted (`Server` for remote download,
-        /// `Client` for SCP upload). `None` if the path could not be
-        /// determined before the failure.
-        install_source: Option<InstallSource>,
     },
 
     // --- Telemetry events ---
@@ -1739,8 +1735,7 @@ impl RemoteServerManager {
     /// Installs the remote server binary.
     /// Emits `BinaryInstallComplete { result }`.
     ///
-    /// Returns Ok(method) with the install method on success, and
-    /// Err(_) if the install failed (e.g. SSH timeout/unreachable).
+    /// Emits the install result, including failures such as SSH timeouts.
     #[cfg_attr(target_family = "wasm", allow(unused_variables))]
     pub fn install_binary<T>(
         &mut self,
@@ -1772,10 +1767,10 @@ impl RemoteServerManager {
             let spawner = self.spawner.clone();
             ctx.background_executor()
                 .spawn(async move {
-                    let outcome = transport.install_binary().await;
+                    let result = transport.install_binary().await;
                     let _ = spawner
                         .spawn(move |_me, ctx| {
-                            if let Err(error) = &outcome.result {
+                            if let Err(error) = &result {
                                 ctx.emit(RemoteServerManagerEvent::SetupStateChanged {
                                     session_id,
                                     state: RemoteServerSetupState::from(error),
@@ -1783,8 +1778,7 @@ impl RemoteServerManager {
                             }
                             ctx.emit(RemoteServerManagerEvent::BinaryInstallComplete {
                                 session_id,
-                                result: outcome.result.map_err(Arc::new),
-                                install_source: outcome.source,
+                                result: result.map_err(Arc::new),
                             });
                         })
                         .await;

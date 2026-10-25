@@ -16,7 +16,7 @@ use remote_server::setup::{
     PreinstallCheckResult, RemotePlatform, parse_uname_output, remote_server_daemon_dir,
 };
 use remote_server::ssh::ssh_args;
-use remote_server::transport::{Connection, ControlPath, Error, InstallOutcome, RemoteTransport};
+use remote_server::transport::{Connection, ControlPath, Error, RemoteTransport};
 use warpui::r#async::executor;
 
 #[path = "ssh_transport/installation.rs"]
@@ -203,7 +203,7 @@ impl RemoteTransport for SshTransport {
         })
     }
 
-    fn install_binary(&self) -> Pin<Box<dyn Future<Output = InstallOutcome> + Send>> {
+    fn install_binary(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
         let socket_path = self.socket_path.clone();
         Box::pin(async move { installation::install_binary(&socket_path).await })
     }
