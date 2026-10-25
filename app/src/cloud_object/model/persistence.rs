@@ -1155,14 +1155,6 @@ impl CloudModel {
             .and_then(|object| object.into())
     }
 
-    /// Returns only active (not trashed) workflows in cloud model.
-    pub fn get_all_active_workflows(&self) -> impl Iterator<Item = &CloudWorkflow> {
-        self.objects_by_id
-            .values()
-            .filter(|object| !object.is_trashed(self))
-            .filter_map(|object| object.into())
-    }
-
     /// Returns all workflows (trashed or not) in cloud model.
     pub fn get_all_active_and_inactive_workflows(&self) -> impl Iterator<Item = &CloudWorkflow> {
         self.objects_by_id

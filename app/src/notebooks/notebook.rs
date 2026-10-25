@@ -752,14 +752,6 @@ impl NotebookView {
                     ctx.notify();
                 }
             }
-            CloudModelEvent::ObjectMoved { type_and_id, .. } => {
-                if self.as_active_notebook_id(type_and_id, ctx).is_some()
-                    && let Some(space) = self.active_notebook_data.as_ref(ctx).space(ctx)
-                {
-                    self.input
-                        .update(ctx, |editor, ctx| editor.set_space(space, ctx));
-                }
-            }
             CloudModelEvent::ObjectCreated { type_and_id, .. } => {
                 if self.as_active_notebook_id(type_and_id, ctx).is_some() {
                     // Re-render to update the status bar.
@@ -961,14 +953,9 @@ impl NotebookView {
                 NotebookTelemetryAction::OpenBlockInsertionMenu { source: *source },
                 ctx,
             ),
-            EditorViewEvent::OpenedEmbeddedObjectSearch => {
-                self.send_telemetry_action(NotebookTelemetryAction::OpenEmbeddedObjectSearch, ctx)
-            }
             EditorViewEvent::OpenedFindBar => {
                 self.send_telemetry_action(NotebookTelemetryAction::OpenFindBar, ctx)
             }
-            EditorViewEvent::InsertedEmbeddedObject(info) => self
-                .send_telemetry_action(NotebookTelemetryAction::InsertEmbeddedObject(*info), ctx),
             EditorViewEvent::CopiedBlock { block, entrypoint } => self.send_telemetry_action(
                 NotebookTelemetryAction::CopyBlock {
                     block: *block,
@@ -1508,11 +1495,6 @@ impl NotebookView {
         self.active_notebook_data.update(ctx, |data, ctx| {
             data.open_existing(notebook.id, ctx);
         });
-        self.input.update(ctx, |editor, ctx| {
-            // TODO(ben): This is used for filtering in the embed UI, and should also probably be
-            // owner-based.
-            editor.set_space(notebook.space(ctx), ctx);
-        });
 
         send_telemetry_from_ctx!(
             TelemetryEvent::OpenNotebook(self.open_telemetry_metadata(ctx)),
@@ -1584,8 +1566,6 @@ impl NotebookView {
         });
         self.input.update(ctx, |input_editor, ctx| {
             input_editor.system_clear_buffer(ctx);
-            let space = UserWorkspaces::as_ref(ctx).owner_to_space(owner, ctx);
-            input_editor.set_space(space, ctx);
         });
 
         if let Some(title) = title {

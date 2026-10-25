@@ -1,5 +1,3 @@
-use std::any::Any;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::time::Duration;
@@ -43,10 +41,8 @@ use warpui::{
 
 use super::super::telemetry::SelectionMode as TelemetrySelectionMode;
 use super::NotebookWorkflow;
-use super::embedding_model::NotebookEmbed;
 use super::interaction_state_model::InteractionStateModel;
 use super::notebook_command::NotebookCommand;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::editor::InteractionState;
 use crate::notebooks::editor::interaction_state_model::InteractionStateModelEvent;
 use crate::notebooks::file::MarkdownDisplayMode;
@@ -183,10 +179,7 @@ impl NotebooksEditorModel {
         lazy_layout: bool,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let content = ctx.add_model(|_| {
-            Buffer::new(Box::new(notebook_tab_indentation))
-                .with_embedded_item_conversion(super::notebook_embedded_item_conversion)
-        });
+        let content = ctx.add_model(|_| Buffer::new(Box::new(notebook_tab_indentation)));
         ctx.subscribe_to_model(&content, |me, _, event, ctx| {
             me.handle_content_model_event(event, ctx);
         });
@@ -213,11 +206,6 @@ impl NotebooksEditorModel {
             &interaction_state,
             Self::handle_interaction_state_model_event,
         );
-
-        let cloud_model = CloudModel::handle(ctx);
-        ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| {
-            me.handle_cloud_model_event(event, ctx)
-        });
 
         let (resize_tx, resize_rx) = async_channel::unbounded();
         ctx.spawn_stream_local(
@@ -295,11 +283,7 @@ impl NotebooksEditorModel {
         }
         self.default_mermaid_display_mode = mode;
 
-        for command in self
-            .child_models
-            .model_handles::<NotebookCommand>()
-            .collect_vec()
-        {
+        for command in self.child_models.model_handles().collect_vec() {
             command.update(ctx, |command, _| {
                 command.mermaid_display_mode = mode;
             });
@@ -396,7 +380,7 @@ impl NotebooksEditorModel {
         mode: MarkdownDisplayMode,
         ctx: &mut ModelContext<Self>,
     ) {
-        if let Some(command) = self.child_models.model_at::<NotebookCommand>(block_offset) {
+        if let Some(command) = self.child_models.model_at(block_offset) {
             command.update(ctx, |cmd, _| {
                 cmd.mermaid_display_mode = mode;
             });
@@ -410,7 +394,7 @@ impl NotebooksEditorModel {
     fn sync_mermaid_render_offsets(&mut self, ctx: &mut ModelContext<Self>) -> bool {
         let new_offsets: HashSet<CharOffset> = self
             .child_models
-            .model_handles::<NotebookCommand>()
+            .model_handles()
             .filter_map(|handle| {
                 let command = handle.as_ref(ctx);
                 if command.is_rendered_mermaid(ctx) {
@@ -497,46 +481,11 @@ impl NotebooksEditorModel {
         }
     }
 
-    fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ModelContext<Self>) {
-        // Ignore cloud events until bound to a real window, and when the window is closed.
-        let Some(window_id) = self.rte_window_id else {
-            return;
-        };
-        if !ctx.is_window_open(window_id) {
-            return;
-        }
-        match event {
-            CloudModelEvent::ObjectUpdated { type_and_id, .. }
-            | CloudModelEvent::ObjectTrashed { type_and_id, .. }
-            | CloudModelEvent::ObjectUntrashed { type_and_id, .. }
-            | CloudModelEvent::ObjectDeleted { type_and_id, .. }
-            | CloudModelEvent::ObjectMoved { type_and_id, .. } => {
-                if let Some(model) = self
-                    .child_models
-                    .model_handles::<NotebookEmbed>()
-                    .find(|model| model.as_ref(ctx).hashed_id() == type_and_id.sqlite_uid_hash())
-                {
-                    model.update(ctx, |model, ctx| {
-                        model.refresh_item_state(ctx);
-                    })
-                }
-            }
-            _ => (),
-        }
-    }
-
     /// Find the [`NotebookCommand`] model backing a laid-out block item.
     pub fn notebook_command_for_block(
         &self,
         offset: CharOffset,
     ) -> Option<ModelHandle<NotebookCommand>> {
-        self.child_models.model_at(offset)
-    }
-
-    pub fn notebook_embed_for_block(
-        &self,
-        offset: CharOffset,
-    ) -> Option<ModelHandle<NotebookEmbed>> {
         self.child_models.model_at(offset)
     }
 
@@ -1263,7 +1212,7 @@ impl NotebooksEditorModel {
             })
         ) && self
             .child_models
-            .model_at::<NotebookCommand>(block_start)
+            .model_at(block_start)
             .is_some_and(|command| {
                 matches!(
                     command.as_ref(ctx).mermaid_display_mode,
@@ -1284,7 +1233,7 @@ impl NotebooksEditorModel {
             .models
             .iter()
             .filter_map(|(start, command)| {
-                let end = command.end_offset(ctx)?;
+                let end = command.as_ref(ctx).end_offset(ctx)?;
                 self.is_rendered_mermaid_block(*start, ctx)
                     .then_some(*start..end)
             })
@@ -1327,11 +1276,7 @@ impl NotebooksEditorModel {
         };
 
         // Re-apply cached highlighting for models when there is a theme update.
-        for model in self.child_models.model_handles::<NotebookEmbed>() {
-            model.update(ctx, |model, ctx| model.try_apply_cached_highlighting(ctx));
-        }
-
-        for model in self.child_models.model_handles::<NotebookCommand>() {
+        for model in self.child_models.model_handles() {
             model.update(ctx, |model, ctx| model.try_apply_cached_highlighting(ctx));
         }
     }
@@ -1392,14 +1337,14 @@ impl NotebooksEditorModel {
         self.child_models
             .models
             .values()
-            .any(|model| model.selected(ctx))
+            .any(|model| model.as_ref(ctx).is_selected())
     }
 
     /// Selects the command block at the given start offset. If the offset does not point to a
     /// command block, this has no effect.
     pub fn select_command_at(&mut self, block_start: CharOffset, ctx: &mut ModelContext<Self>) {
         let child_model = match self.child_models.models.get(&block_start) {
-            Some(handle) => handle.clone_boxed(),
+            Some(handle) => handle.clone(),
             None => return,
         };
 
@@ -1410,20 +1355,16 @@ impl NotebooksEditorModel {
 
         self.cursor_at(block_start, ctx);
 
-        if !child_model.selectable(ctx) {
-            return;
-        }
+        child_model.update(ctx, |model, _| model.set_selected(true));
 
-        child_model.set_selected(true, ctx);
-
-        if let Some(command) = child_model.executable_command(ctx) {
+        if let Some(command) = child_model.as_ref(ctx).command(ctx) {
             ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                 format!("Selected workflow: {command}"),
                 WarpA11yRole::TextareaRole,
             ));
         }
 
-        match child_model.end_offset(ctx) {
+        match child_model.as_ref(ctx).end_offset(ctx) {
             Some(end_offset) => {
                 let range = block_start..end_offset;
                 self.render_state.update(ctx, |render_state, _| {
@@ -1471,7 +1412,7 @@ impl NotebooksEditorModel {
     pub fn select_command_up(&mut self, ctx: &mut ModelContext<Self>) {
         let selected_command_start = self.selected_commands(ctx).map(|(start, _)| start).min();
 
-        let selectable_offsets = self.child_models.selectable_offsets(ctx);
+        let selectable_offsets = self.child_models.selectable_offsets();
 
         if selectable_offsets.is_empty() {
             return;
@@ -1502,7 +1443,7 @@ impl NotebooksEditorModel {
     pub fn select_command_down(&mut self, ctx: &mut ModelContext<Self>) {
         let selected_command_start = self.selected_commands(ctx).map(|(start, _)| start).max();
 
-        let selectable_offsets = self.child_models.selectable_offsets(ctx);
+        let selectable_offsets = self.child_models.selectable_offsets();
 
         if selectable_offsets.is_empty() {
             return;
@@ -1536,7 +1477,7 @@ impl NotebooksEditorModel {
         let new_cursor_location = self
             .selected_commands(ctx)
             .min_by_key(|(start, _)| *start)
-            .and_then(|(_, command)| command.end_offset(ctx));
+            .and_then(|(_, command)| command.as_ref(ctx).end_offset(ctx));
 
         if self.clear_command_selections(ctx) {
             ctx.emit(RichTextEditorModelEvent::SwitchedSelectionMode {
@@ -1556,9 +1497,7 @@ impl NotebooksEditorModel {
     pub fn clear_command_selections(&mut self, ctx: &mut ModelContext<Self>) -> bool {
         let mut had_command_selection = false;
         for command in self.child_models.models.values() {
-            if command.selectable(ctx) {
-                had_command_selection |= command.set_selected(false, ctx)
-            }
+            had_command_selection |= command.update(ctx, |model, _| model.set_selected(false));
         }
         self.interaction_state
             .update(ctx, |interaction_state, ctx| {
@@ -1572,7 +1511,7 @@ impl NotebooksEditorModel {
     /// (such as the dropdown view for picking different block types)
     pub fn any_notebook_command_submodel_focused(&self, ctx: &AppContext) -> bool {
         self.child_models
-            .models::<NotebookCommand>(ctx)
+            .models(ctx)
             .any(|command| command.is_dropdown_focused(ctx))
     }
 
@@ -1580,14 +1519,13 @@ impl NotebooksEditorModel {
     fn selected_commands<'a>(
         &'a self,
         ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (CharOffset, &'a Box<dyn ChildModelHandle>)> + 'a {
-        self.child_models
-            .models
-            .values()
-            .filter_map(|handle| match handle.start_offset(ctx) {
-                Some(offset) if handle.selected(ctx) => Some((offset, handle)),
+    ) -> impl Iterator<Item = (CharOffset, &'a ModelHandle<NotebookCommand>)> + 'a {
+        self.child_models.models.values().filter_map(|handle| {
+            match handle.as_ref(ctx).start_offset(ctx) {
+                Some(offset) if handle.as_ref(ctx).is_selected() => Some((offset, handle)),
                 _ => None,
-            })
+            }
+        })
     }
 
     /// The currently-selected command block, as a [`NotebookWorkflow`]
@@ -1596,13 +1534,13 @@ impl NotebooksEditorModel {
         self.selected_commands(app)
             .exactly_one()
             .ok()
-            .and_then(|(_, command)| command.executable_workflow(app))
+            .and_then(|(_, command)| command.as_ref(app).to_workflow(app))
     }
 
     /// The range of the currently-selected command.
     fn single_selected_command_range(&self, ctx: &AppContext) -> SelectedCommandResult {
         match self.selected_commands(ctx).at_most_one() {
-            Ok(Some((start, command))) => match command.end_offset(ctx) {
+            Ok(Some((start, command))) => match command.as_ref(ctx).end_offset(ctx) {
                 Some(end) => SelectedCommandResult::Single { start, end },
                 None => SelectedCommandResult::None,
             },
@@ -1754,6 +1692,7 @@ impl NotebooksEditorModel {
             .child_models
             .models
             .get(&block_start)?
+            .as_ref(ctx)
             .end_offset(ctx)?;
         Some(
             self.content
@@ -2020,49 +1959,12 @@ pub fn word_unit(ctx: &AppContext) -> TextUnit {
     TextUnit::Word(SemanticSelection::as_ref(ctx).word_boundary_policy())
 }
 
-/// Container for logical editor models that are nested within a notebooks editor model.
-///
-/// Sub-models include:
-/// * [`NotebookCommand`] for command/code blocks
-/// * (Soon) embedded workflows
+/// Models for command/code blocks nested within a notebook editor.
 pub struct ChildModels {
     /// Sub-models mapped by their starting offset as of the last cycle of text layout. This
     /// prevents flicker when updating the content model, as the [`Anchor`]s within the command
     /// models will update before the [`RenderState`] does.
-    models: HashMap<CharOffset, Box<dyn ChildModelHandle>>,
-}
-
-/// Handle to a logical sub-model of the notebook editor.
-pub trait ChildModelHandle {
-    /// The starting offset for the block that this model manages (for example, the start of a code
-    /// block).
-    fn start_offset(&self, app: &AppContext) -> Option<CharOffset>;
-
-    /// The end offset for the block that this model manages (for example, the end of a code
-    /// block).
-    fn end_offset(&self, app: &AppContext) -> Option<CharOffset>;
-
-    /// Whether the model is selected.
-    fn selected(&self, app: &AppContext) -> bool;
-
-    /// Whether the represented child model is selectable.
-    fn selectable(&self, app: &AppContext) -> bool;
-
-    /// Returns the workflow representation of this child model (if applies).
-    fn executable_workflow(&self, app: &AppContext) -> Option<NotebookWorkflow>;
-
-    /// Returns the plain text of the underlying executable command for this child model (if
-    /// applies).
-    fn executable_command<'a>(&'a self, app: &'a AppContext) -> Option<Cow<'a, str>>;
-
-    /// Update the selection state of the child model, returning its previous selection state.
-    fn set_selected(&self, selected: bool, ctx: &mut AppContext) -> bool;
-
-    /// Coerce to [`Any`] for downcasting.
-    fn as_any(&self) -> &dyn Any;
-
-    /// Clone this handle. Because this is a handle, not the model itself, it's expected to be cheap.
-    fn clone_boxed(&self) -> Box<dyn ChildModelHandle>;
+    models: HashMap<CharOffset, ModelHandle<NotebookCommand>>,
 }
 
 impl ChildModels {
@@ -2072,49 +1974,24 @@ impl ChildModels {
         }
     }
 
-    pub fn selectable_offsets(&self, app: &AppContext) -> Vec<CharOffset> {
-        self.models
-            .iter()
-            .filter_map(|(offset, model)| {
-                if model.selectable(app) {
-                    Some(*offset)
-                } else {
-                    None
-                }
-            })
-            .sorted()
-            .collect()
+    pub fn selectable_offsets(&self) -> Vec<CharOffset> {
+        self.models.keys().copied().sorted().collect()
     }
 
-    /// Retrieve the child model of the given type backing the block at `offset`.
-    ///
-    /// Returns `None` if:
-    /// * There is not a block of the expected type at `offset`.
-    /// * The child model state is out of sync with the underlying buffer.
-    pub fn model_at<T: 'static>(&self, offset: CharOffset) -> Option<ModelHandle<T>> {
-        Some(
-            self.models
-                .get(&offset)?
-                .as_any()
-                .downcast_ref::<ModelHandle<T>>()?
-                .clone(),
-        )
+    /// Retrieve the command/code model at the last laid-out block offset.
+    pub fn model_at(&self, offset: CharOffset) -> Option<ModelHandle<NotebookCommand>> {
+        self.models.get(&offset).cloned()
     }
 
-    /// Iterate over all child models of the given type.
-    pub fn models<'a, T: Entity>(
+    pub fn models<'a>(
         &'a self,
         ctx: &'a AppContext,
-    ) -> impl Iterator<Item = &'a T> + 'a {
+    ) -> impl Iterator<Item = &'a NotebookCommand> + 'a {
         self.model_handles().map(|handle| handle.as_ref(ctx))
     }
 
-    /// Iterates over all child model handles of the given type.
-    pub fn model_handles<T: Entity>(&self) -> impl Iterator<Item = ModelHandle<T>> + '_ {
-        self.models
-            .values()
-            .filter_map(|handle| handle.as_any().downcast_ref())
-            .cloned()
+    pub fn model_handles(&self) -> impl Iterator<Item = ModelHandle<NotebookCommand>> + '_ {
+        self.models.values().cloned()
     }
 
     /// Update the sub-model state with [`NotebookCommand`] models for every runnable command
@@ -2135,8 +2012,8 @@ impl ChildModels {
             .models
             .drain()
             .filter_map(|(_, handle)| {
-                let start = handle.start_offset(ctx)?;
-                let end = handle.end_offset(ctx)?;
+                let start = handle.as_ref(ctx).start_offset(ctx)?;
+                let end = handle.as_ref(ctx).end_offset(ctx)?;
                 Some(((start, end), handle))
             })
             .collect();
@@ -2147,61 +2024,24 @@ impl ChildModels {
         // - If a block were unstyled, its anchors may still be valid, but it won't be in the new
         //   outline, so the existing model handle will be dropped at the end of the method.
         let mut to_add = vec![];
-        let mut new_embedded_item = vec![];
-        let mut reset_selection = vec![];
-
         for outline in content.as_ref(ctx).outline_blocks() {
-            match outline.block_type {
-                BlockType::Text(BufferBlockStyle::CodeBlock { .. }) => {
-                    match existing_models.remove(&(outline.start, outline.end)) {
-                        Some(existing_model)
-                            if existing_model.as_any().is::<ModelHandle<NotebookCommand>>() =>
-                        {
-                            log::trace!(
-                                "Reusing existing NotebookCommand model at {}..{}",
-                                outline.start,
-                                outline.end
-                            );
-
-                            if !existing_model.selectable(ctx) && existing_model.selected(ctx) {
-                                reset_selection.push((outline.start, existing_model));
-                            } else {
-                                self.models.insert(outline.start, existing_model);
-                            }
-                        }
-                        _ => to_add.push(outline),
+            if let BlockType::Text(BufferBlockStyle::CodeBlock { .. }) = outline.block_type {
+                match existing_models.remove(&(outline.start, outline.end)) {
+                    Some(existing_model) => {
+                        log::trace!(
+                            "Reusing existing NotebookCommand model at {}..{}",
+                            outline.start,
+                            outline.end
+                        );
+                        self.models.insert(outline.start, existing_model);
                     }
+                    None => to_add.push(outline),
                 }
-                BlockType::Item(BufferBlockItem::Embedded { item }) => {
-                    match existing_models.remove(&(outline.start, outline.end)) {
-                        Some(existing_model)
-                            if existing_model.as_any().is::<ModelHandle<NotebookEmbed>>() =>
-                        {
-                            log::trace!("Reusing existing EmbeddedItem model at {}", outline.start);
-
-                            if !existing_model.selectable(ctx) && existing_model.selected(ctx) {
-                                reset_selection.push((outline.start, existing_model));
-                            } else {
-                                self.models.insert(outline.start, existing_model);
-                            }
-                        }
-                        _ => new_embedded_item.push((item.hashed_id().to_string(), outline.start)),
-                    }
-                }
-                _ => (),
             }
         }
 
-        // We have to add new models in a separate pass, because creating anchors requires a
-        // mutable borrow of `content`, while the `outline_blocks` iterator already immutably
-        // borrows it.
-        self.models
-            .reserve(to_add.len() + new_embedded_item.len() + reset_selection.len());
-
-        for (model_start, model) in reset_selection {
-            model.set_selected(false, ctx);
-            self.models.insert(model_start, model);
-        }
+        // Creating anchors mutably borrows content, so add models after reading its outline.
+        self.models.reserve(to_add.len());
 
         for outline in to_add {
             log::debug!(
@@ -2223,22 +2063,7 @@ impl ChildModels {
                 command
             });
 
-            self.models.insert(outline.start, Box::new(new_model));
-        }
-
-        for (hashed_id, start_offset) in new_embedded_item {
-            log::debug!("Adding EmbeddedItem model at {start_offset}");
-            let new_model: ModelHandle<_> = ctx.add_model(|ctx| {
-                NotebookEmbed::new(
-                    start_offset,
-                    hashed_id,
-                    content.clone(),
-                    selection_model.clone(),
-                    ctx,
-                )
-            });
-
-            self.models.insert(start_offset, Box::new(new_model));
+            self.models.insert(outline.start, new_model);
         }
     }
 }

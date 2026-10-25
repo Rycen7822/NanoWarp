@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
@@ -43,7 +42,6 @@ use warpui::{
 use super::arguments::ArgumentsState;
 use super::interaction_state_model::InteractionStateModel;
 use super::keys::{NotebookKeybindings, custom_action_to_display};
-use super::model::ChildModelHandle;
 use super::view::EditorViewAction;
 use super::{NotebookWorkflow, rich_text_styles};
 use crate::ASSETS;
@@ -836,44 +834,6 @@ impl RunnableCommandModel for NotebookCommand {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-}
-
-impl ChildModelHandle for ModelHandle<NotebookCommand> {
-    fn start_offset(&self, app: &AppContext) -> Option<CharOffset> {
-        self.as_ref(app).start_offset(app)
-    }
-
-    fn end_offset(&self, app: &AppContext) -> Option<CharOffset> {
-        self.as_ref(app).end_offset(app)
-    }
-
-    fn selectable(&self, _: &AppContext) -> bool {
-        true
-    }
-
-    fn executable_workflow(&self, app: &AppContext) -> Option<NotebookWorkflow> {
-        self.as_ref(app).to_workflow(app)
-    }
-
-    fn executable_command<'a>(&'a self, app: &'a AppContext) -> Option<Cow<'a, str>> {
-        self.as_ref(app).command(app).map(Into::into)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn selected(&self, app: &AppContext) -> bool {
-        self.as_ref(app).is_selected
-    }
-
-    fn set_selected(&self, selected: bool, ctx: &mut AppContext) -> bool {
-        self.update(ctx, |model, _ctx| model.set_selected(selected))
-    }
-
-    fn clone_boxed(&self) -> Box<dyn ChildModelHandle> {
-        Box::new(self.clone())
     }
 }
 
