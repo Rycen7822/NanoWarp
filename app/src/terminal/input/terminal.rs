@@ -2,25 +2,21 @@ use warp_core::settings::Setting;
 use warpui::elements::{
     Border, Container, DropTarget, Element, Flex, Hoverable, ParentElement, SavePosition, Stack,
 };
-use warpui::presenter::ChildView;
 use warpui::{AppContext, SingletonEntity};
 
 use super::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_workflow_info_overlay,
     wrap_input_with_terminal_padding_and_focus_handler,
 };
-use super::{Input, InputAction, InputDropTargetData};
+use super::{Input, InputDropTargetData};
 use crate::appearance::Appearance;
 use crate::context_chips::spacing;
-use crate::settings::{AppEditorSettings, InputModeSettings};
 use crate::terminal::block_list_settings::BlockListSettings;
-use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::settings::TerminalSettings;
 use crate::terminal::view::TerminalAction;
 
 impl Input {
-    /// Renders the terminal mode input when `FeatureFlag::AgentView` is enabled and there is no
-    /// active agent view.
+    /// Renders the input with the Warp prompt.
     pub(super) fn render_terminal_input(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let menu_positioning = self.menu_positioning(app);
@@ -30,11 +26,6 @@ impl Input {
         // We should likely rework this stack to not need to use `with_constrain_absolute_children`,
         // by reworking the positioning of the children to not depend on this.
         let mut stack = Stack::new().with_constrain_absolute_children();
-
-        let vim_state = self.editor.as_ref(app).vim_state(app);
-        let app_editor_settings = AppEditorSettings::as_ref(app);
-        let show_vim_status = vim_state.is_some() && *app_editor_settings.vim_status_bar.value();
-        let input_mode = *InputModeSettings::as_ref(app).input_mode.value();
 
         let mut column = Flex::column();
 
@@ -47,7 +38,7 @@ impl Input {
         let terminal_spacing = TerminalSettings::as_ref(app)
             .terminal_input_spacing(appearance.line_height_ratio(), app);
         column.add_child(
-            Container::new(self.render_input_box(show_vim_status, appearance, app))
+            Container::new(self.render_input_box(appearance, app))
                 .with_margin_top(
                     terminal_spacing.prompt_to_editor_padding
                         * spacing::UDI_PROMPT_BOTTOM_PADDING_FACTOR,
@@ -104,9 +95,6 @@ impl Input {
         .finish();
 
         let hoverable_input = Hoverable::new(self.hoverable_handle.clone(), |_| drop_target)
-            .on_hover(|is_hovered, ctx, _app, _position| {
-                ctx.dispatch_typed_action(InputAction::SetUDIHovered(is_hovered));
-            })
             .on_middle_click(|ctx, _app, _position| {
                 ctx.dispatch_typed_action(TerminalAction::MiddleClickOnInput)
             })
@@ -125,17 +113,7 @@ impl Input {
             hoverable_input
         };
 
-        let mut column = Flex::column();
-        match input_mode {
-            InputMode::PinnedToTop => {
-                column.add_children([input, ChildView::new(&self.agent_status_view).finish()]);
-            }
-            InputMode::PinnedToBottom | InputMode::Waterfall => {
-                column.add_children([ChildView::new(&self.agent_status_view).finish(), input]);
-            }
-        }
-
-        SavePosition::new(column.finish(), &self.save_position_id()).finish()
+        SavePosition::new(input, &self.save_position_id()).finish()
     }
 }
 

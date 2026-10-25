@@ -37,7 +37,6 @@ use self::renderer::RendererStyles;
 use crate::appearance::Appearance;
 use crate::features::FeatureFlag;
 use crate::themes::theme::PromptColors;
-use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 
 /// The value of a context chip. Most chips produce plain text, but some
@@ -200,8 +199,6 @@ pub enum ContextChipKind {
     #[serde(alias = "RemoteLogin")]
     Ssh,
     Subshell,
-    /// A chip that shows the plan and todo list for the current conversation.
-    AgentPlanAndTodoList,
 }
 
 impl ContextChipKind {
@@ -361,17 +358,7 @@ impl ContextChipKind {
                 builtins::subshell,
                 RefreshConfig::OnDemandOnly,
             )),
-            Self::AgentPlanAndTodoList => Some(ContextChip::builtin(
-                "Agent Plan and Todo List",
-                |_| Some(ChipValue::Text(String::new())),
-                RefreshConfig::OnDemandOnly,
-            )),
         }
-    }
-
-    /// Whether the context chip has a copyable value.
-    pub fn is_copyable(&self) -> bool {
-        !matches!(self, Self::AgentPlanAndTodoList)
     }
 
     /// Returns a generator to be used for the first fetch of
@@ -421,18 +408,10 @@ impl ContextChipKind {
             Self::SvnDirtyItems => ChipValue::Text("3".to_string()),
             Self::Ssh => ChipValue::Text("alice@127.0.0.1".to_string()),
             Self::Subshell => ChipValue::Text("bash".to_string()),
-            Self::AgentPlanAndTodoList => ChipValue::Text("Plan and Todo List".to_string()),
         }
     }
 
-    pub fn default_styles(
-        &self,
-        appearance: &Appearance,
-        is_in_agent_view: bool,
-    ) -> RendererStyles {
-        if is_in_agent_view {
-            return RendererStyles::new(agent_view_chip_color(appearance), Properties::default());
-        }
+    pub fn default_styles(&self, appearance: &Appearance) -> RendererStyles {
         let prompt_colors: PromptColors = appearance.theme().clone().into();
 
         let color = match self {
@@ -454,7 +433,6 @@ impl ContextChipKind {
             Self::SvnDirtyItems => prompt_colors.input_prompt_svn,
             Self::Ssh => prompt_colors.input_prompt_ssh,
             Self::Subshell => prompt_colors.input_prompt_subshell,
-            Self::AgentPlanAndTodoList => prompt_colors.input_prompt_agent_mode_hint,
             Self::Custom { .. } => ColorU::new(255, 255, 255, 255),
         };
 
@@ -547,17 +525,9 @@ impl ContextChipKind {
             Self::GitDiffStats | Self::SvnDirtyItems => Some(Icon::File),
             Self::GithubPullRequest => Some(Icon::Github),
             Self::KubernetesContext => Some(Icon::Globe),
-            Self::AgentPlanAndTodoList => Some(Icon::CheckSkinny),
             Self::Custom { .. } => None,
         }
     }
-}
-
-/// Returns the set of chips that are available for use in the agent footer.
-pub fn agent_footer_available_chips() -> Vec<ContextChipKind> {
-    let mut chips = available_chips();
-    chips.push(ContextChipKind::AgentPlanAndTodoList);
-    chips
 }
 
 /// TODO: this needs to also fetch the custom chips from sqlite
@@ -646,11 +616,6 @@ pub fn chips_to_string(chips: impl Iterator<Item = ChipResult>) -> String {
     prompt
 }
 
-pub(crate) fn agent_view_chip_color(appearance: &Appearance) -> ColorU {
-    let theme = appearance.theme();
-    readable_chip_label_color(theme, Fill::Solid(blended_colors::neutral_1(theme)))
-}
-
 /// The label/icon color for a chip drawn on `background`.
 ///
 /// Chips normally use the muted `sub_text_color` (which is `font_color` at 60%
@@ -680,10 +645,9 @@ pub fn render_text_from_kind(
     text: &mut Text,
     kind: ContextChipKind,
     value: String,
-    is_in_agent_view: bool,
     appearance: &Appearance,
 ) {
-    let styles = kind.default_styles(appearance, is_in_agent_view);
+    let styles = kind.default_styles(appearance);
     let prompt_colors: PromptColors = appearance.theme().clone().into();
 
     // Keep in sync with `ContextChipKind::display_value`
@@ -691,49 +655,29 @@ pub fn render_text_from_kind(
         ContextChipKind::ShellGitBranch | ContextChipKind::GitBranchStatus => {
             text.add_text_with_highlights(
                 "git:(",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_git
-                },
+                prompt_colors.input_prompt_git,
                 styles.font_properties,
             );
         }
         ContextChipKind::SvnBranch => {
             text.add_text_with_highlights(
                 "svn:(",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_svn
-                },
+                prompt_colors.input_prompt_svn,
                 styles.font_properties,
             );
         }
         ContextChipKind::SvnDirtyItems => {
             text.add_text_with_highlights(
                 "±",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_svn
-                },
+                prompt_colors.input_prompt_svn,
                 styles.font_properties,
             );
         }
         ContextChipKind::KubernetesContext => {
             text.add_text_with_highlights(
                 "⎈ ",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_kubernetes
-                },
-                if is_in_agent_view {
-                    styles.font_properties
-                } else {
-                    Properties::default().weight(Weight::Thin)
-                },
+                prompt_colors.input_prompt_kubernetes,
+                Properties::default().weight(Weight::Thin),
             );
         }
         _ => (),
@@ -745,22 +689,14 @@ pub fn render_text_from_kind(
         ContextChipKind::ShellGitBranch | ContextChipKind::GitBranchStatus => {
             text.add_text_with_highlights(
                 ")",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_git
-                },
+                prompt_colors.input_prompt_git,
                 styles.font_properties,
             );
         }
         ContextChipKind::SvnBranch => {
             text.add_text_with_highlights(
                 ")",
-                if is_in_agent_view {
-                    styles.value_color
-                } else {
-                    prompt_colors.input_prompt_svn
-                },
+                prompt_colors.input_prompt_svn,
                 styles.font_properties,
             );
         }

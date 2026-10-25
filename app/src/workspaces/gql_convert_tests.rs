@@ -17,7 +17,6 @@ fn team(name: &str, member_uids: &[&str]) -> Team {
                 })
                 .collect(),
         ),
-        None,
     )
 }
 
@@ -26,7 +25,6 @@ fn workspace(teams: Vec<Team>) -> Workspace {
         format!("{:0>22}", "workspace").into(),
         "workspace".to_string(),
         Some(teams),
-        None,
     )
 }
 
@@ -113,145 +111,21 @@ fn team_member_conversion_preserves_is_disabled() {
 
 #[test]
 fn workspace_member_conversion_preserves_is_disabled() {
-    let usage_info = || GqlWorkspaceMemberUsageInfo {
-        is_unlimited: false,
-        request_limit: 0,
-        requests_used_since_last_refresh: 0,
-        included_usage_cents: None,
-        usage_cents_used_since_last_refresh: None,
-        is_request_limit_prorated: false,
-    };
     let enabled_member = GqlWorkspaceMember {
         uid: "user-1".into(),
         email: "user1@example.com".to_string(),
         role: GqlMembershipRole::User,
         is_disabled: false,
-        usage_info: usage_info(),
     };
     let disabled_member = GqlWorkspaceMember {
         uid: "user-2".into(),
         email: "user2@example.com".to_string(),
         role: GqlMembershipRole::User,
         is_disabled: true,
-        usage_info: usage_info(),
     };
 
     assert!(!WorkspaceMember::from(enabled_member).is_disabled);
     assert!(WorkspaceMember::from(disabled_member).is_disabled);
-}
-
-#[test]
-fn workspace_member_usage_conversion_preserves_billed_cents() {
-    let dollars_first = WorkspaceMemberUsageInfo::from(GqlWorkspaceMemberUsageInfo {
-        is_unlimited: false,
-        request_limit: 1000,
-        requests_used_since_last_refresh: 250,
-        included_usage_cents: Some(1800.0),
-        usage_cents_used_since_last_refresh: Some(450.5),
-        is_request_limit_prorated: false,
-    });
-    assert_eq!(
-        dollars_first.included_usage_cents,
-        Some(OrderedFloat(1800.0))
-    );
-    assert_eq!(
-        dollars_first.usage_cents_used_since_last_refresh,
-        Some(OrderedFloat(450.5))
-    );
-
-    let credits_first = WorkspaceMemberUsageInfo::from(GqlWorkspaceMemberUsageInfo {
-        is_unlimited: false,
-        request_limit: 1000,
-        requests_used_since_last_refresh: 250,
-        included_usage_cents: None,
-        usage_cents_used_since_last_refresh: None,
-        is_request_limit_prorated: false,
-    });
-    assert_eq!(credits_first.included_usage_cents, None);
-    assert_eq!(credits_first.usage_cents_used_since_last_refresh, None);
-}
-
-#[test]
-fn tier_conversion_maps_the_charge_unit() {
-    let gql_tier = |charge_unit: GqlChargeUnit| GqlTier {
-        name: "Build".to_string(),
-        description: "Build tier".to_string(),
-        charge_unit,
-        warp_ai_policy: None,
-        team_size_policy: None,
-        shared_notebooks_policy: None,
-        shared_workflows_policy: None,
-        session_sharing_policy: None,
-        ai_autonomy_policy: None,
-        telemetry_data_collection_policy: None,
-        ugc_data_collection_policy: None,
-        usage_based_pricing_policy: None,
-        byo_api_key_policy: None,
-        byo_endpoint_policy: None,
-        managed_byok_byoe_policy: None,
-        purchase_add_on_credits_policy: None,
-        enterprise_pay_as_you_go_policy: None,
-        enterprise_credits_auto_reload_policy: None,
-        multi_admin_policy: None,
-        native_workspaces_policy: None,
-        ambient_agents_policy: None,
-    };
-
-    assert_eq!(
-        Tier::from(gql_tier(GqlChargeUnit::Cents)).charge_unit,
-        ChargeUnit::Cents
-    );
-    assert_eq!(
-        Tier::from(gql_tier(GqlChargeUnit::Credits)).charge_unit,
-        ChargeUnit::Credits
-    );
-    // A unit from a newer server fails closed to credits.
-    assert_eq!(
-        Tier::from(gql_tier(GqlChargeUnit::Other("TOKENS".to_string()))).charge_unit,
-        ChargeUnit::Credits
-    );
-}
-
-#[test]
-fn addon_credits_settings_conversion_preserves_auto_reload_usage_cents() {
-    let settings = AddonCreditsSettings::from(GqlAddonCreditsSettings {
-        auto_reload_enabled: true,
-        max_monthly_spend_cents: Some(10_000),
-        selected_auto_reload_credit_denomination: Some(1000),
-        selected_auto_reload_usage_cents: Some(1000),
-    });
-
-    assert_eq!(
-        settings.selected_auto_reload_credit_denomination,
-        Some(1000)
-    );
-    assert_eq!(settings.selected_auto_reload_usage_cents, Some(1000));
-}
-
-#[test]
-fn bonus_grant_conversion_preserves_usage_cents() {
-    let gql_grant = |usage_cents: Option<(f64, f64)>| GqlBonusGrant {
-        created_at: chrono::Utc::now().into(),
-        cost_cents: 1000,
-        expiration: None,
-        grant_type: warp_graphql::billing::BonusGrantType::Any,
-        scope: GqlBonusGrantScope::User,
-        reason: "purchase".to_string(),
-        user_facing_message: None,
-        request_credits_granted: 1000,
-        request_credits_remaining: 400,
-        usage_cents_granted: usage_cents.map(|(granted, _)| granted),
-        usage_cents_remaining: usage_cents.map(|(_, remaining)| remaining),
-    };
-
-    let dollars_first = BonusGrant::from_gql_user_bonus_grant(gql_grant(Some((1800.0, 720.0))));
-    assert_eq!(dollars_first.usage_cents_granted, Some(1800.0));
-    assert_eq!(dollars_first.usage_cents_remaining, Some(720.0));
-    assert_eq!(dollars_first.request_credits_remaining, 400);
-
-    let credits_first = BonusGrant::from_gql_user_bonus_grant(gql_grant(None));
-    assert_eq!(credits_first.usage_cents_granted, None);
-    assert_eq!(credits_first.usage_cents_remaining, None);
 }
 
 mod pending_email_invites_conversion {
@@ -311,23 +185,10 @@ mod pending_email_invites_conversion {
 }
 
 mod team_settings_conversion {
+    use crate::workspaces::gql_convert::team_settings_from_gql;
     use warp_graphql::workspace as gqlws;
 
-    use crate::ai::execution_profiles::{ActionPermission, WriteToPtyPermission};
-    use crate::workspaces::gql_convert::team_settings_from_gql;
-    use crate::workspaces::workspace::{
-        AdminEnablementSetting, TeamSettings, UgcCollectionEnablementSetting,
-    };
-
-    fn admin_info(
-        value: gqlws::AdminEnablementSetting,
-        is_enforced_by_workspace: bool,
-    ) -> gqlws::AdminEnablementSettingInfo {
-        gqlws::AdminEnablementSettingInfo {
-            value,
-            is_enforced_by_workspace,
-        }
-    }
+    use crate::workspaces::workspace::TeamSettings;
 
     fn bool_info(value: bool, is_enforced_by_workspace: bool) -> gqlws::BooleanSettingInfo {
         gqlws::BooleanSettingInfo {
@@ -336,26 +197,9 @@ mod team_settings_conversion {
         }
     }
 
-    fn str_list(
-        values: &[&str],
-        workspace: &[&str],
-        team: &[&str],
-    ) -> gqlws::StringListSettingInfo {
-        let owned = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect();
+    fn str_list(values: &[&str]) -> gqlws::StringListSettingInfo {
         gqlws::StringListSettingInfo {
-            values: owned(values),
-            workspace_entries: owned(workspace),
-            team_entries: owned(team),
-        }
-    }
-
-    fn autonomy_info(
-        value: gqlws::AiAutonomyValue,
-        is_enforced_by_workspace: bool,
-    ) -> gqlws::AiAutonomySettingInfo {
-        gqlws::AiAutonomySettingInfo {
-            value,
-            is_enforced_by_workspace,
+            values: values.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -364,14 +208,8 @@ mod team_settings_conversion {
     /// field-by-field (including the metadata that must be preserved).
     fn sample_gql_team_settings() -> gqlws::TeamSettings {
         gqlws::TeamSettings {
-            ugc_collection: gqlws::UgcCollectionSettingInfo {
-                value: gqlws::UgcCollectionEnablementSetting::Enable,
-                is_enforced_by_workspace: true,
-            },
-            cloud_conversation_storage: admin_info(gqlws::AdminEnablementSetting::Disable, false),
             ai_permissions: gqlws::AiPermissionsSettingsInfo {
-                allow_ai_in_remote_sessions: bool_info(true, true),
-                remote_session_regex_list: str_list(&["foo.*"], &["ws.*"], &["team.*"]),
+                remote_session_regex_list: str_list(&["foo.*"]),
             },
             secret_redaction: gqlws::SecretRedactionSettingsInfo {
                 enabled: bool_info(true, false),
@@ -387,47 +225,13 @@ mod team_settings_conversion {
                     team_entries: vec![],
                 },
             },
-            ai_autonomy: gqlws::AiAutonomySettingsInfo {
-                apply_code_diffs: autonomy_info(gqlws::AiAutonomyValue::AlwaysAllow, true),
-                read_files: autonomy_info(gqlws::AiAutonomyValue::RespectUserSetting, false),
-                create_plans: autonomy_info(gqlws::AiAutonomyValue::RespectUserSetting, false),
-                execute_commands: autonomy_info(gqlws::AiAutonomyValue::AlwaysAsk, false),
-                write_to_pty: gqlws::WriteToPtySettingInfo {
-                    value: gqlws::WriteToPtyAutonomyValue::AlwaysAsk,
-                    is_enforced_by_workspace: false,
-                },
-                read_files_allowlist: str_list(&["/allowed"], &[], &[]),
-                execute_commands_allowlist: str_list(&["ls"], &[], &[]),
-                execute_commands_denylist: str_list(&["rm"], &[], &[]),
-            },
             link_sharing: gqlws::LinkSharingSettingsInfo {
                 anyone_with_link_sharing_enabled: bool_info(true, false),
                 direct_link_sharing_enabled: bool_info(false, false),
             },
-            sandboxed_agent: gqlws::SandboxedAgentSettingsInfo {
-                execute_commands_denylist: str_list(&["danger"], &[], &[]),
-            },
-            llm_settings: gqlws::LlmSettings {
-                enabled: true,
-                host_configs: vec![],
-            },
             telemetry_settings: gqlws::TelemetrySettings {
                 force_enabled: true,
             },
-            usage_based_pricing_settings: gqlws::UsageBasedPricingSettings {
-                enabled: true,
-                max_monthly_spend_cents: Some(500),
-            },
-            addon_credits_settings: gqlws::AddonCreditsSettings {
-                auto_reload_enabled: true,
-                max_monthly_spend_cents: Some(100),
-                selected_auto_reload_credit_denomination: Some(50),
-                selected_auto_reload_usage_cents: None,
-            },
-            ambient_agent_settings: Some(gqlws::AmbientAgentSettings {
-                enable_warp_attribution: gqlws::AdminEnablementSetting::Enable,
-            }),
-            team_byo: None,
         }
     }
 
@@ -435,29 +239,8 @@ mod team_settings_conversion {
     fn reads_effective_values_and_preserves_metadata() {
         let settings = TeamSettings::from(sample_gql_team_settings());
 
-        // Workspace-governable groups keep both the effective `.value` and the
-        // `is_enforced_by_workspace` bit.
-        assert!(matches!(
-            settings.ugc_collection.value,
-            UgcCollectionEnablementSetting::Enable
-        ));
-        assert!(settings.ugc_collection.is_enforced_by_workspace);
-        assert_eq!(
-            settings.cloud_conversation_storage.value,
-            AdminEnablementSetting::Disable
-        );
-
-        // AI permissions preserve the enforcement bit and compile the merged patterns.
-        assert!(settings.ai_permissions.allow_ai_in_remote_sessions.value);
-        assert!(
-            settings
-                .ai_permissions
-                .allow_ai_in_remote_sessions
-                .is_enforced_by_workspace
-        );
         assert_eq!(
             settings
-                .ai_permissions
                 .remote_session_regex_list
                 .iter()
                 .map(|regex| regex.as_str())
@@ -476,59 +259,12 @@ mod team_settings_conversion {
             "ws-secret"
         );
 
-        // AI autonomy maps effective values to permissions (RespectUserSetting ->
-        // None) while preserving the enforcement bit.
-        assert_eq!(
-            settings.ai_autonomy.apply_code_diffs.value,
-            Some(ActionPermission::AlwaysAllow)
-        );
-        assert!(
-            settings
-                .ai_autonomy
-                .apply_code_diffs
-                .is_enforced_by_workspace
-        );
-        assert_eq!(settings.ai_autonomy.read_files.value, None);
-        assert_eq!(
-            settings.ai_autonomy.execute_commands.value,
-            Some(ActionPermission::AlwaysAsk)
-        );
-        assert_eq!(
-            settings.ai_autonomy.write_to_pty.value,
-            Some(WriteToPtyPermission::AlwaysAsk)
-        );
-        assert_eq!(
-            settings.ai_autonomy.read_files_allowlist.values,
-            vec!["/allowed".to_string()]
-        );
-
         // Link sharing keeps each boolean value.
         assert!(settings.link_sharing.anyone_with_link_sharing_enabled.value);
         assert!(!settings.link_sharing.direct_link_sharing_enabled.value);
 
         // Passthrough groups map directly.
-        assert!(settings.llm_settings.enabled);
         assert!(settings.telemetry_settings.force_enabled);
-        assert!(settings.usage_based_pricing_settings.enabled);
-        assert_eq!(
-            settings
-                .usage_based_pricing_settings
-                .max_monthly_spend_cents,
-            Some(500)
-        );
-        assert!(settings.addon_credits_settings.auto_reload_enabled);
-
-        // Preserve the effective agent attribution setting.
-        assert_eq!(
-            settings.enable_warp_attribution,
-            AdminEnablementSetting::Enable
-        );
-
-        // Sandboxed agent denylist is populated from the effective list.
-        assert_eq!(
-            settings.sandboxed_agent.execute_commands_denylist.values,
-            vec!["danger".to_string()]
-        );
     }
 
     #[test]
@@ -536,36 +272,17 @@ mod team_settings_conversion {
         // Compilation now happens at convert time (mirroring the workspace-level path), so an
         // org's one bad pattern must not take down the rest of its list.
         let mut gql = sample_gql_team_settings();
-        gql.ai_permissions.remote_session_regex_list = str_list(&["foo.*", "("], &[], &[]);
+        gql.ai_permissions.remote_session_regex_list = str_list(&["foo.*", "("]);
 
         let settings = team_settings_from_gql(gql);
 
         assert_eq!(
             settings
-                .ai_permissions
                 .remote_session_regex_list
                 .iter()
                 .map(|regex| regex.as_str())
                 .collect::<Vec<_>>(),
             vec!["foo.*"]
-        );
-    }
-
-    #[test]
-    fn team_settings_from_gql_uses_team_payload() {
-        // The team payload carries distinctive values (llm enabled, ugc enforced). `team_settings_from_gql` derives
-        // `Team.settings` from this payload only — it takes just the team settings,
-        // so it structurally cannot clone workspace settings. This is the parse
-        // boundary replacing the old `Team::organization_settings` clone.
-        let settings = team_settings_from_gql(sample_gql_team_settings());
-
-        assert!(
-            settings.llm_settings.enabled,
-            "Team.settings must be sourced from the team payload"
-        );
-        assert!(
-            settings.ugc_collection.is_enforced_by_workspace,
-            "enforcement metadata from the team payload must be preserved"
         );
     }
 }

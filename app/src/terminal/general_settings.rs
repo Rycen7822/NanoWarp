@@ -140,20 +140,6 @@ define_settings_group!(GeneralSettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     },
-    agent_mode_onboarding_block_shown: AgentModeOnboardingBlockShown {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: true,
-    },
-    telemetry_banner_dismissed: TelemetryBannerDismissed {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: true,
-    },
     user_default_shell_unsupported_banner_state: UserDefaultShellUnsupportedBannerState {
         type: BannerState,
         default: BannerState::default(),
@@ -180,22 +166,6 @@ define_settings_group!(GeneralSettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        private: true,
-    },
-    auto_open_code_review_pane_on_first_agent_change: AutoOpenCodeReviewPaneOnFirstAgentChange {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "code.editor.auto_open_code_review_pane_on_first_agent_change",
-        description: "Whether to automatically open the code review pane when the agent makes its first change.",
-    },
-    bonus_grants_shown: BonusGrantsShown {
-        type: HashSet<String>,
-        default: HashSet::new(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     },
 ]);

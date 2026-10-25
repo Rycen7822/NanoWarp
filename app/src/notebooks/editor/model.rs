@@ -254,22 +254,6 @@ impl NotebooksEditorModel {
         self.render_state.as_ref(ctx).markdown_table_count()
     }
 
-    #[cfg(feature = "integration_tests")]
-    pub(crate) fn nested_shell_command_count(&self, ctx: &AppContext) -> usize {
-        self.child_models
-            .model_handles::<NotebookCommand>()
-            .filter(|handle| handle.as_ref(ctx).is_shell_command(ctx))
-            .count()
-    }
-
-    #[cfg(feature = "integration_tests")]
-    pub(crate) fn nested_rendered_mermaid_command_count(&self, ctx: &AppContext) -> usize {
-        self.child_models
-            .model_handles::<NotebookCommand>()
-            .filter(|handle| handle.as_ref(ctx).is_rendered_mermaid(ctx))
-            .count()
-    }
-
     pub fn set_interaction_state(
         &mut self,
         new_state: InteractionState,
@@ -1827,54 +1811,6 @@ impl NotebooksEditorModel {
             });
         }
         None
-    }
-
-    /// Apply a vector of diffs on the current buffer by working with raw markdown content.
-    /// This gets the current markdown, applies the diffs, and then resets the editor with the new markdown.
-    pub fn apply_diffs(
-        &mut self,
-        diffs: Vec<ai::diff_validation::DiffDelta>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // Get current markdown content
-        let current_markdown = self.markdown(ctx);
-
-        let lines: Vec<&str> = current_markdown.lines().collect();
-        let mut result_lines = Vec::new();
-        let mut current_line = 0;
-
-        for delta in &diffs {
-            // Convert 1-indexed line ranges to 0-indexed
-            let start_line = delta.replacement_line_range.start.saturating_sub(1);
-            let end_line = delta.replacement_line_range.end.saturating_sub(1);
-
-            // Add lines before this delta
-            while current_line < start_line {
-                if current_line < lines.len() {
-                    result_lines.push(lines[current_line]);
-                }
-                current_line += 1;
-            }
-
-            // Skip the lines being replaced
-            current_line = end_line;
-
-            // Add the insertion content
-            for line in delta.insertion.lines() {
-                result_lines.push(line);
-            }
-        }
-
-        // Add any remaining lines
-        while current_line < lines.len() {
-            result_lines.push(lines[current_line]);
-            current_line += 1;
-        }
-
-        let new_markdown = result_lines.join("\n");
-
-        // Reset the editor with the new markdown content
-        self.reset_with_markdown(&new_markdown, ctx);
     }
 }
 

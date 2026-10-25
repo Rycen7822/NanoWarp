@@ -12,7 +12,6 @@ use warpui::r#async::executor::Background;
 use warpui::text::{SelectionType, str_to_byte_vec};
 
 use super::*;
-use crate::ai::agent::conversation::AIConversationId;
 use crate::terminal::color;
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::model::ObfuscateSecrets;
@@ -50,9 +49,7 @@ fn create_default_serialized_block() -> SerializedBlock {
         shell_host: None,
         is_background: false,
         prompt_snapshot: None,
-        ai_metadata: None,
         is_local: None,
-        agent_view_visibility: None,
     }
 }
 
@@ -80,24 +77,6 @@ fn take_typeahead_for_input_advances_incremental_typeahead() {
         model.take_typeahead_for_input(),
         Some(("echo hi".to_owned(), CharOffset::from(2)))
     );
-}
-
-#[test]
-fn take_typeahead_for_input_ignores_agent_requested_commands() {
-    let mut model = TerminalModel::mock(None, None);
-    model.simulate_long_running_block("sleep 5", "");
-    let action_id: crate::ai::agent::AIAgentActionId = "action".to_owned().into();
-    model
-        .block_list_mut()
-        .active_block_mut()
-        .set_agent_interaction_mode(AgentInteractionMetadata::new_hidden(
-            action_id,
-            AIConversationId::new(),
-        ));
-    model.finish_block();
-    report_shell_typeahead(&mut model, "echo hi");
-
-    assert_eq!(model.take_typeahead_for_input(), None);
 }
 
 #[test]
@@ -438,9 +417,7 @@ fn test_restored_blocks_on_different_host() {
             }),
             is_background: false,
             prompt_snapshot: None,
-            ai_metadata: None,
             is_local: Some(true),
-            agent_view_visibility: None,
         },
         SerializedBlock {
             id: BlockId::new(),
@@ -475,9 +452,7 @@ fn test_restored_blocks_on_different_host() {
             }),
             is_background: false,
             prompt_snapshot: None,
-            ai_metadata: None,
             is_local: Some(true),
-            agent_view_visibility: None,
         },
         SerializedBlock {
             id: BlockId::new(),
@@ -512,9 +487,7 @@ fn test_restored_blocks_on_different_host() {
             }),
             is_background: false,
             prompt_snapshot: None,
-            ai_metadata: None,
             is_local: Some(false),
-            agent_view_visibility: None,
         },
         SerializedBlock {
             id: BlockId::new(),
@@ -545,9 +518,7 @@ fn test_restored_blocks_on_different_host() {
             shell_host: None,
             is_background: false,
             prompt_snapshot: None,
-            ai_metadata: None,
             is_local: Some(true),
-            agent_view_visibility: None,
         },
     ];
     let model = TerminalModel::mock(Some(&restored_blocks), None);

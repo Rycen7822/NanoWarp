@@ -3,7 +3,6 @@ use warpui::App;
 use warpui::platform::WindowStyle;
 
 use super::DrivePanel;
-use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
 use crate::cloud_object::Space;
@@ -41,7 +40,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(SessionPermissionsManager::new);
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
-    app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
 }
 
 #[test]

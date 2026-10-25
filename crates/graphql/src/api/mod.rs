@@ -1,4 +1,3 @@
-pub mod ai;
 pub mod billing;
 pub mod error;
 pub mod experiment;

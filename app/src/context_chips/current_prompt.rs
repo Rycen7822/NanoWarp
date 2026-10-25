@@ -24,12 +24,10 @@ use super::context_chip::{
 use super::logging::{ChipCommandLogEntry, PromptChipExecutionPhase, PromptChipLogger};
 use super::prompt::Prompt;
 use super::{ChipResult, ChipValue, ContextChipKind, chips_to_string};
-use crate::ai::blocklist::agent_view::AgentViewController;
 use crate::code_review::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
 use crate::code_review::github_repo_model::{GitHubRepoEvent, GitHubRepoModel};
 use crate::context_chips::display_chip::GitLineChanges;
 use crate::editor::EditorView;
-use crate::features::FeatureFlag;
 use crate::menu::{MenuItem, MenuItemFields};
 use crate::settings::{InputSettings, WarpPromptSeparator};
 use crate::terminal::event::BlockType;
@@ -37,9 +35,7 @@ use crate::terminal::model::block::{Block, BlockMetadata};
 use crate::terminal::model::session::{ExecuteCommandOptions, Session, Sessions, SessionsEvent};
 use crate::terminal::model::terminal_model::TerminalModel;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
-use crate::terminal::session_settings::{
-    SessionSettings, SessionSettingsChangedEvent, ToolbarChipSelection,
-};
+use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::view::{ContextMenuAction, PromptPart, PromptPosition, TerminalAction};
 
 #[cfg(test)]
@@ -159,7 +155,6 @@ pub struct CurrentPrompt {
     sessions: ModelHandle<Sessions>,
     prompt_chip_logger: PromptChipLogger,
     update_tx: async_channel::Sender<()>,
-    agent_view_controller: Option<WeakModelHandle<AgentViewController>>,
 
     /// When set, branch, branch status, and diff stats are populated from
     /// `GitRepoStatusModel` filesystem events.
@@ -186,12 +181,11 @@ struct PromptContext {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ActiveChipSurfaces {
     prompt: bool,
-    agent_footer: bool,
 }
 
 impl ActiveChipSurfaces {
     fn any(self) -> bool {
-        self.prompt || self.agent_footer
+        self.prompt
     }
 }
 
@@ -264,7 +258,6 @@ impl CurrentPrompt {
             latest_context: None,
             prompt_chip_logger: PromptChipLogger::default(),
             update_tx,
-            agent_view_controller: None,
             same_line_prompt_enabled: prompt.as_ref(ctx).same_line_prompt_enabled(),
             separator: prompt.as_ref(ctx).separator(),
             git_repo_status: None,
@@ -278,15 +271,8 @@ impl CurrentPrompt {
     pub fn subscribe_to_input_editor(
         &mut self,
         editor: ViewHandle<EditorView>,
-        agent_view_controller: ModelHandle<AgentViewController>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.agent_view_controller = Some(agent_view_controller.downgrade());
-
-        ctx.subscribe_to_model(&agent_view_controller, |me, _, _, ctx| {
-            me.update_states_with_new_context(ctx);
-        });
-
         // A WeakViewHandle is used here to avoid leaking the terminal model
         let weak_editor_handle = editor.downgrade();
         ctx.subscribe_to_view(&editor, move |me, _, _, ctx| {
@@ -1099,16 +1085,7 @@ impl CurrentPrompt {
     fn active_surfaces(&self, ctx: &AppContext) -> ActiveChipSurfaces {
         let prompt = !*SessionSettings::as_ref(ctx).honor_ps1
             || InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-        let agent_footer = FeatureFlag::AgentView.is_enabled()
-            && self
-                .agent_view_controller
-                .as_ref()
-                .and_then(|controller| controller.upgrade(ctx))
-                .is_some_and(|controller| controller.as_ref(ctx).is_active());
-        ActiveChipSurfaces {
-            prompt,
-            agent_footer,
-        }
+        ActiveChipSurfaces { prompt }
     }
 
     fn chips_to_run_for_surfaces(
@@ -1116,29 +1093,11 @@ impl CurrentPrompt {
         surfaces: ActiveChipSurfaces,
         ctx: &AppContext,
     ) -> Vec<ContextChipKind> {
-        let mut chips = if surfaces.prompt {
+        if surfaces.prompt {
             self.configured_chips(ctx)
         } else {
             Vec::new()
-        };
-
-        let mut extend_unique = |new_chips: Vec<ContextChipKind>| {
-            for chip_kind in new_chips {
-                if !chips.contains(&chip_kind) {
-                    chips.push(chip_kind);
-                }
-            }
-        };
-
-        if surfaces.agent_footer {
-            extend_unique(
-                SessionSettings::as_ref(ctx)
-                    .agent_footer_chip_selection
-                    .all_chips(),
-            );
         }
-
-        chips
     }
     /// Chips whose values we should actively maintain in state.
     fn chips_to_run(&self, ctx: &AppContext) -> Vec<ContextChipKind> {
@@ -1215,10 +1174,6 @@ impl CurrentPrompt {
             self.separator = session_settings.saved_prompt.separator();
         }
 
-        if let SessionSettingsChangedEvent::AgentToolbarChipSelectionSetting { .. } = event {
-            // Recompute which chips to run when the agent footer config changes.
-            self.update_states_with_new_context(ctx);
-        }
         if let SessionSettingsChangedEvent::GithubPrChipDefaultValidation { .. } = event {
             // Re-resolve the default prompt's chip list (which gates the
             // PR chip on `is_suppressed()`) and re-run chips with the new
@@ -1384,7 +1339,7 @@ impl CurrentPrompt {
                     .states
                     .get(&chip_kind)
                     .is_some_and(|state| state.last_computed_value.is_some());
-                if has_value && chip_kind.is_copyable() {
+                if has_value {
                     if let Some(chip) = chip_kind.to_chip() {
                         Some(
                             MenuItemFields::new(format!("Copy {}", chip.title()))

@@ -106,18 +106,11 @@ pub enum CustomAction {
     WindowsPaste,
     #[cfg(windows)]
     WindowsCopy,
-    /// Also applies to legacy Warp AI (toggles the panel)
-    NewAgentModePane,
-    /// Also applies to legacy Warp AI (attaches the selection to the panel editor)
-    AttachSelectionAsAgentModeContext,
-    OpenAIFactCollection,
     ToggleProjectExplorer,
     OpenRepository,
     NewTerminalTab,
-    NewAgentTab,
     GoToLine,
     ToggleGlobalSearch,
-    ToggleConversationListView,
 }
 
 lazy_static! {
@@ -381,10 +374,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         }
         CustomAction::CloseWindow => mac_only_keystroke("cmd-shift-W"),
         CustomAction::CloseCurrentSession => Keystroke::parse(cmd_or_ctrl_shift("w")).ok(),
-        CustomAction::NewAgentModePane => Keystroke::parse("ctrl-space").ok(),
-        CustomAction::AttachSelectionAsAgentModeContext => {
-            Keystroke::parse("ctrl-shift-space").ok()
-        }
         CustomAction::ToggleProjectExplorer => {
             if OperatingSystem::get().is_mac() {
                 Keystroke::parse("ctrl-1").ok()
@@ -405,13 +394,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
                 Keystroke::parse("ctrl-3").ok()
             } else {
                 Keystroke::parse("alt-3").ok()
-            }
-        }
-        CustomAction::ToggleConversationListView => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-2").ok()
-            } else {
-                Keystroke::parse("alt-2").ok()
             }
         }
         CustomAction::NewTerminalTab
@@ -436,9 +418,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::NewTeamNotebook
         | CustomAction::NewTeamEnvVars
         | CustomAction::ShareCurrentSession
-        | CustomAction::SharePaneContents
-        | CustomAction::OpenAIFactCollection
-        | CustomAction::NewAgentTab => None,
+        | CustomAction::SharePaneContents => None,
     }
 }
 
@@ -770,7 +750,6 @@ pub enum BindingGroup {
     Settings,
     Close,
     Navigation,
-    WarpAi,
     Notebooks,
     Folders,
     KeyboardShortcuts,
@@ -784,7 +763,6 @@ impl BindingGroup {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Settings => "settings",
-            Self::WarpAi => "warp_ai",
             Self::Navigation => "navigation",
             Self::Notebooks => "notebooks",
             Self::Folders => "folders",

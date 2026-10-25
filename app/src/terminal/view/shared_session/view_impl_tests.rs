@@ -1,14 +1,11 @@
+use session_sharing_protocol::sharer::SessionSourceType;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use pathfinder_geometry::vector::vec2f;
-use warp_multi_agent_api::{self as api, client_action as api_client_action};
 use warpui::App;
 
 use super::*;
-use crate::ai::agent::AIAgentInput;
-use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::context_chips::prompt_type::PromptType;
 use crate::editor::InteractionState;
 use crate::pane_group::{BackingView, PaneConfigurationEvent};
@@ -399,11 +396,10 @@ fn test_on_session_share_ended_restores_size_after_viewer_driven_resize() {
 }
 
 #[test]
-fn test_on_session_share_ended_skips_cloud_continuation_for_user_share_with_task_id() {
+fn test_on_session_share_ended_restores_user_input() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let terminal = add_window_with_terminal(&mut app, None);
-        let task_id = "123e4567-e89b-12d3-a456-426614174000";
         let initial_block_height_items = terminal.read(&app, |view, _| {
             view.model.lock().block_list().block_heights().items().len()
         });
@@ -411,7 +407,7 @@ fn test_on_session_share_ended_skips_cloud_continuation_for_user_share_with_task
         terminal.update(&mut app, |view, ctx| {
             view.model
                 .lock()
-                .set_shared_session_source(SharedSessionSource::user(Some(task_id.to_string())));
+                .set_shared_session_source(SessionSourceType::User);
 
             view.on_session_share_ended(ctx);
         });
@@ -422,7 +418,6 @@ fn test_on_session_share_ended_skips_cloud_continuation_for_user_share_with_task
                 model.block_list().block_heights().items().len(),
                 initial_block_height_items + 1
             );
-            assert!(view.conversation_ended_tombstone_view_id.is_none());
             assert!(view.is_input_box_visible(&model, ctx));
             assert_eq!(
                 view.input()
@@ -432,119 +427,6 @@ fn test_on_session_share_ended_skips_cloud_continuation_for_user_share_with_task
                     .interaction_state(ctx),
                 InteractionState::Editable
             );
-        });
-    });
-}
-
-#[test]
-fn test_shared_followup_on_existing_conversation_converts_user_query_input() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-        let terminal_view_id = terminal.id();
-        let conversation_token = "restored-conversation-token";
-        let request_id = "new-followup-request";
-        let root_task_id = "root-task";
-        let followup_query = "follow up";
-
-        let conversation_id =
-            BlocklistAIHistoryModel::handle(&app).update(&mut app, |model, ctx| {
-                let conversation_id =
-                    model.start_new_conversation(terminal_view_id, false, false, ctx);
-                model.set_server_conversation_token_for_conversation(
-                    conversation_id,
-                    conversation_token.to_string(),
-                );
-                conversation_id
-            });
-
-        terminal.update(&mut app, |view, ctx| {
-            let init_event = api::ResponseEvent {
-                r#type: Some(api::response_event::Type::Init(
-                    api::response_event::StreamInit {
-                        request_id: request_id.to_string(),
-                        conversation_id: conversation_token.to_string(),
-                        run_id: String::new(),
-                    },
-                )),
-            };
-            view.ai_controller.update(ctx, |controller, ctx| {
-                controller.handle_shared_session_response_event(init_event, ctx);
-            });
-
-            let create_root_task_event = api::ResponseEvent {
-                r#type: Some(api::response_event::Type::ClientActions(
-                    api::response_event::ClientActions {
-                        actions: vec![api::ClientAction {
-                            action: Some(api_client_action::Action::CreateTask(
-                                api_client_action::CreateTask {
-                                    task: Some(api::Task {
-                                        id: root_task_id.to_string(),
-                                        messages: vec![],
-                                        dependencies: None,
-                                        description: String::new(),
-                                        summary: String::new(),
-                                        server_data: String::new(),
-                                    }),
-                                },
-                            )),
-                        }],
-                    },
-                )),
-            };
-            view.ai_controller.update(ctx, |controller, ctx| {
-                controller.handle_shared_session_response_event(create_root_task_event, ctx);
-            });
-
-            let add_user_query_event = api::ResponseEvent {
-                r#type: Some(api::response_event::Type::ClientActions(
-                    api::response_event::ClientActions {
-                        actions: vec![api::ClientAction {
-                            action: Some(api_client_action::Action::AddMessagesToTask(
-                                api_client_action::AddMessagesToTask {
-                                    task_id: root_task_id.to_string(),
-                                    messages: vec![api::Message {
-                                        fetched_memories: vec![],
-                                        id: "user-message".to_string(),
-                                        task_id: root_task_id.to_string(),
-                                        server_message_data: String::new(),
-                                        citations: vec![],
-                                        message: Some(api::message::Message::UserQuery(
-                                            api::message::UserQuery {
-                                                query: followup_query.to_string(),
-                                                context: None,
-                                                referenced_attachments: HashMap::new(),
-                                                mode: None,
-                                                intended_agent: Default::default(),
-                                                ..Default::default()
-                                            },
-                                        )),
-                                        request_id: request_id.to_string(),
-                                        timestamp: None,
-                                    }],
-                                },
-                            )),
-                        }],
-                    },
-                )),
-            };
-            view.ai_controller.update(ctx, |controller, ctx| {
-                controller.handle_shared_session_response_event(add_user_query_event, ctx);
-            });
-        });
-
-        BlocklistAIHistoryModel::handle(&app).read(&app, |model, _| {
-            let conversation = model
-                .conversation(&conversation_id)
-                .expect("conversation should exist");
-            assert!(conversation.is_viewing_shared_session());
-
-            let input = conversation
-                .latest_exchange()
-                .and_then(|exchange| exchange.input.first())
-                .expect("shared-session replay should reconstruct the user query input");
-            assert!(matches!(input, AIAgentInput::UserQuery { .. }));
-            assert_eq!(input.display_query().as_deref(), Some(followup_query));
         });
     });
 }
@@ -638,8 +520,7 @@ fn test_copy_shared_session_link_does_not_write_clipboard_when_session_pending()
             view.attempt_to_share_session(
                 SharedSessionScrollbackType::None,
                 None,
-                SharedSessionSource::user(None),
-                false,
+                SessionSourceType::User,
                 ctx,
             );
         });
@@ -754,23 +635,6 @@ fn test_session_sharing_context_menu_copy_link_enabled_when_session_link_availab
             assert!(
                 !copy_link_item.unwrap().fields().unwrap().is_disabled(),
                 "Copy session sharing link must be enabled when session link is available"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_wasm_details_panel_gate_hidden_for_plain_terminal() {
-    // REMOTE-2346: `should_show_wasm_conversation_details_panel` must return false for a
-    // terminal with no ambient task, no transcript viewer, and no active conversation, so
-    // the pane-header button does not appear when the workspace panel would render nothing.
-    App::test((), |mut app| async move {
-        let terminal = terminal_view_for_viewer(&mut app);
-
-        terminal.read(&app, |view, ctx| {
-            assert!(
-                !view.should_show_wasm_conversation_details_panel(ctx),
-                "WASM details button gate must return false for a plain terminal with no cloud task"
             );
         });
     });

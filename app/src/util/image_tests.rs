@@ -26,9 +26,9 @@ fn create_small_test_png() -> Vec<u8> {
 }
 
 #[test]
-fn test_process_image_for_agent_small_image() {
+fn test_process_image_small_image() {
     let small_png = create_small_test_png();
-    let result = process_image_for_agent(&small_png);
+    let result = process_image(&small_png);
 
     match result {
         ProcessImageResult::Success { data } => {
@@ -52,9 +52,9 @@ fn test_resize_image_small_image_unchanged() {
 }
 
 #[test]
-fn test_process_image_for_agent_invalid_data() {
+fn test_process_image_invalid_data() {
     let invalid_data = vec![0u8; 100];
-    let result = process_image_for_agent(&invalid_data);
+    let result = process_image(&invalid_data);
 
     match result {
         ProcessImageResult::Error(_) => {

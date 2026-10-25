@@ -5,7 +5,7 @@ use std::{fs, sync::Arc, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
 use repo_metadata::RepositoryUpdate;
-#[cfg(any(not(target_family = "wasm"), test))]
+#[cfg(not(target_family = "wasm"))]
 use repo_metadata::TargetFile;
 #[cfg(not(target_family = "wasm"))]
 use warpui::ModelHandle;
@@ -46,16 +46,6 @@ pub(crate) fn ensure_warp_watch_roots_exist() {
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_home_skills_dir() -> Option<PathBuf> {
-    warp_core::paths::warp_home_skills_dir()
-}
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_managed_skill_dirs() -> Vec<PathBuf> {
-    warp_home_skills_dir().into_iter().collect()
-}
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn repository_update_touches_path(update: &RepositoryUpdate, path: &Path) -> bool {
     repository_update_paths(update).any(|candidate| candidate == path)
 }
@@ -63,14 +53,6 @@ pub(crate) fn repository_update_touches_path(update: &RepositoryUpdate, path: &P
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn repository_update_touches_prefix(update: &RepositoryUpdate, prefix: &Path) -> bool {
     repository_update_paths(update).any(|candidate| candidate.starts_with(prefix))
-}
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn filter_repository_update_by_prefix(
-    update: &RepositoryUpdate,
-    prefix: &Path,
-) -> Option<RepositoryUpdate> {
-    filter_repository_update(update, |path| path.starts_with(prefix))
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
@@ -84,59 +66,6 @@ fn repository_update_paths(update: &RepositoryUpdate) -> impl Iterator<Item = &P
         .chain(update.moved.iter().flat_map(|(to_target, from_target)| {
             [to_target.path.as_path(), from_target.path.as_path()]
         }))
-}
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
-fn filter_repository_update(
-    update: &RepositoryUpdate,
-    keep_path: impl Fn(&Path) -> bool,
-) -> Option<RepositoryUpdate> {
-    let mut filtered = RepositoryUpdate {
-        commit_updated: update.commit_updated,
-        index_lock_detected: update.index_lock_detected,
-        remote_ref_updated: update.remote_ref_updated,
-        ..Default::default()
-    };
-
-    for target in &update.added {
-        if keep_path(&target.path) {
-            filtered.added.insert(target.clone());
-        }
-    }
-
-    for target in &update.modified {
-        if keep_path(&target.path) {
-            filtered.modified.insert(target.clone());
-        }
-    }
-
-    for target in &update.deleted {
-        if keep_path(&target.path) {
-            filtered.deleted.insert(target.clone());
-        }
-    }
-
-    for (to_target, from_target) in &update.moved {
-        let keep_to = keep_path(&to_target.path);
-        let keep_from = keep_path(&from_target.path);
-
-        match (keep_to, keep_from) {
-            (true, true) => {
-                filtered
-                    .moved
-                    .insert(to_target.clone(), from_target.clone());
-            }
-            (true, false) => {
-                filtered.added.insert(to_target.clone());
-            }
-            (false, true) => {
-                filtered.deleted.insert(from_target.clone());
-            }
-            (false, false) => {}
-        }
-    }
-
-    (!filtered.is_empty()).then_some(filtered)
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -244,21 +173,6 @@ impl WarpManagedPathsWatcher {
                     "Warp config directory",
                 );
             }
-            if let Some(warp_home_skills_dir) = warp_home_skills_dir()
-                && warp_home_skills_dir.exists()
-                && !warp_home_skills_dir.starts_with(&data_dir)
-                && (!should_register_config_local_dir
-                    || !warp_home_skills_dir.starts_with(&config_local_dir))
-            {
-                Self::register_path(
-                    ctx,
-                    &watcher,
-                    warp_home_skills_dir,
-                    WatchFilter::accept_all(),
-                    RecursiveMode::Recursive,
-                    "Warp home skills directory",
-                );
-            }
         }
 
         Self { _watcher: watcher }
@@ -317,7 +231,3 @@ impl Entity for WarpManagedPathsWatcher {
 }
 
 impl SingletonEntity for WarpManagedPathsWatcher {}
-
-#[cfg(test)]
-#[path = "warp_managed_paths_watcher_tests.rs"]
-mod tests;

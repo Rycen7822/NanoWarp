@@ -19,10 +19,6 @@ use crate::server::telemetry::SharingDialogSource;
 use crate::ui_components::buttons::{icon_button, icon_button_with_color};
 use crate::ui_components::icons::Icon;
 
-const UNSHARABLE_CONVERSATION_TOOLTIP: &str = "This conversation cannot be shared because it is not \
-    stored in the cloud.\nTo sync to cloud and share, enable the setting under Settings > Privacy, \
-    and then make another request.";
-
 /// Pane header component for sharing the pane contents.
 pub struct SharedPaneContent {
     sharing_dialog: ViewHandle<SharingDialog>,
@@ -195,20 +191,10 @@ impl<P: BackingView> PaneHeader<P> {
             return;
         }
 
-        let is_unsharable_conversation = self
-            .sharing_dialog()
-            .as_ref(app)
-            .is_unsharable_conversation(app);
         let editability = self.sharing_dialog().as_ref(app).editability(app);
 
         let (primary_button_icon, primary_button_active, primary_tooltip_text) =
-            if is_unsharable_conversation {
-                (
-                    Icon::Share,
-                    false,
-                    UNSHARABLE_CONVERSATION_TOOLTIP.to_string(),
-                )
-            } else if editability.can_edit() {
+            if editability.can_edit() {
                 (
                     Icon::Share,
                     self.open_overlay == OpenOverlay::SharingDialog,
@@ -221,13 +207,8 @@ impl<P: BackingView> PaneHeader<P> {
         let ui_builder = appearance.ui_builder().clone();
         let theme = appearance.theme();
 
-        // When disabled, use the disabled text color for the icon
-        let icon_color = if is_unsharable_conversation {
-            Fill::Solid(theme.disabled_text_color(theme.background()).into())
-        } else {
-            icon_color_override
-                .unwrap_or_else(|| Fill::Solid(theme.main_text_color(theme.background()).into()))
-        };
+        let icon_color = icon_color_override
+            .unwrap_or_else(|| Fill::Solid(theme.main_text_color(theme.background()).into()));
 
         let button_builder = icon_button_with_color(
             appearance,
@@ -242,20 +223,14 @@ impl<P: BackingView> PaneHeader<P> {
                 .finish()
         });
 
-        let mut primary_button = button_builder.build();
-        if !is_unsharable_conversation {
-            primary_button = primary_button.on_click(|ctx, _, _| {
+        let primary_button = button_builder
+            .build()
+            .on_click(|ctx, _, _| {
                 ctx.dispatch_typed_action(
-                    PaneHeaderAction::<P::PaneHeaderOverflowMenuAction, P::CustomAction>::ShareContents,
-                )
-            });
-        }
-        let primary_button = primary_button
-            .with_cursor(if is_unsharable_conversation {
-                Cursor::Arrow
-            } else {
-                Cursor::PointingHand
+                PaneHeaderAction::<P::PaneHeaderOverflowMenuAction, P::CustomAction>::ShareContents,
+            )
             })
+            .with_cursor(Cursor::PointingHand)
             .finish();
 
         let primary_button = if let Some(size) = button_size_override {

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use ai::workspace::WorkspaceMetadata;
+use crate::code::persisted_workspace::WorkspaceMetadata;
 use chrono::Utc;
 use cloud_object_persistence::to_cloud_object_permissions;
 use diesel::connection::SimpleConnection;
@@ -16,9 +16,9 @@ use super::{
     save_app_state, save_workspace_metadata, setup_database, start_writer,
 };
 use crate::app_state::{
-    AmbientAgentPaneSnapshot, AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot,
-    LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, SplitDirection, TabGroupSnapshot,
-    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
+    PaneFlex, PaneNodeSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot,
+    TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::auth::UserUid;
 use crate::cloud_object::{CloudObjectPermissions, Owner};
@@ -124,15 +124,15 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
 
     let mut window = test_terminal_window_snapshot(false);
     let first = window.tabs[0].root.clone();
-    let task_id = "00000000-0000-0000-0000-000000000055"
-        .parse()
-        .expect("valid task ID");
     let second = PaneNodeSnapshot::Leaf(LeafSnapshot {
         is_focused: false,
         custom_vertical_tabs_title: None,
-        contents: LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
+        contents: LeafContents::Terminal(TerminalPaneSnapshot {
             uuid: vec![2],
-            task_id,
+            cwd: None,
+            shell_launch_data: None,
+            is_active: false,
+            is_read_only: false,
         }),
     });
     window.tabs[0].root = PaneNodeSnapshot::Branch(BranchSnapshot {
@@ -159,8 +159,14 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
     );
 
     // A retired cloud leaf must not discard the ordinary terminal beside it.
-    conn.batch_execute("UPDATE ambient_agent_panes SET task_id = NULL;")
-        .expect("legacy empty cloud pane should lose its task identity");
+    conn.batch_execute(&format!(
+        "DELETE FROM terminal_panes WHERE id = (SELECT MAX(pane_node_id) FROM pane_leaves);
+         UPDATE pane_leaves SET kind = '{}' WHERE pane_node_id = (SELECT MAX(pane_node_id) FROM pane_leaves);
+         INSERT INTO ambient_agent_panes (id, uuid, task_id)
+         SELECT MAX(pane_node_id), X'02', NULL FROM pane_leaves;",
+        crate::persistence::model::AMBIENT_AGENT_PANE_KIND,
+    ))
+    .expect("legacy task kind should replace the retired pane");
     let restored = read_sqlite_data(&mut conn, None).expect("supported sibling should restore");
     let state = restored.app_state.expect("ordinary tab should remain");
     assert!(matches!(
@@ -313,11 +319,6 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
                     }),
                     is_active: true,
                     is_read_only: false,
-                    input_config: None,
-                    llm_model_override: None,
-                    active_profile_id: None,
-                    conversation_ids_to_restore: vec![],
-                    active_conversation_id: None,
                 }),
             }),
             default_directory_color: None,
@@ -338,7 +339,6 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
         vertical_tabs_panel_open,
         left_panel_width: None,
         right_panel_width: None,
-        agent_management_filters: None,
         tab_groups: vec![],
     }
 }
@@ -424,11 +424,6 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
                         }),
                         is_active: true,
                         is_read_only: false,
-                        input_config: None,
-                        llm_model_override: None,
-                        active_profile_id: None,
-                        conversation_ids_to_restore: vec![],
-                        active_conversation_id: None,
                     }),
                 }),
                 default_directory_color: None,
@@ -449,7 +444,6 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
             vertical_tabs_panel_open: false,
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![],
         }],
         active_window_index: Some(0),
@@ -525,7 +519,6 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
             vertical_tabs_panel_open: false,
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![],
         }],
         active_window_index: Some(0),
@@ -584,11 +577,6 @@ fn test_sqlite_round_trips_tab_groups() {
                 }),
                 is_active: true,
                 is_read_only: false,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         default_directory_color: None,
@@ -612,11 +600,6 @@ fn test_sqlite_round_trips_tab_groups() {
                 }),
                 is_active: false,
                 is_read_only: false,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         default_directory_color: None,
@@ -641,7 +624,6 @@ fn test_sqlite_round_trips_tab_groups() {
             vertical_tabs_panel_open: false,
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![TabGroupSnapshot {
                 id: group_id,
                 name: Some("Backend".to_string()),
@@ -705,11 +687,6 @@ fn test_sqlite_round_trips_pinned_state() {
                 }),
                 is_active: true,
                 is_read_only: false,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         default_directory_color: None,
@@ -733,11 +710,6 @@ fn test_sqlite_round_trips_pinned_state() {
                 }),
                 is_active: false,
                 is_read_only: false,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         default_directory_color: None,
@@ -761,11 +733,6 @@ fn test_sqlite_round_trips_pinned_state() {
                 }),
                 is_active: false,
                 is_read_only: false,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         default_directory_color: None,
@@ -790,7 +757,6 @@ fn test_sqlite_round_trips_pinned_state() {
             vertical_tabs_panel_open: false,
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![
                 TabGroupSnapshot {
                     id: pinned_group_id,
@@ -1027,13 +993,11 @@ fn team_member_is_disabled_round_trips_through_sqlite_cache() {
                 is_disabled: true,
             },
         ]),
-        None,
     );
     let workspace = Workspace::from_local_cache(
         format!("{:0>22}", "workspace").into(),
         "Workspace".to_string(),
         Some(vec![team]),
-        None,
     );
 
     let writer = start_writer(conn, database_path.clone()).expect("writer should start");

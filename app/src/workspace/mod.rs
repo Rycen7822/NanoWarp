@@ -1,9 +1,7 @@
 mod action;
 mod active_session;
-pub mod bonus_grant_notification_model;
 mod close_session_confirmation_dialog;
 pub(crate) mod cross_window_tab_drag;
-pub mod delete_conversation_confirmation_dialog;
 mod global_actions;
 pub mod header_toolbar_editor;
 pub mod header_toolbar_item;
@@ -13,7 +11,6 @@ mod lightbox_view;
 mod native_modal;
 mod one_time_modal_model;
 mod registry;
-pub mod rewind_confirmation_dialog;
 pub mod sync_inputs;
 pub mod tab_group;
 pub mod tab_settings;
@@ -22,13 +19,10 @@ pub mod util;
 pub mod view;
 
 pub use action::{
-    CommandSearchOptions, InitContent, RestoreConversationLayout, TabContextMenuAnchor,
-    VerticalTabsPaneContextMenuTarget, WorkspaceAction,
+    CommandSearchOptions, InitContent, TabContextMenuAnchor, VerticalTabsPaneContextMenuTarget,
+    WorkspaceAction,
 };
 pub use active_session::ActiveSession;
-pub use global_actions::{
-    ForkAIConversationParams, ForkFromExchange, ForkedConversationDestination,
-};
 use serde::{Deserialize, Serialize};
 pub use util::{PaneViewLocator, TabMovement, active_terminal_in_window};
 pub use view::{
@@ -41,11 +35,10 @@ use warpui::accessibility::AccessibilityVerbosity;
 use warpui::elements::DropTargetData;
 use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding};
 
-use crate::ai::blocklist::NEW_AGENT_PANE_LABEL;
 use crate::channel::{Channel, ChannelState};
 use crate::features::FeatureFlag;
 use crate::palette::PaletteMode;
-use crate::server::telemetry::{AgentModeEntrypoint, PaletteSource};
+use crate::server::telemetry::PaletteSource;
 use crate::settings_view::{self, SettingsSection, flags};
 use crate::tab::{NewSessionMenuItem, uses_vertical_tabs};
 use crate::util::bindings::{self, CustomAction, cmd_or_ctrl_shift, is_binding_pty_compliant};
@@ -61,11 +54,9 @@ pub use registry::WorkspaceRegistry;
 pub use toast_stack::{ToastStack, ToastStackEvent};
 
 use crate::workspace::view::{
-    LEFT_PANEL_AGENT_CONVERSATIONS_BINDING_NAME, LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME,
-    LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME, LEFT_PANEL_WARP_DRIVE_BINDING_NAME,
-    NEW_AGENT_TAB_BINDING_NAME, NEW_FILE_BINDING_NAME, NEW_TAB_BINDING_NAME,
+    LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME, LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME,
+    LEFT_PANEL_WARP_DRIVE_BINDING_NAME, NEW_FILE_BINDING_NAME, NEW_TAB_BINDING_NAME,
     NEW_TERMINAL_TAB_BINDING_NAME, NEW_WINDOW_BINDING_NAME, OPEN_GLOBAL_SEARCH_BINDING_NAME,
-    TOGGLE_CONVERSATION_LIST_VIEW_BINDING_NAME, TOGGLE_NOTIFICATION_MAILBOX_BINDING_NAME,
     TOGGLE_PROJECT_EXPLORER_BINDING_NAME, TOGGLE_RIGHT_PANEL_BINDING_NAME,
     TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME, TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
     TOGGLE_WARP_DRIVE_BINDING_NAME,
@@ -80,15 +71,12 @@ pub fn init(app: &mut AppContext) {
     modal::init(app);
     native_modal::init(app);
     lightbox_view::init(app);
-    rewind_confirmation_dialog::init(app);
-    delete_conversation_confirmation_dialog::init(app);
     crate::tab_configs::remove_confirmation_dialog::init(app);
     hoa_onboarding::init(app);
     tab_configs::session_config_modal::init(app);
     view::global_search::view::GlobalSearchView::init(app);
     view::right_panel::RightPanelView::init(app);
     header_toolbar_editor::init(app);
-    view::conversation_list::view::register_conversation_list_view_bindings(app);
 
     settings_view::init_actions_from_parent_view(app, &id!("Workspace"), |settings_action| {
         WorkspaceAction::DispatchToSettingsTab(settings_action)
@@ -104,27 +92,8 @@ pub fn init(app: &mut AppContext) {
         WorkspaceAction::DumpDebugInfo,
         id!("Workspace"),
     )]);
-    app.register_fixed_bindings([
-        FixedBinding::new(
-            "escape",
-            WorkspaceAction::DismissSessionConfigTabConfigChip,
-            id!("Workspace") & id!(flags::SESSION_CONFIG_TAB_CONFIG_CHIP_OPEN),
-        ),
-        FixedBinding::new(
-            "enter",
-            WorkspaceAction::DismissSessionConfigTabConfigChip,
-            id!("Workspace") & id!(flags::SESSION_CONFIG_TAB_CONFIG_CHIP_OPEN),
-        ),
-    ]);
-
     if ChannelState::enable_debug_features() {
         app.register_editable_bindings([
-            EditableBinding::new(
-                "workspace:log_review_comment_send_status_for_active_tab",
-                "[Debug] Log review comment send status for active tab",
-                WorkspaceAction::LogReviewCommentSendStatusForActiveTab,
-            )
-            .with_context_predicate(id!("Workspace")),
             EditableBinding::new(
                 "workspace:panic",
                 "Trigger a panic (for local debugging)",
@@ -142,12 +111,6 @@ pub fn init(app: &mut AppContext) {
         {
             // Debug actions available in the command palette.
             app.register_editable_bindings([
-                EditableBinding::new(
-                    "workspace:debug_reset_aws_bedrock_login_banner_dismissed",
-                    "[Debug] Un-dismiss AWS login banner",
-                    WorkspaceAction::DebugResetAwsBedrockLoginBannerDismissed,
-                )
-                .with_context_predicate(id!("Workspace")),
                 EditableBinding::new(
                     "workspace:open_session_config_modal",
                     "[Debug] Open Session Config Modal",
@@ -559,16 +522,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::NewTerminalTab)
         .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
         EditableBinding::new(
-            NEW_AGENT_TAB_BINDING_NAME,
-            BindingDescription::new("New Agent Tab"),
-            WorkspaceAction::AddAgentTab,
-        )
-        .with_group(bindings::BindingGroup::WarpAi.as_str())
-        .with_custom_action(CustomAction::NewAgentTab)
-        .with_context_predicate(
-            id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED) & !id!("Workspace_PaneDragging"),
-        ),
-        EditableBinding::new(
             "workspace:toggle_left_panel",
             BindingDescription::new("Open Left Panel"),
             WorkspaceAction::ToggleLeftPanel,
@@ -603,15 +556,6 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Navigation.as_str())
         .with_context_predicate(id!("Workspace") & id!(flags::SHOW_PROJECT_EXPLORER))
         .with_custom_action(CustomAction::ToggleProjectExplorer),
-        EditableBinding::new(
-            LEFT_PANEL_AGENT_CONVERSATIONS_BINDING_NAME,
-            BindingDescription::new("Left Panel: Agent conversations"),
-            WorkspaceAction::ToggleConversationListView,
-        )
-        .with_group(bindings::BindingGroup::Navigation.as_str())
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_CONVERSATION_HISTORY))
-        .with_enabled(|| FeatureFlag::AgentViewConversationListView.is_enabled())
-        .with_custom_action(CustomAction::ToggleConversationListView),
         EditableBinding::new(
             LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME,
             BindingDescription::new("Left Panel: Global search"),
@@ -664,19 +608,6 @@ pub fn init(app: &mut AppContext) {
         )
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
         EditableBinding::new(
-            TOGGLE_CONVERSATION_LIST_VIEW_BINDING_NAME,
-            BindingDescription::new("Toggle Agent conversation list view").with_custom_description(
-                bindings::MAC_MENUS_CONTEXT,
-                "Agent conversation list view",
-            ),
-            WorkspaceAction::ToggleConversationListView,
-        )
-        .with_enabled(|| FeatureFlag::AgentViewConversationListView.is_enabled())
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_CONVERSATION_HISTORY))
-        .with_mac_key_binding("cmd-shift-A")
-        .with_linux_or_windows_key_binding("ctrl-shift-A")
-        .with_group(bindings::BindingGroup::WarpAi.as_str()),
-        EditableBinding::new(
             "workspace:close_panel",
             BindingDescription::new("Close focused panel")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Close focused panel"),
@@ -694,7 +625,7 @@ pub fn init(app: &mut AppContext) {
             },
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
-        .with_context_predicate(id!("Workspace") & !id!("Workspace_CloudConversationWebViewer"))
+        .with_context_predicate(id!("Workspace"))
         .with_custom_action(CustomAction::CommandPalette),
         EditableBinding::new(
             "workspace:move_tab_left",
@@ -1021,19 +952,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::ToggleResourceCenter)]);
     }
 
-    // Keep the existing binding name for custom agent-pane keybindings.
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:toggle_ai_assistant",
-        *NEW_AGENT_PANE_LABEL,
-        WorkspaceAction::NewPaneInAgentMode {
-            entrypoint: AgentModeEntrypoint::NewPaneBinding,
-        },
-    )
-    .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
-    .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
-    .with_group(bindings::BindingGroup::WarpAi.as_str())
-    .with_custom_action(CustomAction::NewAgentModePane)]);
-
     app.register_editable_bindings([
         EditableBinding::new(
             "workspace:create_team_env_vars",
@@ -1112,53 +1030,10 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!("Workspace"))
         .with_custom_action(CustomAction::OpenRepository)
         .with_group(bindings::BindingGroup::Folders.as_str()),
-        EditableBinding::new(
-            "workspace:open_ai_fact_collection",
-            BindingDescription::new("Open AI Rules")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Open AI Rules"),
-            WorkspaceAction::OpenAIFactCollection,
-        )
-        .with_enabled(|| FeatureFlag::AIRules.is_enabled())
-        .with_custom_action(CustomAction::OpenAIFactCollection)
-        .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
-        .with_group(bindings::BindingGroup::WarpAi.as_str()),
     ]);
-
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:jump_to_latest_toast",
-        "Jump to latest agent task",
-        WorkspaceAction::JumpToLatestToast,
-    )
-    .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
-    .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
-    .with_mac_key_binding("cmd-shift-G")
-    .with_linux_or_windows_key_binding("ctrl-shift-G")
-    .with_group(bindings::BindingGroup::WarpAi.as_str())]);
-
-    app.register_editable_bindings([EditableBinding::new(
-        TOGGLE_NOTIFICATION_MAILBOX_BINDING_NAME,
-        "Toggle notification mailbox",
-        WorkspaceAction::ToggleNotificationMailbox { select_first: true },
-    )
-    .with_enabled(|| FeatureFlag::HOANotifications.is_enabled())
-    .with_context_predicate(id!("Workspace"))
-    .with_mac_key_binding("cmd-shift-U")
-    .with_linux_or_windows_key_binding("ctrl-shift-U")
-    .with_group(bindings::BindingGroup::WarpAi.as_str())]);
 
     add_open_setting_pages_as_editable_binding(app);
     add_overflow_menu_items_as_editable_binding(app);
-
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:toggle_agent_management_view",
-        "Toggle the agent management view",
-        WorkspaceAction::ToggleAgentManagementView,
-    )
-    .with_enabled(|| FeatureFlag::AgentManagementView.is_enabled())
-    .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
-    .with_mac_key_binding("cmd-shift-M")
-    .with_linux_or_windows_key_binding("ctrl-shift-M")
-    .with_group(bindings::BindingGroup::WarpAi.as_str())]);
 }
 
 fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
@@ -1224,14 +1099,6 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Configure Warpify..."),
             WorkspaceAction::ShowSettingsPage(SettingsSection::Warpify),
         )
-        .with_group(bindings::BindingGroup::Settings.as_str())
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
-            "workspace:show_ai_settings_page",
-            BindingDescription::new("Open Settings: AI"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::WarpAgent),
-        )
-        .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),
         EditableBinding::new(

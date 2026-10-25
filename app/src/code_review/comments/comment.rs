@@ -2,38 +2,17 @@ use std::fmt::{Display, Formatter};
 
 use chrono::{DateTime, Local};
 use warp_editor::render::model::LineCount;
-use warp_multi_agent_api::{self as api};
 
-use crate::ai::agent::{CurrentHead, DiffBase};
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::editor::EditorReviewComment;
 use crate::code::editor::line::EditorLineLocation;
+use crate::code_review::{CurrentHead, DiffBase};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CommentOrigin {
     /// Comments originally created in the Warp UI.
     #[default]
     Native,
-    /// Comments imported from a GitHub pull request.
-    ImportedFromGitHub(ImportedCommentDetails),
-}
-
-impl CommentOrigin {
-    pub(crate) fn is_imported_from_github(&self) -> bool {
-        matches!(self, Self::ImportedFromGitHub(_))
-    }
-}
-
-/// Imported comment metadata for GitHub-specific fields.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportedCommentDetails {
-    pub author: String,
-    /// The GitHub comment ID from the API.
-    pub github_comment_id: String,
-    /// The GitHub parent comment ID if this was a reply.
-    /// Should be None for threaded comments after flattening.
-    pub github_parent_id: Option<String>,
-    pub html_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -54,19 +33,6 @@ impl LineDiffContent {
             .or_else(|| s.strip_prefix('-'))
             .unwrap_or(s)
             .to_string()
-    }
-
-    /// The source-line text for a comment imported from a provider diff hunk.
-    ///
-    /// Unlike [`Self::original_text`], this strips exactly one leading
-    /// unified-diff marker — `+`, `-`, or the space that context (unchanged)
-    /// lines carry — recovering the raw file line. It must only be used for
-    /// imported comments, whose `content` is always a diff line with exactly one
-    /// such prefix char; native comments store raw text (real leading
-    /// indentation is significant) and must use [`Self::original_text`] instead.
-    pub(crate) fn imported_original_text(&self) -> String {
-        let s = self.content.trim_end_matches('\n');
-        s.strip_prefix(['+', '-', ' ']).unwrap_or(s).to_string()
     }
 
     pub(crate) fn from_content(diff_line: &str) -> Self {
@@ -117,62 +83,6 @@ pub struct AttachedReviewComment {
     pub head: Option<CurrentHead>,
     pub outdated: bool,
     pub origin: CommentOrigin,
-}
-
-impl From<AttachedReviewComment> for api::ReviewComment {
-    fn from(val: AttachedReviewComment) -> Self {
-        let comment_target = match val.target {
-            AttachedReviewCommentTarget::Line {
-                absolute_file_path,
-                content,
-                line,
-            } => {
-                // For now, comments are only attached to a single line.
-                let line_range = line.line_number().map(|lc| {
-                    let line_number = lc.as_usize() as u32;
-                    api::FileContentLineRange {
-                        start: line_number,
-                        end: line_number + 1,
-                    }
-                });
-
-                api::review_comment::CommentTarget::CommentedLine(api::DiffHunk {
-                    // For the agent/GitHub API we send the path bytes only;
-                    // the comment's owning batch is already host-scoped.
-                    file_path: absolute_file_path.display_path(),
-                    line_range,
-                    diff_content: content.content,
-                    lines_added: content.lines_added.as_u32(),
-                    lines_removed: content.lines_removed.as_u32(),
-                    current: val.head.to_owned().map(Into::into),
-                    base: val.base.map(Into::into),
-                })
-            }
-            AttachedReviewCommentTarget::File { absolute_file_path } => {
-                api::review_comment::CommentTarget::CommentedFile(
-                    api::review_comment::CommentedFile {
-                        file_path: absolute_file_path.display_path(),
-                        current: val.head.to_owned().map(Into::into),
-                        base: val.base.map(Into::into),
-                    },
-                )
-            }
-            AttachedReviewCommentTarget::General => {
-                api::review_comment::CommentTarget::CommentedDiffset(
-                    api::review_comment::CommentedDiffset {
-                        current: val.head.to_owned().map(Into::into),
-                        base: val.base.map(Into::into),
-                    },
-                )
-            }
-        };
-
-        api::ReviewComment {
-            id: val.id.to_string(),
-            comment: val.content,
-            comment_target: Some(comment_target),
-        }
-    }
 }
 
 /// Target for an attached review comment. File paths are always absolute when present.

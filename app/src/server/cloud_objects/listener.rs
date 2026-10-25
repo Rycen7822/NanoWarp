@@ -141,7 +141,7 @@ impl Listener {
         event: &UserWorkspacesEvent,
         ctx: &mut ModelContext<Self>,
     ) {
-        if let UserWorkspacesEvent::TeamsChanged = event
+        if let UserWorkspacesEvent::Teams = event
             && self.is_part_of_some_team(ctx)
         {
             self.start_listener(ctx);

@@ -2,15 +2,13 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use string_offset::CharOffset;
-use warp_core::features::FeatureFlag;
 use warp_core::settings::Setting;
 use warp_errors::report_error;
 use warpui::color::ColorU;
 use warpui::elements::{
     self, Align, Border, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-    Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex, Highlight, Icon,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Rect, Shrinkable,
-    Stack, Text,
+    Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex, Highlight, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, ParentElement, Radius, Rect, Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::geometry::vector::Vector2F;
@@ -24,13 +22,11 @@ use warpui::{
     ViewHandle,
 };
 
-use super::AIWorkflowOrigin;
 use super::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
 };
 use super::env_var_selector::{EnvVarSelector, EnvVarSelectorEvent};
 use super::workflow::Argument;
-use crate::ai::blocklist::ai_brand_color;
 use crate::appearance::Appearance;
 use crate::cloud_object::CloudObjectMetadataExt;
 use crate::cloud_object::model::actions::{ObjectActionType, ObjectActions};
@@ -124,7 +120,7 @@ pub struct WorkflowsMoreInfoView {
     /// View for selecting environment variables to apply to the workflow.
     ///
     /// This is `None` for AI workflows.
-    environment_variables_dropdown: Option<ViewHandle<EnvVarSelector>>,
+    environment_variables_dropdown: ViewHandle<EnvVarSelector>,
 
     scroll_state: ClippedScrollStateHandle,
 }
@@ -151,19 +147,18 @@ impl WorkflowsMoreInfoView {
             ..
         } = compute_workflow_display_data(workflow.as_workflow());
 
-        let environment_variables_dropdown = (!workflow.as_workflow().is_agent_mode_workflow())
-            .then(|| {
-                let dropdown = ctx.add_typed_action_view(|ctx| {
-                    let mut dropdown = EnvVarSelector::new(ctx);
-                    dropdown.set_orientation(FilterableDropdownOrientation::Up, ctx);
-                    dropdown.set_width(ENV_VAR_DROPDOWN_WIDTH, ctx);
-                    dropdown
-                });
-                ctx.subscribe_to_view(&dropdown, |me, _, event, ctx| {
-                    me.handle_env_var_selector_event(event, ctx);
-                });
+        let environment_variables_dropdown = {
+            let dropdown = ctx.add_typed_action_view(|ctx| {
+                let mut dropdown = EnvVarSelector::new(ctx);
+                dropdown.set_orientation(FilterableDropdownOrientation::Up, ctx);
+                dropdown.set_width(ENV_VAR_DROPDOWN_WIDTH, ctx);
                 dropdown
             });
+            ctx.subscribe_to_view(&dropdown, |me, _, event, ctx| {
+                me.handle_env_var_selector_event(event, ctx);
+            });
+            dropdown
+        };
 
         Self {
             workflow,
@@ -199,11 +194,10 @@ impl WorkflowsMoreInfoView {
         env_vars_id: Option<SyncId>,
         ctx: &mut ViewContext<Self>,
     ) {
-        if let Some(dropdown) = self.environment_variables_dropdown.as_ref() {
-            dropdown.update(ctx, |dropdown, ctx| {
+        self.environment_variables_dropdown
+            .update(ctx, |dropdown, ctx| {
                 dropdown.set_selected_env_vars(env_vars_id, ctx)
             });
-        }
     }
 
     fn handle_env_var_selector_event(
@@ -313,11 +307,7 @@ impl WorkflowsMoreInfoView {
             .ui_builder()
             .wrappable_text(title_string, matches!(wrap_text, WrapText::Yes))
             .with_style(UiComponentStyles {
-                font_family_id: Some(if self.workflow.as_workflow().is_agent_mode_workflow() {
-                    appearance.ui_font_family()
-                } else {
-                    appearance.monospace_font_family()
-                }),
+                font_family_id: Some(appearance.monospace_font_family()),
                 font_color: Some(
                     appearance
                         .theme()
@@ -445,7 +435,7 @@ impl WorkflowsMoreInfoView {
         &self,
         appearance: &Appearance,
         app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
+    ) -> Box<dyn Element> {
         let span = Container::new(
             Align::new(
                 appearance
@@ -465,7 +455,7 @@ impl WorkflowsMoreInfoView {
         .with_margin_right(ENV_VAR_HORIZONTAL_MARGIN)
         .finish();
 
-        let environment_variables_dropdown = self.environment_variables_dropdown.as_ref()?;
+        let environment_variables_dropdown = &self.environment_variables_dropdown;
         let dropdown_element = if environment_variables_dropdown.as_ref(app).has_env_vars(app) {
             ChildView::new(environment_variables_dropdown).finish()
         } else {
@@ -498,30 +488,28 @@ impl WorkflowsMoreInfoView {
             .with_vertical_margin(ENV_VAR_RIGHT_ELEMENT_VERTICAL_MARGIN)
             .finish();
 
-        Some(
-            ConstrainedBox::new(
-                Stack::new()
-                    .with_child(
-                        Rect::new()
-                            .with_background_color(appearance.theme().surface_1().into())
+        ConstrainedBox::new(
+            Stack::new()
+                .with_child(
+                    Rect::new()
+                        .with_background_color(appearance.theme().surface_1().into())
+                        .finish(),
+                )
+                .with_child(
+                    Container::new(
+                        Flex::row()
+                            .with_main_axis_size(MainAxisSize::Max)
+                            .with_child(span)
+                            .with_child(env_var_dropdown)
                             .finish(),
                     )
-                    .with_child(
-                        Container::new(
-                            Flex::row()
-                                .with_main_axis_size(MainAxisSize::Max)
-                                .with_child(span)
-                                .with_child(env_var_dropdown)
-                                .finish(),
-                        )
-                        .with_horizontal_margin(ENV_VAR_HORIZONTAL_MARGIN)
-                        .finish(),
-                    )
+                    .with_horizontal_margin(ENV_VAR_HORIZONTAL_MARGIN)
                     .finish(),
-            )
-            .with_height(ENV_VAR_ROW_HEIGHT)
-            .finish(),
+                )
+                .finish(),
         )
+        .with_height(ENV_VAR_ROW_HEIGHT)
+        .finish()
     }
 
     fn render_info_box(
@@ -644,12 +632,9 @@ impl WorkflowsMoreInfoView {
 
         let mut children = vec![workflow_container];
 
-        if self.workflow.should_show_env_var_selection()
-            && let Some(environment_variables_selection) =
-                self.render_environment_variables_selection(appearance, app)
-        {
-            children.push(Clipped::new(environment_variables_selection).finish());
-        }
+        let environment_variables_selection =
+            self.render_environment_variables_selection(appearance, app);
+        children.push(Clipped::new(environment_variables_selection).finish());
 
         if !workflow.arguments().is_empty() {
             children.push(self.render_keyboard_shortcut_menu(appearance));
@@ -666,17 +651,8 @@ impl WorkflowsMoreInfoView {
     fn render_content(&self, appearance: &Appearance) -> Box<dyn Element> {
         let selected_argument = self.selected_workflow_state.currently_selected_argument;
 
-        let (font_family, font_size) = if self.workflow.as_workflow().is_agent_mode_workflow() {
-            (
-                appearance.ui_font_family(),
-                appearance.monospace_font_size(),
-            )
-        } else {
-            (
-                appearance.monospace_font_family(),
-                appearance.monospace_font_size() * 0.85,
-            )
-        };
+        let font_family = appearance.monospace_font_family();
+        let font_size = appearance.monospace_font_size() * 0.85;
 
         let mut content_text = appearance
             .ui_builder()
@@ -718,7 +694,7 @@ impl WorkflowsMoreInfoView {
         content_text.build().finish()
     }
 
-    /// Renders the "content" of the workflow (command for Workflow::Command, query for Workflow::AgentMode)
+    /// Renders the workflow command.
     /// with its interleaved arguments.
     fn render_content_and_arguments(&self, appearance: &Appearance) -> Box<dyn Element> {
         let content = self.render_content(appearance);
@@ -775,94 +751,26 @@ impl WorkflowsMoreInfoView {
         wrap_text: WrapText,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        match &self.workflow {
-            WorkflowType::AIGenerated {
-                workflow,
-                origin: source,
-            } => {
-                let icon = if FeatureFlag::AgentMode.is_enabled() {
-                    match source {
-                        AIWorkflowOrigin::AgentMode => {
-                            Icon::new(icons::Icon::Prompt.into(), appearance.theme().accent())
-                                .finish()
-                        }
-                        _ => Icon::new(
-                            icons::Icon::Prompt.into(),
-                            ai_brand_color(appearance.theme()),
-                        )
-                        .finish(),
-                    }
-                } else {
-                    Icon::new(
-                        icons::Icon::AiAssistant.into(),
-                        appearance
-                            .theme()
-                            .main_text_color(appearance.theme().background()),
-                    )
-                    .finish()
-                };
-
-                let ai_icon = Container::new(
-                    ConstrainedBox::new(icon)
-                        .with_width(16.)
-                        .with_height(16.)
-                        .finish(),
-                )
-                .with_margin_right(8.)
-                .finish();
-
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children([
-                        ai_icon,
-                        appearance
-                            .ui_builder()
-                            .wrappable_text(
-                                workflow.name().to_owned(),
-                                matches!(wrap_text, WrapText::Yes),
-                            )
-                            .with_style(UiComponentStyles {
-                                font_family_id: Some(appearance.ui_font_family()),
-                                font_color: Some(
-                                    appearance
-                                        .theme()
-                                        .main_text_color(appearance.theme().background())
-                                        .into(),
-                                ),
-                                font_size: Some(
-                                    appearance.monospace_font_size() * TITLE_FONT_SIZE_SCALE_FACTOR,
-                                ),
-                                font_weight: Some(Weight::Bold),
-                                ..Default::default()
-                            })
-                            .build()
-                            .finish(),
-                    ])
-                    .finish()
-            }
-            _ => appearance
-                .ui_builder()
-                .wrappable_text(
-                    self.workflow.as_workflow().name().to_owned(),
-                    matches!(wrap_text, WrapText::Yes),
-                )
-                .with_style(UiComponentStyles {
-                    font_family_id: Some(appearance.ui_font_family()),
-                    font_color: Some(
-                        appearance
-                            .theme()
-                            .main_text_color(appearance.theme().background())
-                            .into(),
-                    ),
-                    font_size: Some(
-                        appearance.monospace_font_size() * TITLE_FONT_SIZE_SCALE_FACTOR,
-                    ),
-                    font_weight: Some(Weight::Bold),
-                    ..Default::default()
-                })
-                .build()
-                .finish(),
-        }
+        appearance
+            .ui_builder()
+            .wrappable_text(
+                self.workflow.as_workflow().name().to_owned(),
+                matches!(wrap_text, WrapText::Yes),
+            )
+            .with_style(UiComponentStyles {
+                font_family_id: Some(appearance.ui_font_family()),
+                font_color: Some(
+                    appearance
+                        .theme()
+                        .main_text_color(appearance.theme().background())
+                        .into(),
+                ),
+                font_size: Some(appearance.monospace_font_size() * TITLE_FONT_SIZE_SCALE_FACTOR),
+                font_weight: Some(Weight::Bold),
+                ..Default::default()
+            })
+            .build()
+            .finish()
     }
 
     fn render_workflow_source(

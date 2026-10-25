@@ -7,11 +7,9 @@ publish.workspace = true
 license.workspace = true
 
 [features]
-agent_mode_evals = []
 test-util = ["cloud_objects/test-util"]
 
 [dependencies]
-ai.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 cfg-if.workspace = true

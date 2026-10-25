@@ -9,8 +9,7 @@ license.workspace = true
 [dependencies]
 clap = { workspace = true, features = ["derive", "env"] }
 cfg-if = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-url = { workspace = true, features = ["serde"] }
+url.workspace = true
 warp_core = { path = "../warp_core" }
 warp_util = { path = "../warp_util" }
 

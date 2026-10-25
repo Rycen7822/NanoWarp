@@ -55,35 +55,6 @@ pub(super) trait GutterButton {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct AddAsContextButton {
-    is_enabled: bool,
-}
-
-impl AddAsContextButton {
-    pub fn new(is_enabled: bool) -> Self {
-        Self { is_enabled }
-    }
-}
-
-impl GutterButton for AddAsContextButton {
-    fn is_enabled(&self) -> bool {
-        self.is_enabled
-    }
-
-    fn tooltip_text(&self) -> Option<&'static str> {
-        if self.is_enabled {
-            Some("Add diff hunk as context")
-        } else {
-            Some("Save changes to attach as context.")
-        }
-    }
-
-    fn icon(&self) -> Icon {
-        Icon::Paperclip
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
 pub struct RevertHunkButton {
     is_enabled: bool,
 }

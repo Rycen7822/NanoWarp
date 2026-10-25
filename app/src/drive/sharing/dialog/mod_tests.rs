@@ -1,5 +1,6 @@
 use chrono::Local;
 use session_sharing_protocol::common::SessionId;
+use session_sharing_protocol::sharer::SessionSourceType;
 use warpui::{App, SingletonEntity, TypedActionView, ViewHandle};
 
 use super::{SharingDialog, SharingDialogAction, SharingDialogMode};
@@ -10,8 +11,8 @@ use crate::cloud_object::model::view::CloudViewModel;
 use crate::drive::sharing::{ShareableObject, SharingAccessLevel};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::terminal::TerminalView;
+use crate::terminal::shared_session::SharedSessionStatus;
 use crate::terminal::shared_session::manager::Manager;
-use crate::terminal::shared_session::{SharedSessionSource, SharedSessionStatus};
 use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::{
     add_window_with_id_and_terminal, initialize_app_for_terminal_view,
@@ -124,7 +125,7 @@ fn session_qr_code_requires_status_eligible_matching_session_id() {
                 role: Default::default(),
             },
             SharedSessionStatus::SharePendingPreBootstrap {
-                source: SharedSessionSource::default(),
+                source: SessionSourceType::User,
             },
             SharedSessionStatus::ActiveSharer,
         ] {
@@ -195,7 +196,6 @@ fn team_with_link_sharing(uid: i64, name: &str, permitted: bool) -> Team {
             },
             ..Default::default()
         },
-        feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
         visibility: TeamVisibility::Open,
     }
@@ -208,14 +208,11 @@ fn install_workspace_with_teams(app: &mut App, teams: Vec<Team>) {
         stripe_customer_id: None,
         teams,
         billing_metadata: Default::default(),
-        bonus_grants_purchased_this_month: Default::default(),
         settings: WorkspaceSettings::default(),
-        feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
         pending_email_invites: vec![],
         is_eligible_for_discovery: false,
         members: vec![],
-        total_requests_used_since_last_refresh: 0,
     };
     let workspace_uid = workspace.uid;
 

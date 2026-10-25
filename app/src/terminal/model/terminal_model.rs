@@ -8,9 +8,7 @@ use async_channel::Sender;
 use base64::Engine;
 use itertools::Either;
 use serde::Serialize;
-use session_sharing_protocol::common::{
-    AICommandMetadata, OrderedTerminalEventType, ParticipantId,
-};
+use session_sharing_protocol::common::{OrderedTerminalEventType, ParticipantId};
 use session_sharing_protocol::sharer::SessionSourceType;
 use string_offset::CharOffset;
 use warp_completer::meta::Span;
@@ -32,11 +30,10 @@ use warpui::image_cache::ImageType;
 use super::super::{AltScreen, BlockList};
 use super::ansi::{BootstrappedValue, InputBufferValue, Mode, PendingHook};
 use super::block::{
-    AgentInteractionMetadata, Block, BlockId, BlockMetadata, BlockSize, BlockState,
-    BlocklistEnvVarMetadata, SerializedBlock,
+    Block, BlockId, BlockMetadata, BlockSize, BlockState, BlocklistEnvVarMetadata, SerializedBlock,
 };
 use super::blockgrid::BlockGrid;
-use super::blocks::{ActiveBlockCompletion, BlockFilter};
+use super::blocks::ActiveBlockCompletion;
 use super::grid::grid_handler::{
     ContainsPoint, FragmentBoundary, GridHandler, Link, PossiblePath, TermMode,
 };
@@ -54,7 +51,6 @@ use super::secrets::{RespectObfuscatedSecrets, SecretAndHandle};
 use super::selection::ScrollDelta;
 use super::session::{BootstrapSessionType, InBandCommandOutputReceiver, SessionId};
 use super::{Secret, SecretHandle};
-use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::block_filter::BlockFilterQuery;
 use crate::terminal::block_list_element::GridType;
@@ -79,8 +75,7 @@ use crate::terminal::model::index::VisibleRow;
 use crate::terminal::model::iterm_image::{ITermImage, ITermImageMetadata};
 use crate::terminal::model::secrets::ObfuscateSecrets;
 use crate::terminal::model::session::SessionInfo;
-use crate::terminal::shared_session::ai_agent::encode_agent_response_event;
-use crate::terminal::shared_session::{SharedSessionSource, SharedSessionStatus};
+use crate::terminal::shared_session::SharedSessionStatus;
 use crate::terminal::shell::{ShellName, ShellType};
 use crate::terminal::ssh::util::{InteractiveSshCommand, SshLoginState};
 use crate::terminal::{
@@ -90,18 +85,6 @@ use crate::terminal::{
 
 /// Max size of the window title stack.
 const TITLE_STACK_MAX_DEPTH: usize = 4096;
-
-/// The status of a conversation transcript viewer.
-/// This tracks both the loading state and the type of conversation being viewed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConversationTranscriptViewerStatus {
-    /// Loading conversation data from the server.
-    Loading,
-    /// Viewing a local conversation (not from ambient agent).
-    ViewingLocalConversation,
-    /// Viewing a task-backed conversation with the associated task ID.
-    ViewingAmbientConversation(AmbientAgentTaskId),
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct FindOptions {
@@ -483,16 +466,8 @@ pub struct TerminalModel {
 
     shared_session_status: SharedSessionStatus,
 
-    /// `SessionSourceType` paired with `source_task_id`, or `None` when
-    /// this is not a shared session.
-    shared_session_source: Option<SharedSessionSource>,
-
-    /// Whether this terminal model was created as a cloud mode dummy session
-    /// (no local shell process, deferred shared-session viewer backing).
-
-    /// If Some, this terminal is displaying a read-only conversation transcript.
-    /// Tracks both the loading state and the type of conversation being viewed.
-    conversation_transcript_viewer_status: Option<ConversationTranscriptViewerStatus>,
+    /// The source of a shared session, or `None` outside a shared session.
+    shared_session_source: Option<SessionSourceType>,
 
     /// A sender for terminal-state updates that must be ordered against each other.
     /// This goes through the [`TerminalModel`] because the [`TerminalModel`] is exposed as
@@ -508,11 +483,6 @@ pub struct TerminalModel {
     ///
     /// This field is only [`Some`] if this session is shared.
     write_to_pty_events_for_shared_session_tx: Option<Sender<Vec<u8>>>,
-
-    /// Whether this viewer is currently receiving historical agent conversation replay.
-    /// Used to suppress live-conversation-specific actions (e.g. tombstone insertion)
-    /// until the replay is complete.
-    is_receiving_agent_conversation_replay: bool,
 
     /// When some, the TerminalModel emits the event [Event::DetectedEndOfSshLogin]. This
     /// event is emitted either as the initial check or the confirmation check.
@@ -999,7 +969,6 @@ impl TerminalModel {
             honor_ps1,
             is_inverted,
             ObfuscateSecrets::No,
-            false,
             session_startup_path,
             ShellLaunchState::ShellSpawned {
                 available_shell: None,
@@ -1055,7 +1024,6 @@ impl TerminalModel {
         honor_ps1: bool,
         is_inverted: bool,
         obfuscate_secrets: ObfuscateSecrets,
-        is_ai_ugc_telemetry_enabled: bool,
         session_startup_path: Option<PathBuf>,
         shell_state: ShellLaunchState,
         shared_session_status: SharedSessionStatus,
@@ -1077,7 +1045,6 @@ impl TerminalModel {
             honor_ps1,
             is_inverted,
             obfuscate_secrets,
-            is_ai_ugc_telemetry_enabled,
         );
 
         Self {
@@ -1113,10 +1080,8 @@ impl TerminalModel {
             obfuscate_secrets,
             shared_session_status,
             shared_session_source: None,
-            conversation_transcript_viewer_status: None,
             ordered_terminal_events_for_shared_session_tx: None,
             write_to_pty_events_for_shared_session_tx: None,
-            is_receiving_agent_conversation_replay: false,
             notify_on_end_of_ssh_login: None,
             is_receiving_hook: IsReceivingHook::No,
             image_id_to_metadata: HashMap::new(),
@@ -1141,7 +1106,6 @@ impl TerminalModel {
         honor_ps1: bool,
         is_inverted: bool,
         obfuscate_secrets: ObfuscateSecrets,
-        is_ai_ugc_telemetry_enabled: bool,
         session_startup_path: Option<PathBuf>,
         shell_state: ShellLaunchState,
     ) -> Self {
@@ -1157,7 +1121,6 @@ impl TerminalModel {
             honor_ps1,
             is_inverted,
             obfuscate_secrets,
-            is_ai_ugc_telemetry_enabled,
             session_startup_path,
             shell_state,
             SharedSessionStatus::NotShared,
@@ -1187,7 +1150,6 @@ impl TerminalModel {
             honor_ps1,
             is_inverted,
             obfuscate_secrets,
-            false,
             None,
             // TODO: use the same shell type as the sharer
             ShellLaunchState::ShellSpawned {
@@ -1234,17 +1196,6 @@ impl TerminalModel {
         self.ordered_terminal_events_for_shared_session_tx = None;
     }
 
-    fn ai_metadata_to_protocol(metadata: &AgentInteractionMetadata) -> AICommandMetadata {
-        AICommandMetadata {
-            tool_call_id: metadata
-                .requested_command_action_id()
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
-            // Any command with a long-running control state is considered agent-monitored.
-            is_agent_monitored: metadata.long_running_control_state().is_some(),
-        }
-    }
-
     pub fn set_write_to_pty_events_for_shared_session_tx(&mut self, tx: Sender<Vec<u8>>) {
         self.write_to_pty_events_for_shared_session_tx = Some(tx);
     }
@@ -1267,103 +1218,16 @@ impl TerminalModel {
         self.write_to_pty_events_for_shared_session_tx = None;
     }
 
-    /// Sends an Agent ResponseEvent to viewers if this session is shared.
-    /// The participant_id should be the ID of the participant who initiated the query.
-    /// The forked_from_conversation_token is used for forked conversations to help viewers
-    /// link the new server-assigned token to an existing conversation from historical replay.
-    pub fn send_agent_response_for_shared_session(
-        &mut self,
-        response: &warp_multi_agent_api::ResponseEvent,
-        response_initiator: Option<ParticipantId>,
-        forked_from_conversation_token: Option<String>,
-    ) {
-        // We should always have a response initiator for shared sessions,
-        // but if we don't we should still send the response event to the viewers
-        // (as opposed to completely failing and skipping the send).
-        if response_initiator.is_none() {
-            report_error!(anyhow::anyhow!(
-                "No response initiator tracked for agent response event."
-            ));
-        }
-
-        if self.shared_session_status().is_sharer() {
-            if let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx {
-                let encoded = encode_agent_response_event(response);
-                if let Err(e) = tx.try_send(OrderedTerminalEventType::AgentResponseEvent {
-                    response_initiator,
-                    response_event: encoded,
-                    forked_from_conversation_token,
-                }) {
-                    log::warn!("Failed to send OrderedTerminalEventType::AgentResponseEvent: {e}");
-                }
-            }
-        } else {
-            log::debug!("Not sharing this session; ignoring agent response event");
-        }
-    }
-
-    pub fn send_agent_conversation_replay_started_for_shared_session(&mut self) {
-        if self.shared_session_status().is_sharer()
-            && let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-            && let Err(e) = tx.try_send(OrderedTerminalEventType::AgentConversationReplayStarted)
-        {
-            log::warn!(
-                "Failed to send OrderedTerminalEventType::AgentConversationReplayStarted: {e}"
-            );
-        }
-    }
-
-    pub fn send_agent_conversation_replay_ended_for_shared_session(&mut self) {
-        if self.shared_session_status().is_sharer()
-            && let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-            && let Err(e) = tx.try_send(OrderedTerminalEventType::AgentConversationReplayEnded)
-        {
-            log::warn!(
-                "Failed to send OrderedTerminalEventType::AgentConversationReplayEnded: {e}"
-            );
-        }
-    }
-
-    /// Whether the session sharing server is currently replaying
-    /// conversation events (for conversation reconstruction).
-    pub fn is_receiving_agent_conversation_replay(&self) -> bool {
-        self.is_receiving_agent_conversation_replay
-    }
-
-    pub fn set_is_receiving_agent_conversation_replay(&mut self, value: bool) {
-        self.is_receiving_agent_conversation_replay = value;
-    }
-
-    pub fn set_shared_session_source(&mut self, source: SharedSessionSource) {
+    pub fn set_shared_session_source(&mut self, source: SessionSourceType) {
         self.shared_session_source = Some(source);
     }
 
-    pub fn shared_session_source(&self) -> Option<&SharedSessionSource> {
+    pub fn shared_session_source(&self) -> Option<&SessionSourceType> {
         self.shared_session_source.as_ref()
     }
 
     pub fn shared_session_source_type(&self) -> Option<SessionSourceType> {
-        self.shared_session_source
-            .as_ref()
-            .map(|s| s.source_type.clone())
-    }
-
-    pub fn set_shared_session_source_task_id(&mut self, task_id: Option<String>) {
-        if let Some(source) = self.shared_session_source.as_mut() {
-            source.source_task_id = task_id;
-        }
-    }
-
-    pub fn ambient_agent_task_id(&self) -> Option<AmbientAgentTaskId> {
-        if let Some(ConversationTranscriptViewerStatus::ViewingAmbientConversation(task_id)) =
-            &self.conversation_transcript_viewer_status
-        {
-            return Some(*task_id);
-        }
-        self.shared_session_source
-            .as_ref()
-            .and_then(|s| s.orchestrator_task_id())
-            .and_then(|s| s.parse().ok())
+        self.shared_session_source.as_ref().cloned()
     }
 
     /// Loads the provided scrollback into the model.
@@ -1461,33 +1325,7 @@ impl TerminalModel {
     }
 
     pub fn is_read_only(&self) -> bool {
-        self.handled_exit
-            || self.is_conversation_transcript_viewer()
-            || self.shared_session_status().is_finished_viewer()
-    }
-
-    pub fn is_conversation_transcript_viewer(&self) -> bool {
-        self.conversation_transcript_viewer_status.is_some()
-    }
-
-    pub fn is_loading_conversation_transcript(&self) -> bool {
-        matches!(
-            self.conversation_transcript_viewer_status,
-            Some(ConversationTranscriptViewerStatus::Loading)
-        )
-    }
-
-    pub fn conversation_transcript_viewer_status(
-        &self,
-    ) -> Option<&ConversationTranscriptViewerStatus> {
-        self.conversation_transcript_viewer_status.as_ref()
-    }
-
-    pub fn set_conversation_transcript_viewer_status(
-        &mut self,
-        status: Option<ConversationTranscriptViewerStatus>,
-    ) {
-        self.conversation_transcript_viewer_status = status;
+        self.handled_exit || self.shared_session_status().is_finished_viewer()
     }
 
     pub fn colors(&self) -> color::List {
@@ -1653,18 +1491,10 @@ impl TerminalModel {
     pub fn start_command_execution_for_shared_session(
         &mut self,
         participant_id: ParticipantId,
-        agent_metadata: Option<AgentInteractionMetadata>,
     ) -> StartCommandOutcome {
         let outcome = self.start_command_execution_for_kind(CommandStartKind::SharedSession);
         if !outcome.is_accepted() {
             return outcome;
-        }
-
-        // If this command has AI metadata, attach it to the active block.
-        if let Some(ai_metadata) = &agent_metadata {
-            self.block_list
-                .active_block_mut()
-                .set_agent_interaction_mode(ai_metadata.clone());
         }
 
         // TODO (suraj): add participant ID to active block metadata.
@@ -1674,25 +1504,10 @@ impl TerminalModel {
         if let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
             && let Err(e) = tx.try_send(OrderedTerminalEventType::CommandExecutionStarted {
                 participant_id,
-                ai_metadata: agent_metadata.as_ref().map(Self::ai_metadata_to_protocol),
+                ai_metadata: None,
             })
         {
             log::warn!("Failed to send OrderedTerminalEventType::CommandExecutionStarted: {e}");
-        }
-        outcome
-    }
-
-    /// Starts the command execution (per `Self::start_command_execution`) and additionally sets
-    /// the given `ai_metadata` on the active block.
-    pub fn start_command_execution_with_ai_metadata(
-        &mut self,
-        agent_metadata: AgentInteractionMetadata,
-    ) -> StartCommandOutcome {
-        let outcome = self.start_command_execution_for_kind(CommandStartKind::UserOrQueued);
-        if outcome.is_accepted() {
-            self.block_list
-                .active_block_mut()
-                .set_agent_interaction_mode(agent_metadata);
         }
         outcome
     }
@@ -2271,23 +2086,6 @@ impl TerminalModel {
 
     /// Takes accumulated typeahead that should be inserted into a front-end input editor.
     pub fn take_typeahead_for_input(&mut self) -> Option<(String, CharOffset)> {
-        let completed_block_index = self.block_list.prev_matching_block_from_index(
-            BlockFilter {
-                include_hidden: true,
-                include_background: false,
-            },
-            self.block_list.active_block_index(),
-        );
-        let was_entered_during_agent_requested_command =
-            completed_block_index.is_some_and(|index| {
-                self.block_list
-                    .block_at(index)
-                    .is_some_and(|block| block.agent_interaction_metadata().is_some())
-            });
-        if was_entered_during_agent_requested_command {
-            return None;
-        }
-
         let (typeahead, previously_inserted) =
             self.block_list.early_output_mut().advance_typeahead()?;
         Some((typeahead.to_owned(), previously_inserted))

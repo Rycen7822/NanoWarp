@@ -32,7 +32,7 @@ use crate::features::FeatureFlag;
 use crate::notebooks::editor::model::word_unit;
 use crate::util::bindings::CustomAction;
 
-/// Limit the keybindings that conflict with the Agent Mode embedded editor.
+/// Disable editing keybindings for read-only editors.
 const NON_EDITABLE_KEYMAP_CONTEXT: &str = "NonEditableKeymapContext";
 
 lazy_static! {
@@ -45,7 +45,7 @@ pub fn init(app: &mut AppContext) {
     use warpui::keymap::macros::*;
 
     let text_entry = id!("CodeEditorView") & !id!("IMEOpen");
-    // We use this to disable some keybindings that would conflict with the Agent Mode embedded editor.
+    // Read-only editors retain navigation without editing bindings.
     let editable_state = text_entry.clone() & !id!(NON_EDITABLE_KEYMAP_CONTEXT);
     app.register_fixed_bindings([
         FixedBinding::new(
@@ -642,10 +642,6 @@ pub enum CodeEditorViewAction {
         line_range: Range<LineCount>,
         expansion_type: ExpansionType,
     },
-    /// Add diff hunk content as context (when clicking plus icon)
-    AddDiffHunkContext {
-        line_range: Range<LineCount>,
-    },
     /// Revert diff hunk changes (when clicking revert icon)
     RevertDiffHunk {
         line_range: Range<LineCount>,
@@ -797,7 +793,6 @@ impl CodeEditorViewAction {
             | Self::ShowGoToLine
             | Self::Escape
             | Self::HiddenSectionExpansion { .. }
-            | Self::AddDiffHunkContext { .. }
             | Self::RevertDiffHunk { .. }
             | Self::NewCommentOnLine { .. }
             | Self::RequestOpenSavedComment { .. }
@@ -996,20 +991,10 @@ impl TypedActionView for CodeEditorView {
             Cut => self.model.update(ctx, |model, ctx| {
                 model.cut(ctx);
             }),
-            // Note that this is _not_ the only code path that could copy selected text to the clipboard.
-            // This is only for the case when the editor is focused and the copy action gets dispatched directly.
-            // The owner of the editor can also perform a copy by accessing the selected text and copying it to the clipboard.
-            // This is the case when the code block is owned by an AIBlock and unfocused.
             Copy => {
                 self.model.update(ctx, |model, ctx| {
                     model.copy(ctx);
                 });
-                // It's possible that the copy action was dispatched to the focused editor even when
-                // the user intended to copy selected text from a parent view (i.e. an `AIBlock`).
-                // The `CopiedEmptyText` event gives the parent view a signal to attempt a copy action.
-                if self.selected_text(ctx).is_none() {
-                    ctx.emit(CodeEditorEvent::CopiedEmptyText);
-                }
             }
             #[cfg(windows)]
             WindowsCtrlC => self.model.update(ctx, |model, ctx| {
@@ -1048,20 +1033,6 @@ impl TypedActionView for CodeEditorView {
                 expansion_type,
             } => {
                 self.expand_hidden_section(line_range.clone(), expansion_type, ctx);
-            }
-            AddDiffHunkContext { line_range } => {
-                // Record this range as clicked so the button disappears
-                self.display_states
-                    .wrapper_state_handle
-                    .record_clicked_range(line_range.clone());
-
-                // Emit event for parent to handle adding context
-                ctx.emit(CodeEditorEvent::DiffHunkContextAdded {
-                    line_range: line_range.clone(),
-                });
-
-                // Notify to re-render and hide the button
-                ctx.notify();
             }
             RevertDiffHunk { line_range } => {
                 if FeatureFlag::RevertDiffHunk.is_enabled() {

@@ -29,7 +29,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) banner_secondary_button: MouseStateHandle,
     pub(super) more_info_banner_button: MouseStateHandle,
     pub(super) resource_center_icon: MouseStateHandle,
-    pub(super) agent_management_view_button: MouseStateHandle,
     pub(super) left_panel_icon: MouseStateHandle,
     pub(super) settings_icon: MouseStateHandle,
     pub(super) dismiss_banner_button: MouseStateHandle,
@@ -37,8 +36,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) avatar_icon: MouseStateHandle,
     pub(super) header_dimming: MouseStateHandle,
     pub(super) right_panel_icon: MouseStateHandle,
-    pub(super) notifications_mailbox: MouseStateHandle,
-    pub(super) session_config_tab_config_chip_close: MouseStateHandle,
     pub(super) tools_panel_icon: MouseStateHandle,
     pub(super) title_bar_search_bar: MouseStateHandle,
     pub(super) team_switcher_pill: MouseStateHandle,
@@ -89,25 +86,17 @@ pub struct WorkspaceState {
     pub is_resource_center_open: bool,
     pub is_command_search_open: bool,
     pub is_warp_drive_open: bool,
-    pub is_agent_management_popup_open: bool,
     pub is_auth_override_modal_open: bool,
     pub is_require_login_modal_open: bool,
     pub is_prompt_editor_open: bool,
-    pub is_agent_toolbar_editor_open: bool,
     pub is_header_toolbar_editor_open: bool,
     pub is_close_session_confirmation_dialog_open: bool,
-    pub is_rewind_confirmation_dialog_open: bool,
-    pub is_delete_conversation_confirmation_dialog_open: bool,
     pub is_native_quit_modal_open: bool,
     pub is_shared_objects_creation_denied_modal_open: bool,
-    pub is_notification_mailbox_open: bool,
-    pub is_agent_management_view_open: bool,
     pub is_tab_config_params_modal_open: bool,
     pub is_session_config_modal_open: bool,
     pub is_new_worktree_modal_open: bool,
     pub is_remove_tab_config_dialog_open: bool,
-    /// Whether the transcript details panel is open (WASM only, for conversation transcript viewing).
-    pub is_transcript_details_panel_open: bool,
     tab_being_renamed: Option<usize>, // The index of the tab being renamed
     pane_being_renamed: Option<PaneViewLocator>,
     /// The tab group whose header is currently being renamed inline.
@@ -128,9 +117,7 @@ impl WorkspaceState {
             || self.is_launch_config_save_modal_open
             || self.is_command_search_open
             || self.is_prompt_editor_open
-            || self.is_agent_toolbar_editor_open
             || self.is_header_toolbar_editor_open
-            || self.is_agent_management_popup_open
             || self.is_shared_objects_creation_denied_modal_open
             || self.is_tab_config_params_modal_open
             || self.is_session_config_modal_open
@@ -156,7 +143,6 @@ impl WorkspaceState {
         self.is_launch_config_save_modal_open = false;
         self.is_command_search_open = false;
         self.is_prompt_editor_open = false;
-        self.is_agent_toolbar_editor_open = false;
         self.is_header_toolbar_editor_open = false;
         self.is_shared_objects_creation_denied_modal_open = false;
         self.is_auth_override_modal_open = false;

@@ -11,7 +11,6 @@ use warpui::{App, ModelHandle};
 use super::{Network, PtyBytesBatchStatus, Stage};
 use crate::terminal::TerminalModel;
 use crate::terminal::event_listener::ChannelEventListener;
-use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
 use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::initialize_app_for_terminal_view;
 
@@ -28,7 +27,6 @@ fn create_network(app: &mut App) -> (ModelHandle<Network>, Sender<Vec<u8>>) {
             terminal_view,
             terminal_model,
             write_to_pty_events_rx,
-            RemoteUpdateGuard::new(),
             ctx,
         )
     });

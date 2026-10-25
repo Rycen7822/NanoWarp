@@ -85,13 +85,6 @@ impl CloudObjectToastMessage {
             ) => {
                 Some("Environment variables could not be saved because changes were made while you were editing.".to_string())
             }
-            (
-                ObjectType::GenericStringObject(GenericStringObjectFormat::Json(JsonObjectType::AIFact)),
-                ObjectOperation::Update,
-                OperationSuccessType::Rejection,
-            ) => {
-                Some("Rule could not be saved because changes were made while you were editing.".to_string())
-            }
             (_, ObjectOperation::TakeEditAccess, OperationSuccessType::Failure) => {
                 Some(format!("Failed to start editing {object_name_lowercase}"))
             }

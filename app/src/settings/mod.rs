@@ -1,5 +1,4 @@
 mod accessibility;
-pub mod ai;
 mod alias_expansion;
 pub mod app_icon;
 pub mod app_installation_detection;
@@ -21,7 +20,6 @@ mod linux;
 pub mod macros;
 pub mod manager;
 pub mod native_preference;
-mod onboarding;
 mod pane;
 mod privacy;
 mod same_line_prompt_block;
@@ -39,7 +37,6 @@ mod vim_banner;
 mod schema_validation_tests;
 
 pub use accessibility::*;
-pub use ai::*;
 pub use alias_expansion::*;
 pub use block_visibility::*;
 pub use cloud_preferences::*;
@@ -55,7 +52,6 @@ pub use input_mode::*;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub use linux::*;
 pub use native_preference::*;
-pub(crate) use onboarding::*;
 pub use pane::*;
 pub use privacy::*;
 pub use same_line_prompt_block::*;

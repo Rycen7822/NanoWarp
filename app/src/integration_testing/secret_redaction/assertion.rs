@@ -19,8 +19,8 @@ pub fn assert_secret_tooltip_open(open: bool) -> AssertionCallback {
     })
 }
 
-/// Assert that secrets are properly redacted for AI conversations in both modes
-pub fn assert_secrets_redacted_for_ai(
+/// Assert that secrets are properly redacted in both safe modes
+pub fn assert_secrets_redacted(
     test_text: String,
     expected_phone_redaction: String,
     expected_api_key_redaction: String,
@@ -40,19 +40,19 @@ pub fn assert_secrets_redacted_for_ai(
                 ));
             }
 
-            // Test that redaction works for both modes when sending to AI
+            // Test that redaction works for both modes in both safe modes
             if secret_redaction_mode.should_redact_secret() {
                 let mut redacted_text = test_text.clone();
                 redact_secrets(&mut redacted_text);
 
                 if !redacted_text.contains(&expected_phone_redaction) {
                     return AssertionOutcome::failure(format!(
-                        "Phone number should be redacted in text sent to AI: {redacted_text}"
+                        "Phone number should be redacted in redacted text: {redacted_text}"
                     ));
                 }
                 if !redacted_text.contains(&expected_api_key_redaction) {
                     return AssertionOutcome::failure(format!(
-                        "API key should be redacted in text sent to AI: {redacted_text}"
+                        "API key should be redacted in redacted text: {redacted_text}"
                     ));
                 }
                 if redacted_text.contains(&original_phone) {

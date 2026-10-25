@@ -3,10 +3,10 @@ use warpui::color::ColorU;
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Dismiss, Element, Flex, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Percentage, Radius, Shrinkable, Stack, Text,
+    ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
-use warpui::keymap::{FixedBinding, Keystroke};
+use warpui::keymap::FixedBinding;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
@@ -38,9 +38,6 @@ pub struct Modal<T> {
     close_modal_hover_state: MouseStateHandle,
     background_opacity: u8,
     offset_positioning: OffsetPositioning,
-    max_height_percentage: Option<f32>,
-    /// Optional keystroke to display alongside the close button.
-    dismiss_keystroke: Option<Keystroke>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -165,8 +162,6 @@ impl<T: View> Modal<T> {
             close_modal_hover_state: Default::default(),
             background_opacity: MODAL_BACKDROP_OPACITY,
             offset_positioning: Self::default_offset_positioning(),
-            max_height_percentage: None,
-            dismiss_keystroke: None,
         }
     }
 
@@ -202,17 +197,6 @@ impl<T: View> Modal<T> {
 
     pub fn with_background_opacity(mut self, opacity: u8) -> Self {
         self.background_opacity = opacity;
-        self
-    }
-    /// Caps the modal height at a percentage of the containing window height.
-    pub fn with_max_height_percentage(mut self, percentage: f32) -> Self {
-        self.max_height_percentage = Some(percentage.clamp(0., 1.));
-        self
-    }
-
-    /// Set the keystroke to display alongside the close button.
-    pub fn with_dismiss_keystroke(mut self, keystroke: Keystroke) -> Self {
-        self.dismiss_keystroke = Some(keystroke);
         self
     }
 
@@ -252,44 +236,13 @@ impl<T: View> Modal<T> {
     }
 
     fn render_close_modal_button(&self, appearance: &Appearance) -> Box<dyn Element> {
-        use ui_components::{Component, keyboard_shortcut};
-
         const BUTTON_DIAMETER: f32 = 24.;
-        let close_button = appearance
+        appearance
             .ui_builder()
             .close_button(BUTTON_DIAMETER, self.close_modal_hover_state.clone())
             .build()
             .on_click(|ctx, _, _| ctx.dispatch_typed_action(ModalAction::Close))
-            .finish();
-
-        if let Some(keystroke) = &self.dismiss_keystroke {
-            let theme = appearance.theme();
-            Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(close_button)
-                .with_child(
-                    Container::new(keyboard_shortcut::KeyboardShortcut.render(
-                        appearance,
-                        keyboard_shortcut::Params {
-                            keystroke: keystroke.clone(),
-                            options: keyboard_shortcut::Options {
-                                font_color: Some(theme.nonactive_ui_text_color().into()),
-                                background: Some(blended_colors::neutral_3(theme).into()),
-                                border_fill: None,
-                                sizing: keyboard_shortcut::Sizing {
-                                    font_size: 11.,
-                                    padding: 5.,
-                                },
-                            },
-                        },
-                    ))
-                    .with_margin_left(4.)
-                    .finish(),
-                )
-                .finish()
-        } else {
-            close_button
-        }
+            .finish()
     }
 
     fn render_header_icon(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
@@ -460,32 +413,15 @@ impl<T: View> View for Modal<T> {
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
-        let has_relative_max_height = self.max_height_percentage.is_some();
-        let body_max_height = if has_relative_max_height {
-            f32::INFINITY
-        } else {
-            self.body_styles.height.unwrap()
-        };
-        let modal_max_height = if has_relative_max_height {
-            f32::INFINITY
-        } else {
-            self.modal_styles.height.unwrap()
-        };
-        let body = self.render_body(body_max_height);
+        let body = self.render_body(self.body_styles.height.unwrap());
         let header = self.render_header(appearance);
         let contents = if let Some(header) = header {
-            let mut contents = Flex::column().with_child(header);
-            if has_relative_max_height {
-                contents.add_child(Shrinkable::new(1., body).finish());
-            } else {
-                contents.add_child(body);
-            }
-            contents.finish()
+            Flex::column().with_child(header).with_child(body).finish()
         } else {
             body
         };
 
-        let modal = ConstrainedBox::new(
+        let mut modal = ConstrainedBox::new(
             Container::new(contents)
                 .with_background(blended_colors::neutral_2(appearance.theme()))
                 .with_corner_radius(self.modal_styles.border_radius.unwrap_or_default())
@@ -497,13 +433,8 @@ impl<T: View> View for Modal<T> {
                 .finish(),
         )
         .with_max_width(self.modal_styles.width.unwrap())
-        .with_max_height(modal_max_height)
+        .with_max_height(self.modal_styles.height.unwrap())
         .finish();
-        let mut modal = if let Some(max_height_percentage) = self.max_height_percentage {
-            Percentage::height(max_height_percentage, modal).finish()
-        } else {
-            modal
-        };
 
         if self.dismiss_on_click {
             modal = Dismiss::new(modal)

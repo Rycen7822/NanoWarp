@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 use super::workspace::{BillingMetadata, EmailInvite, InviteLinkDomainRestriction, TeamSettings};
-use crate::ai::llms::ModelsByFeature;
 use crate::auth::UserUid;
 use crate::server::ids::ServerId;
 
@@ -75,7 +74,6 @@ pub struct Team {
     pub stripe_customer_id: Option<String>,
     /// The team's effective settings, sourced from the server's `Team.settings`.
     pub settings: TeamSettings,
-    pub feature_model_choice: ModelsByFeature,
     /// If the team is eligible for discovery, then show toggle for setting discoverability to the team's admin
     pub is_eligible_for_discovery: bool,
     pub visibility: TeamVisibility,
@@ -88,7 +86,6 @@ impl Team {
         settings: Option<TeamSettings>,
         billing_metadata: Option<BillingMetadata>,
         members: Option<Vec<TeamMember>>,
-        feature_model_choice: Option<ModelsByFeature>,
     ) -> Self {
         Self {
             uid,
@@ -101,7 +98,6 @@ impl Team {
             billing_metadata: billing_metadata.unwrap_or_default(),
             stripe_customer_id: Default::default(),
             settings: settings.unwrap_or_default(),
-            feature_model_choice: feature_model_choice.unwrap_or_default(),
             is_eligible_for_discovery: false,
             visibility: TeamVisibility::default(),
         }
@@ -123,9 +119,5 @@ impl Team {
             member.role.is_owner()
                 || (member.role == MembershipRole::Admin && self.is_multi_admin_enabled())
         })
-    }
-
-    pub fn is_custom_llm_enabled(&self) -> bool {
-        self.settings.llm_settings.enabled
     }
 }

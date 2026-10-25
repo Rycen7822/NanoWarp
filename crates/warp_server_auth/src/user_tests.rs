@@ -24,7 +24,6 @@ fn test_parse_user_profile() -> Result<()> {
         linked_at: None,
         personal_object_limits: None,
         principal_type: PrincipalType::User,
-        global_skills: Vec::new(),
     };
     assert_eq!(user.metadata.display_name.as_deref(), Some("Test User"));
     assert_eq!(user.metadata.email, "test_user@example.com");
@@ -35,9 +34,4 @@ fn test_parse_user_profile() -> Result<()> {
     assert!(user.needs_sso_link);
 
     Ok(())
-}
-
-#[test]
-fn test_user_global_skills_defaults_to_empty() {
-    assert_eq!(User::test().global_skills, Vec::<String>::new());
 }

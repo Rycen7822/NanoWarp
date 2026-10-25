@@ -11,7 +11,6 @@ use diesel::SqliteConnection;
 use diesel::result::Error;
 
 use crate::{
-    CloudAIExecutionProfile, CloudAIExecutionProfileModel, CloudAIFact, CloudAIFactModel,
     CloudEnvVarCollection, CloudEnvVarCollectionModel, CloudPreference, CloudPreferenceModel,
     CloudWorkflowEnum, CloudWorkflowEnumModel,
 };
@@ -20,8 +19,6 @@ pub enum PersistedGenericStringObject {
     Preference(CloudPreference),
     EnvVarCollection(CloudEnvVarCollection),
     WorkflowEnum(CloudWorkflowEnum),
-    AIFact(CloudAIFact),
-    AIExecutionProfile(CloudAIExecutionProfile),
 }
 
 pub fn read_generic_string_objects(
@@ -80,33 +77,6 @@ pub fn read_generic_string_objects(
                         ))
                     })
                 }
-                JsonObjectType::AIFact => {
-                    let model = CloudAIFactModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::AIFact(CloudAIFact::new(
-                            object_id,
-                            model,
-                            to_cloud_object_metadata(metadata),
-                            cloud_object_permissions,
-                        ))
-                    })
-                }
-                JsonObjectType::AIExecutionProfile => {
-                    let model = CloudAIExecutionProfileModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::AIExecutionProfile(
-                            CloudAIExecutionProfile::new(
-                                object_id,
-                                model,
-                                to_cloud_object_metadata(metadata),
-                                cloud_object_permissions,
-                            ),
-                        )
-                    })
-                }
-                JsonObjectType::CloudEnvironment
-                | JsonObjectType::ScheduledAmbientAgent
-                | JsonObjectType::CloudAgentConfig => None,
             }
         })
         .collect())

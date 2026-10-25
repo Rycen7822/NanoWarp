@@ -70,9 +70,7 @@ use crate::ui_components::icons::ICON_DIMENSIONS;
 use crate::util::bindings::CustomAction;
 #[cfg(feature = "local_fs")]
 use crate::util::link_detection::{DetectedLinkType, detect_file_paths, get_word_range_at_offset};
-use crate::util::tooltips::{
-    TooltipLink, TooltipRedaction, render_tooltip, should_show_open_in_warp_link,
-};
+use crate::util::tooltips::{TooltipLink, render_tooltip, should_show_open_in_warp_link};
 use crate::view_components::DismissibleToast;
 use crate::workspace::WorkspaceAction;
 
@@ -2238,12 +2236,11 @@ impl RichTextEditorView {
                 // Adjust link_range which is relative to context_range to absolute buffer offsets
                 let absolute_range = search_start + CharOffset::from(link_range.start)
                     ..search_start + CharOffset::from(link_range.end);
-                if absolute_range.contains(&char_offset)
-                    && let DetectedLinkType::FilePath {
+                if absolute_range.contains(&char_offset) {
+                    let DetectedLinkType::FilePath {
                         absolute_path,
                         line_and_column_num,
-                    } = link_type
-                {
+                    } = link_type;
                     self.hovered_file_path = Some(SelectedFilePath {
                         range: absolute_range,
                         path: absolute_path,
@@ -2555,7 +2552,7 @@ impl RichTextEditorView {
             });
         }
 
-        let tooltip_content = render_tooltip(links, TooltipRedaction::NoRedaction, appearance, ctx);
+        let tooltip_content = render_tooltip(links, appearance);
 
         let hoverable = Hoverable::new(Default::default(), move |_| tooltip_content)
             .with_cursor(Cursor::PointingHand)

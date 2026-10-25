@@ -142,11 +142,8 @@ impl CloudObjectNamingDialog {
             DriveObjectType::Notebook => NOTEBOOK_TITLE,
             DriveObjectType::Folder => FOLDER_TITLE,
             DriveObjectType::EnvVarCollection => ENV_VAR_COLLECTION_TITLE,
-            // workflows and ai facts aren't a part of this dialog
-            DriveObjectType::Workflow
-            | DriveObjectType::AgentModeWorkflow
-            | DriveObjectType::AIFact
-            | DriveObjectType::AIFactCollection => "",
+            // Workflows are not part of this dialog.
+            DriveObjectType::Workflow => "",
         };
 
         Text::new_inline(

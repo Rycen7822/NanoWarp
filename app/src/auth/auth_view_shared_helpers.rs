@@ -1,6 +1,5 @@
 use pathfinder_color::ColorU;
 use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::builder::UiBuilder;
 use warp_core::ui::color::{darken, lighten};
@@ -169,8 +168,8 @@ where
     };
 
     let paragraph_1 = "All of Warp’s non-cloud features work offline.";
-    let paragraph_2 = "However, we require users to be online when using Warp for the first time in order to enable Warp's AI and cloud features.";
-    let paragraph_3 = "We offer cloud features to all users, and so we need an internet connection to meter AI usage, prevent abuse, and associate cloud objects with users. If you opt to use Warp logged-out, a unique ID will be attached to an anonymous user account in order to support these features.";
+    let paragraph_2 = "An internet connection is required to sign in and use cloud features.";
+    let paragraph_3 = "We use an internet connection to authenticate users, prevent abuse, and associate cloud objects with users. If you opt to use Warp logged-out, a unique ID will be attached to an anonymous user account in order to support these features.";
 
     Container::new(
         Flex::column()
@@ -306,14 +305,13 @@ pub fn render_overlay(overlay_body: Box<dyn Element>, appearance: &Appearance) -
 }
 
 // ---------------------------------------------------------------------------
-// Privacy settings overlay (shared between AuthViewBody and LoginSlideView)
+// Privacy settings overlay for AuthViewBody
 // ---------------------------------------------------------------------------
 
 /// Handles needed to render the privacy settings overlay.
 #[derive(Default)]
 pub struct PrivacySettingsHandles {
     pub telemetry_switch: SwitchStateHandle,
-    pub cloud_conversation_storage_switch: SwitchStateHandle,
     pub close_button_mouse: MouseStateHandle,
     pub telemetry_docs_mouse: MouseStateHandle,
 }
@@ -321,23 +319,17 @@ pub struct PrivacySettingsHandles {
 /// Actions dispatched by the privacy settings overlay toggles.
 pub struct PrivacySettingsActions<A: Action + Clone> {
     pub toggle_telemetry: A,
-    pub toggle_cloud_conversation_storage: A,
     pub hide_overlay: A,
 }
 
 /// Renders the full privacy settings overlay body (logo + header + toggles + done button).
 /// This is the content that goes inside `render_overlay()`.
 ///
-/// `is_ai_enabled` gates whether AI-dependent toggles (e.g. the cloud conversation
-/// storage toggle) are shown. Callers should pass the effective AI-enabled state
-/// for their context (the in-memory onboarding selection during the login slide,
-/// or the stored setting elsewhere).
 pub fn render_privacy_settings_overlay_body<A: Action + Clone + 'static>(
     appearance: &Appearance,
     app: &AppContext,
     handles: &PrivacySettingsHandles,
     actions: &PrivacySettingsActions<A>,
-    is_ai_enabled: bool,
 ) -> Box<dyn Element> {
     let ui_builder = appearance.ui_builder();
 
@@ -369,11 +361,7 @@ pub fn render_privacy_settings_overlay_body<A: Action + Clone + 'static>(
                 .finish(),
             )
             .with_child(render_privacy_settings_toggles(
-                appearance,
-                app,
-                handles,
-                actions,
-                is_ai_enabled,
+                appearance, app, handles, actions,
             ))
             .with_child(render_close_overlay_button(
                 appearance,
@@ -412,14 +400,11 @@ fn render_privacy_settings_section_header(
 
 /// Renders the stack of privacy toggles shown in the privacy settings overlay.
 ///
-/// `is_ai_enabled` gates AI-dependent toggles (the cloud conversation storage
-/// toggle is hidden entirely when AI is disabled, since it has no effect).
 pub fn render_privacy_settings_toggles<A: Action + Clone + 'static>(
     appearance: &Appearance,
     app: &AppContext,
     handles: &PrivacySettingsHandles,
     actions: &PrivacySettingsActions<A>,
-    is_ai_enabled: bool,
 ) -> Box<dyn Element> {
     fn render_description(appearance: &Appearance, text: String) -> Box<dyn Element> {
         let disclaimer_styles = UiComponentStyles {
@@ -485,50 +470,11 @@ pub fn render_privacy_settings_toggles<A: Action + Clone + 'static>(
         )
         .finish();
 
-    let toggle_cloud = actions.toggle_cloud_conversation_storage.clone();
-    let cloud_conversation_storage_toggle = Flex::row()
-        .with_main_axis_size(MainAxisSize::Max)
-        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .with_child(
-            Shrinkable::new(
-                1.,
-                render_privacy_settings_section_header(
-                    "Store AI conversations in the cloud",
-                    appearance,
-                )
-                .finish(),
-            )
-            .finish(),
-        )
-        .with_child(
-            appearance
-                .ui_builder()
-                .switch(handles.cloud_conversation_storage_switch.clone())
-                .check(PrivacySettings::as_ref(app).is_cloud_conversation_storage_enabled)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(toggle_cloud.clone());
-                })
-                .finish(),
-        )
-        .finish();
-
-    let cloud_conversation_storage_description = render_description(
-        appearance,
-        if PrivacySettings::as_ref(app).is_cloud_conversation_storage_enabled {
-            "Agent conversations can be shared with others and are retained when you log in on different devices. This data is only stored for product functionality, and Warp will not use it for analytics."
-        } else {
-            "Agent conversations are only stored locally on your machine, are lost upon logout, and cannot be shared. Note: conversation data for ambient agents are still stored in the cloud."
-        }
-        .into(),
-    );
-
     let mut col = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
 
     // Builds without a telemetry config cannot ship events, so hide the toggle
     // when its backing config is absent.
-    if ChannelState::is_telemetry_available() && !FeatureFlag::GlobalAIAnalyticsBanner.is_enabled()
-    {
+    if ChannelState::is_telemetry_available() {
         col.add_children(vec![
             Container::new(telemetry_toggle)
                 .with_margin_bottom(AUTH_MODAL_GAP)
@@ -538,19 +484,6 @@ pub fn render_privacy_settings_toggles<A: Action + Clone + 'static>(
                 .finish(),
             Container::new(telemetry_link)
                 .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-        ]);
-    }
-
-    // Hide the cloud conversation storage toggle entirely when AI is disabled:
-    // the setting has no effect without AI, and showing it is confusing.
-    if FeatureFlag::CloudConversations.is_enabled() && is_ai_enabled {
-        col.add_children(vec![
-            Container::new(cloud_conversation_storage_toggle)
-                .with_margin_bottom(AUTH_MODAL_GAP)
-                .finish(),
-            Container::new(cloud_conversation_storage_description)
-                .with_margin_bottom(20.)
                 .finish(),
         ]);
     }

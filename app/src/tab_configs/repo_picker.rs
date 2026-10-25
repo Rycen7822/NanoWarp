@@ -9,8 +9,8 @@ use warpui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use crate::ai::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::appearance::Appearance;
+use crate::code::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::tab_configs::PickerStyle;
 use crate::view_components::{DropdownItem, FilterableDropdown};
 

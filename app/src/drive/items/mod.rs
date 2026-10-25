@@ -9,8 +9,6 @@ use crate::cloud_object::{CloudObjectMetadata, Space};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 
-pub mod ai_fact;
-pub mod ai_fact_collection;
 pub mod env_var_collection;
 pub mod folder;
 pub mod item;
@@ -55,7 +53,6 @@ pub trait WarpDriveItem {
 impl WarpDriveItemId {
     pub fn drive_row_position_id(&self) -> String {
         match self {
-            Self::AIFactCollection => "AI_fact_collection".to_string(),
             Self::Object(object_id) => object_id.drive_row_position_id(),
             Self::Space(space) => warp_drive_section_header_position_id(space),
             Self::Trash => "Trash".to_string(),
@@ -66,7 +63,6 @@ impl WarpDriveItemId {
 /// Includes spaces (which CloudObjectTypeAndId does not entail)
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum WarpDriveItemId {
-    AIFactCollection,
     Object(CloudObjectTypeAndId),
     Space(Space),
     Trash,

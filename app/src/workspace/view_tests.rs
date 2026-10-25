@@ -1,7 +1,7 @@
+use session_sharing_protocol::sharer::SessionSourceType;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ai::project_context::model::ProjectContextModel;
 use pane_group::{NotebookPane, PaneState, SplitPaneState, TerminalPaneId};
 #[cfg(feature = "local_fs")]
 use repo_metadata::CanonicalizedPath;
@@ -22,20 +22,10 @@ use warpui::{AddSingletonModel, App, ViewHandle};
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
-use crate::ai::AIRequestUsageModel;
-use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::facts::manager::AIFactManager;
-use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::llms::LLMPreferences;
-use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::ai::restored_conversations::RestoredAgentConversations;
-use crate::ai::skills::SkillManager;
 use crate::cloud_object::Owner;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
+use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::editor::Event;
 use crate::gpu_state::GPUState;
@@ -44,13 +34,11 @@ use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::notebook::NotebookView;
 use crate::pane_group::{Direction, PaneGroupAction, PaneId};
-use crate::pricing::PricingInfoModel;
 use crate::resource_center::Tip;
 use crate::server::cloud_objects::listener::Listener;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::experiments::ServerExperiments;
 use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings::PrivacySettings;
@@ -61,11 +49,8 @@ use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::tab_configs::tab_config::{TabConfigPaneNode, TabConfigPaneType};
 use crate::terminal::history::History;
-use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::local_tty::spawner::PtySpawner;
-use crate::terminal::shared_session::{
-    SharedSessionScrollbackType, SharedSessionSource, SharedSessionStatus,
-};
+use crate::terminal::shared_session::{SharedSessionScrollbackType, SharedSessionStatus};
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseSettings;
 #[cfg(feature = "local_fs")]
@@ -77,9 +62,7 @@ use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::{
-    AgentNotificationsModel, GlobalResourceHandlesProvider, ObjectActions, experiments, workspace,
-};
+use crate::{GlobalResourceHandlesProvider, ObjectActions, experiments, workspace};
 pub(crate) fn initialize_app(app: &mut App) {
     initialize_settings_for_tests(app);
 
@@ -95,9 +78,7 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| crate::tab::TabShortcutModifierState::new());
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), vec![], ctx)
-    });
+    app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
     app.add_singleton_model(|_ctx| UserProfiles::new(Vec::new()));
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(TeamUpdateManager::mock);
@@ -117,7 +98,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| WorkspaceToastStack);
     app.add_singleton_model(|_| ObjectActions::new(Vec::new()));
     app.add_singleton_model(NotebookKeybindings::new);
-    app.add_singleton_model(TerminalKeybindings::new);
     app.add_singleton_model(NotebookManager::mock);
     app.add_singleton_model(|ctx| {
         CloudPreferencesSyncer::new(
@@ -126,18 +106,8 @@ pub(crate) fn initialize_app(app: &mut App) {
             ctx,
         )
     });
-    app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
-    // QueuedQueryModel subscribes to history events; register after the
-    // history model is in place.
-    app.add_singleton_model(crate::ai::blocklist::QueuedQueryModel::new);
-    app.add_singleton_model(|_| ActiveAgentViewsModel::new());
-    app.add_singleton_model(AgentNotificationsModel::new);
-    app.add_singleton_model(AgentConversationsModel::new);
     app.add_singleton_model(SessionPermissionsManager::new);
-    app.add_singleton_model(LLMPreferences::new);
-    app.add_singleton_model(HarnessAvailabilityModel::new);
     app.add_singleton_model(|_| SettingsPaneManager::new());
-    app.add_singleton_model(|_| AIFactManager::new());
 
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
@@ -146,15 +116,9 @@ pub(crate) fn initialize_app(app: &mut App) {
 
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(FileModel::new);
-    app.add_singleton_model(|ctx| {
-        AIExecutionProfilesModel::new(&crate::LaunchMode::new_for_unit_test(), ctx)
-    });
-    app.add_singleton_model(BlocklistAIPermissions::new);
+
     app.add_singleton_model(|_| GPUState::new());
-    app.add_singleton_model(|_| RestoredAgentConversations::new_seeded(vec![]));
-    app.add_singleton_model(|ctx| {
-        AIRequestUsageModel::new_for_test(ServerApiProvider::as_ref(ctx).get_ai_client(), ctx)
-    });
+
     app.add_singleton_model(OneTimeModalModel::new);
     // Register GlobalResourceHandlesProvider before ServerExperiments which depends on it
     let global_resource_handles = GlobalResourceHandles::mock(app);
@@ -183,19 +147,8 @@ pub(crate) fn initialize_app(app: &mut App) {
 
     app.update(experiments::init);
 
-    app.add_singleton_model(
-        crate::workspace::bonus_grant_notification_model::BonusGrantNotificationModel::new,
-    );
-    app.add_singleton_model(|_| ProjectContextModel::default());
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
-    app.add_singleton_model(|_| PricingInfoModel::new());
-    app.add_singleton_model(crate::ai::pricing_promotion::PricingPromotionState::new);
     app.add_singleton_model(|_| History::new(vec![]));
-
-    // SkillManager is registered after `HomeDirectoryWatcher`, `DirectoryWatcher`,
-    // `WarpManagedPathsWatcher`, `DetectedRepositories`, and `RepoMetadataModel`
-    // because `SkillWatcher::new` subscribes to all of them.
-    app.add_singleton_model(SkillManager::new);
 
     // Make sure to initialize the keybindings so that they are available for subviews
     app.update(workspace::init);
@@ -337,7 +290,7 @@ fn test_open_new_window_for_team_rebinds_current_window_without_creating() {
             ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
                 if matches!(
                     event,
-                    UserWorkspacesEvent::WindowTeamChanged { window_id: changed }
+                    UserWorkspacesEvent::WindowTeam { window_id: changed }
                         if *changed == window_id
                 ) {
                     team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
@@ -390,7 +343,7 @@ fn test_open_new_window_for_team_same_team_is_noop() {
         let team_changes_for_subscription = team_changes.clone();
         app.update(|ctx| {
             ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeamChanged { .. }) {
+                if matches!(event, UserWorkspacesEvent::WindowTeam { .. }) {
                     team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
                 }
             });
@@ -505,38 +458,21 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
     });
 }
 
-/// Regression for account-first onboarding users who select Warp Drive and
-/// conversation history, skip signup, and create an account later. The stored
-/// preferences should remain true while unavailable, then take effect
-/// automatically as account and AI availability change—without an off/on
-/// toggle.
+/// Stored Warp Drive preferences take effect when the user signs in.
 #[test]
-fn test_tools_panel_preferences_activate_after_signup_and_ai_enablement() {
+fn test_warp_drive_preference_activates_after_signup() {
     let _skip_anon_guard = FeatureFlag::SkipFirebaseAnonymousUser.override_enabled(true);
-    let _conversation_list_guard =
-        FeatureFlag::AgentViewConversationListView.override_enabled(true);
 
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
-        // Preserve the user's onboarding intent while starting logged out with
-        // AI disabled (the account-skipped account-first completion state).
+        // Preserve the Warp Drive preference while starting logged out.
         app.update(|ctx| {
             WarpDriveSettings::handle(ctx).update(ctx, |settings, ctx| {
                 settings
                     .enable_warp_drive
                     .set_value(true, ctx)
                     .expect("remember Warp Drive preference");
-            });
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                settings
-                    .show_conversation_history
-                    .set_value(true, ctx)
-                    .expect("remember conversation-history preference");
-                settings
-                    .is_any_ai_enabled
-                    .set_value(false, ctx)
-                    .expect("AI remains disabled after skipped signup");
             });
             let auth_state = AuthStateProvider::as_ref(ctx).get();
             auth_state.set_user(None);
@@ -551,25 +487,8 @@ fn test_tools_panel_preferences_activate_after_signup_and_ai_enablement() {
                     .contains(&ToolPanelView::WarpDrive),
                 "the stored preference should keep the locked Warp Drive entry visible"
             );
-            assert!(
-                workspace
-                    .left_panel_views
-                    .contains(&ToolPanelView::ConversationListView),
-                "the stored preference should keep the locked conversations entry visible"
-            );
             workspace.left_panel_view.update(ctx, |left_panel, ctx| {
                 left_panel.handle_action_with_force_open(&LeftPanelAction::WarpDrive, false, ctx);
-                assert_eq!(
-                    left_panel.active_view_availability(ctx),
-                    left_panel::ToolPanelAvailability::RequiresAccount
-                );
-                drop(left_panel.render(ctx));
-
-                left_panel.handle_action_with_force_open(
-                    &LeftPanelAction::ConversationListView,
-                    false,
-                    ctx,
-                );
                 assert_eq!(
                     left_panel.active_view_availability(ctx),
                     left_panel::ToolPanelAvailability::RequiresAccount
@@ -592,11 +511,8 @@ fn test_tools_panel_preferences_activate_after_signup_and_ai_enablement() {
         app.read(|ctx| {
             // Availability must not erase the raw onboarding preferences.
             assert!(*WarpDriveSettings::as_ref(ctx).enable_warp_drive);
-            assert!(*AISettings::as_ref(ctx).show_conversation_history);
             assert!(!WarpDriveSettings::is_warp_drive_available(ctx));
             assert!(!WarpDriveSettings::is_warp_drive_enabled(ctx));
-            assert!(!AISettings::as_ref(ctx).is_conversation_history_available(ctx));
-            assert!(!AISettings::as_ref(ctx).is_conversation_history_enabled(ctx));
         });
 
         // Signing up makes account-backed features available. AuthComplete
@@ -622,82 +538,15 @@ fn test_tools_panel_preferences_activate_after_signup_and_ai_enablement() {
                     .contains(&ToolPanelView::WarpDrive),
                 "Drive entry remains visible and unlocks after signup"
             );
-            assert!(
-                workspace
-                    .left_panel_views
-                    .contains(&ToolPanelView::ConversationListView),
-                "conversation entry remains visible while waiting for AI"
-            );
             assert!(!workspace.auth_state.is_anonymous_or_logged_out());
             assert!(WarpDriveSettings::is_warp_drive_enabled(ctx));
-            assert!(!AISettings::as_ref(ctx).is_conversation_history_enabled(ctx));
             workspace.left_panel_view.update(ctx, |left_panel, ctx| {
                 left_panel.handle_action_with_force_open(&LeftPanelAction::WarpDrive, false, ctx);
                 assert_eq!(
                     left_panel.active_view_availability(ctx),
                     left_panel::ToolPanelAvailability::Available
                 );
-
-                left_panel.handle_action_with_force_open(
-                    &LeftPanelAction::ConversationListView,
-                    false,
-                    ctx,
-                );
-                assert_eq!(
-                    left_panel.active_view_availability(ctx),
-                    left_panel::ToolPanelAvailability::RequiresAi
-                );
-                drop(left_panel.render(ctx));
             });
-        });
-
-        // Enabling AI later should make the preserved conversation-history
-        // preference effective through the existing AI-settings subscription.
-        app.update(|ctx| {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                settings
-                    .is_any_ai_enabled
-                    .set_value(true, ctx)
-                    .expect("enable AI");
-            });
-        });
-        workspace.update(&mut app, |workspace, ctx| {
-            assert!(
-                workspace
-                    .left_panel_views
-                    .contains(&ToolPanelView::ConversationListView)
-            );
-            workspace.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.handle_action_with_force_open(
-                    &LeftPanelAction::ConversationListView,
-                    false,
-                    ctx,
-                );
-                assert_eq!(
-                    left_panel.active_view_availability(ctx),
-                    left_panel::ToolPanelAvailability::Available
-                );
-            });
-        });
-        app.read(|ctx| {
-            assert!(AISettings::as_ref(ctx).is_conversation_history_enabled(ctx));
-        });
-
-        // The raw setting still controls whether the toolbelt entry exists.
-        app.update(|ctx| {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                settings
-                    .show_conversation_history
-                    .set_value(false, ctx)
-                    .expect("hide conversation history");
-            });
-        });
-        workspace.read(&app, |workspace, _| {
-            assert!(
-                !workspace
-                    .left_panel_views
-                    .contains(&ToolPanelView::ConversationListView)
-            );
         });
     });
 }
@@ -739,118 +588,23 @@ fn test_tools_panel_does_not_suppress_vertical_tab_bar_traffic_light_padding() {
     let _vertical_tabs_guard = FeatureFlag::VerticalTabs.override_enabled(true);
     for config in [
         HeaderToolbarChipSelection::Custom {
-            left: vec![HeaderToolbarItemKind::AgentManagement],
+            left: vec![],
             right: vec![
                 HeaderToolbarItemKind::TabsPanel,
                 HeaderToolbarItemKind::ToolsPanel,
                 HeaderToolbarItemKind::CodeReview,
-                HeaderToolbarItemKind::NotificationsMailbox,
             ],
         },
         HeaderToolbarChipSelection::Custom {
             left: vec![
                 HeaderToolbarItemKind::TabsPanel,
                 HeaderToolbarItemKind::ToolsPanel,
-                HeaderToolbarItemKind::AgentManagement,
             ],
-            right: vec![
-                HeaderToolbarItemKind::CodeReview,
-                HeaderToolbarItemKind::NotificationsMailbox,
-            ],
+            right: vec![HeaderToolbarItemKind::CodeReview],
         },
     ] {
         assert_vertical_tabs_tools_panel_preserves_padding(config);
     }
-}
-/// Regression test for the handoff model carry-over: the copy must preserve
-/// the source pane's explicit selection M even when M equals the destination
-/// pane's current profile default — the case where re-normalizing the resolved
-/// id against the destination's default (instead of copying the raw override)
-/// would drop the override and let the source profile's default D win.
-#[test]
-fn copy_model_and_profile_preserves_explicit_model_over_source_profile_default() {
-    use warpui::EntityId;
-
-    use crate::ai::llms::{AvailableLLMs, LLMId, LLMInfo, ModelsByFeature};
-    use crate::workspaces::user_workspaces::TeamlessScopeForTest;
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let m = LLMId::from("auto-genius");
-        let d = LLMId::from("auto");
-
-        let source_id = EntityId::new();
-        let new_id = EntityId::new();
-
-        app.update(|ctx| {
-            // Catalog containing both slugs so profile/override ids resolve.
-            LLMPreferences::handle(ctx).update(ctx, |prefs, ctx| {
-                let models = ModelsByFeature {
-                    agent_mode: AvailableLLMs::new(
-                        "auto".into(),
-                        vec![
-                            LLMInfo::new_for_test("auto"),
-                            LLMInfo::new_for_test("auto-genius"),
-                        ],
-                        None,
-                    )
-                    .expect("valid available llms"),
-                    ..Default::default()
-                };
-                prefs.update_feature_model_choices(Ok(models), ctx);
-            });
-
-            // Default profile default = M (the destination pane's current profile).
-            // Source uses a second profile whose default = D.
-            let profiles = AIExecutionProfilesModel::handle(ctx);
-            let default_profile_id = profiles.read(ctx, |p, _| p.default_profile_id());
-            profiles.update(ctx, |p, ctx| {
-                p.set_base_model(&default_profile_id, Some(m.clone()), ctx);
-                let source_profile_id = p.create_profile(ctx).expect("create source profile");
-                p.set_base_model(&source_profile_id, Some(d.clone()), ctx);
-                p.set_active_profile(source_id, source_profile_id, ctx);
-            });
-
-            // Source's explicit selection = M (differs from its profile default D).
-            let scope = TeamlessScopeForTest;
-            LLMPreferences::handle(ctx).update(ctx, |prefs, ctx| {
-                prefs.update_preferred_agent_mode_llm(&scope, &m, source_id, ctx);
-            });
-        });
-
-        // Preconditions: source resolves to M; destination's current default is M.
-        app.update(|ctx| {
-            let scope = TeamlessScopeForTest;
-            let prefs = LLMPreferences::as_ref(ctx);
-            assert_eq!(
-                prefs.get_active_base_model(&scope, ctx, Some(source_id)).id,
-                m,
-                "source pane should resolve to its explicit selection"
-            );
-            assert_eq!(
-                prefs.get_active_base_model(&scope, ctx, Some(new_id)).id,
-                m,
-                "destination pane's current profile default should be M"
-            );
-        });
-
-        // Carry source -> new via the production helper.
-        app.update(|ctx| {
-            Workspace::copy_model_and_profile_to_terminal_view(source_id, new_id, ctx);
-        });
-
-        app.update(|ctx| {
-            let scope = TeamlessScopeForTest;
-            assert_eq!(
-                LLMPreferences::as_ref(ctx)
-                    .get_active_base_model(&scope, ctx, Some(new_id))
-                    .id,
-                m,
-                "destination pane must retain the source's explicit selection, not the source profile default"
-            );
-        });
-    });
 }
 
 #[cfg(feature = "local_fs")]
@@ -1424,8 +1178,7 @@ fn mock_workspace_with_shared_session(app: &mut App) -> ViewHandle<Workspace> {
         view.attempt_to_share_session(
             SharedSessionScrollbackType::All,
             None,
-            SharedSessionSource::user(None),
-            false,
+            SessionSourceType::User,
             ctx,
         );
     });
@@ -1514,44 +1267,6 @@ fn active_session_state(
     }
 }
 
-#[test]
-fn restore_conversation_in_active_pane_enters_existing_live_conversation_without_loading() {
-    let _agent_view = FeatureFlag::AgentView.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let terminal_view = workspace.read(&app, |workspace, ctx| {
-            workspace
-                .active_tab_pane_group()
-                .as_ref(ctx)
-                .focused_session_view(ctx)
-                .expect("workspace should start with a terminal view")
-        });
-        let terminal_view_id = terminal_view.read(&app, |view, _| view.view_id());
-        let conversation_id = BlocklistAIHistoryModel::handle(&app)
-            .update(&mut app, |history, ctx| {
-                history.start_new_conversation(terminal_view_id, false, false, ctx)
-            });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            assert_eq!(workspace.tab_count(), 1);
-
-            workspace.restore_conversation_in_active_pane(conversation_id, ctx);
-
-            assert_eq!(workspace.tab_count(), 1);
-        });
-
-        terminal_view.read(&app, |view, ctx| {
-            assert_eq!(view.active_conversation_id(ctx), Some(conversation_id));
-            assert_eq!(
-                view.model.lock().conversation_transcript_viewer_status(),
-                None
-            );
-        });
-    });
-}
 fn new_session_menu_label(item: &MenuItem<WorkspaceAction>) -> String {
     match item {
         MenuItem::Item(fields) => fields.label().to_string(),
@@ -2100,8 +1815,7 @@ fn setup_session_sharing_test(workspace: &ViewHandle<Workspace>, app: &mut App) 
                     terminal.attempt_to_share_session(
                         SharedSessionScrollbackType::None,
                         None,
-                        SharedSessionSource::user(None),
-                        false,
+                        SessionSourceType::User,
                         ctx,
                     );
                 });
@@ -2997,8 +2711,7 @@ fn test_stop_sharing_all_sessions_in_tab() {
                             terminal_view.attempt_to_share_session(
                                 SharedSessionScrollbackType::None,
                                 None,
-                                SharedSessionSource::user(None),
-                                false,
+                                SessionSourceType::User,
                                 ctx,
                             );
                         });
@@ -3015,8 +2728,7 @@ fn test_stop_sharing_all_sessions_in_tab() {
                             terminal_view.attempt_to_share_session(
                                 SharedSessionScrollbackType::None,
                                 None,
-                                SharedSessionSource::user(None),
-                                false,
+                                SessionSourceType::User,
                                 ctx,
                             );
                         });
@@ -3479,9 +3191,6 @@ fn find_non_following_tab_index(workspace: &Workspace, ctx: &AppContext) -> usiz
 
 #[test]
 fn test_left_panel_window_scoped_reconciles_between_terminal_tabs_when_enabled() {
-    let _conversation_list_guard =
-        FeatureFlag::AgentViewConversationListView.override_enabled(false);
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -3540,9 +3249,6 @@ fn test_left_panel_window_scoped_reconciles_between_terminal_tabs_when_enabled()
 
 #[test]
 fn test_left_panel_window_scoped_non_following_tab_does_not_reconcile_but_updates_window_state() {
-    let _conversation_list_guard =
-        FeatureFlag::AgentViewConversationListView.override_enabled(false);
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -3617,9 +3323,6 @@ fn test_left_panel_window_scoped_non_following_tab_does_not_reconcile_but_update
 
 #[test]
 fn test_left_panel_window_scoped_disabled_keeps_per_tab_state() {
-    let _conversation_list_guard =
-        FeatureFlag::AgentViewConversationListView.override_enabled(false);
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 

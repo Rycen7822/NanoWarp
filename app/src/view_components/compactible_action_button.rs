@@ -16,9 +16,6 @@ const BUTTON_MARGIN: f32 = 8.;
 
 // Size switch thresholds for responsive button behavior
 pub const SMALL_SIZE_SWITCH_THRESHOLD: f32 = 400.0;
-pub const MEDIUM_SIZE_SWITCH_THRESHOLD: f32 = 500.0;
-pub const LARGE_SIZE_SWITCH_THRESHOLD: f32 = 600.0;
-pub const XLARGE_SIZE_SWITCH_THRESHOLD: f32 = 650.0;
 
 /// Stores normal and compact (i.e. without a keybinding display) versions of action buttons
 /// for use in views that need to display buttons in different modes.
@@ -82,33 +79,6 @@ impl CompactibleActionButton {
             compact_button,
             expanded_button,
         }
-    }
-
-    pub fn set_label<T: View>(&mut self, label: String, ctx: &mut ViewContext<T>) {
-        self.expanded_button.update(ctx, |button, ctx| {
-            button.set_label(label.clone(), ctx);
-        });
-        self.compact_button.update(ctx, |button, ctx| {
-            button.set_tooltip(Some(label), ctx);
-        });
-    }
-
-    pub fn set_keybinding<T: View>(
-        &mut self,
-        keybinding: Option<KeystrokeSource>,
-        ctx: &mut ViewContext<T>,
-    ) {
-        self.expanded_button.update(ctx, |button, ctx| {
-            button.set_keybinding(keybinding.clone(), ctx);
-        });
-
-        self.compact_button.update(ctx, |button, ctx| {
-            if let Some(keybinding) = keybinding {
-                button.set_tooltip_sublabel(keybinding.displayed(ctx), ctx);
-            } else {
-                button.set_tooltip_sublabel(None::<String>, ctx);
-            }
-        });
     }
 
     pub fn set_adjoined_side<T: View>(

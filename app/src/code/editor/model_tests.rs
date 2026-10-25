@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use futures::channel::oneshot;
-use line_ending::LineEnding;
 use vec1::vec1;
 use warp_editor::content::buffer::{InitialBufferState, SelectionOffsets};
 use warp_editor::multiline::MultilineString;
@@ -17,82 +16,6 @@ use crate::test_util::settings::initialize_settings_for_tests;
 fn initialize_deps(app: &mut App) {
     app.add_singleton_model(|_| Appearance::mock());
     initialize_settings_for_tests(app);
-}
-
-#[test]
-fn test_apply_v4a_final_bytes() {
-    use ai::agent::action::{AIAgentActionType, FileEdit};
-    use ai::diff_validation::{DiffType, ParsedDiff, V4AHunk, fuzzy_match_v4a_diffs};
-    use warp_multi_agent_api::message::tool_call::{ApplyFileDiffs, apply_file_diffs};
-
-    App::test((), |mut app| async move {
-        initialize_deps(&mut app);
-        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-            "../../../../crates/ai/src/diff_validation/testdata/blank_lines.json"
-        ))
-        .unwrap();
-        for fixture in fixtures {
-            let hunk: V4AHunk = serde_json::from_value(fixture["dual"].clone()).unwrap();
-            let call = ApplyFileDiffs {
-                v4a_updates: vec![apply_file_diffs::V4aFileUpdate {
-                    file_path: "fixture.txt".into(),
-                    hunks: vec![apply_file_diffs::v4a_file_update::Hunk {
-                        change_context: hunk.change_context,
-                        pre_context: hunk.pre_context,
-                        old: hunk.old,
-                        new: hunk.new,
-                        post_context: hunk.post_context,
-                        line_data: hunk.line_data.map(|data| {
-                            apply_file_diffs::v4a_file_update::hunk::LineData {
-                                pre_context: data.pre_context,
-                                old: data.old,
-                                new: data.new,
-                                post_context: data.post_context,
-                            }
-                        }),
-                    }],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            };
-            let AIAgentActionType::RequestFileEdits { file_edits, .. } = call.into() else {
-                panic!("expected file edits");
-            };
-            let FileEdit::Edit(ParsedDiff::V4AEdit { hunks, .. }) = &file_edits[0] else {
-                panic!("expected V4A edit");
-            };
-            let initial = fixture["initial"].as_str().unwrap();
-            let diff = fuzzy_match_v4a_diffs("fixture.txt", hunks, None, initial);
-            let DiffType::Update { deltas, .. } = diff.diff_type else {
-                panic!("expected update");
-            };
-            let editor = mock_model(&mut app, initial, ContentVersion::new());
-            // LF fixtures must not inherit the platform default for empty buffers.
-            editor.update(&mut app, |editor, ctx| {
-                editor.buffer().update(ctx, |buffer, _| {
-                    buffer.set_line_ending_mode(LineEnding::LF);
-                });
-            });
-            layout_model(&mut app, &editor).await;
-            editor.update(&mut app, |editor, ctx| editor.apply_diffs(deltas, ctx));
-            editor.read(&app, |editor, ctx| {
-                assert_eq!(
-                    editor
-                        .content()
-                        .as_ref(ctx)
-                        .text_with_line_ending()
-                        .as_str(),
-                    fixture
-                        .get("gui_final")
-                        .unwrap_or(&fixture["final"])
-                        .as_str()
-                        .unwrap(),
-                    "{}",
-                    fixture["name"]
-                );
-            });
-        }
-    });
 }
 
 fn mock_model(app: &mut App, text: &str, version: ContentVersion) -> ModelHandle<CodeEditorModel> {
@@ -666,8 +589,7 @@ fn test_reset_version() {
 }
 
 #[test]
-fn test_retrieve_unified_diff_windows_line_endings() {
-    // This is a regression test for a bug where we treated *every* line as an edit for files with non-newline line endings.
+fn test_edit_preserves_windows_line_endings() {
     App::test((), |mut app| async move {
         initialize_deps(&mut app);
 
@@ -680,35 +602,6 @@ fn test_retrieve_unified_diff_windows_line_endings() {
             editor.insert("!!", EditOrigin::UserTyped, ctx);
         });
 
-        let (diff_tx, diff_rx) = oneshot::channel();
-        app.update(|ctx| {
-            let mut diff_tx = Some(diff_tx);
-            ctx.subscribe_to_model(&editor, move |_, event, _| {
-                if let CodeEditorModelEvent::UnifiedDiffComputed(diff) = event {
-                    diff_tx
-                        .take()
-                        .expect("Should only receive one event")
-                        .send(diff.clone())
-                        .expect("Receiver should exist");
-                }
-            });
-
-            editor.update(ctx, |editor, ctx| {
-                editor.retrieve_unified_diff("test.rs".to_string(), ctx);
-            });
-        });
-
-        // Verify that we received a diff and it has the expected content.
-        let diff = diff_rx.await.expect("Event should be sent");
-
-        // One addition and one deletion, for the single modified line.
-        assert_eq!(diff.lines_added, 1);
-        assert_eq!(diff.lines_removed, 1);
-        assert_eq!(
-            diff.unified_diff,
-            "--- test.rs\n+++ test.rs\n@@ -1,3 +1,3 @@\n One\n-Two\n+Two!!\n Three\n"
-        );
-
         // Verify that the content uses the original line endings.
         editor.read(&app, |editor, ctx| {
             assert_eq!(
@@ -720,7 +613,7 @@ fn test_retrieve_unified_diff_windows_line_endings() {
 }
 
 #[test]
-fn test_retrieve_unified_diff_mixed_line_endings() {
+fn test_edit_normalizes_mixed_line_endings() {
     App::test((), |mut app| async move {
         initialize_deps(&mut app);
 
@@ -732,35 +625,6 @@ fn test_retrieve_unified_diff_mixed_line_endings() {
             editor.cursor_at(CharOffset::from(8), ctx);
             editor.insert("!!", EditOrigin::UserTyped, ctx);
         });
-
-        let (diff_tx, diff_rx) = oneshot::channel();
-        app.update(|ctx| {
-            let mut diff_tx = Some(diff_tx);
-            ctx.subscribe_to_model(&editor, move |_, event, _| {
-                if let CodeEditorModelEvent::UnifiedDiffComputed(diff) = event {
-                    diff_tx
-                        .take()
-                        .expect("Should only receive one event")
-                        .send(diff.clone())
-                        .expect("Receiver should exist");
-                }
-            });
-
-            editor.update(ctx, |editor, ctx| {
-                editor.retrieve_unified_diff("test.rs".to_string(), ctx);
-            });
-        });
-
-        // Verify that we received a diff and it has the expected content.
-        let diff = diff_rx.await.expect("Event should be sent");
-
-        // One addition and one deletion, for the single modified line.
-        assert_eq!(diff.lines_added, 1);
-        assert_eq!(diff.lines_removed, 1);
-        assert_eq!(
-            diff.unified_diff,
-            "--- test.rs\n+++ test.rs\n@@ -1,3 +1,3 @@\n One\n-Two\n+Two!!\n Three\n"
-        );
 
         // Verify that the content uses the original, inferred line endings.
         editor.read(&app, |editor, ctx| {

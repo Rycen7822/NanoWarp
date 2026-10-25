@@ -38,7 +38,6 @@ pub(crate) const HEADER_BUTTON_PADDING: Coords = Coords {
 struct StateHandles {
     branch_name_tooltip: MouseStateHandle,
     discard_all_button: MouseStateHandle,
-    add_diff_set_context_button: MouseStateHandle,
 }
 
 pub struct CodeReviewHeader {
@@ -127,16 +126,12 @@ impl CodeReviewHeader {
             ));
         }
 
-        if FeatureFlag::DiffSetAsContext.is_enabled() && !has_no_changes {
-            if FeatureFlag::FileAndDiffSetComments.is_enabled() {
-                right_section_wide.add_child(self.render_header_dropdown_button(
-                    &code_review_header_fields.header_dropdown_button,
-                    &code_review_header_fields.header_menu,
-                    code_review_header_fields.header_menu_open,
-                ));
-            } else {
-                right_section_wide.add_child(self.render_add_diff_set_context_button(appearance));
-            }
+        if FeatureFlag::FileAndDiffSetComments.is_enabled() && !has_no_changes {
+            right_section_wide.add_child(self.render_header_dropdown_button(
+                &code_review_header_fields.header_dropdown_button,
+                &code_review_header_fields.header_menu,
+                code_review_header_fields.header_menu_open,
+            ));
         }
 
         if code_review_header_fields.is_in_split_pane {
@@ -208,17 +203,12 @@ impl CodeReviewHeader {
 
         let has_no_changes = state.to_diff_stats().has_no_changes();
 
-        if FeatureFlag::DiffSetAsContext.is_enabled() && !has_no_changes {
-            if FeatureFlag::FileAndDiffSetComments.is_enabled() {
-                right_subsection_compact.add_child(self.render_header_dropdown_button(
-                    &code_review_header_fields.header_dropdown_button,
-                    &code_review_header_fields.header_menu,
-                    code_review_header_fields.header_menu_open,
-                ));
-            } else {
-                right_subsection_compact
-                    .add_child(self.render_add_diff_set_context_button(appearance));
-            }
+        if FeatureFlag::FileAndDiffSetComments.is_enabled() && !has_no_changes {
+            right_subsection_compact.add_child(self.render_header_dropdown_button(
+                &code_review_header_fields.header_dropdown_button,
+                &code_review_header_fields.header_menu,
+                code_review_header_fields.header_menu_open,
+            ));
         }
 
         if code_review_header_fields.is_in_split_pane {
@@ -403,50 +393,6 @@ impl CodeReviewHeader {
         .with_margin_left(8.)
         .with_margin_right(6.)
         .finish()
-    }
-
-    fn render_add_diff_set_context_button(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let ui_builder = appearance.ui_builder().clone();
-
-        let button = ui_builder
-            .button(
-                ButtonVariant::Secondary,
-                self.state_handles.add_diff_set_context_button.clone(),
-            )
-            .with_text_and_icon_label(TextAndIcon::new(
-                TextAndIconAlignment::IconFirst,
-                "",
-                Icon::Paperclip.to_warpui_icon(warp_core::ui::theme::Fill::Solid(
-                    theme.main_text_color(theme.background()).into(),
-                )),
-                MainAxisSize::Min,
-                MainAxisAlignment::SpaceBetween,
-                vec2f(16., 16.),
-            ))
-            // manual overrides so it matches the branch dropdown and discard all button
-            .with_style(UiComponentStyles::default().set_padding(Coords {
-                top: 6.,
-                bottom: 6.,
-                left: 6.,
-                right: 6.,
-            }))
-            .with_tooltip(move || {
-                ui_builder
-                    .tool_tip("Add diff set as context".to_owned())
-                    .build()
-                    .finish()
-            })
-            .with_tooltip_position(warpui::ui_components::button::ButtonTooltipPosition::AboveLeft)
-            .build()
-            .on_click(|ctx, _, _| {
-                ctx.dispatch_typed_action(CodeReviewAction::AddDiffSetAsContext(
-                    crate::code_review::DiffSetScope::All,
-                ));
-            })
-            .finish();
-
-        Container::new(button).with_margin_left(4.).finish()
     }
 
     /// Renders the header dropdown trigger

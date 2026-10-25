@@ -1,22 +1,19 @@
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting;
 use warpui::elements::{
-    Border, ChildAnchor, ChildView, Container, DropTarget, Element, Empty, Flex, Hoverable,
-    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, SavePosition, Stack,
+    Border, ChildAnchor, Container, DropTarget, Element, Empty, Flex, Hoverable, OffsetPositioning,
+    ParentAnchor, ParentElement, ParentOffsetBounds, SavePosition, Stack,
 };
 use warpui::{AppContext, SingletonEntity};
 
-use super::{Input, SubshellRenderState, should_render_prompt_using_editor_decorator_elements};
-use crate::ai::blocklist::InputType;
+use super::{Input, SubshellRenderState, should_render_prompt_on_same_line};
 use crate::appearance::Appearance;
-use crate::context_chips::spacing;
-use crate::features::FeatureFlag;
-use crate::settings::{AppEditorSettings, InputModeSettings};
+use crate::settings::InputModeSettings;
 use crate::terminal::block_list_settings::BlockListSettings;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::common::{
-    add_command_xray_overlay, add_input_suggestions_overlays, add_vim_status_to_stack,
-    add_workflow_info_overlay, wrap_input_with_terminal_padding_and_focus_handler,
+    add_command_xray_overlay, add_input_suggestions_overlays, add_workflow_info_overlay,
+    wrap_input_with_terminal_padding_and_focus_handler,
 };
 use crate::terminal::input::{InputDropTargetData, get_input_box_top_border_width};
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
@@ -24,9 +21,7 @@ use crate::terminal::view::TerminalAction;
 use crate::terminal::warpify::render::{render_subshell_flag, render_subshell_flag_pole};
 
 impl Input {
-    /// Renders the classic input. This is used when the user has 'Honor PS1' enabled in settings,
-    /// OR if `FeatureFlag::AgentView` is disabled and the user has 'Classic' input type selected
-    /// in settings.
+    /// Renders the input for the shell PS1 prompt.
     pub(super) fn render_classic_input(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
@@ -34,12 +29,7 @@ impl Input {
 
         let model = self.model.lock();
         let should_render_prompt_using_editor_decorator_elements =
-            should_render_prompt_using_editor_decorator_elements(
-                false,
-                &self.ai_input_model,
-                &model,
-                app,
-            );
+            should_render_prompt_on_same_line(false, &model, app);
 
         // We should likely rework this stack to not need to use `with_constrain_absolute_children`,
         // by reworking the positioning of the children to not depend on this.
@@ -89,10 +79,6 @@ impl Input {
             }
         }
 
-        let vim_state = self.editor.as_ref(app).vim_state(app);
-        let app_editor_settings = AppEditorSettings::as_ref(app);
-        let show_vim_status = vim_state.is_some() && *app_editor_settings.vim_status_bar.value();
-
         let is_compact_mode = matches!(
             TerminalSettings::as_ref(app).spacing_mode.value(),
             SpacingMode::Compact
@@ -101,21 +87,7 @@ impl Input {
 
         column.add_children([prompt_top_padding_row.finish(), prompt_row.finish()]);
 
-        let ai_input_model = self.ai_input_model.as_ref(app);
-
-        if FeatureFlag::ImageAsContext.is_enabled()
-            && matches!(ai_input_model.input_type(), InputType::AI)
-            && !FeatureFlag::AgentView.is_enabled()
-            && let Some(images) = self.render_attachment_chips(appearance)
-        {
-            column.add_child(
-                Container::new(images)
-                    .with_padding_bottom(spacing::CLASSIC_PROMPT_ATTACH_IMAGES_BOTTOM_PADDING)
-                    .finish(),
-            );
-        }
-
-        column.add_child(self.render_input_box(show_vim_status, appearance, app));
+        column.add_child(self.render_input_box(appearance, app));
 
         column.add_child(
             Container::new(Flex::row().finish())
@@ -158,16 +130,6 @@ impl Input {
             );
         }
 
-        if !FeatureFlag::AgentView.is_enabled()
-            && let Some(vim_state) = vim_state.as_ref()
-            && show_vim_status
-        {
-            add_vim_status_to_stack(
-                &mut stack, vim_state, appearance,
-                false, // legacy doesn't use adjusted padding for vim status
-            );
-        }
-
         stack.add_child(wrap_input_with_terminal_padding_and_focus_handler(
             self.is_active_session(app),
             column.finish(),
@@ -202,19 +164,16 @@ impl Input {
 
         let input_mode = *InputModeSettings::as_ref(app).input_mode.value();
 
-        // When AgentView is enabled, match terminal-mode input behavior and only render the
-        // divider adjacent to the status/message line when block dividers are enabled.
         let show_block_dividers = *BlockListSettings::as_ref(app).show_block_dividers.value();
-        let should_render_divider = !FeatureFlag::AgentView.is_enabled() || show_block_dividers;
 
         let border = match input_mode {
-            InputMode::PinnedToBottom => Border::top(if should_render_divider {
+            InputMode::PinnedToBottom => Border::top(if show_block_dividers {
                 get_input_box_top_border_width()
             } else {
                 0.
             })
             .with_border_fill(theme.outline()),
-            InputMode::PinnedToTop => Border::bottom(if should_render_divider {
+            InputMode::PinnedToTop => Border::bottom(if show_block_dividers {
                 get_input_box_top_border_width()
             } else {
                 0.
@@ -241,16 +200,6 @@ impl Input {
         )
         .finish();
 
-        let mut column = Flex::column();
-        match input_mode {
-            InputMode::PinnedToTop => {
-                column.add_children([input, ChildView::new(&self.agent_status_view).finish()]);
-            }
-            InputMode::PinnedToBottom | InputMode::Waterfall => {
-                column.add_children([ChildView::new(&self.agent_status_view).finish(), input]);
-            }
-        }
-
-        SavePosition::new(column.finish(), &self.save_position_id()).finish()
+        SavePosition::new(input, &self.save_position_id()).finish()
     }
 }

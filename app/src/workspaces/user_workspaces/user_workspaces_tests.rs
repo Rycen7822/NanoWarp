@@ -1,63 +1,35 @@
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use mockall::Sequence;
 use regex::Regex;
 use settings::{PrivatePreferences, PublicPreferences};
-use warp_core::settings::Setting;
 use warp_graphql::billing::{
-    BillingMetadata as GqlBillingMetadata, BonusGrantsInfo as GqlBonusGrantsInfo,
-    ChargeUnit as GqlChargeUnit, CustomerType as GqlCustomerType,
-    DelinquencyStatus as GqlDelinquencyStatus,
-    PurchaseAddOnCreditsPolicy as GqlPurchaseAddOnCreditsPolicy, Tier as GqlTier,
+    BillingMetadata as GqlBillingMetadata, CustomerType as GqlCustomerType,
+    DelinquencyStatus as GqlDelinquencyStatus, Tier as GqlTier,
 };
 use warp_graphql::queries::get_workspaces_metadata_for_user::{
-    User as GqlUser, UserProfile as GqlUserProfile, UserPurchasePolicyBillingMetadata,
-    UserPurchasePolicyTier,
+    User as GqlUser, UserProfile as GqlUserProfile,
 };
 use warp_graphql::workspace::{
-    AddonCreditsSettings as GqlAddonCreditsSettings,
-    AdminEnablementSetting as GqlAdminEnablementSetting,
-    AdminEnablementSettingInfo as GqlAdminEnablementSettingInfo,
-    AiAutonomySettingInfo as GqlAiAutonomySettingInfo, AiAutonomySettings as GqlAiAutonomySettings,
-    AiAutonomySettingsInfo as GqlAiAutonomySettingsInfo, AiAutonomyValue as GqlAiAutonomyValue,
-    AiPermissionsSettings as GqlAiPermissionsSettings,
-    AiPermissionsSettingsInfo as GqlAiPermissionsSettingsInfo, AvailableLlms as GqlAvailableLlms,
-    BooleanSettingInfo as GqlBooleanSettingInfo,
-    CloudConversationStorageSettings as GqlCloudConversationStorageSettings,
-    FeatureModelChoice as GqlFeatureModelChoice, LinkSharingSettings as GqlLinkSharingSettings,
-    LinkSharingSettingsInfo as GqlLinkSharingSettingsInfo, LlmContextWindow as GqlLlmContextWindow,
-    LlmInfo as GqlLlmInfo, LlmPricing as GqlLlmPricing, LlmProvider as GqlLlmProvider,
-    LlmSettings as GqlLlmSettings, LlmUsageMetadata as GqlLlmUsageMetadata,
-    MembershipRole as GqlMembershipRole,
-    SandboxedAgentSettingsInfo as GqlSandboxedAgentSettingsInfo,
+    BooleanSettingInfo as GqlBooleanSettingInfo, LinkSharingSettings as GqlLinkSharingSettings,
+    LinkSharingSettingsInfo as GqlLinkSharingSettingsInfo, MembershipRole as GqlMembershipRole,
     SecretRedactionRegexListInfo as GqlSecretRedactionRegexListInfo,
     SecretRedactionSettings as GqlSecretRedactionSettings,
-    SecretRedactionSettingsInfo as GqlSecretRedactionSettingsInfo,
-    StringListSettingInfo as GqlStringListSettingInfo, Team as GqlTeam,
+    SecretRedactionSettingsInfo as GqlSecretRedactionSettingsInfo, Team as GqlTeam,
     TeamMember as GqlTeamMember, TeamSettings as GqlTeamSettings,
     TeamVisibility as GqlTeamVisibility, TelemetrySettings as GqlTelemetrySettings,
-    UgcCollectionEnablementSetting as GqlUgcCollectionEnablementSetting,
-    UgcCollectionSettingInfo as GqlUgcCollectionSettingInfo,
-    UgcCollectionSettings as GqlUgcCollectionSettings,
-    UsageBasedPricingSettings as GqlUsageBasedPricingSettings, Workspace as GqlWorkspace,
-    WorkspaceSettings as GqlWorkspaceSettings,
-    WriteToPtyAutonomyValue as GqlWriteToPtyAutonomyValue,
-    WriteToPtySettingInfo as GqlWriteToPtySettingInfo,
+    Workspace as GqlWorkspace, WorkspaceSettings as GqlWorkspaceSettings,
 };
 use warpui::elements::Empty;
 use warpui::platform::WindowStyle;
 use warpui::{AddSingletonModel, App, Element, TypedActionView, View, ViewHandle, WindowId};
 use warpui_extras::user_preferences;
 
+use super::team_workspace_settings::TeamContextForOperation;
 use super::*;
-use crate::ai::blocklist::is_agent_mode_autonomy_allowed;
-use crate::ai::execution_profiles::ActionPermission;
-use crate::ai::llms::{
-    AvailableLLMs, LLMInfo, LLMModelHost, LLMProvider, MODELS_BY_FEATURE_CACHE_KEY,
-};
-use crate::ai::request_usage_model::AIRequestUsageModel;
 use crate::auth::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, CloudObjectGuest};
@@ -70,24 +42,17 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::{MockTeamClient, TeamClient};
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
-use crate::settings::{
-    AISettings, AgentModeCommandExecutionPredicate, CodeSettings, FocusedTerminalInfo,
-};
+use crate::settings::CodeSettings;
 use crate::system::SystemStats;
 use crate::workflows::workflow::Workflow;
 use crate::workflows::{CloudWorkflow, CloudWorkflowModel};
-use crate::workspaces::gql_convert::{
-    PLACEHOLDER_WORKSPACE_UID, workspaces_metadata_response_from_gql,
-};
+use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::{
-    AdminEnablementSetting, ByoFirstPartyKey, ChargeUnit, EnforceableSetting,
-    HostEnablementSetting, LinkSharingSettings, LlmHostSettings, ManagedByokByoePolicy,
-    PurchaseAddOnCreditsPolicy, SandboxedAgentSettings, SplitListSetting, TeamByoSettings,
-    TeamLinkSharingSettings, Workspace,
+    EnforceableSetting, LinkSharingSettings, TeamLinkSharingSettings, Workspace,
 };
 
 #[derive(Default)]
@@ -95,17 +60,11 @@ struct CachedResources {
     workspaces: Vec<Workspace>,
 }
 
-fn initialize_app(
-    app: &mut App,
-    resources: CachedResources,
-    team_client: Arc<dyn TeamClient>,
-    workspace_client: Arc<dyn WorkspaceClient>,
-) {
+fn initialize_app(app: &mut App, resources: CachedResources, team_client: Arc<dyn TeamClient>) {
     initialize_app_with_auth(
         app,
         resources,
         team_client,
-        workspace_client,
         AuthStateProvider::new_for_test(),
     );
 }
@@ -114,7 +73,6 @@ fn initialize_app_with_auth(
     app: &mut App,
     resources: CachedResources,
     team_client: Arc<dyn TeamClient>,
-    workspace_client: Arc<dyn WorkspaceClient>,
     auth_state_provider: AuthStateProvider,
 ) {
     // Add the necessary singleton models to the App
@@ -123,9 +81,7 @@ fn initialize_app_with_auth(
     app.add_singleton_model(TeamTesterStatus::new);
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(workspace_client.clone(), resources.workspaces, ctx)
-    });
+    app.add_singleton_model(|ctx| UserWorkspaces::mock(resources.workspaces, ctx));
     app.add_singleton_model(|ctx| TeamUpdateManager::new(team_client.clone(), None, ctx));
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(PrivacySettings::mock);
@@ -141,25 +97,11 @@ fn initialize_app_with_auth(
     });
 
     app.add_singleton_model(CodeSettings::new_with_defaults);
-    app.add_singleton_model(AISettings::new_with_defaults);
-    app.add_singleton_model(FocusedTerminalInfo::new);
 }
 
 fn initialize_window_team_test_app(app: &mut App, workspaces: Vec<Workspace>) {
     app.add_singleton_model(PrivacySettings::mock);
-    app.add_singleton_model(|ctx| {
-        UserWorkspaces::mock(Arc::new(MockWorkspaceClient::new()), workspaces, ctx)
-    });
-}
-
-fn register_ai_usage_model(app: &mut App) {
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
-    if app.models_of_type::<PrivatePreferences>().is_empty() {
-        app.update(crate::settings::init_and_register_user_preferences);
-    }
-    app.add_singleton_model(|ctx| {
-        AIRequestUsageModel::new_for_test(ServerApiProvider::as_ref(ctx).get_ai_client(), ctx)
-    });
+    app.add_singleton_model(|ctx| UserWorkspaces::mock(workspaces, ctx));
 }
 
 #[test]
@@ -177,7 +119,6 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         billing_metadata: Default::default(),
         stripe_customer_id: None,
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
         visibility: TeamVisibility::Open,
     };
@@ -188,14 +129,11 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         stripe_customer_id: None,
         teams: vec![team.clone()],
         billing_metadata: Default::default(),
-        bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
         pending_email_invites: vec![],
         is_eligible_for_discovery: false,
         members: vec![],
-        total_requests_used_since_last_refresh: 0,
     };
 
     App::test((), |mut app| async move {
@@ -212,14 +150,9 @@ fn test_loading_all_spaces_after_switching_from_offline() {
             .times(1)
             .in_sequence(&mut team_sequence)
             .returning(|| {
-                Ok(WorkspacesMetadataWithPricing {
-                    metadata: WorkspacesMetadataResponse {
-                        workspaces: vec![],
-                        experiments: None,
-                        ai_credit_availability: None,
-                        user_tier: Default::default(),
-                    },
-                    pricing_info: None,
+                Ok(WorkspacesMetadataResponse {
+                    workspaces: vec![],
+                    experiments: None,
                 })
             });
 
@@ -229,14 +162,9 @@ fn test_loading_all_spaces_after_switching_from_offline() {
             .times(1)
             .in_sequence(&mut team_sequence)
             .returning(move || {
-                Ok(WorkspacesMetadataWithPricing {
-                    metadata: WorkspacesMetadataResponse {
-                        workspaces: vec![workspace.clone()],
-                        experiments: None,
-                        ai_credit_availability: None,
-                        user_tier: Default::default(),
-                    },
-                    pricing_info: None,
+                Ok(WorkspacesMetadataResponse {
+                    workspaces: vec![workspace.clone()],
+                    experiments: None,
                 })
             });
 
@@ -244,7 +172,6 @@ fn test_loading_all_spaces_after_switching_from_offline() {
             &mut app,
             CachedResources { workspaces: vec![] },
             Arc::new(team_client),
-            Arc::new(MockWorkspaceClient::new()),
         );
 
         // Polling normally starts after authentication; this case exercises that lifecycle.
@@ -292,588 +219,9 @@ fn team_for_test() -> Team {
         billing_metadata: Default::default(),
         stripe_customer_id: None,
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
         visibility: TeamVisibility::Open,
     }
-}
-
-/// Registers a fresh window on `team` and returns its id, so tests can build a
-/// [`TeamScope`] via [`UserWorkspaces::team_context_for_window_for_test`].
-fn window_on_team(app: &mut App, team: &Team) -> WindowId {
-    let window_id = WindowId::new();
-    UserWorkspaces::handle(app).update(app, |user_workspaces, ctx| {
-        user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-    });
-    window_id
-}
-
-/// A team with `settings.llm_settings` configured for `host`, so a scoped read of that team
-/// (not the workspace's own settings, which the scoped accessors never read once a team is
-/// named) sees the host policy.
-fn team_with_llm_host(
-    host: LLMModelHost,
-    enabled: bool,
-    enablement_setting: HostEnablementSetting,
-) -> Team {
-    let mut team = team_for_test();
-    team.settings.llm_settings.enabled = true;
-    team.settings.llm_settings.host_configs.insert(
-        host,
-        LlmHostSettings {
-            enabled,
-            enablement_setting,
-            ..Default::default()
-        },
-    );
-    team
-}
-
-#[test]
-fn test_aws_bedrock_credentials_default_off_when_admin_respects_user_setting() {
-    let team = team_with_llm_host(
-        LLMModelHost::AwsBedrock,
-        true,
-        HostEnablementSetting::RespectUserSetting,
-    );
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                !user_workspaces.is_aws_bedrock_credentials_enabled(&scope, ctx),
-                "respect-user-setting should default the local Bedrock credentials toggle to off"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_aws_bedrock_credentials_respect_user_setting() {
-    let team = team_with_llm_host(
-        LLMModelHost::AwsBedrock,
-        true,
-        HostEnablementSetting::RespectUserSetting,
-    );
-    let workspace = workspace_for_test(&team);
-    let mut team_client = MockTeamClient::new();
-    let workspace_for_poll = workspace.clone();
-    team_client.expect_workspaces_metadata().returning(move || {
-        Ok(WorkspacesMetadataWithPricing {
-            metadata: WorkspacesMetadataResponse {
-                workspaces: vec![workspace_for_poll.clone()],
-                experiments: None,
-                ai_credit_availability: None,
-                user_tier: Default::default(),
-            },
-            pricing_info: None,
-        })
-    });
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(team_client),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .aws_bedrock_credentials_enabled
-                .set_value(false, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                !user_workspaces.is_aws_bedrock_credentials_enabled(&scope, ctx),
-                "respect-user-setting should honor the local Bedrock credentials toggle"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_aws_bedrock_credentials_enforced_by_admin() {
-    let team = team_with_llm_host(
-        LLMModelHost::AwsBedrock,
-        true,
-        HostEnablementSetting::Enforce,
-    );
-    let workspace = workspace_for_test(&team);
-    let mut team_client = MockTeamClient::new();
-    let workspace_for_poll = workspace.clone();
-    team_client.expect_workspaces_metadata().returning(move || {
-        Ok(WorkspacesMetadataWithPricing {
-            metadata: WorkspacesMetadataResponse {
-                workspaces: vec![workspace_for_poll.clone()],
-                experiments: None,
-                ai_credit_availability: None,
-                user_tier: Default::default(),
-            },
-            pricing_info: None,
-        })
-    });
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .aws_bedrock_credentials_enabled
-                .set_value(false, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                user_workspaces.is_aws_bedrock_credentials_enabled(&scope, ctx),
-                "enforced Bedrock host policy should ignore the local Bedrock credentials toggle"
-            );
-        });
-    })
-}
-
-/// Two teams, neither configuring AWS Bedrock. A window with no team selected reads
-/// `current_workspace().settings` unconditionally -- the server's fallback for a user on
-/// several teams (see [`UserWorkspaces::scoped_or_workspace_setting`]) -- so it inherits the
-/// workspace's own Bedrock policy rather than being denied.
-#[test]
-fn aws_bedrock_availability_falls_back_to_the_workspace_for_a_multi_team_users_teamless_window() {
-    let team_a = team_for_test();
-    let mut team_b = team_for_test();
-    team_b.uid = 456.into();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b);
-    workspace.settings.llm_settings.enabled = true;
-    workspace.settings.llm_settings.host_configs.insert(
-        LLMModelHost::AwsBedrock,
-        LlmHostSettings {
-            enabled: true,
-            enablement_setting: HostEnablementSetting::Enforce,
-            ..Default::default()
-        },
-    );
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), None);
-            assert!(
-                user_workspaces.is_aws_bedrock_available(&scope),
-                "a multi-team user's teamless window should read the workspace's own Bedrock policy"
-            );
-            assert!(
-                user_workspaces.is_aws_bedrock_credentials_enabled(&scope, ctx),
-                "a multi-team user's teamless window should read the workspace's own Bedrock policy"
-            );
-        });
-    })
-}
-
-const TEST_GCP_AUDIENCE: &str = "//iam.googleapis.com/projects/123456/locations/global/workloadIdentityPools/warp-pool/providers/warp-provider";
-const TEST_GCP_SA_EMAIL: &str = "warp-geap@test-project.iam.gserviceaccount.com";
-
-fn workspace_with_gemini_enterprise_host(
-    team: &Team,
-    enabled: bool,
-    enablement_setting: HostEnablementSetting,
-) -> Workspace {
-    let mut team = team.clone();
-    team.settings.llm_settings.enabled = true;
-    team.settings.llm_settings.host_configs.insert(
-        LLMModelHost::GeminiEnterprise,
-        LlmHostSettings {
-            enabled,
-            enablement_setting,
-            gcp_audience: Some(TEST_GCP_AUDIENCE.to_string()),
-            gcp_sa_email: Some(TEST_GCP_SA_EMAIL.to_string()),
-        },
-    );
-    workspace_for_test(&team)
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_default_off_when_admin_respects_user_setting() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team = team_for_test();
-    let workspace = workspace_with_gemini_enterprise_host(
-        &team,
-        true,
-        HostEnablementSetting::RespectUserSetting,
-    );
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                !user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "respect-user-setting should default the local Gemini Enterprise credentials toggle to off"
-            );
-            assert!(
-                user_workspaces.is_gemini_enterprise_credentials_toggleable(&scope),
-                "respect-user-setting should leave the local Gemini Enterprise credentials toggle editable"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_respect_user_setting_honors_member_toggle() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team = team_for_test();
-    let workspace = workspace_with_gemini_enterprise_host(
-        &team,
-        true,
-        HostEnablementSetting::RespectUserSetting,
-    );
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .gemini_enterprise_credentials_enabled
-                .set_value(true, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "respect-user-setting should honor an opted-in Gemini Enterprise credentials toggle"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_enforced_by_admin() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team = team_for_test();
-    let workspace =
-        workspace_with_gemini_enterprise_host(&team, true, HostEnablementSetting::Enforce);
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .gemini_enterprise_credentials_enabled
-                .set_value(false, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "enforced Gemini Enterprise host policy should ignore the local credentials toggle"
-            );
-            assert!(
-                !user_workspaces.is_gemini_enterprise_credentials_toggleable(&scope),
-                "enforced Gemini Enterprise host policy should disable the local credentials toggle"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_disabled_when_host_disabled() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team = team_for_test();
-    let workspace =
-        workspace_with_gemini_enterprise_host(&team, false, HostEnablementSetting::Enforce);
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                !user_workspaces.is_gemini_enterprise_available_from_workspace(&scope),
-                "a disabled Gemini Enterprise host should not be available from the workspace"
-            );
-            assert!(
-                !user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "a disabled Gemini Enterprise host should gate credentials off even under ENFORCE"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_disabled_when_host_absent() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    // Bedrock-only team: proves the GEAP gate reads its own host entry.
-    let team = team_with_llm_host(
-        LLMModelHost::AwsBedrock,
-        true,
-        HostEnablementSetting::Enforce,
-    );
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                user_workspaces
-                    .gemini_enterprise_host_settings(&scope)
-                    .is_none(),
-                "a workspace without a Gemini Enterprise host entry should expose no settings"
-            );
-            assert!(
-                !user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "a workspace without a Gemini Enterprise host entry should gate credentials off"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_credentials_disabled_when_logged_out() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team = team_for_test();
-    let workspace =
-        workspace_with_gemini_enterprise_host(&team, true, HostEnablementSetting::Enforce);
-
-    App::test((), |mut app| async move {
-        initialize_app_with_auth(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-            AuthStateProvider::new_logged_out_for_test(),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert!(
-                !user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "logged-out users should never mint or attach Gemini Enterprise credentials"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_gemini_enterprise_host_settings_carries_federation_config() {
-    let team = team_for_test();
-    let workspace = workspace_with_gemini_enterprise_host(
-        &team,
-        true,
-        HostEnablementSetting::RespectUserSetting,
-    );
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-        let window_id = window_on_team(&mut app, &team);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            let settings = user_workspaces
-                .gemini_enterprise_host_settings(&scope)
-                .expect("workspace should expose the Gemini Enterprise host settings");
-            assert_eq!(settings.gcp_audience.as_deref(), Some(TEST_GCP_AUDIENCE));
-            assert_eq!(settings.gcp_sa_email.as_deref(), Some(TEST_GCP_SA_EMAIL));
-        });
-    })
-}
-
-/// Two teams, neither configuring Gemini Enterprise. A window with no team selected reads
-/// `current_workspace().settings` unconditionally -- the server's fallback for a user on
-/// several teams (see [`UserWorkspaces::scoped_or_workspace_setting`]) -- so it inherits the
-/// workspace's own GEAP policy rather than being denied.
-#[test]
-fn gemini_enterprise_availability_falls_back_to_the_workspace_for_a_multi_team_users_teamless_window()
- {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-    let team_a = team_for_test();
-    let mut team_b = team_for_test();
-    team_b.uid = 456.into();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b);
-    workspace.settings.llm_settings.enabled = true;
-    workspace.settings.llm_settings.host_configs.insert(
-        LLMModelHost::GeminiEnterprise,
-        LlmHostSettings {
-            enabled: true,
-            enablement_setting: HostEnablementSetting::Enforce,
-            gcp_audience: Some(TEST_GCP_AUDIENCE.to_string()),
-            gcp_sa_email: Some(TEST_GCP_SA_EMAIL.to_string()),
-        },
-    );
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources {
-                workspaces: vec![workspace],
-            },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), None);
-            assert!(
-                user_workspaces.is_gemini_enterprise_available_from_workspace(&scope),
-                "a multi-team user's teamless window should read the workspace's own GEAP policy"
-            );
-            assert!(
-                user_workspaces.is_gemini_enterprise_credentials_enabled(&scope, ctx),
-                "a multi-team user's teamless window should read the workspace's own GEAP policy"
-            );
-        });
-    })
-}
-
-/// No workspace at all -- e.g. before the initial metadata fetch completes -- has no admin
-/// policy to consult. Unlike a permission that defaults to allowed absent an override (see
-/// billing_workspace_settings.rs's `is_none_or` convention), AWS Bedrock and Gemini Enterprise
-/// are opt-in admin features: the pre-scoping code already denied both when
-/// `current_workspace()` was `None`, and `scoped_or_workspace_setting`'s `absent = None` for
-/// `llm_settings_for_scope` must keep it that way rather than flip it permissive.
-#[test]
-fn bedrock_and_gemini_enterprise_unavailable_with_no_workspace_at_all() {
-    let _flag = FeatureFlag::GeminiEnterprise.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(
-            &mut app,
-            CachedResources { workspaces: vec![] },
-            Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
-        );
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), None);
-            assert!(user_workspaces.current_workspace().is_none());
-            assert!(
-                !user_workspaces.is_aws_bedrock_available(&scope),
-                "no workspace at all has no admin policy to consult, so Bedrock stays unavailable"
-            );
-            assert!(
-                !user_workspaces.is_gemini_enterprise_available_from_workspace(&scope),
-                "no workspace at all has no admin policy to consult, so GEAP stays unavailable"
-            );
-        });
-    })
 }
 
 fn workspace_for_test(team: &Team) -> Workspace {
@@ -883,14 +231,11 @@ fn workspace_for_test(team: &Team) -> Workspace {
         stripe_customer_id: None,
         teams: vec![team.clone()],
         billing_metadata: team.billing_metadata.clone(),
-        bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
         pending_email_invites: vec![],
         is_eligible_for_discovery: false,
         members: vec![],
-        total_requests_used_since_last_refresh: 0,
     }
 }
 
@@ -989,30 +334,6 @@ fn test_window_team_assignment_inherits_from_source_or_default_team() {
             );
         });
     })
-}
-
-#[test]
-fn warp_agent_cli_upgrade_link_is_channel_aware_and_user_bound() {
-    let user_uid = UserUid::new("user-123");
-
-    assert_eq!(
-        UserWorkspaces::warp_agent_cli_upgrade_link(Some(user_uid)),
-        format!(
-            "{}{STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX}/user/{user_uid}?source=warp-agent-cli",
-            ChannelState::server_root_url(),
-        )
-    );
-}
-
-#[test]
-fn warp_agent_cli_upgrade_link_uses_channel_aware_fallback_without_a_user() {
-    assert_eq!(
-        UserWorkspaces::warp_agent_cli_upgrade_link(None),
-        format!(
-            "{}{STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX}?source=warp-agent-cli",
-            ChannelState::server_root_url().trim_end_matches('/'),
-        )
-    );
 }
 
 #[test]
@@ -1228,30 +549,15 @@ fn test_window_team_reconciliation_moves_rendering_but_not_a_captured_context() 
     })
 }
 
-fn set_team_remote_session_policy(team: &mut Team, allow_ai: bool, patterns: &[&str]) {
-    team.settings
-        .ai_permissions
-        .allow_ai_in_remote_sessions
-        .value = allow_ai;
-    team.settings.ai_permissions.remote_session_regex_list = patterns
+fn set_team_remote_session_policy(team: &mut Team, patterns: &[&str]) {
+    team.settings.remote_session_regex_list = patterns
         .iter()
         .map(|pattern| Regex::new(pattern).expect("test pattern should compile"))
         .collect();
 }
 
-fn set_workspace_remote_session_policy(
-    workspace: &mut Workspace,
-    allow_ai: bool,
-    patterns: &[&str],
-) {
-    workspace
-        .settings
-        .ai_permissions_settings
-        .allow_ai_in_remote_sessions = allow_ai;
-    workspace
-        .settings
-        .ai_permissions_settings
-        .remote_session_regex_list = patterns
+fn set_workspace_remote_session_policy(workspace: &mut Workspace, patterns: &[&str]) {
+    workspace.settings.remote_session_regex_list = patterns
         .iter()
         .map(|pattern| Regex::new(pattern).expect("test pattern should compile"))
         .collect();
@@ -1270,22 +576,11 @@ fn remote_session_patterns_for_surface(
         .collect()
 }
 
-fn remote_session_ai_allowed_for_surface(
-    view: &ViewHandle<TeamContextTestView>,
-    app: &AppContext,
-) -> bool {
-    let user_workspaces = UserWorkspaces::as_ref(app);
-    let scope = user_workspaces.team_context(&view.downgrade(), app);
-    user_workspaces.is_ai_allowed_in_remote_sessions(&scope)
-}
-
-/// Each surface is judged by the rules of the team whose window it is in, so two terminals on
-/// opposing teams get opposing answers at the same moment.
 #[test]
 fn remote_session_policy_follows_each_surfaces_own_team() {
     let (mut team_a, mut team_b) = two_teams();
-    set_team_remote_session_policy(&mut team_a, true, &["^kubectl"]);
-    set_team_remote_session_policy(&mut team_b, false, &["^ssh"]);
+    set_team_remote_session_policy(&mut team_a, &["^kubectl"]);
+    set_team_remote_session_policy(&mut team_b, &["^ssh"]);
     let mut workspace = workspace_for_test(&team_a);
     workspace.teams = vec![team_a.clone(), team_b.clone()];
 
@@ -1300,14 +595,6 @@ fn remote_session_policy_follows_each_surfaces_own_team() {
         });
 
         app.read(|ctx| {
-            assert!(
-                remote_session_ai_allowed_for_surface(&view_a, ctx),
-                "the surface in team A's window is governed by team A, which permits it"
-            );
-            assert!(
-                !remote_session_ai_allowed_for_surface(&view_b, ctx),
-                "the surface in team B's window is governed by team B, which forbids it"
-            );
             assert_eq!(
                 remote_session_patterns_for_surface(&view_a, ctx),
                 HashSet::from(["^kubectl".to_string()])
@@ -1325,7 +612,7 @@ fn remote_session_policy_falls_back_to_the_workspace_for_a_user_with_no_teams() 
     let team = team_for_test();
     let mut workspace = workspace_for_test(&team);
     workspace.teams.clear();
-    set_workspace_remote_session_policy(&mut workspace, false, &["^workspace-only"]);
+    set_workspace_remote_session_policy(&mut workspace, &["^workspace-only"]);
 
     App::test((), |mut app| async move {
         initialize_window_team_test_app(&mut app, vec![workspace]);
@@ -1336,59 +623,10 @@ fn remote_session_policy_falls_back_to_the_workspace_for_a_user_with_no_teams() 
         });
 
         app.read(|ctx| {
-            assert!(
-                !remote_session_ai_allowed_for_surface(&view, ctx),
-                "the workspace value is genuinely team-neutral for a user with no teams, so it \
-                 is the one to read"
-            );
             assert_eq!(
                 remote_session_patterns_for_surface(&view, ctx),
                 HashSet::from(["^workspace-only".to_string()])
             );
-        });
-    })
-}
-
-/// Guards the shape of the getter rather than a reachable user scenario: a scope that names an
-/// unresolvable team must fail closed, not fall through to the no-team branch. Mirrors
-/// `member_byo_policy_denies_a_scope_naming_an_unresolvable_team`.
-#[test]
-fn remote_session_ai_permission_denies_a_scope_naming_an_unresolvable_team() {
-    let mut team = team_for_test();
-    set_team_remote_session_policy(&mut team, true, &["^kubectl"]);
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let unresolvable_team_scope = TeamContextForOperation::new_for_test(9999.into());
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(
-                !user_workspaces.is_ai_allowed_in_remote_sessions(&unresolvable_team_scope),
-                "a team whose policy cannot be read must not inherit another team's"
-            );
-        });
-    })
-}
-
-/// `current_workspace()` is `None` only when logged out or before the first metadata fetch, not
-/// for a teamless user (who has a personal workspace). With no workspace there is no admin
-/// policy to consult, so this permits -- preserving the pre-refactor default that the
-/// unresolvable-team deny would otherwise have swallowed.
-#[test]
-fn remote_session_ai_permission_is_allowed_for_a_user_with_no_workspace_at_all() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            assert!(remote_session_ai_allowed_for_surface(&view, ctx));
-            assert!(remote_session_patterns_for_surface(&view, ctx).is_empty());
         });
     })
 }
@@ -1421,7 +659,7 @@ fn switching_a_window_to_a_team_overwrites_and_announces_it() {
         let changes_for_subscription = changes.clone();
         app.update(|ctx| {
             ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeamChanged { .. }) {
+                if matches!(event, UserWorkspacesEvent::WindowTeam { .. }) {
                     changes_for_subscription.set(changes_for_subscription.get() + 1);
                 }
             });
@@ -1468,7 +706,7 @@ fn switching_a_window_to_its_current_team_announces_nothing() {
         let changes_for_subscription = changes.clone();
         app.update(|ctx| {
             ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeamChanged { .. }) {
+                if matches!(event, UserWorkspacesEvent::WindowTeam { .. }) {
                     changes_for_subscription.set(changes_for_subscription.get() + 1);
                 }
             });
@@ -1553,918 +791,6 @@ fn test_team_contexts_represent_a_registered_teamless_window() {
         app.read(|ctx| {
             let context = UserWorkspaces::as_ref(ctx).team_context(&weak_view, ctx);
             assert_eq!(context.team_uid(), None);
-        });
-    })
-}
-
-fn autonomy_setting(value: ActionPermission) -> EnforceableSetting<Option<ActionPermission>> {
-    EnforceableSetting {
-        value: Some(value),
-        is_enforced_by_workspace: false,
-    }
-}
-
-/// A team whose admins enforce `execute_commands`, so the team is distinguishable from one
-/// that enforces nothing and from a team enforcing something else.
-fn team_enforcing_execute_commands(team: &Team, value: ActionPermission) -> Team {
-    let mut team = team.clone();
-    team.settings.ai_autonomy.execute_commands = autonomy_setting(value);
-    team
-}
-
-#[test]
-fn test_ai_autonomy_settings_resolve_each_windows_own_team() {
-    let (team_a, team_b) = two_teams();
-    let team_a = team_enforcing_execute_commands(&team_a, ActionPermission::AlwaysAsk);
-    let team_b = team_enforcing_execute_commands(&team_b, ActionPermission::AlwaysAllow);
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        let scope_a = view_a.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        let scope_b = view_b.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces
-                    .ai_autonomy_settings(&scope_a)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAsk),
-                "the window on team A should read team A's policy"
-            );
-            assert_eq!(
-                user_workspaces
-                    .ai_autonomy_settings(&scope_b)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAllow),
-                "the window on team B should read team B's policy"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_ai_autonomy_settings_for_a_teamless_window_fall_back_to_the_workspace() {
-    let team = team_enforcing_execute_commands(&team_for_test(), ActionPermission::AlwaysAsk);
-    let mut workspace = workspace_for_test(&team);
-    workspace
-        .settings
-        .ai_autonomy_settings
-        .execute_commands_setting = Some(ActionPermission::AlwaysAllow);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        assert_eq!(scope.team_uid(), None);
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .ai_autonomy_settings(&scope)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAllow),
-                "a window on no team falls back to the workspace policy"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_ai_autonomy_settings_fall_back_to_the_workspace_for_a_user_with_no_teams() {
-    let mut workspace = workspace_for_test(&team_for_test());
-    workspace.teams.clear();
-    workspace
-        .settings
-        .ai_autonomy_settings
-        .execute_commands_setting = Some(ActionPermission::AlwaysAllow);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .ai_autonomy_settings(&scope)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAllow),
-                "with no teams at all the workspace layer is genuinely team-neutral, so it is \
-                 the right fallback"
-            );
-        });
-    })
-}
-
-/// A window only changes teams by reconciling away from a team that left the workspace, so
-/// that is also the only way to observe a captured scope and a freshly resolved one
-/// disagreeing about which policy applies.
-#[test]
-fn test_a_captured_autonomy_scope_does_not_follow_its_window_to_another_team() {
-    let (team_a, team_b) = two_teams();
-    let team_a = team_enforcing_execute_commands(&team_a, ActionPermission::AlwaysAsk);
-    let team_b = team_enforcing_execute_commands(&team_b, ActionPermission::AlwaysAllow);
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team_a.uid, ctx);
-        });
-
-        let captured = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .ai_autonomy_settings(&captured)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAsk),
-            );
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![workspace_for_test(&team_b)], ctx);
-        });
-
-        let weak_view = view.downgrade();
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces
-                    .ai_autonomy_settings(&captured)
-                    .execute_commands_setting,
-                None,
-                "the captured scope's team is gone, so it imposes no policy rather than \
-                 silently adopting team B's"
-            );
-
-            let resolved = user_workspaces.team_context(&weak_view, ctx);
-            assert_eq!(
-                user_workspaces
-                    .ai_autonomy_settings(&resolved)
-                    .execute_commands_setting,
-                Some(ActionPermission::AlwaysAllow),
-                "a freshly resolved scope follows the window onto team B"
-            );
-        });
-    })
-}
-
-/// A list no admin layer contributed to is not an override. This is also the case the
-/// client cannot yet tell apart from a layer explicitly configuring an empty list, which
-/// needs `StringListSettingInfo.isConfigured` from the server.
-#[test]
-fn test_an_unconfigured_team_list_setting_is_not_an_override() {
-    let mut team = team_for_test();
-    team.settings.ai_autonomy.execute_commands_allowlist = SplitListSetting::default();
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            let settings = UserWorkspaces::as_ref(ctx).ai_autonomy_settings(&scope);
-            assert!(
-                !settings.has_override_for_execute_commands_allowlist(),
-                "an admin who has configured no allowlist entries is not enforcing an empty \
-                 allowlist"
-            );
-        });
-    })
-}
-
-/// The merged `values` is the whole policy: a list contributed to by both admin layers reads
-/// as one override of exactly the merged `values`, not the layers concatenated.
-///
-/// The layers deliberately overlap on `ls`, so `values` and `workspace_entries ++
-/// team_entries` differ in length. With disjoint layers the two are the same list and this
-/// test would pass against an implementation that concatenated.
-#[test]
-fn test_a_team_list_setting_overrides_with_its_merged_values() {
-    let mut team = team_for_test();
-    team.settings.ai_autonomy.execute_commands_allowlist = SplitListSetting {
-        values: vec!["ls".to_string(), "git status".to_string()],
-        workspace_entries: vec!["ls".to_string()],
-        team_entries: vec!["ls".to_string(), "git status".to_string()],
-    };
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            let settings = UserWorkspaces::as_ref(ctx).ai_autonomy_settings(&scope);
-            assert!(settings.has_override_for_execute_commands_allowlist());
-            let allowlist = settings
-                .execute_commands_allowlist
-                .expect("a non-empty list is an override");
-            assert_eq!(
-                allowlist.len(),
-                2,
-                "the merged values are the policy, so entries are not counted once per layer"
-            );
-            assert!(allowlist.iter().any(|predicate| predicate.matches("ls")));
-            assert!(
-                allowlist
-                    .iter()
-                    .any(|predicate| predicate.matches("git status"))
-            );
-        });
-    })
-}
-
-/// Allowlists merge by intersection, so two admin layers that share no entries produce an
-/// empty `values` while both layers plainly configured one. That is an override permitting
-/// nothing, and reading it as "no override" would hand the decision back to the user's own
-/// profile — the permissive answer to a deny-by-default setting.
-#[test]
-fn test_disjoint_admin_allowlists_are_an_override_that_permits_nothing() {
-    let mut team = team_for_test();
-    team.settings.ai_autonomy.execute_commands_allowlist = SplitListSetting {
-        values: vec![],
-        workspace_entries: vec!["ls".to_string()],
-        team_entries: vec!["git status".to_string()],
-    };
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            let settings = UserWorkspaces::as_ref(ctx).ai_autonomy_settings(&scope);
-            assert!(
-                settings.has_override_for_execute_commands_allowlist(),
-                "both layers configured an allowlist, so the intersection being empty is an \
-                 override rather than an absence"
-            );
-            assert_eq!(
-                settings
-                    .execute_commands_allowlist
-                    .expect("a configured list is an override")
-                    .len(),
-                0,
-                "the layers agree on nothing, so nothing is allowlisted"
-            );
-        });
-    })
-}
-
-/// The tier policy is the interim fallback for a team whose admins enforce nothing, and it
-/// is billing entitlement, so it is read from the workspace rather than per team.
-fn workspace_without_autonomy_entitlement(teams: Vec<Team>) -> Workspace {
-    let mut workspace = workspace_for_test(&team_for_test());
-    workspace.teams = teams;
-    workspace.billing_metadata.tier.ai_autonomy_policy = Some(AIAutonomyPolicy {
-        is_enabled: false,
-        toggleable: true,
-    });
-    workspace
-}
-
-#[test]
-fn test_ai_autonomy_allowed_uses_the_scoped_team() {
-    let (team_a, team_b) = two_teams();
-    let team_a = team_enforcing_execute_commands(&team_a, ActionPermission::AlwaysAsk);
-    let workspace = workspace_without_autonomy_entitlement(vec![team_a.clone(), team_b.clone()]);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-        let view_a = view_a.downgrade();
-        let view_b = view_b.downgrade();
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope_a = user_workspaces.team_context(&view_a, ctx);
-            let scope_b = user_workspaces.team_context(&view_b, ctx);
-            assert!(
-                is_agent_mode_autonomy_allowed(&scope_a, ctx),
-                "team A configures autonomy, so its window should allow autonomy"
-            );
-            assert!(
-                !is_agent_mode_autonomy_allowed(&scope_b, ctx),
-                "team B configures no autonomy policy and the workspace tier does not allow it"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_ai_autonomy_allowed_uses_the_workspace_tier_fallback() {
-    let team = team_for_test();
-    let mut workspace = workspace_for_test(&team);
-    workspace.billing_metadata.tier.ai_autonomy_policy = Some(AIAutonomyPolicy {
-        is_enabled: true,
-        toggleable: true,
-    });
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-        });
-        let view = view.downgrade();
-
-        app.read(|ctx| {
-            let scope = UserWorkspaces::as_ref(ctx).team_context(&view, ctx);
-            assert!(is_agent_mode_autonomy_allowed(&scope, ctx));
-        });
-    })
-}
-
-#[test]
-fn test_ai_autonomy_falls_back_to_the_workspace_layer_with_no_teams() {
-    let mut workspace = workspace_without_autonomy_entitlement(vec![]);
-    workspace
-        .settings
-        .ai_autonomy_settings
-        .execute_commands_setting = Some(ActionPermission::AlwaysAsk);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-        let view = view.downgrade();
-
-        app.read(|ctx| {
-            let scope = UserWorkspaces::as_ref(ctx).team_context(&view, ctx);
-            assert!(
-                is_agent_mode_autonomy_allowed(&scope, ctx),
-                "a user with no teams reads the workspace layer, which is team-neutral for them"
-            );
-        });
-    })
-}
-
-/// Two teams under a plan that manages BYOK/BYOE centrally, with opposing `team_byo` policy:
-/// `team_a` lets its members bring their own credentials, `team_b` does not.
-fn two_teams_with_opposing_byo_policy() -> (Team, Team) {
-    let (mut team_a, mut team_b) = two_teams();
-    for team in [&mut team_a, &mut team_b] {
-        team.billing_metadata.tier.managed_byok_byoe_policy =
-            Some(ManagedByokByoePolicy { enabled: true });
-    }
-    team_a.settings.team_byo = Some(TeamByoSettings {
-        first_party_enabled: true,
-        endpoints_enabled: true,
-        allow_user_keys: true,
-        allow_user_endpoints: true,
-        first_party_keys: vec![],
-        endpoints: vec![],
-    });
-    team_b.settings.team_byo = Some(TeamByoSettings {
-        first_party_enabled: true,
-        endpoints_enabled: true,
-        allow_user_keys: false,
-        allow_user_endpoints: false,
-        first_party_keys: vec![ByoFirstPartyKey {
-            provider: LLMProvider::Anthropic,
-            credential_uid: "team-b-anthropic".to_string(),
-        }],
-        endpoints: vec![],
-    });
-    (team_a, team_b)
-}
-
-#[test]
-fn member_byo_policy_follows_each_windows_own_team() {
-    let (team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, _view_a) = create_test_window(&mut app);
-        let (window_b, _view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope_a = user_workspaces.team_context_for_window_for_test(window_a);
-            let scope_b = user_workspaces.team_context_for_window_for_test(window_b);
-
-            assert!(
-                user_workspaces.are_member_byo_keys_allowed(&scope_a),
-                "the window on the permissive team should allow member API keys"
-            );
-            assert!(
-                user_workspaces.are_member_byo_endpoints_allowed(&scope_a),
-                "the window on the permissive team should allow member custom endpoints"
-            );
-            assert!(
-                !user_workspaces.are_member_byo_keys_allowed(&scope_b),
-                "the window on the restrictive team should not allow member API keys"
-            );
-            assert!(
-                !user_workspaces.are_member_byo_endpoints_allowed(&scope_b),
-                "the window on the restrictive team should not allow member custom endpoints"
-            );
-        });
-    })
-}
-
-#[test]
-fn team_first_party_key_follows_each_windows_own_team() {
-    let (team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, _view_a) = create_test_window(&mut app);
-        let (window_b, _view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(
-                !user_workspaces.has_team_first_party_key(
-                    &user_workspaces.team_context_for_window_for_test(window_a),
-                    LLMProvider::Anthropic,
-                ),
-                "team A provides no first-party key, so its window should report none"
-            );
-            assert!(
-                user_workspaces.has_team_first_party_key(
-                    &user_workspaces.team_context_for_window_for_test(window_b),
-                    LLMProvider::Anthropic,
-                ),
-                "team B provides an Anthropic key, so its window should report one"
-            );
-            assert!(
-                !user_workspaces.has_team_first_party_key(
-                    &user_workspaces.team_context_for_window_for_test(window_b),
-                    LLMProvider::OpenAI,
-                ),
-                "team B provides no OpenAI key, so its window should report none for OpenAI"
-            );
-        });
-    })
-}
-
-/// A scope with no team reads the workspace's `team_byo`, which is the intended answer for a
-/// teamless user and for a window with no team selected. It must be a real read, not a
-/// permissive constant: a workspace policy that restricts members has to bind.
-fn assert_teamless_window_reads_workspace_policy(allow_member_credentials: bool) {
-    let (_team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut workspace = workspace_for_test(&team_b);
-    // Reconciliation assigns a teamless window to the workspace's first team, so the window
-    // can only stay teamless while the workspace itself has no teams to fall back to.
-    workspace.teams.clear();
-    workspace.settings.team_byo = Some(TeamByoSettings {
-        first_party_enabled: true,
-        endpoints_enabled: true,
-        allow_user_keys: allow_member_credentials,
-        allow_user_endpoints: allow_member_credentials,
-        first_party_keys: vec![ByoFirstPartyKey {
-            provider: LLMProvider::Anthropic,
-            credential_uid: "workspace-anthropic".to_string(),
-        }],
-        endpoints: vec![],
-    });
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), None);
-            assert!(
-                user_workspaces.is_managed_byok_byoe_enabled(),
-                "the plan still manages BYOK/BYOE centrally; only the team is missing"
-            );
-            assert_eq!(
-                user_workspaces.are_member_byo_keys_allowed(&scope),
-                allow_member_credentials,
-                "a teamless window must read the workspace's key policy"
-            );
-            assert_eq!(
-                user_workspaces.are_member_byo_endpoints_allowed(&scope),
-                allow_member_credentials,
-                "a teamless window must read the workspace's endpoint policy"
-            );
-            assert!(
-                user_workspaces.has_team_first_party_key(&scope, LLMProvider::Anthropic),
-                "a teamless window must see the workspace's first-party key"
-            );
-        });
-    })
-}
-
-#[test]
-fn member_byo_policy_for_a_window_with_no_team_follows_a_permissive_workspace() {
-    assert_teamless_window_reads_workspace_policy(true);
-}
-
-/// The half that a hardcoded permissive answer would have got wrong.
-#[test]
-fn member_byo_policy_for_a_window_with_no_team_follows_a_restrictive_workspace() {
-    assert_teamless_window_reads_workspace_policy(false);
-}
-
-/// `workspace.settings` is resolved per workspace, so teams in a *different* workspace say
-/// nothing about this one. A user on no team here reads a genuinely team-neutral workspace
-/// layer even though they have a team elsewhere.
-#[test]
-fn member_byo_policy_for_a_teamless_scope_ignores_teams_in_another_workspace() {
-    let (_team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut current_workspace = workspace_for_test(&team_b);
-    current_workspace.teams.clear();
-    current_workspace.settings.team_byo = Some(TeamByoSettings {
-        first_party_enabled: true,
-        endpoints_enabled: true,
-        allow_user_keys: true,
-        allow_user_endpoints: true,
-        first_party_keys: vec![],
-        endpoints: vec![],
-    });
-    let mut other_workspace = workspace_for_test(&team_b);
-    other_workspace.uid = "workspace_uid999999999".to_string().into();
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![current_workspace, other_workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(
-                !user_workspaces.has_teams(),
-                "the current workspace itself has no teams"
-            );
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), None);
-            assert!(user_workspaces.is_managed_byok_byoe_enabled());
-            assert!(
-                user_workspaces.are_member_byo_keys_allowed(&scope),
-                "a team in another workspace must not restrict this workspace's read"
-            );
-            assert!(user_workspaces.are_member_byo_endpoints_allowed(&scope));
-        });
-    })
-}
-
-/// `team_byo` is only administered by plans that manage credentials centrally, so without
-/// that entitlement the team's policy is inert and the plan's own BYO entitlement decides.
-#[test]
-fn member_byo_policy_is_unrestricted_without_the_managed_byok_entitlement() {
-    let (_team_a, mut team_b) = two_teams_with_opposing_byo_policy();
-    team_b.billing_metadata.tier.managed_byok_byoe_policy = None;
-    let workspace = workspace_for_test(&team_b);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(scope.team_uid(), Some(team_b.uid));
-            assert!(!user_workspaces.is_managed_byok_byoe_enabled());
-            assert!(
-                user_workspaces.are_member_byo_keys_allowed(&scope),
-                "a restrictive team_byo should be inert without the managed BYOK entitlement"
-            );
-            assert!(user_workspaces.are_member_byo_endpoints_allowed(&scope));
-        });
-    })
-}
-
-/// The settings page resolves its scope from a view handle rather than a window, so the
-/// handle-based path has to agree with the window-based one it is a wrapper over.
-#[test]
-fn member_byo_policy_resolved_from_a_view_handle_matches_its_window() {
-    let (team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        let (weak_a, weak_b) = (view_a.downgrade(), view_b.downgrade());
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope_a = user_workspaces.team_context(&weak_a, ctx);
-            let scope_b = user_workspaces.team_context(&weak_b, ctx);
-            assert!(user_workspaces.are_member_byo_keys_allowed(&scope_a));
-            assert!(!user_workspaces.are_member_byo_keys_allowed(&scope_b));
-        });
-    })
-}
-
-/// Guards the shape of the getters rather than a reachable user scenario: a scope that names
-/// an unresolvable team must deny, not fall through to the no-team branch. Simplifying either
-/// getter to `is_none_or` would silently invert that into inheriting whichever policy the
-/// no-team branch grants, which is exactly what this migration exists to stop, and nothing
-/// else in the suite would fail.
-#[test]
-fn member_byo_policy_denies_a_scope_naming_an_unresolvable_team() {
-    let (team_a, _team_b) = two_teams_with_opposing_byo_policy();
-    let workspace = workspace_for_test(&team_a);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let unresolvable_team_scope = TeamContextForOperation::new_for_test(9999.into());
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(user_workspaces.is_managed_byok_byoe_enabled());
-            assert!(
-                !user_workspaces.are_member_byo_keys_allowed(&unresolvable_team_scope),
-                "a team whose policy cannot be read must not inherit another team's"
-            );
-            assert!(
-                !user_workspaces.are_member_byo_endpoints_allowed(&unresolvable_team_scope),
-                "a team whose policy cannot be read must not inherit another team's"
-            );
-        });
-    })
-}
-
-/// Reconciliation can move a window onto a different team, and the policy read has to move
-/// with it rather than keep answering for the team the window was on before.
-#[test]
-fn member_byo_policy_follows_a_window_reconciled_onto_another_team() {
-    let (team_a, team_b) = two_teams_with_opposing_byo_policy();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team_a.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(user_workspaces.are_member_byo_keys_allowed(
-                &user_workspaces.team_context_for_window_for_test(window_id)
-            ));
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![workspace_for_test(&team_b)], ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(
-                !user_workspaces.are_member_byo_keys_allowed(
-                    &user_workspaces.team_context_for_window_for_test(window_id)
-                ),
-                "the window reconciled onto the restrictive team, so its policy applies now"
-            );
-        });
-    })
-}
-
-fn team_with_sandboxed_denylist(team: &Team, patterns: &[&str]) -> Team {
-    let mut team = team.clone();
-    team.settings.sandboxed_agent.execute_commands_denylist = SplitListSetting {
-        values: patterns
-            .iter()
-            .map(|pattern| (*pattern).to_owned())
-            .collect(),
-        ..Default::default()
-    };
-    team
-}
-
-fn denylist_patterns(denylist: Vec<AgentModeCommandExecutionPredicate>) -> Vec<String> {
-    denylist.iter().map(ToString::to_string).collect()
-}
-
-#[test]
-fn test_sandboxed_agent_denylist_resolves_the_scopes_own_team() {
-    let (team_a, team_b) = two_teams();
-    let team_a = team_with_sandboxed_denylist(&team_a, &["rm .*"]);
-    let team_b = team_with_sandboxed_denylist(&team_b, &["curl .*"]);
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        let scope_a = view_a.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        let scope_b = view_b.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let denylist_a = user_workspaces
-                .sandboxed_agent_execute_commands_denylist_for_scope(&scope_a)
-                .expect("team A configured a denylist");
-            assert_eq!(
-                denylist_patterns(denylist_a),
-                ["rm .*"],
-                "the window on team A should read team A's denylist"
-            );
-
-            let denylist_b = user_workspaces
-                .sandboxed_agent_execute_commands_denylist_for_scope(&scope_b)
-                .expect("team B configured a denylist");
-            assert_eq!(
-                denylist_patterns(denylist_b),
-                ["curl .*"],
-                "the window on team B should read team B's denylist"
-            );
-        });
-    })
-}
-
-/// Mirrors [`member_byo_policy_denies_a_scope_naming_an_unresolvable_team`] for the sandboxed
-/// denylist: a scope naming a team that cannot be resolved must not fall through to another
-/// team's (or the workspace's) denylist.
-#[test]
-fn test_sandboxed_agent_denylist_denies_a_scope_naming_an_unresolvable_team() {
-    let (team_a, _team_b) = two_teams();
-    let team_a = team_with_sandboxed_denylist(&team_a, &["rm .*"]);
-    let workspace = workspace_for_test(&team_a);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let unresolvable_team_scope = TeamContextForOperation::new_for_test(9999.into());
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .sandboxed_agent_execute_commands_denylist_for_scope(&unresolvable_team_scope),
-                None,
-                "a team whose denylist cannot be read must not inherit another team's"
-            );
-        });
-    })
-}
-
-/// A list no admin layer contributed to is not an override, the same distinction
-/// [`test_an_unconfigured_team_list_setting_is_not_an_override`] locks in for the AI autonomy
-/// allowlists. Getting this wrong here would silently drop a team's denylist protection.
-#[test]
-fn test_sandboxed_agent_denylist_is_none_when_the_team_has_not_configured_one() {
-    let team = team_for_test();
-    let workspace = workspace_for_test(&team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team.uid, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .sandboxed_agent_execute_commands_denylist_for_scope(&scope),
-                None,
-                "an unconfigured team denylist must not read as an override with an empty list"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_sandboxed_agent_denylist_falls_back_to_the_workspace_for_a_user_with_no_teams() {
-    let mut workspace = workspace_for_test(&team_for_test());
-    workspace.teams.clear();
-    workspace.settings.sandboxed_agent_settings = Some(SandboxedAgentSettings {
-        execute_commands_denylist: Some(vec![
-            AgentModeCommandExecutionPredicate::new_regex("git .*").unwrap(),
-        ]),
-    });
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        let scope = view.update(&mut app, |_, ctx| {
-            UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx)
-        });
-        assert_eq!(scope.team_uid(), None);
-
-        app.read(|ctx| {
-            let denylist = UserWorkspaces::as_ref(ctx)
-                .sandboxed_agent_execute_commands_denylist_for_scope(&scope)
-                .expect("with no teams at all the workspace's denylist is genuinely team-neutral");
-            assert_eq!(denylist_patterns(denylist), ["git .*"]);
         });
     })
 }
@@ -2692,7 +1018,6 @@ fn test_joining_team_moves_objects() {
         billing_metadata: Default::default(),
         stripe_customer_id: None,
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
         visibility: TeamVisibility::Open,
     };
@@ -2703,14 +1028,11 @@ fn test_joining_team_moves_objects() {
         stripe_customer_id: None,
         teams: vec![team.clone()],
         billing_metadata: Default::default(),
-        bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
         pending_email_invites: vec![],
         is_eligible_for_discovery: false,
         members: vec![],
-        total_requests_used_since_last_refresh: 0,
     };
 
     let shared_object = CloudWorkflow::new_local(
@@ -2728,7 +1050,6 @@ fn test_joining_team_moves_objects() {
             &mut app,
             CachedResources { workspaces: vec![] },
             Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
         );
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(object_id, shared_object);
@@ -2757,139 +1078,6 @@ fn test_joining_team_moves_objects() {
                 .unwrap()
                 .space(ctx);
             assert_eq!(space, Space::Team { team_uid });
-        });
-    })
-}
-
-#[test]
-fn test_agent_attribution_default_with_no_workspace() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(&scope),
-                AdminEnablementSetting::RespectUserSetting,
-                "attribution should default to RespectUserSetting when there is no workspace"
-            );
-        });
-    })
-}
-
-/// Two windows on teams with opposing attribution policies each see their own team's.
-#[test]
-fn test_agent_attribution_resolves_each_windows_own_team() {
-    let (mut team_a, mut team_b) = two_teams();
-    team_a.settings.enable_warp_attribution = AdminEnablementSetting::Enable;
-    team_b.settings.enable_warp_attribution = AdminEnablementSetting::Disable;
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, _view_a) = create_test_window(&mut app);
-        let (window_b, _view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope_a = user_workspaces.team_context_for_window_for_test(window_a);
-            let scope_b = user_workspaces.team_context_for_window_for_test(window_b);
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(&scope_a),
-                AdminEnablementSetting::Enable,
-                "the window on team A should see team A's forced-on attribution"
-            );
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(&scope_b),
-                AdminEnablementSetting::Disable,
-                "the window on team B should see team B's forced-off attribution"
-            );
-        });
-    })
-}
-
-/// Reconciliation can move a window onto a different team, and the policy read has to move
-/// with it rather than keep answering for the team the window was on before -- mirrors
-/// `member_byo_policy_follows_a_window_reconciled_onto_another_team`.
-#[test]
-fn test_agent_attribution_follows_a_window_reconciled_onto_another_team() {
-    let (mut team_a, mut team_b) = two_teams();
-    team_a.settings.enable_warp_attribution = AdminEnablementSetting::Disable;
-    team_b.settings.enable_warp_attribution = AdminEnablementSetting::Enable;
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team_a.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(
-                    &user_workspaces.team_context_for_window_for_test(window_id)
-                ),
-                AdminEnablementSetting::Disable
-            );
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![workspace_for_test(&team_b)], ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(
-                    &user_workspaces.team_context_for_window_for_test(window_id)
-                ),
-                AdminEnablementSetting::Enable,
-                "the window reconciled onto team B, so its policy applies now"
-            );
-        });
-    })
-}
-
-/// Workspace settings are only trustworthy for a user with no teams at all; that user still
-/// has to get the policy their server-side tier defaults produced.
-#[test]
-fn test_agent_attribution_reads_workspace_settings_for_a_teamless_user() {
-    let mut workspace = workspace_for_test(&team_for_test());
-    workspace.teams.clear();
-    workspace.settings.enable_warp_attribution = AdminEnablementSetting::Disable;
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, _view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_window_for_test(window_id);
-            assert_eq!(
-                user_workspaces.get_agent_attribution_setting(&scope),
-                AdminEnablementSetting::Disable,
-                "a genuinely teamless user reads the workspace's own setting"
-            );
         });
     })
 }
@@ -2961,7 +1149,6 @@ fn test_leaving_team_moves_objects() {
         billing_metadata: Default::default(),
         stripe_customer_id: None,
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         is_eligible_for_discovery: false,
         visibility: TeamVisibility::Open,
     };
@@ -2972,14 +1159,11 @@ fn test_leaving_team_moves_objects() {
         stripe_customer_id: None,
         teams: vec![team.clone()],
         billing_metadata: Default::default(),
-        bonus_grants_purchased_this_month: Default::default(),
         settings: Default::default(),
-        feature_model_choice: Default::default(),
         invite_link_domain_restrictions: vec![],
         pending_email_invites: vec![],
         is_eligible_for_discovery: false,
         members: vec![],
-        total_requests_used_since_last_refresh: 0,
     };
 
     let shared_object = CloudWorkflow::new_local(
@@ -2999,7 +1183,6 @@ fn test_leaving_team_moves_objects() {
                 workspaces: vec![workspace],
             },
             Arc::new(MockTeamClient::new()),
-            Arc::new(MockWorkspaceClient::new()),
         );
         CloudModel::handle(&app).update(&mut app, |cloud_model, _| {
             cloud_model.add_object(object_id, shared_object);
@@ -3062,101 +1245,21 @@ fn test_team_billing_metadata_prefers_team_over_workspace() {
     })
 }
 
-#[test]
-fn test_team_billing_metadata_enables_teamless_premium_purchases() {
-    let team = team_for_test();
-    let mut workspace = workspace_for_test(&team);
-    workspace.teams.clear();
-    workspace
-        .billing_metadata
-        .tier
-        .purchase_add_on_credits_policy = Some(PurchaseAddOnCreditsPolicy {
-        enabled: false,
-        premium_enabled: true,
-        price_premium_bps: 1000,
-    });
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(!user_workspaces.has_teams(), "user should be teamless");
-            let billing = user_workspaces.team_billing_metadata(None);
-            assert!(
-                billing.is_some_and(|billing| billing.is_purchase_add_on_credits_policy_enabled()),
-                "premiumEnabled on the workspace policy should enable purchases without a team"
-            );
-            assert_eq!(
-                billing.map_or(0, |billing| billing.addon_credits_price_premium_bps()),
-                1000
-            );
-        });
-    })
-}
-
-#[test]
-fn test_team_billing_metadata_disabled_policy_stays_disabled_without_team() {
-    let team = team_for_test();
-    let mut workspace = workspace_for_test(&team);
-    workspace.teams.clear();
-    workspace
-        .billing_metadata
-        .tier
-        .purchase_add_on_credits_policy = Some(PurchaseAddOnCreditsPolicy {
-        enabled: false,
-        premium_enabled: false,
-        price_premium_bps: 0,
-    });
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        app.read(|ctx| {
-            let billing = UserWorkspaces::as_ref(ctx).team_billing_metadata(None);
-            assert!(
-                !billing.is_some_and(|billing| billing.is_purchase_add_on_credits_policy_enabled()),
-                "a fully disabled policy should keep purchases disabled without a team"
-            );
-        });
-    })
-}
-
-fn gql_tier(purchase_policy: Option<GqlPurchaseAddOnCreditsPolicy>) -> GqlTier {
+fn gql_tier() -> GqlTier {
     GqlTier {
         name: "Free".to_string(),
         description: "Free tier".to_string(),
-        charge_unit: GqlChargeUnit::Credits,
-        warp_ai_policy: None,
         team_size_policy: None,
         shared_notebooks_policy: None,
         shared_workflows_policy: None,
         session_sharing_policy: None,
-        ai_autonomy_policy: None,
         telemetry_data_collection_policy: None,
-        ugc_data_collection_policy: None,
-        usage_based_pricing_policy: None,
-        byo_api_key_policy: None,
-        byo_endpoint_policy: None,
-        managed_byok_byoe_policy: None,
-        purchase_add_on_credits_policy: purchase_policy,
-        enterprise_pay_as_you_go_policy: None,
-        enterprise_credits_auto_reload_policy: None,
         multi_admin_policy: None,
         native_workspaces_policy: None,
-        ambient_agents_policy: None,
     }
 }
 
-fn gql_workspace(
-    uid: &str,
-    purchase_policy: Option<GqlPurchaseAddOnCreditsPolicy>,
-) -> GqlWorkspace {
-    let empty_llms = GqlAvailableLlms {
-        default_id: String::new(),
-        choices: vec![],
-        preferred_codex_model_id: None,
-    };
+fn gql_workspace(uid: &str) -> GqlWorkspace {
     GqlWorkspace {
         uid: uid.into(),
         name: "workspace".to_string(),
@@ -3166,34 +1269,17 @@ fn gql_workspace(
         billing_metadata: GqlBillingMetadata {
             customer_type: GqlCustomerType::Free,
             delinquency_status: GqlDelinquencyStatus::NoDelinquency,
-            tier: gql_tier(purchase_policy),
+            tier: gql_tier(),
             service_agreements: vec![],
-            ai_overages: None,
-        },
-        bonus_grants_info: GqlBonusGrantsInfo {
-            grants: vec![],
-            spending_info: None,
         },
         settings: GqlWorkspaceSettings {
+            ai_permissions_settings: warp_graphql::workspace::AiPermissionsSettings {
+                remote_session_regex_list: vec![],
+            },
             is_discoverable: false,
             is_invite_link_enabled: false,
-            llm_settings: GqlLlmSettings {
-                enabled: false,
-                host_configs: vec![],
-            },
-            team_byo: None,
             telemetry_settings: GqlTelemetrySettings {
                 force_enabled: false,
-            },
-            ugc_collection_settings: GqlUgcCollectionSettings {
-                setting: GqlUgcCollectionEnablementSetting::RespectUserSetting,
-            },
-            cloud_conversation_storage_settings: GqlCloudConversationStorageSettings {
-                setting: GqlAdminEnablementSetting::RespectUserSetting,
-            },
-            ai_permissions_settings: GqlAiPermissionsSettings {
-                allow_ai_in_remote_sessions: true,
-                remote_session_regex_list: vec![],
             },
             link_sharing_settings: GqlLinkSharingSettings {
                 anyone_with_link_sharing_enabled: true,
@@ -3203,52 +1289,16 @@ fn gql_workspace(
                 enabled: false,
                 regexes: vec![],
             },
-            ai_autonomy_settings: GqlAiAutonomySettings {
-                apply_code_diffs_setting: None,
-                read_files_setting: None,
-                read_files_allowlist: None,
-                create_plans_setting: None,
-                execute_commands_setting: None,
-                execute_commands_allowlist: None,
-                execute_commands_denylist: None,
-                write_to_pty_setting: None,
-            },
-            usage_based_pricing_settings: GqlUsageBasedPricingSettings {
-                enabled: false,
-                max_monthly_spend_cents: None,
-            },
-            addon_credits_settings: GqlAddonCreditsSettings {
-                auto_reload_enabled: false,
-                max_monthly_spend_cents: None,
-                selected_auto_reload_credit_denomination: None,
-                selected_auto_reload_usage_cents: None,
-            },
-            sandboxed_agent_settings: None,
-            ambient_agent_settings: None,
         },
         pending_email_invites: vec![],
         invite_link_domain_restrictions: vec![],
         is_eligible_for_discovery: false,
-        feature_model_choice: GqlFeatureModelChoice {
-            agent_mode: empty_llms.clone(),
-            planning: empty_llms.clone(),
-            coding: empty_llms.clone(),
-            cli_agent: empty_llms,
-        },
-        total_requests_used_since_last_refresh: 0,
     }
 }
 
 /// Team settings with every group at its neutral value, so a fixture only has to
 /// override the field the test cares about.
 fn gql_team_settings() -> GqlTeamSettings {
-    fn admin_info() -> GqlAdminEnablementSettingInfo {
-        GqlAdminEnablementSettingInfo {
-            value: GqlAdminEnablementSetting::RespectUserSetting,
-            is_enforced_by_workspace: false,
-        }
-    }
-
     fn bool_info(value: bool) -> GqlBooleanSettingInfo {
         GqlBooleanSettingInfo {
             value,
@@ -3256,30 +1306,11 @@ fn gql_team_settings() -> GqlTeamSettings {
         }
     }
 
-    fn autonomy_info() -> GqlAiAutonomySettingInfo {
-        GqlAiAutonomySettingInfo {
-            value: GqlAiAutonomyValue::RespectUserSetting,
-            is_enforced_by_workspace: false,
-        }
-    }
-
-    fn str_list() -> GqlStringListSettingInfo {
-        GqlStringListSettingInfo {
-            values: vec![],
-            workspace_entries: vec![],
-            team_entries: vec![],
-        }
-    }
-
     GqlTeamSettings {
-        ugc_collection: GqlUgcCollectionSettingInfo {
-            value: GqlUgcCollectionEnablementSetting::RespectUserSetting,
-            is_enforced_by_workspace: false,
-        },
-        cloud_conversation_storage: admin_info(),
-        ai_permissions: GqlAiPermissionsSettingsInfo {
-            allow_ai_in_remote_sessions: bool_info(true),
-            remote_session_regex_list: str_list(),
+        ai_permissions: warp_graphql::workspace::AiPermissionsSettingsInfo {
+            remote_session_regex_list: warp_graphql::workspace::StringListSettingInfo {
+                values: vec![],
+            },
         },
         secret_redaction: GqlSecretRedactionSettingsInfo {
             enabled: bool_info(false),
@@ -3289,54 +1320,17 @@ fn gql_team_settings() -> GqlTeamSettings {
                 team_entries: vec![],
             },
         },
-        ai_autonomy: GqlAiAutonomySettingsInfo {
-            apply_code_diffs: autonomy_info(),
-            read_files: autonomy_info(),
-            create_plans: autonomy_info(),
-            execute_commands: autonomy_info(),
-            write_to_pty: GqlWriteToPtySettingInfo {
-                value: GqlWriteToPtyAutonomyValue::RespectUserSetting,
-                is_enforced_by_workspace: false,
-            },
-            read_files_allowlist: str_list(),
-            execute_commands_allowlist: str_list(),
-            execute_commands_denylist: str_list(),
-        },
         link_sharing: GqlLinkSharingSettingsInfo {
             anyone_with_link_sharing_enabled: bool_info(true),
             direct_link_sharing_enabled: bool_info(true),
         },
-        sandboxed_agent: GqlSandboxedAgentSettingsInfo {
-            execute_commands_denylist: str_list(),
-        },
-        llm_settings: GqlLlmSettings {
-            enabled: false,
-            host_configs: vec![],
-        },
         telemetry_settings: GqlTelemetrySettings {
             force_enabled: false,
         },
-        usage_based_pricing_settings: GqlUsageBasedPricingSettings {
-            enabled: false,
-            max_monthly_spend_cents: None,
-        },
-        addon_credits_settings: GqlAddonCreditsSettings {
-            auto_reload_enabled: false,
-            max_monthly_spend_cents: None,
-            selected_auto_reload_credit_denomination: None,
-            selected_auto_reload_usage_cents: None,
-        },
-        ambient_agent_settings: None,
-        team_byo: None,
     }
 }
 
 fn gql_team(uid: &str, name: &str, member_uids: &[&str]) -> GqlTeam {
-    let empty_llms = GqlAvailableLlms {
-        default_id: String::new(),
-        choices: vec![],
-        preferred_codex_model_id: None,
-    };
     GqlTeam {
         // `ServerId` rejects anything but a 22-character id.
         uid: format!("{uid:0>22}").into(),
@@ -3354,19 +1348,12 @@ fn gql_team(uid: &str, name: &str, member_uids: &[&str]) -> GqlTeam {
         settings: gql_team_settings(),
         invite_link: None,
         visibility: GqlTeamVisibility::Open,
-        feature_model_choice: GqlFeatureModelChoice {
-            agent_mode: empty_llms.clone(),
-            planning: empty_llms.clone(),
-            coding: empty_llms.clone(),
-            cli_agent: empty_llms,
-        },
     }
 }
 
 fn apply_workspaces_metadata(app: &mut App, metadata: WorkspacesMetadataResponse) {
     UserWorkspaces::handle(app).update(app, |user_workspaces, ctx| {
         let first_workspace_uid = metadata.workspaces.first().map(|workspace| workspace.uid);
-        user_workspaces.set_user_tier(metadata.user_tier);
         user_workspaces.update_workspaces(metadata.workspaces, ctx);
         if user_workspaces.current_workspace().is_none()
             && let Some(workspace_uid) = first_workspace_uid
@@ -3393,11 +1380,10 @@ fn current_team_names(user_workspaces: &UserWorkspaces) -> Vec<String> {
 fn test_team_switcher_drops_teams_the_admin_is_not_a_member_of() {
     App::test((), |mut app| async move {
         initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
 
         // The server hands a workspace admin every team in the workspace, but only
         // the team they actually joined is one they can operate as in the client.
-        let mut workspace = gql_workspace("workspace_uid123456789", None);
+        let mut workspace = gql_workspace("workspace_uid123456789");
         workspace.teams = vec![
             gql_team("member-team", "Member Team", &["test-user"]),
             gql_team("other-team", "Other Team", &["someone-else"]),
@@ -3405,7 +1391,7 @@ fn test_team_switcher_drops_teams_the_admin_is_not_a_member_of() {
 
         apply_workspaces_metadata(
             &mut app,
-            workspaces_metadata_response_from_gql(gql_user(None, vec![workspace]), false),
+            workspaces_metadata_response_from_gql(gql_user(vec![workspace]), false),
         );
 
         app.read(|ctx| {
@@ -3423,9 +1409,8 @@ fn test_team_switcher_drops_teams_the_admin_is_not_a_member_of() {
 fn test_team_switcher_keeps_every_team_the_user_is_a_member_of() {
     App::test((), |mut app| async move {
         initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
 
-        let mut workspace = gql_workspace("workspace_uid123456789", None);
+        let mut workspace = gql_workspace("workspace_uid123456789");
         workspace.teams = vec![
             gql_team("first-team", "First Team", &["test-user"]),
             gql_team("other-team", "Other Team", &["someone-else"]),
@@ -3434,7 +1419,7 @@ fn test_team_switcher_keeps_every_team_the_user_is_a_member_of() {
 
         apply_workspaces_metadata(
             &mut app,
-            workspaces_metadata_response_from_gql(gql_user(None, vec![workspace]), false),
+            workspaces_metadata_response_from_gql(gql_user(vec![workspace]), false),
         );
 
         app.read(|ctx| {
@@ -3452,20 +1437,18 @@ fn test_team_switcher_keeps_every_team_the_user_is_a_member_of() {
 }
 
 #[test]
-fn test_teamless_user_falls_back_to_workspace_settings() {
+fn test_nonmember_admin_remains_teamless() {
     App::test((), |mut app| async move {
         initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
 
         // A workspace admin who joined none of the workspace's teams is teamless
         // in the client, so the workspace's own settings supply their defaults.
-        let mut workspace = gql_workspace("workspace_uid123456789", None);
-        workspace.settings.llm_settings.enabled = true;
+        let mut workspace = gql_workspace("workspace_uid123456789");
         workspace.teams = vec![gql_team("other-team", "Other Team", &["someone-else"])];
 
         apply_workspaces_metadata(
             &mut app,
-            workspaces_metadata_response_from_gql(gql_user(None, vec![workspace]), false),
+            workspaces_metadata_response_from_gql(gql_user(vec![workspace]), false),
         );
 
         app.read(|ctx| {
@@ -3474,392 +1457,16 @@ fn test_teamless_user_falls_back_to_workspace_settings() {
                 !user_workspaces.has_teams(),
                 "an admin with no membership should end up teamless"
             );
-            assert!(
-                user_workspaces.is_custom_llm_enabled_for_team(None),
-                "workspace settings should supply the teamless default"
-            );
         });
     })
 }
 
-#[test]
-fn test_member_team_settings_win_over_workspace_settings() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
-
-        let mut workspace = gql_workspace("workspace_uid123456789", None);
-        workspace.settings.llm_settings.enabled = true;
-        let mut team = gql_team("member-team", "Member Team", &["test-user"]);
-        team.settings.llm_settings.enabled = false;
-        workspace.teams = vec![team];
-
-        apply_workspaces_metadata(
-            &mut app,
-            workspaces_metadata_response_from_gql(gql_user(None, vec![workspace]), false),
-        );
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let team = user_workspaces
-                .sole_team()
-                .expect("the member team should survive filtering");
-            assert!(
-                !user_workspaces.is_custom_llm_enabled_for_team(Some(team)),
-                "the team's own settings should win when the user has a team"
-            );
-        });
-    })
-}
-
-fn gql_premium_purchase_policy() -> GqlPurchaseAddOnCreditsPolicy {
-    GqlPurchaseAddOnCreditsPolicy {
-        enabled: false,
-        premium_enabled: true,
-        price_premium_bps: 1000,
-    }
-}
-
-fn gql_user(
-    user_purchase_policy: Option<GqlPurchaseAddOnCreditsPolicy>,
-    workspaces: Vec<GqlWorkspace>,
-) -> GqlUser {
-    gql_user_with_tier(
-        user_purchase_policy.map(|policy| UserPurchasePolicyTier {
-            charge_unit: GqlChargeUnit::Credits,
-            purchase_add_on_credits_policy: Some(policy),
-        }),
-        workspaces,
-    )
-}
-
-fn gql_user_with_tier(
-    user_tier: Option<UserPurchasePolicyTier>,
-    workspaces: Vec<GqlWorkspace>,
-) -> GqlUser {
+fn gql_user(workspaces: Vec<GqlWorkspace>) -> GqlUser {
     GqlUser {
         profile: GqlUserProfile {
             uid: "test-user".to_string(),
         },
-        ai_credit_availability: warp_graphql::ai::AICreditAvailability {
-            available: true,
-            denial_reason: warp_graphql::ai::AICreditAvailabilityDenialReason::None,
-            credit_source: None,
-        },
-        billing_metadata: user_tier.map(|tier| UserPurchasePolicyBillingMetadata { tier }),
         workspaces,
         experiments: None,
     }
-}
-
-#[test]
-fn test_user_level_policy_survives_placeholder_filtering_for_teamless_users() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
-
-        // The real conversion path: a teamless user's ONLY workspace is the
-        // placeholder, which must stay filtered out of `workspaces`, while
-        // the user-level purchase policy is captured separately.
-        let response: WorkspacesMetadataResponse = workspaces_metadata_response_from_gql(
-            gql_user(
-                Some(gql_premium_purchase_policy()),
-                vec![gql_workspace(PLACEHOLDER_WORKSPACE_UID, None)],
-            ),
-            false,
-        );
-        assert!(
-            response.workspaces.is_empty(),
-            "the placeholder workspace must stay filtered out"
-        );
-        assert_eq!(
-            response.user_tier.purchase_policy,
-            Some(PurchaseAddOnCreditsPolicy {
-                enabled: false,
-                premium_enabled: true,
-                price_premium_bps: 1000,
-            })
-        );
-
-        apply_workspaces_metadata(&mut app, response);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(
-                user_workspaces.current_workspace().is_none(),
-                "teamless users keep having no workspace"
-            );
-            let policy = user_workspaces.purchase_policy();
-            assert!(
-                policy.is_some_and(|policy| policy.allows_purchases()),
-                "the user-level policy should enable purchases without a team or workspace"
-            );
-            assert_eq!(
-                policy.map_or(0, |policy| policy.effective_premium_bps()),
-                1000
-            );
-        });
-    })
-}
-
-#[test]
-fn test_billing_unit_falls_back_to_the_user_level_tier_for_teamless_users() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
-
-        let response = workspaces_metadata_response_from_gql(
-            gql_user_with_tier(
-                Some(UserPurchasePolicyTier {
-                    charge_unit: GqlChargeUnit::Cents,
-                    purchase_add_on_credits_policy: None,
-                }),
-                vec![gql_workspace(PLACEHOLDER_WORKSPACE_UID, None)],
-            ),
-            false,
-        );
-        assert_eq!(response.user_tier.charge_unit, ChargeUnit::Cents);
-        apply_workspaces_metadata(&mut app, response);
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert!(user_workspaces.current_workspace().is_none());
-            assert_eq!(
-                user_workspaces.charge_unit(),
-                ChargeUnit::Cents,
-                "the user-level tier should decide the charge unit without a workspace"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_workspace_tier_decides_the_billing_unit_over_the_user_level_tier() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
-
-        let mut dollars_workspace = gql_workspace("workspace_uid123456789", None);
-        dollars_workspace.billing_metadata.tier.charge_unit = GqlChargeUnit::Cents;
-        apply_workspaces_metadata(
-            &mut app,
-            workspaces_metadata_response_from_gql(
-                gql_user_with_tier(None, vec![dollars_workspace]),
-                false,
-            ),
-        );
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx).charge_unit(),
-                ChargeUnit::Cents,
-                "a cents-charged workspace tier should win without any user-level tier"
-            );
-        });
-
-        apply_workspaces_metadata(
-            &mut app,
-            workspaces_metadata_response_from_gql(
-                gql_user_with_tier(
-                    Some(UserPurchasePolicyTier {
-                        charge_unit: GqlChargeUnit::Cents,
-                        purchase_add_on_credits_policy: None,
-                    }),
-                    vec![gql_workspace("workspace_uid123456789", None)],
-                ),
-                false,
-            ),
-        );
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx).charge_unit(),
-                ChargeUnit::Credits,
-                "a credits-charged workspace tier should win over the user-level fallback"
-            );
-        });
-    })
-}
-
-#[test]
-fn test_workspace_policy_wins_over_user_level_policy() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-        register_ai_usage_model(&mut app);
-
-        let standard_policy = GqlPurchaseAddOnCreditsPolicy {
-            enabled: true,
-            premium_enabled: false,
-            price_premium_bps: 0,
-        };
-        let response: WorkspacesMetadataResponse = workspaces_metadata_response_from_gql(
-            gql_user(
-                Some(gql_premium_purchase_policy()),
-                vec![
-                    gql_workspace(PLACEHOLDER_WORKSPACE_UID, None),
-                    gql_workspace("workspace_uid123456789", Some(standard_policy)),
-                ],
-            ),
-            false,
-        );
-        assert_eq!(response.workspaces.len(), 1);
-
-        apply_workspaces_metadata(&mut app, response);
-
-        app.read(|ctx| {
-            let policy = UserWorkspaces::as_ref(ctx).purchase_policy();
-            assert_eq!(
-                policy.map(|policy| policy.enabled),
-                Some(true),
-                "a real workspace's policy should win over the user-level fallback"
-            );
-            assert_eq!(
-                policy.map_or(-1, |policy| policy.effective_premium_bps()),
-                0
-            );
-        });
-    })
-}
-
-/// A `GqlLlmInfo` fixture identified by `id`, for the model-choice fixtures below.
-fn gql_llm_info(id: &str) -> GqlLlmInfo {
-    GqlLlmInfo {
-        display_name: id.to_string(),
-        base_model_name: id.to_string(),
-        id: id.to_string(),
-        reasoning_level: None,
-        usage_metadata: GqlLlmUsageMetadata {
-            credit_multiplier: None,
-            request_multiplier: 1,
-        },
-        description: None,
-        disable_reason: None,
-        vision_supported: false,
-        spec: None,
-        provider: GqlLlmProvider::Unknown,
-        host_configs: vec![],
-        pricing: GqlLlmPricing {
-            discount_percentage: None,
-        },
-        context_window: GqlLlmContextWindow {
-            is_configurable: false,
-            min: 0.into(),
-            max: 0.into(),
-            default: 0.into(),
-        },
-    }
-}
-
-/// A `GqlFeatureModelChoice` whose every feature offers exactly one model, `model_id`, so a
-/// test can tell two teams' choices apart by that single id.
-fn gql_feature_model_choice(model_id: &str) -> GqlFeatureModelChoice {
-    let llms = GqlAvailableLlms {
-        default_id: model_id.to_string(),
-        choices: vec![gql_llm_info(model_id)],
-        preferred_codex_model_id: None,
-    };
-    GqlFeatureModelChoice {
-        agent_mode: llms.clone(),
-        planning: llms.clone(),
-        coding: llms.clone(),
-        cli_agent: llms,
-    }
-}
-
-#[test]
-fn team_feature_model_choices_conversion_keeps_each_teams_choice_distinct() {
-    // Each team's uid must map to its own model choice, never a shared or swapped one.
-    let mut team_a = gql_team("team-a", "Team A", &["test-user"]);
-    team_a.feature_model_choice = gql_feature_model_choice("team-a-only");
-    let mut team_b = gql_team("team-b", "Team B", &["test-user"]);
-    team_b.feature_model_choice = gql_feature_model_choice("team-b-only");
-    let mut workspace = gql_workspace("workspace_uid123456789", None);
-    workspace.teams = vec![team_a, team_b];
-
-    let response: WorkspacesMetadataResponse =
-        workspaces_metadata_response_from_gql(gql_user(None, vec![workspace]), false);
-
-    assert_eq!(response.workspaces.len(), 1);
-    let teams = &response.workspaces[0].teams;
-    assert_eq!(
-        teams.len(),
-        2,
-        "both teams' choices should survive the fold"
-    );
-
-    let team_a_uid = ServerId::from_string_lossy(format!("{:0>22}", "team-a"));
-    let team_b_uid = ServerId::from_string_lossy(format!("{:0>22}", "team-b"));
-
-    let choice_a = &teams
-        .iter()
-        .find(|team| team.uid == team_a_uid)
-        .expect("team A's choice should be keyed by team A's own uid")
-        .feature_model_choice;
-    let choice_b = &teams
-        .iter()
-        .find(|team| team.uid == team_b_uid)
-        .expect("team B's choice should be keyed by team B's own uid")
-        .feature_model_choice;
-
-    assert!(
-        choice_a.info_for_id(&"team-a-only".into()).is_some(),
-        "team A's uid must map to team A's own choice, not a shared or swapped payload"
-    );
-    assert!(
-        choice_a.info_for_id(&"team-b-only".into()).is_none(),
-        "team A's uid must not resolve team B's choice"
-    );
-    assert!(
-        choice_b.info_for_id(&"team-b-only".into()).is_some(),
-        "team B's uid must map to team B's own choice, not a shared or swapped payload"
-    );
-    assert!(
-        choice_b.info_for_id(&"team-a-only".into()).is_none(),
-        "team B's uid must not resolve team A's choice"
-    );
-}
-
-#[test]
-fn legacy_cache_migration_yields_a_usable_teamless_catalog() {
-    // The older, pre-`ModelsByFeature` cache shape was a bare `AvailableLLMs`, written when
-    // all available LLMs were solely for Agent Mode. Migrating it must still produce a
-    // catalog whose `agent_mode` bucket resolves the cached model -- a "usable teamless
-    // catalog" -- not an empty or default one.
-    warpui::App::test((), |mut app| async move {
-        app.update(|ctx| {
-            ctx.add_singleton_model(|_| {
-                PrivatePreferences::new(
-                    Box::<user_preferences::in_memory::InMemoryPreferences>::default(),
-                )
-            });
-        });
-
-        let legacy_agent_mode = AvailableLLMs::new(
-            "legacy-model".into(),
-            vec![LLMInfo::new_for_test("legacy-model")],
-            None,
-        )
-        .expect("legacy AvailableLLMs fixture should be valid");
-
-        app.update(|ctx| {
-            ctx.private_user_preferences()
-                .write_value(
-                    MODELS_BY_FEATURE_CACHE_KEY,
-                    serde_json::to_string(&legacy_agent_mode)
-                        .expect("legacy fixture should serialize"),
-                )
-                .expect("legacy cache should be writable");
-        });
-
-        app.update(|ctx| {
-            let migrated = migrate_legacy_feature_model_choices_cache(ctx)
-                .expect("a legacy bare-AvailableLLMs cache should still migrate");
-            assert!(
-                migrated
-                    .agent_mode
-                    .info_for_id(&"legacy-model".into())
-                    .is_some(),
-                "the older bare-AvailableLLMs cache shape should become a usable teamless \
-                 agent_mode catalog"
-            );
-        });
-    });
 }

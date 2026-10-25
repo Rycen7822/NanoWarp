@@ -44,13 +44,11 @@ use super::empty_trash_confirmation_dialog::{
 };
 use super::folders::CloudFolder;
 use super::items::WarpDriveItemId;
-use super::items::ai_fact_collection::WarpDriveAIFactCollection;
 use super::items::item::{ItemStates, WarpDriveRow, tools_panel_menu_direction};
 use super::settings::WarpDriveSettings;
 use super::sharing::dialog::{SharingDialog, SharingDialogEvent};
 use super::sharing::{ContentEditability, ShareableObject};
 use super::{CloudObjectTypeAndId, DriveObjectType, DriveSortOrder};
-use crate::ai::facts::{AIFact, AIMemory};
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::{AuthManager, LoginGatedFeature};
@@ -71,7 +69,7 @@ use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::{
     FetchSingleObjectOption, InitiatedBy, UpdateManager,
 };
-use crate::server::ids::{ClientId, ObjectUid, ServerId, SyncId};
+use crate::server::ids::{ObjectUid, ServerId, SyncId};
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::{
     AnonymousUserSignupEntrypoint, SharingDialogSource, TelemetryEvent,
@@ -174,7 +172,7 @@ const SORTING_BUTTON_TOOLTIP_LABEL: &str = "Sort by";
 const RETRY_BUTTON_TOOLTIP_LABEL: &str = "Retry sync";
 
 const SHARED_OBJECT_LIMIT_HIT_BANNER_LINE: &str =
-    "Upgrade for access to more notebooks, workflows, shared sessions, and AI credits.";
+    "Upgrade for access to more notebooks, workflows, and shared sessions.";
 
 const PAYMENT_ISSUE_BANNER_LINE_1: &str =
     "Shared objects have been restricted due to a subscription payment issue.";
@@ -224,14 +222,12 @@ pub enum SharedObjectLimitBannerKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveIndexAction {
     OpenObject(CloudObjectTypeAndId),
-    OpenAIFactCollection,
     CreateObject {
         object_type: DriveObjectType,
         space: Space,
         initial_folder_id: Option<SyncId>,
     },
     CopyObjectToClipboard(CloudObjectTypeAndId),
-    CopyWorkflowId(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
     CopyObjectLinkToClipboard(String),
     OpenObjectLinkOnDesktop(Url),
@@ -347,10 +343,7 @@ impl DriveIndexAction {
                 _,
                 DriveObjectType::Notebook
                 | DriveObjectType::EnvVarCollection
-                | DriveObjectType::Workflow
-                | DriveObjectType::AgentModeWorkflow
-                | DriveObjectType::AIFactCollection
-                | DriveObjectType::AIFact,
+                | DriveObjectType::Workflow,
             ) => DriveIndexAction::CreateObject {
                 object_type,
                 space,
@@ -391,12 +384,6 @@ pub enum DriveIndexEvent {
         title: Option<String>,
         initial_folder_id: Option<SyncId>,
     },
-    CreateAIFact {
-        space: Space,
-        fact: AIFact,
-        initial_folder_id: Option<SyncId>,
-    },
-    OpenAIFactCollection,
     OpenObject(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
     RunObject(CloudObjectTypeAndId),
@@ -486,11 +473,6 @@ pub struct DriveIndex {
     num_errored_objects: usize,
 
     workspace_dropdown: ViewHandle<Dropdown<DriveIndexAction>>,
-
-    /// Drive item to represent collection of AI facts.
-    /// Special-cased to always render at the top of the Personal space section.
-    ai_fact_collection: WarpDriveAIFactCollection,
-    ai_fact_collection_item_mouse_states: ItemStates,
 }
 
 pub fn init(app: &mut AppContext) {
@@ -681,13 +663,9 @@ impl DriveIndex {
         };
 
         let mut items = vec![];
-        // Add the AI fact collection object for personal space
-        if matches!(location, CloudObjectLocation::Space(Space::Personal)) {
-            items.push(self.ai_fact_collection.id().to_string());
-        }
-
         items.extend(
             item_iter
+                .filter(|object| object.renders_in_warp_drive())
                 .map(|object| {
                     if object.object_type() == ObjectType::Folder {
                         let folder: Option<&CloudFolder> = object.into();
@@ -744,10 +722,6 @@ impl DriveIndex {
             if let Some(section_state) = self.section_states.get_mut(&space)
                 && !section_state.collapsed
             {
-                // Add AI fact collection object for personal space
-                if matches!(space, Space::Personal) {
-                    self.ordered_items.push(WarpDriveItemId::AIFactCollection);
-                }
                 // Sort and add the rest of the items in the space
                 let Some(uids) = self
                     .sorted_orders_by_location
@@ -892,8 +866,6 @@ impl DriveIndex {
             dropdown
         });
 
-        let ai_fact_collection = WarpDriveAIFactCollection::new(ClientId::default());
-
         Self {
             window_id: ctx.window_id(),
             menu,
@@ -923,8 +895,6 @@ impl DriveIndex {
             share_dialog_open_for_object: None,
             should_show_personal_object_limit_status: true,
             workspace_dropdown,
-            ai_fact_collection,
-            ai_fact_collection_item_mouse_states: Default::default(),
         }
     }
 
@@ -1680,41 +1650,6 @@ impl DriveIndex {
         .finish()
     }
 
-    fn render_ai_fact_collection_item(
-        &self,
-        space: Space,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        let warp_drive_item_id = WarpDriveItemId::AIFactCollection;
-        let is_selected = self.selected == Some(warp_drive_item_id);
-        let mut is_focused = false;
-        if let Some(focused_index) = self.focused_index
-            && let Some(&WarpDriveItemId::AIFactCollection) = self.ordered_items.get(focused_index)
-        {
-            is_focused = true;
-        }
-
-        let row = WarpDriveRow::new(
-            Box::new(self.ai_fact_collection.clone()),
-            self.ai_fact_collection_item_mouse_states.clone(),
-            space,
-            0,
-            self.menu.clone(),
-            false, /* can_move */
-            !self.menu_items(&space, &warp_drive_item_id, app).is_empty(),
-            false,
-            false, /* share_dialog_open */
-            is_selected,
-            is_focused,
-            false, /* sync_queue_is_dequeueing */
-            tools_panel_menu_direction(app),
-            appearance,
-        )?;
-
-        Some(row.build().finish())
-    }
-
     fn render_space_items(
         &self,
         space: Space,
@@ -1912,15 +1847,6 @@ impl DriveIndex {
                             .is_hovered()
                     })
                 });
-
-                // If the space is personal, always render the Rules first
-                if matches!(space, Space::Personal)
-                    && matches!(self.index_variant, DriveIndexVariant::MainIndex)
-                    && let Some(ai_fact_collection_item) =
-                        self.render_ai_fact_collection_item(space, appearance, app)
-                {
-                    rendered_space.push(ai_fact_collection_item);
-                }
 
                 rendered_space.extend(
                     self.item_mouse_states
@@ -2948,23 +2874,9 @@ impl DriveIndex {
                     initial_folder_id,
                 })
             }
-            DriveObjectType::Workflow | DriveObjectType::AgentModeWorkflow => {
+            DriveObjectType::Workflow => {
                 report_error!("Creating this object type is not supported");
             }
-            DriveObjectType::AIFact => {
-                if let Some(fact) = title {
-                    ctx.emit(DriveIndexEvent::CreateAIFact {
-                        space,
-                        fact: AIFact::Memory(AIMemory {
-                            name: None,
-                            content: fact,
-                            is_autogenerated: false,
-                        }),
-                        initial_folder_id,
-                    })
-                }
-            }
-            DriveObjectType::AIFactCollection => {}
         }
 
         self.cloud_object_naming_dialog.close(ctx);
@@ -3586,9 +3498,6 @@ impl DriveIndex {
             DriveObjectType::Workflow => "Workflows",
             DriveObjectType::EnvVarCollection => "Environment Variables",
             DriveObjectType::Folder => "Folders",
-            DriveObjectType::AgentModeWorkflow => "Agent Workflows",
-            DriveObjectType::AIFact => "AI Fact",
-            DriveObjectType::AIFactCollection => "Rules",
         };
         let name_styles = UiComponentStyles {
             font_family_id: Some(appearance.ui_font_family()),
@@ -3992,23 +3901,10 @@ impl DriveIndex {
                     ObjectType::Workflow => {
                         let workflow: Option<&CloudWorkflow> = object.into();
                         let workflow = workflow.expect("Object is workflow");
-                        let label = if workflow.model().data.is_agent_mode_workflow() {
-                            "Copy prompt"
-                        } else {
-                            "Copy workflow text"
-                        };
-                        menu_items.push(
-                            MenuItemFields::new(label)
-                                .with_on_select_action(DriveIndexAction::CopyObjectToClipboard(
-                                    *cloud_object_type_and_id,
-                                ))
-                                .with_icon(Icon::CopyMenuItem)
-                                .into_item(),
-                        );
-                        if workflow.model().data.is_agent_mode_workflow() {
+                        if !workflow.model().data.is_agent_mode_workflow() {
                             menu_items.push(
-                                MenuItemFields::new("Copy id")
-                                    .with_on_select_action(DriveIndexAction::CopyWorkflowId(
+                                MenuItemFields::new("Copy workflow text")
+                                    .with_on_select_action(DriveIndexAction::CopyObjectToClipboard(
                                         *cloud_object_type_and_id,
                                     ))
                                     .with_icon(Icon::CopyMenuItem)
@@ -4374,11 +4270,6 @@ impl DriveIndex {
                 return;
             };
             match focused_item_id {
-                WarpDriveItemId::AIFactCollection => {
-                    if let DriveIndexAction::EnterKey = key {
-                        ctx.emit(DriveIndexEvent::OpenAIFactCollection);
-                    }
-                }
                 WarpDriveItemId::Object(cloud_id) => match cloud_id {
                     CloudObjectTypeAndId::Notebook(_) => {
                         if let DriveIndexAction::EnterKey = key {
@@ -4620,9 +4511,7 @@ impl TypedActionView for DriveIndex {
             DriveIndexAction::RenameFolder { folder_id } => {
                 self.rename_folder(*folder_id, ctx);
             }
-            DriveIndexAction::OpenAIFactCollection => {
-                ctx.emit(DriveIndexEvent::OpenAIFactCollection);
-            }
+
             DriveIndexAction::OpenObject(cloud_object_type_and_id) => {
                 if !matches!(self.index_variant, DriveIndexVariant::Trash) {
                     self.set_selected_object(
@@ -4651,7 +4540,9 @@ impl TypedActionView for DriveIndex {
                     match object.object_type() {
                         ObjectType::Workflow => {
                             let workflow: Option<&CloudWorkflow> = object.into();
-                            if let Some(workflow) = workflow {
+                            if let Some(workflow) = workflow
+                                && !workflow.model().data.is_agent_mode_workflow()
+                            {
                                 let content = workflow.model().data.content().to_owned();
                                 ctx.clipboard().write(ClipboardContent::plain_text(content));
                             }
@@ -4674,11 +4565,7 @@ impl TypedActionView for DriveIndex {
                     }
                 }
             }
-            DriveIndexAction::CopyWorkflowId(cloud_object_type_and_id) => {
-                let workflow_id = cloud_object_type_and_id.uid();
-                ctx.clipboard()
-                    .write(ClipboardContent::plain_text(workflow_id));
-            }
+
             DriveIndexAction::DuplicateObject(cloud_object_type_and_id) => {
                 send_telemetry_from_ctx!(
                     TelemetryEvent::DuplicateObject(cloud_object_type_and_id.into()),
@@ -4736,16 +4623,11 @@ impl TypedActionView for DriveIndex {
                         );
                         ctx.focus(&self.cloud_object_naming_dialog.title_editor);
                     }
-                    DriveObjectType::Workflow | DriveObjectType::AgentModeWorkflow => {
+                    DriveObjectType::Workflow => {
                         report_error!("Creating this object type is not supported")
                     }
                     DriveObjectType::EnvVarCollection => {
                         report_error!("Creation of EnvVarCollections is not yet supported")
-                    }
-                    DriveObjectType::AIFact | DriveObjectType::AIFactCollection => {
-                        report_error!(
-                            "Use DriveIndexAction::OpenAIFactCollection to open the pane view instead"
-                        );
                     }
                 }
 

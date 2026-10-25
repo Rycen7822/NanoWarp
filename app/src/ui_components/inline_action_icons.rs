@@ -35,13 +35,6 @@ pub fn cancelled_icon(appearance: &Appearance) -> warpui::elements::Icon {
     )
 }
 
-pub fn reverted_icon(appearance: &Appearance) -> warpui::elements::Icon {
-    warpui::elements::Icon::new(
-        Icon::ReverseLeft.into(),
-        blended_colors::neutral_6(appearance.theme()),
-    )
-}
-
 /// Not running, requires user's attention
 pub fn yellow_stop_icon(appearance: &Appearance) -> warpui::elements::Icon {
     warpui::elements::Icon::new(

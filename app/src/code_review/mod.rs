@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 pub mod code_review_view;
 pub mod comment_list_view;
-pub mod context;
 pub mod diff_size_limits;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub mod diff_state;
@@ -46,14 +46,6 @@ pub struct CodeReviewPanelArg {
     pub focus_new_pane: bool,
 }
 
-/// Scope for diff set context attachment
-#[derive(Clone, Debug, PartialEq)]
-pub enum DiffSetScope {
-    All,
-    /// A single repo-relative file path in the diff set.
-    File(String),
-}
-
 /// The keystroke that submits in the code review panel. Meant to mirror the keystroke for
 /// [`EditorViewEvent::CmdEnter`].
 pub const CODE_REVIEW_SUBMIT_KEYSTROKE: &str = "cmdorctrl-enter";
@@ -86,20 +78,12 @@ pub fn init(app: &mut AppContext) {
         .with_enabled(|| crate::features::FeatureFlag::GitOperationsInCodeReview.is_enabled()),
     ]);
 
-    app.register_fixed_bindings([
-        FixedBinding::custom(
-            CustomAction::Undo,
-            CodeReviewAction::UndoRevert,
-            "Undo",
-            id!("CodeReviewView") & !id!("IMEOpen"),
-        ),
-        FixedBinding::new(
-            CODE_REVIEW_SUBMIT_KEYSTROKE,
-            CodeReviewAction::SubmitReviewComments,
-            id!("CodeReviewView_NotEditing"),
-        )
-        .with_command_description("Send code review comments to agent"),
-    ]);
+    app.register_fixed_bindings([FixedBinding::custom(
+        CustomAction::Undo,
+        CodeReviewAction::UndoRevert,
+        "Undo",
+        id!("CodeReviewView") & !id!("IMEOpen"),
+    )]);
 
     diff_menu::init(app);
     diff_selector::init(app);
@@ -191,4 +175,29 @@ impl SingletonEntity for GlobalCodeReviewModel {}
 
 impl Entity for GlobalCodeReviewModel {
     type Event = GlobalCodeReviewEvent;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CurrentHead {
+    BranchName(String),
+    HeadlessCommitSha(String),
+}
+
+impl CurrentHead {
+    pub fn title(&self) -> String {
+        match self {
+            CurrentHead::BranchName(name) => name.clone(),
+            CurrentHead::HeadlessCommitSha(sha) => {
+                let short = sha.chars().take(7).collect::<String>();
+                format!("Commit {short}")
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffBase {
+    BranchName(String),
+    HeadlessCommitSha(String),
+    UncommittedChanges,
 }

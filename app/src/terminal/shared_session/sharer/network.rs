@@ -20,27 +20,25 @@ use futures_util::stream::AbortHandle;
 use futures_util::{SinkExt, StreamExt};
 use instant::Instant;
 use parking_lot::FairMutex;
+#[cfg(not(any(test, feature = "integration_tests")))]
+use session_sharing_protocol::common::TelemetryContext;
 use session_sharing_protocol::common::{
-    ActivePrompt, ActivePromptUpdate, AgentPromptFailureReason, AgentPromptRequest,
-    AgentPromptRequestId, CommandExecutionFailureReason, CommandExecutionRequestId, ControlAction,
-    ControlActionFailureReason, ControlActionRequestId, FeatureSupport, InputOperationId,
-    InputOperationSeqNo, InputUpdate, OrderedTerminalEvent, OrderedTerminalEventType,
-    ParticipantId, ParticipantList, ParticipantPresenceUpdate, Role, RoleRequestId,
-    RoleRequestResponse, Scrollback, Selection, SelectionUpdate, SessionId,
-    UniversalDeveloperInputContext, UniversalDeveloperInputContextUpdate, UserID, WindowSize,
-    WriteToPtyFailureReason, WriteToPtyRequestId,
+    ActivePrompt, ActivePromptUpdate, AgentPromptFailureReason, AgentPromptRequestId,
+    CommandExecutionFailureReason, CommandExecutionRequestId, ControlActionFailureReason,
+    ControlActionRequestId, FeatureSupport, InputOperationId, InputOperationSeqNo, InputUpdate,
+    OrderedTerminalEvent, OrderedTerminalEventType, ParticipantId, ParticipantList,
+    ParticipantPresenceUpdate, Role, RoleRequestId, RoleRequestResponse, Scrollback, Selection,
+    SelectionUpdate, SessionId, UserID, WindowSize, WriteToPtyFailureReason, WriteToPtyRequestId,
 };
 #[cfg(not(any(test, feature = "integration_tests")))]
-use session_sharing_protocol::common::{SelectedAgentModel, TelemetryContext};
-#[cfg(not(any(test, feature = "integration_tests")))]
 use session_sharing_protocol::sharer::InitPayload;
+use session_sharing_protocol::sharer::SessionSourceType;
 use session_sharing_protocol::sharer::{
     AddGuestsResponse, DownstreamMessage, FailedToAddGuestsReason, FailedToInitializeSessionReason,
     Lifetime, LinkAccessLevelUpdateResponse, ReconnectPayload, ReconnectToken, RemoveGuestResponse,
     RoleUpdateReason, SessionEndedReason, SessionTerminatedReason, TeamAccessLevelUpdateResponse,
     UpdatePendingUserRoleResponse, UpstreamMessage,
 };
-use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warpui::r#async::{FutureExt as _, Spawnable, SpawnableOutput, Timer};
 use warpui::{Entity, ModelContext, RetryOption, SingletonEntity};
@@ -55,9 +53,7 @@ use crate::terminal::TerminalModel;
 use crate::terminal::model::block::BlockId;
 #[cfg(not(any(test, feature = "integration_tests")))]
 use crate::terminal::shared_session::SharedSessionScrollbackType;
-use crate::terminal::shared_session::{
-    EventNumber, SELECTION_THROTTLE_PERIOD, SharedSessionSource, connect_endpoint,
-};
+use crate::terminal::shared_session::{EventNumber, SELECTION_THROTTLE_PERIOD, connect_endpoint};
 use crate::throttle::throttle;
 
 /// The amount of time we will wait to batch consecutive PTY read events before sending an event to the server.
@@ -171,36 +167,33 @@ where
 
 macro_rules! sharer_info {
     ($network:expr_2021, $($arg:tt)+) => {{
-        let (session_id, source_task_id) = $network.log_context();
+        let session_id = $network.log_context();
         log::info!(
-            "{message}; session_id={session_id:?} source_task_id={source_task_id:?}",
+            "{message}; session_id={session_id:?}",
             message = format_args!($($arg)+),
             session_id = session_id,
-            source_task_id = source_task_id,
         );
     }};
 }
 
 macro_rules! sharer_warn {
     ($network:expr_2021, $($arg:tt)+) => {{
-        let (session_id, source_task_id) = $network.log_context();
+        let session_id = $network.log_context();
         log::warn!(
-            "{message}; session_id={session_id:?} source_task_id={source_task_id:?}",
+            "{message}; session_id={session_id:?}",
             message = format_args!($($arg)+),
             session_id = session_id,
-            source_task_id = source_task_id,
         );
     }};
 }
 
 macro_rules! sharer_error {
     ($network:expr_2021, $($arg:tt)+) => {{
-        let (session_id, source_task_id) = $network.log_context();
+        let session_id = $network.log_context();
         warp_errors::report_error!(
             anyhow::anyhow!("{}", format_args!($($arg)+)),
             extra: {
-                "session_id" => ?session_id,
-                "source_task_id" => ?source_task_id
+                "session_id" => ?session_id
             }
         );
     }};
@@ -240,7 +233,6 @@ enum PtyBytesBatchStatus {
 struct CachedLatestState {
     prompt: ActivePrompt,
     selection: Selection,
-    universal_developer_input_context: Option<UniversalDeveloperInputContext>,
 }
 
 #[derive(Clone)]
@@ -250,9 +242,7 @@ struct StartupConfig {
     window_size: WindowSize,
     init_block_id: BlockId,
     input_replica_id: ReplicaId,
-    universal_developer_input_context: UniversalDeveloperInputContext,
     lifetime: Lifetime,
-    selected_model_id: String,
     share_with_team_uid: Option<crate::server::ids::ServerId>,
 }
 
@@ -365,8 +355,7 @@ pub struct Network {
     reconnect_token: Option<ReconnectToken>,
     sharer_id: Option<ParticipantId>,
     startup_config: Option<StartupConfig>,
-    source: SharedSessionSource,
-
+    source: SessionSourceType,
     /// HashMap from event_no to the event. We keep these in memory to support reconnections
     /// until the server acks that they have been processed and are safe to remove.
     unacked_terminal_events: HashMap<usize, OrderedTerminalEvent>,
@@ -411,7 +400,6 @@ impl Network {
             cached_latest_state: CachedLatestState {
                 prompt: active_prompt,
                 selection,
-                universal_developer_input_context: None,
             },
             stage: Stage::BeforeStarted {
                 startup_retry: StartupState::new(),
@@ -421,7 +409,7 @@ impl Network {
             reconnect_token: None,
             sharer_id: None,
             startup_config: None,
-            source: SharedSessionSource::default(),
+            source: SessionSourceType::User,
             unacked_terminal_events: HashMap::new(),
             last_confirmed_event_no: None,
             no_progress_reconnects: 0,
@@ -460,11 +448,9 @@ impl Network {
         active_prompt: ActivePrompt,
         selection: Selection,
         input_replica_id: ReplicaId,
-        terminal_view_id: warpui::EntityId,
         team_uid: Option<crate::server::ids::ServerId>,
-        universal_developer_input_context: UniversalDeveloperInputContext,
         lifetime: Lifetime,
-        source: SharedSessionSource,
+        source: SessionSourceType,
         max_session_size: Byte,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -481,20 +467,13 @@ impl Network {
                 num_cols: size_info.columns(),
             }
         };
-        let selected_model_id: String = crate::ai::llms::LLMPreferences::as_ref(ctx)
-            .get_active_base_model_for_team_uid(team_uid, ctx, Some(terminal_view_id))
-            .id
-            .clone()
-            .into();
         let startup_retry = StartupState::new();
         let startup_config = StartupConfig {
             scrollback: scrollback.clone(),
             window_size,
             init_block_id: init_block_id.clone(),
             input_replica_id,
-            universal_developer_input_context: universal_developer_input_context.clone(),
             lifetime,
-            selected_model_id,
             share_with_team_uid: team_uid,
         };
 
@@ -513,7 +492,6 @@ impl Network {
             cached_latest_state: CachedLatestState {
                 prompt: active_prompt.clone(),
                 selection: selection.clone(),
-                universal_developer_input_context: Some(universal_developer_input_context.clone()),
             },
             stage: Stage::BeforeStarted { startup_retry },
             connection_generation: 0,
@@ -578,8 +556,8 @@ impl Network {
         self.max_session_size
     }
 
-    fn log_context(&self) -> (Option<SessionId>, Option<&str>) {
-        (self.session_id, self.source.orchestrator_task_id())
+    fn log_context(&self) -> Option<SessionId> {
+        self.session_id
     }
 
     fn stage_label(&self) -> &'static str {
@@ -812,39 +790,6 @@ impl Network {
         self.send_message_to_server(message);
     }
 
-    pub fn send_universal_developer_input_context_update(
-        &mut self,
-        update: UniversalDeveloperInputContextUpdate,
-    ) {
-        // Skip update if nothing would change
-        if let Some(ref cached) = self.cached_latest_state.universal_developer_input_context
-            && !update.changes_cached_context(cached)
-        {
-            return;
-        }
-
-        sharer_info!(
-            self,
-            "sending universal developer input context update: {update:?}"
-        );
-        self.apply_context_update_to_cache(update.clone());
-        self.send_message_to_server(UpstreamMessage::UpdateUniversalDeveloperInputContext(
-            update,
-        ));
-    }
-
-    /// Merges an update into the cached context.
-    fn apply_context_update_to_cache(&mut self, update: UniversalDeveloperInputContextUpdate) {
-        let current = self
-            .cached_latest_state
-            .universal_developer_input_context
-            .take()
-            .unwrap_or_default();
-
-        self.cached_latest_state.universal_developer_input_context =
-            Some(update.merge_into(current));
-    }
-
     #[cfg(not(any(test, feature = "integration_tests")))]
     fn start_create_session_attempt(&mut self, ctx: &mut ModelContext<Self>) {
         if !matches!(self.stage, Stage::BeforeStarted { .. }) {
@@ -899,12 +844,6 @@ impl Network {
                     network.clear_startup_transport_handle(attempt);
                     // We don't use the `send_message_to_server` API here
                     // because we don't want to buffer this message.
-                    let universal_developer_input_context = network
-                        .cached_latest_state
-                        .universal_developer_input_context
-                        .clone()
-                        .unwrap_or_else(|| config.universal_developer_input_context.clone());
-
                     let message = UpstreamMessage::Initialize(InitPayload {
                         scrollback: config.scrollback,
                         active_prompt: network.cached_latest_state.prompt.clone(),
@@ -914,15 +853,12 @@ impl Network {
                         init_block_id: config.init_block_id.into(),
                         input_replica_id: config.input_replica_id.into(),
                         telemetry_context: Some(TelemetryContext(telemetry_context().as_value())),
-                        universal_developer_input_context: Some(UniversalDeveloperInputContext {
-                            selected_model: Some(SelectedAgentModel::new(config.selected_model_id)),
-                            ..universal_developer_input_context
-                        }),
+                        universal_developer_input_context: None,
                         lifetime: config.lifetime,
-                        source_type: network.source.source_type.clone(),
-                        source_task_id: network.source.source_task_id.clone(),
+                        source_type: network.source.clone(),
+                        source_task_id: None,
                         feature_support: FeatureSupport {
-                            supports_agent_view: FeatureFlag::AgentView.is_enabled(),
+                            supports_agent_view: false,
                             supports_full_role: true,
                             supports_full_role_for_real: true,
                         },
@@ -1143,7 +1079,7 @@ impl Network {
                                 latest_block_id: latest_block_id.into(),
                                 selection: network.cached_latest_state.selection.clone(),
                                 feature_support: FeatureSupport {
-                                    supports_agent_view: FeatureFlag::AgentView.is_enabled(),
+                                    supports_agent_view: false,
                                     supports_full_role: true,
                                     supports_full_role_for_real: true,
                                 },
@@ -1596,15 +1532,13 @@ impl Network {
                 ctx.emit(NetworkEvent::WriteToPtyRequested { id, bytes })
             }
             DownstreamMessage::AgentPromptRequested {
-                id,
-                participant_id,
-                request,
+                id, participant_id, ..
             } => {
-                ctx.emit(NetworkEvent::AgentPromptRequested {
+                self.send_agent_prompt_rejection(
                     id,
                     participant_id,
-                    request,
-                });
+                    AgentPromptFailureReason::InvalidConversation,
+                );
             }
             DownstreamMessage::LinkAccessLevelUpdateResponse(response) => {
                 ctx.emit(NetworkEvent::LinkAccessLevelUpdateResponse { response })
@@ -1621,26 +1555,20 @@ impl Network {
             DownstreamMessage::TeamAccessLevelUpdateResponse(response) => {
                 ctx.emit(NetworkEvent::TeamAccessLevelUpdateResponse { response })
             }
-            DownstreamMessage::UniversalDeveloperInputContextUpdated(context_update) => {
-                // Update our cache to stay in sync with what the server knows.
-                self.apply_context_update_to_cache(context_update.clone());
-                ctx.emit(NetworkEvent::UniversalDeveloperInputContextUpdated(
-                    context_update,
-                ));
-            }
+            DownstreamMessage::UniversalDeveloperInputContextUpdated(_) => {}
             DownstreamMessage::ViewerTerminalSizeReported { window_size, .. } => {
                 ctx.emit(NetworkEvent::ViewerTerminalSizeReported { window_size });
             }
             DownstreamMessage::ControlActionRequested {
                 participant_id,
                 request_id,
-                action,
+                ..
             } => {
-                ctx.emit(NetworkEvent::ControlActionRequested {
+                self.send_control_action_rejection(
                     participant_id,
                     request_id,
-                    action,
-                });
+                    ControlActionFailureReason::InsufficientPermissions,
+                );
             }
             DownstreamMessage::Pong { .. } => {}
         }
@@ -1858,18 +1786,6 @@ impl Network {
         {
             self.send_presence_selection(self.cached_latest_state.selection.clone())
         }
-
-        // Flush the cached UDI context so any model/input-mode changes
-        // that were dropped while the websocket was connecting are sent.
-        if let Some(cached_context) = self
-            .cached_latest_state
-            .universal_developer_input_context
-            .clone()
-        {
-            self.send_message_to_server(UpstreamMessage::UpdateUniversalDeveloperInputContext(
-                cached_context.into(),
-            ));
-        }
     }
 
     pub fn is_connected(&self) -> bool {
@@ -1988,11 +1904,6 @@ pub enum NetworkEvent {
         id: WriteToPtyRequestId,
         bytes: Vec<u8>,
     },
-    AgentPromptRequested {
-        id: AgentPromptRequestId,
-        participant_id: ParticipantId,
-        request: AgentPromptRequest,
-    },
     LinkAccessLevelUpdateResponse {
         response: LinkAccessLevelUpdateResponse,
     },
@@ -2007,12 +1918,6 @@ pub enum NetworkEvent {
     },
     TeamAccessLevelUpdateResponse {
         response: TeamAccessLevelUpdateResponse,
-    },
-    UniversalDeveloperInputContextUpdated(UniversalDeveloperInputContextUpdate),
-    ControlActionRequested {
-        participant_id: ParticipantId,
-        request_id: ControlActionRequestId,
-        action: ControlAction,
     },
     ViewerTerminalSizeReported {
         window_size: WindowSize,

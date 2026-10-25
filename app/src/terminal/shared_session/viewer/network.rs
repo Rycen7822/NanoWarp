@@ -13,21 +13,19 @@ use futures_util::{SinkExt, StreamExt};
 use instant::Instant;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
-    ActivePrompt, ActivePromptUpdate, AddGuestsResponse, AgentAttachment, AgentPromptFailureReason,
-    AgentPromptRequest, AgentPromptRequestId, CommandExecutionFailureReason, ControlAction,
-    ControlActionFailureReason, FeatureSupport, InputOperationId, InputOperationSeqNo, InputUpdate,
+    ActivePrompt, ActivePromptUpdate, AddGuestsResponse, CommandExecutionFailureReason,
+    FeatureSupport, InputOperationId, InputOperationSeqNo, InputUpdate,
     LinkAccessLevelUpdateResponse, ParticipantId, ParticipantList, ParticipantPresenceUpdate,
     RemoveGuestResponse, Role, RoleRequestId, RoleRequestResponse, Selection, SelectionUpdate,
-    ServerConversationToken, SessionId, TeamAccessLevelUpdateResponse, TeamAclData,
-    TelemetryContext, UniversalDeveloperInputContext, UniversalDeveloperInputContextUpdate,
+    SessionId, TeamAccessLevelUpdateResponse, TeamAclData, TelemetryContext,
     UpdatePendingUserRoleResponse, UserID, WindowSize, WriteToPtyFailureReason,
     WriteToPtyRequestId, WriteToPtySeqNo,
 };
+use session_sharing_protocol::sharer::SessionSourceType;
 use session_sharing_protocol::viewer::{
     DownstreamMessage, InitPayload, RoleUpdatedReason, SessionEndedReason, UpstreamMessage,
     ViewerRemovedReason,
 };
-use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{
@@ -43,11 +41,8 @@ use crate::server::server_api::auth::AuthClient;
 use crate::server::telemetry::telemetry_context;
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::model::block::BlockId;
-use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
 use crate::terminal::shared_session::viewer::event_loop::EventLoop;
-use crate::terminal::shared_session::{
-    EventNumber, SELECTION_THROTTLE_PERIOD, SharedSessionSource, connect_endpoint,
-};
+use crate::terminal::shared_session::{EventNumber, SELECTION_THROTTLE_PERIOD, connect_endpoint};
 use crate::terminal::{TerminalModel, TerminalView};
 use crate::throttle::throttle;
 
@@ -99,7 +94,6 @@ enum PtyBytesBatchStatus {
 /// This is used to avoid sending duplicate updates, and to update the server with the latest state on reconnection.
 struct CachedLatestState {
     selection: Selection,
-    universal_developer_input_context: Option<UniversalDeveloperInputContext>,
 }
 
 /// The network interface to allow communication to and from the
@@ -113,7 +107,6 @@ pub struct Network {
 
     channel_event_proxy: ChannelEventListener,
     terminal_model: Arc<FairMutex<TerminalModel>>,
-    remote_update_guard: RemoteUpdateGuard,
 
     stage: Stage,
 
@@ -153,7 +146,6 @@ impl Network {
         terminal_view: WeakViewHandle<TerminalView>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         write_to_pty_events_rx: Receiver<Vec<u8>>,
-        remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
@@ -167,13 +159,11 @@ impl Network {
             ws_proxy_rx: ws_proxy_rx.clone(),
             channel_event_proxy,
             terminal_model,
-            remote_update_guard,
             terminal_view,
             stage: Stage::BeforeJoined,
             id: None,
             cached_latest_state: CachedLatestState {
                 selection: Selection::None,
-                universal_developer_input_context: None,
             },
             selection_throttled_tx,
             selection_event_no: EventNumber::new(),
@@ -208,7 +198,6 @@ impl Network {
         terminal_view: WeakViewHandle<TerminalView>,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         write_to_pty_events_rx: Receiver<Vec<u8>>,
-        remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         use session_sharing_protocol::common::SessionId;
@@ -228,13 +217,11 @@ impl Network {
             ws_proxy_rx,
             channel_event_proxy,
             terminal_model,
-            remote_update_guard,
             terminal_view,
             stage: Stage::BeforeJoined,
             id: Some(viewer_id.clone()),
             cached_latest_state: CachedLatestState {
                 selection: Selection::None,
-                universal_developer_input_context: None,
             },
             selection_throttled_tx,
             selection_event_no: EventNumber::new(),
@@ -252,8 +239,7 @@ impl Network {
             viewer_firebase_uid,
             participant_list: Default::default(),
             input_replica_id: ReplicaId::random(),
-            universal_developer_input_context: None,
-            source: SharedSessionSource::default(),
+            source: SessionSourceType::User,
         });
 
         model.start_write_to_pty_events_listener(write_to_pty_events_rx, ctx);
@@ -388,7 +374,7 @@ impl Network {
                         latest_block_id: None,
                         telemetry_context: Some(TelemetryContext(telemetry_context().as_value())),
                         feature_support: FeatureSupport {
-                            supports_agent_view: FeatureFlag::AgentView.is_enabled(),
+                            supports_agent_view: false,
                             supports_full_role: true,
                             supports_full_role_for_real: true,
                         },
@@ -459,7 +445,7 @@ impl Network {
                         latest_block_id: Some(latest_block_id.into()),
                         telemetry_context: Some(TelemetryContext(telemetry_context().as_value())),
                         feature_support: FeatureSupport {
-                            supports_agent_view: FeatureFlag::AgentView.is_enabled(),
+                            supports_agent_view: false,
                             supports_full_role: true,
                             supports_full_role_for_real: true,
                         },
@@ -529,19 +515,13 @@ impl Network {
                 viewer_id,
                 viewer_firebase_uid,
                 input_replica_id,
-                universal_developer_input_context,
                 // We use the more detailed source type here,
                 // ignoring the legacy source_type field (which was kept around for backwards compatibility).
                 detailed_source_type: source_type,
-                source_task_id,
                 ..
             } => {
-                let source = SharedSessionSource {
-                    source_type,
-                    source_task_id,
-                };
                 if matches!(
-                    source.source_type,
+                    source_type,
                     session_sharing_protocol::sharer::SessionSourceType::AmbientAgent { .. }
                 ) {
                     self.close_without_reconnection();
@@ -559,11 +539,6 @@ impl Network {
                 self.id = Some(viewer_id.clone());
                 self.stage = Stage::JoinedSuccessfully;
 
-                // Initialize the cache with the server's initial context so that subsequent
-                // local changes are correctly compared against what the server knows.
-                self.cached_latest_state.universal_developer_input_context =
-                    universal_developer_input_context.clone();
-
                 // Create the event loop now that we've joined and are ready to receive events from the server.
                 let event_loop = ctx.add_model(|ctx| {
                     EventLoop::new(
@@ -573,7 +548,6 @@ impl Network {
                         window_size,
                         *scrollback,
                         latest_event_no,
-                        self.remote_update_guard.clone(),
                         ctx,
                     )
                 });
@@ -584,8 +558,7 @@ impl Network {
                     viewer_firebase_uid: UserUid::new(viewer_firebase_uid.as_str()),
                     participant_list: Box::new(*participant_list),
                     input_replica_id: input_replica_id.into(),
-                    universal_developer_input_context,
-                    source,
+                    source: source_type,
                 });
             }
             DownstreamMessage::RejoinedSuccessfully { participant_list } => {
@@ -629,13 +602,7 @@ impl Network {
                     active_prompt_update,
                 ));
             }
-            DownstreamMessage::UniversalDeveloperInputContextUpdated(context_update) => {
-                // Update our cache to stay in sync with what the server knows.
-                self.apply_context_update_to_cache(context_update.clone());
-                ctx.emit(NetworkEvent::UniversalDeveloperInputContextUpdated(
-                    context_update,
-                ));
-            }
+            DownstreamMessage::UniversalDeveloperInputContextUpdated(_) => {}
             DownstreamMessage::FailedToJoin { reason } => {
                 log::warn!(
                     "viewer Network: server replied FailedToJoin for \
@@ -709,17 +676,11 @@ impl Network {
             DownstreamMessage::CommandExecutionRequestFailed { reason, .. } => {
                 ctx.emit(NetworkEvent::CommandExecutionRequestFailed { reason });
             }
-            DownstreamMessage::AgentPromptRequestInFlight(id) => {
-                ctx.emit(NetworkEvent::AgentPromptRequestInFlight(id));
-            }
-            DownstreamMessage::AgentPromptRequestFailed { reason } => {
-                ctx.emit(NetworkEvent::AgentPromptRequestFailed { reason });
-            }
+            DownstreamMessage::AgentPromptRequestInFlight(_)
+            | DownstreamMessage::AgentPromptRequestFailed { .. }
+            | DownstreamMessage::ControlActionRequestFailed { .. } => {}
             DownstreamMessage::WriteToPtyRequestFailed { reason } => {
                 ctx.emit(NetworkEvent::WriteToPtyRequestFailed { reason });
-            }
-            DownstreamMessage::ControlActionRequestFailed { reason } => {
-                ctx.emit(NetworkEvent::ControlActionRequestFailed { reason });
             }
             DownstreamMessage::LinkAccessLevelUpdated { role } => {
                 ctx.emit(NetworkEvent::LinkAccessLevelUpdated { role });
@@ -920,34 +881,6 @@ impl Network {
         self.send_message_to_server(UpstreamMessage::ExecuteCommand { buffer_id, command });
     }
 
-    pub fn send_agent_prompt_request(
-        &mut self,
-        server_conversation_token: Option<ServerConversationToken>,
-        prompt: String,
-        attachments: Vec<AgentAttachment>,
-    ) {
-        let request = AgentPromptRequest {
-            id: AgentPromptRequestId::new(),
-            server_conversation_token,
-            prompt,
-            attachments,
-            // Viewer-typed prompts carry only text and attachments; warp-server fills this in for
-            // the follow-ups it injects.
-            user_query_b64: None,
-        };
-        self.send_message_to_server(UpstreamMessage::SendAgentPrompt(request));
-    }
-
-    pub fn send_cancel_control_action(
-        &mut self,
-        server_conversation_token: ServerConversationToken,
-    ) {
-        let action = ControlAction::CancelConversation {
-            server_conversation_token,
-        };
-        self.send_message_to_server(UpstreamMessage::SendControlAction(action));
-    }
-
     pub fn send_link_permission_update(&mut self, role: Option<Role>) {
         self.send_message_to_server(UpstreamMessage::UpdateLinkAccessLevel { role });
     }
@@ -1018,35 +951,6 @@ impl Network {
     pub fn send_cancel_role_request(&mut self, role_request_id: RoleRequestId) {
         let message = UpstreamMessage::CancelRoleRequest(role_request_id);
         self.send_message_to_server(message);
-    }
-
-    pub fn send_universal_developer_input_context_update(
-        &mut self,
-        update: UniversalDeveloperInputContextUpdate,
-    ) {
-        // Skip update if nothing would change
-        if let Some(ref cached) = self.cached_latest_state.universal_developer_input_context
-            && !update.changes_cached_context(cached)
-        {
-            return;
-        }
-
-        self.apply_context_update_to_cache(update.clone());
-        self.send_message_to_server(UpstreamMessage::UpdateUniversalDeveloperInputContext(
-            update,
-        ));
-    }
-
-    /// Merges an update into the cached context.
-    fn apply_context_update_to_cache(&mut self, update: UniversalDeveloperInputContextUpdate) {
-        let current = self
-            .cached_latest_state
-            .universal_developer_input_context
-            .take()
-            .unwrap_or_default();
-
-        self.cached_latest_state.universal_developer_input_context =
-            Some(update.merge_into(current));
     }
 
     pub fn session_id(&self) -> SessionId {
@@ -1137,31 +1041,6 @@ pub fn write_to_pty_failure_reason_string(reason: &WriteToPtyFailureReason) -> S
     }
 }
 
-/// Converts AgentPromptFailureReason to a user-facing string
-pub fn agent_prompt_failure_reason_string(reason: &AgentPromptFailureReason) -> String {
-    match reason {
-        AgentPromptFailureReason::InsufficientPermissions => {
-            "Insufficient permissions. Please request edit access.".to_owned()
-        }
-        AgentPromptFailureReason::InvalidConversation => {
-            "Invalid conversation. Please try again.".to_owned()
-        }
-        AgentPromptFailureReason::CommandInProgress => {
-            "A long running command is currently in progress. Please wait for it to complete before sending an agent prompt.".to_owned()
-        }
-    }
-}
-
-/// Converts ControlActionFailureReason to a user-facing string
-pub fn control_action_failure_reason_string(reason: &ControlActionFailureReason) -> String {
-    match reason {
-        ControlActionFailureReason::InsufficientPermissions => {
-            "Insufficient permissions. Please request edit access.".to_owned()
-        }
-        _ => "Failed to perform action. Please try again.".to_owned(),
-    }
-}
-
 pub enum NetworkEvent {
     JoinedSuccessfully {
         active_prompt: ActivePrompt,
@@ -1169,8 +1048,7 @@ pub enum NetworkEvent {
         viewer_firebase_uid: UserUid,
         participant_list: Box<ParticipantList>,
         input_replica_id: ReplicaId,
-        universal_developer_input_context: Option<UniversalDeveloperInputContext>,
-        source: SharedSessionSource,
+        source: SessionSourceType,
     },
     FailedToJoin {
         reason: FailedToJoinReason,
@@ -1180,7 +1058,6 @@ pub enum NetworkEvent {
         reason: SessionEndedReason,
     },
     SharerActivePromptUpdated(ActivePromptUpdate),
-    UniversalDeveloperInputContextUpdated(UniversalDeveloperInputContextUpdate),
     Reconnecting,
     ParticipantListUpdated(Box<ParticipantList>),
     ParticipantPresenceUpdated(ParticipantPresenceUpdate),
@@ -1199,15 +1076,8 @@ pub enum NetworkEvent {
     CommandExecutionRequestFailed {
         reason: CommandExecutionFailureReason,
     },
-    AgentPromptRequestInFlight(AgentPromptRequestId),
-    AgentPromptRequestFailed {
-        reason: AgentPromptFailureReason,
-    },
     WriteToPtyRequestFailed {
         reason: WriteToPtyFailureReason,
-    },
-    ControlActionRequestFailed {
-        reason: ControlActionFailureReason,
     },
     ViewerRemoved {
         reason: ViewerRemovedReason,

@@ -3,16 +3,13 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use warp_core::channel::ChannelState;
 use warp_errors::AnyhowErrorExt as _;
-use warp_graphql::ai::PlatformErrorCode;
+use warp_graphql::platform_error::PlatformErrorCode;
 use warp_graphql::platform_error::PlatformErrorMessageFormat;
 use warp_server_auth::auth_state::AuthState;
 
 use super::{HttpStatusError, PresignedDownloadResponse};
 use crate::auth::AuthEvent;
-use crate::base_client::{
-    AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_HEADER, AuthenticatedGraphqlConfig, BaseClient,
-    GraphqlRoutingConfig,
-};
+use crate::base_client::{AuthenticatedGraphqlConfig, BaseClient, GraphqlRoutingConfig};
 
 #[test]
 fn presigned_download_keeps_api_context_off_storage() {
@@ -25,7 +22,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         .with_status(200)
         .with_body("snapshot bytes");
     for header in [
-        "x-oz-api-source",
         "x-warp-client-id",
         "x-warp-client-version",
         "x-warp-os-category",
@@ -35,7 +31,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         "authorization",
         "proxy-authorization",
         "cookie",
-        AMBIENT_WORKLOAD_TOKEN_HEADER,
     ] {
         storage_request = storage_request.match_header(header, mockito::Matcher::Missing);
     }
@@ -54,8 +49,6 @@ fn presigned_download_keeps_api_context_off_storage() {
             .match_header("authorization", "Bearer bearer-token")
             .match_header("x-warp-os-category", mockito::Matcher::Any)
             .match_header("x-warp-os-name", mockito::Matcher::Any)
-            .match_header(AGENT_SOURCE_HEADER, "cloud-mode")
-            .match_header(AMBIENT_WORKLOAD_TOKEN_HEADER, "test-workload-token")
             .match_header("cookie", "session=test-default-cookie")
             .match_header("proxy-authorization", "Bearer test-default-proxy")
             .match_header("x-test-client-default", "api-only")
@@ -74,8 +67,6 @@ fn presigned_download_keeps_api_context_off_storage() {
         ("x-warp-client-version", "test-default-version"),
         ("x-warp-os-category", "test-default-os"),
         ("x-warp-os-name", "test-default-os-name"),
-        ("x-oz-api-source", "test-default-source"),
-        (AMBIENT_WORKLOAD_TOKEN_HEADER, "test-default-workload"),
         ("x-test-client-default", "api-only"),
     ] {
         defaults.insert(
@@ -93,11 +84,9 @@ fn presigned_download_keeps_api_context_off_storage() {
         Arc::new(http_client::Client::new_external()),
         Arc::new(auth_state),
         event_sender,
-        Some("cloud-mode".into()),
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig::default(),
     );
-    client.set_ambient_workload_token_for_test("test-workload-token".into(), None);
     let bytes = block_on(async {
         let download = client
             .get_public_api::<PresignedDownloadResponse>(
@@ -113,12 +102,11 @@ fn presigned_download_keeps_api_context_off_storage() {
 }
 
 fn base_client() -> (BaseClient, async_channel::Receiver<AuthEvent>) {
-    base_client_with_auth(AuthState::new_for_test(), None)
+    base_client_with_auth(AuthState::new_for_test())
 }
 
 fn base_client_with_auth(
     auth_state: AuthState,
-    agent_source: Option<String>,
 ) -> (BaseClient, async_channel::Receiver<AuthEvent>) {
     let (event_sender, event_receiver) = async_channel::unbounded();
     let client = BaseClient::new(
@@ -126,11 +114,9 @@ fn base_client_with_auth(
         Arc::new(http_client::Client::new_external()),
         Arc::new(auth_state),
         event_sender,
-        agent_source,
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig::default(),
     );
-    client.set_ambient_workload_token_for_test("test-workload-token".to_string(), None);
     (client, event_receiver)
 }
 
@@ -165,26 +151,9 @@ fn public_api_get_sends_bearer_auth() {
     };
     let auth_state = AuthState::new_logged_out_for_test();
     auth_state.set_remote_server_bearer_token("bearer-token".to_string());
-    let (base_client, _) = base_client_with_auth(auth_state, None);
+    let (base_client, _) = base_client_with_auth(auth_state);
 
     block_on(base_client.get_public_api::<serde_json::Value>("test/bearer-auth")).unwrap();
-}
-
-#[test]
-fn public_api_get_inherits_ambient_headers() {
-    let _request = {
-        let mut server = ChannelState::mock_server();
-        server
-            .mock("GET", "/api/v1/test/ambient-headers")
-            .match_header(AGENT_SOURCE_HEADER, "cloud-mode")
-            .with_status(200)
-            .with_body(r#"{"value":"success"}"#)
-            .create()
-    };
-    let (base_client, _) =
-        base_client_with_auth(AuthState::new_for_test(), Some("cloud-mode".to_string()));
-
-    block_on(base_client.get_public_api::<serde_json::Value>("test/ambient-headers")).unwrap();
 }
 
 #[test]

@@ -1,6 +1,5 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::ops::AddAssign;
 
 use pathfinder_geometry::rect::RectF;
 use serde::{Deserialize, Serialize};
@@ -22,11 +21,9 @@ pub mod local_code_editor;
 pub use local_code_editor::ShowFindReferencesCard;
 pub mod buffer_location;
 pub mod code_block;
-pub mod diff_viewer;
 pub mod editor;
 pub mod editor_management;
 pub mod global_buffer_model;
-pub mod inline_diff;
 #[cfg(feature = "local_fs")]
 pub mod language_server_shutdown_manager;
 #[cfg(not(target_family = "wasm"))]
@@ -126,6 +123,7 @@ mod icon;
 
 pub mod active_file;
 pub mod opened_files;
+pub(crate) mod persisted_workspace;
 pub use icon::icon_from_file_path;
 
 #[cfg_attr(not(target_family = "wasm"), path = "view.rs")]
@@ -137,31 +135,6 @@ pub fn init(app: &mut AppContext) {
     self::file_tree::init(app);
     #[cfg(not(target_family = "wasm"))]
     self::find_references_view::init(app);
-}
-
-/// The diff that results from editing a file.
-#[derive(Debug, Default, Clone)]
-pub struct DiffResult {
-    /// The changes in unified diff format.
-    pub unified_diff: String,
-    /// Number of lines added.
-    pub lines_added: usize,
-    /// Number of lines removed.
-    pub lines_removed: usize,
-}
-
-impl AddAssign<&DiffResult> for DiffResult {
-    fn add_assign(&mut self, other: &DiffResult) {
-        self.lines_added += other.lines_added;
-        self.lines_removed += other.lines_removed;
-
-        // There's not a standardized multi-file diff format, but concatenating the diffs is enough
-        // for our needs: https://en.wikipedia.org/wiki/Diff#Extensions
-        if !self.unified_diff.is_empty() && !other.unified_diff.is_empty() {
-            self.unified_diff.push('\n');
-        }
-        self.unified_diff.push_str(&other.unified_diff);
-    }
 }
 
 #[derive(Debug)]
@@ -188,58 +161,6 @@ impl ProgrammingLanguage {
         match self {
             Self::Shell(shell_type) => shell_type.name().to_owned(),
             Self::Other(language) => language.to_lowercase(),
-        }
-    }
-
-    /// Returns the file extension for the given programming language.
-    // TODO(INT-605): Refactor so we don't have to edit this function and the `languages` crate.
-    #[cfg_attr(target_family = "wasm", allow(unused))]
-    pub fn to_extension(&self) -> Option<&str> {
-        match self {
-            // The arms below cover both canonical language names emitted by the agent (e.g.
-            // "rust", "kotlin") and common markdown code-fence aliases (e.g. "rs", "kt") to keep
-            // syntax highlighting working when the model uses either. The set of recognized
-            // languages here is kept in sync with `SUPPORTED_LANGUAGES` in the `languages` crate.
-            Self::Other(language) => match language.to_lowercase().as_str() {
-                "rust" | "rs" => Some("rs"),
-                "go" | "golang" => Some("go"),
-                "python" | "py" => Some("py"),
-                "javascript" | "js" => Some("js"),
-                "typescript" | "ts" => Some("ts"),
-                "jsx" => Some("jsx"),
-                "tsx" => Some("tsx"),
-                "yaml" | "yml" => Some("yaml"),
-                "cpp" | "c++" => Some("cpp"),
-                "java" => Some("java"),
-                "groovy" => Some("java"),
-                "shell" => Some("sh"),
-                "c#" | "csharp" => Some("cs"),
-                "html" => Some("html"),
-                "css" => Some("css"),
-                "c" => Some("c"),
-                "json" => Some("json"),
-                "jq" => Some("jq"),
-                "hcl" | "terraform" | "tf" => Some("hcl"),
-                "lua" => Some("lua"),
-                "ruby" | "rb" => Some("rb"),
-                "php" => Some("php"),
-                "toml" => Some("toml"),
-                "swift" => Some("swift"),
-                "kotlin" | "kt" => Some("kt"),
-                "powershell" => Some("ps1"),
-                "elixir" => Some("exs"),
-                "scala" => Some("scala"),
-                "sql" => Some("sql"),
-                "objective-c" | "objc" => Some("m"),
-                "starlark" => Some("bzl"),
-                "xml" => Some("xml"),
-                "vue" => Some("vue"),
-                "dockerfile" | "docker" | "containerfile" => Some("dockerfile"),
-                "markdown" | "md" => Some("md"),
-                _ => None,
-            },
-            Self::Shell(ShellType::PowerShell) => Some("ps1"),
-            _ => None,
         }
     }
 

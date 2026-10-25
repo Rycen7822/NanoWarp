@@ -155,13 +155,6 @@ impl MenuVariant {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) enum MenuTooltipPosition {
-    #[default]
-    Right,
-    Above,
-}
-
 pub type CustomMenuItemLabelFn =
     Arc<dyn Fn(bool, bool, &Appearance, &AppContext) -> Box<dyn Element>>;
 
@@ -457,7 +450,6 @@ pub struct MenuItemFields<A: Action + Clone> {
     vertical_padding_override: Option<f32>,
     horizontal_padding_override: Option<f32>,
     tooltip: Option<String>,
-    tooltip_position: MenuTooltipPosition,
     right_side_label: Option<RightSideLabel>,
     right_side_icon: Option<RightSideIconConfig<A>>,
     /// Optional override for the background color
@@ -508,7 +500,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -538,7 +529,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: true,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -571,7 +561,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -607,7 +596,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -641,7 +629,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -674,7 +661,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -704,7 +690,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: None,
             has_submenu: false,
             tooltip: None,
-            tooltip_position: MenuTooltipPosition::default(),
             right_side_label: None,
             right_side_icon: None,
             override_hover_background_color: None,
@@ -750,7 +735,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
             horizontal_padding_override: self.horizontal_padding_override,
             has_submenu: self.has_submenu,
             tooltip: self.tooltip,
-            tooltip_position: self.tooltip_position,
             right_side_label: self.right_side_label,
             // The right-side icon action is `Option<A>`; we can't safely map
             // it to `Option<B>` here, so drop it. Callers that need the
@@ -872,11 +856,6 @@ impl<A: Action + Clone> MenuItemFields<A> {
     /// [`MenuItemLabel::Text`] labels.
     pub fn with_clip_config(mut self, config: ClipConfig) -> Self {
         self.clip_config = Some(config);
-        self
-    }
-
-    pub(crate) fn with_tooltip_position(mut self, position: MenuTooltipPosition) -> Self {
-        self.tooltip_position = position;
         self
     }
 
@@ -1361,20 +1340,12 @@ impl<A: Action + Clone> MenuItemFields<A> {
                     .tool_tip(tooltip_text.clone())
                     .build()
                     .finish();
-                let positioning = match self.tooltip_position {
-                    MenuTooltipPosition::Right => OffsetPositioning::offset_from_parent(
-                        vec2f(4., 0.),
-                        ParentOffsetBounds::WindowByPosition,
-                        ParentAnchor::MiddleRight,
-                        ChildAnchor::MiddleLeft,
-                    ),
-                    MenuTooltipPosition::Above => OffsetPositioning::offset_from_parent(
-                        vec2f(0., -4.),
-                        ParentOffsetBounds::WindowByPosition,
-                        ParentAnchor::TopMiddle,
-                        ChildAnchor::BottomMiddle,
-                    ),
-                };
+                let positioning = OffsetPositioning::offset_from_parent(
+                    vec2f(4., 0.),
+                    ParentOffsetBounds::WindowByPosition,
+                    ParentAnchor::MiddleRight,
+                    ChildAnchor::MiddleLeft,
+                );
                 let mut stack = Stack::new();
                 stack.add_child(container_element);
                 // Use add_positioned_child instead of add_positioned_overlay_child

@@ -323,13 +323,7 @@ fn test_loading_scrollback() {
 
     // The last scrollback block is the active block and contains the prompt.
     assert_eq!(model.block_list().active_block_index(), 3.into());
-    assert_eq!(
-        model
-            .block_list()
-            .active_block()
-            .height(&crate::terminal::model::block::TranscriptScope::Terminal),
-        Lines::zero()
-    );
+    assert_eq!(model.block_list().active_block().height(), Lines::zero());
     assert!(!model.block_list().active_block().started());
     assert_eq!(
         model.block_list().active_block().session_id(),
@@ -369,13 +363,7 @@ fn test_loading_scrollback_with_completed_last_block_creates_active_block() {
     );
 
     assert_eq!(model.block_list().active_block_index(), 3.into());
-    assert_eq!(
-        model
-            .block_list()
-            .active_block()
-            .height(&crate::terminal::model::block::TranscriptScope::Terminal),
-        Lines::zero()
-    );
+    assert_eq!(model.block_list().active_block().height(), Lines::zero());
     assert!(!model.block_list().active_block().started());
 }
 
@@ -413,14 +401,7 @@ fn test_loading_scrollback_in_alt_screen() {
     );
 
     // The last scrollback block is the active block and contains the prompt.
-    assert_lines_approx_eq!(
-        model
-            .block_list()
-            .block_at(2.into())
-            .unwrap()
-            .height(&crate::terminal::model::block::TranscriptScope::Terminal),
-        0.
-    );
+    assert_lines_approx_eq!(model.block_list().block_at(2.into()).unwrap().height(), 0.);
     assert!(!model.block_list().block_at(2.into()).unwrap().started());
 
     // Make sure we're in the alt screen.

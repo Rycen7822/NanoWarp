@@ -53,7 +53,6 @@ pub fn join_a_workspace() -> TestStep {
                     billing_metadata: Default::default(),
                     stripe_customer_id: None,
                     settings: Default::default(),
-                    feature_model_choice: Default::default(),
                     is_eligible_for_discovery: false,
                     visibility: TeamVisibility::Open,
                 }];
@@ -63,14 +62,11 @@ pub fn join_a_workspace() -> TestStep {
                     stripe_customer_id: None,
                     teams: teams.clone(),
                     billing_metadata: Default::default(),
-                    bonus_grants_purchased_this_month: Default::default(),
                     settings: Default::default(),
-                    feature_model_choice: Default::default(),
                     invite_link_domain_restrictions: Default::default(),
                     pending_email_invites: Default::default(),
                     is_eligible_for_discovery: false,
                     members: Default::default(),
-                    total_requests_used_since_last_refresh: 0,
                 }];
 
                 user_workspaces.update_workspaces(workspaces, ctx);

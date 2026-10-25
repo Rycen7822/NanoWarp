@@ -64,7 +64,6 @@ struct AgentIdentitiesResponse {
 /// User settings that are stored server-side on a per-user basis.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SyncedUserSettings {
-    pub is_cloud_conversation_storage_enabled: bool,
     pub is_telemetry_enabled: bool,
 }
 
@@ -127,8 +126,6 @@ pub trait AuthClient: Send + Sync {
     async fn get_user_settings(&self) -> Result<Option<SyncedUserSettings>>;
 
     async fn set_is_telemetry_enabled(&self, value: bool) -> Result<()>;
-
-    async fn set_is_cloud_conversation_storage_enabled(&self, value: bool) -> Result<()>;
 
     /// Sends a request to update the user's settings on the server with values in the given input.
     async fn update_user_settings(&self, input: UpdateUserSettingsInput) -> Result<()>;
@@ -316,8 +313,6 @@ impl AuthClient for AuthClientImpl {
                     .user
                     .settings
                     .map(|settings| SyncedUserSettings {
-                        is_cloud_conversation_storage_enabled: settings
-                            .is_cloud_conversation_storage_enabled,
                         is_telemetry_enabled: settings.is_telemetry_enabled,
                     }))
             }
@@ -331,20 +326,8 @@ impl AuthClient for AuthClientImpl {
         self.update_settings(
             UpdateUserSettingsInput {
                 telemetry_enabled: Some(value),
-                ..Default::default()
             },
             "failed to set telemetry enabled",
-        )
-        .await
-    }
-
-    async fn set_is_cloud_conversation_storage_enabled(&self, value: bool) -> Result<()> {
-        self.update_settings(
-            UpdateUserSettingsInput {
-                cloud_conversation_storage_enabled: Some(value),
-                ..Default::default()
-            },
-            "failed to set cloud conversation storage enabled",
         )
         .await
     }

@@ -45,12 +45,6 @@ pub struct DirectoryWatcher {
 
     /// Handle to the internal processing queue model that orders scan & update tasks.
     processing_queue: ModelHandle<TaskQueue>,
-
-    /// Paths that must be watched (and indexed) even when they are gitignored
-    /// or beyond the tree's size limit — e.g. skill provider directories that
-    /// consumers (LSP, MCP) need live updates for.
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    force_included_paths: Vec<PathBuf>,
 }
 
 impl DirectoryWatcher {
@@ -80,7 +74,6 @@ impl DirectoryWatcher {
             #[cfg(test)]
             stopped_watching_paths: Vec::new(),
             processing_queue,
-            force_included_paths: Vec::new(),
         }
     }
 
@@ -107,20 +100,6 @@ impl DirectoryWatcher {
             #[cfg(test)]
             stopped_watching_paths: Vec::new(),
             processing_queue,
-            force_included_paths: Vec::new(),
-        }
-    }
-
-    /// Registers paths that must be watched even when gitignored. Mirrors
-    /// `LocalRepoMetadataModel::register_force_included_paths` but applies to
-    /// the watcher backing `Repository` subscribers (LSP, MCP). Must be called
-    /// before repositories begin watching to take effect on already-registered
-    /// watches.
-    pub fn register_force_included_paths(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
-        for path in paths {
-            if !self.force_included_paths.contains(&path) {
-                self.force_included_paths.push(path);
-            }
         }
     }
 
@@ -363,7 +342,6 @@ impl DirectoryWatcher {
                 // threaded in from `Repository::start_watching` so we neither
                 // re-read `.gitignore` from disk nor re-enter the (already
                 // borrowed) `Repository` model here.
-                let force_included_paths = self.force_included_paths.clone();
                 watcher.update(ctx, |watcher, _ctx| {
                     use notify_debouncer_full::notify::RecursiveMode;
 
@@ -371,7 +349,7 @@ impl DirectoryWatcher {
 
                     Some(watcher.register_path(
                         &local_path,
-                        repo_watch_filter(local_path.clone(), gitignores, force_included_paths),
+                        repo_watch_filter(local_path.clone(), gitignores),
                         RecursiveMode::Recursive,
                     ))
                 })

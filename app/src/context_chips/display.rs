@@ -1,60 +1,26 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use warp_core::features::FeatureFlag;
 use warpui::elements::{
-    ChildView, Clipped, Container, CrossAxisAlignment, Element, Flex, MainAxisAlignment,
-    MainAxisSize, ParentElement, Wrap,
+    ChildView, Clipped, Container, CrossAxisAlignment, Element, MainAxisAlignment, MainAxisSize,
+    ParentElement, Wrap,
 };
 use warpui::{
-    AppContext, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
-    View, ViewContext, ViewHandle,
+    AppContext, Entity, FocusContext, ModelHandle, TypedActionView, View, ViewContext, ViewHandle,
 };
 
 use super::display_chip::{DisplayChip, DisplayChipConfig, PromptDisplayChipEvent};
 use super::prompt_type::PromptType;
-use super::{ChipResult, ContextChipKind, git_line_changes_from_chips};
-use crate::ai::blocklist::agent_view::AgentViewController;
-use crate::ai::blocklist::{
-    BlocklistAIContextModel, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
-    BlocklistAIInputEvent, BlocklistAIInputModel,
-};
+use super::{ChipResult, git_line_changes_from_chips};
 use crate::completer::SessionContext;
 use crate::context_chips::display_chip::{DisplayChipAction, PromptChipShellCommand};
-use crate::settings::InputSettings;
 use crate::terminal::input::MenuPositioningProvider;
 use crate::terminal::model_events::ModelEventDispatcher;
-
-/// Enum introduced to abstract over the different row types we use for the prompt display,
-/// between the non-UDI and UDI cases.
-enum RowBuilder {
-    Wrap(Wrap),
-    Flex(Flex),
-}
-
-impl RowBuilder {
-    fn add_child(&mut self, child: Box<dyn Element>) {
-        match self {
-            RowBuilder::Wrap(w) => w.add_child(child),
-            RowBuilder::Flex(f) => f.add_child(child),
-        }
-    }
-
-    fn finish(self) -> Box<dyn Element> {
-        match self {
-            RowBuilder::Wrap(w) => w.finish(),
-            RowBuilder::Flex(f) => f.finish(),
-        }
-    }
-}
 
 /// A view for displaying the prompt.
 pub struct PromptDisplay {
     prompt: ModelHandle<PromptType>,
     display_chips: Vec<ViewHandle<DisplayChip>>,
-    ai_input_model: ModelHandle<BlocklistAIInputModel>,
-    ai_context_model: ModelHandle<BlocklistAIContextModel>,
-    terminal_view_id: EntityId,
     menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
     session_context: Option<SessionContext>,
     current_repo_path: Option<PathBuf>,
@@ -65,8 +31,6 @@ pub struct PromptDisplay {
 
     /// Whether this terminal is viewing a shared session.
     is_shared_session_viewer: bool,
-
-    agent_view_controller: ModelHandle<AgentViewController>,
 }
 
 const PROMPT_CHIP_DISPLAY_ID: &str = "PromptChipDisplay";
@@ -82,7 +46,6 @@ pub enum PromptDisplayEvent {
     ToggleMenu { open: bool },
     OpenCodeReview,
     OpenCommandPaletteFiles,
-    RunAgentQuery(String),
     TryExecuteCommand(PromptChipShellCommand),
 }
 
@@ -90,62 +53,22 @@ impl PromptDisplay {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         prompt: ModelHandle<PromptType>,
-        ai_input_model: ModelHandle<BlocklistAIInputModel>,
-        ai_context_model: ModelHandle<BlocklistAIContextModel>,
-        terminal_view_id: EntityId,
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
         session_context: Option<SessionContext>,
         current_repo_path: Option<PathBuf>,
         model_events: ModelHandle<ModelEventDispatcher>,
-        agent_view_controller: ModelHandle<AgentViewController>,
         is_shared_session_viewer: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         ctx.observe(&prompt, |me, _, ctx| me.handle_prompt_change(ctx));
 
-        // Subscribe to AI input model changes to trigger re-render when input mode changes
-        ctx.subscribe_to_model(&ai_input_model, |_me, _model, event, ctx| {
-            match event {
-                BlocklistAIInputEvent::InputTypeChanged { .. }
-                | BlocklistAIInputEvent::LockChanged { .. } => {
-                    // Trigger re-render to update chip visibility based on new input mode
-                    ctx.notify();
-                }
-            }
-        });
-
-        // Subscribe todo list updates to refresh the todo list chip visibility
-        ctx.subscribe_to_model(
-            &BlocklistAIHistoryModel::handle(ctx),
-            |me, _, event, ctx| {
-                if let BlocklistAIHistoryEvent::UpdatedTodoList {
-                    terminal_surface_id,
-                    ..
-                } = event
-                {
-                    if *terminal_surface_id != me.terminal_view_id {
-                        return;
-                    }
-                    ctx.notify();
-                }
-            },
-        );
-
-        ctx.subscribe_to_model(&agent_view_controller, |_, _, _, ctx| {
-            ctx.notify();
-        });
-
         Self {
             prompt,
             display_chips: vec![],
-            ai_input_model,
-            ai_context_model,
-            terminal_view_id,
             menu_positioning_provider,
             session_context,
             current_repo_path,
             model_events,
-            agent_view_controller,
             pane_is_focused: true,
             is_shared_session_viewer,
         }
@@ -212,15 +135,11 @@ impl PromptDisplay {
                     chip_result.clone(),
                     next_chip_kind,
                     DisplayChipConfig {
-                        ai_input_model: self.ai_input_model.clone(),
-                        ai_context_model: self.ai_context_model.clone(),
-                        terminal_view_id: self.terminal_view_id,
                         menu_positioning_provider: self.menu_positioning_provider.clone(),
                         session_context: self.session_context.clone(),
                         current_repo_path: self.current_repo_path.clone(),
                         model_events: self.model_events.clone(),
                         is_shared_session_viewer,
-                        agent_view_controller: self.agent_view_controller.clone(),
                     },
                 );
                 chip.maybe_set_git_line_changes_info(git_line_changes_info.clone());
@@ -246,10 +165,6 @@ impl PromptDisplay {
                 }
                 PromptDisplayChipEvent::OpenCommandPaletteFiles => {
                     ctx.emit(PromptDisplayEvent::OpenCommandPaletteFiles);
-                    ctx.notify();
-                }
-                PromptDisplayChipEvent::RunAgentQuery(query) => {
-                    ctx.emit(PromptDisplayEvent::RunAgentQuery(query.clone()));
                     ctx.notify();
                 }
                 PromptDisplayChipEvent::TryExecuteCommand(cmd) => {
@@ -314,7 +229,9 @@ impl PromptDisplay {
             prompt
                 .chips(ctx)
                 .iter()
-                .find(|chip_result| matches!(chip_result.kind, ContextChipKind::ShellGitBranch))
+                .find(|chip_result| {
+                    matches!(chip_result.kind, super::ContextChipKind::ShellGitBranch)
+                })
                 .and_then(|chip_result| chip_result.value.as_ref().map(|v| v.to_string()))
         })
     }
@@ -377,36 +294,15 @@ impl View for PromptDisplay {
         }
     }
 
-    fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        let should_render_udi_chips = InputSettings::as_ref(app)
-            .is_universal_developer_input_enabled(app)
-            || FeatureFlag::AgentView.is_enabled();
-        let mut row = if should_render_udi_chips {
-            RowBuilder::Wrap(
-                Wrap::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_main_axis_alignment(MainAxisAlignment::Start)
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_run_spacing(super::spacing::UDI_ROW_RUN_SPACING),
-            )
-        } else {
-            RowBuilder::Flex(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_constrain_horizontal_bounds_to_parent(true)
-                    .with_main_axis_size(MainAxisSize::Min),
-            )
-        };
+    fn render(&self, _app: &AppContext) -> Box<dyn Element> {
+        let mut row = Wrap::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_alignment(MainAxisAlignment::Start)
+            .with_main_axis_size(MainAxisSize::Min)
+            .with_run_spacing(super::spacing::UDI_ROW_RUN_SPACING);
 
         self.display_chips.iter().for_each(|display_chip| {
-            let chip = display_chip.as_ref(app);
-            // AgentPlanAndTodoList is only shown in the agent input footer
-            if matches!(chip.chip_kind(), ContextChipKind::AgentPlanAndTodoList) {
-                return;
-            }
-            if chip.should_render(app) {
-                row.add_child(ChildView::new(display_chip).finish());
-            }
+            row.add_child(ChildView::new(display_chip).finish());
         });
 
         // This is a hack to apply horizontal clipping without vertical clipping (for padding).

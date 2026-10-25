@@ -119,8 +119,6 @@ use warp_graphql::queries::get_updated_cloud_objects::{
 use warp_graphql::subscriptions::get_warp_drive_updates::GetWarpDriveUpdates;
 use warp_graphql::subscriptions::start_graphql_streaming_operation;
 
-use crate::ai::execution_profiles::AIExecutionProfile;
-use crate::ai::facts::AIFact;
 use crate::channel::ChannelState;
 use crate::cloud_object::model::generic_string_model::{
     GenericStringModel, GenericStringObjectId, Serializer, StringModel,
@@ -777,27 +775,11 @@ impl ObjectClient for ServerApi {
                                     gso,
                                 );
                             }
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonAIFact => {
-                                parse_server_gso::<AIFact, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::AIFact),
-                                    gso,
-                                );
-                            }
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonAIExecutionProfile => {
-                                parse_server_gso::<AIExecutionProfile, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::AIExecutionProfile),
-                                    gso,
-                                );
-                            }
                             // GSO formats unknown to this client build (e.g. the
                             // server-only `JsonRunner`) are skipped so syncing of
                             // known objects still succeeds instead of failing to
                             // decode the whole response.
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonCloudEnvironment
-                            | warp_graphql::generic_string_object::GenericStringObjectFormat::JsonScheduledAmbientAgent
-                            | warp_graphql::generic_string_object::GenericStringObjectFormat::Unknown => {}
+                            warp_graphql::generic_string_object::GenericStringObjectFormat::Unknown => {}
                         }
                     }
                 }

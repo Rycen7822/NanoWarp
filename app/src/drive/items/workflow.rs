@@ -39,11 +39,7 @@ impl WarpDriveItem for WarpDriveWorkflow {
     }
 
     fn object_type(&self) -> Option<DriveObjectType> {
-        if self.workflow.model().data.is_agent_mode_workflow() {
-            Some(DriveObjectType::AgentModeWorkflow)
-        } else {
-            Some(DriveObjectType::Workflow)
-        }
+        Some(DriveObjectType::Workflow)
     }
 
     fn secondary_icon(&self, _color: Option<Fill>) -> Option<Box<dyn Element>> {
@@ -153,11 +149,7 @@ impl WarpDriveWorkflow {
                 .ui_builder()
                 .paragraph(self.workflow.model().data.content().to_owned())
                 .with_style(UiComponentStyles {
-                    font_family_id: Some(if self.workflow.model().data.is_agent_mode_workflow() {
-                        appearance.ui_font_family()
-                    } else {
-                        appearance.monospace_font_family()
-                    }),
+                    font_family_id: Some(appearance.monospace_font_family()),
                     font_color: Some(theme.main_text_color(theme.surface_2()).into()),
                     font_size: Some(12.),
                     ..Default::default()

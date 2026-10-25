@@ -3,8 +3,6 @@ use serde_json::{Value, json};
 use strum_macros::{EnumDiscriminants, EnumIter};
 use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 
-use crate::tab_configs::session_config::SessionType;
-
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExistingTabConfigOpenMode {
@@ -26,24 +24,6 @@ pub enum WorktreeBranchNamingMode {
     Manual,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GuidedModalSessionType {
-    Terminal,
-    Oz,
-    CliAgent,
-}
-
-impl From<&SessionType> for GuidedModalSessionType {
-    fn from(value: &SessionType) -> Self {
-        match value {
-            SessionType::Terminal => Self::Terminal,
-            SessionType::Oz => Self::Oz,
-            SessionType::CliAgent(_) => Self::CliAgent,
-        }
-    }
-}
-
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]
 pub enum TabConfigsTelemetryEvent {
@@ -58,7 +38,6 @@ pub enum TabConfigsTelemetryEvent {
     },
     GuidedModalOpened,
     GuidedModalSubmitted {
-        session_type: GuidedModalSessionType,
         enable_worktree: bool,
         autogenerate_worktree_branch_name: bool,
     },
@@ -87,11 +66,9 @@ impl TelemetryEvent for TabConfigsTelemetryEvent {
                 "naming_mode": naming_mode,
             })),
             Self::GuidedModalSubmitted {
-                session_type,
                 enable_worktree,
                 autogenerate_worktree_branch_name,
             } => Some(json!({
-                "session_type": session_type,
                 "enable_worktree": enable_worktree,
                 "autogenerate_worktree_branch_name": autogenerate_worktree_branch_name,
             })),

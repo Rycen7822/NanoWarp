@@ -9,7 +9,6 @@ use crate::server::experiments::ServerExperiment;
 pub(crate) struct UserProperties {
     pub(crate) user: User,
     pub(crate) server_experiments: Vec<ServerExperiment>,
-    pub(crate) llms: crate::ai::llms::ModelsByFeature,
 }
 
 impl From<GqlUserOutput> for UserProperties {
@@ -22,7 +21,6 @@ impl From<GqlUserOutput> for UserProperties {
 
         let is_on_work_domain = user_properties.is_on_work_domain;
         let is_onboarded = user_properties.is_onboarded;
-        let global_skills = user_properties.global_skills;
 
         let linked_at = user_properties
             .anonymous_user_info
@@ -45,9 +43,6 @@ impl From<GqlUserOutput> for UserProperties {
             .and_then(|experiments| convert_to_server_experiment!(experiments))
             .unwrap_or_default();
 
-        // Convert LLM model choices from the GraphQL response.
-        let llms = user_properties.llms.try_into().unwrap_or_default();
-
         let user = User {
             is_onboarded,
             local_id,
@@ -58,13 +53,11 @@ impl From<GqlUserOutput> for UserProperties {
             linked_at,
             personal_object_limits: personal_object_limits.and_then(|t| t.try_into().ok()),
             principal_type,
-            global_skills,
         };
 
         UserProperties {
             user,
             server_experiments,
-            llms,
         }
     }
 }

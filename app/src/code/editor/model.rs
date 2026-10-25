@@ -4,14 +4,12 @@
 use std::future::Future;
 use std::ops::Range;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::{cmp, mem};
 
-use ai::diff_validation::DiffDelta;
+use crate::code::editor::DiffDelta;
 use itertools::Itertools;
 use languages::{Language, language_by_filename, language_by_local_filename, language_by_name};
-use line_ending::LineEnding;
 use num_traits::SaturatingSub;
 use rangemap::{RangeMap, RangeSet};
 use string_offset::CharOffset;
@@ -63,7 +61,6 @@ use warpui::text::point::Point;
 use warpui::units::{IntoPixels, Pixels};
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
-use super::super::DiffResult;
 use super::comments::{EditorCommentsModel, PendingComment, PendingCommentEvent};
 use super::diff::{
     DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk, add_inline_overlay_color,
@@ -202,18 +199,12 @@ pub enum CodeEditorModelEvent {
         origin: EditOrigin,
     },
     SelectionChanged,
-    UnifiedDiffComputed(Rc<DiffResult>),
     ViewportUpdated(BufferVersion),
     InteractionStateChanged,
     DelayedRenderingFlushed,
     /// Emitted when the render state layout has been updated.
     /// Consumers can use this to invalidate cached heights.
     LayoutInvalidated,
-    #[cfg(windows)]
-    WindowsCtrlC {
-        /// True if the `ctrl-c` action was used to copy an active selection.
-        copied_selection: bool,
-    },
 }
 
 /// Triggers to delay rendering until a certain event.
@@ -1396,11 +1387,6 @@ impl CodeEditorModel {
 
                 ctx.emit(CodeEditorModelEvent::DiffUpdated);
             }
-            DiffModelEvent::UnifiedDiffComputed(unified_diff) => {
-                ctx.emit(CodeEditorModelEvent::UnifiedDiffComputed(
-                    unified_diff.clone(),
-                ));
-            }
         }
     }
 
@@ -1763,25 +1749,14 @@ impl CodeEditorModel {
     }
 
     #[cfg(windows)]
-    /// If there is selected text, copy it. Otherwise, emit an event to allow
-    /// an ancestor to handle the `WindowsCtrlC` event.
+    /// Copy selected text and clear the selection.
     pub fn handle_windows_ctrl_c(&self, ctx: &mut ModelContext<Self>) {
         let buffer = self.content().as_ref(ctx);
         let selected_text =
             buffer.selected_text_as_plain_text(self.buffer_selection_model().clone(), ctx);
         if !selected_text.as_str().is_empty() {
             self.copy(ctx);
-            // If the code editor is in a blocklist, this won't clear the
-            // selection model there, we have to do that separately. That is
-            // handled by emitted the `WindowsCtrlC` event.
             self.clear_selections(ctx);
-            ctx.emit(CodeEditorModelEvent::WindowsCtrlC {
-                copied_selection: true,
-            });
-        } else {
-            ctx.emit(CodeEditorModelEvent::WindowsCtrlC {
-                copied_selection: false,
-            });
         }
     }
 
@@ -1879,30 +1854,6 @@ impl CodeEditorModel {
         // We only want to read the plain text contents for code editor.
         let content = ctx.clipboard().read();
         self.insert(content.plain_text.as_str(), EditOrigin::UserInitiated, ctx);
-    }
-
-    /// Append text to the end of the buffer regardless of cursor position.
-    /// This is used for streaming content where we always want to append at the end,
-    /// not at the current cursor position.
-    pub fn append_at_end(&mut self, text: &str, ctx: &mut ModelContext<Self>) {
-        let buffer = self.content().as_ref(ctx);
-        let max_offset = buffer.max_charoffset();
-
-        let edits = vec1![(text.to_string(), max_offset..max_offset)];
-
-        let selection_model = self.selection_model.clone();
-        self.update_content(
-            |mut content, ctx| {
-                content.apply_edit(
-                    BufferEditAction::InsertAtCharOffsetRanges { edits: &edits },
-                    EditOrigin::SystemEdit,
-                    selection_model,
-                    ctx,
-                );
-            },
-            ctx,
-        );
-        self.validate(ctx);
     }
 
     /// Set Vim visual tails to the current selection heads (cursor positions).
@@ -2107,18 +2058,6 @@ impl CodeEditorModel {
         bracket_pairs
             .iter()
             .any(|(start, end)| *start == opening_char && *end == ending_char)
-    }
-
-    pub fn retrieve_unified_diff(&self, file_name: String, ctx: &mut ModelContext<Self>) {
-        // Use the buffer's text with normalized line endings, for consistency with how we calculate diffs.
-        let content = self
-            .content()
-            .as_ref(ctx)
-            .text_with_line_ending_mode(LineEnding::LF);
-
-        self.diff.update(ctx, move |diff, ctx| {
-            diff.retrieve_unified_diff(content, file_name, ctx)
-        });
     }
 
     pub fn interaction_state(&self) -> InteractionState {

@@ -137,7 +137,6 @@ impl<T: EventLoopSender> RemoteServerController<T> {
             | RemoteServerManagerEvent::SessionDeregistered { .. }
             | RemoteServerManagerEvent::HostConnected { .. }
             | RemoteServerManagerEvent::HostDisconnected { .. }
-            | RemoteServerManagerEvent::RemoteAgentContextSnapshot { .. }
             | RemoteServerManagerEvent::NavigatedToDirectory { .. }
             | RemoteServerManagerEvent::RepoMetadataSnapshot { .. }
             | RemoteServerManagerEvent::RepoMetadataUpdated { .. }

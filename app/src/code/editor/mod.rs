@@ -16,6 +16,29 @@ pub mod view;
 
 pub use comment_editor::{CommentEditor, CommentEditorEvent};
 pub use comments::{EditorCommentsModel, EditorReviewComment};
-pub(crate) use diff::{add_color, compute_unified_diff, remove_color};
+pub(crate) use diff::{add_color, remove_color};
 pub use element::GutterHoverTarget;
-pub use nav_bar::NavBarBehavior;
+
+/// Visual representation of a single diff hunk.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DiffDelta {
+    pub replacement_line_range: std::ops::Range<usize>,
+    pub insertion: String,
+}
+
+impl std::fmt::Debug for DiffDelta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if cfg!(debug_assertions) {
+            write!(
+                f,
+                "DiffDelta {{\nreplacement_line_range: {:?},",
+                &self.replacement_line_range
+            )?;
+            f.write_str("\n--insertion--\n")?;
+            f.write_str(&self.insertion)?;
+            f.write_str("\n}")
+        } else {
+            Ok(())
+        }
+    }
+}

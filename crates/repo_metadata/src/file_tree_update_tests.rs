@@ -315,7 +315,6 @@ fn apply_complete_update_adds_files_and_directories() {
                 }),
             ],
         }],
-        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -362,7 +361,6 @@ fn apply_update_with_removals_and_additions() {
                 ignored: false,
             })],
         }],
-        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -393,7 +391,6 @@ fn apply_incomplete_update_missing_children_subtree() {
                 loaded: false,
             })],
         }],
-        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -422,7 +419,6 @@ fn apply_incomplete_update_missing_children_subtree() {
                 ignored: false,
             })],
         }],
-        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&followup);
@@ -450,7 +446,6 @@ fn apply_incomplete_update_missing_parent_from_undelivered_page() {
                 ignored: false,
             })],
         }],
-        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);

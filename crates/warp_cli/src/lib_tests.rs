@@ -3,7 +3,6 @@ use std::ffi::OsString;
 use clap::Parser;
 
 use super::*;
-use crate::agent::Harness;
 
 #[test]
 fn identifies_worker_subcommands() {
@@ -11,25 +10,6 @@ fn identifies_worker_subcommands() {
     assert!(is_worker_invocation(&terminal_server_subcommand()));
     assert!(!is_worker_invocation("--prompt"));
     assert!(Args::try_parse_from(["nanowarp", "agent", "run", "--prompt", "test"]).is_err());
-}
-
-#[test]
-fn oz_and_warp_env_var_constants_name_the_same_variables() {
-    for (oz_name, warp_name) in [
-        (OZ_RUN_ID_ENV, WARP_RUN_ID_ENV),
-        (OZ_PARENT_RUN_ID_ENV, WARP_PARENT_RUN_ID_ENV),
-        (OZ_CLI_ENV, WARP_CLI_ENV),
-        (OZ_HARNESS_ENV, WARP_HARNESS_ENV),
-    ] {
-        let suffix = oz_name
-            .strip_prefix("OZ_")
-            .unwrap_or_else(|| panic!("{oz_name} should be OZ_-prefixed"));
-        assert_eq!(
-            warp_name,
-            format!("WARP_{suffix}"),
-            "{warp_name} does not correspond to {oz_name}"
-        );
-    }
 }
 
 #[test]
@@ -54,30 +34,6 @@ fn help_hides_api_key_env_value() {
         "help should not reveal the API key environment value:\n{help}"
     );
     assert_eq!(args.api_key().map(String::as_str), Some(API_KEY));
-}
-
-#[test]
-fn harness_parse_orchestration_harness_accepts_aliases() {
-    assert_eq!(
-        Harness::parse_orchestration_harness("pi"),
-        Some(Harness::Pi)
-    );
-    assert_eq!(
-        Harness::parse_orchestration_harness("claude-code"),
-        Some(Harness::Claude)
-    );
-    assert_eq!(
-        Harness::parse_orchestration_harness("open_code"),
-        Some(Harness::OpenCode)
-    );
-}
-
-#[test]
-fn harness_parse_orchestration_harness_accepts_codex() {
-    assert_eq!(
-        Harness::parse_orchestration_harness("codex"),
-        Some(Harness::Codex)
-    );
 }
 
 #[test]

@@ -7,7 +7,6 @@ use warp_completer::meta::Span;
 use warpui::AppContext;
 use warpui::{Entity, ViewContext};
 
-use crate::ai::agent::AIAgentPtyWriteMode;
 #[cfg(unix)]
 use crate::terminal::event::AfterBlockCompletedEvent;
 use crate::terminal::model::completions::ShellCompletion;
@@ -26,10 +25,6 @@ pub enum PtyIntent {
     CtrlD,
     ShutdownPty,
     WriteBytes(Cow<'static, [u8]>),
-    WriteAgentInput {
-        bytes: Cow<'static, [u8]>,
-        mode: AIAgentPtyWriteMode,
-    },
     Resize(SizeUpdate),
     ExecuteCommand(ExecuteCommandEvent),
     RunNativeShellCompletions {

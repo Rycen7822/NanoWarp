@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::stream::AbortHandle;
@@ -15,11 +14,10 @@ use string_offset::CharOffset;
 use warp_core::ui::theme::{AnsiColorIdentifier, Fill};
 use warp_editor::content::edit::TemporaryBlock;
 use warp_editor::content::version::BufferVersion;
-use warp_editor::multiline::{AnyMultilineString, LF, MultilineStr, MultilineString};
+use warp_editor::multiline::{LF, MultilineStr, MultilineString};
 use warp_editor::render::model::{Decoration, LineCount, LineDecoration};
 use warpui::{Entity, ModelContext};
 
-use super::super::DiffResult;
 use crate::appearance::Appearance;
 use crate::code::editor::line::EditorLineLocation;
 use crate::code::editor::line_iterator::LineIterator;
@@ -86,54 +84,6 @@ pub(crate) fn remove_inline_overlay_color(appearance: &Appearance) -> ColorU {
 
 pub enum DiffModelEvent {
     DiffUpdated { version: BufferVersion },
-    UnifiedDiffComputed(Rc<DiffResult>),
-}
-
-/// Computes the unified diff (3 context lines, git style) and line stats
-/// between two contents.
-pub(crate) async fn compute_unified_diff(
-    base: &MultilineStr<LF>,
-    new: &MultilineStr<LF>,
-    file_name: &str,
-) -> DiffResult {
-    if base == new {
-        return DiffResult {
-            unified_diff: String::new(),
-            lines_added: 0,
-            lines_removed: 0,
-        };
-    }
-
-    let text_diff = TextDiff::from_lines(base.as_str(), new.as_str());
-
-    // Calculate diff statistics.
-    let mut lines_added = 0;
-    let mut lines_removed = 0;
-
-    for op in text_diff.ops() {
-        match op {
-            DiffOp::Equal { .. } => (),
-            DiffOp::Delete { old_len, .. } => lines_removed += old_len,
-            DiffOp::Insert { new_len, .. } => lines_added += new_len,
-            DiffOp::Replace {
-                old_len, new_len, ..
-            } => {
-                lines_added += new_len;
-                lines_removed += old_len;
-            }
-        }
-    }
-
-    DiffResult {
-        unified_diff: text_diff
-            .unified_diff()
-            .context_radius(3)
-            .header(file_name, file_name)
-            .missing_newline_hint(false)
-            .to_string(),
-        lines_added,
-        lines_removed,
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -621,6 +571,8 @@ impl DiffModel {
 
     #[cfg(test)]
     async fn compute_diff_for_test(&mut self, new: String) {
+        use warp_editor::multiline::AnyMultilineString;
+
         let Some(base_text) = self.base.clone() else {
             return;
         };
@@ -630,27 +582,6 @@ impl DiffModel {
             Self::compute_diff_internal(&base_text, new.to_format().as_ref()).await;
         self.status.change_mapping = change_mapping;
         self.status.deletion_mapping = deletion_mapping;
-    }
-
-    pub fn retrieve_unified_diff(
-        &mut self,
-        new: AnyMultilineString,
-        file_name: String,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let Some(base_text) = self.base.clone() else {
-            return;
-        };
-
-        ctx.spawn(
-            async move {
-                let new = new.to_format();
-                compute_unified_diff(&base_text, new.as_ref(), file_name.as_str()).await
-            },
-            |_, unified_diff, ctx| {
-                ctx.emit(DiffModelEvent::UnifiedDiffComputed(Rc::new(unified_diff)));
-            },
-        );
     }
 
     async fn compute_diff_internal(

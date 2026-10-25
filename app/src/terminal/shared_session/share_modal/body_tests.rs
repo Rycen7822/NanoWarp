@@ -25,7 +25,7 @@ fn test_open_modal_from_non_block() {
         let terminal_model_clone = terminal_model.clone();
         share_session_modal.update(&mut app, |share_session_modal, ctx| {
             let open_source = SharedSessionActionSource::Tab;
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // Options should be no scrollback and from start. Both enabled.
@@ -68,7 +68,7 @@ fn test_open_modal_from_block() {
             let open_source = SharedSessionActionSource::BlocklistContextMenu {
                 block_index: Some(block_index),
             };
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // Options should be from block, no scrollback, and from start. All enabled.
@@ -119,7 +119,7 @@ fn test_open_modal_from_non_block_disabled() {
         let terminal_model_clone = terminal_model.clone();
         share_session_modal.update(&mut app, |share_session_modal, ctx| {
             let open_source = SharedSessionActionSource::Tab;
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // Options should be no scrollback and from start. From start is disabled.
@@ -168,7 +168,7 @@ fn test_open_modal_from_block_disabled() {
             let open_source = SharedSessionActionSource::BlocklistContextMenu {
                 block_index: Some(block_index),
             };
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // From block and from start of the session are disabled because they are over the limit. No scrollback is enabled.
@@ -198,7 +198,7 @@ fn test_open_modal_from_block_disabled() {
             let open_source = SharedSessionActionSource::BlocklistContextMenu {
                 block_index: Some(block_index),
             };
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // From block and no scrollback are enabled, but from start of session is disabled.
@@ -250,7 +250,7 @@ fn test_open_modal_from_long_running_block() {
         let terminal_model_clone = terminal_model.clone();
         share_session_modal.update(&mut app, |share_session_modal, ctx| {
             let open_source = SharedSessionActionSource::Tab;
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // Options should be no scrollback and from start. Both are enabled.
@@ -285,7 +285,7 @@ fn test_open_modal_from_long_running_block() {
         let terminal_model_clone = terminal_model.clone();
         share_session_modal.update(&mut app, |share_session_modal, ctx| {
             let open_source = SharedSessionActionSource::Tab;
-            share_session_modal.open(open_source, terminal_model_clone, terminal_view.id(), ctx);
+            share_session_modal.open(open_source, terminal_model_clone, ctx);
         });
 
         // Options should be no scrollback and from start. Both are disabled.

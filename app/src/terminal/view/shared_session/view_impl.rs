@@ -22,12 +22,10 @@ use warpui::ui_components::components::UiComponent;
 use warpui::units::IntoLines;
 use warpui::{AppContext, Element, ModelHandle, SingletonEntity, ViewContext};
 
-use super::ConversationEndedTombstoneView;
 use super::adapter::{Adapter, Kind, Participant};
 use super::sharer::Sharer;
 use super::sharer::inactivity_modal::InactivityModalEvent;
 use super::viewer::Viewer;
-use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::auth::UserUid;
 use crate::context_chips::ContextChipKind;
 use crate::drive::sharing::ShareableObject;
@@ -53,12 +51,12 @@ use crate::terminal::shared_session::role_change_modal::{
 };
 use crate::terminal::shared_session::settings::SharedSessionSettings;
 use crate::terminal::shared_session::{
-    COPY_LINK_TEXT, SharedSessionActionSource, SharedSessionScrollbackType, SharedSessionSource,
-    SharedSessionStatus, join_link,
+    COPY_LINK_TEXT, SharedSessionActionSource, SharedSessionScrollbackType, SharedSessionStatus,
+    join_link,
 };
 use crate::terminal::view::{
-    ContextMenuAction, Event, InlineBannerItem, InlineBannerType, RichContentInsertionPosition,
-    SharedSessionBanners, SizeUpdateBuilder, TerminalAction, TerminalView,
+    ContextMenuAction, Event, InlineBannerItem, InlineBannerType, SharedSessionBanners,
+    SizeUpdateBuilder, TerminalAction, TerminalView,
 };
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::{TelemetryEvent, send_telemetry_from_ctx};
@@ -408,8 +406,7 @@ impl TerminalView {
         &mut self,
         scrollback_type: SharedSessionScrollbackType,
         action_source: Option<SharedSessionActionSource>,
-        source: SharedSessionSource,
-        bypass_conversation_guard: bool,
+        source: SessionSourceType,
         ctx: &mut ViewContext<Self>,
     ) {
         // We should only be attempting to share a session
@@ -421,25 +418,6 @@ impl TerminalView {
         if !self.model.lock().block_list().is_bootstrapped() {
             log::warn!("Tried to share session before it was bootstrapped.");
             return;
-        }
-
-        // Check if we're trying to share without scrollback while agent shared sessions is enabled
-        // and there are active conversations. This would break the viewer experience since they
-        // wouldn't receive the conversation history they need to continue conversations.
-        if !bypass_conversation_guard
-            && FeatureFlag::AgentSharedSessions.is_enabled()
-            && scrollback_type == SharedSessionScrollbackType::None
-        {
-            let has_conversations = BlocklistAIHistoryModel::as_ref(ctx)
-                .all_live_conversations_for_terminal_surface(ctx.handle().id())
-                .any(|conv| conv.exchange_count() > 0);
-
-            if has_conversations {
-                log::warn!(
-                    "Cannot share without scrollback when agent conversations exist. Agent shared sessions require conversation history to be shared."
-                );
-                return;
-            }
         }
 
         self.set_show_pane_accent_border(false, ctx);
@@ -542,13 +520,8 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         let session_id = self.shared_session_id().cloned();
-        let source_task_id = self
-            .model
-            .lock()
-            .shared_session_source()
-            .and_then(|share_source| share_source.orchestrator_task_id().map(str::to_owned));
         log::info!(
-            "Shared session view stop requested: session_id={session_id:?} source_task_id={source_task_id:?} action_source={source:?} reason={reason:?}"
+            "Shared session view stop requested: session_id={session_id:?} action_source={source:?} reason={reason:?}"
         );
         ctx.emit(Event::StopSharingCurrentSession { reason });
 
@@ -635,8 +608,7 @@ impl TerminalView {
             self.terminal_title = pwd.to_string();
         }
 
-        // Update the pane title, which will show either the conversation title/status
-        // if there's an active conversation, or fall back to the terminal_title (pwd).
+        // Update the pane title from the terminal working directory.
         self.update_pane_configuration(ctx);
 
         self.update_shared_session_pane_header(ctx);
@@ -1235,13 +1207,6 @@ impl TerminalView {
                 let role = &role;
                 editor.set_interaction_state(role.into(), ctx);
             });
-            // Role gates whether prompts can be sent, so the queued prompts panel's
-            // send-now buttons and enter hint must re-sync.
-            if let Some(panel) = input.queued_prompts_panel().cloned() {
-                panel.update(ctx, |panel, ctx| {
-                    panel.set_can_send_prompt(role.can_execute(), ctx);
-                });
-            }
         });
     }
 
@@ -1497,42 +1462,6 @@ impl TerminalView {
         ctx.notify();
     }
 
-    pub(crate) fn insert_conversation_ended_tombstone(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.conversation_ended_tombstone_view_id.is_some() {
-            self.remove_conversation_ended_tombstone(ctx);
-        }
-        let task_id = self.ambient_agent_task_id_for_details_panel(ctx);
-        let terminal_view_id = self.id();
-
-        let tombstone_view_handle = ctx.add_typed_action_view(|ctx| {
-            ConversationEndedTombstoneView::new(ctx, terminal_view_id, task_id)
-        });
-        let tombstone_view_id = tombstone_view_handle.id();
-        let insertion_position = self
-            .pending_user_query_view_id
-            .map(RichContentInsertionPosition::AfterRichContent)
-            .unwrap_or(RichContentInsertionPosition::Append {
-                insert_below_long_running_block: true,
-            });
-        self.insert_rich_content(None, tombstone_view_handle, None, insertion_position, ctx);
-        self.conversation_ended_tombstone_view_id = Some(tombstone_view_id);
-    }
-
-    pub(in crate::terminal::view) fn remove_conversation_ended_tombstone(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let Some(view_id) = self.conversation_ended_tombstone_view_id.take() else {
-            return;
-        };
-        self.model
-            .lock()
-            .block_list_mut()
-            .remove_rich_content(view_id);
-        self.rich_content_views.retain(|rc| rc.view_id() != view_id);
-        ctx.notify();
-    }
-
     /// Updates shared session reconnection banner, participant avatars and
     /// input interaction state depending on the reconnection state.
     pub fn on_shared_session_reconnection_status_changed(
@@ -1637,8 +1566,7 @@ impl TerminalView {
     }
 
     /// Returns true if viewer-driven sizing should be active.
-    /// For cloud agent sessions (AmbientAgent), the same-user identity check is skipped.
-    /// Otherwise, conditions: exactly 1 viewer, and that viewer is the same user as the sharer.
+    /// Requires exactly one viewer with the same user identity as the sharer.
     pub(crate) fn is_viewer_driven_sizing_eligible(
         &self,
         is_sharer: bool,

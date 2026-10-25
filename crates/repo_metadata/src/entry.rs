@@ -15,7 +15,6 @@ use warp_errors::{ErrorExt, register_error, report_error};
 use warp_util::standardized_path::StandardizedPath;
 
 use crate::gitignore_cache;
-use crate::standing_queries::{StandingQueryDefinitions, StandingQueryResults};
 
 /// Maximum file size allowed for treesitter parsing (3MB).
 const MAX_FILE_SIZE: usize = 3 * 1000 * 1000;
@@ -65,8 +64,7 @@ pub enum IgnoredPathStrategy {
 pub enum BudgetExceededBehavior {
     /// Stop descending and leave the remaining directories as unloaded
     /// placeholders (lazy-loaded on demand). The build still succeeds with a
-    /// partial, breadth-first tree. This is the default for the shared file
-    /// tree, `@`-context, and skill discovery.
+    /// partial, breadth-first tree. This is the default for the shared file tree.
     StopAndLazyLoad,
     /// Abort the build and return [`BuildTreeError::ExceededMaxFileLimit`].
     /// Use this for consumers that must not operate on a partial tree — e.g.
@@ -85,14 +83,8 @@ pub(crate) struct BuildTreeOptions<'a> {
     pub max_depth: usize,
     pub current_depth: usize,
     pub ignored_path_strategy: &'a IgnoredPathStrategy,
-    pub force_included_paths: &'a [PathBuf],
     pub budget_exceeded_behavior: BudgetExceededBehavior,
 }
-struct StandingQueryBuildState<'a> {
-    results: &'a mut StandingQueryResults,
-    definitions: &'a StandingQueryDefinitions,
-}
-
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct FileId(usize);
 
@@ -129,7 +121,7 @@ impl Entry {
     }
 
     /// Builds a tree of entries from a given path, handling gitignored files and directories.
-    /// After max_depth is reached, children outside force-included paths are lazy-loaded to
+    /// After max_depth is reached, children are lazy-loaded to
     /// prevent deeply nested trees.
     /// IgnoredPathStrategy determines what happens when ignored files are encountered.
     /// `budget_exceeded_behavior` controls what happens once the file budget is
@@ -145,7 +137,7 @@ impl Entry {
         ignored_path_strategy: &IgnoredPathStrategy,
         budget_exceeded_behavior: BudgetExceededBehavior,
     ) -> Result<Self, BuildTreeError> {
-        Self::build_tree_with_force_included_paths_and_ancestor(
+        Self::build_tree_with_options(
             path,
             files,
             gitignores,
@@ -154,62 +146,9 @@ impl Entry {
                 max_depth,
                 current_depth,
                 ignored_path_strategy,
-                force_included_paths: &[],
                 budget_exceeded_behavior,
             },
             false,
-            None,
-        )
-        .await
-    }
-
-    /// Builds the materialized tree and standing results during the same filesystem traversal.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn build_tree_with_standing_queries(
-        path: impl Into<PathBuf>,
-        files: &mut Vec<FileMetadata>,
-        gitignores: &mut Vec<Arc<Gitignore>>,
-        remaining_file_quota: Option<&mut usize>,
-        options: BuildTreeOptions<'_>,
-        ancestor_is_ignored: bool,
-        standing_results: &mut StandingQueryResults,
-        definitions: &StandingQueryDefinitions,
-    ) -> Result<Self, BuildTreeError> {
-        let mut standing_queries = StandingQueryBuildState {
-            results: standing_results,
-            definitions,
-        };
-        Self::build_tree_with_force_included_paths_and_ancestor(
-            path,
-            files,
-            gitignores,
-            remaining_file_quota,
-            options,
-            ancestor_is_ignored,
-            Some(&mut standing_queries),
-        )
-        .await
-    }
-
-    /// Builds a tree of entries from a given path, eagerly loading any path that
-    /// matches one of the supplied force-included paths instead of leaving it
-    /// lazy (see [`BuildTreeOptions::force_included_paths`]).
-    #[cfg(test)]
-    pub(crate) async fn build_tree_with_force_included_paths(
-        path: impl Into<PathBuf>,
-        files: &mut Vec<FileMetadata>,
-        gitignores: &mut Vec<Arc<Gitignore>>,
-        remaining_file_quota: Option<&mut usize>,
-        options: BuildTreeOptions<'_>,
-    ) -> Result<Self, BuildTreeError> {
-        Self::build_tree_with_force_included_paths_and_ancestor(
-            path,
-            files,
-            gitignores,
-            remaining_file_quota,
-            options,
-            false,
-            None,
         )
         .await
     }
@@ -225,7 +164,7 @@ impl Entry {
         ignored_path_strategy: &IgnoredPathStrategy,
         ancestor_is_ignored: bool,
     ) -> Result<Self, BuildTreeError> {
-        Self::build_tree_with_force_included_paths_and_ancestor(
+        Self::build_tree_with_options(
             path,
             files,
             gitignores,
@@ -234,24 +173,20 @@ impl Entry {
                 max_depth,
                 current_depth,
                 ignored_path_strategy,
-                force_included_paths: &[],
                 budget_exceeded_behavior: BudgetExceededBehavior::StopAndLazyLoad,
             },
             ancestor_is_ignored,
-            None,
         )
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn build_tree_with_force_included_paths_and_ancestor(
+    pub(crate) async fn build_tree_with_options(
         path: impl Into<PathBuf>,
         files: &mut Vec<FileMetadata>,
         gitignores: &mut Vec<Arc<Gitignore>>,
         remaining_file_quota: Option<&mut usize>,
         options: BuildTreeOptions<'_>,
         ancestor_is_ignored: bool,
-        mut standing_queries: Option<&mut StandingQueryBuildState<'_>>,
     ) -> Result<Self, BuildTreeError> {
         let root_path: PathBuf = path.into();
 
@@ -271,11 +206,6 @@ impl Entry {
         // Classify the root. Unlike child entries (which are simply omitted when
         // ignored/symlinked), a classification failure at the root propagates to
         // the caller, preserving existing error behavior.
-        if let Some(state) = standing_queries.as_deref_mut() {
-            state
-                .results
-                .record_path(&root_path, root_path.is_dir(), state.definitions);
-        }
         match evaluate_entry(
             &root_path,
             gitignores,
@@ -315,19 +245,12 @@ impl Entry {
                 while let Some(job) = queue.pop_front() {
                     // Budget handling. With `StopAndLazyLoad` (the default), once
                     // the file quota is exhausted we stop expanding directories
-                    // and leave them as unloaded placeholders; directories on the
-                    // path to a force-included path (e.g. skill provider
-                    // directories) are always expanded so discovery-critical
-                    // files stay reachable. With `FailFast` we keep descending
+                    // and leave them as unloaded placeholders. With `FailFast` we keep descending
                     // and abort below as soon as a file would exceed the budget.
                     let should_expand = match options.budget_exceeded_behavior {
                         BudgetExceededBehavior::FailFast => true,
                         BudgetExceededBehavior::StopAndLazyLoad => {
                             quota.is_none_or(|remaining| remaining > 0)
-                                || matches_force_included_path(
-                                    &job.path,
-                                    options.force_included_paths,
-                                )
                         }
                     };
                     if !should_expand {
@@ -353,17 +276,9 @@ impl Entry {
 
                     let child_depth = job.depth + 1;
                     for entry_path in entry_paths {
-                        // Do not materialize directory symlinks in the canonical tree. Standing
-                        // project-skill queries still follow eligible provider children locally
-                        // and retain their lexical paths in the result set.
+                        // Do not materialize directory symlinks in the canonical tree.
                         let canonical_path = if entry_path.is_symlink() {
                             if entry_path.is_dir() {
-                                if let Some(state) = standing_queries.as_deref_mut() {
-                                    state.results.record_followed_project_skill_directory(
-                                        &entry_path,
-                                        state.definitions,
-                                    );
-                                }
                                 None
                             } else {
                                 Some(entry_path)
@@ -374,14 +289,6 @@ impl Entry {
                         let Some(child_path) = canonical_path else {
                             continue;
                         };
-                        if let Some(state) = standing_queries.as_deref_mut() {
-                            state.results.record_path(
-                                &child_path,
-                                child_path.is_dir(),
-                                state.definitions,
-                            );
-                        }
-
                         match evaluate_entry(
                             &child_path,
                             gitignores,
@@ -411,8 +318,7 @@ impl Entry {
                                     children: Vec::new(),
                                 }));
                                 push_child(&mut nodes, job.index, child_index);
-                                // Lazy directories (past max depth, or ignored
-                                // without a matching force-included path) stay
+                                // Lazy directories (past max depth or ignored) stay
                                 // unloaded. Everything else is queued for
                                 // expansion, subject to the budget gate above.
                                 if !lazy {
@@ -588,7 +494,7 @@ fn evaluate_entry(
 ) -> Result<EvaluatedEntry, BuildTreeError> {
     let is_dir = curr_path.is_dir();
 
-    // Only ignore symlinks to directories. Symlinks to files are preserved (e.g. WARP.md).
+    // Only ignore symlinks to directories. Symlinks to files are preserved.
     if curr_path.is_symlink() && is_dir {
         return Err(BuildTreeError::Symlink);
     }
@@ -607,11 +513,8 @@ fn evaluate_entry(
             false, /* check_ancestors */
         );
 
-    let force_included = matches_force_included_path(curr_path, options.force_included_paths);
-
-    // If we've reached the max depth, force lazy-loading even of non-ignored folders unless the
-    // folder is on the path to a force-included subtree.
-    let mut lazy = current_depth >= options.max_depth && !force_included;
+    // At max depth, leave even non-ignored folders unloaded.
+    let mut lazy = current_depth >= options.max_depth;
 
     if path_is_ignored {
         match options.ignored_path_strategy {
@@ -624,7 +527,7 @@ fn evaluate_entry(
                 }
             }
             IgnoredPathStrategy::IncludeLazy => {
-                lazy = !force_included;
+                lazy = true;
             }
             IgnoredPathStrategy::Include => {}
         }
@@ -668,8 +571,7 @@ fn push_child(nodes: &mut [Option<NodeBuilder>], parent: usize, child: usize) {
 }
 
 /// Recursively assembles the nested [`Entry`] tree from the build arena.
-/// Recursion depth is normally bounded by `BuildTreeOptions::max_depth`, except for force-included
-/// subtrees.
+/// Recursion depth is bounded by `BuildTreeOptions::max_depth`.
 fn assemble_node(nodes: &mut [Option<NodeBuilder>], index: usize) -> Entry {
     match nodes[index]
         .take()
@@ -713,52 +615,6 @@ pub fn is_git_internal_path(path: &Path) -> bool {
     })
 }
 
-/// Returns `true` when `path` is, contains, or lies on the way to one of the
-/// `force_included_paths`. Each force-included path is a relative component
-/// sequence (e.g. `.agents/skills`) matched against the tail of `path`, so a
-/// match also holds for the ancestor prefixes leading to it.
-pub(crate) fn matches_force_included_path(path: &Path, force_included_paths: &[PathBuf]) -> bool {
-    let path_components: Vec<_> = path
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(name) => Some(name),
-            Component::Prefix(_)
-            | Component::RootDir
-            | Component::CurDir
-            | Component::ParentDir => None,
-        })
-        .collect();
-
-    force_included_paths.iter().any(|force_included| {
-        let force_included_components: Vec<_> = force_included
-            .components()
-            .filter_map(|component| match component {
-                Component::Normal(name) => Some(name),
-                Component::Prefix(_)
-                | Component::RootDir
-                | Component::CurDir
-                | Component::ParentDir => None,
-            })
-            .collect();
-
-        if force_included_components.is_empty() {
-            return false;
-        }
-
-        if path_components
-            .windows(force_included_components.len())
-            .any(|window| window == force_included_components.as_slice())
-        {
-            return true;
-        }
-
-        (1..force_included_components.len()).any(|prefix_len| {
-            path_components.len() >= prefix_len
-                && path_components[path_components.len() - prefix_len..]
-                    == force_included_components[..prefix_len]
-        })
-    })
-}
 /// Returns true if a path matches any of the gitignores.
 ///
 /// For example, if the directory `/target` is ignored:
@@ -1001,8 +857,7 @@ fn descend_allowlist_matches(suffix: &[Component<'_>]) -> bool {
 /// Returns whether a repository file watcher should descend into (and register
 /// a watch on) the directory at `path`.
 ///
-/// Directories inside `.git/` follow the watcher allowlist, force-included
-/// paths are always watched even when gitignored, directory symlinks are
+/// Directories inside `.git/` follow the watcher allowlist; directory symlinks are
 /// pruned to avoid following trees outside the repository, and any other
 /// gitignored directory is pruned so we don't register watches on
 /// `node_modules`, build output, vendored deps, etc.
@@ -1010,17 +865,7 @@ pub fn should_watch_repo_directory(
     path: &Path,
     repo_root: &Path,
     gitignores: &[Arc<Gitignore>],
-    force_included_paths: &[PathBuf],
 ) -> bool {
-    // Do not follow directory symlinks while recursively registering watches.
-    // A repository symlink such as `result -> /nix/store/...` can otherwise
-    // make the watcher traverse a large tree outside the repository. Keep
-    // explicitly force-included paths working for project-skill providers,
-    // which intentionally support symlinked skill directories.
-    if matches_force_included_path(path, force_included_paths) {
-        return true;
-    }
-
     if is_within_symlink(path, repo_root) {
         return false;
     }
@@ -1066,9 +911,8 @@ fn is_within_symlink(path: &Path, repo_root: &Path) -> bool {
 /// existing behavior.
 ///
 /// Descend predicate: see [`should_watch_repo_directory`]. In addition to the
-/// `.git/` allowlist, it prunes gitignored directories (honoring registered
-/// force-included paths) so the recursive walk does not register watches on
-/// gitignored subtrees.
+/// `.git/` allowlist, it prunes gitignored directories so the recursive walk does not register
+/// watches on gitignored subtrees.
 ///
 /// `gitignores` should be the repo's root + global gitignores (as produced by
 /// [`gitignores_for_directory`]), matching `Repository::check_gitignore_status`
@@ -1077,14 +921,9 @@ fn is_within_symlink(path: &Path, repo_root: &Path) -> bool {
 /// (same limitation as the existing tagging), which can only cause us to
 /// over-watch, never to miss events.
 #[cfg(feature = "local_fs")]
-pub fn repo_watch_filter(
-    repo_root: PathBuf,
-    gitignores: Vec<Arc<Gitignore>>,
-    force_included_paths: Vec<PathBuf>,
-) -> WatchFilter {
-    let should_watch = move |path: &Path| {
-        should_watch_repo_directory(path, &repo_root, &gitignores, &force_included_paths)
-    };
+pub fn repo_watch_filter(repo_root: PathBuf, gitignores: Vec<Arc<Gitignore>>) -> WatchFilter {
+    let should_watch =
+        move |path: &Path| should_watch_repo_directory(path, &repo_root, &gitignores);
     WatchFilter::with_filter(
         Arc::new(should_watch),
         Arc::new(|path: &Path| !should_ignore_git_path(path)),

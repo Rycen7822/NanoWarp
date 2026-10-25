@@ -86,7 +86,6 @@ pub enum TipAction {
     HistorySearch,
     CommandSearch,
     SaveNewLaunchConfig,
-    WarpAI,
     // This toggles Warp Drive rather than opening it. This enum can't directly be
     // renamed because we serialize it into the welcome tips.
     OpenWarpDrive,
@@ -106,7 +105,6 @@ impl TipAction {
             TipAction::CommandSearch => "workspace:show_command_search",
             TipAction::ThemePicker => "workspace:show_theme_chooser",
             TipAction::SaveNewLaunchConfig => "workspace:open_launch_config_save_modal",
-            TipAction::WarpAI => "workspace:toggle_ai_assistant",
             TipAction::OpenWarpDrive => "workspace:toggle_left_panel",
             TipAction::Workflows => "input:toggle_workflows",
         }

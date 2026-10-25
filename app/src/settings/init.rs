@@ -13,10 +13,10 @@ use super::app_installation_detection::UserAppInstallDetectionSettings;
 use super::cloud_preferences::CloudPreferencesSettings;
 use super::native_preference::NativePreferenceSettings;
 use super::{
-    AISettings, AccessibilitySettings, AliasExpansionSettings, AppEditorSettings,
-    BlockVisibilitySettings, CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings,
-    FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings, InputSettings,
-    PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
+    AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
+    CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings, FontSettingsChangedEvent,
+    GPUSettings, InputBoxType, InputModeSettings, InputSettings, PaneSettings,
+    SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
     SharedObjectLimitBannerSettings, SshSettings, ThemeSettings, VimBannerSettings,
     WarpDrivePrivacySettings,
 };
@@ -67,7 +67,6 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     LigatureSettings::register(ctx);
     GPUSettings::register(ctx);
     GeneralSettings::register(ctx);
-    AISettings::register_and_subscribe_to_events(ctx);
     ScrollSettings::register(ctx);
     SelectionSettings::register(ctx);
     InputModeSettings::register(ctx);

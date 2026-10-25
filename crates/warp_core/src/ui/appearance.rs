@@ -26,7 +26,6 @@ pub struct Appearance {
     // We cache the family id for the ui font - note that this
     // isn't actually a changeable setting right now.
     ui_font_family: FamilyId,
-    ai_font_family: FamilyId,
     /// A font that is used for password fields.
     password_font_family: FamilyId,
 }
@@ -68,7 +67,6 @@ pub enum AppearanceEvent {
 }
 
 impl Appearance {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         theme: WarpTheme,
         monospace_font_family: FamilyId,
@@ -76,7 +74,6 @@ impl Appearance {
         monospace_font_weight: Weight,
         ui_font_family: FamilyId,
         line_height_ratio: f32,
-        ai_font_family: FamilyId,
         password_font_family: FamilyId,
     ) -> Self {
         Self {
@@ -93,7 +90,6 @@ impl Appearance {
                 DEFAULT_COMMAND_PALETTE_FONT_SIZE,
                 line_height_ratio,
             ),
-            ai_font_family,
             password_font_family,
         }
     }
@@ -131,7 +127,6 @@ impl Appearance {
                 line_height_ratio,
             ),
             ui_font_family,
-            ai_font_family: FamilyId(0),
             password_font_family: FamilyId(0),
         }
     }
@@ -191,20 +186,6 @@ impl Appearance {
 
         // We fire the same event as monospace font family change - performance is likely not going to be an issue.
         ctx.emit(AppearanceEvent::UiFontFamilyChanged {
-            previous_family_id,
-            current_family_id: new_family,
-        });
-    }
-
-    pub fn set_ai_font_family(&mut self, new_family: FamilyId, ctx: &mut ModelContext<Self>) {
-        let previous_family_id = self.ai_font_family;
-        self.ai_font_family = new_family;
-
-        // Request a redraw of all windows.
-        ctx.invalidate_all_views();
-
-        // We fire the same event as monospace font family change - performance is likely not going to be an issue.
-        ctx.emit(AppearanceEvent::MonospaceFontFamilyChanged {
             previous_family_id,
             current_family_id: new_family,
         });
@@ -279,10 +260,6 @@ impl Appearance {
 
     pub fn monospace_font_family(&self) -> FamilyId {
         self.monospace_font_family
-    }
-
-    pub fn ai_font_family(&self) -> FamilyId {
-        self.ai_font_family
     }
 
     pub fn monospace_font_size(&self) -> f32 {

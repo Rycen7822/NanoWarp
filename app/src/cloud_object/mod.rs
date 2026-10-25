@@ -647,20 +647,18 @@ where
             SyncId::ClientId(_) => None,
             SyncId::ServerId(id) => {
                 let object_type = self.object_type();
-                let object_type_for_link = if self
+                if self
                     .as_any()
                     .downcast_ref::<CloudWorkflow>()
-                    .is_some_and(|w| w.model().data.is_agent_mode_workflow())
+                    .is_some_and(|workflow| workflow.model().data.is_agent_mode_workflow())
                 {
-                    "prompt".to_string()
-                } else {
-                    object_type.to_string()
-                };
+                    return None;
+                }
 
                 let mut link = format!(
                     "{}/drive/{}/{}-{}",
                     ChannelState::server_root_url(),
-                    object_type_for_link,
+                    object_type,
                     link_safe_name,
                     id.uid()
                 );
@@ -867,8 +865,8 @@ pub use cloud_object_client::{
     ObjectDeleteResult, ObjectMetadataUpdateResult, ObjectPermissionsUpdateData,
 };
 pub use cloud_object_models::{
-    ServerAIExecutionProfile, ServerAIFact, ServerCloudObject, ServerEnvVarCollection,
-    ServerFolder, ServerNotebook, ServerPreference, ServerWorkflow, ServerWorkflowEnum, TryFromGql,
+    ServerCloudObject, ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
+    ServerWorkflow, ServerWorkflowEnum, TryFromGql,
 };
 use warp_errors::report_error;
 

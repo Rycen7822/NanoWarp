@@ -1,34 +1,28 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use pathfinder_color::ColorU;
 use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
-    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
-    EventHandler, Expanded, Flex, FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize,
-    MouseStateHandle, ParentElement, Radius, Shrinkable, SizeConstraintCondition,
-    SizeConstraintSwitch, Text,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex, Hoverable,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
+    SizeConstraintCondition, SizeConstraintSwitch, Text,
 };
 use warpui::fonts::FamilyId;
 use warpui::platform::Cursor;
 use warpui::{AppContext, Element, EventContext, SingletonEntity};
 
-use crate::ui_components::inline_action_icons::icon_size;
 use crate::ui_components::blended_colors;
+use crate::ui_components::inline_action_icons::icon_size;
 use crate::view_components::compactible_action_button::{
     RenderCompactibleActionButton, render_compact_and_regular_button_rows, render_expansion_icon,
 };
 
 /// Same padding constants as the original for consistency
 pub const INLINE_ACTION_HORIZONTAL_PADDING: f32 = 16.;
-/// The vertical padding applied to the requested action row's content body (usually a command).
-pub const INLINE_ACTION_VERTICAL_PADDING: f32 = 12.;
 pub const INLINE_ACTION_HEADER_VERTICAL_PADDING: f32 = 10.;
 pub const ICON_MARGIN: f32 = 8.;
 
 pub type OnToggleExpandedCallback = Rc<dyn Fn(&mut EventContext) + 'static>;
-pub type OnRightClickCallback = Rc<dyn Fn(&mut EventContext) + 'static>;
 
 /// Configuration for manual expansion behavior
 #[derive(Clone)]
@@ -36,11 +30,8 @@ pub struct ExpandedConfig {
     pub is_expanded: bool,
     /// Optional callback for when expansion toggle is clicked
     pub on_toggle_expanded: Option<OnToggleExpandedCallback>,
-    /// Optional callback for when right-click is triggered
-    pub on_right_click: Option<OnRightClickCallback>,
     /// Mouse state handle for expansion toggle
     pub toggle_mouse_state: MouseStateHandle,
-    pub expands_upwards: bool,
 }
 
 impl ExpandedConfig {
@@ -48,15 +39,8 @@ impl ExpandedConfig {
         Self {
             is_expanded,
             on_toggle_expanded: None,
-            on_right_click: None,
             toggle_mouse_state,
-            expands_upwards: false,
         }
-    }
-
-    pub fn with_expands_upwards(mut self) -> Self {
-        self.expands_upwards = true;
-        self
     }
 
     pub fn with_toggle_callback<F>(mut self, callback: F) -> Self
@@ -65,31 +49,6 @@ impl ExpandedConfig {
     {
         self.on_toggle_expanded = Some(Rc::new(callback));
         self
-    }
-
-    pub fn with_right_click_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&mut EventContext) + 'static,
-    {
-        self.on_right_click = Some(Rc::new(callback));
-        self
-    }
-}
-
-/// Configuration for when we want a right clickable element,
-/// but that element isn't necessarily expandable.
-#[derive(Clone)]
-pub struct RightClickConfig {
-    pub on_right_click: OnRightClickCallback,
-    pub header_mouse_state: MouseStateHandle,
-}
-
-impl RightClickConfig {
-    pub fn new(on_right_click: OnRightClickCallback, header_mouse_state: MouseStateHandle) -> Self {
-        Self {
-            on_right_click,
-            header_mouse_state,
-        }
     }
 }
 
@@ -102,21 +61,15 @@ pub enum InteractionMode {
     },
     /// Renders expansion chevron, with caller-specified click handler.
     ManuallyExpandable(ExpandedConfig),
-    /// Renders a right-clickable element, with caller-specified right-click handler.
-    RightClickable(RightClickConfig),
 }
 
 #[derive(Clone)]
 pub struct HeaderConfig {
     pub title: Cow<'static, str>,
     pub font_family: FamilyId,
-    /// Whether to parse the title as markdown when rendering.
-    pub use_markdown: bool,
     pub icon: Option<warpui::elements::Icon>,
-    pub badge: Option<String>,
     pub interaction_mode: Option<InteractionMode>,
     pub is_text_selectable: bool,
-    pub font_color_override: Option<ColorU>,
     pub corner_radius_override: Option<CornerRadius>,
 }
 
@@ -125,28 +78,15 @@ impl HeaderConfig {
         Self {
             title: title.into(),
             font_family: Appearance::as_ref(app).ui_font_family(),
-            use_markdown: false,
             icon: None,
-            badge: None,
             interaction_mode: None,
             is_text_selectable: false,
-            font_color_override: None,
             corner_radius_override: None,
         }
     }
 
-    pub fn with_font_family(mut self, font: FamilyId) -> Self {
-        self.font_family = font;
-        self
-    }
-
     pub fn with_icon(mut self, icon: warpui::elements::Icon) -> Self {
         self.icon = Some(icon);
-        self
-    }
-
-    pub fn with_badge(mut self, badge: String) -> Self {
-        self.badge = Some(badge);
         self
     }
 
@@ -160,19 +100,8 @@ impl HeaderConfig {
         self
     }
 
-    pub fn with_font_color(mut self, font_color: ColorU) -> Self {
-        self.font_color_override = Some(font_color);
-        self
-    }
-
     pub fn with_corner_radius_override(mut self, corner_radius: CornerRadius) -> Self {
         self.corner_radius_override = Some(corner_radius);
-        self
-    }
-
-    /// Parses the title as markdown when rendering.
-    pub fn with_markdown(mut self) -> Self {
-        self.use_markdown = true;
         self
     }
 
@@ -182,8 +111,7 @@ impl HeaderConfig {
         interaction_mode_content: Option<Box<dyn Element>>,
     ) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let header_background = theme.surface_2();
+        let header_background = appearance.theme().surface_2();
 
         let mut header_row = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
@@ -207,12 +135,9 @@ impl HeaderConfig {
             )
         }
 
-        let text_color = self
-            .font_color_override
-            .unwrap_or_else(|| blended_colors::text_main(appearance.theme(), header_background));
-
-        let mut title_element = Text::new_inline(
-            self.title.clone(),
+        let text_color = blended_colors::text_main(appearance.theme(), header_background);
+        let title_element = Text::new_inline(
+            self.title,
             self.font_family,
             appearance.monospace_font_size(),
         )
@@ -221,22 +146,6 @@ impl HeaderConfig {
         .with_color(text_color)
         .finish();
 
-        if self.use_markdown
-            && let Ok(formatted_text) = markdown_parser::parse_markdown(&self.title)
-        {
-            let element = FormattedTextElement::new(
-                formatted_text,
-                appearance.monospace_font_size(),
-                self.font_family,
-                appearance.monospace_font_family(),
-                text_color,
-                Default::default(),
-            )
-            .set_selectable(self.is_text_selectable)
-            .with_no_text_wrapping();
-            title_element = element.finish();
-        }
-
         left_content_container.add_child(
             Expanded::new(
                 1.,
@@ -244,27 +153,6 @@ impl HeaderConfig {
             )
             .finish(),
         );
-
-        if let Some(badge) = self.badge {
-            left_content_container.add_child(
-                Container::new(
-                    Text::new(
-                        badge,
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size(),
-                    )
-                    .with_color(internal_colors::fg_overlay_5(theme).into())
-                    .finish(),
-                )
-                .with_horizontal_padding(8.)
-                .with_vertical_padding(4.)
-                .with_margin_right(8.)
-                .with_border(Border::all(1.0).with_border_fill(theme.outline()))
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(2.)))
-                .with_background(theme.surface_1())
-                .finish(),
-            );
-        }
 
         header_row.add_child(Shrinkable::new(1., left_content_container.finish()).finish());
 
@@ -278,9 +166,8 @@ impl HeaderConfig {
                 .is_some_and(|mode| match mode {
                     InteractionMode::ActionButtons { .. } => true,
                     InteractionMode::ManuallyExpandable(expansion_config) => {
-                        expansion_config.is_expanded && !expansion_config.expands_upwards
+                        expansion_config.is_expanded
                     }
-                    InteractionMode::RightClickable(..) => false,
                 });
         let container = Container::new(header_row.finish())
             .with_padding_left(INLINE_ACTION_HORIZONTAL_PADDING)
@@ -314,33 +201,7 @@ impl HeaderConfig {
                 container
             };
 
-            // Wrap in EventHandler to allow right-click event propagation
-            match expansion_config.on_right_click.clone() {
-                Some(right_click_callback) => {
-                    return EventHandler::new(element)
-                        .on_right_mouse_down(move |ctx, _, _, _| {
-                            right_click_callback(ctx);
-                            DispatchEventResult::PropagateToParent
-                        })
-                        .finish();
-                }
-                _ => {
-                    return element;
-                }
-            }
-        } else if let Some(InteractionMode::RightClickable(right_click_config)) =
-            &self.interaction_mode
-        {
-            let right_click_callback = right_click_config.on_right_click.clone();
-            let header_mouse_state = right_click_config.header_mouse_state.clone();
-
-            let hoverable = Hoverable::new(header_mouse_state, |_| container).finish();
-            return EventHandler::new(hoverable)
-                .on_right_mouse_down(move |ctx, _, _, _| {
-                    right_click_callback(ctx);
-                    DispatchEventResult::PropagateToParent
-                })
-                .finish();
+            return element;
         }
 
         container
@@ -383,7 +244,7 @@ impl HeaderConfig {
                     InteractionMode::ManuallyExpandable(expansion_config) => {
                         let expanded_icon = ConstrainedBox::new(render_expansion_icon(
                             expansion_config.is_expanded,
-                            expansion_config.expands_upwards,
+                            false,
                             appearance,
                             app,
                         ))
@@ -393,7 +254,6 @@ impl HeaderConfig {
 
                         self.render_header(app, Some(expanded_icon))
                     }
-                    InteractionMode::RightClickable(_) => self.render_header(app, None),
                 }
             }
             _ => self.render_header(app, None),

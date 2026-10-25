@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
-use ai::workspace::WorkspaceMetadata;
+use crate::code::persisted_workspace::WorkspaceMetadata;
 use lsp::supported_servers::LSPServerType;
 use lsp::{LspManagerModel, LspManagerModelEvent, LspServerModel, LspState};
 use pathfinder_color::ColorU;
@@ -15,7 +14,7 @@ use warpui::elements::{
 use warpui::fonts::Weight;
 use warpui::platform::Cursor;
 use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{
     AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
@@ -26,11 +25,11 @@ use super::SettingsSection;
 use super::settings_page::{
     MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle, SettingsWidget,
 };
-use crate::ai::persisted_workspace::{
-    EnablementState, LspRepoStatus, PersistedWorkspace, PersistedWorkspaceEvent,
-};
 use crate::appearance::Appearance;
 use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
+use crate::code::persisted_workspace::{
+    EnablementState, LspRepoStatus, PersistedWorkspace, PersistedWorkspaceEvent,
+};
 use crate::send_telemetry_from_ctx;
 use crate::ui_components::avatar::{Avatar, AvatarContent, StatusElementTypes};
 use crate::ui_components::buttons::icon_button;
@@ -53,7 +52,6 @@ struct LspServerRowMouseStates {
 #[derive(Clone)]
 struct InitializedFoldersMouseStates {
     lsp_rows: Vec<LspServerRowMouseStates>,
-    open_project_rules: Vec<MouseStateHandle>,
 }
 
 pub struct ProjectsPageView {
@@ -62,7 +60,6 @@ pub struct ProjectsPageView {
     /// The states are flattened into a single Vec, indexed by iterating through workspaces
     /// and their enabled servers in order.
     lsp_row_mouse_states: Vec<LspServerRowMouseStates>,
-    open_project_rules_mouse_states: Vec<MouseStateHandle>,
     /// Tracks installation status for suggested LSP servers so the UI can decide
     /// whether to show "Available for download" vs "Installed" and whether the
     /// "+" button should trigger install or just enable.
@@ -87,8 +84,6 @@ impl ProjectsPageView {
                         me.lsp_row_mouse_states
                             .resize_with(new_count, Default::default);
                     }
-
-                    me.resize_workspace_mouse_states(ctx);
 
                     ctx.notify();
                 }
@@ -124,7 +119,6 @@ impl ProjectsPageView {
                     me.lsp_row_mouse_states
                         .resize_with(new_count, Default::default);
                 }
-                me.resize_workspace_mouse_states(ctx);
                 ctx.notify();
             }
             PersistedWorkspaceEvent::InstallStatusUpdate {
@@ -143,7 +137,6 @@ impl ProjectsPageView {
                 let new_count = PersistedWorkspace::as_ref(ctx).total_lsp_server_count(true);
                 me.lsp_row_mouse_states
                     .resize_with(new_count, Default::default);
-                me.resize_workspace_mouse_states(ctx);
                 ctx.notify();
             }
             PersistedWorkspaceEvent::InstallationSucceeded
@@ -152,37 +145,15 @@ impl ProjectsPageView {
             }
         });
 
-        // Re-render when project rules are added or removed so the
-        // "Open project rules" button visibility stays up to date.
-        ctx.subscribe_to_model(&ProjectContextModel::handle(ctx), |_me, _, event, ctx| {
-            if matches!(event, ProjectContextModelEvent::KnownRulesChanged(_)) {
-                ctx.notify();
-            }
-        });
-
-        let workspace_count = PersistedWorkspace::as_ref(ctx).workspaces().count();
-
         Self {
             page: Self::build_page(ctx),
             lsp_row_mouse_states: (0..lsp_server_count).map(|_| Default::default()).collect(),
-            open_project_rules_mouse_states: (0..workspace_count)
-                .map(|_| Default::default())
-                .collect(),
             suggested_server_statuses: HashMap::new(),
         }
     }
 
     fn build_page(_ctx: &mut ViewContext<Self>) -> PageType<Self> {
         PageType::new_monolith(CodePageWidget, Some(PAGE_TITLE), true)
-    }
-
-    /// Resize `open_project_rules_mouse_states` to match the current workspace count.
-    fn resize_workspace_mouse_states(&mut self, ctx: &AppContext) {
-        let workspace_count = PersistedWorkspace::as_ref(ctx).workspaces().count();
-        if self.open_project_rules_mouse_states.len() != workspace_count {
-            self.open_project_rules_mouse_states
-                .resize_with(workspace_count, Default::default);
-        }
     }
 }
 
@@ -203,7 +174,6 @@ impl View for ProjectsPageView {
 #[derive(Debug, Clone)]
 pub enum ProjectsPageEvent {
     OpenLspLogs { log_path: PathBuf },
-    OpenProjectRules { rule_paths: Vec<PathBuf> },
 }
 
 // Define the code page actions.
@@ -220,9 +190,6 @@ pub enum ProjectsPageAction {
     },
     OpenLspLogs {
         log_path: PathBuf,
-    },
-    OpenProjectRules {
-        rule_paths: Vec<PathBuf>,
     },
     /// Install (if needed) and enable a suggested LSP server.
     InstallAndEnableLspServer {
@@ -276,7 +243,7 @@ impl TypedActionView for ProjectsPageView {
                         workspace.enable_lsp_server_for_path(&workspace_path, *server_type);
                         #[cfg(feature = "local_fs")]
                         workspace.execute_lsp_task(
-                            crate::ai::persisted_workspace::LspTask::Spawn {
+                            crate::code::persisted_workspace::LspTask::Spawn {
                                 file_path: workspace_path,
                             },
                             _ctx,
@@ -310,11 +277,6 @@ impl TypedActionView for ProjectsPageView {
                     log_path: log_path.clone(),
                 });
             }
-            ProjectsPageAction::OpenProjectRules { rule_paths } => {
-                ctx.emit(ProjectsPageEvent::OpenProjectRules {
-                    rule_paths: rule_paths.clone(),
-                });
-            }
             ProjectsPageAction::InstallAndEnableLspServer {
                 workspace_path,
                 server_type,
@@ -333,7 +295,7 @@ impl TypedActionView for ProjectsPageView {
                     let server_type = *server_type;
                     PersistedWorkspace::handle(ctx).update(ctx, |workspace, _ctx| {
                         workspace.execute_lsp_task(
-                            crate::ai::persisted_workspace::LspTask::Install {
+                            crate::code::persisted_workspace::LspTask::Install {
                                 file_path: workspace_path.clone(),
                                 repo_root: workspace_path,
                                 server_type,
@@ -364,7 +326,7 @@ impl TypedActionView for ProjectsPageView {
                     workspace.enable_lsp_server_for_path(&workspace_path, server_type);
                     #[cfg(feature = "local_fs")]
                     workspace.execute_lsp_task(
-                        crate::ai::persisted_workspace::LspTask::Spawn {
+                        crate::code::persisted_workspace::LspTask::Spawn {
                             file_path: workspace_path,
                         },
                         _ctx,
@@ -382,7 +344,7 @@ impl SettingsWidget for CodePageWidget {
     type View = ProjectsPageView;
 
     fn search_terms(&self) -> &str {
-        "code projects repository path lsp language server rules"
+        "code projects repository path lsp language server"
     }
 
     fn render(
@@ -395,7 +357,6 @@ impl SettingsWidget for CodePageWidget {
 
         let mouse_states = InitializedFoldersMouseStates {
             lsp_rows: view.lsp_row_mouse_states.clone(),
-            open_project_rules: view.open_project_rules_mouse_states.clone(),
         };
 
         content.add_child(self.render_initialized_folders(
@@ -420,7 +381,6 @@ impl CodePageWidget {
     ) -> Box<dyn Element> {
         let InitializedFoldersMouseStates {
             lsp_rows: lsp_row_mouse_states,
-            open_project_rules: open_project_rules_mouse_states,
         } = mouse_states;
 
         let mut content = Flex::column();
@@ -434,7 +394,7 @@ impl CodePageWidget {
         let mut lsp_mouse_index = 0;
         let mut rendered_folder = false;
 
-        for (workspace_idx, workspace) in workspaces.iter().enumerate() {
+        for workspace in &workspaces {
             let workspace_path = &workspace.path;
 
             // Get all LSP servers (enabled + disabled + suggested) for this workspace
@@ -460,17 +420,11 @@ impl CodePageWidget {
                 })
                 .collect();
 
-            let open_rules_mouse = open_project_rules_mouse_states
-                .get(workspace_idx)
-                .cloned()
-                .unwrap_or_default();
-
             content.add_child(self.render_workspace_row(
                 workspace_path,
                 &all_servers,
                 lsp_manager,
                 lsp_mouse_states,
-                open_rules_mouse,
                 suggested_server_statuses,
                 appearance,
                 app,
@@ -501,17 +455,13 @@ impl CodePageWidget {
         all_servers: &[(LSPServerType, EnablementState)],
         lsp_manager: &LspManagerModel,
         lsp_mouse_states: Vec<LspServerRowMouseStates>,
-        open_rules_mouse: MouseStateHandle,
         suggested_server_statuses: &HashMap<(PathBuf, LSPServerType), LspRepoStatus>,
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        let theme = appearance.theme();
-
         let mut workspace_content = Flex::column().with_spacing(MAIN_SECTION_MARGIN);
 
-        // Workspace path header with "Open project rules" button
+        // Workspace path header
         let home_dir =
             dirs::home_dir().and_then(|home_dir| home_dir.to_str().map(|s| s.to_owned()));
         let user_friendly = user_friendly_path(
@@ -520,60 +470,7 @@ impl CodePageWidget {
         )
         .to_string();
 
-        // Query ProjectContextModel for rules under this workspace
-        let workspace_rule_paths =
-            ProjectContextModel::as_ref(app).rules_for_workspace(workspace_path);
-
-        // Only show "Open project rules" button if rules exist for this workspace
-        let open_rules_button: Option<Box<dyn Element>> = if !workspace_rule_paths.is_empty() {
-            let open_rules_button = ui_builder
-                .button(ButtonVariant::Secondary, open_rules_mouse)
-                .with_style(UiComponentStyles {
-                    font_size: Some(12.),
-                    padding: Some(Coords {
-                        top: 4.,
-                        bottom: 4.,
-                        left: 8.,
-                        right: 8.,
-                    }),
-                    ..Default::default()
-                })
-                .with_hovered_styles(UiComponentStyles {
-                    background: Some(theme.surface_3().into()),
-                    ..Default::default()
-                })
-                .with_text_and_icon_label(
-                    warpui::ui_components::button::TextAndIcon::new(
-                        warpui::ui_components::button::TextAndIconAlignment::IconFirst,
-                        "Open project rules",
-                        warpui::elements::Icon::new(
-                            "bundled/svg/file-code-02.svg",
-                            theme.foreground(),
-                        ),
-                        warpui::elements::MainAxisSize::Min,
-                        warpui::elements::MainAxisAlignment::Center,
-                        pathfinder_geometry::vector::vec2f(14., 14.),
-                    )
-                    .with_inner_padding(4.),
-                )
-                .build()
-                .with_cursor(Cursor::PointingHand)
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(ProjectsPageAction::OpenProjectRules {
-                        rule_paths: workspace_rule_paths.clone(),
-                    });
-                })
-                .finish();
-            Some(open_rules_button)
-        } else {
-            None
-        };
-
-        workspace_content.add_child(self.render_workspace_header(
-            user_friendly,
-            open_rules_button,
-            appearance,
-        ));
+        workspace_content.add_child(self.render_workspace_header(user_friendly, appearance));
 
         // LSP Servers section (if any servers known)
         if !all_servers.is_empty() {
@@ -591,12 +488,7 @@ impl CodePageWidget {
         self.render_workspace_row_container(workspace_content.finish(), appearance)
     }
 
-    fn render_workspace_header(
-        &self,
-        label: String,
-        action_button: Option<Box<dyn Element>>,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
+    fn render_workspace_header(&self, label: String, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
         let path_label = Shrinkable::new(
             1.,
@@ -620,9 +512,6 @@ impl CodePageWidget {
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
         header_row.add_child(Expanded::new(1., path_label).finish());
-        if let Some(action_button) = action_button {
-            header_row.add_child(action_button);
-        }
         header_row.finish()
     }
 

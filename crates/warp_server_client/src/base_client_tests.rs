@@ -1,21 +1,12 @@
 use std::collections::HashMap;
-use std::pin::pin;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 
-use chrono::{Duration, Utc};
 use cloud_objects::ids::ServerId;
-use futures::channel::oneshot;
 use futures::executor::block_on;
-use futures::{join, poll};
 use warp_core::channel::ChannelState;
-use warp_isolation_platform::{IsolationPlatformError, WorkloadToken};
 use warp_server_auth::auth_state::AuthState;
 
-use super::{
-    AGENT_SOURCE_HEADER, AMBIENT_WORKLOAD_TOKEN_DURATION, AuthenticatedGraphqlConfig, BaseClient,
-    GraphqlRoutingConfig, TEAM_UID_HEADER,
-};
+use super::{AuthenticatedGraphqlConfig, BaseClient, GraphqlRoutingConfig, TEAM_UID_HEADER};
 use crate::auth::{AuthClient, AuthClientImpl};
 
 fn client() -> BaseClient {
@@ -27,7 +18,6 @@ fn client() -> BaseClient {
         Arc::new(http_client::Client::new_external()),
         Arc::new(AuthState::new_for_test()),
         event_sender,
-        Some("cloud_mode".to_string()),
         GraphqlRoutingConfig {
             path_prefix: Some("/routing-only".to_string()),
         },
@@ -49,104 +39,7 @@ fn explicit_token_graphql_options_route_without_authenticated_headers() {
 }
 
 #[test]
-fn concurrent_workload_token_requests_with_cold_cache_share_a_refresh() {
-    assert_concurrent_workload_token_requests_share_a_refresh(client());
-}
-
-#[test]
-fn concurrent_workload_token_requests_with_expired_cache_share_a_refresh() {
-    let client = client();
-    client.set_ambient_workload_token_for_test(
-        "expired".to_string(),
-        Some(Utc::now() - Duration::seconds(1)),
-    );
-    assert_concurrent_workload_token_requests_share_a_refresh(client);
-}
-
-fn assert_concurrent_workload_token_requests_share_a_refresh(client: BaseClient) {
-    block_on(async {
-        let valid_until = Utc::now() + Duration::minutes(5);
-        let (release, wait) = oneshot::channel();
-        let mut first = pin!(client.workload_token_valid_until_with(
-            valid_until,
-            AMBIENT_WORKLOAD_TOKEN_DURATION,
-            |duration| async move {
-                assert_eq!(duration, Some(AMBIENT_WORKLOAD_TOKEN_DURATION));
-                wait.await.unwrap();
-                Ok(WorkloadToken {
-                    token: "refreshed".to_string(),
-                    expires_at: Some(valid_until + Duration::hours(1)),
-                })
-            },
-        ));
-        let mut second = pin!(client.workload_token_valid_until_with(
-            valid_until,
-            AMBIENT_WORKLOAD_TOKEN_DURATION,
-            |_| async { panic!("a concurrent caller must reuse the refreshed token") },
-        ));
-
-        assert!(poll!(&mut first).is_pending());
-        assert!(poll!(&mut second).is_pending());
-        release.send(()).unwrap();
-
-        let (first, second) = join!(first, second);
-        assert_eq!(first.unwrap().unwrap().token, "refreshed");
-        assert_eq!(second.unwrap().unwrap().token, "refreshed");
-    });
-}
-
-#[test]
-fn workload_token_refresh_failure_releases_waiting_caller() {
-    block_on(async {
-        let client = client();
-        let valid_until = Utc::now() + Duration::minutes(5);
-        let (release, wait) = oneshot::channel();
-        let mut first = pin!(client.workload_token_valid_until_with(
-            valid_until,
-            AMBIENT_WORKLOAD_TOKEN_DURATION,
-            |_| async {
-                wait.await.unwrap();
-                Err(IsolationPlatformError::GenericWorkloadTokenMissing)
-            },
-        ));
-        let mut second = pin!(client.workload_token_valid_until_with(
-            valid_until,
-            AMBIENT_WORKLOAD_TOKEN_DURATION,
-            |_| async {
-                Ok(WorkloadToken {
-                    token: "next-attempt".to_string(),
-                    expires_at: None,
-                })
-            },
-        ));
-
-        assert!(poll!(&mut first).is_pending());
-        assert!(poll!(&mut second).is_pending());
-        release.send(()).unwrap();
-
-        let (first, second) = join!(first, second);
-        assert!(first.is_err());
-        assert_eq!(second.unwrap().unwrap().token, "next-attempt");
-    });
-}
-
-#[test]
-fn cached_workload_token_does_not_wait_for_refresh() {
-    block_on(async {
-        let client = client();
-        let _refresh_guard = client.ambient_workload_token_refresh.lock().await;
-        client.set_ambient_workload_token_for_test("cached".to_string(), None);
-        let mut request = pin!(client.get_or_create_ambient_workload_token());
-
-        assert_eq!(
-            poll!(&mut request).map(Result::unwrap),
-            Poll::Ready(Some("cached".to_string())),
-        );
-    });
-}
-
-#[test]
-fn authenticated_graphql_options_include_configured_and_ambient_headers() {
+fn authenticated_graphql_options_include_configured_headers() {
     let client = client();
 
     let options = block_on(client.graphql_request_options(None)).unwrap();
@@ -158,10 +51,6 @@ fn authenticated_graphql_options_include_configured_and_ambient_headers() {
             .get("X-Test-Authenticated")
             .map(String::as_str),
         Some("true")
-    );
-    assert_eq!(
-        options.headers.get(AGENT_SOURCE_HEADER).map(String::as_str),
-        Some("cloud_mode")
     );
 }
 
@@ -182,7 +71,6 @@ fn authenticated_graphql_configuration_cannot_override_base_client_owned_headers
         Arc::new(http_client::Client::new_external()),
         Arc::new(AuthState::new_for_test()),
         event_sender,
-        None,
         GraphqlRoutingConfig::default(),
         AuthenticatedGraphqlConfig { headers },
     );
@@ -221,16 +109,11 @@ fn api_key_client(path_prefix: &str) -> (AuthClientImpl, Arc<Mutex<Option<String
         Arc::new(http_client::Client::new_external()),
         Arc::new(auth_state),
         event_sender,
-        None,
         GraphqlRoutingConfig {
             path_prefix: Some(path_prefix.to_string()),
         },
         AuthenticatedGraphqlConfig::default(),
     );
-    *base_client.ambient_workload_token.lock() = Some(warp_isolation_platform::WorkloadToken {
-        token: "test-workload-token".to_string(),
-        expires_at: None,
-    });
 
     (
         AuthClientImpl::new(Arc::new(base_client)),

@@ -1,6 +1,5 @@
 use crate::scalars::Time;
 use crate::schema;
-use crate::workspace::UgcCollectionEnablementSetting;
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct BillingMetadata {
@@ -8,68 +7,10 @@ pub struct BillingMetadata {
     pub delinquency_status: DelinquencyStatus,
     pub tier: Tier,
     pub service_agreements: Vec<ServiceAgreement>,
-    pub ai_overages: Option<AiOverages>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct AiOverages {
-    pub current_monthly_request_cost_cents: i32,
-    pub current_monthly_requests_used: i32,
-    pub current_period_end: Time,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct BonusGrantsInfo {
-    pub grants: Vec<BonusGrant>,
-    pub spending_info: Option<BonusGrantSpendingInfo>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct BonusGrantSpendingInfo {
-    pub current_month_credits_purchased: i32,
-    pub current_month_period_end: Time,
-    pub current_month_spend_cents: i32,
-}
-
-#[derive(cynic::Enum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BonusGrantType {
-    AmbientOnly,
-    Any,
-}
-
-#[derive(cynic::Enum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BonusGrantScope {
-    User,
-    Team,
-    Workspace,
-    #[cynic(fallback)]
-    Other,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct BonusGrant {
-    pub created_at: Time,
-    pub cost_cents: i32,
-    pub expiration: Option<Time>,
-    pub grant_type: BonusGrantType,
-    pub scope: BonusGrantScope,
-    pub reason: String,
-    pub user_facing_message: Option<String>,
-    pub request_credits_granted: i32,
-    pub request_credits_remaining: i32,
-    pub usage_cents_granted: Option<f64>,
-    pub usage_cents_remaining: Option<f64>,
-}
-
-#[derive(cynic::Enum, Clone, Copy, Debug)]
-pub enum AddonCreditAutoReloadStatus {
-    Failed,
-    Succeeded,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct ServiceAgreement {
-    pub addon_credit_auto_reload_status: Option<AddonCreditAutoReloadStatus>,
     pub current_period_end: Time,
     pub status: ServiceAgreementStatus,
     pub stripe_subscription_id: Option<String>,
@@ -102,50 +43,23 @@ pub enum ServiceAgreementType {
     Other(String),
 }
 
-/// The unit a tier charges AI usage in.
-#[derive(cynic::Enum, Clone, Debug, PartialEq, Eq)]
-pub enum ChargeUnit {
-    Credits,
-    Cents,
-    #[cynic(fallback)]
-    Other(String),
-}
-
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct Tier {
     pub name: String,
     pub description: String,
-    pub charge_unit: ChargeUnit,
-    pub warp_ai_policy: Option<WarpAiPolicy>,
     pub team_size_policy: Option<TeamSizePolicy>,
     pub shared_notebooks_policy: Option<SharedNotebooksPolicy>,
     pub shared_workflows_policy: Option<SharedWorkflowsPolicy>,
     pub session_sharing_policy: Option<SessionSharingPolicy>,
-    pub ai_autonomy_policy: Option<AiAutonomyPolicy>,
     pub telemetry_data_collection_policy: Option<TelemetryDataCollectionPolicy>,
-    pub ugc_data_collection_policy: Option<UgcDataCollectionPolicy>,
-    pub usage_based_pricing_policy: Option<UsageBasedPricingPolicy>,
-    pub byo_api_key_policy: Option<ByoApiKeyPolicy>,
-    pub byo_endpoint_policy: Option<ByoEndpointPolicy>,
-    pub managed_byok_byoe_policy: Option<ManagedByokByoePolicy>,
-    pub purchase_add_on_credits_policy: Option<PurchaseAddOnCreditsPolicy>,
-    pub enterprise_pay_as_you_go_policy: Option<EnterprisePayAsYouGoPolicy>,
-    pub enterprise_credits_auto_reload_policy: Option<EnterpriseCreditsAutoReloadPolicy>,
     pub multi_admin_policy: Option<MultiAdminPolicy>,
     pub native_workspaces_policy: Option<NativeWorkspacesPolicy>,
-    pub ambient_agents_policy: Option<AmbientAgentsPolicy>,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct SessionSharingPolicy {
     pub enabled: bool,
     pub max_session_bytes_size: i32,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct AiAutonomyPolicy {
-    pub enabled: bool,
-    pub toggleable: bool,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
@@ -167,60 +81,9 @@ pub struct TeamSizePolicy {
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct WarpAiPolicy {
-    pub limit: i32,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct TelemetryDataCollectionPolicy {
     pub default: bool,
     pub toggleable: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct UgcDataCollectionPolicy {
-    pub default_setting: UgcCollectionEnablementSetting,
-    pub toggleable: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct UsageBasedPricingPolicy {
-    pub toggleable: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct ByoApiKeyPolicy {
-    pub enabled: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct ByoEndpointPolicy {
-    pub enabled: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct ManagedByokByoePolicy {
-    pub enabled: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct PurchaseAddOnCreditsPolicy {
-    pub enabled: bool,
-    pub premium_enabled: bool,
-    pub price_premium_bps: i32,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct EnterprisePayAsYouGoPolicy {
-    pub enabled: bool,
-    pub payg_cost_per_thousand_credits_cents: i32,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct EnterpriseCreditsAutoReloadPolicy {
-    pub enabled: bool,
-    pub auto_reload_cost_cents: i32,
-    pub auto_reload_credit_denomination: i32,
 }
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
@@ -231,20 +94,6 @@ pub struct MultiAdminPolicy {
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct NativeWorkspacesPolicy {
     pub enabled: bool,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct AmbientAgentsPolicy {
-    pub enabled: bool,
-    pub toggleable: bool,
-    pub max_concurrent_agents: i32,
-    pub instance_shape: Option<InstanceShape>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct InstanceShape {
-    pub vcpus: i32,
-    pub memory_gb: i32,
 }
 
 #[derive(cynic::Enum, Clone, Debug)]
@@ -273,71 +122,6 @@ pub enum DelinquencyStatus {
     Unpaid,
     #[cynic(fallback)]
     Other(String),
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone, PartialEq, Eq)]
-pub struct AddonCreditsOption {
-    pub credits: i32,
-    pub price_usd_cents: i32,
-    pub usage_cents: Option<i32>,
-}
-
-impl AddonCreditsOption {
-    pub fn rate(&self) -> f32 {
-        self.price_usd_cents as f32 / self.credits as f32
-    }
-
-    /// The whole-percent saving of this pack's per-credit rate over `base_rate` (the catalog's
-    /// smallest pack), or 0 when it is no cheaper.
-    pub fn discount_percent(&self, base_rate: f32) -> u32 {
-        if base_rate <= 0.0 {
-            return 0;
-        }
-        ((base_rate - self.rate()) / base_rate * 100.0).round() as u32
-    }
-
-    /// Returns the purchase price in cents after applying a plan surcharge
-    /// expressed in basis points (1000 bps = +10%). `price_usd_cents` always
-    /// carries the list price; plans whose `PurchaseAddOnCreditsPolicy` has a
-    /// non-zero `price_premium_bps` pay a premium on top of it. The surcharge
-    /// is rounded up to the next cent using the same integer math as the
-    /// server so displayed prices always match what is charged.
-    pub fn price_usd_cents_with_premium(&self, premium_bps: i32) -> i32 {
-        if premium_bps <= 0 {
-            return self.price_usd_cents;
-        }
-        let price = self.price_usd_cents as i64;
-        let surcharge = (price * premium_bps as i64 + 9_999) / 10_000;
-        (price + surcharge) as i32
-    }
-}
-
-#[cfg(test)]
-#[path = "billing_tests.rs"]
-mod tests;
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct PricingInfo {
-    pub plans: Vec<PlanPricing>,
-    pub overages: OveragesPricing,
-    pub addon_credits_options: Vec<AddonCreditsOption>,
-    pub promotion_message: Option<String>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct PlanPricing {
-    pub plan: StripeSubscriptionPlan,
-    pub monthly_plan_price_per_month_usd_cents: i32,
-    pub yearly_plan_price_per_month_usd_cents: i32,
-    pub request_limit: Option<i32>,
-    pub codebase_limit: i32,
-    pub codebase_context_file_limit: i32,
-    pub max_team_size: Option<i32>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct OveragesPricing {
-    pub price_per_request_usd_cents: i32,
 }
 
 #[derive(cynic::Enum, Clone, Debug, PartialEq)]

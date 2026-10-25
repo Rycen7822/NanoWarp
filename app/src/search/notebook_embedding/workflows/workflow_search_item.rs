@@ -43,17 +43,8 @@ impl SearchItem for WorkflowSearchItem {
         _highlight_state: ItemHighlightState,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        let (icon, icon_color) = if self.cloud_workflow.model().data.is_agent_mode_workflow() {
-            (
-                Icon::Prompt,
-                warp_drive_icon_color(appearance, DriveObjectType::AgentModeWorkflow),
-            )
-        } else {
-            (
-                Icon::Workflow,
-                warp_drive_icon_color(appearance, DriveObjectType::Workflow),
-            )
-        };
+        let icon = Icon::Workflow;
+        let icon_color = warp_drive_icon_color(appearance, DriveObjectType::Workflow);
 
         Container::new(
             ConstrainedBox::new(icon.to_warpui_icon(icon_color.into()).finish())

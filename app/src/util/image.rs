@@ -1,7 +1,4 @@
-//! Shared image processing utilities for agent mode.
-//!
-//! This module provides common functionality for processing images before they are
-//! sent to the AI agent, whether attached by the user or read via the read_files tool.
+//! Image processing utilities for file readers.
 
 use std::path::Path;
 
@@ -36,13 +33,10 @@ pub const MAX_IMAGE_PIXELS: f64 = 1150. * 1000.;
 /// Maximum dimension (width or height) for images.
 pub const MAX_IMAGE_DIMENSION: f64 = 2000.;
 
-/// Maximum number of images that can be attached per query/task.
-pub const MAX_IMAGE_COUNT_FOR_QUERY: usize = 20;
-
 /// Minimum bytes needed for image format detection using magic number signatures.
 pub const MIN_IMAGE_HEADER_SIZE: usize = 8;
 
-/// Supported image MIME types for agent mode.
+/// Supported image MIME types.
 pub const SUPPORTED_IMAGE_MIME_TYPES: &[&str] = &[
     "image/png",
     "image/jpeg",
@@ -96,7 +90,7 @@ pub fn resize_image(image: &[u8]) -> Result<Vec<u8>, ImageError> {
     Ok(output_bytes)
 }
 
-/// Result of processing an image for agent mode.
+/// Result of processing an image.
 #[derive(Debug)]
 pub enum ProcessImageResult {
     /// Image was successfully processed and is within size limits.
@@ -110,10 +104,8 @@ pub enum ProcessImageResult {
     Error(ImageError),
 }
 
-/// Processes an image for agent mode: resizes if needed and checks size limits.
-///
-/// This applies the same processing that user-attached images go through.
-pub fn process_image_for_agent(image_data: &[u8]) -> ProcessImageResult {
+/// Resizes an image if needed and checks size limits.
+pub fn process_image(image_data: &[u8]) -> ProcessImageResult {
     match resize_image(image_data) {
         Ok(resized_bytes) => {
             if resized_bytes.len() > MAX_IMAGE_SIZE_BYTES {

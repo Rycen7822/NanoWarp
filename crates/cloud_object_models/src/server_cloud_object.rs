@@ -8,10 +8,9 @@ use cloud_objects::ids::{GenericStringObjectId, ObjectUid, ServerId, SyncId};
 use warp_graphql::object::CloudObjectWithDescendants;
 
 use crate::{
-    AIExecutionProfile, AIFact, CloudFolderModel, CloudNotebookModel, CloudWorkflowModel,
-    EnvVarCollection, JsonSerializer, Preference, ServerAIExecutionProfile, ServerAIFact,
-    ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference, ServerWorkflow,
-    ServerWorkflowEnum, WorkflowEnum,
+    CloudFolderModel, CloudNotebookModel, CloudWorkflowModel, EnvVarCollection, JsonSerializer,
+    Preference, ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
+    ServerWorkflow, ServerWorkflowEnum, WorkflowEnum,
 };
 
 /// A cloud object from the server.
@@ -23,8 +22,6 @@ pub enum ServerCloudObject {
     Preference(ServerPreference),
     EnvVarCollection(ServerEnvVarCollection),
     WorkflowEnum(ServerWorkflowEnum),
-    AIFact(ServerAIFact),
-    AIExecutionProfile(ServerAIExecutionProfile),
 }
 
 impl ServerCloudObject {
@@ -36,10 +33,6 @@ impl ServerCloudObject {
             ServerCloudObject::Preference(preferences) => &preferences.metadata,
             ServerCloudObject::EnvVarCollection(env_var_collection) => &env_var_collection.metadata,
             ServerCloudObject::WorkflowEnum(workflow_enum) => &workflow_enum.metadata,
-            ServerCloudObject::AIFact(aifact) => &aifact.metadata,
-            ServerCloudObject::AIExecutionProfile(ai_execution_profile) => {
-                &ai_execution_profile.metadata
-            }
         }
     }
 
@@ -51,10 +44,6 @@ impl ServerCloudObject {
             ServerCloudObject::Preference(preferences) => preferences.id.uid(),
             ServerCloudObject::EnvVarCollection(env_var_collection) => env_var_collection.id.uid(),
             ServerCloudObject::WorkflowEnum(workflow_enum) => workflow_enum.id.uid(),
-            ServerCloudObject::AIFact(aifact) => aifact.id.uid(),
-            ServerCloudObject::AIExecutionProfile(ai_execution_profile) => {
-                ai_execution_profile.id.uid()
-            }
         }
     }
 }
@@ -80,12 +69,6 @@ where
             ServerCloudObject::EnvVarCollection(server_env_var_collection.clone())
         } else if let Some(server_workflow_enum) = value.downcast_ref::<ServerWorkflowEnum>() {
             ServerCloudObject::WorkflowEnum(server_workflow_enum.clone())
-        } else if let Some(server_aifact) = value.downcast_ref::<ServerAIFact>() {
-            ServerCloudObject::AIFact(server_aifact.clone())
-        } else if let Some(server_ai_execution_profile) =
-            value.downcast_ref::<ServerAIExecutionProfile>()
-        {
-            ServerCloudObject::AIExecutionProfile(server_ai_execution_profile.clone())
         } else {
             panic!("Unknown server object type");
         }
@@ -173,9 +156,6 @@ impl TryFrom<warp_graphql::object::CloudObject> for ServerCloudObject {
 
     fn try_from(value: warp_graphql::object::CloudObject) -> Result<Self, Self::Error> {
         match value {
-            warp_graphql::object::CloudObject::AIConversation(_) => Err(anyhow::anyhow!(
-                "AIConversation is not a supported object type for this operation"
-            )),
             warp_graphql::object::CloudObject::Folder(folder) => Ok(ServerCloudObject::Folder(
                 ServerFolder::try_from_gql(folder)?,
             )),
@@ -200,9 +180,6 @@ impl TryFrom<CloudObjectWithDescendants> for ServerCloudObject {
 
     fn try_from(value: CloudObjectWithDescendants) -> Result<Self, Self::Error> {
         match value {
-            CloudObjectWithDescendants::AIConversation(_) => Err(anyhow::anyhow!(
-                "AIConversation is not a supported object type for this operation"
-            )),
             CloudObjectWithDescendants::FolderWithDescendants(fwd) => Ok(
                 ServerCloudObject::Folder(ServerFolder::try_from_gql(fwd.folder)?),
             ),
@@ -225,38 +202,35 @@ fn server_gso_to_cloud_object(
 ) -> Result<ServerCloudObject> {
     match gso.format {
         warp_graphql::generic_string_object::GenericStringObjectFormat::JsonEnvVarCollection => {
-            Ok(ServerCloudObject::EnvVarCollection(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<EnvVarCollection, JsonSerializer>>::try_from_gql(gso)?,
-            ))
+            Ok(ServerCloudObject::EnvVarCollection(GenericServerObject::<
+                GenericStringObjectId,
+                GenericStringModel<EnvVarCollection, JsonSerializer>,
+            >::try_from_gql(
+                gso
+            )?))
         }
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonPreference => Ok(
-            ServerCloudObject::Preference(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<Preference, JsonSerializer>>::try_from_gql(gso)?,
-            ),
-        ),
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonWorkflowEnum => Ok(
-            ServerCloudObject::WorkflowEnum(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<WorkflowEnum, JsonSerializer>>::try_from_gql(gso)?,
-            ),
-        ),
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonAIFact => Ok(
-            ServerCloudObject::AIFact(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<AIFact, JsonSerializer>>::try_from_gql(gso)?,
-            ),
-        ),
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonAIExecutionProfile => {
-            Ok(ServerCloudObject::AIExecutionProfile(
-                GenericServerObject::<GenericStringObjectId, GenericStringModel<AIExecutionProfile, JsonSerializer>>::try_from_gql(gso)?,
-            ))
+        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonPreference => {
+            Ok(ServerCloudObject::Preference(GenericServerObject::<
+                GenericStringObjectId,
+                GenericStringModel<Preference, JsonSerializer>,
+            >::try_from_gql(
+                gso
+            )?))
         }
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonCloudEnvironment
-        | warp_graphql::generic_string_object::GenericStringObjectFormat::JsonScheduledAmbientAgent => Err(anyhow::anyhow!(
-            "unsupported generic string object format"
-        )),
+        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonWorkflowEnum => {
+            Ok(ServerCloudObject::WorkflowEnum(GenericServerObject::<
+                GenericStringObjectId,
+                GenericStringModel<WorkflowEnum, JsonSerializer>,
+            >::try_from_gql(
+                gso
+            )?))
+        }
         // Formats unknown to this client build (e.g. the server-only `JsonRunner`).
         // Returning an error lets callers skip the object rather than failing.
-        warp_graphql::generic_string_object::GenericStringObjectFormat::Unknown => Err(anyhow::anyhow!(
-            "unsupported generic string object format (unknown to this client build)"
-        )),
+        warp_graphql::generic_string_object::GenericStringObjectFormat::Unknown => {
+            Err(anyhow::anyhow!(
+                "unsupported generic string object format (unknown to this client build)"
+            ))
+        }
     }
 }

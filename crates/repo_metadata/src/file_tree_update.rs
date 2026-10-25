@@ -1,6 +1,6 @@
 //! Serializable incremental file tree update types.
 //!
-//! These types mirror the protobuf schema for `RepoMetadataUpdate` 1:1,
+//! These types mirror the active file-tree fields in the `RepoMetadataUpdate` protobuf,
 //! making encode/decode between Rust and proto trivial. They are produced
 //! by the server after processing watcher events and consumed by the client
 //! to update its [`RemoteRepoMetadataModel`](crate::remote_model::RemoteRepoMetadataModel).
@@ -8,7 +8,6 @@
 use warp_util::standardized_path::StandardizedPath;
 
 use crate::entry::{DirectoryEntry, Entry, FileMetadata};
-use crate::standing_queries::StandingQueryResultsDelta;
 /// Describes how a file-tree entry update should be interpreted by consumers.
 #[derive(Debug, Clone)]
 pub enum MetadataUpdateType {
@@ -32,8 +31,6 @@ pub struct RepoMetadataUpdate {
     pub remove_entries: Vec<StandardizedPath>,
     /// Subtree patches to add or replace in the tree.
     pub update_entries: Vec<FileTreeEntryUpdate>,
-    /// Standing query changes synchronized with this tree change.
-    pub standing_results_delta: StandingQueryResultsDelta,
 }
 
 /// Mirrors `FileTreeEntry` proto.

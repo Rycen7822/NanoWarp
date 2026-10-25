@@ -8,9 +8,8 @@ use warp_graphql::mutations::update_generic_string_object::{
 use warp_graphql::object::ObjectUpdateSuccess;
 
 use crate::cloud_object::{
-    RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerEnvVarCollection,
-    ServerFolder, ServerObject, ServerPreference, ServerWorkflowEnum, TryFromGql,
-    UpdateCloudObjectResult,
+    RevisionAndLastEditor, ServerEnvVarCollection, ServerFolder, ServerObject, ServerPreference,
+    ServerWorkflowEnum, TryFromGql, UpdateCloudObjectResult,
 };
 use crate::server::graphql::get_user_facing_error_message;
 
@@ -57,19 +56,7 @@ pub fn update_generic_string_object_result_to_update_result(
                                 rejected.conflicting_generic_string_object,
                             )?
                         }
-                        GenericStringObjectFormat::JsonAIFact => {
-                            boxed_rejected_generic_string_object::<ServerAIFact>(
-                                rejected.conflicting_generic_string_object,
-                            )?
-                        }
-                        GenericStringObjectFormat::JsonAIExecutionProfile => {
-                            boxed_rejected_generic_string_object::<ServerAIExecutionProfile>(
-                                rejected.conflicting_generic_string_object,
-                            )?
-                        }
-                        GenericStringObjectFormat::JsonCloudEnvironment
-                        | GenericStringObjectFormat::JsonScheduledAmbientAgent
-                        | GenericStringObjectFormat::Unknown => {
+                        GenericStringObjectFormat::Unknown => {
                             bail!("conflicting generic string object has unknown format")
                         }
                     };

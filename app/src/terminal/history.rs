@@ -8,7 +8,7 @@ use warp_core::command::ExitCode;
 use warp_errors::report_error;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use super::model::block::{AgentInteractionMetadata, Block, SerializedAIMetadata, SerializedBlock};
+use super::model::block::{Block, SerializedBlock};
 use super::shell::ShellType;
 use crate::terminal::model::session::{Session, SessionId};
 use crate::util::dedupe_from_last;
@@ -28,7 +28,6 @@ pub struct PersistedCommand {
     pub shell_host: Option<ShellHost>,
     pub session_id: Option<SessionId>,
     pub git_branch: Option<String>,
-    pub is_agent_executed: bool,
 }
 
 impl From<crate::persistence::model::Command> for PersistedCommand {
@@ -62,7 +61,6 @@ impl From<crate::persistence::model::Command> for PersistedCommand {
                     .map(SessionId::from)
             }),
             git_branch: command.git_branch,
-            is_agent_executed: command.is_agent_executed.unwrap_or(false),
         }
     }
 }
@@ -180,20 +178,6 @@ pub struct HistoryEntry {
     pub shell_host: Option<ShellHost>,
 
     pub is_for_restored_block: bool,
-
-    /// Whether this command was executed by an AI agent.
-    pub is_agent_executed: bool,
-}
-
-fn serialized_block_is_agent_executed(block: &SerializedBlock) -> bool {
-    let Some(ai_metadata) = block.ai_metadata.as_ref() else {
-        return false;
-    };
-
-    serde_json::from_str::<SerializedAIMetadata>(ai_metadata)
-        .ok()
-        .map(AgentInteractionMetadata::from)
-        .is_some_and(|metadata| metadata.requested_command_action_id().is_some())
 }
 
 /// Ordering of history items: other sessions precede the current session.
@@ -241,7 +225,6 @@ impl HistoryEntry {
             git_head: None,
             shell_host: None,
             is_for_restored_block: false,
-            is_agent_executed: false,
         }
     }
 
@@ -258,12 +241,7 @@ impl HistoryEntry {
         entry
     }
 
-    pub fn for_session_command(
-        command: String,
-        active_block: &Block,
-        session: &Session,
-        is_agent_executed: bool,
-    ) -> Self {
+    pub fn for_session_command(command: String, active_block: &Block, session: &Session) -> Self {
         HistoryEntry {
             session_id: Some(session.id()),
             command,
@@ -276,7 +254,6 @@ impl HistoryEntry {
             exit_code: None,
             shell_host: active_block.shell_host().clone(),
             is_for_restored_block: false,
-            is_agent_executed,
         }
     }
 
@@ -291,7 +268,6 @@ impl HistoryEntry {
             completed_ts: block.completed_ts().copied(),
             exit_code: Some(block.exit_code()),
             is_for_restored_block: true,
-            is_agent_executed: block.requested_command_action_id().is_some(),
         }
     }
 
@@ -306,7 +282,6 @@ impl HistoryEntry {
             git_head: block.git_head.clone(),
             shell_host: block.shell_host.clone(),
             is_for_restored_block: false,
-            is_agent_executed: serialized_block_is_agent_executed(block),
         }
     }
 
@@ -318,7 +293,6 @@ impl HistoryEntry {
             session_id: _,
             command: _,
             is_for_restored_block: _,
-            is_agent_executed: _,
             pwd,
             start_ts,
             completed_ts: _,
@@ -342,7 +316,6 @@ impl From<PersistedCommand> for HistoryEntry {
             git_head: command.git_branch,
             shell_host: command.shell_host,
             is_for_restored_block: false,
-            is_agent_executed: command.is_agent_executed,
         }
     }
 }

@@ -4,106 +4,6 @@ use crate::object_permissions::OwnerType;
 use crate::request_context::RequestContext;
 use crate::scalars::Time;
 use crate::schema;
-use crate::workspace::FeatureModelChoice;
-
-/*
-query GetUser($requestContext: RequestContext!) {
-  user(requestContext: $requestContext) {
-    ... on UserOutput {
-      apiKeyOwnerType
-      principalType
-      user {
-        anonymousUserInfo {
-          anonymousUserType
-          linkedAt
-          personalObjectLimits {
-            envVarLimit
-            notebookLimit
-            workflowLimit
-          }
-        }
-        experiments
-        globalSkills
-        isOnWorkDomain
-        isOnboarded
-        profile {
-          displayName
-          email
-          needsSsoLink
-          photoUrl
-          uid
-        }
-        llms {
-          agentMode {
-            defaultId
-            choices {
-              id
-              displayName
-              baseModelName
-              reasoningLevel
-              description
-              disableReason
-              visionSupported
-              onboardingInfo {
-                title
-                description
-              }
-            }
-          }
-          planning {
-            defaultId
-            choices {
-              id
-              displayName
-              baseModelName
-              reasoningLevel
-              description
-              disableReason
-              visionSupported
-              onboardingInfo {
-                title
-                description
-              }
-            }
-          }
-          coding {
-            defaultId
-            choices {
-              id
-              displayName
-              baseModelName
-              reasoningLevel
-              description
-              disableReason
-              visionSupported
-              onboardingInfo {
-                title
-                description
-              }
-            }
-          }
-          cliAgent {
-            defaultId
-            choices {
-              id
-              displayName
-              baseModelName
-              reasoningLevel
-              description
-              disableReason
-              visionSupported
-              onboardingInfo {
-                title
-                description
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-*/
 
 #[derive(cynic::QueryFragment, Debug)]
 #[cynic(graphql_type = "RootQuery", variables = "GetUserVariables")]
@@ -137,11 +37,9 @@ pub enum PrincipalType {
 pub struct User {
     pub anonymous_user_info: Option<AnonymousUserInfo>,
     pub experiments: Option<Vec<Experiment>>,
-    pub global_skills: Vec<String>,
     pub is_onboarded: bool,
     pub is_on_work_domain: bool,
     pub profile: FirebaseProfile,
-    pub llms: FeatureModelChoice,
 }
 
 #[derive(cynic::QueryFragment, Debug)]

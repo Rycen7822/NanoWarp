@@ -17,8 +17,8 @@ use warpui::{
 };
 
 use super::dropdown::{
-    DROPDOWN_PADDING, DropdownAction, DropdownItem, DropdownItemAction, MenuHeaderTextFormatter,
-    TOP_MENU_BAR_HEIGHT, TOP_MENU_BAR_MAX_WIDTH,
+    DROPDOWN_PADDING, DropdownAction, DropdownItem, DropdownItemAction, TOP_MENU_BAR_HEIGHT,
+    TOP_MENU_BAR_MAX_WIDTH,
 };
 use crate::appearance::Appearance;
 use crate::editor::{
@@ -47,7 +47,6 @@ pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     disabled: bool,
     top_bar_mouse_state: MouseStateHandle,
     top_bar_max_width: f32,
-    main_axis_size: MainAxisSize,
     dropdown: ViewHandle<Menu<DropdownAction>>,
     filter_editor: ViewHandle<EditorView>,
     self_handle: WeakViewHandle<Self>,
@@ -55,16 +54,8 @@ pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     items: Vec<MenuItem<DropdownAction>>,
     orientation: FilterableDropdownOrientation,
     static_menu_header: Option<&'static str>,
-    button_variant: ButtonVariant,
     style_override: Option<UiComponentStyles>,
     hovered_style_override: Option<UiComponentStyles>,
-    menu_header_text_override: Option<MenuHeaderTextFormatter>,
-    /// Optional placeholder shown in the closed top bar when no item is
-    /// selected. Setting a placeholder also opts the dropdown into allowing an
-    /// empty selection: `set_filtered_items` will not auto-highlight the first
-    /// item when nothing has been selected yet, so the top bar stays blank
-    /// instead of leaking the first item as a phantom selection.
-    placeholder: Option<String>,
     /// True when a pinned footer has been registered via `set_footer`.
     /// When true, the footer lives inside the `Menu`'s own `Dismiss` (via
     /// `Menu::set_pinned_footer_builder`), so clicks on it never trigger the
@@ -73,8 +64,6 @@ pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     /// the footer remains visible even when the item list is empty.
     has_pinned_footer: bool,
     menu_width: Option<f32>,
-    vertical_margin: f32,
-    top_bar_height: f32,
     match_menu_width_to_top_bar: bool,
     _action_type: PhantomData<A>,
 }
@@ -122,54 +111,17 @@ where
             self_handle: ctx.handle(),
             top_bar_mouse_state: Default::default(),
             top_bar_max_width: TOP_MENU_BAR_MAX_WIDTH,
-            main_axis_size: MainAxisSize::Max,
             selected_item: None,
             items: Default::default(),
             orientation: Default::default(),
             static_menu_header: None,
-            button_variant: ButtonVariant::Outlined,
             style_override: None,
             hovered_style_override: None,
-            menu_header_text_override: None,
-            placeholder: None,
             has_pinned_footer: false,
             menu_width: None,
-            vertical_margin: DROPDOWN_PADDING,
-            top_bar_height: TOP_MENU_BAR_HEIGHT,
             match_menu_width_to_top_bar: false,
             _action_type: PhantomData,
         }
-    }
-
-    /// Override the top-bar height.
-    /// Allows mixed dropdown rows to use the same height.
-    pub fn set_top_bar_height(&mut self, height: f32, ctx: &mut ViewContext<Self>) {
-        self.top_bar_height = height;
-        ctx.notify();
-    }
-
-    /// Override the vertical margin applied above and below the dropdown's top
-    /// bar (default [`DROPDOWN_PADDING`]). Set to `0.` when the caller manages
-    /// its own spacing and needs the bar to align flush with sibling inputs.
-    pub fn set_vertical_margin(&mut self, vertical_margin: f32, ctx: &mut ViewContext<Self>) {
-        self.vertical_margin = vertical_margin;
-        ctx.notify();
-    }
-
-    pub fn set_menu_header_text_override<F>(&mut self, formatter: F)
-    where
-        F: Fn(&str) -> String + 'static,
-    {
-        self.menu_header_text_override = Some(Box::new(formatter));
-    }
-
-    /// Sets placeholder text shown (greyed) in the closed top bar when no item
-    /// is selected, and opts the dropdown into allowing an empty selection so
-    /// the placeholder is preserved rather than being replaced by the first
-    /// item after filtering.
-    pub fn set_placeholder(&mut self, placeholder: impl Into<String>, ctx: &mut ViewContext<Self>) {
-        self.placeholder = Some(placeholder.into());
-        ctx.notify();
     }
 
     pub fn set_footer<F>(&mut self, builder: F, ctx: &mut ViewContext<Self>)
@@ -185,32 +137,8 @@ where
         });
     }
 
-    pub fn clear_footer(&mut self, ctx: &mut ViewContext<Self>) {
-        self.has_pinned_footer = false;
-        self.dropdown.update(ctx, |menu, _| {
-            menu.clear_pinned_footer_builder();
-        });
-    }
-
-    /// Set the main_axis_size behavior for the dropdown header button.
-    ///
-    /// Default is MainAxisSize::Max, set to MainAxisSize::Min if you want to wrap the dropdown to
-    /// the text that's filling it.
-    pub fn set_main_axis_size(
-        &mut self,
-        main_axis_size: MainAxisSize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.main_axis_size = main_axis_size;
-        ctx.notify();
-    }
-
     pub fn set_style(&mut self, style: UiComponentStyles) {
         self.style_override = Some(style);
-    }
-
-    pub fn set_button_variant(&mut self, button_variant: ButtonVariant) {
-        self.button_variant = button_variant;
     }
 
     pub fn set_orientation(&mut self, orientation: FilterableDropdownOrientation) {
@@ -243,21 +171,6 @@ where
             self.selected_item = None;
             ctx.notify();
         }
-    }
-
-    /// Set items from rich menu items (MenuItem). This preserves the rich menu items for
-    /// filtering and passes the filtered items to the internal dropdown.
-    ///
-    /// Rich menu items already carry erased [`DropdownAction`]s. The dropdown dispatches selected
-    /// item actions through normal action propagation, so callers should ensure each action is
-    /// handled by an appropriate view in the containing view hierarchy.
-    pub fn set_rich_items(
-        &mut self,
-        items: Vec<MenuItem<DropdownAction>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.items = items;
-        self.set_filtered_items(ctx);
     }
 
     /// The number of items in the dropdown.
@@ -437,26 +350,17 @@ where
     }
 
     fn render_closed_top_bar(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let (selected_item_text, font_family_id, is_placeholder) = match self.static_menu_header {
-            Some(header) => (header.to_string(), None, false),
+        let (selected_item_text, font_family_id) = match self.static_menu_header {
+            Some(header) => (header.to_string(), None),
             None => match self.selected_item.clone() {
                 Some(MenuItem::Item(fields)) => {
-                    let label = fields.label();
-                    let text = if let Some(formatter) = &self.menu_header_text_override {
-                        formatter(label)
-                    } else {
-                        label.to_string()
-                    };
-                    (text, fields.override_font_family(), false)
+                    (fields.label().to_string(), fields.override_font_family())
                 }
-                _ => match &self.placeholder {
-                    Some(placeholder) => (placeholder.clone(), None, true),
-                    None => (String::new(), None, false),
-                },
+                _ => (String::new(), None),
             },
         };
 
-        let mut base_style = self.style_override.unwrap_or(UiComponentStyles {
+        let base_style = self.style_override.unwrap_or(UiComponentStyles {
             padding: Some(Coords {
                 top: 5.,
                 bottom: 5.,
@@ -465,25 +369,17 @@ where
             }),
             ..Default::default()
         });
-        if is_placeholder {
-            base_style.font_color = Some(
-                appearance
-                    .theme()
-                    .sub_text_color(appearance.theme().surface_1())
-                    .into(),
-            );
-        }
 
         let mut top_bar = appearance
             .ui_builder()
-            .button(self.button_variant, self.top_bar_mouse_state.clone())
+            .button(ButtonVariant::Outlined, self.top_bar_mouse_state.clone())
             .with_text_and_icon_label(
                 TextAndIcon::new(
                     TextAndIconAlignment::TextFirst,
                     selected_item_text,
                     icons::Icon::ChevronDown
                         .to_warpui_icon(appearance.theme().active_ui_text_color()),
-                    self.main_axis_size,
+                    MainAxisSize::Max,
                     MainAxisAlignment::SpaceBetween,
                     vec2f(15., 15.),
                 )
@@ -585,7 +481,7 @@ where
             Container::new(
                 ConstrainedBox::new(top_bar_element)
                     .with_max_width(self.top_bar_max_width)
-                    .with_height(self.top_bar_height)
+                    .with_height(TOP_MENU_BAR_HEIGHT)
                     .finish(),
             )
             .finish(),
@@ -698,11 +594,6 @@ where
         // If it isn't, we set the selected element to the first index of
         // the new elements such that there's always a candidate element to select.
         let current_label = self.current_selected_item_label().to_string();
-        // When a placeholder is configured and nothing is selected yet, don't
-        // auto-highlight the first item: doing so emits `ItemSelected`, which
-        // the subscription would cache as a phantom selection and surface in
-        // the top bar (defeating the blank/placeholder state).
-        let allow_empty_selection = self.placeholder.is_some() && current_label.is_empty();
         let mut current_label_not_visible = true;
         self.dropdown.update(ctx, |dropdown, ctx| {
             dropdown.set_items(
@@ -722,11 +613,7 @@ where
             );
 
             if current_label_not_visible && !dropdown.is_empty() {
-                if allow_empty_selection {
-                    dropdown.reset_selection(ctx);
-                } else {
-                    dropdown.set_selected_by_index(0, ctx);
-                }
+                dropdown.set_selected_by_index(0, ctx);
             } else {
                 dropdown.set_selected_by_name(&current_label, ctx);
             }
@@ -854,8 +741,8 @@ where
             dropdown_stack.add_positioned_overlay_child(dropdown_menu, positioning);
         }
         Container::new(dropdown_stack.finish())
-            .with_margin_top(self.vertical_margin)
-            .with_margin_bottom(self.vertical_margin)
+            .with_margin_top(DROPDOWN_PADDING)
+            .with_margin_bottom(DROPDOWN_PADDING)
             .finish()
     }
 

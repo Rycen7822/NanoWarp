@@ -12,17 +12,11 @@ use warpui::platform::Cursor;
 use warpui::platform::keyboard::KeyCode;
 use warpui::{EntityId, WeakViewHandle, WindowId};
 
-use super::global_actions::{ForkFromExchange, ForkedConversationDestination};
 use super::tab_settings::{
     VerticalTabsCompactSubtitle, VerticalTabsDisplayGranularity, VerticalTabsPrimaryInfo,
     VerticalTabsTabItemMode, VerticalTabsViewMode,
 };
-use super::view::{OnboardingTutorial, WorkspaceBanner};
-use crate::ai::agent::AIAgentExchangeId;
-use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::PendingAttachment;
+use super::view::WorkspaceBanner;
 use crate::auth::auth_manager::LoginGatedFeature;
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::items::WarpDriveItemId;
@@ -31,9 +25,7 @@ use crate::pane_group::PaneGroup;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::search;
 use crate::server::ids::{ServerId, SyncId};
-use crate::server::telemetry::{
-    AddTabWithShellSource, AgentModeEntrypoint, PaletteSource, SharingDialogSource,
-};
+use crate::server::telemetry::{AddTabWithShellSource, PaletteSource, SharingDialogSource};
 use crate::settings_view::{SettingsAction as SettingsTabAction, SettingsSection};
 use crate::tab::{NewSessionMenuItem, SelectedTabColor};
 use crate::tab_configs::TabConfig;
@@ -60,18 +52,6 @@ pub enum InitContent {
 pub struct CommandSearchOptions {
     pub filter: Option<search::QueryFilter>,
     pub init_content: InitContent,
-}
-
-/// Specifies how to restore a conversation when it's not already open in a pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub enum RestoreConversationLayout {
-    /// Restore the conversation into the currently active pane.
-    ActivePane,
-    /// Restore the conversation in a new split pane.
-    SplitPane,
-    /// Restore the conversation in a new tab.
-    #[default]
-    NewTab,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -242,8 +222,6 @@ pub enum WorkspaceAction {
         shell: AvailableShell,
         source: AddTabWithShellSource,
     },
-    /// Add a new tab that immediately enters agent view with a new conversation.
-    AddAgentTab,
     OpenNewSessionMenu {
         anchor: NewSessionMenuAnchor,
     },
@@ -395,7 +373,6 @@ pub enum WorkspaceAction {
     OpenPromptEditor {
         open_source: PromptEditorOpenSource,
     },
-    OpenAgentToolbarEditor,
     OpenHeaderToolbarEditor,
     ShowHeaderToolbarContextMenu {
         position: Vector2F,
@@ -450,52 +427,20 @@ pub enum WorkspaceAction {
     /// Help the user call the Warp executable with the [`crate::args::DEBUG_DUMP_FLAG`].
     DumpDebugInfo,
     /// Log review comment send eligibility for panes in the active tab.
-    LogReviewCommentSendStatusForActiveTab,
     ToggleRecordingMode,
     ToggleInBandGenerators,
     ToggleDebugNetworkStatus,
     ToggleShowMemoryStats,
-    RunAISuggestedCommand(String),
     RunCommand(String),
-    InsertInInput {
-        content: String,
-        replace_buffer: bool,
-        /// Whether to ensure agent mode is enabled when inserting content
-        ensure_agent_mode: bool,
-    },
-    /// Open a new tab with its input in AI mode.
-    NewTabInAgentMode {
-        /// The entrypoint that triggered this action.
-        entrypoint: AgentModeEntrypoint,
-    },
-    /// Open a new pane with its input in AI mode.
-    NewPaneInAgentMode {
-        /// The entrypoint that triggered this action.
-        entrypoint: AgentModeEntrypoint,
-    },
-    AttemptLoginGatedAIUpgrade,
     /// Dismisses the Wayland crash recovery banner and opens a link to our docs page with more
     /// information.
     #[cfg(target_os = "linux")]
     DismissWaylandCrashRecoveryBannerAndOpenLink,
-    /// Open a new pane with its input in AI mode
-    /// with query "Fix this" with error name and details from AI summary.
-    FixInAgentMode {
-        query: String,
-    },
-    OpenAIFactCollection,
     FocusTerminalViewInWorkspace {
         terminal_view_id: EntityId,
     },
     /// Focus a specific pane by its locator (pane_group_id and pane_id).
     FocusPane(PaneViewLocator),
-    /// Start a new AI conversation in a terminal view. This sets the pending query state
-    /// to default and focuses the terminal view.
-    StartNewConversation {
-        terminal_view_id: EntityId,
-    },
-    /// Jump to the terminal pane of the most recent agent toast
-    JumpToLatestToast,
     /// Open a file in a new tab with a code pane
     OpenFileInNewTab {
         full_path: PathBuf,
@@ -513,48 +458,6 @@ pub enum WorkspaceAction {
     ScrollToSettingsWidget {
         page: SettingsSection,
         widget_id: &'static str,
-    },
-    /// Navigate to an existing AI conversation, focusing on its terminal view.
-    ///
-    /// If the conversation is not in an open pane, restore it based on the layout setting or override.
-    RestoreOrNavigateToConversation {
-        pane_view_locator: Option<PaneViewLocator>,
-        window_id: Option<WindowId>,
-        conversation_id: AIConversationId,
-        terminal_view_id: Option<EntityId>,
-        /// If provided, use this layout to restore the conversation.
-        /// Otherwise, fall back to the user's setting.
-        restore_layout: Option<RestoreConversationLayout>,
-    },
-    /// Fork an existing AI conversation.
-    /// Optionally summarizes the conversation after forking and/or sends an initial prompt.
-    ForkAIConversation {
-        conversation_id: AIConversationId,
-        /// When Some, fork from the given response (or exchange if `fork_from_exact_exchange`
-        /// is true). When None, fork from the last exchange.
-        fork_from_exchange: Option<ForkFromExchange>,
-        /// Whether to summarize the conversation after forking.
-        summarize_after_fork: bool,
-        /// Prompt to use for summarization when `summarize_after_fork` is true.
-        summarization_prompt: Option<String>,
-        /// Initial prompt to send in the forked conversation (sent after summarization if enabled).
-        initial_prompt: Option<String>,
-        /// Attachments (images/files) to send along with the initial prompt in the forked pane.
-        initial_attachments: Vec<PendingAttachment>,
-        /// Where to open the forked conversation.
-        destination: ForkedConversationDestination,
-    },
-    /// Fork an existing AI conversation into a new pane and prefill the input with a local
-    /// continuation command (selecting all text).
-    #[cfg(not(target_family = "wasm"))]
-    ContinueConversationLocally {
-        conversation_id: AIConversationId,
-    },
-    /// Summarize the active AI conversation in the focused pane.
-    SummarizeAIConversation {
-        prompt: Option<String>,
-        /// Optional prompt to send after summarization completes successfully.
-        initial_prompt: Option<String>,
     },
     UndoRevertInCodeReviewPane {
         window_id: WindowId,
@@ -589,44 +492,9 @@ pub enum WorkspaceAction {
     ToggleGlobalSearch,
     ToggleHiddenFiles,
     OpenGlobalSearch,
-    ToggleConversationListView,
-    OpenConversationListView,
-    OpenAgentManagementView,
-    /// Reset the AWS Bedrock login banner dismissed state (for debugging).
-    #[cfg(debug_assertions)]
-    DebugResetAwsBedrockLoginBannerDismissed,
     /// Take a process sample of the app (equivalent to Activity Monitor > Sample Process).
     #[cfg(target_os = "macos")]
     SampleProcess,
-    ToggleNotificationMailbox {
-        select_first: bool,
-    },
-    ToggleAgentManagementView,
-    /// Show the rewind confirmation dialog before rewinding an AI conversation
-    ShowRewindConfirmationDialog {
-        ai_block_view_id: EntityId,
-        exchange_id: AIAgentExchangeId,
-        conversation_id: AIConversationId,
-    },
-    /// Execute the actual rewind after confirmation
-    ExecuteRewindAIConversation {
-        ai_block_view_id: EntityId,
-        exchange_id: AIAgentExchangeId,
-        conversation_id: AIConversationId,
-    },
-    /// Execute the actual deletion of a conversation after confirmation
-    ExecuteDeleteConversation {
-        conversation_id: AIConversationId,
-        terminal_view_id: Option<EntityId>,
-    },
-    /// Load stored conversation data into a readonly transcript viewer.
-    OpenConversationTranscriptViewer {
-        conversation_id: ServerConversationToken,
-        ambient_agent_task_id: Option<AmbientAgentTaskId>,
-    },
-    /// Toggle the conversation transcript details panel (WASM-only).
-    #[cfg(target_family = "wasm")]
-    ToggleConversationTranscriptDetailsPanel,
     /// Open a full-window lightbox displaying the given images.
     OpenLightbox {
         images: Vec<lightbox::LightboxImage>,
@@ -638,9 +506,7 @@ pub enum WorkspaceAction {
         index: usize,
         image: lightbox::LightboxImage,
     },
-    StartAgentOnboardingTutorial(OnboardingTutorial),
     ShowSessionConfigModal,
-    DismissSessionConfigTabConfigChip,
     /// Start the HOA onboarding flow (for debugging)
     #[cfg(debug_assertions)]
     ShowHoaOnboardingFlow,
@@ -680,10 +546,6 @@ pub enum WorkspaceAction {
     },
     /// Opens the settings.toml file in a code editor pane.
     OpenSettingsFile,
-    /// Opens a new agent session to fix settings.toml errors using the modify-settings skill.
-    FixSettingsWithOz {
-        error_description: String,
-    },
     /// Opens (or focuses) the in-app network log pane as a right-split of the
     /// active pane group. Gated on `ContextFlag::NetworkLogConsole`.
     OpenNetworkLogPane,
@@ -726,8 +588,6 @@ impl WorkspaceAction {
     pub fn should_save_app_state_on_action(&self) -> bool {
         use WorkspaceAction::*;
         match self {
-            #[cfg(not(target_family = "wasm"))]
-            ContinueConversationLocally { .. } => true,
             ActivateTab(_)
             | ActivateTabByNumber(_)
             | SetTabShortcutModifierKey { .. }
@@ -788,21 +648,14 @@ impl WorkspaceAction {
             | AddDefaultTab
             | AddTerminalTab { .. }
             | AddTabWithShell { .. }
-            | AddAgentTab
             | AddWindow
             | AddWindowWithShell { .. }
             | CloseWindow
             | ScrollToSettingsWidget { .. }
-            | NewTabInAgentMode { .. }
-            | NewPaneInAgentMode { .. }
-            | FixInAgentMode { .. }
             | OpenNotebook { .. }
             | RunWorkflow { .. }
             | OpenFileInNewTab { .. }
-            | RestoreOrNavigateToConversation { .. }
             | NewCodeFile
-            | ForkAIConversation { .. }
-            | SummarizeAIConversation { .. }
             | OpenRepository { .. }
             | SelectTabConfig(_)
             | ToggleVerticalTabsPanel
@@ -898,7 +751,6 @@ impl WorkspaceAction {
             | DisableTerminalInputSync
             | HandleConflictingEnvVarCollection(_)
             | OpenPromptEditor { .. }
-            | OpenAgentToolbarEditor
             | OpenHeaderToolbarEditor
             | ShowHeaderToolbarContextMenu { .. }
             | Reauth
@@ -914,15 +766,11 @@ impl WorkspaceAction {
             | FocusLeftPanel
             | FocusRightPanel
             | DumpDebugInfo
-            | LogReviewCommentSendStatusForActiveTab
             | ToggleRecordingMode
             | ToggleInBandGenerators
             | ToggleDebugNetworkStatus
             | ToggleShowMemoryStats
-            | RunAISuggestedCommand { .. }
             | RunCommand { .. }
-            | InsertInInput { .. }
-            | AttemptLoginGatedAIUpgrade
             | UndoTrash(_)
             | OpenFilePath { .. }
             | ViewObjectInWarpDrive(_)
@@ -931,16 +779,13 @@ impl WorkspaceAction {
             | SignInAnonymousWebUser
             | TabHoverWidthStart { .. }
             | TabHoverWidthEnd
-            | OpenAIFactCollection
             | FocusTerminalViewInWorkspace { .. }
             | FocusPane(..)
             | ShiftSelectTabRange { .. }
             | ToggleTabMultiSelection { .. }
             | ClearTabMultiSelection
             | CancelActiveRename
-            | StartNewConversation { .. }
             | UndoRevertInCodeReviewPane { .. }
-            | JumpToLatestToast
             | NavigatePrevPaneOrPanel
             | NavigateNextPaneOrPanel
             | ToggleProjectExplorer
@@ -948,20 +793,9 @@ impl WorkspaceAction {
             | ToggleGlobalSearch
             | ToggleHiddenFiles
             | OpenGlobalSearch
-            | ToggleConversationListView
-            | OpenConversationListView
-            | ToggleNotificationMailbox { .. }
-            | ToggleAgentManagementView
-            | OpenAgentManagementView
-            | ShowRewindConfirmationDialog { .. }
-            | ExecuteRewindAIConversation { .. }
-            | ExecuteDeleteConversation { .. }
-            | OpenConversationTranscriptViewer { .. }
             | OpenLightbox { .. }
             | UpdateLightboxImage { .. }
-            | StartAgentOnboardingTutorial(_)
             | ShowSessionConfigModal
-            | DismissSessionConfigTabConfigChip
             | SaveCurrentTabAsNewConfig(_)
             | SyncTrafficLights
             | OpenTabConfigErrorFile { .. }
@@ -969,16 +803,11 @@ impl WorkspaceAction {
             | TabConfigSidecarEditConfig { .. }
             | TabConfigSidecarRemoveConfig { .. }
             | OpenSettingsFile
-            | FixSettingsWithOz { .. }
             | OpenNetworkLogPane
             | OpenNewWindowForTeam { .. }
             | ShowTeamSwitcherMenu => false,
             #[cfg(debug_assertions)]
             ShowHoaOnboardingFlow => false,
-            #[cfg(target_family = "wasm")]
-            ToggleConversationTranscriptDetailsPanel => false,
-            #[cfg(debug_assertions)]
-            DebugResetAwsBedrockLoginBannerDismissed => false,
             #[cfg(not(target_family = "wasm"))]
             ViewLogs => false,
             #[cfg(target_os = "macos")]

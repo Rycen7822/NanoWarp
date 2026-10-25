@@ -106,9 +106,6 @@ pub enum FileTreeAction {
     CopyRelativePath {
         id: FileTreeIdentifier,
     },
-    AttachAsContext {
-        id: FileTreeIdentifier,
-    },
     OpenInFinder {
         id: FileTreeIdentifier,
     },
@@ -624,7 +621,6 @@ impl FileTreeView {
             }
             RepoMetadataEvent::FileTreeUpdated { .. }
             | RepoMetadataEvent::RepositoryRemoved { .. }
-            | RepoMetadataEvent::StandingQueryResultsUpdated { .. }
             | RepoMetadataEvent::UpdatingRepositoryFailed { .. }
             | RepoMetadataEvent::IncrementalUpdateReady { .. } => {}
         }
@@ -2421,17 +2417,6 @@ impl FileTreeView {
             }
         }
 
-        if self.has_terminal_session {
-            if !items.is_empty() {
-                items.push(MenuItem::Separator);
-            }
-            items.push(
-                MenuItemFields::new("Attach as context")
-                    .with_on_select_action(FileTreeAction::AttachAsContext { id: id.clone() })
-                    .into_item(),
-            );
-        }
-
         if !items.is_empty() {
             items.push(MenuItem::Separator);
         }
@@ -2477,29 +2462,6 @@ impl FileTreeView {
         ctx.clipboard()
             .write(ClipboardContent::plain_text(path.to_string()));
         ctx.notify();
-    }
-
-    fn attach_as_context(&mut self, id: &FileTreeIdentifier, ctx: &mut ViewContext<Self>) {
-        let Some(root_dir) = self.root_directories.get(&id.root) else {
-            return;
-        };
-        let Some(item) = root_dir.items.get(id.index) else {
-            return;
-        };
-
-        let Some(relative_path) = self.relative_path_for_item(id) else {
-            return;
-        };
-
-        let is_directory = matches!(item, FileTreeItem::DirectoryHeader { .. });
-        send_telemetry_from_ctx!(
-            TelemetryEvent::FileTreeItemAttachedAsContext { is_directory },
-            ctx
-        );
-
-        ctx.emit(FileTreeEvent::AttachAsContext {
-            path: relative_path,
-        });
     }
 
     fn open_in_new_pane(&mut self, id: &FileTreeIdentifier, ctx: &mut ViewContext<Self>) {
@@ -2913,8 +2875,6 @@ impl FileTreeView {
 
 pub enum FileTreeEvent {
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    AttachAsContext { path: PathBuf },
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     OpenFile {
         path: LocalOrRemotePath,
         target: FileTarget,
@@ -3093,9 +3053,6 @@ impl TypedActionView for FileTreeView {
             FileTreeAction::CopyRelativePath { id } => {
                 self.copy_relative_path_for_id(id, ctx);
                 self.context_menu_state.take();
-            }
-            FileTreeAction::AttachAsContext { id } => {
-                self.attach_as_context(id, ctx);
             }
             FileTreeAction::NewFileBelowDirectory { id } => {
                 if !self.is_remote_item(id) {

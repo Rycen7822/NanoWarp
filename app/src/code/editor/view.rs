@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::path::Path;
 
-use ai::diff_validation::DiffDelta;
+use crate::code::editor::DiffDelta;
 use lazy_static::lazy_static;
 use num_traits::SaturatingSub;
 use pathfinder_geometry::vector::vec2f;
@@ -58,8 +58,8 @@ use crate::code::editor::comment_editor::{CommentEditor, CommentEditorEvent};
 use crate::code::editor::comments::PendingComment;
 use crate::code::editor::diff::DiffStatus;
 use crate::code::editor::element::{
-    AddAsContextButton, CommentButton, EditorWrapper, EditorWrapperStateHandle, GutterHoverTarget,
-    GutterRange, InnerEditor, LineNumberConfig, RevertHunkButton,
+    CommentButton, EditorWrapper, EditorWrapperStateHandle, GutterHoverTarget, GutterRange,
+    InnerEditor, LineNumberConfig, RevertHunkButton,
 };
 use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewEvent};
 use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
@@ -67,7 +67,7 @@ use crate::code::editor::line::EditorLineLocation;
 use crate::code::editor::model::{
     CodeEditorModel, CodeEditorModelEvent, HoverableLink, LineBound, StableEditorLine,
 };
-use crate::code::editor::nav_bar::{NavBar, NavBarBehavior, NavBarEvent};
+use crate::code::editor::nav_bar::{NavBar, NavBarEvent};
 use crate::code::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
 use crate::code::{
     NoopCommentEditorProvider, NoopFindReferencesCardProvider, ShowCommentEditorProvider,
@@ -86,7 +86,7 @@ pub use actions::init;
 
 mod vim_handler;
 
-/// Limit the keybindings that conflict with the Agent Mode embedded editor.
+/// Disable editing keybindings for read-only editors.
 const NON_EDITABLE_KEYMAP_CONTEXT: &str = "NonEditableKeymapContext";
 
 lazy_static! {
@@ -100,12 +100,9 @@ pub enum CodeEditorEvent {
     ContentChanged {
         origin: EditOrigin,
     },
-    /// Emitted when a unified diff computation completes.
-    UnifiedDiffComputed,
     SelectionChanged,
     SelectionStart,
     SelectionEnd,
-    CopiedEmptyText,
     /// Emitted when the editor is in Vim mode and a user Escape while already in Normal mode.
     VimEscapeInNormalMode,
     /// Emitted when escape key is pressed (regardless of Vim state).
@@ -113,11 +110,6 @@ pub enum CodeEditorEvent {
     EscapePressed,
     /// Emitted when diff decorations are updated (line highlights, removed lines, etc.)
     DiffUpdated,
-    /// Emitted when the plus icon is clicked to add diff hunk context
-    DiffHunkContextAdded {
-        #[allow(dead_code)]
-        line_range: Range<LineCount>,
-    },
     /// Emitted when a diff hunk is reverted
     DiffReverted,
     /// Emitted when the inline comment editor is opened.
@@ -134,11 +126,6 @@ pub enum CodeEditorEvent {
     DelayedRenderingFlushed,
     /// Emitted when the render state layout has been updated.
     LayoutInvalidated,
-    #[cfg(windows)]
-    WindowsCtrlC {
-        /// True if the `ctrl-c` action was used to copy an active selection.
-        copied_selection: bool,
-    },
     MouseHovered {
         offset: CharOffset,
         cmd: bool,
@@ -175,7 +162,6 @@ struct CodeEditorViewDisplayOptions {
     vertical_scrollbar_appearance: ScrollableAppearance,
     show_nav_bar: bool,
     /// The add as context button, or `None` if it is not currently visible.
-    diff_hunk_as_context: Option<AddAsContextButton>,
     /// The revert diff button, or `None` if it is not currently visible.
     revert_diff_hunk: Option<RevertHunkButton>,
     /// The add comment button, or `None` if it is not currently visible.
@@ -396,7 +382,6 @@ impl CodeEditorView {
                 show_line_numbers: true,
                 starting_line_number: None,
                 show_nav_bar: true,
-                diff_hunk_as_context: Default::default(),
                 revert_diff_hunk: Default::default(),
                 comment_button: Default::default(),
                 // By default expand diff indicators on hover.
@@ -447,22 +432,6 @@ impl CodeEditorView {
 
     pub fn window_id(&self) -> WindowId {
         self.window_id
-    }
-
-    pub fn set_add_diff_hunk_as_context_button(
-        &mut self,
-        enabled: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.display_options.diff_hunk_as_context = Some(AddAsContextButton::new(enabled));
-        ctx.notify();
-    }
-
-    /// Enables the add context button (plus icon) in diff hunks. Only enable this for code review views.
-    pub fn with_add_context_button(mut self) -> Self {
-        self.display_options.diff_hunk_as_context =
-            Some(AddAsContextButton::new(true /* enabled */));
-        self
     }
 
     /// Enables the "revert" button on diff hunks. Only enable this for code review views.
@@ -541,15 +510,6 @@ impl CodeEditorView {
         ctx.notify();
     }
 
-    pub fn changed_lines(&self, app: &AppContext) -> Vec<Range<usize>> {
-        self.model
-            .as_ref(app)
-            .diff()
-            .as_ref(app)
-            .modified_lines()
-            .collect()
-    }
-
     pub fn close_find_bar(&mut self, should_focus_editor: bool, ctx: &mut ViewContext<Self>) {
         if let Some(find_bar) = &self.find_bar {
             let should_update = find_bar.update(ctx, |find_bar, _ctx| {
@@ -620,7 +580,6 @@ impl CodeEditorView {
             false,
             self.model.as_ref(ctx).diff_navigation_state().clone(),
             None,
-            Default::default(),
             Default::default(),
             Default::default(),
             vec![],
@@ -758,12 +717,6 @@ impl CodeEditorView {
         self.display_options.show_nav_bar = show_nav_bar;
     }
 
-    pub fn set_nav_bar_behavior(&self, behavior: NavBarBehavior, ctx: &mut ViewContext<Self>) {
-        self.nav_bar.update(ctx, |nav_bar, _ctx| {
-            nav_bar.set_behavior(behavior);
-        });
-    }
-
     pub fn set_show_current_line_highlights(
         &self,
         show_current_line_highlights: bool,
@@ -774,16 +727,8 @@ impl CodeEditorView {
         })
     }
 
-    pub fn set_scroll_wheel_behavior(&mut self, behavior: ScrollWheelBehavior) {
-        self.display_options.scroll_wheel_behavior = behavior;
-    }
-
     pub fn set_vertical_scrollbar_appearance(&mut self, appearance: ScrollableAppearance) {
         self.display_options.vertical_scrollbar_appearance = appearance;
-    }
-
-    pub fn set_horizontal_scrollbar_appearance(&mut self, appearance: ScrollableAppearance) {
-        self.display_options.horizontal_scrollbar_appearance = appearance;
     }
 
     pub fn set_show_find_references_provider(
@@ -949,14 +894,6 @@ impl CodeEditorView {
     ) -> Self {
         self.display_options.horizontal_scrollbar_appearance = scrollbar_appearance;
         self
-    }
-
-    pub(crate) fn starting_line_number(&self) -> Option<usize> {
-        self.display_options.starting_line_number
-    }
-
-    pub(crate) fn set_starting_line_number(&mut self, starting_line_number: Option<usize>) {
-        self.display_options.starting_line_number = starting_line_number;
     }
 
     fn handle_searcher_event(&mut self, _event: &SearchEvent, ctx: &mut ViewContext<Self>) {
@@ -1304,9 +1241,6 @@ impl CodeEditorView {
                 }
                 ctx.emit(CodeEditorEvent::ContentChanged { origin: *origin });
             }
-            CodeEditorModelEvent::UnifiedDiffComputed(_) => {
-                ctx.emit(CodeEditorEvent::UnifiedDiffComputed);
-            }
             CodeEditorModelEvent::ViewportUpdated(version) => {
                 if let Some(trigger) = self
                     .pending_scroll
@@ -1315,9 +1249,6 @@ impl CodeEditorView {
                     match trigger.position {
                         ScrollPosition::LineAndColumn(line_col) => {
                             self.jump_to_line_column(line_col.line_num, line_col.column_num, ctx);
-                        }
-                        ScrollPosition::FocusedDiffHunk => {
-                            self.navigate_current_diff_hunk(ctx);
                         }
                         ScrollPosition::Fraction(fraction) => {
                             self.scroll_to_fraction(fraction, ctx);
@@ -1332,12 +1263,6 @@ impl CodeEditorView {
             }
             CodeEditorModelEvent::LayoutInvalidated => {
                 ctx.emit(CodeEditorEvent::LayoutInvalidated);
-            }
-            #[cfg(windows)]
-            CodeEditorModelEvent::WindowsCtrlC { copied_selection } => {
-                ctx.emit(CodeEditorEvent::WindowsCtrlC {
-                    copied_selection: *copied_selection,
-                });
             }
         }
     }
@@ -1460,10 +1385,6 @@ impl CodeEditorView {
         ctx.notify();
     }
 
-    pub fn is_selecting(&self) -> bool {
-        self.is_selecting
-    }
-
     /// Extend the selection to the given offset.  This is used for shift-clicking to extend the
     /// selection, and not for dragging the selection.
     fn selection_extend(&mut self, offset: CharOffset, ctx: &mut ViewContext<Self>) {
@@ -1549,36 +1470,6 @@ impl CodeEditorView {
         self.model.as_ref(ctx).buffer_version(ctx)
     }
 
-    /// Append text to the end of the buffer regardless of cursor position.
-    /// This is used for streaming content where we always want to append at the end,
-    /// not at the current cursor position since the user may select text while it's streaming.
-    pub fn append_at_end(&self, text: &str, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            // Use append_at_end to insert at the end of buffer regardless of cursor position.
-            // This ensures streaming code blocks always append at the end, even when user
-            // has clicked somewhere else in the editor.
-            model.append_at_end(text, ctx);
-        });
-    }
-
-    pub fn system_append_autoscroll_vertical_only(&self, text: &str, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.system_insert_autoscroll_vertical_only(text, ctx);
-        });
-    }
-
-    pub fn truncate(&self, len: usize, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.truncate(len, ctx);
-        });
-    }
-
-    pub fn retrieve_unified_diff(&self, file_name: String, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.retrieve_unified_diff(file_name, ctx);
-        });
-    }
-
     /// Identifies which line (current or removed) is at the given content-space
     /// vertical offset. Delegates to [`CodeEditorModel::line_at_vertical_offset`].
     #[allow(dead_code)]
@@ -1634,33 +1525,6 @@ impl CodeEditorView {
 
     pub fn is_editable(&self, app: &AppContext) -> bool {
         self.model.as_ref(app).interaction_state() == InteractionState::Editable
-    }
-
-    pub fn navigate_next_diff_hunk(&self, ctx: &mut ViewContext<Self>) {
-        self.nav_bar.update(ctx, |nav_bar, ctx| {
-            nav_bar.navigate_down(ctx);
-        });
-    }
-
-    pub fn navigate_previous_diff_hunk(&self, ctx: &mut ViewContext<Self>) {
-        self.nav_bar.update(ctx, |nav_bar, ctx| {
-            nav_bar.navigate_up(ctx);
-        });
-    }
-
-    fn navigate_current_diff_hunk(&self, ctx: &mut ViewContext<Self>) {
-        self.nav_bar.update(ctx, |nav_bar, ctx| {
-            nav_bar.autoscroll(ctx);
-        });
-    }
-
-    pub fn set_vertical_expansion_behavior(
-        &mut self,
-        behavior: VerticalExpansionBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.display_options.vertical_expansion_behavior = behavior;
-        ctx.notify();
     }
 
     pub fn selected_text(&self, ctx: &AppContext) -> Option<String> {
@@ -1955,37 +1819,6 @@ impl CodeEditorView {
             .map(|d| d.to_string())
             .unwrap_or_default();
         result_parts.join(&delimiter)
-    }
-
-    pub fn diff_hunks_changed_lines(&self, app: &AppContext) -> (usize, usize) {
-        let model = self.model.as_ref(app);
-        let diff = model.diff().as_ref(app);
-        diff.diff_status().get_diff_lines()
-    }
-
-    /// If there's a single selection, returns its starting and ending line numbers.
-    pub fn selected_lines(&self, app: &AppContext) -> Option<(u32, u32)> {
-        // Query the buffer model directly to determine if we have a selection
-        let selection_model = self.model.as_ref(app).buffer_selection_model().as_ref(app);
-
-        if !selection_model.is_single_selection() {
-            return None;
-        }
-
-        let offsets = selection_model.selection_offsets();
-        let selection_offsets = offsets.first();
-        if selection_offsets.head == selection_offsets.tail {
-            return None;
-        }
-
-        let buffer = self.model.as_ref(app).buffer().as_ref(app);
-        let (start_offset, end_offset) = (
-            selection_offsets.head.min(selection_offsets.tail),
-            selection_offsets.head.max(selection_offsets.tail),
-        );
-        let start_line = start_offset.to_buffer_point(buffer).row;
-        let end_line = end_offset.to_buffer_point(buffer).row;
-        Some((start_line, end_line))
     }
 
     /// If vim keybindings are enabled, return the [`VimMode`]. Otherwise, return None.
@@ -2290,7 +2123,6 @@ impl View for CodeEditorView {
             } else {
                 None
             },
-            self.display_options.diff_hunk_as_context,
             self.display_options.revert_diff_hunk,
             self.display_options.comment_button,
             self.comment_locations.clone(),

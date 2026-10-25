@@ -26,7 +26,6 @@ pub mod blockgrid_element;
 mod blockgrid_renderer;
 mod bootstrap;
 pub mod color;
-pub mod conversation_restoration;
 pub mod dynamic_enum_suggestions;
 pub mod event;
 pub mod event_listener;
@@ -46,6 +45,7 @@ pub mod local_shell;
 #[cfg(feature = "local_tty")]
 pub mod local_tty;
 mod meta_shortcuts;
+#[cfg(any(not(feature = "local_tty"), test))]
 pub mod mock_terminal_manager;
 pub mod model;
 pub mod model_events;
@@ -63,7 +63,6 @@ pub mod settings;
 pub mod shared_session;
 mod shell_launch_state;
 pub mod shell_recovery;
-pub mod universal_developer_input;
 
 pub mod ssh;
 pub mod terminal_manager;
@@ -75,19 +74,14 @@ mod writeable_pty;
 #[cfg(windows)]
 pub mod wsl;
 
-pub mod cli_agent;
-pub use cli_agent::CLIAgent;
-
 pub use block_list_settings::*;
+#[cfg(any(not(feature = "local_tty"), test))]
 pub use mock_terminal_manager::MockTerminalManager;
 use model_events::{ModelEvent, ModelEventDispatcher};
 pub use secret_regex_updater::CustomSecretRegexUpdater;
 pub use shell_launch_state::ShellLaunchState;
 pub use terminal_manager::TerminalManager;
-pub use view::{
-    CANCEL_COMMAND_KEYBINDING, TOGGLE_AUTOEXECUTE_MODE_KEYBINDING,
-    TOGGLE_HIDE_CLI_RESPONSES_KEYBINDING, TOGGLE_QUEUE_NEXT_PROMPT_KEYBINDING,
-};
+pub use view::CANCEL_COMMAND_KEYBINDING;
 
 use crate::settings::SelectionSettings;
 /// The broadcast channel capacity for PTY reads.

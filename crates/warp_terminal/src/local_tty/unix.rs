@@ -384,8 +384,8 @@ fn build_host_shell_command(
 ///
 /// Takes a fully-built `Command` and wraps it in the PTY/`pre_exec`
 /// setup: creates the pty pair, applies termios, installs the child
-/// process setup hook (signals, stdio, controlling terminal, close_fds,
-/// Linux OOM rebias), and spawns the command.
+/// process setup hook (signals, stdio, controlling terminal, close_fds),
+/// and spawns the command.
 ///
 /// The `pre_exec` hook has accumulated years of subtle bug fixes
 /// (signal mask handling, TIOCSCTTY cast, etc.); keeping a single copy
@@ -407,10 +407,6 @@ fn spawn_command_in_pty(
         termios.input_flags.set(InputFlags::IUTF8, true);
         let _ = termios::tcsetattr(leader, SetArg::TCSANOW, &termios);
     }
-
-    // Detect isolation platform outside pre_exec, since detect() is not async-signal-safe.
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    let is_isolated = warp_isolation_platform::detect().is_some();
 
     unsafe {
         let fdlimit = libc::sysconf(libc::_SC_OPEN_MAX) as i32;
@@ -472,33 +468,6 @@ fn spawn_command_in_pty(
             // close() them produces EINVAL.
             if close_fds {
                 for fd in 3..fdlimit {
-                    libc::close(fd);
-                }
-            }
-
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-            if is_isolated {
-                // If running in a sandbox on Linux, adjust the OOM score
-                // to make the child process more likely to be killed than the parent process
-                // in case of OOM. If the Warp process is killed while hosting an ambient
-                // agent, its shared session will abruptly end with no user-visible error.
-                // Instead, we want to kill whatever process the agent spawned that's using
-                // lots of memory. This gives the agent a chance to gracefully fail.
-                //
-                // Try to open /proc/self/oom_score_adj and set it to a positive value.
-                // Valid values are between -1000 and 1000, where lower values are less likely
-                // to be killed. Don't propagate errors, as this is best-effort.
-                //
-                // For Docker sandbox sessions this is effectively a no-op: the
-                // container enforces memory limits via its own cgroup, so this
-                // rebias on the host-side `sbx` process does not influence the
-                // in-container OOM killer. We leave it in the shared path anyway
-                // so the fork-side setup stays identical across session types.
-                let oom_score_path = c"/proc/self/oom_score_adj";
-                let fd = libc::open(oom_score_path.as_ptr(), libc::O_WRONLY);
-                if fd >= 0 {
-                    let score = b"500\n";
-                    libc::write(fd, score.as_ptr() as *const libc::c_void, score.len());
                     libc::close(fd);
                 }
             }

@@ -318,61 +318,46 @@ impl TelemetryApi {
 
         log::info!("Start to send telemetry events to RudderStack");
 
-        let (mut messages_with_ugc, messages_without_ugc): (Vec<_>, Vec<_>) = messages
+        let messages: Vec<_> = messages
             .into_iter()
-            .partition(|message| message.contains_ugc);
-
-        // If we shouldn't collect UGC telemetry, forcibly clear any messages with UGC before trying to send.
-        if !settings_snapshot.should_collect_ai_ugc_telemetry() {
-            messages_with_ugc.clear();
+            .filter(|message| !message.contains_ugc)
+            .collect();
+        if messages.is_empty() {
+            return Ok(());
         }
+        let rudder_stack_destination = ChannelState::rudderstack_non_ugc_destination();
 
-        for (messages, rudder_stack_destination) in [
-            (
-                messages_with_ugc,
-                ChannelState::rudderstack_ugc_destination(),
-            ),
-            (
-                messages_without_ugc,
-                ChannelState::rudderstack_non_ugc_destination(),
-            ),
-        ] {
-            if messages.is_empty() {
-                continue;
-            }
-
-            // Note that timestamp and context are already included in the individual RudderBatchMessages
-            // and these are the most important ones,
-            // but we also add them to the RudderMessage::Batch wrapper.
-            let rudder_message = RudderMessage::Batch(RudderBatch {
-                batch: messages
-                    .into_iter()
-                    .map(|message| message.message)
-                    .collect(),
-                original_timestamp: Some(Utc::now()),
-                ..Default::default()
-            });
-            if let Err(e) = self
-                .send_rudder_request(rudder_message, rudder_stack_destination)
-                .await
-            {
-                // Don't treat a connection issue as an error as these are outside of our control.
-                //
-                // This is only conditionally compiled because `is_connect` is not
-                // available on wasm.  If additional checks are made against the
-                // `reqwest::Error`, this condition should be performed specifically
-                // against `is_connect` and not the whole loop.
-                #[cfg(not(target_family = "wasm"))]
-                for cause in e.chain() {
-                    if let Some(err) = cause.downcast_ref::<reqwest::Error>()
-                        && err.is_connect()
-                    {
-                        log::warn!("Failed to send event to RudderStack: {e}");
-                        return Ok(());
-                    }
+        // Note that timestamp and context are already included in the individual RudderBatchMessages
+        // and these are the most important ones,
+        // but we also add them to the RudderMessage::Batch wrapper.
+        let rudder_message = RudderMessage::Batch(RudderBatch {
+            batch: messages
+                .into_iter()
+                .map(|message| message.message)
+                .collect(),
+            original_timestamp: Some(Utc::now()),
+            ..Default::default()
+        });
+        if let Err(e) = self
+            .send_rudder_request(rudder_message, rudder_stack_destination)
+            .await
+        {
+            // Don't treat a connection issue as an error as these are outside of our control.
+            //
+            // This is only conditionally compiled because `is_connect` is not
+            // available on wasm.  If additional checks are made against the
+            // `reqwest::Error`, this condition should be performed specifically
+            // against `is_connect` and not the whole loop.
+            #[cfg(not(target_family = "wasm"))]
+            for cause in e.chain() {
+                if let Some(err) = cause.downcast_ref::<reqwest::Error>()
+                    && err.is_connect()
+                {
+                    log::warn!("Failed to send event to RudderStack: {e}");
+                    return Ok(());
                 }
-                return Err(e);
             }
+            return Err(e);
         }
         Ok(())
     }

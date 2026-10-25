@@ -15,7 +15,7 @@ use warpui::{
     ViewHandle,
 };
 
-use super::session_config::{SessionConfigSelection, SessionType, is_git_repo};
+use super::session_config::{SessionConfigSelection, is_git_repo};
 use super::session_config_rendering;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
@@ -35,7 +35,6 @@ const SECTION_GAP: f32 = 16.;
 
 #[derive(Clone, Debug)]
 pub enum SessionConfigModalAction {
-    SelectSessionType(usize),
     OpenDirectoryPicker,
     DirectorySelected(Result<String, warpui::platform::file_picker::FilePickerError>),
     ToggleWorktree,
@@ -50,16 +49,10 @@ pub enum SessionConfigModalEvent {
 }
 
 pub struct SessionConfigModal {
-    session_types: Vec<SessionType>,
-    selected_session_type_index: usize,
     selected_directory: PathBuf,
     is_git_repo: bool,
     enable_worktree: bool,
     autogenerate_worktree_branch_name: bool,
-    /// When `false`, the session type pill row is hidden and the session type
-    /// defaults to Terminal behind the scenes (used when Oz is disabled).
-    show_session_type_row: bool,
-    session_pill_mouse_states: Vec<MouseStateHandle>,
     directory_button_mouse_state: MouseStateHandle,
     worktree_checkbox_mouse_state: MouseStateHandle,
     autogenerate_worktree_branch_name_checkbox_mouse_state: MouseStateHandle,
@@ -72,7 +65,6 @@ pub struct SessionConfigModal {
 impl SessionConfigModal {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        let session_types = session_config_rendering::visible_session_types(true);
 
         let close_button = ctx.add_view(|ctx| {
             ActionButton::new("", NakedTheme)
@@ -95,21 +87,11 @@ impl SessionConfigModal {
                 .on_click(|ctx| ctx.dispatch_typed_action(SessionConfigModalAction::Submit))
         });
 
-        let pill_mouse_states = session_types
-            .iter()
-            .map(|_| MouseStateHandle::default())
-            .collect();
-
         Self {
-            session_types,
-            selected_session_type_index: 0,
-            selected_directory: home,
-            // Filled in by `configure()` before the modal is shown.
-            is_git_repo: false,
+            selected_directory: home.clone(),
+            is_git_repo: is_git_repo(&home),
             enable_worktree: false,
             autogenerate_worktree_branch_name: false,
-            show_session_type_row: true,
-            session_pill_mouse_states: pill_mouse_states,
             directory_button_mouse_state: MouseStateHandle::default(),
             worktree_checkbox_mouse_state: MouseStateHandle::default(),
             autogenerate_worktree_branch_name_checkbox_mouse_state: MouseStateHandle::default(),
@@ -120,24 +102,8 @@ impl SessionConfigModal {
         }
     }
 
-    /// Reconfigures the visible session types based on whether Oz is available.
-    /// Resets the selection to index 0 (the first available type).
-    /// When Oz is disabled, hides the session type row entirely and defaults
-    /// to Terminal behind the scenes.
-    pub fn configure(&mut self, show_oz: bool) {
-        self.show_session_type_row = show_oz;
-        self.session_types = session_config_rendering::visible_session_types(show_oz);
-        self.selected_session_type_index = 0;
-        self.session_pill_mouse_states = self
-            .session_types
-            .iter()
-            .map(|_| MouseStateHandle::default())
-            .collect();
+    pub fn configure(&mut self) {
         self.is_git_repo = is_git_repo(&self.selected_directory);
-    }
-
-    fn selected_session_type(&self) -> SessionType {
-        self.session_types[self.selected_session_type_index]
     }
 
     fn update_directory(&mut self, path: PathBuf) {
@@ -151,7 +117,6 @@ impl SessionConfigModal {
 
     fn submit(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.emit(SessionConfigModalEvent::Completed(SessionConfigSelection {
-            session_type: self.selected_session_type(),
             directory: self.selected_directory.clone(),
             enable_worktree: self.enable_worktree,
             autogenerate_worktree_branch_name: self.autogenerate_worktree_branch_name,
@@ -172,15 +137,9 @@ impl SessionConfigModal {
         .with_weight(Weight::Semibold)
         .finish();
 
-        let subtitle_text = if self.show_session_type_row {
-            "Set up a reusable starting point for your tabs. \
-             Pick a repo, choose a session type, and optionally attach a worktree. \
-             Use it whenever you want to open a new tab with this setup."
-        } else {
-            "Set up a reusable starting point for your tabs. \
+        let subtitle_text = "Set up a reusable starting point for your tabs. \
              Pick a repo, optionally attach a worktree, and \
-             use it whenever you want to open a new tab with this setup."
-        };
+             use it whenever you want to open a new tab with this setup.";
         let subtitle =
             FormattedTextElement::from_str(subtitle_text, appearance.ui_font_family(), 14.)
                 .with_color(blended_colors::text_sub(theme, theme.background()))
@@ -191,18 +150,6 @@ impl SessionConfigModal {
             .with_child(title)
             .with_child(Container::new(subtitle).with_margin_top(4.).finish())
             .finish()
-    }
-
-    fn render_session_type_section(&self, appearance: &Appearance) -> Box<dyn Element> {
-        session_config_rendering::render_session_type_pills(
-            &self.session_types,
-            self.selected_session_type_index,
-            &self.session_pill_mouse_states,
-            |i, ctx, _| {
-                ctx.dispatch_typed_action(SessionConfigModalAction::SelectSessionType(i));
-            },
-            appearance,
-        )
     }
 
     fn render_directory_section(&self, appearance: &Appearance) -> Box<dyn Element> {
@@ -269,14 +216,6 @@ impl View for SessionConfigModal {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(self.render_header(appearance));
 
-        if self.show_session_type_row {
-            form.add_child(
-                Container::new(self.render_session_type_section(appearance))
-                    .with_margin_top(SECTION_GAP)
-                    .finish(),
-            );
-        }
-
         form.add_child(
             Container::new(self.render_directory_section(appearance))
                 .with_margin_top(SECTION_GAP)
@@ -335,10 +274,6 @@ impl TypedActionView for SessionConfigModal {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            SessionConfigModalAction::SelectSessionType(index) => {
-                self.selected_session_type_index = *index;
-                ctx.notify();
-            }
             SessionConfigModalAction::OpenDirectoryPicker => {
                 ctx.open_file_picker(
                     |result, ctx| {

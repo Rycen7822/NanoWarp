@@ -20,7 +20,6 @@ pub enum WarpDriveUpdate {
     ObjectMetadataUpdated(ObjectMetadataUpdated),
     ObjectPermissionsUpdated(ObjectPermissionsUpdated),
     TeamMembershipsChanged(TeamMembershipsChanged),
-    AmbientTaskUpdated(AmbientTaskUpdated),
     #[cynic(fallback)]
     Unknown,
 }
@@ -56,10 +55,4 @@ pub struct ObjectActionOccurred {
 #[derive(cynic::QueryFragment, Debug)]
 pub struct TeamMembershipsChanged {
     pub team_memberships_last_updated_ts: Time,
-}
-
-#[derive(cynic::QueryFragment, Debug)]
-pub struct AmbientTaskUpdated {
-    pub task_id: cynic::Id,
-    pub task_updated_ts: Time,
 }

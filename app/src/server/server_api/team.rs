@@ -4,26 +4,26 @@ use cynic::QueryBuilder;
 #[cfg(test)]
 use mockall::{automock, predicate::*};
 use warp_graphql::queries::get_workspaces_metadata_for_user::{
-    GetWorkspacesMetadataForUser, GetWorkspacesMetadataForUserVariables, PricingInfoResult,
+    GetWorkspacesMetadataForUser, GetWorkspacesMetadataForUserVariables,
 };
 
 use super::ServerApi;
 use crate::server::graphql::get_request_context;
 use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
-use crate::workspaces::user_workspaces::WorkspacesMetadataWithPricing;
+use crate::workspaces::user_workspaces::WorkspacesMetadataResponse;
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait TeamClient: 'static + Send + Sync {
-    async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataWithPricing>;
+    async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataResponse>;
 }
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl TeamClient for ServerApi {
-    #[tracing::instrument(skip_all, err, fields(tags.cloud_agent = true))]
-    async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataWithPricing> {
+    #[tracing::instrument(skip_all, err)]
+    async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataResponse> {
         let variables = GetWorkspacesMetadataForUserVariables {
             request_context: get_request_context(),
         };
@@ -39,16 +39,6 @@ impl TeamClient for ServerApi {
             }
         };
 
-        let pricing_info = match response.pricing_info {
-            PricingInfoResult::PricingInfoOutput(pricing_output) => {
-                Some(pricing_output.pricing_info)
-            }
-            PricingInfoResult::Unknown => None,
-        };
-
-        Ok(WorkspacesMetadataWithPricing {
-            metadata,
-            pricing_info,
-        })
+        Ok(metadata)
     }
 }

@@ -20,8 +20,7 @@ const BASE64_JSON: &str = r#"{
     "is_background": false,
     "session_id": null,
     "shell_host": null,
-    "prompt_snapshot": null,
-    "ai_metadata": null
+    "prompt_snapshot": null
 }"#;
 
 /// Serialized block JSON with byte fields as integer arrays, as produced by plain `serde_json`.
@@ -44,8 +43,7 @@ const ARRAY_JSON: &str = r#"{
     "is_background": false,
     "session_id": null,
     "shell_host": null,
-    "prompt_snapshot": null,
-    "ai_metadata": null
+    "prompt_snapshot": null
 }"#;
 
 #[test]

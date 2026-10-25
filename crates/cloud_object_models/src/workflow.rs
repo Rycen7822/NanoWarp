@@ -61,14 +61,6 @@ impl Workflow {
         }
     }
 
-    pub fn prompt(&self) -> Option<&str> {
-        if let Self::AgentMode { query, .. } = self {
-            Some(query.as_str())
-        } else {
-            None
-        }
-    }
-
     pub fn command(&self) -> Option<&str> {
         if let Self::Command { command, .. } = self {
             Some(command.as_str())
@@ -125,17 +117,6 @@ impl Workflow {
 
     pub fn is_agent_mode_workflow(&self) -> bool {
         matches!(self, Self::AgentMode { .. })
-    }
-
-    /// Returns `true` if the workflow name starts with the given character (case-insensitive).
-    ///
-    /// Used by prompt search datasources to prefix-match on single-character queries, where
-    /// fuzzy matching would be unreliable.
-    pub fn name_starts_with_char_ignore_case(&self, c: char) -> bool {
-        self.name()
-            .chars()
-            .next()
-            .is_some_and(|first| first.eq_ignore_ascii_case(&c))
     }
 
     /// Return a list of every enum ID referenced by this workflow.

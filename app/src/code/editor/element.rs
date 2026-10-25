@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use gutter_button::{AddAsContextButton, CommentButton, RevertHunkButton};
+pub use gutter_button::{CommentButton, RevertHunkButton};
 use parking_lot::Mutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
@@ -280,32 +280,10 @@ pub struct EditorWrapperState {
     hovered_diff_hunk: Mutex<Option<EditorLineLocation>>,
     /// Whether there is an active click.
     in_click: AtomicBool,
-    /// Mouse state handle for the plus button.
-    add_as_context_mouse_state: MouseStateHandle,
     /// Mouse state handle for the revert button.
     revert_mouse_state: MouseStateHandle,
     /// Mouse state handle for the comment button.
     comment_mouse_state: MouseStateHandle,
-    /// Tracks the line range where the add context button was last clicked,
-    /// so we don't show the button again until a different range is hovered.
-    last_clicked_range: Mutex<Option<Range<LineCount>>>,
-}
-
-impl EditorWrapperState {
-    /// Record that a range has been clicked (add context button was used)
-    pub fn record_clicked_range(&self, range: Range<LineCount>) {
-        *self.last_clicked_range.lock() = Some(range);
-    }
-
-    /// Clear the clicked range (when hovering over a new range)
-    pub fn clear_clicked_range(&self) {
-        *self.last_clicked_range.lock() = None;
-    }
-
-    /// Check if a range has been clicked
-    pub fn is_range_clicked(&self, range: &Range<LineCount>) -> bool {
-        self.last_clicked_range.lock().as_ref() == Some(range)
-    }
 }
 
 pub type EditorWrapperStateHandle = Arc<EditorWrapperState>;
@@ -401,8 +379,6 @@ pub struct EditorWrapper<V: EditorView> {
     /// Then we use that upper bound to do the hit testing, which means a parent will always get
     /// events from its children, regardless of whether they are stacks or not.
     child_max_z_index: Option<ZIndex>,
-    /// Display state of the "add as agent context" button shown next to diff hunks.
-    add_hunk_as_context_button: Option<AddAsContextButton>,
     /// Display state of the "revert" button shown next to diff hunks.
     revert_hunk_button: Option<RevertHunkButton>,
     /// Display state of the "comment" button shown next to diff hunks.
@@ -507,7 +483,6 @@ impl<V: EditorView> EditorWrapper<V> {
         should_handle_scroll_wheel: bool,
         diff_navigation_state: DiffNavigationState,
         focused_diff_line_range: Option<Range<LineCount>>,
-        add_diff_as_context_button: Option<AddAsContextButton>,
         revert_hunk_button: Option<RevertHunkButton>,
         comment_button: Option<CommentButton>,
         saved_comments: Vec<SavedComment>,
@@ -530,7 +505,6 @@ impl<V: EditorView> EditorWrapper<V> {
             click_handler,
             should_handle_scroll_wheel,
             child_max_z_index: None,
-            add_hunk_as_context_button: add_diff_as_context_button,
             revert_hunk_button,
             comment_button,
             expand_diff_indicator_width_on_hover,
@@ -631,9 +605,6 @@ impl<V: EditorView> EditorWrapper<V> {
             // or the old lines from a replacement hunk.
             if block.is_temporary() {
                 let diff_range = self.diff_status.removed_diff_range(line_count);
-                let range_already_clicked = diff_range
-                    .as_ref()
-                    .is_some_and(|range| self.state_handle.is_range_clicked(range));
 
                 // If we are expanding diff hunks and the current block is a removal hunk, render
                 // the gutter element with the line decoration.
@@ -686,7 +657,6 @@ impl<V: EditorView> EditorWrapper<V> {
                     // 2) We're currently on a line where the comment box is open.
                     let show_gutter_buttons = (is_diff_line
                         && is_this_line_hovered
-                        && !range_already_clicked
                         && !is_comment_box_open_on_different_line)
                         || is_comment_box_open_on_current_line;
 
@@ -808,9 +778,6 @@ impl<V: EditorView> EditorWrapper<V> {
                 continue;
             }
             let diff_range = self.diff_status.added_diff_range(line_count);
-            let range_already_clicked = diff_range
-                .as_ref()
-                .is_some_and(|range| self.state_handle.is_range_clicked(range));
 
             // If the corresponding line in the editor element has a line decoration, we should apply the decoration
             // in the wrapper as well. This does assume the line could only have a single decoration. I think it's fine
@@ -858,7 +825,6 @@ impl<V: EditorView> EditorWrapper<V> {
             let should_show_diff_hunk_button = (is_diff_line
                 && is_this_line_hovered
                 && !is_removal
-                && !range_already_clicked
                 && !is_comment_box_open_on_different_line)
                 || is_comment_box_open_on_current_line;
 
@@ -1048,27 +1014,6 @@ impl<V: EditorView> EditorWrapper<V> {
         button.finish()
     }
 
-    /// Renders the plus button for adding a diff as Agent context.
-    fn render_plus_button(
-        &self,
-        add_as_context_button: &AddAsContextButton,
-        gutter_element_height: f32,
-        diff_line_range: &Range<LineCount>,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let on_click_action = Some(CodeEditorViewAction::AddDiffHunkContext {
-            line_range: diff_line_range.to_owned(),
-        });
-
-        self.render_gutter_button(
-            self.state_handle.add_as_context_mouse_state.clone(),
-            gutter_element_height,
-            on_click_action,
-            appearance,
-            add_as_context_button,
-        )
-    }
-
     /// Renders the revert button for reverting a specific diff hunk.
     fn render_revert_button(
         &self,
@@ -1188,7 +1133,6 @@ impl<V: EditorView> EditorWrapper<V> {
             .with_width(GUTTER_WIDTH)
             .finish();
 
-        let show_add_as_context_button = self.add_hunk_as_context_button.is_some();
         let show_revert_diff_hunk =
             FeatureFlag::RevertDiffHunk.is_enabled() && self.revert_hunk_button.is_some();
 
@@ -1211,32 +1155,18 @@ impl<V: EditorView> EditorWrapper<V> {
                 ));
             }
 
-            if should_show_diff_hunk_icons {
-                if let Some(revert_hunk_button) = self
+            if should_show_diff_hunk_icons
+                && let Some(revert_hunk_button) = self
                     .revert_hunk_button
                     .as_ref()
                     .filter(|_| show_revert_diff_hunk)
-                {
-                    buttons.add_child(self.render_revert_button(
-                        revert_hunk_button,
-                        line_height,
-                        line.line_range(),
-                        appearance,
-                    ));
-                }
-
-                if let Some(add_as_context_button) = self
-                    .add_hunk_as_context_button
-                    .as_ref()
-                    .filter(|_| show_add_as_context_button)
-                {
-                    buttons.add_child(self.render_plus_button(
-                        add_as_context_button,
-                        line_height,
-                        line.line_range(),
-                        appearance,
-                    ));
-                }
+            {
+                buttons.add_child(self.render_revert_button(
+                    revert_hunk_button,
+                    line_height,
+                    line.line_range(),
+                    appearance,
+                ));
             }
 
             let offset = if self.expand_diff_indicator_width_on_hover {
@@ -1624,11 +1554,6 @@ impl<V: EditorView> Element for EditorWrapper<V> {
                 let hovered_line = hovered_range.map(|gutter_range| gutter_range.line().clone());
                 let mut hovered_diff_hunk = self.state_handle.hovered_diff_hunk.lock();
                 if hovered_diff_hunk.as_ref() != hovered_line.as_ref() {
-                    // When hovering over a new range, clear the previously clicked range
-                    // so the add context button can appear again
-                    if hovered_line.is_some() {
-                        self.state_handle.clear_clicked_range();
-                    }
                     *hovered_diff_hunk = hovered_line;
                     ctx.notify();
                 }

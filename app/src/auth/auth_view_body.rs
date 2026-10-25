@@ -36,7 +36,7 @@ use crate::experiments::{AuthFlowInstructions, Experiment};
 use crate::modal::MODAL_CORNER_RADIUS;
 use crate::network::NetworkStatus;
 use crate::server::telemetry::{AnonymousUserSignupEntrypoint, LoginEventSource, TelemetryEvent};
-use crate::settings::{AISettings, PrivacySettings};
+use crate::settings::PrivacySettings;
 use crate::themes::theme::Fill as ThemeFill;
 use crate::util::color::{darken, lighten};
 use crate::{send_telemetry_from_ctx, send_telemetry_sync_from_ctx};
@@ -134,7 +134,6 @@ pub enum AuthViewBodyAction {
     ShowOverlay(AuthViewOverlay),
     HideOverlay,
     ToggleTelemetry,
-    ToggleCloudConversationStorage,
     Close,
 }
 
@@ -244,7 +243,6 @@ impl AuthViewBody {
     fn privacy_settings_actions(&self) -> PrivacySettingsActions<AuthViewBodyAction> {
         PrivacySettingsActions {
             toggle_telemetry: AuthViewBodyAction::ToggleTelemetry,
-            toggle_cloud_conversation_storage: AuthViewBodyAction::ToggleCloudConversationStorage,
             hide_overlay: AuthViewBodyAction::HideOverlay,
         }
     }
@@ -351,68 +349,26 @@ impl AuthViewBody {
         .with_margin_bottom(8.)
         .finish();
 
-        let disclaimer_line_2 = if FeatureFlag::GlobalAIAnalyticsBanner.is_enabled() {
-            Align::new(
-                ui_builder
-                    .link(
-                        "Privacy Settings".into(),
-                        None,
-                        Some(Box::new(|ctx| {
-                            ctx.dispatch_typed_action(AuthViewBodyAction::ShowOverlay(
-                                AuthViewOverlay::PrivacySettings,
-                            ));
-                        })),
-                        self.mouse_state_handles
-                            .privacy_settings_mouse_state_handle
-                            .clone(),
-                    )
-                    .soft_wrap(false)
-                    .build()
-                    .finish(),
-            )
-            .left()
-            .finish()
-        } else {
-            Flex::column()
-                .with_child(
-                    ui_builder
-                        .paragraph("If you'd like to opt out of analytics and AI features,")
-                        .with_style(disclaimer_styles)
-                        .build()
-                        .finish(),
+        let disclaimer_line_2 = Align::new(
+            ui_builder
+                .link(
+                    "Privacy Settings".into(),
+                    None,
+                    Some(Box::new(|ctx| {
+                        ctx.dispatch_typed_action(AuthViewBodyAction::ShowOverlay(
+                            AuthViewOverlay::PrivacySettings,
+                        ));
+                    })),
+                    self.mouse_state_handles
+                        .privacy_settings_mouse_state_handle
+                        .clone(),
                 )
-                .with_child(
-                    Flex::row()
-                        .with_child(
-                            ui_builder
-                                .paragraph("you can adjust your ")
-                                .with_style(disclaimer_styles)
-                                .build()
-                                .finish(),
-                        )
-                        .with_child(
-                            ui_builder
-                                .link(
-                                    "Privacy Settings".into(),
-                                    None,
-                                    Some(Box::new(|ctx| {
-                                        ctx.dispatch_typed_action(AuthViewBodyAction::ShowOverlay(
-                                            AuthViewOverlay::PrivacySettings,
-                                        ));
-                                    })),
-                                    self.mouse_state_handles
-                                        .privacy_settings_mouse_state_handle
-                                        .clone(),
-                                )
-                                .soft_wrap(false)
-                                .with_style(link_styles)
-                                .build()
-                                .finish(),
-                        )
-                        .finish(),
-                )
-                .finish()
-        };
+                .soft_wrap(false)
+                .build()
+                .finish(),
+        )
+        .left()
+        .finish();
 
         vec![disclaimer_line_1, disclaimer_line_2]
     }
@@ -550,7 +506,7 @@ impl AuthViewBody {
                 )
                 .with_child(
                     ui_builder
-                        .paragraph("You can sign up later, but some features, such as AI,")
+                        .paragraph("You can sign up later, but collaboration features")
                         .build()
                         .finish(),
                 )
@@ -603,7 +559,7 @@ impl AuthViewBody {
 
         let text = match self.variant {
             AuthViewVariant::RequireLoginCloseable => {
-                "In order to use Warp’s AI features or collaborate with others, please create an account."
+                "To collaborate with others, please create an account."
             }
             AuthViewVariant::HitDriveObjectLimitCloseable => {
                 "In order to create more objects in Warp Drive, please create an account."
@@ -956,16 +912,6 @@ impl TypedActionView for AuthViewBody {
                 });
                 ctx.notify();
             }
-            AuthViewBodyAction::ToggleCloudConversationStorage => {
-                let privacy_settings_handle = PrivacySettings::handle(ctx);
-                ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
-                    privacy_settings.set_is_cloud_conversation_storage_enabled(
-                        !privacy_settings.is_cloud_conversation_storage_enabled,
-                        ctx,
-                    );
-                });
-                ctx.notify();
-            }
             AuthViewBodyAction::Close => {
                 ctx.emit(AuthViewBodyEvent::Close);
             }
@@ -1030,10 +976,6 @@ impl View for AuthViewBody {
         if let Some(overlay) = &self.active_overlay {
             match overlay {
                 AuthViewOverlay::PrivacySettings => {
-                    // The `is_any_ai_enabled` helper also accounts for login /
-                    // remote-session gating, so the cloud-conversation toggle
-                    // hides whenever AI isn't effectively available.
-                    let is_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
                     stack.add_child(
                         Dismiss::new(render_overlay(
                             render_privacy_settings_overlay_body(
@@ -1041,7 +983,6 @@ impl View for AuthViewBody {
                                 app,
                                 &self.privacy_settings_handles,
                                 &self.privacy_settings_actions(),
-                                is_ai_enabled,
                             ),
                             appearance,
                         ))

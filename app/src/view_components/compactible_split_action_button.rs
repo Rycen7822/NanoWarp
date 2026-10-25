@@ -97,14 +97,6 @@ impl CompactibleSplitActionButton {
             row.finish()
         }
     }
-
-    pub fn set_keybinding<T: View>(
-        &mut self,
-        keybinding: Option<KeystrokeSource>,
-        ctx: &mut ViewContext<T>,
-    ) {
-        self.primary_button.set_keybinding(keybinding, ctx);
-    }
 }
 
 impl RenderCompactibleActionButton for CompactibleSplitActionButton {

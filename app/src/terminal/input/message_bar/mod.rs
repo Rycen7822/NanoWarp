@@ -1,5 +1,4 @@
 //! Shared types for message bar rendering across terminal and agent views.
-pub mod attached_context;
 pub mod common;
 
 use std::borrow::Cow;
@@ -11,24 +10,6 @@ use warpui::EventContext;
 use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::MouseStateHandle;
 use warpui::keymap::Keystroke;
-/// A trait for types that can produce a message based on some contextual arguments.
-///
-/// The generic `Args` parameter allows each call site to define its own
-/// context-specific arguments (e.g., terminal-specific or agent-specific state).
-pub trait MessageProvider<Args> {
-    /// Produces a message based on the given arguments, or `None` if this
-    /// provider does not apply in the current context.
-    fn produce_message(&self, args: Args) -> Option<Message>;
-}
-
-/// A trait for types that can transform an existing message based on some contextual arguments.
-pub trait MessageTransformer<Args> {
-    /// Modifies the given message.
-    ///
-    /// Returns `true` if the message was indeed modified.
-    fn transform_message(&self, message: &mut Message, args: Args) -> bool;
-}
-
 /// A message to be displayed in a message bar, composed of a sequence of items.
 #[derive(Default, Clone)]
 pub struct Message {
@@ -339,22 +320,6 @@ impl MessageItem {
         }
         self
     }
-}
-
-pub struct EmptyMessageProducer;
-
-impl<T> MessageProvider<T> for EmptyMessageProducer {
-    fn produce_message(&self, _: T) -> Option<Message> {
-        Some(Message::from_text(""))
-    }
-}
-
-use crate::util::truncation::truncate_from_end;
-
-/// Returns a truncated command string for display in message bars.
-/// Limits to 27 characters (including ellipsis) if truncated.
-pub fn truncated_command_for_block(command: &str) -> String {
-    truncate_from_end(command, 27)
 }
 
 #[cfg(test)]

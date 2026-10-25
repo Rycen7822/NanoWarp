@@ -1,7 +1,70 @@
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
-use crate::ai::PlatformErrorCode;
 use crate::schema;
+
+/// Machine-readable error code from the platform error catalog.
+/// Identifies the class of a structured server error.
+/// See platformerrors package for the canonical definitions.
+#[derive(cynic::Enum, Clone, Copy, Debug, PartialEq)]
+pub enum PlatformErrorCode {
+    #[cynic(rename = "AGENT_STREAM_FAILURE")]
+    AgentStreamFailure,
+    #[cynic(rename = "AGENT_STREAM_NETWORK_ERROR")]
+    AgentStreamNetworkError,
+    #[cynic(rename = "AUTHENTICATION_REQUIRED")]
+    AuthenticationRequired,
+    #[cynic(rename = "BUDGET_EXCEEDED")]
+    BudgetExceeded,
+    #[cynic(rename = "CONTENT_POLICY_VIOLATION")]
+    ContentPolicyViolation,
+    #[cynic(rename = "ENVIRONMENT_SETUP_FAILED")]
+    EnvironmentSetupFailed,
+    #[cynic(rename = "EXTERNAL_AUTHENTICATION_REQUIRED")]
+    ExternalAuthenticationRequired,
+    #[cynic(rename = "FEATURE_NOT_AVAILABLE")]
+    FeatureNotAvailable,
+    #[cynic(rename = "INSUFFICIENT_CREDITS")]
+    InsufficientCredits,
+    #[cynic(rename = "INTEGRATION_DISABLED")]
+    IntegrationDisabled,
+    #[cynic(rename = "INTEGRATION_NOT_CONFIGURED")]
+    IntegrationNotConfigured,
+    #[cynic(rename = "INTERNAL_ERROR")]
+    InternalError,
+    #[cynic(rename = "INVALID_REQUEST")]
+    InvalidRequest,
+    #[cynic(rename = "NOT_AUTHORIZED")]
+    NotAuthorized,
+    #[cynic(rename = "RESOURCE_UNAVAILABLE")]
+    ResourceUnavailable,
+    #[cynic(rename = "RESOURCE_NOT_FOUND")]
+    ResourceNotFound,
+}
+
+impl FromStr for PlatformErrorCode {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "authentication_required" => Ok(Self::AuthenticationRequired),
+            "budget_exceeded" => Ok(Self::BudgetExceeded),
+            "content_policy_violation" => Ok(Self::ContentPolicyViolation),
+            "environment_setup_failed" => Ok(Self::EnvironmentSetupFailed),
+            "external_authentication_required" => Ok(Self::ExternalAuthenticationRequired),
+            "feature_not_available" => Ok(Self::FeatureNotAvailable),
+            "insufficient_credits" => Ok(Self::InsufficientCredits),
+            "integration_disabled" => Ok(Self::IntegrationDisabled),
+            "integration_not_configured" => Ok(Self::IntegrationNotConfigured),
+            "internal_error" => Ok(Self::InternalError),
+            "invalid_request" => Ok(Self::InvalidRequest),
+            "not_authorized" => Ok(Self::NotAuthorized),
+            "resource_unavailable" => Ok(Self::ResourceUnavailable),
+            "resource_not_found" => Ok(Self::ResourceNotFound),
+            _ => Err(()),
+        }
+    }
+}
 
 /// Canonical client representation of structured platform-error information.
 ///
@@ -22,23 +85,6 @@ pub struct PlatformErrorInfo {
     pub trace_id: Option<String>,
 }
 
-impl PlatformErrorInfo {
-    pub fn new(code: PlatformErrorCode, retryable: bool) -> Self {
-        Self {
-            error_message: None,
-            code,
-            http_status: None,
-            user_facing_messages: BTreeMap::new(),
-            detail: None,
-            retryable,
-            is_user_error: None,
-            metadata: BTreeMap::new(),
-            debug: None,
-            metrics_category: None,
-            trace_id: None,
-        }
-    }
-}
 #[derive(cynic::Enum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PlatformErrorMessageFormat {
     #[cynic(rename = "PLAIN_TEXT")]
@@ -102,69 +148,6 @@ impl From<PlatformErrorInfoResponse> for PlatformErrorInfo {
             debug: response.debug,
             metrics_category: Some(response.metrics_category),
             trace_id: response.trace_id,
-        }
-    }
-}
-
-/// GraphQL input-side representation of [`PlatformErrorInfo`].
-#[derive(cynic::InputObject, Clone, Debug)]
-pub struct PlatformErrorInput {
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub code: PlatformErrorCode,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub http_status: Option<i32>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub user_facing_messages: Option<Vec<PlatformErrorMessageInput>>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-    pub retryable: bool,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub is_user_error: Option<bool>,
-    pub metadata: Vec<PlatformErrorMetadataInput>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub debug: Option<String>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub metrics_category: Option<String>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub trace_id: Option<String>,
-}
-
-#[derive(cynic::InputObject, Clone, Debug)]
-pub struct PlatformErrorMessageInput {
-    pub format: PlatformErrorMessageFormat,
-    pub message: String,
-}
-
-#[derive(cynic::InputObject, Clone, Debug)]
-pub struct PlatformErrorMetadataInput {
-    pub key: String,
-    pub value: String,
-}
-
-impl From<PlatformErrorInfo> for PlatformErrorInput {
-    fn from(info: PlatformErrorInfo) -> Self {
-        Self {
-            error_message: info.error_message,
-            code: info.code,
-            http_status: info.http_status,
-            user_facing_messages: Some(
-                info.user_facing_messages
-                    .into_iter()
-                    .map(|(format, message)| PlatformErrorMessageInput { format, message })
-                    .collect(),
-            ),
-            detail: info.detail,
-            retryable: info.retryable,
-            is_user_error: info.is_user_error,
-            metadata: info
-                .metadata
-                .into_iter()
-                .map(|(key, value)| PlatformErrorMetadataInput { key, value })
-                .collect(),
-            debug: info.debug,
-            metrics_category: info.metrics_category,
-            trace_id: info.trace_id,
         }
     }
 }

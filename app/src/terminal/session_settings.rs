@@ -11,8 +11,6 @@ use warp_core::settings::macros::define_settings_group;
 use warp_core::settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 pub use working_directory_config::*;
 
-use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;
-use crate::context_chips::ContextChipKind;
 use crate::context_chips::prompt::PromptSelection;
 
 lazy_static! {
@@ -85,8 +83,6 @@ pub struct NotificationsSettings {
     #[schemars(description = "Whether to notify when a password prompt is detected.")]
     pub is_password_prompt_enabled: bool,
 
-    #[schemars(description = "Whether to notify when an agent task completes.")]
-    pub is_agent_task_completed_enabled: bool,
     #[schemars(description = "Whether to notify when a session needs attention.")]
     pub is_needs_attention_enabled: bool,
 
@@ -101,7 +97,6 @@ impl Default for NotificationsSettings {
             is_long_running_enabled: true,
             long_running_threshold: *DEFAULT_THRESHOLD_FOR_LONG_RUNNING_NOTIFICATION,
             is_password_prompt_enabled: true,
-            is_agent_task_completed_enabled: true,
             is_needs_attention_enabled: true,
             play_notification_sound: true,
         }
@@ -130,97 +125,6 @@ pub enum GithubPrPromptChipDefaultValidation {
 impl GithubPrPromptChipDefaultValidation {
     pub fn is_suppressed(self) -> bool {
         matches!(self, Self::Suppressed)
-    }
-}
-
-/// Shared behavior for toolbar chip selection types.
-/// Each variant stores either a `Default` (resolved via type-specific defaults) or `Custom` left/right item lists.
-pub trait ToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind>;
-    fn default_right_items() -> Vec<AgentToolbarItemKind>;
-    fn left_items(&self) -> Vec<AgentToolbarItemKind>;
-    fn right_items(&self) -> Vec<AgentToolbarItemKind>;
-
-    fn left_chips(&self) -> Vec<ContextChipKind> {
-        self.left_items()
-            .into_iter()
-            .filter_map(|item| match item {
-                AgentToolbarItemKind::ContextChip(kind) => Some(kind),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn right_chips(&self) -> Vec<ContextChipKind> {
-        self.right_items()
-            .into_iter()
-            .filter_map(|item| match item {
-                AgentToolbarItemKind::ContextChip(kind) => Some(kind),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn all_chips(&self) -> Vec<ContextChipKind> {
-        let mut chips = self.left_chips();
-        chips.extend(self.right_chips());
-        chips
-    }
-
-    fn all_items(&self) -> Vec<AgentToolbarItemKind> {
-        let mut items = self.left_items();
-        items.extend(self.right_items());
-        items
-    }
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "Agent toolbar layout configuration.",
-    rename_all = "snake_case"
-)]
-pub enum AgentToolbarChipSelection {
-    #[default]
-    #[schemars(description = "Use the default toolbar layout.")]
-    Default,
-    #[schemars(description = "Use a custom arrangement of toolbar items.")]
-    Custom {
-        left: Vec<AgentToolbarItemKind>,
-        right: Vec<AgentToolbarItemKind>,
-    },
-}
-
-impl ToolbarChipSelection for AgentToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::default_left()
-    }
-
-    fn default_right_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::default_right()
-    }
-
-    fn left_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_left_items(),
-            Self::Custom { left, .. } => left.clone(),
-        }
-    }
-
-    fn right_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_right_items(),
-            Self::Custom { right, .. } => right.clone(),
-        }
     }
 }
 
@@ -256,13 +160,6 @@ define_settings_group!(SessionSettings, settings: [
     saved_prompt: SavedPrompt {
         type: PromptSelection,
         default: PromptSelection::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: true,
-    },
-    should_add_agent_mode_chip: ShouldAddAgentModeChip {
-        type: bool,
-        default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
@@ -304,24 +201,6 @@ define_settings_group!(SessionSettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
         storage_key: "GitPromptDirtyIndicator",
-    },
-    agent_footer_chip_selection: AgentToolbarChipSelectionSetting {
-        type: AgentToolbarChipSelection,
-        default: AgentToolbarChipSelection::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "agents.warp_agent.input.agent_toolbar_chip_selection_setting",
-        description: "Controls the layout of context chips in the Agent Mode toolbar.",
-    },
-    notification_toast_duration_secs: NotificationToastDurationSecs {
-        type: u64,
-        default: 8,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "notifications.toast_duration_secs",
-        description: "How long notification toasts are displayed, in seconds.",
     },
     // Tracks whether the `gh` CLI is installed and authenticated on this machine.
     // Not synced because `gh` CLI availability is machine-specific.

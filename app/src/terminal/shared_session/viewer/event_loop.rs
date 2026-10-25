@@ -6,17 +6,10 @@ use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
     OrderedTerminalEvent, OrderedTerminalEventType, Scrollback, WindowSize,
 };
-use warpui::{Entity, ModelContext, SingletonEntity, WeakViewHandle};
+use warpui::{Entity, ModelContext, WeakViewHandle};
 
-use crate::ai::agent::AIAgentActionId;
-use crate::ai::blocklist::block::cli_controller::LongRunningCommandControlState;
-use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
-use crate::features::FeatureFlag;
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::model::ansi::{self};
-use crate::terminal::model::block::AgentInteractionMetadata;
-use crate::terminal::shared_session::ai_agent::decode_agent_response_event;
-use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
 use crate::terminal::shared_session::{SharedSessionStatus, decode_scrollback};
 use crate::terminal::{TerminalModel, TerminalView};
 
@@ -37,7 +30,6 @@ pub struct EventLoop {
     /// If we just dispatched an event, we could potentially
     /// have other [`OrderedTerminalEvent`]s race which would
     /// break the invariant of the event loop.
-    #[allow(dead_code)]
     terminal_view: WeakViewHandle<TerminalView>,
 
     parser: ansi::Processor,
@@ -48,7 +40,6 @@ pub struct EventLoop {
     sink: Sink,
 
     channel_event_listener: ChannelEventListener,
-    remote_update_guard: RemoteUpdateGuard,
 
     /// The next event number we need from the server.
     next_event_no: usize,
@@ -69,7 +60,6 @@ impl EventLoop {
         window_size: WindowSize,
         scrollback: Scrollback,
         catching_up_to_event_no: Option<usize>,
-        remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         let scrollback_blocks = decode_scrollback(&scrollback);
@@ -107,7 +97,6 @@ impl EventLoop {
             parser: ansi::Processor::new(),
             sink: sink(),
             channel_event_listener,
-            remote_update_guard,
             // Eventually once we have pagination, the server might need to tell us this.
             next_event_no: 0,
             buffer: HashMap::new(),
@@ -153,7 +142,6 @@ impl EventLoop {
 
         // Flush out as many contiguous events as we can.
         while let Some(next_event) = self.buffer.remove(&self.next_event_no) {
-            let _active_remote_update = self.remote_update_guard.start_remote_update();
             match next_event {
                 OrderedTerminalEventType::PtyBytesRead { bytes } => {
                     let mut model = self.terminal_model.lock();
@@ -164,165 +152,37 @@ impl EventLoop {
                 }
                 OrderedTerminalEventType::CommandExecutionStarted {
                     participant_id,
-                    ai_metadata,
+                    ai_metadata: None,
                 } => {
-                    let should_clear_input = ai_metadata.is_none();
-
-                    // If we have AI metadata, map the tool_call_id back to the owning conversation
-                    let reconstructed_ai_metadata = ai_metadata.and_then(|ai_metadata| {
-                        let action_id: AIAgentActionId = ai_metadata.tool_call_id.into();
-
-                        // Try to map the action back to its owning conversation.
-                        let Some(conversation_id) =
-                            self.terminal_view.upgrade(ctx).and_then(|view| {
-                                view.read(ctx, |view, app| {
-                                    let terminal_view_id = view.id();
-                                    let history = BlocklistAIHistoryModel::as_ref(app);
-
-                                    // Try to map the action back to its owning conversation.
-                                    history
-                                        .conversation_id_for_action(&action_id, terminal_view_id)
-                                        // Fallback to active conversation if no exact match is found.
-                                        .or_else(|| {
-                                            history.active_conversation_id(terminal_view_id)
-                                        })
-                                })
-                            })
-                        else {
-                            // If we can't find the conversation ID, we can't reconstruct the AI metadata.
-                            return None;
-                        };
-
-                        Some(AgentInteractionMetadata::new(
-                            Some(action_id),
-                            conversation_id,
-                            None,
-                            // If the sharer started this as an agent-monitored long-running command,
-                            // reflect that in the viewer's metadata so the command can be rendered as an agent long-running command.
-                            // Further state will be inferred from the sharer's agent events.
-                            ai_metadata.is_agent_monitored.then_some(
-                                LongRunningCommandControlState::Agent {
-                                    is_blocked: false,
-                                    should_hide_responses: false,
-                                },
-                            ),
-                            false,
-                            true,
-                        ))
-                    });
-
                     let start_outcome = self
                         .terminal_model
                         .lock()
-                        .start_command_execution_for_shared_session(
-                            participant_id,
-                            reconstructed_ai_metadata.clone(),
-                        );
-
-                    // Notify the action model that the action is now executing on the sharer's side
-                    // This allows the viewer's UI to show the command as running rather than queued
-                    // (which is essential for long running commands to be expandable in the UI).
-                    if start_outcome.is_accepted() {
-                        // When a non-agent command starts, clear the loading state and input buffer.
-                        // We don't clear for agent commands because the viewer may be typing a
-                        // follow-up.
-                        if should_clear_input && let Some(view) = self.terminal_view.upgrade(ctx) {
-                            view.update(ctx, |view, ctx| {
-                                if view.has_queued_command_in_flight(ctx) {
-                                    return;
-                                }
-                                view.input().update(ctx, |input, ctx| {
-                                    // Restore frozen visual state. Then also reinitialize the
-                                    // buffer here: for shell commands the block transition will
-                                    // reset the CRDT with a new block ID shortly after, so the
-                                    // brief CRDT inconsistency is harmless. This pre-emptive
-                                    // clear gives the viewer an empty buffer while the command
-                                    // runs rather than showing the command text.
-                                    input.unfreeze_agent_input(false, ctx);
-                                    let editor = input.editor().clone();
-                                    editor.update(ctx, |editor, ctx| {
-                                        editor.reinitialize_buffer(None, ctx);
-                                    });
+                        .start_command_execution_for_shared_session(participant_id);
+                    if start_outcome.is_accepted()
+                        && let Some(view) = self.terminal_view.upgrade(ctx)
+                    {
+                        view.update(ctx, |view, ctx| {
+                            view.input().update(ctx, |input, ctx| {
+                                input.unfreeze_shared_session_input(ctx);
+                                let editor = input.editor().clone();
+                                editor.update(ctx, |editor, ctx| {
+                                    editor.reinitialize_buffer(None, ctx);
                                 });
                             });
-                        }
-                        if let Some(ai_metadata) = reconstructed_ai_metadata
-                            && let Some(view) = self.terminal_view.upgrade(ctx)
-                            && let Some(action_id) = ai_metadata.requested_command_action_id()
-                        {
-                            view.update(ctx, |view, ctx| {
-                                view.ai_controller().update(ctx, |controller, ctx| {
-                                    controller.mark_action_as_remotely_executing_in_shared_session(
-                                        action_id,
-                                        *ai_metadata.conversation_id(),
-                                        ctx,
-                                    );
-                                });
-                            });
-                        }
+                        });
                     }
                 }
                 OrderedTerminalEventType::Resize { window_size } => {
                     self.process_resize_event(window_size, ctx)
                 }
-                OrderedTerminalEventType::CommandExecutionFinished { .. } => {
-                    // Queue advancement waits for block completion so input cleanup can observe
-                    // the in-flight queued command and preserve any local draft.
+                OrderedTerminalEventType::CommandExecutionFinished { .. }
+                | OrderedTerminalEventType::CommandExecutionStarted {
+                    ai_metadata: Some(_),
+                    ..
                 }
-                OrderedTerminalEventType::AgentResponseEvent {
-                    response_initiator,
-                    response_event,
-                    forked_from_conversation_token,
-                } => {
-                    if FeatureFlag::AgentSharedSessions.is_enabled() {
-                        match decode_agent_response_event(&response_event) {
-                            Ok(resp) => {
-                                if let Some(view) = self.terminal_view.upgrade(ctx) {
-                                    let event_clone = resp.clone();
-                                    let forked_from_token = forked_from_conversation_token.clone();
-                                    view.update(ctx, move |view, ctx| {
-                                        view.ai_controller().update(ctx, |c, ctx| {
-                                            // Set the participant who initiated this response
-                                            if let Some(response_initiator) = response_initiator {
-                                                c.set_current_response_initiator(
-                                                    response_initiator,
-                                                );
-                                            }
-
-                                            // For forked conversations, update the viewer's conversation
-                                            // to use the new server token (only sent once per fork).
-                                            if let Some(forked_from) = forked_from_token {
-                                                c.link_forked_conversation_token(
-                                                    &forked_from,
-                                                    &event_clone,
-                                                    ctx,
-                                                );
-                                            }
-
-                                            c.handle_shared_session_response_event(
-                                                event_clone.clone(),
-                                                ctx,
-                                            );
-                                        });
-                                    });
-                                }
-                            }
-                            Err(err) => {
-                                log::warn!("Failed to decode agent response event: {err}");
-                            }
-                        }
-                    }
-                }
-                OrderedTerminalEventType::AgentConversationReplayStarted => {
-                    self.terminal_model
-                        .lock()
-                        .set_is_receiving_agent_conversation_replay(true);
-                }
-                OrderedTerminalEventType::AgentConversationReplayEnded => {
-                    self.terminal_model
-                        .lock()
-                        .set_is_receiving_agent_conversation_replay(false);
-                }
+                | OrderedTerminalEventType::AgentResponseEvent { .. }
+                | OrderedTerminalEventType::AgentConversationReplayStarted
+                | OrderedTerminalEventType::AgentConversationReplayEnded => {}
                 OrderedTerminalEventType::CloudModeSetupPhaseEnded => {}
             }
 

@@ -1,13 +1,11 @@
 use std::path::PathBuf;
 
 use about_page::AboutPageView;
-use agent_profiles_page::{AgentProfilesPageAction, AgentProfilesPageEvent, AgentProfilesPageView};
 use appearance_page::{AppearancePageAction, AppearanceSettingsPageView};
 use code_editor_review_page::{EditorAndCodeReviewPageAction, EditorAndCodeReviewPageView};
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
-use knowledge_page::{KnowledgePageAction, KnowledgePageEvent, KnowledgePageView};
 use nav::{SettingsNavItem, SettingsUmbrella};
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
@@ -17,7 +15,6 @@ use settings_page::{
     HEADER_PADDING, MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta,
     SettingsPageViewHandle,
 };
-use warp_agent_page::{WarpAgentPageAction, WarpAgentPageEvent, WarpAgentPageView};
 use warp_core::channel::ChannelState;
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
@@ -30,7 +27,7 @@ use warpui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty,
     EventHandler, Expanded, Fill, Flex, MainAxisSize, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollbarWidth, Shrinkable, Stack,
-    Text, Wrap,
+    Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::keymap::{ContextPredicate, EnabledPredicate, FixedBinding};
@@ -40,18 +37,16 @@ use warpui::{
 };
 
 use crate::GlobalResourceHandlesProvider;
-use crate::ai::custom_model_routers::CustomModelRouter;
-use crate::ai::execution_profiles::ExecutionProfileId;
 use crate::appearance::Appearance;
 use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
-    TextColors, TextOptions,
+    TextOptions,
 };
 use crate::menu::{self, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view;
 use crate::pane_group::{BackingView, Direction, PaneConfiguration, PaneEvent, SplitPaneState};
-use crate::settings::{AISettings, BlockVisibilitySettings, SettingsFileError};
+use crate::settings::{BlockVisibilitySettings, SettingsFileError};
 use crate::terminal::SizeInfo;
 use crate::terminal::model::blockgrid::BlockGrid;
 use crate::ui_components::icons;
@@ -59,19 +54,12 @@ use crate::util::bindings::{BindingGroup, CustomAction, keybinding_name_to_displ
 use crate::workspace::WorkspaceAction;
 
 mod about_page;
-mod admin_actions;
-mod agent_profiles_page;
-mod ai_shared;
 mod appearance_page;
 mod code_editor_review_page;
-pub(crate) mod custom_inference_modal;
-mod custom_router_view;
 mod directory_color_add_picker;
-mod execution_profile_view;
 mod features;
 mod features_page;
 pub mod keybindings;
-mod knowledge_page;
 mod nav;
 pub mod pane_manager;
 mod platform;
@@ -79,15 +67,11 @@ mod platform_page;
 mod privacy;
 mod privacy_page;
 mod projects_page;
-mod remove_custom_endpoint_confirmation_dialog;
-mod set_default_model_modal;
 mod settings_file_footer;
 pub(crate) mod settings_page;
-mod warp_agent_page;
 mod warp_drive_page;
 mod warpify_page;
 
-pub(crate) use admin_actions::AdminActions;
 pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
 pub use projects_page::ProjectsPageView;
@@ -104,8 +88,7 @@ const SIDEBAR_WIDTH_DEFAULT: f32 = 200.;
 /// Wider sidebar used when the settings-file footer is enabled. Sized to
 /// match Figma's settings nav rail (223px alert + 12px horizontal padding
 /// on each side + 1px right border), giving the error-alert footer enough
-/// room to render its "Open file" and "Fix with Warp Agent" buttons side-by-side
-/// with the designed 24px indent and 8px internal padding.
+/// room to render its error text and "Open file" action with the designed indent and padding.
 const SIDEBAR_WIDTH_WITH_FOOTER: f32 = 248.;
 
 /// Returns the sidebar width, widened only when the settings-file footer
@@ -152,15 +135,6 @@ pub fn nav_subpage_position_id(section: SettingsSection) -> String {
     format!("settings_nav_subpage:{section:?}")
 }
 
-pub(super) fn editor_text_colors(appearance: &Appearance) -> TextColors {
-    let theme = appearance.theme();
-    TextColors {
-        default_color: theme.active_ui_text_color(),
-        disabled_color: theme.disabled_ui_text_color(),
-        hint_color: theme.disabled_ui_text_color(),
-    }
-}
-
 /// Small inline pill rendered next to a settings label to mark a feature as beta.
 /// Used for experimental features (i.e. AsyncFind) that are enabled for Friends of Warp (i.e. Dogfood/Preview) and toggleable by others.
 pub(super) fn render_beta_chip(appearance: &Appearance) -> Box<dyn Element> {
@@ -179,49 +153,13 @@ pub(super) fn render_beta_chip(appearance: &Appearance) -> Box<dyn Element> {
     .finish()
 }
 
-/// Renders a wrapping row of pill-shaped chips for model labels, which flow
-/// onto additional lines instead of overflowing the container horizontally.
-/// Used by custom inference endpoint cards and the remove confirmation dialog.
-pub(super) fn render_model_chips(
-    labels: impl IntoIterator<Item = String>,
-    appearance: &Appearance,
-    text_color: warp_core::ui::theme::Fill,
-) -> Box<dyn Element> {
-    use warpui::ui_components::chip::Chip;
-    use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-
-    let theme = appearance.theme();
-    let chip_border = internal_colors::neutral_4(theme).into();
-    let chip_style = UiComponentStyles {
-        background: None,
-        border_color: Some(chip_border),
-        border_width: Some(1.),
-        border_radius: Some(CornerRadius::with_all(Radius::Pixels(5.))),
-        font_family_id: Some(appearance.ui_font_family()),
-        font_size: Some(appearance.ui_font_size()),
-        font_color: Some(text_color.into_solid()),
-        ..Default::default()
-    };
-
-    let mut chips = Wrap::row().with_spacing(8.).with_run_spacing(8.);
-    for label in labels {
-        chips.add_child(Chip::new(label, chip_style).build().finish());
-    }
-    chips.finish()
-}
-
 #[derive(PartialEq)]
 pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
     LaunchNetworkLogging,
     SignupAnonymousUser,
-    OpenAIFactCollection,
-    OpenCustomRouterEditor(Option<CustomModelRouter>),
-    OpenCustomRouterFile(PathBuf),
-    OpenExecutionProfileEditor(ExecutionProfileId),
     OpenLspLogs { log_path: PathBuf },
-    OpenProjectRulesPane { rule_paths: Vec<PathBuf> },
 }
 
 /// Different navigation sections within the settings view
@@ -235,10 +173,6 @@ pub enum SettingsSection {
     Privacy,
     WarpDrive,
     Warpify,
-    // ── Agents umbrella subpages ──
-    WarpAgent,
-    AgentProfiles,
-    Knowledge,
     // ── Code umbrella subpages ──
     Projects,
     EditorAndCodeReview,
@@ -255,9 +189,6 @@ impl Display for SettingsSection {
         match self {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
             SettingsSection::WarpDrive => write!(f, "Warp Drive"),
-            SettingsSection::WarpAgent => write!(f, "Warp Agent"),
-            SettingsSection::AgentProfiles => write!(f, "Profiles"),
-            SettingsSection::Knowledge => write!(f, "Knowledge"),
             SettingsSection::Projects => write!(f, "Projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             SettingsSection::WarpCloudAgentAPIKeys => write!(f, "API keys"),
@@ -287,9 +218,6 @@ impl SettingsSection {
             Self::Privacy => "Privacy",
             Self::WarpDrive => "Warp Drive",
             Self::Warpify => "Warpify",
-            Self::WarpAgent => "Warp Agent",
-            Self::AgentProfiles => "Profiles",
-            Self::Knowledge => "Knowledge",
             Self::Projects => "Projects",
             Self::EditorAndCodeReview => "Editor and Code Review",
             // Keeps the "Oz" spelling the slug was seeded from; only the
@@ -314,10 +242,6 @@ impl SettingsSection {
             "Privacy" => Self::Privacy,
             "Warp Drive" | "WarpDrive" => Self::WarpDrive,
             "Warpify" => Self::Warpify,
-            // "Oz" and "AI" are older names for what is now the Warp Agent page.
-            "Warp Agent" | "Oz" | "AI" => Self::WarpAgent,
-            "Profiles" | "AgentProfiles" => Self::AgentProfiles,
-            "Knowledge" => Self::Knowledge,
             "Projects" => Self::Projects,
             "Editor and Code Review" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
             "Oz Cloud API Keys" | "OzCloudAPIKeys" => Self::WarpCloudAgentAPIKeys,
@@ -383,10 +307,8 @@ pub mod flags {
     pub const SSH_WARPIFICATION_CONTEXT_FLAG: &str = "SSH_Warpification";
     pub const NOTIFICATIONS_CONTEXT_FLAG: &str = "Notifications_Enabled";
     pub const LONG_RUNNING_NOTIFICATIONS_FLAG: &str = "Long_Running_Notifications";
-    pub const AGENT_TASK_COMPLETED_NOTIFICATIONS_FLAG: &str = "Agent_Task_Completed_Notifications";
     pub const NEEDS_ATTENTION_NOTIFICATIONS_FLAG: &str = "Needs_Attention_Notifications";
     pub const NOTIFICATION_SOUND_FLAG: &str = "Notification_Sound";
-    pub const AGENT_IN_APP_NOTIFICATIONS_FLAG: &str = "Agent_In_App_Notifications";
     pub const LINK_TOOLTIP_CONTEXT_FLAG: &str = "Link_Tooltip";
     pub const COMPACT_MODE_CONTEXT_FLAG: &str = "Compact_Mode_Enabled";
     pub const CURSOR_BLINK_CONTEXT_FLAG: &str = "Cursor_Blink_Enabled";
@@ -405,13 +327,9 @@ pub mod flags {
     pub const SAME_LINE_PROMPT: &str = "Same_Line_Prompt_Enabled";
     pub const TELEMETRY_FLAG: &str = "telemetry";
     pub const SAFE_MODE_FLAG: &str = "safe_mode";
-    pub const CLOUD_CONVERSATION_STORAGE_FLAG: &str = "Cloud_Conversation_Storage_Enabled";
-    pub const CLOUD_CONVERSATION_STORAGE_EDITABLE_FLAG: &str =
-        "Cloud_Conversation_Storage_Editable";
     pub const DIM_INACTIVE_PANES_FLAG: &str = "Dim_Inactive_Panes";
     pub const OPEN_WINDOWS_AT_CUSTOM_SIZE_FLAG: &str = "Open_Windows_At_Custom_Size";
     pub const LEFT_PANEL_VISIBILITY_ACROSS_TABS_FLAG: &str = "Left_Panel_Visibility_Across_Tabs";
-    pub const MATCH_AI_FONT_TO_TERMINAL_FONT_FLAG: &str = "Match_AI_Font_To_Terminal_Font";
     pub const MATCH_NOTEBOOK_FONT_SIZE_TO_TERMINAL_FONT_SIZE_FLAG: &str =
         "Match_Notebook_Font_Size_To_Terminal_Font_Size";
     pub const QUIT_WARNING_MODAL: &str = "Quit_Warning_Modal";
@@ -423,13 +341,10 @@ pub mod flags {
     pub const TAB_INDICATORS_FLAG: &str = "Tab_Indicators_Enabled";
     pub const SHOW_CODE_REVIEW_BUTTON_FLAG: &str = "Show_Code_Review_Button_Enabled";
     pub const SHOW_CODE_REVIEW_DIFF_STATS_FLAG: &str = "Show_Code_Review_Diff_Stats_Enabled";
-    pub const AUTO_OPEN_CODE_REVIEW_PANE_FLAG: &str = "Auto_Open_Code_Review_Pane_Enabled";
     pub const USE_VERTICAL_TABS_FLAG: &str = "Use_Vertical_Tabs";
     pub const PRESERVE_ACTIVE_TAB_COLOR_FLAG: &str = "Preserve_Active_Tab_Color";
     pub const SHOW_VERTICAL_TAB_PANEL_IN_RESTORED_WINDOWS_FLAG: &str =
         "Show_Vertical_Tab_Panel_In_Restored_Windows";
-    pub const USE_LATEST_USER_PROMPT_AS_CONVERSATION_TITLE_IN_TAB_NAMES_FLAG: &str =
-        "Use_Latest_User_Prompt_As_Conversation_Title_In_Tab_Names";
     pub const ALT_SCREEN_PADDING_FLAG: &str = "Alt_Screen_Padding";
     pub const SESSION_CONFIG_TAB_CONFIG_CHIP_OPEN: &str = "Session_Config_Tab_Config_Chip_Open";
     pub const FOCUS_PANES_ON_HOVER_CONTEXT_FLAG: &str = "Focus_Panes_On_Hover";
@@ -440,16 +355,6 @@ pub mod flags {
     pub const SYNC_ALL_TABS_FLAG: &str = "Sync_All_Tabs_Enabled";
     pub const SYNC_ALL_PANES_IN_CURRENT_TAB: &str = "Sync_All_Panes_In_Current_Tab";
     pub const USE_AUDIBLE_BELL_CONTEXT_FLAG: &str = "Use_Audible_Terminal_Bell";
-    pub const SHOW_INPUT_HINT_TEXT_CONTEXT_FLAG: &str = "Show_Input_Hint_text";
-    pub const USE_AGENT_FOOTER_FLAG: &str = "Use_Agent_Footer";
-    pub const THINKING_DISPLAY_SHOW_AND_COLLAPSE: &str = "Thinking_Display_ShowAndCollapse";
-    pub const THINKING_DISPLAY_ALWAYS_SHOW: &str = "Thinking_Display_AlwaysShow";
-    pub const THINKING_DISPLAY_NEVER_SHOW: &str = "Thinking_Display_NeverShow";
-    pub const PROMPT_SUBMISSION_INTERRUPT: &str = "Prompt_Submission_Interrupt";
-    pub const PROMPT_SUBMISSION_QUEUE: &str = "Prompt_Submission_Queue";
-    pub const LRC_SUBMISSION_SEND_IMMEDIATELY: &str = "LRC_Submission_Send_Immediately";
-    pub const LRC_SUBMISSION_QUEUE_UNTIL_COMMAND_COMPLETES: &str =
-        "LRC_Submission_Queue_Until_Command_Completes";
     pub const PRESERVE_INPUT_FOCUS_ON_BLOCK_SELECTION_FLAG: &str =
         "Preserve_Input_Focus_On_Block_Selection";
     pub const AUTOSUGGESTIONS_ENABLED_FLAG: &str = "Autosuggestions_Enabled";
@@ -463,43 +368,17 @@ pub mod flags {
     pub const IN_BAND_GENERATORS_FLAG: &str = "In_Band_Generators_Enabled";
     pub const WARP_SAME_LINE_PROMPT_FLAG: &str = "Warp_Same_Line_Prompt_Enabled";
     pub const DEBUG_NETWORK_ONLINE_FLAG: &str = "Network_Status_Online";
-    pub const AI_INPUT_AUTODETECTION_FLAG: &str = "AI_Input_Autodetection";
-    pub const NLD_IN_TERMINAL_FLAG: &str = "NLD_In_Terminal";
-    pub const INCLUDE_AGENT_COMMANDS_IN_HISTORY_FLAG: &str = "Include_Agent_Commands_In_History";
-    pub const AUTO_APPROVE_BYPASSES_COMMAND_DENYLIST_FLAG: &str =
-        "Auto_Approve_Bypasses_Command_Denylist";
-    pub const AI_RULES_FLAG: &str = "AI_Rules";
-    pub const WARP_DRIVE_CONTEXT_FLAG: &str = "Warp_Drive_Context";
-    pub const WARP_CREDIT_FALLBACK_FLAG: &str = "Warp_Credit_Fallback";
     pub const DEBUG_SHOW_MEMORY_STATS_FLAG: &str = "Debug_Memory_Statistics";
     pub const ALLOW_NATIVE_WAYLAND: &str = "Allow_Native_Wayland";
-    pub const IS_ANY_AI_ENABLED: &str = "IsAnyAIEnabled";
-    pub const IS_BLOCK_AI_SUMMARIES_ENABLED: &str = "IsBlockAISummariesEnabled";
     pub const LIGATURE_RENDERING_CONTEXT_FLAG: &str = "Ligature_Rendering_Enabled";
     pub const HAS_SETTINGS_TO_IMPORT_FLAG: &str = "HasSettingsToImport";
-    /// The user's setting enabled UDI, but we may show a classic input (e.g. ssh/subshell warpification)
-    pub const UNIVERSAL_DEVELOPER_INPUT_ENABLED: &str = "UniversalDeveloperInputEnabled";
-    pub const AGENT_MODE_INPUT: &str = "InputAgentMode";
-    pub const TERMINAL_MODE_INPUT: &str = "InputTerminalMode";
     pub const WARP_IS_DEFAULT_TERMINAL: &str = "WarpIsDefaultTerminal";
-    /// When set, ctrl-enter should accept a prompt suggestion rather than insert a newline.
-    /// This flag is set by the terminal Input when there's a pending passive code diff.
     /// When set, the terminal input owns Page Up / Page Down so the editor's fixed bindings
     /// should not match.
     pub const TERMINAL_INPUT_PAGE_KEYS_HANDLED_BY_INPUT: &str =
         "TerminalInputPageKeysHandledByInput";
-    pub const ACTIVE_AGENT_VIEW: &str = "ActiveAgentView";
-    pub const ACTIVE_INLINE_AGENT_VIEW: &str = "ActiveInlineAgentView";
-    /// When set, ctrl-enter should be the active binding to enter agent view.
-    ///
-    /// This is true on linux and windows.
-    pub const CTRL_ENTER_ENTERS_AGENT_VIEW: &str = "CtrlEnterEntersAgentView";
-    pub const AGENT_VIEW_ENABLED: &str = "FeatureFlag.AgentView";
-    pub const LOCKED_INPUT: &str = "LockedInput";
-    pub const EMPTY_INPUT_BUFFER: &str = "EmptyInputBuffer";
     pub const ENABLE_WARP_DRIVE: &str = "EnableWarpDrive";
     // Tools panel settings
-    pub const SHOW_CONVERSATION_HISTORY: &str = "ShowConversationHistory";
     pub const SHOW_PROJECT_EXPLORER: &str = "ShowProjectExplorer";
     pub const SHOW_GLOBAL_SEARCH: &str = "ShowGlobalSearch";
     pub const SHOW_HIDDEN_FILES: &str = "ShowHiddenFiles";
@@ -514,8 +393,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     features_page::init_actions_from_parent_view(app, context, builder);
     warpify_page::init_actions_from_parent_view(app, context, builder);
     privacy_page::init_actions_from_parent_view(app, context, builder);
-    warp_agent_page::init_actions_from_parent_view(app, context, builder);
-    knowledge_page::init_actions_from_parent_view(app, context, builder);
     code_editor_review_page::init_actions_from_parent_view(app, context, builder);
     warp_drive_page::init_actions_from_parent_view(app, context, builder);
 
@@ -818,9 +695,6 @@ pub enum SettingsAction {
     AppearancePageToggle(AppearancePageAction),
     FeaturesPageToggle(FeaturesPageAction),
     PrivacyPageToggle(PrivacyPageAction),
-    WarpAgent(WarpAgentPageAction),
-    AgentProfiles(AgentProfilesPageAction),
-    Knowledge(KnowledgePageAction),
     Projects(ProjectsPageAction),
     EditorAndCodeReview(EditorAndCodeReviewPageAction),
     WarpDrive(warp_drive_page::WarpDriveSettingsPageAction),
@@ -972,9 +846,7 @@ macro_rules! update_page {
                 $ctx.update_view(handle, $update)
             }
             SettingsPageViewHandle::Privacy(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::WarpAgent(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::AgentProfiles(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::Knowledge(handle) => $ctx.update_view(handle, $update),
+
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Projects(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::EditorAndCodeReview(handle) => {
@@ -1033,24 +905,6 @@ impl SettingsView {
 
         // About page
         let about_page_handle = ctx.add_typed_action_view(AboutPageView::new);
-
-        // Warp Agent page
-        let warp_agent_page_handle = ctx.add_typed_action_view(WarpAgentPageView::new);
-        ctx.subscribe_to_view(&warp_agent_page_handle, |me, _, event, ctx| {
-            me.handle_warp_agent_page_event(event, ctx);
-        });
-
-        // Agent profiles page, under the Agents umbrella
-        let agent_profiles_page_handle = ctx.add_typed_action_view(AgentProfilesPageView::new);
-        ctx.subscribe_to_view(&agent_profiles_page_handle, |me, _, event, ctx| {
-            me.handle_agent_profiles_page_event(event, ctx);
-        });
-
-        // Knowledge page, under the Agents umbrella
-        let knowledge_page_handle = ctx.add_typed_action_view(KnowledgePageView::new);
-        ctx.subscribe_to_view(&knowledge_page_handle, |me, _, event, ctx| {
-            me.handle_knowledge_page_event(event, ctx);
-        });
 
         // Keybindings page
         let keybindings_handle = ctx.add_typed_action_view(KeybindingsView::new);
@@ -1114,9 +968,6 @@ impl SettingsView {
         });
 
         let mut settings_pages = vec![
-            SettingsPage::new(warp_agent_page_handle),
-            SettingsPage::new(agent_profiles_page_handle),
-            SettingsPage::new(knowledge_page_handle),
             SettingsPage::new(projects_page_handle),
             SettingsPage::new(editor_review_page_handle),
             SettingsPage::new(appearance_page_handle),
@@ -1136,14 +987,6 @@ impl SettingsView {
         // nowhere else, so this list is the only place membership is declared.
         let mut nav_items = vec![
             SettingsNavItem::Page(SettingsSection::Appearance),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Agents",
-                vec![
-                    SettingsSection::WarpAgent,
-                    SettingsSection::AgentProfiles,
-                    SettingsSection::Knowledge,
-                ],
-            )),
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Code",
                 vec![
@@ -1528,58 +1371,6 @@ impl SettingsView {
         }
     }
 
-    fn handle_warp_agent_page_event(
-        &mut self,
-        event: &WarpAgentPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            WarpAgentPageEvent::FocusModal => ctx.focus(&self.search_editor),
-            #[cfg(feature = "local_fs")]
-            WarpAgentPageEvent::OpenCustomRouterEditor(router) => {
-                ctx.emit(SettingsViewEvent::OpenCustomRouterEditor(router.clone()));
-            }
-            #[cfg(feature = "local_fs")]
-            WarpAgentPageEvent::OpenCustomRouterFile(path) => {
-                ctx.emit(SettingsViewEvent::OpenCustomRouterFile(path.clone()));
-            }
-            WarpAgentPageEvent::SignupAnonymousUser => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            WarpAgentPageEvent::ShowModal | WarpAgentPageEvent::HideModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_agent_profiles_page_event(
-        &mut self,
-        event: &AgentProfilesPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AgentProfilesPageEvent::FocusModal => ctx.focus(&self.search_editor),
-            AgentProfilesPageEvent::OpenExecutionProfileEditor(profile_id) => {
-                ctx.emit(SettingsViewEvent::OpenExecutionProfileEditor(
-                    profile_id.clone(),
-                ));
-            }
-        }
-    }
-
-    fn handle_knowledge_page_event(
-        &mut self,
-        event: &KnowledgePageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            KnowledgePageEvent::OpenAIFactCollection => {
-                ctx.emit(SettingsViewEvent::OpenAIFactCollection)
-            }
-        }
-    }
-
     fn handle_projects_page_event(
         &mut self,
         event: &ProjectsPageEvent,
@@ -1589,11 +1380,6 @@ impl SettingsView {
             ProjectsPageEvent::OpenLspLogs { log_path } => {
                 ctx.emit(SettingsViewEvent::OpenLspLogs {
                     log_path: log_path.clone(),
-                });
-            }
-            ProjectsPageEvent::OpenProjectRules { rule_paths } => {
-                ctx.emit(SettingsViewEvent::OpenProjectRulesPane {
-                    rule_paths: rule_paths.clone(),
                 });
             }
         }
@@ -1695,9 +1481,7 @@ impl SettingsView {
             SettingsPageViewHandle::WarpCloudAgentAPIKeys(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Privacy(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Warpify(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::WarpAgent(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::AgentProfiles(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::Knowledge(v) => v.as_ref(app).should_render(app),
+
             SettingsPageViewHandle::Projects(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::EditorAndCodeReview(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::WarpDrive(v) => v.as_ref(app).should_render(app),
@@ -1866,9 +1650,6 @@ impl SettingsView {
             }
             SettingsPageViewHandle::WarpCloudAgentAPIKeys(view) => {
                 view.read(app, |view, _| view.get_modal_content())
-            }
-            SettingsPageViewHandle::WarpAgent(view) => {
-                view.read(app, |view, _| view.get_modal_content(app))
             }
             _ => None,
         }
@@ -2105,7 +1886,6 @@ impl View for SettingsView {
             footer_kind,
             appearance,
             self.settings_file_error.as_ref(),
-            AISettings::as_ref(app).is_any_ai_enabled(app),
             &self.footer_mouse_states,
         );
 
@@ -2234,33 +2014,6 @@ impl TypedActionView for SettingsView {
                 {
                     view.update(ctx, |view, ctx| {
                         view.handle_action(privacy_action, ctx);
-                    })
-                }
-            }
-            SettingsAction::WarpAgent(ai_action) => {
-                if let Some(warp_agent_page) = self.settings_page(SettingsSection::WarpAgent)
-                    && let SettingsPageViewHandle::WarpAgent(view) = &warp_agent_page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(ai_action, ctx);
-                    })
-                }
-            }
-            SettingsAction::AgentProfiles(profiles_action) => {
-                if let Some(page) = self.settings_page(SettingsSection::AgentProfiles)
-                    && let SettingsPageViewHandle::AgentProfiles(view) = &page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(profiles_action, ctx);
-                    })
-                }
-            }
-            SettingsAction::Knowledge(knowledge_action) => {
-                if let Some(page) = self.settings_page(SettingsSection::Knowledge)
-                    && let SettingsPageViewHandle::Knowledge(view) = &page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(knowledge_action, ctx);
                     })
                 }
             }

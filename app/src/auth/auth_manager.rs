@@ -22,8 +22,6 @@ use super::credentials::{Credentials, FirebaseToken, LoginToken};
 use super::user::User;
 use super::user_properties::UserProperties;
 use super::{AuthStateProvider, UserUid};
-use crate::ai::AIRequestUsageModel;
-use crate::ai::llms::LLMPreferences;
 use crate::persistence::ModelEvent;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::graphql::get_user_facing_error_message;
@@ -289,7 +287,6 @@ impl AuthManager {
                 let UserProperties {
                     user,
                     server_experiments,
-                    llms,
                 } = user_output.into();
 
                 self.complete_authentication(user.clone(), credentials, ctx);
@@ -320,14 +317,6 @@ impl AuthManager {
 
                 CloudPreferencesSyncer::handle(ctx).update(ctx, |model, ctx| {
                     model.handle_user_fetched(self.auth_state.clone(), ctx)
-                });
-
-                AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                    usage_model.refresh_request_usage_async(ctx);
-                });
-
-                LLMPreferences::handle(ctx).update(ctx, |prefs, ctx| {
-                    prefs.update_feature_model_choices(Ok(llms), ctx);
                 });
 
                 if !user.is_user_anonymous() {
@@ -412,19 +401,6 @@ impl AuthManager {
                         server_api.notify_login().await;
                     },
                     |_, _, _| {},
-                );
-
-                // Once the user is authenticated, attempt to report the sandbox that Warp is running in, if any.
-                ctx.spawn(
-                    async { warp_isolation_platform::detect() },
-                    |_, platform, ctx| {
-                        if let Some(platform) = platform {
-                            send_telemetry_from_ctx!(
-                                TelemetryEvent::DetectedIsolationPlatform { platform },
-                                ctx
-                            );
-                        }
-                    },
                 );
 
                 ctx.emit(AuthManagerEvent::AuthComplete);
@@ -727,18 +703,6 @@ impl AuthManager {
         )
     }
 
-    /// The upgrade confirmation page will kick the user back to the app with a refresh token
-    /// if we send a `state` query param to /upgrade
-    pub fn upgrade_url(&mut self) -> String {
-        let state = self.generate_auth_state();
-        format!(
-            "{}/upgrade?scheme={}&state={}",
-            ChannelState::server_root_url(),
-            ChannelState::url_scheme(),
-            state,
-        )
-    }
-
     pub fn login_options_url(&mut self, custom_token: &str) -> String {
         let state = self.generate_auth_state();
         format!(
@@ -784,24 +748,6 @@ impl AuthManager {
             (Some(current_uid), Some(incoming_uid)) => current_uid == *incoming_uid,
             _ => false,
         }
-    }
-
-    /// Sets the user as onboarded both on the server and locally.
-    /// This method:
-    /// 1. Updates the server by calling set_user_is_onboarded
-    /// 2. Updates the local auth state and persists the user data
-    pub fn set_user_onboarded(&self, ctx: &mut ModelContext<Self>) {
-        // Update server
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.set_user_is_onboarded().await },
-            |_, _, _| {},
-        );
-
-        // Update local auth state and persist
-        self.auth_state.set_is_onboarded(true);
-
-        self.persist(ctx);
     }
 }
 

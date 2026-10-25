@@ -1,16 +1,13 @@
+use session_sharing_protocol::sharer::SessionSourceType;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ai::project_context::model::ProjectContextModel;
-use chrono::Utc;
 use pathfinder_geometry::rect::RectF;
-use persistence::model::{AgentConversation, ConversationUsageMetadata};
 #[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
 use shared_session::permissions_manager::SessionPermissionsManager;
-use uuid::Uuid;
 use warp_core::features::FeatureFlag;
 use warpui::platform::{WindowBounds, WindowStyle};
 use warpui::windowing::WindowManager;
@@ -19,36 +16,18 @@ use warpui::{App, ModelHandle};
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
-use crate::ai::AIRequestUsageModel;
-use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::agent::conversation::{
-    AIAgentHarness, AIConversation, ServerAIConversationMetadata,
-};
-use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
-use crate::ai::blocklist::{BlocklistAIHistoryModel, QueuedQueryModel};
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::llms::LLMPreferences;
-use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::ai::restored_conversations::RestoredAgentConversations;
-use crate::ai::skills::SkillManager;
 use crate::auth::auth_manager::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
-use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
+use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::manager::NotebookManager;
 use crate::notebooks::notebook::NotebookView;
-use crate::pricing::PricingInfoModel;
 use crate::resource_center::TipsCompleted;
 use crate::search::files::model::FileSearchModel;
 use crate::server::cloud_objects::listener::Listener;
 use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::ids::ServerId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
@@ -58,14 +37,11 @@ use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::history::History;
-use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::local_tty::TerminalManager;
 use crate::terminal::local_tty::spawner::PtySpawner;
-use crate::terminal::model::terminal_model::ConversationTranscriptViewerStatus;
 use crate::terminal::resizable_data::ResizableData;
 use crate::terminal::shared_session::{
-    SharedSessionActionSource, SharedSessionScrollbackType, SharedSessionSource,
-    SharedSessionStatus,
+    SharedSessionActionSource, SharedSessionScrollbackType, SharedSessionStatus,
 };
 use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -77,15 +53,9 @@ use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::{
-    AgentNotificationsModel, GlobalResourceHandles, GlobalResourceHandlesProvider, experiments,
-};
+use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider, experiments};
 
 fn initialize_app(app: &mut App) {
-    initialize_app_with_history(app, Vec::new());
-}
-
-fn initialize_app_with_history(app: &mut App, conversations: Vec<AgentConversation>) {
     initialize_settings_for_tests(app);
 
     app.add_singleton_model(|_ctx| ServerApiProvider::new_for_test());
@@ -121,43 +91,21 @@ fn initialize_app_with_history(app: &mut App, conversations: Vec<AgentConversati
     app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resources.clone()));
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(NotebookKeybindings::new);
-    app.add_singleton_model(TerminalKeybindings::new);
-    app.add_singleton_model(move |_| BlocklistAIHistoryModel::new(vec![], vec![], &conversations));
-    // QueuedQueryModel subscribes to history events; register after the
-    // history model is in place.
-    app.add_singleton_model(QueuedQueryModel::new);
-    app.add_singleton_model(LocalAgentTaskSyncModel::new);
-    app.add_singleton_model(|_| ActiveAgentViewsModel::new());
-    app.add_singleton_model(crate::ai::blocklist::BlocklistAIPermissions::new);
-    app.add_singleton_model(AgentNotificationsModel::new);
-    app.add_singleton_model(|ctx| {
-        AIExecutionProfilesModel::new(&crate::LaunchMode::new_for_unit_test(), ctx)
-    });
-    app.add_singleton_model(|ctx| {
-        AIRequestUsageModel::new_for_test(ServerApiProvider::as_ref(ctx).get_ai_client(), ctx)
-    });
+
     app.add_singleton_model(SessionPermissionsManager::new);
-    app.add_singleton_model(LLMPreferences::new);
-    app.add_singleton_model(HarnessAvailabilityModel::new);
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
-    app.add_singleton_model(SkillManager::new);
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| crate::code_review::git_repo_model::GitRepoModels::new());
     crate::terminal::available_shells::register(app);
     app.update(experiments::init);
     AltScreenReporting::register(app);
-    app.add_singleton_model(|_| ProjectContextModel::default());
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
-    app.add_singleton_model(|_| RestoredAgentConversations::new_seeded(vec![]));
     app.add_singleton_model(OneTimeModalModel::new);
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
-    app.add_singleton_model(|_| PricingInfoModel::new());
-    app.add_singleton_model(crate::ai::pricing_promotion::PricingPromotionState::new);
     app.add_singleton_model(|_| History::new(vec![]));
-    app.add_singleton_model(AgentConversationsModel::new);
     app.add_singleton_model(remote_server::manager::RemoteServerManager::new);
 }
 
@@ -218,69 +166,6 @@ fn is_active_session(panes: &PaneGroup, pane_id: PaneId, ctx: &AppContext) -> bo
 
 fn new_notebook(ctx: &mut ViewContext<PaneGroup>) -> ViewHandle<NotebookView> {
     ctx.add_typed_action_view(NotebookView::new)
-}
-
-fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
-    Uuid::new_v4().to_string().parse().unwrap()
-}
-
-fn mock_server_metadata() -> ServerMetadata {
-    ServerMetadata {
-        uid: ServerId::default(),
-        revision: Revision::now(),
-        metadata_last_updated_ts: Utc::now().into(),
-        trashed_ts: None,
-        folder_id: None,
-        is_welcome_object: false,
-        creator_uid: None,
-        last_editor_uid: None,
-        current_editor_uid: None,
-    }
-}
-
-fn mock_server_permissions() -> ServerPermissions {
-    ServerPermissions {
-        space: Owner::mock_current_user(),
-        guests: Vec::new(),
-        anyone_link_sharing: None,
-        permissions_last_updated_ts: Utc::now().into(),
-    }
-}
-
-fn test_server_conversation_metadata(
-    task_id: Option<AmbientAgentTaskId>,
-) -> ServerAIConversationMetadata {
-    ServerAIConversationMetadata {
-        title: "Restored cloud conversation".to_string(),
-        working_directory: None,
-        harness: AIAgentHarness::Oz,
-        usage: ConversationUsageMetadata {
-            was_summarized: false,
-            context_window_usage: 0.0,
-            credits_spent: 0.0,
-            platform_credits_spent: 0.0,
-            total_billed_cost_in_cents: None,
-            credits_spent_for_last_block: None,
-            charged_usage_for_last_block: None,
-            total_charged_usage: None,
-            token_usage: vec![],
-            tool_usage_metadata: Default::default(),
-            context_window_segments: Vec::new(),
-        },
-        metadata: mock_server_metadata(),
-        creator: None,
-        permissions: mock_server_permissions(),
-        ambient_agent_task_id: task_id,
-        server_conversation_token: ServerConversationToken::new("test-server-token".to_string()),
-        artifacts: Vec::new(),
-    }
-}
-
-fn cloud_conversation_with_ambient_task(task_id: AmbientAgentTaskId) -> Box<AIConversation> {
-    let mut conversation = AIConversation::new(false);
-    conversation.set_task_id(task_id);
-    conversation.set_server_metadata(test_server_conversation_metadata(Some(task_id)));
-    Box::new(conversation)
 }
 
 struct PreAttachReturnsFalsePane {
@@ -401,38 +286,6 @@ fn test_pane_focus_on_close() {
             panes.close_pane(third_pane_id, ctx);
             assert_eq!(second_pane_id, panes.focused_pane_id(ctx));
         })
-    });
-}
-
-#[test]
-fn task_transcript_restore_uses_read_only_viewer() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-        let task_id = new_ambient_agent_task_id();
-
-        pane_group.update(&mut app, |panes, ctx| {
-            panes.load_data_into_conversation_transcript_viewer(
-                cloud_conversation_with_ambient_task(task_id),
-                Some(task_id),
-                ctx,
-            );
-        });
-
-        pane_group.read(&app, |panes, ctx| {
-            let terminal_view = panes
-                .active_session_view(ctx)
-                .expect("fallback viewer should have an active terminal view");
-            let view = terminal_view.as_ref(ctx);
-
-            let model = view.model.lock();
-            assert!(model.is_conversation_transcript_viewer());
-            assert!(model.is_read_only());
-            assert_eq!(
-                model.conversation_transcript_viewer_status(),
-                Some(&ConversationTranscriptViewerStatus::ViewingAmbientConversation(task_id))
-            );
-        });
     });
 }
 
@@ -1040,8 +893,7 @@ fn test_stop_shared_session() {
                 terminal_view.attempt_to_share_session(
                     SharedSessionScrollbackType::None,
                     None,
-                    SharedSessionSource::user(None),
-                    false,
+                    SessionSourceType::User,
                     ctx,
                 );
             });

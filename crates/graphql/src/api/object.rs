@@ -1,4 +1,3 @@
-use crate::ai::AIConversation;
 use crate::folder::{Folder, FolderWithDescendants};
 use crate::generic_string_object::GenericStringObject;
 use crate::notebook::Notebook;
@@ -20,9 +19,8 @@ pub struct ObjectMetadata {
 }
 
 #[derive(cynic::Enum, Clone, Copy, Debug)]
+#[cynic(non_exhaustive)]
 pub enum ObjectType {
-    #[cynic(rename = "AIConversation")]
-    AIConversation,
     #[cynic(rename = "Folder")]
     Folder,
     #[cynic(rename = "GenericStringObject")]
@@ -44,7 +42,6 @@ pub struct ObjectUpdateSuccess {
 #[allow(clippy::large_enum_variant)]
 #[derive(cynic::InlineFragments, Debug, Clone)]
 pub enum CloudObject {
-    AIConversation(AIConversation),
     Folder(Folder),
     GenericStringObject(GenericStringObject),
     Notebook(Notebook),
@@ -56,7 +53,6 @@ pub enum CloudObject {
 #[allow(clippy::large_enum_variant)]
 #[derive(cynic::InlineFragments, Debug, Clone)]
 pub enum CloudObjectWithDescendants {
-    AIConversation(AIConversation),
     FolderWithDescendants(FolderWithDescendants),
     GenericStringObject(GenericStringObject),
     Notebook(Notebook),

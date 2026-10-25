@@ -16,7 +16,6 @@ use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use warpui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
 
 use super::PrivacySettings;
-use super::ai::{CustomEndpoints, ExecutionProfiles};
 use super::cloud_preferences::{CloudPreferencesSettings, CloudPreferencesSettingsChangedEvent};
 use super::manager::SettingsEvent;
 use crate::auth::auth_state::AuthState;
@@ -156,12 +155,8 @@ struct PreferenceToCreate {
 }
 
 lazy_static! {
-    static ref LEGACY_CLOUD_SETTINGS_STORAGE_KEYS: Vec<&'static str> = vec![
-        super::privacy::TELEMETRY_ENABLED_DEFAULTS_KEY,
-        super::privacy::CLOUD_CONVERSATION_STORAGE_ENABLED_DEFAULTS_KEY,
-        ExecutionProfiles::storage_key(),
-        CustomEndpoints::storage_key(),
-    ];
+    static ref LEGACY_CLOUD_SETTINGS_STORAGE_KEYS: Vec<&'static str> =
+        vec![super::privacy::TELEMETRY_ENABLED_DEFAULTS_KEY,];
 }
 
 const PREFERENCES_DEBOUNCE_PERIOD: Duration = Duration::from_millis(500);
@@ -193,11 +188,6 @@ impl CloudPreferencesSyncer {
         me.force_local_wins_on_startup = force_local_wins_on_startup;
         me.retry_failed_settings(ctx);
         me
-    }
-
-    /// Returns whether initial cloud/local preference reconciliation has completed.
-    pub(crate) fn has_completed_initial_load(&self) -> bool {
-        self.has_completed_initial_load
     }
 
     fn new_internal(

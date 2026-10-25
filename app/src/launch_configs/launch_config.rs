@@ -173,16 +173,13 @@ fn is_falsey(val: &Option<bool>) -> bool {
 
 /// The mode a leaf pane opens in.
 ///
-/// Used by tab configs to distinguish terminal, agent, and cloud panes.
-/// Launch configs always produce `Terminal` (the default).
+/// Validates the terminal mode declared by launch and tab configurations.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneMode {
     /// A standard terminal shell session.
     #[default]
     Terminal,
-    /// A terminal that immediately enters Agent Mode.
-    Agent,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -245,11 +242,7 @@ impl TryFrom<PaneNodeSnapshot> for PaneTemplateType {
                 | LeafContents::EnvVarCollection(_)
                 | LeafContents::Code(_)
                 | LeafContents::Settings(_)
-                | LeafContents::AIFact(_)
                 | LeafContents::CodeReview(_)
-                | LeafContents::AmbientAgent(_)
-                | LeafContents::CustomRouterEditor
-                | LeafContents::ExecutionProfileEditor
                 | LeafContents::NetworkLog => Err(()),
             },
         }

@@ -42,7 +42,6 @@ warp = { workspace = true, features = ["integration_tests"] }
 warp_cli = { workspace = true, features = ["integration_tests"] }
 warp_core.workspace = true
 warp-command-signatures.workspace = true
-warp_multi_agent_api.workspace = true
 warp-workflows.workspace = true
 warpui_core.workspace = true
 warpui_extras = { workspace = true, features = [

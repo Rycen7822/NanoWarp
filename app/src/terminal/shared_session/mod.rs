@@ -13,19 +13,16 @@ use crate::channel::{Channel, ChannelState};
 use crate::editor::{InteractionState, ReplicaId};
 use crate::features::FeatureFlag;
 
-pub mod ai_agent;
 pub mod manager;
 pub mod network;
 pub mod participant_avatar_view;
 pub mod permissions_manager;
 pub mod presence_manager;
 pub mod render_util;
-pub mod replay_agent_conversations;
 pub mod role_change_modal;
 mod selections;
 pub mod settings;
 pub mod share_modal;
-pub(super) mod shared_handlers;
 pub mod sharer;
 pub mod viewer;
 
@@ -41,46 +38,6 @@ pub const COPY_LINK_TEXT: &str = "Sharing link copied";
 /// most up to date will always be sent after some delay)
 const SELECTION_THROTTLE_PERIOD: Duration = Duration::from_millis(20);
 
-/// `SessionSourceType` paired with the orchestrator `task_id` that rides
-/// on the `source_task_id` sidecar.
-#[derive(Debug, Clone)]
-pub struct SharedSessionSource {
-    pub source_type: SessionSourceType,
-    pub source_task_id: Option<String>,
-}
-
-impl SharedSessionSource {
-    pub fn user(source_task_id: Option<String>) -> Self {
-        Self {
-            source_type: SessionSourceType::User,
-            source_task_id,
-        }
-    }
-
-    pub fn ambient_agent(task_id: Option<String>) -> Self {
-        Self {
-            source_type: SessionSourceType::AmbientAgent {
-                task_id: task_id.clone(),
-            },
-            source_task_id: task_id,
-        }
-    }
-
-    /// Sidecar first, then `AmbientAgent.task_id` for legacy producers.
-    pub fn orchestrator_task_id(&self) -> Option<&str> {
-        self.source_task_id.as_deref().or(match &self.source_type {
-            SessionSourceType::AmbientAgent { task_id } => task_id.as_deref(),
-            SessionSourceType::User => None,
-        })
-    }
-}
-
-impl Default for SharedSessionSource {
-    fn default() -> Self {
-        Self::user(None)
-    }
-}
-
 /// Whether or not a local session is also being shared.
 /// Since a shared session creator is also the creator of a local session,
 /// we make use of the local_tty::TerminalManager for shared session creators.
@@ -89,7 +46,7 @@ impl Default for SharedSessionSource {
 #[derive(Debug, Clone, Default)]
 pub enum IsSharedSessionCreator {
     /// This session should be shared automatically once bootstrapped.
-    Yes { source: SharedSessionSource },
+    Yes { source: SessionSourceType },
     #[default]
     No,
 }
@@ -116,7 +73,7 @@ pub enum SharedSessionStatus {
     /// We haven't yet attempted to share the session because it is not bootstrapped yet.
     /// The `source` encodes what kind of shared session will be created once
     /// the session finishes bootstrapping.
-    SharePendingPreBootstrap { source: SharedSessionSource },
+    SharePendingPreBootstrap { source: SessionSourceType },
 
     /// The session is bootstrapped and we're in the process of
     /// sharing the session but have not yet established the
@@ -239,9 +196,7 @@ impl SharedSessionScrollbackType {
             .blocks()
             .iter()
             .skip(first_block_index.into())
-            .filter(|block| {
-                block.is_scrollback_block_for_shared_session(model.block_list().transcript_scope())
-            })
+            .filter(|block| block.is_scrollback_block_for_shared_session())
             .filter_map(|block| {
                 let serialized_block: SerializedBlock = block.into();
                 let bytes = serde_json::to_vec(&serialized_block);
@@ -266,11 +221,7 @@ impl SharedSessionScrollbackType {
                 .blocks()
                 .iter()
                 .skip(block_index.into())
-                .find(|block| {
-                    block.is_scrollback_block_for_shared_session(
-                        model.block_list().transcript_scope(),
-                    )
-                })
+                .find(|block| block.is_scrollback_block_for_shared_session())
                 .map_or(model.block_list().active_block_index(), |block| {
                     block.index()
                 }),

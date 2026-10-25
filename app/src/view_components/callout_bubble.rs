@@ -26,9 +26,6 @@ pub enum CalloutArrowPosition {
     /// For Up arrows: offset from the left edge.
     /// For Left arrows: offset from the top edge.
     Start(f32),
-    /// Offset from the end of the bubble edge the arrow sits on.
-    /// For Up arrows: offset from the right edge.
-    End(f32),
     /// Centered on the bubble edge.
     Center,
 }
@@ -46,10 +43,6 @@ pub fn phenomenon_background_color() -> ColorU {
 
 pub fn phenomenon_foreground_color() -> ColorU {
     PhenomenonStyle::foreground()
-}
-
-pub fn phenomenon_accent_color() -> ColorU {
-    PhenomenonStyle::accent()
 }
 
 pub fn phenomenon_body_text_color() -> ColorU {
@@ -136,10 +129,6 @@ pub fn render_callout_bubble(
                 CalloutArrowPosition::Start(offset) => {
                     Container::new(triangle).with_margin_left(offset)
                 }
-                CalloutArrowPosition::End(offset) => {
-                    let margin_left = (config.width - offset - 24.).max(0.);
-                    Container::new(triangle).with_margin_left(margin_left)
-                }
                 CalloutArrowPosition::Center => {
                     let margin_left = (config.width - 24.) / 2.;
                     Container::new(triangle).with_margin_left(margin_left)
@@ -154,10 +143,6 @@ pub fn render_callout_bubble(
         CalloutArrowDirection::Left => {
             let (arrow_margin, cross_axis_alignment) = match config.arrow_position {
                 CalloutArrowPosition::Start(offset) => (
-                    Container::new(triangle).with_margin_top(offset),
-                    CrossAxisAlignment::Start,
-                ),
-                CalloutArrowPosition::End(offset) => (
                     Container::new(triangle).with_margin_top(offset),
                     CrossAxisAlignment::Start,
                 ),

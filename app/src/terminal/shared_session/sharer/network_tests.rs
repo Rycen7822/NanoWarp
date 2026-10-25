@@ -950,7 +950,7 @@ fn test_oversized_initialize_fails_startup_without_retry() {
 #[test]
 fn test_share_with_team_uid_for_init_payload_includes_team_scoped_view() {
     let team_uid = crate::server::ids::ServerId::from(123);
-    let scope = crate::workspaces::user_workspaces::TeamContextForOperation::new_for_test(team_uid);
+    let scope = crate::workspaces::user_workspaces::team_workspace_settings::TeamContextForOperation::new_for_test(team_uid);
     assert_eq!(
         share_with_team_uid_for_init_payload(&scope),
         Some(String::from(team_uid))

@@ -41,7 +41,6 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::{QueueItem, SyncQueue, SyncQueueEvent};
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
-use crate::terminal::keys::TerminalKeybindings;
 use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workflows::workflow::Workflow;
@@ -66,7 +65,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(repo_metadata::RepoMetadataModel::new);
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(NotebookKeybindings::new);
-    app.add_singleton_model(TerminalKeybindings::new);
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(UserWorkspaces::default_mock);
     app.add_singleton_model(SyncQueue::mock);
@@ -276,10 +274,10 @@ echo hello
             let events = &root.as_ref(ctx).events;
             assert!(
                 events.contains(&NotebookEvent::RunWorkflow {
-                    workflow: Arc::new(WorkflowType::Notebook(Workflow::new(
+                    workflow: Arc::new(WorkflowType::Notebook(Box::new(Workflow::new(
                         "Command from Test Notebook",
                         "echo hello"
-                    ))),
+                    )))),
                     source: WorkflowSource::Notebook {
                         notebook_id: None,
                         team_uid: None,

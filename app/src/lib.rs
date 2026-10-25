@@ -1,6 +1,5 @@
 #![allow(clippy::doc_lazy_continuation)]
 
-mod ai;
 mod alloc;
 mod antivirus;
 #[cfg(target_os = "macos")]
@@ -34,7 +33,6 @@ mod external_secrets;
 mod font_fallback;
 mod global_resource_handles;
 mod gpu_state;
-mod input_classifier;
 mod interval_timer;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;
@@ -49,9 +47,7 @@ mod platform;
 mod prefix;
 #[cfg(target_os = "macos")]
 mod preview_config_migration;
-mod pricing;
 mod profiling;
-mod projects;
 mod prompt;
 mod quit_warning;
 #[allow(dead_code)]
@@ -95,7 +91,6 @@ mod workspaces;
 // in the warp::integration_testing::assertions module (or a sub-module).  These
 // functions will allow us to keep types internal to this crate and expose a
 // simpler API for integration tests to consume.
-pub mod ai_assistant;
 pub mod appearance;
 pub mod channel;
 pub mod editor;
@@ -114,20 +109,11 @@ pub mod settings_view;
 pub mod tab_configs;
 pub mod terminal;
 pub mod themes;
-use ::ai::project_context::model::ProjectContextModel;
-pub use ai::agent::todos::AIAgentTodoList;
-pub use ai::agent::{AIAgentActionResultType, FileEdit, TodoOperation};
-use ai::agent_conversations_model::AgentConversationsModel;
-use ai::agent_management::AgentNotificationsModel;
-use ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
-use ai::execution_profiles::editor::ExecutionProfileEditorManager;
-use ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use ai::metadata_project_rules::read_project_rule_contents;
-use ai::persisted_workspace::PersistedWorkspace;
 use auth::auth_manager::AuthManager;
 use auth::auth_state::{AuthState, AuthStateProvider};
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
+use code::persisted_workspace::PersistedWorkspace;
 use code_review::GlobalCodeReviewModel;
 use code_review::git_repo_model::GitRepoModels;
 use quit_warning::UnsavedStateSummary;
@@ -148,11 +134,6 @@ pub use util::bindings::cmd_or_ctrl_shift;
 #[cfg(feature = "local_fs")]
 use watcher::HomeDirectoryWatcher;
 
-use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::aws_credentials::AwsCredentialRefresher as _;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::geap_credentials::GeapCredentialRefresher as _;
 use crate::uri::web_intent_parser::maybe_rewrite_web_url_to_intent;
 pub mod workflows;
 pub mod workspace;
@@ -201,13 +182,6 @@ use window_settings::WindowSettings;
 use workspace::sync_inputs::SyncedInputState;
 
 use self::features::FeatureFlag;
-use crate::ai::AIRequestUsageModel;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::facts::manager::AIFactManager;
-use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::llms::LLMPreferences;
-use crate::ai::restored_conversations::RestoredAgentConversations;
-use crate::ai::skills::SkillManager;
 use crate::antivirus::AntivirusInfo;
 use crate::app_state::AppState;
 use crate::cloud_object::model::actions::{ObjectAction, ObjectActions};
@@ -229,18 +203,14 @@ use crate::notebooks::manager::NotebookManager;
 use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::persistence::PersistenceWriter;
-use crate::projects::ProjectManagementModel;
 use crate::root_view::{
     OpenFromRestoredArg, OpenPath, quake_mode_window_id, quake_mode_window_is_open,
 };
 use crate::server::cloud_objects::listener::Listener;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::experiments::ServerExperiments;
-use crate::server::server_api::managed_secrets::AppManagedSecretManager as ManagedSecretManager;
 use crate::server::sync_queue::{QueueItem, SyncQueue};
-pub use crate::server::telemetry::{
-    AgentModeEntrypoint, AgentModeEntrypointSelectionType, TelemetryEvent,
-};
+pub use crate::server::telemetry::TelemetryEvent;
 use crate::server::telemetry::{AppStartupInfo, CloseTarget, PaletteSource, TelemetryCollector};
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::cloud_preferences_syncer::{
@@ -250,12 +220,9 @@ use crate::settings::manager::SettingsManager;
 use crate::settings::{AccessibilitySettings, ScrollSettings, SelectionSettings};
 use crate::settings_view::DisplayCount;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
-use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::tab::TabShortcutModifierState;
-use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::resizable_data::ResizableData;
-use crate::terminal::view::inline_banner::ByoLlmAuthBannerSessionState;
 use crate::terminal::{AudibleBell, CustomSecretRegexUpdater, History};
 use crate::undo_close::UndoCloseStack;
 use crate::user_config::WarpConfig;
@@ -268,23 +235,10 @@ use crate::workspace::{
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_profiles::UserProfiles;
-use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 /// Our embedded application assets.
 pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
-
-fn determine_agent_source(
-    launch_mode: &LaunchMode,
-) -> Option<crate::ai::ambient_agents::AgentSource> {
-    match launch_mode {
-        LaunchMode::App { .. } | LaunchMode::Test { .. } => {
-            Some(crate::ai::ambient_agents::AgentSource::CloudMode)
-        }
-        // RemoteServerProxy and RemoteServerDaemon are headless server
-        // processes that don't use the agent subsystem.
-        LaunchMode::RemoteServerProxy | LaunchMode::RemoteServerDaemon { .. } => None,
-    }
-}
 
 /// Launch mode for how to start up Warp.
 pub(crate) enum LaunchMode {
@@ -421,14 +375,6 @@ impl LaunchMode {
             Self::Test { .. } => "test",
             Self::RemoteServerProxy => "remote_server_proxy",
             Self::RemoteServerDaemon { .. } => "remote_server_daemon",
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_unit_test() -> Self {
-        Self::Test {
-            driver: Box::new(None),
-            is_integration_test: false,
         }
     }
 }
@@ -909,7 +855,7 @@ impl StartupUserAuthentication {
     }
 }
 
-#[::tracing::instrument(skip_all, fields(tags.cloud_agent = true))]
+#[::tracing::instrument(skip_all)]
 pub(crate) fn initialize_app(
     launch_mode: &LaunchMode,
     mut timer: IntervalTimer,
@@ -920,7 +866,7 @@ pub(crate) fn initialize_app(
 
     // Daemon auth arrives through the client handshake, so avoid platform keychains that may
     // require an interactive unlock prompt. Other headless modes still use secure storage for
-    // persisted login and BYO provider credentials.
+    // persisted login credentials.
     if matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. }) {
         warpui_extras::secure_storage::register_unavailable(ctx);
     } else {
@@ -967,8 +913,6 @@ pub(crate) fn initialize_app(
     let auth_state = Arc::new(auth_state);
     timer.mark_interval_end("AUTH_MANAGER_SET_USER");
 
-    let agent_source = determine_agent_source(launch_mode);
-
     // NetworkLogModel must be registered before ServerApiProvider so that
     // `NetworkLogModel::install_on_clients` can reach it when forwarding items
     // captured by the HTTP client hooks.
@@ -976,11 +920,10 @@ pub(crate) fn initialize_app(
 
     let server_api_provider = ctx.add_singleton_model({
         let auth_state = auth_state.clone();
-        move |ctx| ServerApiProvider::new(auth_state, agent_source, ctx)
+        move |ctx| ServerApiProvider::new(auth_state, ctx)
     });
 
     let server_api = server_api_provider.as_ref(ctx).get();
-    let ai_client = server_api_provider.as_ref(ctx).get_ai_client();
 
     ctx.add_singleton_model(|_ctx| AuthStateProvider::new(auth_state.clone()));
 
@@ -1052,13 +995,8 @@ pub(crate) fn initialize_app(
         time_of_next_force_object_refresh,
         object_actions,
         experiments,
-        ai_queries,
-        nld_prompts,
         persisted_workspaces,
         workspace_language_servers,
-        multi_agent_conversations,
-        persisted_projects,
-        persisted_project_rules,
         persisted_ignored_suggestions,
     ) = sqlite_data
         .map(|sqlite_data| {
@@ -1072,106 +1010,21 @@ pub(crate) fn initialize_app(
                 sqlite_data.time_of_next_force_object_refresh,
                 sqlite_data.object_actions,
                 sqlite_data.experiments,
-                sqlite_data.ai_queries,
-                sqlite_data.nld_prompts,
                 sqlite_data.workspace_metadata,
                 sqlite_data.workspace_language_servers,
-                sqlite_data.multi_agent_conversations,
-                sqlite_data.projects,
-                sqlite_data.project_rules,
                 sqlite_data.ignored_suggestions,
             )
         })
-        .unwrap_or_else(|| {
-            (
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            )
-        });
+        .unwrap_or_default();
 
     // Initialize a global model to track server-side experiment state.
     // This depends on the [`GlobalResourceHandlesProvider`] and so it must
     // be initialized after it.
     ctx.add_singleton_model(|ctx| ServerExperiments::new_from_cache(experiments, ctx));
 
-    ctx.add_singleton_model(|ctx| AIRequestUsageModel::new(ai_client, ctx));
-
     ctx.add_singleton_model(|ctx| {
-        UserWorkspaces::new(
-            server_api_provider.as_ref(ctx).get_workspace_client(),
-            cached_workspaces,
-            current_workspace_uid,
-            ctx,
-        )
+        UserWorkspaces::new(cached_workspaces, current_workspace_uid, ctx)
     });
-
-    // Initialize ApiKeyManager after UserWorkspaces so it can subscribe to workspace/settings changes
-    ctx.add_singleton_model(|ctx| {
-        #[cfg_attr(target_family = "wasm", allow(unused_mut))]
-        let mut manager = ::ai::api_keys::ApiKeyManager::new(ctx);
-        #[cfg(not(target_family = "wasm"))]
-        manager.subscribe_to_settings_changes(ctx);
-        // Gemini Enterprise (GEAP) credential refresh triggers: workspace
-        // settings saves / team changes and the member's enablement toggle.
-        #[cfg(not(target_family = "wasm"))]
-        if FeatureFlag::GeminiEnterprise.is_enabled() {
-            manager.subscribe_to_geap_settings_changes(ctx);
-        }
-        // The Grok subscription refresher (`ai::grok_subscription`) has no
-        // visibility into workspace policy, so wire the BYO API key policy in
-        // here. The initial value resumes proactive refresh of any tokens
-        // restored from secure storage; TeamsChanged keeps the policy aligned
-        // as team data loads or the workspace changes.
-        #[cfg(not(target_family = "wasm"))]
-        if FeatureFlag::SuperGrok.is_enabled() {
-            use crate::workspaces::user_workspaces::UserWorkspacesEvent;
-            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |manager, _, event, ctx| {
-                if matches!(event, UserWorkspacesEvent::TeamsChanged) {
-                    let allowed = UserWorkspaces::as_ref(ctx).is_byo_api_key_enabled(ctx);
-                    manager.set_grok_refresh_allowed(allowed, ctx);
-                }
-            });
-            let allowed = UserWorkspaces::as_ref(ctx).is_byo_api_key_enabled(ctx);
-            manager.set_grok_refresh_allowed(allowed, ctx);
-        }
-        manager
-    });
-
-    ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |_, event, ctx| {
-        if matches!(
-            event,
-            UserWorkspacesEvent::CurrentWorkspaceChanged | UserWorkspacesEvent::AiOveragesUpdated
-        ) {
-            AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                usage_model.request_availability_refresh(ctx);
-            });
-        }
-    });
-    ctx.subscribe_to_model(
-        &::ai::api_keys::ApiKeyManager::handle(ctx),
-        |_, event, ctx| {
-            if let ::ai::api_keys::ApiKeyManagerEvent::KeysUpdated = event {
-                AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                    usage_model.request_availability_refresh(ctx);
-                });
-            }
-        },
-    );
 
     ctx.add_singleton_model(AntivirusInfo::new);
 
@@ -1185,19 +1038,7 @@ pub(crate) fn initialize_app(
     App::record_last_active_timestamp();
 
     ctx.add_singleton_model(|_| SettingsPaneManager::new());
-    ctx.add_singleton_model(|_| AIFactManager::new());
-    ctx.add_singleton_model(|_| ExecutionProfileEditorManager::default());
     ctx.add_singleton_model(|_| NetworkLogPaneManager::default());
-    ctx.add_singleton_model(|_| pricing::PricingInfoModel::new());
-    ctx.add_singleton_model(ai::pricing_promotion::PricingPromotionState::new);
-    ctx.add_singleton_model(|ctx| {
-        // Not using the *Provider types isn't ideal, but it's worth it for the ability to move managed secrets to a separate crate.
-        ManagedSecretManager::new(
-            server_api_provider.as_ref(ctx).get_managed_secrets_client(),
-            auth_state.clone(),
-        )
-    });
-
     #[cfg(target_os = "macos")]
     if launch_mode.is_gui() {
         AppearanceManager::as_ref(ctx).set_app_icon(ctx);
@@ -1313,18 +1154,6 @@ pub(crate) fn initialize_app(
     #[cfg(not(target_family = "wasm"))]
     {
         ctx.add_singleton_model(DirectoryWatcher::new);
-        // Register the skill provider directories as force-included paths so
-        // the gitignore-pruning watch descend filter still watches gitignored
-        // skill directories (e.g. `.agents/skills`) for `Repository`
-        // subscribers (LSP). Registered before any repository begins
-        // watching so it gates descent on the very first registration.
-        DirectoryWatcher::handle(ctx).update(ctx, |watcher, _| {
-            watcher.register_force_included_paths(
-                ::ai::skills::SKILL_PROVIDER_DEFINITIONS
-                    .iter()
-                    .map(|provider| provider.skills_path.clone()),
-            );
-        });
         ctx.add_singleton_model(|_| DetectedRepositories::default());
         if let Some(home_dir) = dirs::home_dir() {
             ctx.add_singleton_model(|ctx| HomeDirectoryWatcher::new(home_dir, ctx));
@@ -1350,19 +1179,6 @@ pub(crate) fn initialize_app(
             } else {
                 RepoMetadataModel::new(ctx)
             };
-            model.register_force_included_paths(
-                ::ai::skills::SKILL_PROVIDER_DEFINITIONS
-                    .iter()
-                    .map(|provider| provider.skills_path.clone()),
-                ctx,
-            );
-            model.set_project_skill_provider_paths(
-                ::ai::skills::SKILL_PROVIDER_DEFINITIONS
-                    .iter()
-                    .map(|provider| provider.skills_path.clone()),
-                ctx,
-            );
-
             // Subscribe to RemoteServerManager push events so that remote repo
             // metadata snapshots and incremental updates populate the remote
             // sub-model and trigger RepoMetadataEvent emissions.
@@ -1390,10 +1206,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(|_| GitRepoModels::new());
 
-    ctx.add_singleton_model(|ctx| {
-        ProjectManagementModel::new(persisted_projects, persistence_writer.sender(), ctx)
-    });
-
     ctx.add_singleton_model(move |_| History::new(command_history));
 
     ctx.add_singleton_model(CustomSecretRegexUpdater::new);
@@ -1409,7 +1221,6 @@ pub(crate) fn initialize_app(
 
     // Register initial keybindings prior to creating menus
     view_components::keyboard_navigable_buttons::init(ctx);
-    ai::init(ctx);
     app_services::init(ctx);
     // // TODO: Temporarily disabling keybindings for WASM builds. Will be implemented in future WASM support.
     #[cfg(not(target_family = "wasm"))]
@@ -1419,7 +1230,6 @@ pub(crate) fn initialize_app(
     terminal::init(ctx);
     input::init(ctx);
     editor::init(ctx);
-    onboarding::init(ctx);
     menu::init(ctx);
     tips::tip_view::init(ctx);
     launch_configs::init(ctx);
@@ -1430,20 +1240,16 @@ pub(crate) fn initialize_app(
     auth::init(ctx);
     crate::view_components::find::init(ctx);
     prompt::editor_modal::init(ctx);
-    ai::blocklist::agent_view::editor::init(ctx);
     undo_close::init(ctx);
     billing::shared_objects_creation_denied_modal::init(ctx);
     tab_configs::new_worktree_modal::init(ctx);
     tab_configs::params_modal::init(ctx);
-    ai::blocklist::init(ctx);
-    ai::blocklist::block::status_bar::init(ctx);
     drive::index::init(ctx);
     drive::sharing::dialog::init(ctx);
     env_vars::env_var_collection_block::init(ctx);
     context_chips::display_menu::init(ctx);
     context_chips::node_version_popup::init(ctx);
     env_vars::view::env_var_collection::init(ctx);
-    ai::agent::todos::popup::init(ctx);
     if FeatureFlag::CodeReviewSaveChanges.is_enabled() {
         code_review::init(ctx);
     }
@@ -1462,9 +1268,6 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| ToastStack);
     ctx.add_singleton_model(|_| GlobalCodeReviewModel);
     ctx.add_singleton_model(workspace::OneTimeModalModel::new);
-    ctx.add_singleton_model(
-        workspace::bonus_grant_notification_model::BonusGrantNotificationModel::new,
-    );
     #[cfg(feature = "local_fs")]
     ctx.add_singleton_model(FileModel::new);
     ctx.add_singleton_model(GlobalBufferModel::new);
@@ -1514,33 +1317,6 @@ pub(crate) fn initialize_app(
         )
     });
 
-    {
-        let conversations = &multi_agent_conversations;
-        ctx.add_singleton_model(move |_| {
-            // Only wire NLD prompt history when the feature is enabled; disabled
-            // (stable/preview) builds skip this so they don't retain the prompt snapshot.
-            let nld_prompts = if FeatureFlag::NldPromptHistoryMatch.is_enabled() {
-                nld_prompts
-            } else {
-                Vec::new()
-            };
-            BlocklistAIHistoryModel::new(ai_queries, nld_prompts, conversations)
-        });
-    }
-    // Per-conversation queued prompts. Registered after the history model
-    // since it subscribes to history events for cleanup.
-    ctx.add_singleton_model(ai::blocklist::QueuedQueryModel::new);
-    // Conversations restore lazily from the local DB on demand; startup only
-    // loads metadata.
-    ctx.add_singleton_model(|_| RestoredAgentConversations::new());
-    // ActiveAgentViewsModel is used to track active agent conversations and notify listeners when they change.
-    ctx.add_singleton_model(|_| ActiveAgentViewsModel::new());
-    ctx.add_singleton_model(AgentNotificationsModel::new);
-    ctx.add_singleton_model(BlocklistAIPermissions::new);
-    ctx.add_singleton_model(
-        ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel::new,
-    );
-
     ctx.add_singleton_model(|_| UserProfiles::new(restored_user_profiles));
 
     ctx.add_singleton_model(|_| ObjectActions::new(object_actions));
@@ -1580,29 +1356,18 @@ pub(crate) fn initialize_app(
             window_settings::migrate_legacy_background_backdrop(ctx);
         }
     });
-    ai::custom_endpoints::init(launch_mode, ctx);
 
     // LogManager must be registered before any subsystem (e.g. LSP) that creates file-based loggers.
     ctx.add_singleton_model(|_| simple_logger::manager::LogManager::new());
-
-    // SkillManager is used to cache SKILL.md files for all active terminal views and their working directories
-    ctx.add_singleton_model(SkillManager::new);
 
     // CloudViewModel subscribes to UpdateManager so that it can be notified when objects are
     // created on the server.
     ctx.add_singleton_model(CloudViewModel::new);
 
-    // AgentConversationsModel subscribes to UpdateManager for RTC task updates.
-    ctx.add_singleton_model(AgentConversationsModel::new);
-
-    // ByoLlmAuthBannerSessionState tracks dismissal of the BYO LLM auth banner (e.g., AWS Bedrock login).
-    ctx.add_singleton_model(ByoLlmAuthBannerSessionState::new);
-
     ctx.add_singleton_model(NotebookManager::new);
     ctx.add_singleton_model(|_| CodeManager::default());
     ctx.add_singleton_model(|_| OpenedFilesModel::new());
     ctx.add_singleton_model(NotebookKeybindings::new);
-    ctx.add_singleton_model(TerminalKeybindings::new);
     ctx.add_singleton_model(|_| ActiveSession::default());
     ctx.add_singleton_model(|ctx| {
         Listener::new(
@@ -1639,32 +1404,11 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(EnvVarCollectionManager::new);
 
-    ctx.add_singleton_model(LLMPreferences::new);
-    ctx.add_singleton_model(HarnessAvailabilityModel::new);
-
     timer.mark_interval_end("SINGLETON_MODELS_REGISTERED");
 
     ctx.add_singleton_model(move |_| timer);
 
-    ctx.add_singleton_model(|ctx| AIExecutionProfilesModel::new(launch_mode, ctx));
-
     ctx.add_singleton_model(DefaultTerminal::new);
-
-    ctx.add_singleton_model(|ctx| {
-        ProjectContextModel::new_from_persisted(
-            persisted_project_rules,
-            read_project_rule_contents,
-            ctx,
-        )
-    });
-
-    // Index global rules (e.g. ~/.agents/AGENTS.md) on a background task so
-    // they are available to subsequent agent queries.
-    ProjectContextModel::handle(ctx).update(ctx, |me, ctx| me.index_global_rules(ctx));
-    #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
-    {
-        ctx.add_singleton_model(ai::remote_agent_context::RemoteAgentContext::new);
-    }
 
     ctx.add_singleton_model(|ctx| {
         PersistedWorkspace::new(
@@ -1676,9 +1420,11 @@ pub(crate) fn initialize_app(
     });
     ctx.add_singleton_model(move |_| persistence_writer);
 
-    ctx.add_singleton_model(input_classifier::InputClassifierModel::new);
-
-    ctx.add_singleton_model(move |_| IgnoredSuggestionsModel::new(persisted_ignored_suggestions));
+    ctx.add_singleton_model(move |_| {
+        crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel::new(
+            persisted_ignored_suggestions,
+        )
+    });
 
     #[cfg(not(target_family = "wasm"))]
     if launch_mode.should_start_local_http_server() {

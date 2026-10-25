@@ -7,10 +7,6 @@ use serde::{Deserialize, Serialize};
 use warpui::platform::FullscreenState;
 use warpui::{AppContext, SingletonEntity as _};
 
-use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent_conversations_model::AgentManagementFilters;
-use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::InputConfig;
 use crate::code::editor_management::CodeSource;
 use crate::root_view::quake_mode_window_id;
 use crate::server::ids::{ServerId, SyncId};
@@ -33,12 +29,6 @@ pub struct AppState {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PaneUuid(pub Vec<u8>);
 
-/// Wrapper for persisting agent management filters to restore.
-#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PersistedAgentManagementFilters {
-    pub filters: AgentManagementFilters,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowSnapshot {
     pub tabs: Vec<TabSnapshot>,
@@ -53,7 +43,6 @@ pub struct WindowSnapshot {
     pub vertical_tabs_panel_open: bool,
     pub left_panel_width: Option<f32>,
     pub right_panel_width: Option<f32>,
-    pub agent_management_filters: Option<PersistedAgentManagementFilters>,
     /// Tab groups defined in this window. Group order is implicit from
     /// member tabs' positions, so no explicit ordering is persisted.
     pub tab_groups: Vec<TabGroupSnapshot>,
@@ -136,12 +125,7 @@ pub enum LeafContents {
     Code(CodePaneSnapShot),
     EnvVarCollection(EnvVarCollectionPaneSnapshot),
     Settings(SettingsPaneSnapshot),
-    AIFact(AIFactPaneSnapshot),
-    CustomRouterEditor,
-    ExecutionProfileEditor,
     CodeReview(CodeReviewPaneSnapshot),
-    /// Native task transcript history; restoration is always read-only.
-    AmbientAgent(AmbientAgentPaneSnapshot),
     /// The in-app network log pane. Not persisted across restarts because the
     /// backing log is an in-memory ring buffer that starts empty on launch.
     NetworkLog,
@@ -169,21 +153,9 @@ impl LeafContents {
             | LeafContents::Code(_)
             | LeafContents::EnvVarCollection(_)
             | LeafContents::Settings(_)
-            | LeafContents::AIFact(_)
-            | LeafContents::CustomRouterEditor
-            | LeafContents::ExecutionProfileEditor
-            | LeafContents::CodeReview(_)
-            | LeafContents::AmbientAgent(_) => true,
+            | LeafContents::CodeReview(_) => true,
         }
     }
-}
-
-/// Persisted identity of a read-only Native task transcript.
-/// The legacy type name matches the existing SQLite leaf type.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AmbientAgentPaneSnapshot {
-    pub uuid: Vec<u8>,
-    pub task_id: AmbientAgentTaskId,
 }
 
 /// Snapshot of the contents of a terminal pane.
@@ -194,13 +166,6 @@ pub struct TerminalPaneSnapshot {
     pub shell_launch_data: Option<ShellLaunchData>,
     pub is_active: bool,
     pub is_read_only: bool,
-    pub input_config: Option<InputConfig>,
-    pub llm_model_override: Option<String>,
-    pub active_profile_id: Option<SyncId>,
-    pub conversation_ids_to_restore: Vec<AIConversationId>,
-    /// The active conversation ID if the agent view was open in fullscreen mode.
-    /// When `Some`, the agent view should be restored to fullscreen for this conversation.
-    pub active_conversation_id: Option<AIConversationId>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -255,11 +220,6 @@ pub enum SettingsPaneSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum AIFactPaneSnapshot {
-    Personal,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum CodeReviewPaneSnapshot {
     Local {
         terminal_uuid: Vec<u8>,
@@ -272,7 +232,6 @@ pub enum LeftPanelDisplayedTab {
     FileTree,
     GlobalSearch,
     WarpDrive,
-    ConversationListView,
 }
 
 impl From<ToolPanelView> for LeftPanelDisplayedTab {
@@ -281,7 +240,6 @@ impl From<ToolPanelView> for LeftPanelDisplayedTab {
             ToolPanelView::ProjectExplorer => LeftPanelDisplayedTab::FileTree,
             ToolPanelView::GlobalSearch { .. } => LeftPanelDisplayedTab::GlobalSearch,
             ToolPanelView::WarpDrive => LeftPanelDisplayedTab::WarpDrive,
-            ToolPanelView::ConversationListView => LeftPanelDisplayedTab::ConversationListView,
         }
     }
 }

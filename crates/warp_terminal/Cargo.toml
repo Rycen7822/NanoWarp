@@ -65,7 +65,6 @@ warp_completer.workspace = true
 warp_assets.workspace = true
 warp_core.workspace = true
 warp_errors.workspace = true
-warp_isolation_platform.workspace = true
 warp_util.workspace = true
 warpui_core.workspace = true
 

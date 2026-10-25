@@ -1,25 +1,18 @@
-use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ai::diff_validation::DiffType;
 use warp_core::ui::appearance::Appearance;
 use warp_editor::content::buffer::InitialBufferState;
-use warp_editor::render::model::LineCount;
 use warp_util::file::{FileLoadError, FileSaveError};
 use warpui::elements::MouseStateHandle;
-use warpui::{
-    AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle, WindowId,
-};
+use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 use super::ImmediateSaveError;
-pub use super::diff_viewer::DisplayMode;
 use super::editor::view::CodeEditorView;
 use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
 use crate::code::editor::EditorReviewComment;
 use crate::code_review::comments::CommentId;
-use crate::terminal::TerminalView;
 
 #[derive(Debug)]
 pub enum LocalCodeEditorEvent {
@@ -32,20 +25,7 @@ pub enum LocalCodeEditorEvent {
     #[allow(dead_code)]
     FailedToSave { error: Arc<FileSaveError> },
     #[allow(dead_code)]
-    DiffAccepted,
-    #[allow(dead_code)]
-    DiffRejected,
-    #[allow(dead_code)]
-    VimMinimizeRequested,
-    #[allow(dead_code)]
-    UserEdited,
-    #[allow(dead_code)]
     DiffStatusUpdated,
-    #[allow(dead_code)]
-    SelectionAddedAsContext {
-        relative_file_path: String,
-        line_range: Range<LineCount>,
-    },
     #[allow(dead_code)]
     DiscardUnsavedChanges { path: PathBuf },
     #[allow(dead_code)]
@@ -67,18 +47,8 @@ pub struct LocalCodeEditorView {
 }
 
 impl LocalCodeEditorView {
-    pub fn new(
-        editor: ViewHandle<CodeEditorView>,
-        _diff_type: Option<DiffType>,
-        _enable_diff_nav_by_default: bool,
-        _display_mode: Option<DisplayMode>,
-        _ctx: &mut ViewContext<Self>,
-    ) -> Self {
+    pub fn new(editor: ViewHandle<CodeEditorView>, _ctx: &mut ViewContext<Self>) -> Self {
         Self { editor }
-    }
-
-    pub fn with_selection_as_context(self, _terminal_target_fn: Box<TerminalTargetFn>) -> Self {
-        self
     }
 
     pub fn reset_with_state(&mut self, _state: InitialBufferState, _ctx: &mut ViewContext<Self>) {}
@@ -126,8 +96,6 @@ impl View for LocalCodeEditorView {
 impl TypedActionView for LocalCodeEditorView {
     type Action = ();
 }
-
-type TerminalTargetFn = dyn Fn(WindowId, &AppContext) -> Option<ViewHandle<TerminalView>>;
 
 pub fn render_unsaved_circle_with_tooltip(
     _mouse_state: MouseStateHandle,

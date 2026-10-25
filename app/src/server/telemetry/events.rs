@@ -16,23 +16,10 @@ use warpui::keymap::Keystroke;
 use warpui::notification::{NotificationSendError, RequestPermissionsOutcome};
 use warpui::rendering::ThinStrokes;
 
-use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::{
-    AIAgentActionId, AIAgentInput as FullAIAgentInput, AIIdentifiers, EntrypointType,
-    ServerOutputId,
-};
-use crate::ai::agent_management::notifications::NotificationSourceAgent;
-use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
-use crate::ai::blocklist::{
-    AIBlockResponseRating, CommandExecutionPermissionAllowedReason, InputType,
-    InputTypeAutoDetectionSource, QueuedQueryOrigin,
-};
-use crate::ai::execution_profiles::AskUserQuestionPermission;
 use crate::auth::auth_manager::LoginGatedFeature;
 use crate::channel::Channel;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::{GenericStringObjectFormat, ObjectType, Space};
+use crate::cloud_object::{GenericStringObjectFormat, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 use crate::drive::{CloudObjectTypeAndId, DriveSortOrder};
@@ -42,14 +29,12 @@ use crate::notebooks::telemetry::NotebookTelemetryAction;
 use crate::notebooks::{NotebookId, NotebookLocation};
 use crate::pane_group::PaneDragDropLocation;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
-use crate::server::ids::{ObjectUid, ServerId};
-use crate::settings::AgentModeCodingPermissionsType;
+use crate::server::ids::ServerId;
 use crate::settings::import::config::ParsedTerminalSetting;
 use crate::settings::import::model::TerminalType;
 use crate::tab::TabTelemetryAction;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::TelemetryInputSuggestionsMode;
-use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::SessionId;
 use crate::terminal::model::terminal_model::BlockSelectionCardinality;
 use crate::terminal::settings::AltScreenPaddingMode;
@@ -63,7 +48,6 @@ use crate::terminal::view::{
 use crate::util::file::external_editor::settings::EditorLayout;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-use crate::workflows::{WorkflowId, WorkflowSelectionSource};
 use crate::workspace::TabMovement;
 use crate::workspace::tab_settings::{TabCloseButtonPosition, WorkspaceDecorationVisibility};
 
@@ -270,8 +254,6 @@ pub enum SharingDialogSource {
     OnboardingBlock,
     /// The conversation list overflow menu.
     ConversationList,
-    /// The AI block context menu.
-    AIBlockContextMenu,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -323,9 +305,6 @@ pub enum FileTreeSource {
     Keybinding,
     LeftPanelToolbelt,
     ForceOpened,
-    /// Opened from the CLI agent view footer (e.g., Claude Code).
-    /// Opened from the File explorer chip in Warp's own agent input toolbelt.
-    AgentToolbelt,
 }
 
 #[cfg(feature = "local_fs")]
@@ -335,22 +314,6 @@ pub enum CodePanelsFileOpenEntrypoint {
     CodeReview,
     ProjectExplorer,
     GlobalSearch,
-}
-
-/// Identifies the agent variant that triggered a notification (for telemetry purposes).
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NotificationAgentVariant {
-    /// Warp's built-in agent (Oz).
-    Oz,
-}
-
-impl From<NotificationSourceAgent> for NotificationAgentVariant {
-    fn from(agent: NotificationSourceAgent) -> Self {
-        match agent {
-            NotificationSourceAgent::Oz => Self::Oz,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -382,12 +345,6 @@ pub enum PtySpawnMode {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum OpenedWarpAISource {
-    HelpWithBlock,
-    HelpWithTextSelection,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum LaunchConfigUiLocation {
     CommandPalette,
     AppMenu,
@@ -407,7 +364,6 @@ pub enum AnonymousUserSignupEntrypoint {
     LoginGatedFeature,
     SignUpButton,
     RenotificationBlock,
-    SignUpAIPrompt,
     Unknown,
 }
 
@@ -436,102 +392,6 @@ pub enum ToggleBlockFilterSource {
 pub struct TierLimitHitEvent {
     pub team_uid: ServerId,
     pub feature: String,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub enum KnowledgePaneEntrypoint {
-    /// Triggered by either the command palette or the mac menus
-    #[serde(rename = "global")]
-    Global,
-
-    #[serde(rename = "settings")]
-    Settings,
-
-    #[serde(rename = "warp_drive")]
-    WarpDrive,
-
-    #[serde(rename = "ai_blocklist")]
-    AIBlocklist,
-
-    #[serde(rename = "slash_command")]
-    SlashCommand,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeEntrypointSelectionType {
-    /// User entered Agent Mode by taking action on a blocklist text selection.
-    Text,
-
-    /// User entered Agent Mode by taking action on a block selection.
-    Block,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeEntrypoint {
-    /// The stars icon button in the tab bar.
-    #[serde(rename = "tab_bar")]
-    TabBar,
-
-    /// This corresponds to _both_ triggering from the command palette and via keybinding.
-    ///
-    /// Unfortunately due to the way the command palette automatically surfaces any editable
-    /// keybinding as an action, we don't have enough information to discern if the binding was
-    /// triggered by the palette or keyboard.
-    #[serde(rename = "new_pane_binding")]
-    NewPaneBinding,
-
-    /// The stars button in the hoverable block "toolbelt".
-    #[serde(rename = "block_toolbelt")]
-    BlockToolbelt,
-
-    /// Context menu item(s) that attach a blocklist selection as context to an Agent Mode query.
-    #[serde(rename = "context_menu")]
-    ContextMenu {
-        selection_type: AgentModeEntrypointSelectionType,
-    },
-
-    /// The Agent Mode chip in the prompt.
-    #[serde(rename = "prompt_chip")]
-    PromptChip,
-
-    /// The Agent Management popup, where you can see all the most recent tasks for each terminal
-    /// pane across all windows/tabs/panes.
-    #[serde(rename = "agent_management_popup")]
-    AgentManagementPopup,
-
-    /// User manually switched between terminal and AI input modes in UDI interface
-    #[serde(rename = "udi_terminal_input_switcher")]
-    UDITerminalInputSwitcher,
-
-    /// The agent management view, where you can see both local interactive and ambient agent tasks
-    #[serde(rename = "agent_management_view")]
-    AgentManagementView,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AutonomySettingToggleSource {
-    Speedbump,
-    SettingsPage,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AgentModeAttachContextMethod {
-    #[serde(rename = "keyboard")]
-    Keyboard,
-
-    #[serde(rename = "mouse")]
-    Mouse,
-}
-
-/// The entrypoint from which the rewind dialog was opened.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum AgentModeRewindEntrypoint {
-    /// The rewind button in the AI block header.
-    Button,
-    /// The context menu item "Rewind to before here".
-    ContextMenu,
-    /// The /rewind slash command.
-    SlashCommand,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -575,71 +435,11 @@ pub struct BlockMemoryUsageStats {
     pub estimated_memory_usage_bytes: usize,
 }
 
-/// Entrypoints to toggle the input auto-detection setting for Agent Mode.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum AgentModeAutoDetectionSettingOrigin {
-    /// The "speed bump" banner shown that's shown to the user when input is autodetected.
-    #[serde(rename = "banner")]
-    Banner,
-
-    /// The AI settings page.
-    #[serde(rename = "settings_page")]
-    SettingsPage,
-}
-
-/// Payload for the [`AgentModePotentialAutodetectionFalsePositive`] event.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AgentModeAutoDetectionFalsePositivePayload {
-    /// Payload includes input text for dogfood channels.
-    InternalDogfoodUsers { input_text: String },
-
-    /// Do not include the misclassified input text in stable channels due to privacy concerns.
-    ExternalUsers,
-}
-
-/// How the user triggered the [`AgentModeCodeFilesNavigated`] event.
-#[derive(Clone, Copy, Debug, Serialize)]
-pub enum AgentModeCodeFileNavigationSource {
-    /// User used the next/previous actions.
-    NavigationCommand,
-    /// User directly selected the file's tab.
-    SelectedFileTab,
-}
-
 /// How the user triggered the [`AddTabWithShell`] event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum AddTabWithShellSource {
     CommandPalette,
     ShellSelectorMenu,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CodeContextDestination {
-    AgentInput,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum AgentModeCitation {
-    WarpDriveObject {
-        object_type: ObjectType,
-        uid: ObjectUid,
-    },
-    WarpDocs {
-        page: String,
-    },
-    WebPage {
-        // Don't serialize the URL to avoid leaking sensitive information.
-        #[serde(skip_serializing)]
-        url: String,
-    },
-    /// A fetched memory surfaced as a citation so we can track whether memory-backed
-    /// responses are shown to users and whether users open those memory citations.
-    AgentMemory {
-        memory_store_id: String,
-        memory_id: String,
-    },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Default)]
@@ -650,148 +450,11 @@ pub enum InputUXChangeOrigin {
     ADELaunchModal,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub enum AIAgentInput {
-    UserQuery { query: String },
-    ResumeConversation,
-    ActionResult { action_id: AIAgentActionId },
-    CodeReview,
-    SummarizeConversation,
-    InvokeSkill { skill_name: String },
-}
-
-impl From<FullAIAgentInput> for AIAgentInput {
-    fn from(input: FullAIAgentInput) -> Self {
-        match input {
-            FullAIAgentInput::UserQuery { query, .. } => Self::UserQuery { query },
-            FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
-            FullAIAgentInput::ActionResult { result, .. } => Self::ActionResult {
-                action_id: result.id,
-            },
-            FullAIAgentInput::CodeReview { .. } => Self::CodeReview,
-            FullAIAgentInput::SummarizeConversation { .. } => Self::SummarizeConversation,
-            FullAIAgentInput::InvokeSkill { skill, .. } => Self::InvokeSkill {
-                skill_name: skill.name.clone(),
-            },
-        }
-    }
-}
-
-/// The origin of an agent view entry, for telemetry purposes.
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TelemetryAgentViewEntryOrigin {
-    Input { was_prompt_autodetected: bool },
-    ConversationSelector,
-    AgentModeHomepage,
-    AgentViewBlock,
-    AutoFollowUp,
-    RestoreExistingConversation,
-    SharedSessionSelection,
-    AgentRequestedNewConversation,
-    InlineCodeReview,
-    Cli,
-    Tui,
-    ImageAdded,
-    SlashCommand,
-    CodeReviewContext,
-    ContinueConversationButton,
-    ResumeConversationButton,
-    LongRunningCommand,
-    OnboardingCallout,
-    ConversationListView,
-    Onboarding,
-    Keybinding,
-    ClearBuffer,
-    LinearDeepLink,
-    JumpToLatestAgentMessage,
-}
-
-impl From<AgentViewEntryOrigin> for TelemetryAgentViewEntryOrigin {
-    fn from(origin: AgentViewEntryOrigin) -> Self {
-        match origin {
-            AgentViewEntryOrigin::Input {
-                was_prompt_autodetected,
-            } => Self::Input {
-                was_prompt_autodetected,
-            },
-            AgentViewEntryOrigin::ConversationSelector => Self::ConversationSelector,
-            AgentViewEntryOrigin::AgentModeHomepage => Self::AgentModeHomepage,
-            AgentViewEntryOrigin::AgentViewBlock => Self::AgentViewBlock,
-            AgentViewEntryOrigin::AutoFollowUp => Self::AutoFollowUp,
-            AgentViewEntryOrigin::RestoreExistingConversation => Self::RestoreExistingConversation,
-            AgentViewEntryOrigin::SharedSessionSelection => Self::SharedSessionSelection,
-            AgentViewEntryOrigin::AgentRequestedNewConversation => {
-                Self::AgentRequestedNewConversation
-            }
-            AgentViewEntryOrigin::InlineCodeReview => Self::InlineCodeReview,
-            AgentViewEntryOrigin::Cli => Self::Cli,
-            AgentViewEntryOrigin::Tui => Self::Tui,
-            AgentViewEntryOrigin::ImageAdded => Self::ImageAdded,
-            AgentViewEntryOrigin::SlashCommand => Self::SlashCommand,
-            AgentViewEntryOrigin::CodeReviewContext => Self::CodeReviewContext,
-            AgentViewEntryOrigin::LongRunningCommand => Self::LongRunningCommand,
-            AgentViewEntryOrigin::ContinueConversationButton => Self::ContinueConversationButton,
-            AgentViewEntryOrigin::ResumeConversationButton => Self::ResumeConversationButton,
-            AgentViewEntryOrigin::OnboardingCallout => Self::OnboardingCallout,
-            AgentViewEntryOrigin::ConversationListView => Self::ConversationListView,
-            AgentViewEntryOrigin::Onboarding => Self::Onboarding,
-            AgentViewEntryOrigin::Keybinding(_) => Self::Keybinding,
-            AgentViewEntryOrigin::ClearBuffer => Self::ClearBuffer,
-            AgentViewEntryOrigin::LinearDeepLink => Self::LinearDeepLink,
-            AgentViewEntryOrigin::JumpToLatestAgentMessage => Self::JumpToLatestAgentMessage,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LoginEventSource {
     OnboardingSlide,
     AuthModal,
-}
-
-/// Origin of a queued prompt, mirrored for telemetry so we don't pull serde derives onto the
-/// canonical `QueuedQueryOrigin` enum (which doesn't otherwise need them).
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TelemetryQueuedQueryOrigin {
-    QueueSlashCommand,
-    AutoQueueToggle,
-    LrcAutoQueue,
-    PendingLrcAutoQueue,
-    CompactAndSlashCommand,
-    ForkAndCompactSlashCommand,
-}
-
-impl From<QueuedQueryOrigin> for TelemetryQueuedQueryOrigin {
-    fn from(origin: QueuedQueryOrigin) -> Self {
-        match origin {
-            QueuedQueryOrigin::QueueSlashCommand => Self::QueueSlashCommand,
-            QueuedQueryOrigin::AutoQueueToggle => Self::AutoQueueToggle,
-            QueuedQueryOrigin::LrcAutoQueue => Self::LrcAutoQueue,
-            QueuedQueryOrigin::PendingLrcAutoQueue => Self::PendingLrcAutoQueue,
-            QueuedQueryOrigin::CompactAndSlashCommand => Self::CompactAndSlashCommand,
-            QueuedQueryOrigin::ForkAndCompactSlashCommand => Self::ForkAndCompactSlashCommand,
-        }
-    }
-}
-
-/// How a queued prompt row was sent immediately.
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueuedPromptSendNowTrigger {
-    SendNowButton,
-    EnterOnEmptyInput,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CLISubagentControlState {
-    AgentInControl,
-    UserInControl,
-    AgentTaggedIn,
-    AgentTaggedOut,
 }
 
 #[derive(Clone, EnumDiscriminants)]
@@ -809,8 +472,6 @@ pub enum TelemetryEvent {
         num_output_lines_truncated: u64,
         terminal_session_id: Option<SessionId>,
         is_udi_enabled: bool,
-        /// Whether the command was executed while in an active agent view.
-        is_in_agent_view: bool,
     },
     /// This is identical to the `BlockCompleted` event, but includes extra fields for
     /// the command run / time it took the block to complete / exit code.
@@ -886,7 +547,6 @@ pub enum TelemetryEvent {
     CreateCustomTheme,
     DeleteCustomTheme,
     SplitPane,
-    SkipOnboardingSurvey,
     ToggleRestoreSession(bool),
     DatabaseStartUpError(String),
     DatabaseReadError(String),
@@ -936,8 +596,6 @@ pub enum TelemetryEvent {
     // notifications that are successfully sent _and_ those that fail at the platform level.
     NotificationSent {
         trigger: NotificationsTrigger,
-        /// Identifies which agent variant produced the desktop notification, if any.
-        agent_variant: Option<NotificationAgentVariant>,
     },
     NotificationFailedToSend {
         error: NotificationSendError,
@@ -987,7 +645,6 @@ pub enum TelemetryEvent {
         enable_bookmark: bool,
     },
     JumpToBookmark,
-    JumpToLatestAgentMessage,
     JumpToBottomofBlockButtonClicked,
     ToggleJumpToBottomofBlockButton {
         enabled: bool,
@@ -1086,10 +743,6 @@ pub enum TelemetryEvent {
     InitialWorkingDirectoryConfigurationChanged {
         advanced_mode_enabled: bool,
     },
-    /// Opened Warp AI for selected terminal context.
-    OpenedWarpAI {
-        source: OpenedWarpAISource,
-    },
     ToggleFocusPaneOnHover {
         enabled: bool,
     },
@@ -1099,7 +752,6 @@ pub enum TelemetryEvent {
     InputSelectAll,
     InputPaste,
     InputCommandSearch,
-    InputAskWarpAI,
     ExperimentTriggered {
         experiment: &'static str,
         layer: &'static str,
@@ -1152,7 +804,6 @@ pub enum TelemetryEvent {
     WarpifyFooterShown {
         is_ssh: bool,
     },
-    AgentToolbarDismissed,
     WarpifyFooterAcceptedWarpify {
         is_ssh: bool,
     },
@@ -1177,7 +828,6 @@ pub enum TelemetryEvent {
         source: WarpDriveSource,
         is_code_mode_v2: bool,
     },
-    // Toggled the legacy Warp AI side panel.
     ToggleSecretRedaction {
         enabled: bool,
     },
@@ -1287,174 +937,8 @@ pub enum TelemetryEvent {
         source: FileTreeSource,
         is_code_mode_v2: bool,
     },
-    /// User attached a file or directory as context from the file tree
-    FileTreeItemAttachedAsContext {
-        is_directory: bool,
-    },
-    /// User added selected code as context from the code editor.
-    CodeSelectionAddedAsContext {
-        destination: CodeContextDestination,
-    },
     /// User created a new file from the file tree
     FileTreeItemCreated,
-    /// Conversation list view was opened
-    ConversationListViewOpened,
-    /// User opened a conversation from the conversation list
-    ConversationListItemOpened {
-        /// Whether the conversation is an ambient agent task (vs a local conversation)
-        is_ambient_agent: bool,
-    },
-    /// User deleted a conversation from the conversation list
-    ConversationListItemDeleted,
-    /// User copied a conversation link from the conversation list
-    ConversationListLinkCopied {
-        /// Whether the conversation is an ambient agent task (vs a local conversation)
-        is_ambient_agent: bool,
-    },
-    /// Created a blocklist AI block.
-    AgentModeCreatedAIBlock {
-        /// The client-generated exchange ID for the AI exchange (input + output turn) rendered in this AI block.
-        client_exchange_id: String,
-
-        /// The server-generated output ID for the output in this block.
-        ///
-        /// This is only populated if the some part of the response was successfully received.
-        server_output_id: Option<ServerOutputId>,
-
-        was_autodetected_ai_query: bool,
-
-        /// Time from sending request to receiving the first token in the output.
-        time_to_first_token_ms: Option<u128>,
-
-        /// Time from sending request to receiving the last token in the output.
-        time_to_last_token_ms: Option<u128>,
-
-        /// `true` if the output resulted in a user-facing error.
-        was_user_facing_error: bool,
-
-        /// `true` if the the AI block was cancelled before receiving any output or while streaming
-        /// output.
-        cancelled: bool,
-
-        /// The ID of the conversation this block belongs to.
-        conversation_id: AIConversationId,
-
-        /// Whether or not Universal Developer Input mode is enabled
-        is_udi_enabled: bool,
-    },
-    /// Rated a blocklist AI response via thumbs up/down.
-    AgentModeRatedResponse {
-        /// The server-generated ID for the output corresponding to this rating.
-        server_output_id: Option<ServerOutputId>,
-
-        /// The ID of the conversation to which the rated output belongs.
-        conversation_id: AIConversationId,
-        rating: AIBlockResponseRating,
-    },
-    AgentModeClickedEntrypoint {
-        entrypoint: AgentModeEntrypoint,
-    },
-
-    /// User clicked the continue conversation button from a block footer.
-    AgentModeContinueConversationButtonClicked {
-        conversation_id: AIConversationId,
-    },
-
-    /// User opened the rewind confirmation dialog.
-    AgentModeRewindDialogOpened {
-        entrypoint: AgentModeRewindEntrypoint,
-    },
-
-    /// User executed a conversation rewind.
-    AgentModeRewindExecuted {
-        /// The number of AI blocks that were reverted.
-        num_blocks_reverted: usize,
-    },
-
-    /// Emitted when a user explicitly attaches a block as context to an Agent Mode query.
-    ///
-    /// This is only emitted for the initial attachment -- its intended to express user's intent to
-    /// attach context.
-    ///
-    /// For example, this is emitted when a user selects a block to attach as context and has no
-    /// prior blocks selected. If a user has already selected a block as context and is merely
-    /// changing or adding to the existing selection, this is not emitted.
-    ///
-    /// Also note this is not emitted if the user clicks an entrypoint that automatically attaches
-    /// context (like clicking the block toolbelt stars button, for instance).
-    AgentModeAttachedBlockContext {
-        method: AgentModeAttachContextMethod,
-    },
-
-    /// Emitted when the user toggles the "Input Auto-detection" setting in the AI settings page or
-    /// in the auto-detection "speed bump" banner.
-    AgentModeToggleAutoDetectionSetting {
-        is_autodetection_enabled: bool,
-        origin: AgentModeAutoDetectionSettingOrigin,
-    },
-
-    /// Emitted when the input type is changed from one type to new_input_type.
-    AgentModeChangedInputType {
-        input: Option<String>,
-        buffer_length: usize,
-        is_manually_changed: bool,
-        new_input_type: InputType,
-        active_block_id: BlockId,
-        /// Whether or not Universal Developer Input mode is enabled
-        is_udi_enabled: bool,
-    },
-
-    /// Emitted when the user manually toggles the terminal input from AI mode to shell mode when
-    /// the current input text has been auto-detected as AI input -- this is likely a natural
-    /// language auto-detection false-positive.
-    AgentModePotentialAutoDetectionFalsePositive(AgentModeAutoDetectionFalsePositivePayload),
-
-    /// Emitted when a user makes their first edit to any file in a code diff suggestion from Agent
-    /// Mode.
-    AgentModeCodeSuggestionEditedByUser {
-        /// Server-generated unique ID associated with the AI API output that generated the
-        /// suggestion. Used to join client-side telemetry with server-side logs.
-        output_id: ServerOutputId,
-    },
-
-    /// Emitted when a user switches between files while viewing a code diff suggestion from Agent
-    /// Mode.
-    AgentModeCodeFilesNavigated {
-        output_id: ServerOutputId,
-        source: AgentModeCodeFileNavigationSource,
-    },
-
-    AgentModeCodeDiffHunksNavigated {
-        output_id: ServerOutputId,
-    },
-
-    /// Emitted when the user toggles global AI.
-    ToggleGlobalAI {
-        is_ai_enabled: bool,
-    },
-
-    /// Emitted when the user clicks "Connect SuperGrok subscription" (or
-    /// equivalent) in the AI settings page to begin the OAuth connection flow.
-    ///
-    /// This is emitted at the start of the attempt (immediately on click),
-    /// before binding the loopback callback server or opening the browser.
-    /// It is always followed by a `SuperGrokSubscriptionConnectFinished`
-    /// (success, cancellation, or a short stable error code on failure).
-    SuperGrokSubscriptionConnectInitiated,
-
-    /// Outcome (success, cancellation, or failure) of the user attempting to
-    /// connect their SuperGrok / xAI subscription via the OAuth flow in AI
-    /// settings.
-    ///
-    /// On failure or cancellation, `error` contains a short stable error
-    /// *code* (e.g. "bind_failed", "oauth_failed", "cancelled"). The full
-    /// error chain/body is emitted via `safe_error!` at the call site (only
-    /// the code goes into telemetry).
-    SuperGrokSubscriptionConnectFinished {
-        /// Short stable error code on failure or cancellation (e.g.
-        /// "bind_failed", "cancelled"); absent on success.
-        error: Option<String>,
-    },
 
     TierLimitHit(TierLimitHitEvent),
     SharedObjectLimitHitBannerViewPlansButtonClicked,
@@ -1517,39 +1001,9 @@ pub enum TelemetryEvent {
         source: AddTabWithShellSource,
         shell: String,
     },
-    AgentModeSurfacedCitations {
-        citations: Vec<AgentModeCitation>,
-        block_id: String,
-        conversation_id: AIConversationId,
-        server_output_id: Option<ServerOutputId>,
-    },
-    AgentModeOpenedCitation {
-        citation: AgentModeCitation,
-        block_id: String,
-        conversation_id: AIConversationId,
-        server_output_id: Option<ServerOutputId>,
-    },
     OpenedSharingDialog(OpenedSharingDialogEvent),
     ToggleLigatureRendering {
         enabled: bool,
-    },
-    ToggledAgentModeAutoexecuteReadonlyCommandsSetting {
-        src: AutonomySettingToggleSource,
-        enabled: bool,
-    },
-    ChangedAgentModeCodingPermissions {
-        src: AutonomySettingToggleSource,
-        new: AgentModeCodingPermissionsType,
-    },
-    ChangedAgentModeAskUserQuestionPermission {
-        src: AutonomySettingToggleSource,
-        new: AskUserQuestionPermission,
-    },
-    AutoexecutedAgentModeRequestedCommand {
-        reason: CommandExecutionPermissionAllowedReason,
-    },
-    KnowledgePaneOpened {
-        entrypoint: KnowledgePaneEntrypoint,
     },
     #[cfg(feature = "local_fs")]
     CodePaneOpened {
@@ -1564,55 +1018,10 @@ pub enum TelemetryEvent {
     },
     #[cfg(feature = "local_fs")]
     PreviewPanePromoted,
-    AttachedImagesToAgentModeQuery {
-        num_images: usize,
-        /// Whether or not Universal Developer Input mode is enabled
-        is_udi_enabled: bool,
-    },
     /// An error was encountered fetching available WSL distributions from the Registry.
     /// This typically means the user hasn't installed or enabled WSL.
     #[cfg(windows)]
     WSLRegistryError,
-    ExecutedWarpDrivePrompt {
-        id: Option<WorkflowId>,
-        selection_source: WorkflowSelectionSource,
-    },
-    /// A file from the result of an AI Agent Action exceeded the context limit.
-    FileExceededContextLimit {
-        identifiers: AIIdentifiers,
-    },
-    AgentModeError {
-        identifiers: AIIdentifiers,
-        error: String,
-        /// Some errors are retried internally without showing to the user.
-        is_user_visible: bool,
-        /// Whether a conversation resume will be attempted after this error.
-        will_attempt_to_resume: bool,
-    },
-    /// Emitted when a MultiAgent request that initially failed is successfully completed after retries.
-    AgentModeRequestRetrySucceeded {
-        identifiers: AIIdentifiers,
-        /// The number of retry attempts that were made before success
-        retry_count: usize,
-        /// The original error that was retried
-        original_error: String,
-    },
-    GrepToolSucceeded,
-    GrepToolFailed {
-        queries: Option<Vec<String>>,
-        path: Option<String>,
-        shell_type: Option<ShellType>,
-        working_directory: Option<String>,
-        absolute_path: Option<String>,
-        command: Option<String>,
-        output: Option<String>,
-        error: String,
-        server_output_id: Option<ServerOutputId>,
-    },
-    FileGlobToolSucceeded,
-    FileGlobToolFailed {
-        server_output_id: Option<ServerOutputId>,
-    },
     ShellTerminatedPrematurely {
         shell_type: Option<ShellType>,
         shell_path: Option<String>,
@@ -1630,132 +1039,12 @@ pub enum TelemetryEvent {
     TabCloseButtonPositionUpdated {
         position: TabCloseButtonPosition,
     },
-    AIExecutionProfileCreated,
-    AIExecutionProfileDeleted,
-    AIExecutionProfileSettingUpdated {
-        setting_type: String,
-        setting_value: String,
-    },
-    AIExecutionProfileAddedToAllowlist {
-        list_type: String,
-        value: String,
-    },
-    AIExecutionProfileAddedToDenylist {
-        list_type: String,
-        value: String,
-    },
-    AIExecutionProfileRemovedFromAllowlist {
-        list_type: String,
-        value: String,
-    },
-    AIExecutionProfileRemovedFromDenylist {
-        list_type: String,
-        value: String,
-    },
-    AIExecutionProfileModelSelected {
-        model_type: String,
-        model_value: String,
-    },
-    AIExecutionProfileContextWindowSelected {
-        tokens: Option<u32>,
-        model_id: String,
-    },
-    /// The AI input was not sent because there was already an in-flight request.
-    AIInputNotSent {
-        entrypoint: Option<EntrypointType>,
-        inputs: Vec<AIAgentInput>,
-        active_server_conversation_id: Option<ServerConversationToken>,
-        active_client_conversation_id: Option<AIConversationId>,
-    },
-    InputBufferSubmitted {
-        input_type: input_classifier::InputType,
-        is_locked: bool,
-        input_type_decision_source: Option<InputTypeAutoDetectionSource>,
-        was_lock_set_with_empty_buffer: bool,
-        block_id: BlockId,
-    },
     /// User selected an item from the "Recent" list on the new tab zero state
     RecentMenuItemSelected {
         // The kind of recent menu item selected
         kind: &'static str,
     },
 
-    /// Emitted when the control state of the CLI subagent changes.
-    CLISubagentControlStateChanged {
-        conversation_id: Option<AIConversationId>,
-        block_id: BlockId,
-        control_state: CLISubagentControlState,
-    },
-    /// Emitted when user toggles the visibility of agent responses.
-    CLISubagentResponsesToggled {
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-        is_hidden: bool,
-    },
-    /// Emitted when user dismisses the input in the CLI subagent.
-    CLISubagentInputDismissed {
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-    },
-    /// Emitted when user approves a blocked action from the CLI subagent.
-    CLISubagentActionExecuted {
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-        is_autoexecuted: bool,
-    },
-    /// Emitted when user rejects a blocked action from the CLI subagent.
-    CLISubagentActionRejected {
-        conversation_id: AIConversationId,
-        block_id: BlockId,
-        user_took_over: bool,
-    },
-    /// Emitted when the user toggles the Agent Management View.
-    AgentManagementViewToggled {
-        is_open: bool,
-    },
-    /// Emitted when the user opens a session from the Agent Management View.
-    AgentManagementViewOpenedSession,
-    /// Emitted when the user copies a session link from the Agent Management View.
-    AgentManagementViewCopiedSessionLink,
-    /// Detected that Warp is running in an isolated sandbox.
-    DetectedIsolationPlatform {
-        platform: warp_isolation_platform::IsolationPlatformType,
-    },
-
-    /// Emitted when an agent-requested command causes the shell to exit.
-    AgentExitedShellProcess {
-        command: String,
-        server_output_id: Option<ServerOutputId>,
-    },
-    /// Emitted when an agent notification is shown (toast or mailbox notification).
-    AgentNotificationShown {
-        /// Which agent variant produced the notification.
-        agent_variant: NotificationAgentVariant,
-    },
-    /// Emitted when the user toggles the "Use Agent" footer setting.
-    ToggleUseAgentToolbarSetting {
-        /// Whether the setting is enabled or disabled.
-        is_enabled: bool,
-    },
-    /// Emitted when the user enters the agent view.
-    AgentViewEntered {
-        /// The origin/entrypoint for entering the agent view.
-        origin: TelemetryAgentViewEntryOrigin,
-        /// Whether a request was automatically triggered upon entry (e.g., prompt was provided).
-        did_auto_trigger_request: bool,
-    },
-    /// Emitted when the user exits the agent view.
-    AgentViewExited {
-        /// The origin/entrypoint that was used when entering the agent view.
-        origin: TelemetryAgentViewEntryOrigin,
-        /// Whether the conversation was empty (had no exchanges) when exiting.
-        was_empty: bool,
-    },
-    /// Emitted when the agent shortcuts view visibility is toggled.
-    AgentShortcutsViewToggled {
-        /// Whether the shortcuts view is now visible.
-        is_visible: bool,
-    },
     /// Emitted when the Codex modal is opened.
     /// Emitted when the user clicks "Use Codex" in the Codex modal.
     /// Emitted when a warp://linear deeplink is opened.
@@ -1854,31 +1143,6 @@ pub enum TelemetryEvent {
         exit_code: Option<i32>,
         signal_killed: Option<bool>,
     },
-    /// Emitted when the user commits a non-empty edit to a queued prompt row.
-    QueuedPromptEdited {
-        origin: TelemetryQueuedQueryOrigin,
-    },
-    /// Emitted when the user deletes a queued prompt row via the trash button or the
-    /// commit-empty edit shortcut.
-    QueuedPromptDeleted {
-        origin: TelemetryQueuedQueryOrigin,
-    },
-    /// Emitted when the user reorders a queued prompt row via drag-and-drop.
-    QueuedPromptReordered {
-        origin: TelemetryQueuedQueryOrigin,
-        from_index: usize,
-        to_index: usize,
-    },
-    /// Emitted when the user toggles the queued prompts panel collapse state.
-    QueuedPromptPanelCollapseToggled {
-        collapsed: bool,
-    },
-    /// Emitted when the user sends a queued prompt row immediately, via the row's send-now
-    /// button or by pressing Enter with an empty input.
-    QueuedPromptSentNow {
-        origin: TelemetryQueuedQueryOrigin,
-        trigger: QueuedPromptSendNowTrigger,
-    },
 }
 
 impl TelemetryEventTrait for TelemetryEvent {
@@ -1921,15 +1185,6 @@ impl TelemetryEvent {
 
     pub fn payload(&self) -> Option<Value> {
         match self {
-            TelemetryEvent::AgentModeContinueConversationButtonClicked { conversation_id } => {
-                Some(json!({"conversation_id": conversation_id}))
-            }
-            TelemetryEvent::AgentModeRewindDialogOpened { entrypoint } => {
-                Some(json!({"entrypoint": entrypoint}))
-            }
-            TelemetryEvent::AgentModeRewindExecuted {
-                num_blocks_reverted,
-            } => Some(json!({"num_blocks_reverted": num_blocks_reverted})),
             TelemetryEvent::BootstrappingSlow(info) => Some(json!(info)),
             TelemetryEvent::BootstrappingSlowContents(info) => Some(json!(info)),
             TelemetryEvent::ToggleSettingsSync {
@@ -1954,7 +1209,6 @@ impl TelemetryEvent {
                 num_output_lines_truncated,
                 terminal_session_id,
                 is_udi_enabled,
-                is_in_agent_view,
             } => Some(json!({
                 "block_finished_to_precmd_delay_ms": block_finished_to_precmd_delay_ms,
                 "honor_ps1_enabled": honor_ps1_enabled,
@@ -1963,7 +1217,6 @@ impl TelemetryEvent {
                 "num_output_lines_truncated": num_output_lines_truncated,
                 "terminal_session_id": terminal_session_id,
                 "is_udi_enabled": is_udi_enabled,
-                "is_in_agent_view": is_in_agent_view,
             })),
             TelemetryEvent::ToggleFocusPaneOnHover { enabled } => Some(json!({
                 "enabled": enabled,
@@ -2025,9 +1278,6 @@ impl TelemetryEvent {
                 "source": source,
                 "is_code_mode_v2": is_code_mode_v2,
             })),
-            TelemetryEvent::FileTreeItemAttachedAsContext { is_directory } => {
-                Some(json!({"is_directory": is_directory}))
-            }
             TelemetryEvent::ToggleRestoreSession(enabled) => Some(json!({ "enabled": enabled })),
             TelemetryEvent::DatabaseStartUpError(error) => Some(json!(error)),
             TelemetryEvent::DatabaseReadError(error) => Some(json!(error)),
@@ -2057,12 +1307,8 @@ impl TelemetryEvent {
                 Some(json!({ "source": source, "trigger": trigger }))
             }
             TelemetryEvent::NotificationFailedToSend { error } => Some(json!({ "error": error })),
-            TelemetryEvent::NotificationSent {
-                trigger,
-                agent_variant,
-            } => Some(json!({
+            TelemetryEvent::NotificationSent { trigger } => Some(json!({
                 "trigger": trigger,
-                "agent_variant": agent_variant,
             })),
             TelemetryEvent::NotificationsRequestPermissionsOutcome { outcome } => {
                 Some(json!({ "outcome": outcome }))
@@ -2128,10 +1374,6 @@ impl TelemetryEvent {
             TelemetryEvent::InitialWorkingDirectoryConfigurationChanged {
                 advanced_mode_enabled,
             } => Some(json!({ "advanced_mode_enabled": advanced_mode_enabled })),
-            TelemetryEvent::OpenedWarpAI { source } => Some(json!({ "source": source })),
-            TelemetryEvent::KnowledgePaneOpened { entrypoint } => {
-                Some(json!({ "entrypoint": entrypoint }))
-            }
             #[cfg(feature = "local_fs")]
             TelemetryEvent::CodePaneOpened {
                 source,
@@ -2162,9 +1404,6 @@ impl TelemetryEvent {
             }
             #[cfg(feature = "local_fs")]
             TelemetryEvent::PreviewPanePromoted => None,
-            TelemetryEvent::CodeSelectionAddedAsContext { destination } => Some(json!({
-                "destination": destination,
-            })),
             TelemetryEvent::ExperimentTriggered {
                 experiment,
                 layer,
@@ -2185,7 +1424,6 @@ impl TelemetryEvent {
             TelemetryEvent::DeclineSubshellBootstrap { remember } => {
                 Some(json!({ "remember": remember }))
             }
-            TelemetryEvent::AgentToolbarDismissed => None,
             TelemetryEvent::WarpifyFooterShown { is_ssh }
             | TelemetryEvent::WarpifyFooterAcceptedWarpify { is_ssh } => {
                 Some(json!({ "is_ssh": is_ssh }))
@@ -2299,62 +1537,7 @@ impl TelemetryEvent {
                 num_teammates,
                 team_uid,
             } => Some(json!({"num_teammates": num_teammates, "team_uid": team_uid})),
-            TelemetryEvent::AgentModeCreatedAIBlock {
-                client_exchange_id,
-                server_output_id,
-                was_autodetected_ai_query,
-                time_to_first_token_ms,
-                time_to_last_token_ms,
-                was_user_facing_error,
-                cancelled,
-                conversation_id,
-                is_udi_enabled,
-            } => Some(json!({
-                "client_exchange_id": client_exchange_id,
-                "server_output_id": server_output_id,
-                "was_autodetected_ai_query": was_autodetected_ai_query,
-                "time_to_first_token_ms": time_to_first_token_ms,
-                "time_to_last_token_ms": time_to_last_token_ms,
-                "was_user_facing_error": was_user_facing_error,
-                "cancelled": cancelled,
-                "conversation_id": conversation_id,
-                "is_udi_enabled": is_udi_enabled,
-            })),
             TelemetryEvent::TierLimitHit(event) => Some(json!(event)),
-            TelemetryEvent::AgentModeClickedEntrypoint { entrypoint } => {
-                Some(json!({"entrypoint": entrypoint}))
-            }
-            TelemetryEvent::AgentModeAttachedBlockContext { method } => {
-                Some(json!({"method": method}))
-            }
-            TelemetryEvent::AgentModeToggleAutoDetectionSetting {
-                is_autodetection_enabled,
-                origin,
-            } => Some(
-                json!({"is_autodetection_enabled": is_autodetection_enabled, "origin": origin }),
-            ),
-            TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
-                AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { input_text },
-            ) => Some(json!({"input_text": input_text})),
-            TelemetryEvent::AgentModeChangedInputType {
-                input,
-                buffer_length,
-                is_manually_changed,
-                new_input_type,
-                active_block_id,
-                is_udi_enabled,
-            } => Some(
-                json!({"input": input, "buffer_length": buffer_length, "is_manually_changed": is_manually_changed, "new_input_type": new_input_type, "active_block_id": active_block_id, "is_udi_enabled": is_udi_enabled}),
-            ),
-            TelemetryEvent::AgentModeCodeSuggestionEditedByUser { output_id } => {
-                Some(json!({"output_id": output_id}))
-            }
-            TelemetryEvent::AgentModeCodeFilesNavigated { output_id, source } => {
-                Some(json!({"output_id": output_id, "source": source}))
-            }
-            TelemetryEvent::AgentModeCodeDiffHunksNavigated { output_id } => {
-                Some(json!({"output_id": output_id}))
-            }
             TelemetryEvent::ResourceUsageStats { cpu, mem } => Some(json!({
                 "cpu": cpu,
                 "mem": {
@@ -2424,126 +1607,10 @@ impl TelemetryEvent {
             TelemetryEvent::AddTabWithShell { source, shell } => {
                 Some(json!({ "source": source, "shell": shell }))
             }
-            TelemetryEvent::AgentModeSurfacedCitations {
-                citations,
-                block_id,
-                conversation_id,
-                server_output_id,
-            } => Some(
-                json!({ "citations": citations, "block_id": block_id, "conversation_id": conversation_id, "server_output_id": server_output_id }),
-            ),
-            TelemetryEvent::AgentModeOpenedCitation {
-                citation,
-                block_id,
-                conversation_id,
-                server_output_id,
-            } => Some(
-                json!({ "citation": citation, "block_id": block_id, "conversation_id": conversation_id, "server_output_id": server_output_id }),
-            ),
             TelemetryEvent::OpenedSharingDialog(event) => Some(json!(event)),
-            TelemetryEvent::ToggleGlobalAI { is_ai_enabled } => {
-                Some(json!({"is_ai_enabled": is_ai_enabled}))
-            }
-            TelemetryEvent::SuperGrokSubscriptionConnectInitiated => None,
-            TelemetryEvent::SuperGrokSubscriptionConnectFinished { error } => {
-                Some(json!({ "error": error }))
-            }
             TelemetryEvent::ToggleLigatureRendering { enabled } => {
                 Some(json!({"enabled": enabled}))
             }
-            TelemetryEvent::ToggledAgentModeAutoexecuteReadonlyCommandsSetting { src, enabled } => {
-                Some(json!({
-                    "source": src,
-                    "enabled": enabled,
-                }))
-            }
-            TelemetryEvent::ChangedAgentModeCodingPermissions { src, new } => Some(json!({
-                "source": src,
-                "new": new,
-            })),
-            TelemetryEvent::ChangedAgentModeAskUserQuestionPermission { src, new } => Some(json!({
-                "source": src,
-                "new": new,
-            })),
-            TelemetryEvent::AutoexecutedAgentModeRequestedCommand { reason } => Some(json!({
-                "reason": reason,
-            })),
-            TelemetryEvent::AttachedImagesToAgentModeQuery {
-                num_images,
-                is_udi_enabled,
-            } => Some(json!({
-                "num_images": num_images,
-                "is_udi_enabled": is_udi_enabled,
-            })),
-            TelemetryEvent::AgentModeRatedResponse {
-                server_output_id,
-                conversation_id,
-                rating,
-            } => Some(json!({
-                "server_output_id": server_output_id,
-                "conversation_id": conversation_id,
-                "rating": rating,
-            })),
-            TelemetryEvent::ExecutedWarpDrivePrompt {
-                id,
-                selection_source,
-            } => Some(json!({
-                "id": id,
-                "selection_source": selection_source,
-            })),
-            TelemetryEvent::FileExceededContextLimit { identifiers } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-            })),
-            TelemetryEvent::AgentModeError {
-                identifiers,
-                error,
-                is_user_visible,
-                will_attempt_to_resume,
-            } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-                "error": error,
-                "is_user_visible": is_user_visible,
-                "will_attempt_to_resume": will_attempt_to_resume,
-            })),
-            TelemetryEvent::AgentModeRequestRetrySucceeded {
-                identifiers,
-                retry_count,
-                original_error,
-            } => Some(json!({
-                "server_output_id": identifiers.server_output_id,
-                "exchange_id": identifiers.client_exchange_id,
-                "conversation_id": identifiers.server_conversation_id,
-                "retry_count": retry_count,
-                "original_error": original_error,
-            })),
-            TelemetryEvent::GrepToolFailed {
-                queries,
-                path,
-                shell_type,
-                working_directory,
-                absolute_path,
-                command,
-                output,
-                error,
-                server_output_id,
-            } => Some(json!({
-                "queries": queries,
-                "path": path,
-                "shell_type": shell_type,
-                "working_directory": working_directory,
-                "absolute_path": absolute_path,
-                "command": command,
-                "output": output,
-                "error": error,
-                "server_output_id": server_output_id,
-            })),
-            TelemetryEvent::FileGlobToolFailed { server_output_id } => Some(json!({
-                "server_output_id": server_output_id,
-            })),
             TelemetryEvent::ShellTerminatedPrematurely {
                 shell_type,
                 shell_path,
@@ -2581,7 +1648,6 @@ impl TelemetryEvent {
             | TelemetryEvent::CreateCustomTheme
             | TelemetryEvent::DeleteCustomTheme
             | TelemetryEvent::SplitPane
-            | TelemetryEvent::SkipOnboardingSurvey
             | TelemetryEvent::LoggedOutStartup
             | TelemetryEvent::OpenQuakeModeWindow
             | TelemetryEvent::OpenWelcomeTips
@@ -2595,7 +1661,6 @@ impl TelemetryEvent {
             | TelemetryEvent::DragAndDropTabGroup
             | TelemetryEvent::TriedToExecuteBeforePrecmd
             | TelemetryEvent::JumpToBookmark
-            | TelemetryEvent::JumpToLatestAgentMessage
             | TelemetryEvent::JumpToBottomofBlockButtonClicked
             | TelemetryEvent::ShowInFileExplorer
             | TelemetryEvent::OpenLaunchConfigSaveModal
@@ -2621,7 +1686,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputSelectAll
             | TelemetryEvent::InputPaste
             | TelemetryEvent::InputCommandSearch
-            | TelemetryEvent::InputAskWarpAI
             | TelemetryEvent::SetNewWindowsAtCustomSize
             | TelemetryEvent::DisableInputSync
             | TelemetryEvent::ShowSubshellBanner
@@ -2650,21 +1714,12 @@ impl TelemetryEvent {
             | TelemetryEvent::BlockFilterToolbeltButtonClicked
             | TelemetryEvent::PaneDragInitiated
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
-            | TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(
-                AgentModeAutoDetectionFalsePositivePayload::ExternalUsers,
-            )
             | TelemetryEvent::SettingsImportResetButtonClicked
             | TelemetryEvent::ITermMultipleHotkeys
             | TelemetryEvent::DriveSharingOnboardingBlockShown
             | TelemetryEvent::SettingsImportInitiated
-            | TelemetryEvent::GrepToolSucceeded
-            | TelemetryEvent::FileGlobToolSucceeded
             | TelemetryEvent::UserMenuUpgradeClicked
-            | TelemetryEvent::AIExecutionProfileCreated
-            | TelemetryEvent::AIExecutionProfileDeleted
             | TelemetryEvent::FileTreeItemCreated
-            | TelemetryEvent::ConversationListItemDeleted
-            | TelemetryEvent::ConversationListViewOpened
             | TelemetryEvent::GlobalSearchOpened
             | TelemetryEvent::GlobalSearchQueryStarted => None,
             TelemetryEvent::GlobalSearchQueryCompleted {
@@ -2818,80 +1873,8 @@ impl TelemetryEvent {
                     "unsupported_arch": unsupported_arch,
                 }))
             }
-            TelemetryEvent::ConversationListItemOpened { is_ambient_agent } => Some(json!({
-                "is_ambient_agent": is_ambient_agent,
-            })),
-            TelemetryEvent::ConversationListLinkCopied { is_ambient_agent } => Some(json!({
-                "is_ambient_agent": is_ambient_agent,
-            })),
-            TelemetryEvent::AIExecutionProfileSettingUpdated {
-                setting_type,
-                setting_value,
-            } => Some(json!({
-                "setting_type": setting_type,
-                "setting_value": setting_value,
-            })),
-            TelemetryEvent::AIExecutionProfileAddedToAllowlist { list_type, value } => {
-                Some(json!({
-                    "list_type": list_type,
-                    "value": value,
-                }))
-            }
-            TelemetryEvent::AIExecutionProfileAddedToDenylist { list_type, value } => Some(json!({
-                "list_type": list_type,
-                "value": value,
-            })),
-            TelemetryEvent::AIExecutionProfileRemovedFromAllowlist { list_type, value } => {
-                Some(json!({
-                    "list_type": list_type,
-                    "value": value,
-                }))
-            }
-            TelemetryEvent::AIExecutionProfileRemovedFromDenylist { list_type, value } => {
-                Some(json!({
-                    "list_type": list_type,
-                    "value": value,
-                }))
-            }
-            TelemetryEvent::AIExecutionProfileModelSelected {
-                model_type,
-                model_value,
-            } => Some(json!({
-                "model_type": model_type,
-                "model_value": model_value,
-            })),
-            TelemetryEvent::AIExecutionProfileContextWindowSelected { tokens, model_id } => {
-                Some(json!({
-                    "tokens": tokens,
-                    "model_id": model_id,
-                }))
-            }
-            TelemetryEvent::AIInputNotSent {
-                entrypoint,
-                inputs,
-                active_server_conversation_id,
-                active_client_conversation_id,
-            } => Some(json!({
-                "entrypoint": entrypoint,
-                "inputs": inputs,
-                "active_server_conversation_id": active_server_conversation_id,
-                "active_client_conversation_id": active_client_conversation_id,
-            })),
             #[cfg(windows)]
             TelemetryEvent::WSLRegistryError => None,
-            TelemetryEvent::InputBufferSubmitted {
-                input_type,
-                is_locked,
-                input_type_decision_source,
-                was_lock_set_with_empty_buffer,
-                block_id,
-            } => Some(json!({
-                "input_type": input_type,
-                "is_locked": is_locked,
-                "input_type_decision_source": input_type_decision_source,
-                "was_lock_set_with_empty_buffer": was_lock_set_with_empty_buffer,
-                "block_id": block_id,
-            })),
             TelemetryEvent::RecentMenuItemSelected { kind } => Some(json!({
                 "kind": kind,
             })),
@@ -2902,111 +1885,11 @@ impl TelemetryEvent {
                 "source": source,
                 "is_code_mode_v2": is_code_mode_v2,
             })),
-            TelemetryEvent::CLISubagentControlStateChanged {
-                conversation_id,
-                block_id,
-                control_state,
-            } => Some(json!({
-                "conversation_id": conversation_id,
-                "block_id": block_id,
-                "control_state": control_state,
-            })),
-            TelemetryEvent::CLISubagentResponsesToggled {
-                conversation_id,
-                block_id,
-                is_hidden,
-            } => Some(json!({
-                "conversation_id": conversation_id,
-                "block_id": block_id,
-                "is_hidden": is_hidden,
-            })),
-            TelemetryEvent::CLISubagentInputDismissed {
-                conversation_id,
-                block_id,
-            } => Some(json!({
-                "conversation_id": conversation_id,
-                "block_id": block_id,
-            })),
-            TelemetryEvent::CLISubagentActionExecuted {
-                conversation_id,
-                block_id,
-                is_autoexecuted,
-            } => Some(json!({
-                "conversation_id": conversation_id,
-                "block_id": block_id,
-                "is_autoexecuted": is_autoexecuted,
-            })),
-            TelemetryEvent::CLISubagentActionRejected {
-                conversation_id,
-                block_id,
-                user_took_over,
-            } => Some(json!({
-                "conversation_id": conversation_id,
-                "block_id": block_id,
-                "user_took_over": user_took_over,
-            })),
-            TelemetryEvent::AgentManagementViewToggled { is_open } => Some(json!({
-                "is_open": is_open,
-            })),
-            TelemetryEvent::AgentManagementViewOpenedSession => None,
-            TelemetryEvent::AgentManagementViewCopiedSessionLink => None,
-            TelemetryEvent::DetectedIsolationPlatform { platform } => Some(json!({
-                "platform": platform,
-            })),
-            TelemetryEvent::AgentExitedShellProcess {
-                command,
-                server_output_id,
-            } => Some(json!({
-                "command": command,
-                "server_output_id": server_output_id,
-            })),
-            TelemetryEvent::AgentNotificationShown { agent_variant } => Some(json!({
-                "agent_variant": agent_variant,
-            })),
-            TelemetryEvent::ToggleUseAgentToolbarSetting { is_enabled } => Some(json!({
-                "is_enabled": is_enabled,
-            })),
-            TelemetryEvent::AgentViewEntered {
-                origin,
-                did_auto_trigger_request,
-            } => Some(json!({
-                "origin": origin,
-                "did_auto_trigger_request": did_auto_trigger_request,
-            })),
-            TelemetryEvent::AgentViewExited { origin, was_empty } => Some(json!({
-                "origin": origin,
-                "was_empty": was_empty,
-            })),
-            TelemetryEvent::AgentShortcutsViewToggled { is_visible } => Some(json!({
-                "is_visible": is_visible,
-            })),
             TelemetryEvent::LoginButtonClicked { source }
             | TelemetryEvent::LoginLaterButtonClicked { source }
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { source }
             | TelemetryEvent::OpenAuthPrivacySettings { source } => Some(json!({
                 "source": source,
-            })),
-            TelemetryEvent::QueuedPromptEdited { origin } => Some(json!({
-                "origin": origin,
-            })),
-            TelemetryEvent::QueuedPromptDeleted { origin } => Some(json!({
-                "origin": origin,
-            })),
-            TelemetryEvent::QueuedPromptReordered {
-                origin,
-                from_index,
-                to_index,
-            } => Some(json!({
-                "origin": origin,
-                "from_index": from_index,
-                "to_index": to_index,
-            })),
-            TelemetryEvent::QueuedPromptPanelCollapseToggled { collapsed } => Some(json!({
-                "collapsed": collapsed,
-            })),
-            TelemetryEvent::QueuedPromptSentNow { origin, trigger } => Some(json!({
-                "origin": origin,
-                "trigger": trigger,
             })),
         }
     }
@@ -3015,27 +1898,12 @@ impl TelemetryEvent {
     /// be sent to a dedicated rudderstack source.
     pub fn contains_ugc(&self) -> bool {
         match self {
-            TelemetryEvent::GrepToolFailed { .. } => true,
             TelemetryEvent::BootstrappingSlowContents { .. } => true,
-            TelemetryEvent::AIInputNotSent { .. } => true,
-            TelemetryEvent::AgentExitedShellProcess { .. } => true,
-            TelemetryEvent::InputBufferSubmitted { .. } => false,
-            TelemetryEvent::AgentModeChangedInputType { input, .. } => input.is_some(),
-            TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(payload) => {
-                // For internal dogfood users, the payload contains UGC.
-                matches!(
-                    payload,
-                    AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers { .. }
-                )
-            }
             TelemetryEvent::BlockCompleted { .. }
             | TelemetryEvent::BlockCompletedOnDogfoodOnly { .. }
             | TelemetryEvent::BackgroundBlockStarted
             | TelemetryEvent::SessionCreation
             | TelemetryEvent::Login
-            | TelemetryEvent::AgentModeContinueConversationButtonClicked { .. }
-            | TelemetryEvent::AgentModeRewindDialogOpened { .. }
-            | TelemetryEvent::AgentModeRewindExecuted { .. }
             | TelemetryEvent::ConfirmSuggestion { .. }
             | TelemetryEvent::ContextMenuCopy(_, _)
             | TelemetryEvent::ContextMenuFindWithinBlocks(_)
@@ -3058,7 +1926,6 @@ impl TelemetryEvent {
             | TelemetryEvent::CreateCustomTheme
             | TelemetryEvent::DeleteCustomTheme
             | TelemetryEvent::SplitPane
-            | TelemetryEvent::SkipOnboardingSurvey
             | TelemetryEvent::ToggleRestoreSession(_)
             | TelemetryEvent::DatabaseStartUpError(_)
             | TelemetryEvent::DatabaseReadError(_)
@@ -3103,7 +1970,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ThinStrokesSettingChanged { .. }
             | TelemetryEvent::BookmarkBlockToggled { .. }
             | TelemetryEvent::JumpToBookmark
-            | TelemetryEvent::JumpToLatestAgentMessage
             | TelemetryEvent::JumpToBottomofBlockButtonClicked
             | TelemetryEvent::ToggleJumpToBottomofBlockButton { .. }
             | TelemetryEvent::ToggleShowBlockDividers { .. }
@@ -3145,7 +2011,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputModeChanged { .. }
             | TelemetryEvent::PtySpawned { .. }
             | TelemetryEvent::InitialWorkingDirectoryConfigurationChanged { .. }
-            | TelemetryEvent::OpenedWarpAI { .. }
             | TelemetryEvent::ToggleFocusPaneOnHover { .. }
             | TelemetryEvent::OpenInputContextMenu
             | TelemetryEvent::InputCutSelectedText
@@ -3153,7 +2018,6 @@ impl TelemetryEvent {
             | TelemetryEvent::InputSelectAll
             | TelemetryEvent::InputPaste
             | TelemetryEvent::InputCommandSearch
-            | TelemetryEvent::InputAskWarpAI
             | TelemetryEvent::ExperimentTriggered { .. }
             | TelemetryEvent::ToggleSyncAllPanesInAllTabs { .. }
             | TelemetryEvent::ToggleSyncAllPanesInTab { .. }
@@ -3172,7 +2036,6 @@ impl TelemetryEvent {
             | TelemetryEvent::RemoveAddedSubshellCommand
             | TelemetryEvent::ReceivedSubshellRcFileDcs
             | TelemetryEvent::WarpifyFooterShown { .. }
-            | TelemetryEvent::AgentToolbarDismissed
             | TelemetryEvent::WarpifyFooterAcceptedWarpify { .. }
             | TelemetryEvent::ShowAliasExpansionBanner
             | TelemetryEvent::EnableAliasExpansionFromBanner
@@ -3225,15 +2088,6 @@ impl TelemetryEvent {
             | TelemetryEvent::PaneDropped { .. }
             | TelemetryEvent::ObjectLinkCopied { .. }
             | TelemetryEvent::FileTreeToggled { .. }
-            | TelemetryEvent::AgentModeClickedEntrypoint { .. }
-            | TelemetryEvent::AgentModeAttachedBlockContext { .. }
-            | TelemetryEvent::AgentModeToggleAutoDetectionSetting { .. }
-            | TelemetryEvent::AgentModeCodeSuggestionEditedByUser { .. }
-            | TelemetryEvent::AgentModeCodeFilesNavigated { .. }
-            | TelemetryEvent::AgentModeCodeDiffHunksNavigated { .. }
-            | TelemetryEvent::ToggleGlobalAI { .. }
-            | TelemetryEvent::SuperGrokSubscriptionConnectInitiated
-            | TelemetryEvent::SuperGrokSubscriptionConnectFinished { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::SharedObjectLimitHitBannerViewPlansButtonClicked
             | TelemetryEvent::ResourceUsageStats { .. }
@@ -3249,69 +2103,18 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleWorkspaceDecorationVisibility { .. }
             | TelemetryEvent::UpdateAltScreenPaddingMode { .. }
             | TelemetryEvent::AddTabWithShell { .. }
-            | TelemetryEvent::AgentModeSurfacedCitations { .. }
-            | TelemetryEvent::AgentModeOpenedCitation { .. }
             | TelemetryEvent::OpenedSharingDialog(_)
             | TelemetryEvent::ToggleLigatureRendering { .. }
-            | TelemetryEvent::ToggledAgentModeAutoexecuteReadonlyCommandsSetting { .. }
-            | TelemetryEvent::ChangedAgentModeCodingPermissions { .. }
-            | TelemetryEvent::ChangedAgentModeAskUserQuestionPermission { .. }
-            | TelemetryEvent::AutoexecutedAgentModeRequestedCommand { .. }
-            | TelemetryEvent::KnowledgePaneOpened { .. }
-            | TelemetryEvent::ExecutedWarpDrivePrompt { .. }
             | TelemetryEvent::ToggleSshWarpification { .. }
             | TelemetryEvent::SetSshExtensionInstallMode { .. }
             | TelemetryEvent::SshRemoteServerChoiceDoNotAskAgainToggled { .. }
             | TelemetryEvent::SettingsImportInitiated
-            | TelemetryEvent::AgentModeCreatedAIBlock { .. }
-            | TelemetryEvent::AgentModeRatedResponse { .. }
-            | TelemetryEvent::AttachedImagesToAgentModeQuery { .. }
-            | TelemetryEvent::FileExceededContextLimit { .. }
-            | TelemetryEvent::AgentModeError { .. }
-            | TelemetryEvent::AgentModeRequestRetrySucceeded { .. }
-            | TelemetryEvent::GrepToolSucceeded
-            | TelemetryEvent::FileGlobToolSucceeded
-            | TelemetryEvent::FileGlobToolFailed { .. }
             | TelemetryEvent::ShellTerminatedPrematurely { .. }
             | TelemetryEvent::InputUXModeChanged { .. }
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::TabCloseButtonPositionUpdated { .. }
-            | TelemetryEvent::AIExecutionProfileCreated
-            | TelemetryEvent::AIExecutionProfileDeleted
-            | TelemetryEvent::AIExecutionProfileSettingUpdated { .. }
-            | TelemetryEvent::AIExecutionProfileAddedToAllowlist { .. }
-            | TelemetryEvent::AIExecutionProfileAddedToDenylist { .. }
-            | TelemetryEvent::AIExecutionProfileRemovedFromAllowlist { .. }
-            | TelemetryEvent::AIExecutionProfileRemovedFromDenylist { .. }
-            | TelemetryEvent::AIExecutionProfileModelSelected { .. }
-            | TelemetryEvent::AIExecutionProfileContextWindowSelected { .. }
-            | TelemetryEvent::FileTreeItemAttachedAsContext { .. }
-            | TelemetryEvent::CodeSelectionAddedAsContext { .. }
             | TelemetryEvent::FileTreeItemCreated
-            | TelemetryEvent::ConversationListViewOpened
-            | TelemetryEvent::ConversationListItemOpened { .. }
-            | TelemetryEvent::ConversationListItemDeleted
-            | TelemetryEvent::ConversationListLinkCopied { .. }
-            | TelemetryEvent::AgentViewEntered { .. }
-            | TelemetryEvent::AgentViewExited { .. }
-            | TelemetryEvent::AgentShortcutsViewToggled { .. }
             | TelemetryEvent::RecentMenuItemSelected { .. }
-            | TelemetryEvent::QueuedPromptEdited { .. }
-            | TelemetryEvent::QueuedPromptDeleted { .. }
-            | TelemetryEvent::QueuedPromptReordered { .. }
-            | TelemetryEvent::QueuedPromptPanelCollapseToggled { .. }
-            | TelemetryEvent::QueuedPromptSentNow { .. }
-            | TelemetryEvent::CLISubagentControlStateChanged { .. }
-            | TelemetryEvent::CLISubagentResponsesToggled { .. }
-            | TelemetryEvent::CLISubagentInputDismissed { .. }
-            | TelemetryEvent::CLISubagentActionExecuted { .. }
-            | TelemetryEvent::CLISubagentActionRejected { .. }
-            | TelemetryEvent::AgentManagementViewToggled { .. }
-            | TelemetryEvent::AgentManagementViewOpenedSession
-            | TelemetryEvent::AgentManagementViewCopiedSessionLink
-            | TelemetryEvent::DetectedIsolationPlatform { .. }
-            | TelemetryEvent::AgentNotificationShown { .. }
-            | TelemetryEvent::ToggleUseAgentToolbarSetting { .. }
             | TelemetryEvent::RemoteServerBinaryCheck { .. }
             | TelemetryEvent::RemoteServerInstallation { .. }
             | TelemetryEvent::RemoteServerInitialization { .. }
@@ -3367,21 +2170,8 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
         match self {
             Self::ObjectLinkCopied => EnablementState::Always,
             Self::FileTreeToggled => EnablementState::Flag(FeatureFlag::FileTree),
-            Self::FileTreeItemAttachedAsContext => EnablementState::Flag(FeatureFlag::FileTree),
-            Self::CodeSelectionAddedAsContext => EnablementState::Flag(FeatureFlag::HoaCodeReview),
             Self::FileTreeItemCreated => EnablementState::Flag(FeatureFlag::FileTree),
-            Self::ConversationListViewOpened
-            | Self::ConversationListItemOpened
-            | Self::ConversationListItemDeleted
-            | Self::ConversationListLinkCopied => {
-                EnablementState::Flag(FeatureFlag::AgentViewConversationListView)
-            }
-            Self::AgentViewEntered | Self::AgentViewExited | Self::AgentShortcutsViewToggled => {
-                EnablementState::Flag(FeatureFlag::AgentView)
-            }
             Self::PtyThroughput => EnablementState::Flag(FeatureFlag::RecordPtyThroughput),
-            Self::AgentModeCreatedAIBlock => EnablementState::Flag(FeatureFlag::AgentMode),
-            Self::KnowledgePaneOpened { .. } => EnablementState::Flag(FeatureFlag::AIRules),
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => EnablementState::Always,
             #[cfg(feature = "local_fs")]
@@ -3397,7 +2187,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::AnonymousUserAttemptLoginGatedFeature
             | Self::AnonymousUserHitCloudObjectLimit => EnablementState::Always,
 
-            Self::AgentModeChangedInputType => EnablementState::Always,
             Self::StartedSharingCurrentSession | Self::StoppedSharingCurrentSession => {
                 EnablementState::Flag(FeatureFlag::CreatingSharedSessions)
             }
@@ -3433,7 +2222,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CreateCustomTheme => EnablementState::Always,
             Self::DeleteCustomTheme => EnablementState::Always,
             Self::SplitPane => EnablementState::Always,
-            Self::SkipOnboardingSurvey => EnablementState::Always,
             Self::ToggleRestoreSession => EnablementState::Always,
             Self::DatabaseStartUpError => EnablementState::Always,
             Self::DatabaseReadError => EnablementState::Always,
@@ -3476,7 +2264,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ThinStrokesSettingChanged => EnablementState::Always,
             Self::BookmarkBlockToggled => EnablementState::Always,
             Self::JumpToBookmark => EnablementState::Always,
-            Self::JumpToLatestAgentMessage => EnablementState::Always,
             Self::JumpToBottomofBlockButtonClicked => EnablementState::Always,
             Self::ToggleJumpToBottomofBlockButton => EnablementState::Always,
             Self::ShowInFileExplorer => EnablementState::Always,
@@ -3513,14 +2300,12 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputModeChanged => EnablementState::Always,
             Self::PtySpawned => EnablementState::Always,
             Self::InitialWorkingDirectoryConfigurationChanged => EnablementState::Always,
-            Self::OpenedWarpAI => EnablementState::Always,
             Self::OpenInputContextMenu => EnablementState::Always,
             Self::InputCutSelectedText => EnablementState::Always,
             Self::InputCopySelectedText => EnablementState::Always,
             Self::InputSelectAll => EnablementState::Always,
             Self::InputPaste => EnablementState::Always,
             Self::InputCommandSearch => EnablementState::Always,
-            Self::InputAskWarpAI => EnablementState::Always,
             Self::ExperimentTriggered => EnablementState::Always,
             Self::ToggleSyncAllPanesInAllTabs => EnablementState::Always,
             Self::ToggleSyncAllPanesInTab => EnablementState::Always,
@@ -3538,9 +2323,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleSshWarpification => EnablementState::Always,
             Self::SetSshExtensionInstallMode => EnablementState::Always,
             Self::SshRemoteServerChoiceDoNotAskAgainToggled => EnablementState::Always,
-            Self::WarpifyFooterShown
-            | Self::AgentToolbarDismissed
-            | Self::WarpifyFooterAcceptedWarpify => EnablementState::Always,
+            Self::WarpifyFooterShown | Self::WarpifyFooterAcceptedWarpify => {
+                EnablementState::Always
+            }
             Self::AddAddedSubshellCommand => EnablementState::Always,
             Self::RemoveAddedSubshellCommand => EnablementState::Always,
             Self::ReceivedSubshellRcFileDcs => EnablementState::Always,
@@ -3589,22 +2374,11 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::DriveSharingOnboardingBlockShown => EnablementState::Always,
             Self::SharedObjectLimitHitBannerViewPlansButtonClicked => EnablementState::Always,
             Self::ResourceUsageStats => EnablementState::Always,
-            Self::ToggleGlobalAI => EnablementState::Always,
-            Self::SuperGrokSubscriptionConnectInitiated
-            | Self::SuperGrokSubscriptionConnectFinished => {
-                EnablementState::Flag(FeatureFlag::SuperGrok)
-            }
             Self::MemoryUsageStats => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
             Self::MemoryUsageHigh => EnablementState::Always,
             Self::TransientMemorySpike => EnablementState::Always,
-            Self::AgentModeClickedEntrypoint
-            | Self::AgentModeAttachedBlockContext
-            | Self::AgentModeToggleAutoDetectionSetting
-            | Self::AgentModePotentialAutoDetectionFalsePositive => {
-                EnablementState::Flag(FeatureFlag::AgentMode)
-            }
             Self::EnvVarCollectionInvoked | Self::EnvVarWorkflowParameterization => {
                 EnablementState::Always
             }
@@ -3615,83 +2389,20 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::SettingsImportConfigFocused
             | Self::SettingsImportResetButtonClicked
             | Self::ITermMultipleHotkeys => EnablementState::Always,
-            Self::AgentModeCodeSuggestionEditedByUser
-            | Self::AgentModeCodeFilesNavigated
-            | Self::AgentModeCodeDiffHunksNavigated => EnablementState::Always,
-
             Self::ToggleWorkspaceDecorationVisibility => {
                 EnablementState::Flag(FeatureFlag::FullScreenZenMode)
             }
             Self::UpdateAltScreenPaddingMode => EnablementState::Always,
             Self::AddTabWithShell => EnablementState::Flag(FeatureFlag::ShellSelector),
-            Self::AgentModeSurfacedCitations | Self::AgentModeOpenedCitation => {
-                EnablementState::Always
-            }
             Self::OpenedSharingDialog => EnablementState::Always,
             Self::ToggleLigatureRendering => EnablementState::Flag(FeatureFlag::Ligatures),
-            Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting
-            | Self::ChangedAgentModeCodingPermissions
-            | Self::ChangedAgentModeAskUserQuestionPermission
-            | Self::AutoexecutedAgentModeRequestedCommand => EnablementState::Always,
-            Self::AttachedImagesToAgentModeQuery => {
-                EnablementState::Flag(FeatureFlag::ImageAsContext)
-            }
             #[cfg(windows)]
             Self::WSLRegistryError => EnablementState::Always,
-            Self::AgentModeRatedResponse => {
-                EnablementState::Flag(FeatureFlag::GlobalAIAnalyticsBanner)
-            }
-            Self::ExecutedWarpDrivePrompt => EnablementState::Flag(FeatureFlag::AgentModeWorkflows),
-            Self::FileExceededContextLimit => EnablementState::Always,
-            Self::AgentModeError => EnablementState::Always,
-            Self::AgentModeRequestRetrySucceeded => EnablementState::Always,
-            Self::GrepToolSucceeded => EnablementState::Always,
-            Self::GrepToolFailed => EnablementState::Always,
-            Self::FileGlobToolSucceeded => EnablementState::Always,
-            Self::FileGlobToolFailed { .. } => EnablementState::Always,
             Self::ShellTerminatedPrematurely { .. } => EnablementState::Always,
             Self::InputUXModeChanged { .. } => EnablementState::Always,
             Self::UserMenuUpgradeClicked => EnablementState::Always,
             Self::TabCloseButtonPositionUpdated { .. } => EnablementState::Always,
-            Self::AIExecutionProfileCreated
-            | Self::AIExecutionProfileDeleted
-            | Self::AIExecutionProfileSettingUpdated { .. }
-            | Self::AIExecutionProfileAddedToAllowlist { .. }
-            | Self::AIExecutionProfileAddedToDenylist { .. }
-            | Self::AIExecutionProfileRemovedFromAllowlist { .. }
-            | Self::AIExecutionProfileRemovedFromDenylist { .. }
-            | Self::AIExecutionProfileModelSelected { .. }
-            | Self::AIExecutionProfileContextWindowSelected { .. } => {
-                EnablementState::Flag(FeatureFlag::MultiProfile)
-            }
-            Self::AIInputNotSent { .. } => EnablementState::Always,
-            Self::InputBufferSubmitted => EnablementState::ChannelSpecific {
-                channels: vec![Channel::Local, Channel::Dev],
-            },
-            Self::AgentModeContinueConversationButtonClicked { .. } => EnablementState::Always,
-            Self::AgentModeRewindDialogOpened { .. } => {
-                EnablementState::Flag(FeatureFlag::RevertToCheckpoints)
-            }
-            Self::AgentModeRewindExecuted { .. } => {
-                EnablementState::Flag(FeatureFlag::RevertToCheckpoints)
-            }
             Self::RecentMenuItemSelected => EnablementState::Always,
-            Self::CLISubagentControlStateChanged { .. }
-            | Self::CLISubagentResponsesToggled { .. }
-            | Self::CLISubagentInputDismissed { .. }
-            | Self::CLISubagentActionExecuted { .. }
-            | Self::CLISubagentActionRejected { .. } => EnablementState::Always,
-            Self::AgentManagementViewToggled { .. }
-            | Self::AgentManagementViewOpenedSession
-            | Self::AgentManagementViewCopiedSessionLink => {
-                EnablementState::Flag(FeatureFlag::AgentManagementView)
-            }
-            Self::DetectedIsolationPlatform { .. } => EnablementState::Always,
-            Self::AgentExitedShellProcess { .. } => EnablementState::Always,
-            Self::AgentNotificationShown { .. } => {
-                EnablementState::Flag(FeatureFlag::HOANotifications)
-            }
-            Self::ToggleUseAgentToolbarSetting { .. } => EnablementState::Always,
             Self::RemoteServerBinaryCheck
             | Self::RemoteServerInstallation
             | Self::RemoteServerInitialization
@@ -3705,11 +2416,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::RemoteServerReconnectExhausted => {
                 EnablementState::Flag(FeatureFlag::SshRemoteServer)
             }
-            Self::QueuedPromptEdited
-            | Self::QueuedPromptDeleted
-            | Self::QueuedPromptReordered
-            | Self::QueuedPromptPanelCollapseToggled
-            | Self::QueuedPromptSentNow => EnablementState::Flag(FeatureFlag::QueueSlashCommand),
         }
     }
 
@@ -3720,11 +2426,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::BackgroundBlockStarted => "Background Block Started",
             Self::SessionCreation => "Tab Creation",
             Self::Login => "Logged in to native app",
-            Self::AgentModeContinueConversationButtonClicked => {
-                "Clicked Continue Conversation Button"
-            }
-            Self::AgentModeRewindDialogOpened { .. } => "Opened Rewind Confirmation Dialog",
-            Self::AgentModeRewindExecuted { .. } => "Executed Conversation Rewind",
             Self::ReinputCommands => "Context Menu: Reinput Commands",
             Self::ToggleSettingsSync => "Toggle Settings Sync",
             Self::ToggleFocusPaneOnHover => "Toggle Focus Pane On Hover",
@@ -3738,23 +2439,13 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::BootstrappingSlowContents => "Bootstrap Slow Contents",
             Self::ObjectLinkCopied => "Object Link Copied",
             Self::FileTreeToggled => "File Tree Toggled",
-            Self::FileTreeItemAttachedAsContext => "FileTree.AttachedAsContext",
-            Self::CodeSelectionAddedAsContext => "CodeView.SelectionAddedAsContext",
             Self::FileTreeItemCreated => "FileTree.ItemCreated",
-            Self::ConversationListViewOpened => "ConversationList.Opened",
-            Self::ConversationListItemOpened => "ConversationList.ItemOpened",
-            Self::ConversationListItemDeleted => "ConversationList.ItemDeleted",
-            Self::ConversationListLinkCopied => "ConversationList.LinkCopied",
-            Self::AgentViewEntered => "AgentView.Entered",
-            Self::AgentViewExited => "AgentView.Exited",
-            Self::AgentShortcutsViewToggled => "AgentView.ShortcutsViewToggled",
             Self::InitiateAnonymousUserSignup => "Anonymous User Initiated Signup",
             Self::AnonymousUserExpirationLockout => "Anonymous User Expiration Lockout",
             Self::AnonymousUserLinkedFromBrowser => "Anonymous User Linked from Browser",
             Self::AnonymousUserAttemptLoginGatedFeature => {
                 "Anonymous User Attempted Login-Gated Feature"
             }
-            Self::KnowledgePaneOpened { .. } => "Knowledge Pane Opened",
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => "Code Pane Opened",
             #[cfg(feature = "local_fs")]
@@ -3778,7 +2469,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CreateCustomTheme => "Create Custom Theme",
             Self::DeleteCustomTheme => "Delete Custom Theme",
             Self::SplitPane => "Split Pane",
-            Self::SkipOnboardingSurvey => "Skip Onboarding Survey",
             Self::ToggleRestoreSession => "Toggle Restore Session",
             Self::DatabaseStartUpError => "Database Startup Error",
             Self::DatabaseWriteError => "Database Write Error",
@@ -3825,7 +2515,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ThinStrokesSettingChanged => "Thin Strokes Setting Changed",
             Self::BookmarkBlockToggled => "Toggled Bookmark Block",
             Self::JumpToBookmark => "Jumped to Bookmark Block",
-            Self::JumpToLatestAgentMessage => "Jumped to Latest Agent Message",
             Self::JumpToBottomofBlockButtonClicked => "Jumped to Bottom of Block Button Clicked",
             Self::ShowInFileExplorer => "Showed File in File Explorer",
             Self::OpenLaunchConfigSaveModal => "Open Save Config Modal",
@@ -3862,14 +2551,12 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "InitialWorkingDirectoryConfigurationChanged"
             }
             Self::InputModeChanged => "Input Mode Changed",
-            Self::OpenedWarpAI => "Opened Warp AI",
             Self::OpenInputContextMenu => "OpenInputBoxContextMenu",
             Self::InputCutSelectedText => "InputBoxCutSelectedText",
             Self::InputCopySelectedText => "InputBoxCutSelectedText",
             Self::InputSelectAll => "InputBoxSelectAll",
             Self::InputPaste => "InputBoxPaste",
             Self::InputCommandSearch => "InputBoxCommandSearch",
-            Self::InputAskWarpAI => "InputBoxAskWarpAI",
             Self::ExperimentTriggered => "experiments.client.enroll_client",
             Self::ToggleSyncAllPanesInAllTabs => "Toggle Sync Inputs Across All Panes in All Tabs",
             Self::ToggleSyncAllPanesInTab => "Toggle Sync Inputs Across All Panes in Current Tab",
@@ -3891,7 +2578,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "SSH Remote Server Choice Do Not Ask Again Toggled"
             }
             Self::WarpifyFooterShown => "Warpify Footer Shown",
-            Self::AgentToolbarDismissed => "Agent Toolbar Dismissed",
             Self::WarpifyFooterAcceptedWarpify => "Warpify Footer Accepted Warpify",
             Self::ShowAliasExpansionBanner => "Show Alias Expansion Banner",
             Self::DismissAliasExpansionBanner => "Dismiss Alias Expansion Banner",
@@ -3941,7 +2627,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleSnackbarInActivePane => "Toggle Sticky Command Header in Active Pane",
             Self::PaneDragInitiated => "Pane Drag Inititiated",
             Self::PaneDropped => "Pane Drag Ended",
-            Self::AgentModeCreatedAIBlock => "AgentMode.CreatedAIBlock",
             Self::TeamCreated => "Team Created",
             Self::TeamJoined => "Team Joined",
             Self::TeamLeft => "Team Left",
@@ -3953,20 +2638,10 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SharedObjectLimitHitBannerViewPlansButtonClicked => {
                 "Shared Object Limit Hit Banner View Plans Button Clicked"
             }
-            Self::AgentModeClickedEntrypoint => "AgentMode.ClickedEntrypoint",
-            Self::AgentModeAttachedBlockContext => "AgentMode.AttachedContext",
             Self::ResourceUsageStats => "perf_metrics.resource_usage",
             Self::MemoryUsageStats => "perf_metrics.memory_usage",
             Self::MemoryUsageHigh => "perf_metrics.memory_usage_high",
             Self::TransientMemorySpike => "perf_metrics.transient_memory_spike",
-            Self::AgentModeToggleAutoDetectionSetting => "AgentMode.ToggleAutoDetectionSetting",
-            Self::AgentModePotentialAutoDetectionFalsePositive => {
-                "AgentMode.PotentialAutoDetectionFalsePositive"
-            }
-            Self::AgentModeChangedInputType => "AgentMode.ChangedInputType",
-            Self::AgentModeCodeSuggestionEditedByUser => "AgentMode.Code.SuggestedCodeEditedByUser",
-            Self::AgentModeCodeFilesNavigated => "AgentMode.Code.FilesNavigated",
-            Self::AgentModeCodeDiffHunksNavigated => "AgentMode.Code.DiffHunksNavigated",
             Self::EnvVarCollectionInvoked => "Invoked Environment Variables",
             Self::EnvVarWorkflowParameterization => {
                 "Parameterized Workflow With Environment Variables"
@@ -3980,26 +2655,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleWorkspaceDecorationVisibility => "Toggled Tab Bar Visibility",
             Self::UpdateAltScreenPaddingMode => "Updated Alt Screen Padding Mode",
             Self::AddTabWithShell => "Add Tab With Shell",
-            Self::AgentModeSurfacedCitations => "AgentMode.SurfacedCitations",
-            Self::AgentModeOpenedCitation => "AgentMode.OpenedCitation",
             Self::OpenedSharingDialog => "Opened Sharing Dialog",
-            Self::ToggleGlobalAI => "Toggle Global AI Enablement",
-            Self::SuperGrokSubscriptionConnectInitiated => "SuperGrok.Connect.Initiated",
-            Self::SuperGrokSubscriptionConnectFinished => "SuperGrok.Connect.Finished",
             Self::ToggleLigatureRendering => "Toggle Ligature Rendering",
 
-            Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting => {
-                "AIAutonomy.ToggledAutoexecuteReadonlyCommandsSetting"
-            }
-            Self::ChangedAgentModeCodingPermissions => {
-                "AIAutonomy.ChangedAgentModeCodingPermissions"
-            }
-            Self::ChangedAgentModeAskUserQuestionPermission => {
-                "AIAutonomy.ChangedAgentModeAskUserQuestionPermission"
-            }
-            Self::AutoexecutedAgentModeRequestedCommand => {
-                "AIAutonomy.AutoexecutedRequestedCommand"
-            }
             Self::RemoteServerBinaryCheck => "RemoteServer.BinaryCheck",
             Self::RemoteServerInstallation => "RemoteServer.Installation",
             Self::RemoteServerInitialization => "RemoteServer.Initialization",
@@ -4011,83 +2669,19 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::RemoteServerHostUnsupported => "RemoteServer.HostUnsupported",
             Self::RemoteServerReconnection => "RemoteServer.Reconnection",
             Self::RemoteServerReconnectExhausted => "RemoteServer.ReconnectExhausted",
-            Self::QueuedPromptEdited => "QueuedPrompt.Edited",
-            Self::QueuedPromptDeleted => "QueuedPrompt.Deleted",
-            Self::QueuedPromptReordered => "QueuedPrompt.Reordered",
-            Self::QueuedPromptPanelCollapseToggled => "QueuedPrompt.PanelCollapseToggled",
-            Self::QueuedPromptSentNow => "QueuedPrompt.SentNow",
             #[cfg(windows)]
             Self::WSLRegistryError => "WSL Distribution Registry Error",
-            Self::AttachedImagesToAgentModeQuery => "AgentMode.AttachedImages",
-            Self::AgentModeRatedResponse => "AgentMode.RatedResponse",
-            Self::ExecutedWarpDrivePrompt => "AgentMode.ExecutedWarpDrivePrompt",
-            Self::FileExceededContextLimit => "AgentMode.Code.FileExceededContextLimit",
-            Self::AgentModeError => "AgentMode.Error",
-            Self::AgentModeRequestRetrySucceeded => "AgentMode.RequestRetrySucceeded",
-            Self::GrepToolSucceeded => "AgentMode.Grep.Succeeded",
-            Self::GrepToolFailed => "AgentMode.Grep.Failed",
-            Self::FileGlobToolSucceeded => "AgentMode.FileGlob.Succeeded",
-            Self::FileGlobToolFailed { .. } => "AgentMode.FileGlob.Failed",
             Self::ShellTerminatedPrematurely { .. } => "Shell Terminated Prematurely",
             Self::InputUXModeChanged { .. } => "Input.InputUXModeChanged",
             Self::UserMenuUpgradeClicked => "User Menu Upgrade Clicked",
             Self::TabCloseButtonPositionUpdated { .. } => "Update Tab Close Button Position",
-            Self::AIExecutionProfileCreated => "AI Execution Profile Created",
-            Self::AIExecutionProfileDeleted => "AI Execution Profile Deleted",
-            Self::AIExecutionProfileSettingUpdated { .. } => {
-                "AI Execution Profile: Setting Updated"
-            }
-            Self::AIExecutionProfileAddedToAllowlist { .. } => {
-                "AI Execution Profile: Added To Allowlist"
-            }
-            Self::AIExecutionProfileAddedToDenylist { .. } => {
-                "AI Execution Profile: Added To Denylist"
-            }
-            Self::AIExecutionProfileRemovedFromAllowlist { .. } => {
-                "AI Execution Profile: Removed From Allowlist"
-            }
-            Self::AIExecutionProfileRemovedFromDenylist { .. } => {
-                "AI Execution Profile: Removed From Denylist"
-            }
-            Self::AIExecutionProfileModelSelected { .. } => "AI Execution Profile: Model Selected",
-            Self::AIExecutionProfileContextWindowSelected { .. } => {
-                "AI Execution Profile: Context Window Selected"
-            }
-            Self::AIInputNotSent { .. } => "AI Input Not Sent",
-            Self::InputBufferSubmitted => "AgentMode.NaturalLanguageDetection.InputBufferSubmitted",
             Self::RecentMenuItemSelected { .. } => "Recent Menu Item Selected",
-            Self::CLISubagentControlStateChanged { .. } => "CLI Subagent Control State Changed",
-            Self::CLISubagentResponsesToggled { .. } => "CLI Subagent Responses Toggled",
-            Self::CLISubagentInputDismissed { .. } => "CLI Subagent Input Dismissed",
-            Self::CLISubagentActionExecuted { .. } => "CLI Subagent Action Executed",
-            Self::CLISubagentActionRejected { .. } => "CLI Subagent Action Rejected",
-            Self::AgentManagementViewToggled { .. } => "Agent Management View Toggled",
-            Self::AgentManagementViewOpenedSession => "Agent Management View Opened Session",
-            Self::AgentManagementViewCopiedSessionLink => {
-                "Agent Management View Copied Session Link"
-            }
-            Self::DetectedIsolationPlatform { .. } => "Isolation.DetectedIsolationPlatform",
-            Self::AgentExitedShellProcess => "AgentMode.ExitedShellProcess",
-            Self::AgentNotificationShown { .. } => "AgentNotification.Shown",
-            Self::ToggleUseAgentToolbarSetting { .. } => "UseAgentToolbar.SettingToggled",
         }
     }
 
     fn description(&self) -> &'static str {
         match self {
-            Self::AIExecutionProfileContextWindowSelected { .. } => {
-                "Selected a context window limit for an execution profile's base model"
-            }
             Self::BlockCompleted => "Created Block",
-            Self::AgentModeContinueConversationButtonClicked => {
-                "User clicked the Continue Conversation button in a block footer"
-            }
-            Self::AgentModeRewindDialogOpened { .. } => {
-                "User opened the rewind confirmation dialog"
-            }
-            Self::AgentModeRewindExecuted { .. } => {
-                "User executed a rewind to a previous conversation state"
-            }
             Self::BlockCompletedOnDogfoodOnly => {
                 "Completed a block, with extra information for dogfood only"
             }
@@ -4108,7 +2702,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Warp created a background-output Block (whenever a processes has been backgrounded and yields some output)"
             }
             Self::SessionCreation => "Created a tab",
-            Self::KnowledgePaneOpened { .. } => "Knowledge Pane Opened",
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => "Opened the code editor pane from various sources",
             #[cfg(feature = "local_fs")]
@@ -4156,7 +2749,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CreateCustomTheme => "Created a custom theme using the built-in theme creator",
             Self::DeleteCustomTheme => "Deleted a custom theme using the built-in theme creator",
             Self::SplitPane => "Split tab into multiple panes",
-            Self::SkipOnboardingSurvey => "Skipped onboarding survey as a whole",
             Self::ToggleRestoreSession => {
                 "Toggled session restoration (\"Restore windows, tabs, panes, on startup\")"
             }
@@ -4227,7 +2819,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::BookmarkBlockToggled => "Bookmarked or unbookmarked Block",
             Self::JumpToBookmark => "Jumped to bookmarked Block",
-            Self::JumpToLatestAgentMessage => "Jumped to the latest agent message",
             Self::JumpToBottomofBlockButtonClicked => {
                 "Used the button to jump to the bottom of a Block"
             }
@@ -4293,7 +2884,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InitialWorkingDirectoryConfigurationChanged => {
                 "Replaced the default working directory with a different path"
             }
-            Self::OpenedWarpAI => "Activated Warp AI",
             Self::OpenInputContextMenu => "Opened the Input Editor's context menu",
             Self::InputCutSelectedText => {
                 "Cut the highlighted text via the Input Editor's context menu (right clicking the buffer)"
@@ -4308,7 +2898,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::InputCommandSearch => {
                 "Opened Command Search via the Input Editor's context menu (right clicking the buffer)"
             }
-            Self::InputAskWarpAI => "Clicked \"Ask Warp AI\" from the Input Editor's context menu",
             Self::ExperimentTriggered => "Client assigned to A/B test",
             Self::ToggleSyncAllPanesInAllTabs => {
                 "Enable the synchronization of the Input Editor's buffer to all the panes in all the tabs"
@@ -4364,11 +2953,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SshRemoteServerChoiceDoNotAskAgainToggled => {
                 "Toggled the 'Don't ask me this again' checkbox on the SSH remote-server choice block"
             }
-            Self::AgentModeRatedResponse => "User rated an Agent Mode response",
             Self::WarpifyFooterShown => {
                 "Displayed the warpify footer for a detected subshell or SSH session"
             }
-            Self::AgentToolbarDismissed => "User dismissed the use-agent toolbar",
             Self::WarpifyFooterAcceptedWarpify => "User clicked Warpify in the warpify footer",
             Self::ShowAliasExpansionBanner => {
                 "Displayed the banner asking whether Warp should automatically expand aliases within the Input Editor"
@@ -4457,14 +3044,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::PaneDragInitiated => "Initiated dragging a pane via the header",
             Self::PaneDropped => "Ended dragging a pane via the pane header",
-            Self::AgentModeCreatedAIBlock => "Created an AI block in agent mode",
             Self::TierLimitHit => "User hit the tier limit for a feature",
             Self::SharedObjectLimitHitBannerViewPlansButtonClicked => {
                 "Clicked the 'View Plans' button on the persistent drive banner"
-            }
-            Self::AgentModeClickedEntrypoint => "Clicked on an Agent Mode entrypoint",
-            Self::AgentModeAttachedBlockContext => {
-                "Attached block as context to an Agent Mode query"
             }
             Self::ResourceUsageStats => "Periodic report on application resource usage statistics",
             Self::MemoryUsageStats => "Periodic report on application memory usage statistics",
@@ -4475,20 +3057,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Application memory usage briefly crossed the excessive-usage threshold but \
                  dropped back under it before being reported as high"
             }
-            Self::AgentModeToggleAutoDetectionSetting => {
-                "Toggled the setting that enables or disables natural language auto-detection in the input. "
-            }
-            Self::AgentModePotentialAutoDetectionFalsePositive => {
-                "Manually toggled input to shell mode after input was auto-detected as natural language."
-            }
-            Self::AgentModeChangedInputType => {
-                "The input type was changed from shell -> AI or AI -> shell"
-            }
-            Self::AgentModeCodeSuggestionEditedByUser => {
-                "Agent Mode Code suggestion edited by user"
-            }
-            Self::AgentModeCodeFilesNavigated => "Agent Mode Code files navigated",
-            Self::AgentModeCodeDiffHunksNavigated => "Agent Mode Code diff hunks navigated",
             Self::EnvVarCollectionInvoked => "Invoked an environment variables object",
             Self::EnvVarWorkflowParameterization => {
                 "Selected from environment variables dropdown to parameterize workflow"
@@ -4500,26 +3068,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchQueryCompleted => {
                 "Completed a global search across local and remote sources"
             }
-            Self::FileTreeItemAttachedAsContext => {
-                "Attached a file or directory as context from the file tree"
-            }
-            Self::CodeSelectionAddedAsContext => {
-                "Added selected code as context from the code editor"
-            }
             Self::FileTreeItemCreated => "Created a new file from the file tree",
-            Self::ConversationListViewOpened => {
-                "Opened the conversation list view in the left panel"
-            }
-            Self::ConversationListItemOpened => "Opened a conversation from the conversation list",
-            Self::ConversationListItemDeleted => {
-                "Deleted a conversation from the conversation list"
-            }
-            Self::ConversationListLinkCopied => {
-                "Copied a conversation link from the conversation list"
-            }
-            Self::AgentViewEntered => "User entered the Agent View",
-            Self::AgentViewExited => "User exited the Agent View",
-            Self::AgentShortcutsViewToggled => "User toggled the shortcuts view in Agent View",
             Self::CompletedSettingsImport => {
                 "Imported a terminal's settings via the settings import onboarding block"
             }
@@ -4537,112 +3086,20 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Updated the custom padding setting for the alt-screen"
             }
             Self::AddTabWithShell => "Added a tab with specific shell",
-            Self::AgentModeSurfacedCitations => {
-                "Agent mode used and cited external sources that were used in its response"
-            }
-            Self::AgentModeOpenedCitation => "Opened a citation that was surfaced in agent mode",
             Self::OpenedSharingDialog => {
                 "Opened the sharing settings dialog for a session or Warp Drive object"
             }
-            Self::ToggleGlobalAI => "Toggled global AI enablement.",
-            Self::SuperGrokSubscriptionConnectInitiated => {
-                "User clicked Connect SuperGrok subscription; OAuth connection attempt initiated."
-            }
-            Self::SuperGrokSubscriptionConnectFinished => {
-                "SuperGrok subscription OAuth connection flow finished (success or failure)."
-            }
             Self::ToggleLigatureRendering => "Toggled ligature rendering",
-            Self::ToggledAgentModeAutoexecuteReadonlyCommandsSetting => {
-                "Toggled setting to autoexecute readonly Agent Mode requested commands"
-            }
-            Self::ChangedAgentModeCodingPermissions => {
-                "Changed Agent Mode permissions for coding tasks"
-            }
-            Self::ChangedAgentModeAskUserQuestionPermission => {
-                "Changed Agent Mode permission for asking user questions"
-            }
-            Self::AutoexecutedAgentModeRequestedCommand => {
-                "Autoexecuted an Agent Mode requested command"
-            }
-            Self::AttachedImagesToAgentModeQuery => "Attached images to an Agent Mode query",
             #[cfg(windows)]
             Self::WSLRegistryError => {
                 "Encountered an error while fetching WSL distributions from the registry"
             }
-            Self::ExecutedWarpDrivePrompt => "Executed a saved prompt.",
-            Self::FileExceededContextLimit => "File from AI exceeded context limit",
-            Self::AgentModeError => "Received an error when getting Agent Mode response",
-            Self::AgentModeRequestRetrySucceeded => {
-                "Agent Mode request succeeded after retrying following an initial error"
-            }
-            Self::GrepToolSucceeded => "The grep tool completed successfully",
-            Self::GrepToolFailed => "The grep tool failed to complete",
-            Self::FileGlobToolSucceeded => "The file glob tool completed successfully",
-            Self::FileGlobToolFailed { .. } => "The file glob tool failed to complete",
             Self::ShellTerminatedPrematurely { .. } => "The shell process terminated prematurely",
             Self::InputUXModeChanged { .. } => "Changed the input UX mode",
             Self::UserMenuUpgradeClicked => "Clicked the 'Upgrade' menu item in the user menu",
             Self::TabCloseButtonPositionUpdated { .. } => "Updated the tab close button position",
-            Self::AIExecutionProfileCreated => "A new AI execution profile was created",
-            Self::AIExecutionProfileDeleted => "An AI execution profile was deleted",
-            Self::AIExecutionProfileSettingUpdated { .. } => {
-                "An AI execution profile setting was updated"
-            }
-            Self::AIExecutionProfileAddedToAllowlist { .. } => {
-                "An item was added to an AI execution profile allowlist"
-            }
-            Self::AIExecutionProfileAddedToDenylist { .. } => {
-                "An item was added to an AI execution profile denylist"
-            }
-            Self::AIExecutionProfileRemovedFromAllowlist { .. } => {
-                "An item was removed from an AI execution profile allowlist"
-            }
-            Self::AIExecutionProfileRemovedFromDenylist { .. } => {
-                "An item was removed from an AI execution profile denylist"
-            }
-            Self::AIExecutionProfileModelSelected { .. } => {
-                "An AI model was selected for an AI execution profile"
-            }
-            Self::AIInputNotSent { .. } => "The AI input was not sent",
-            Self::InputBufferSubmitted => "Input buffer submitted",
             Self::RecentMenuItemSelected { .. } => {
                 "User selected an item from the recents list on the new tab zero state"
-            }
-            Self::CLISubagentControlStateChanged { .. } => {
-                "Control state changed in CLI subagent (agent in control, agent blocked, user in control, or agent tagged in)"
-            }
-            Self::CLISubagentResponsesToggled { .. } => {
-                "User toggled the visibility of agent responses in CLI subagent"
-            }
-            Self::CLISubagentInputDismissed { .. } => {
-                "User dismissed the input in the CLI subagent"
-            }
-            Self::CLISubagentActionExecuted { .. } => {
-                "User approved a blocked action from the CLI subagent"
-            }
-            Self::CLISubagentActionRejected { .. } => {
-                "User rejected a blocked action from the CLI subagent"
-            }
-            Self::AgentManagementViewToggled { .. } => {
-                "User toggled the Agent Management View open or closed"
-            }
-            Self::AgentManagementViewOpenedSession => {
-                "User opened a session from the Agent Management View"
-            }
-            Self::AgentManagementViewCopiedSessionLink => {
-                "User copied a session link from the Agent Management View"
-            }
-            Self::DetectedIsolationPlatform { .. } => {
-                "Detected that Warp is running in an isolated sandbox"
-            }
-            Self::AgentExitedShellProcess => {
-                "An agent-requested command caused the shell process to exit"
-            }
-            Self::AgentNotificationShown { .. } => {
-                "An agent notification was shown to the user (toast or mailbox)"
-            }
-            Self::ToggleUseAgentToolbarSetting { .. } => {
-                "User toggled the Use Agent footer setting"
             }
             Self::RemoteServerBinaryCheck => {
                 "Remote server binary check completed (found, not found, or error)"
@@ -4675,15 +3132,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::RemoteServerReconnectExhausted => {
                 "All reconnection attempts were exhausted after a spontaneous disconnect"
-            }
-            Self::QueuedPromptEdited => "User committed a non-empty edit to a queued prompt row",
-            Self::QueuedPromptDeleted => "User deleted a queued prompt row",
-            Self::QueuedPromptReordered => "User reordered a queued prompt row via drag-and-drop",
-            Self::QueuedPromptPanelCollapseToggled => {
-                "User toggled the queued prompts panel collapse state"
-            }
-            Self::QueuedPromptSentNow => {
-                "User sent a queued prompt row immediately (send-now button or Enter on empty input)"
             }
         }
     }

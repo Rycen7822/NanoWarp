@@ -24,6 +24,7 @@ impl CloudWorkflowsDataSource {
             embedding_space: notebook_space,
             workflows: cloud_model
                 .get_all_active_workflows()
+                .filter(|workflow| !workflow.model().data.is_agent_mode_workflow())
                 .filter(|workflow| workflow.id.into_server().is_some()) // Filter out local workflows.
                 .cloned()
                 .collect(),

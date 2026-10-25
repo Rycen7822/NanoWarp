@@ -22,16 +22,12 @@ use warpui::AppContext;
 use crate::cloud_object::model::view::{CloudViewModel, UpdateTimestamp};
 use crate::cloud_object::{CloudObject, ObjectType};
 use crate::ui_components::icons::Icon;
-use crate::workflows::CloudWorkflow;
 
 type SortByComparator<'a> = dyn FnMut(&&dyn CloudObject, &&dyn CloudObject) -> Ordering + 'a;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DriveObjectType {
     Workflow,
-    AgentModeWorkflow,
-    AIFact,
-    AIFactCollection,
     Notebook,
     Folder,
     EnvVarCollection,
@@ -41,9 +37,6 @@ impl From<DriveObjectType> for Icon {
     fn from(cloud_object_type: DriveObjectType) -> Icon {
         match cloud_object_type {
             DriveObjectType::Workflow => Icon::Workflow,
-            DriveObjectType::AgentModeWorkflow => Icon::Prompt,
-            DriveObjectType::AIFact => Icon::BookOpen,
-            DriveObjectType::AIFactCollection => Icon::BookOpen,
             DriveObjectType::Notebook => Icon::Notebook,
             DriveObjectType::Folder => Icon::Folder,
             DriveObjectType::EnvVarCollection => Icon::EnvVarCollection,
@@ -58,9 +51,6 @@ impl fmt::Display for DriveObjectType {
             DriveObjectType::Workflow => write!(f, "workflow"),
             DriveObjectType::Folder => write!(f, "folder"),
             DriveObjectType::EnvVarCollection => write!(f, "env var collection"),
-            DriveObjectType::AgentModeWorkflow => write!(f, "prompt"),
-            DriveObjectType::AIFact => write!(f, "ai fact"),
-            DriveObjectType::AIFactCollection => write!(f, "ai fact collection"),
         }
     }
 }
@@ -152,18 +142,7 @@ impl DriveSortOrder {
                         ObjectType::Folder => 0,
                         ObjectType::GenericStringObject(_) => 1,
                         ObjectType::Notebook => 2,
-                        ObjectType::Workflow => {
-                            let Some(workflow) = obj.as_any().downcast_ref::<CloudWorkflow>()
-                            else {
-                                return 3;
-                            };
-
-                            if workflow.model().data.is_agent_mode_workflow() {
-                                4
-                            } else {
-                                3
-                            }
-                        }
+                        ObjectType::Workflow => 3,
                     };
 
                     // First compare by object type ordering, then by display name alphabetically if equal

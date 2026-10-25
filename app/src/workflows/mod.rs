@@ -53,30 +53,18 @@ pub enum WorkflowSelectionSource {
     Undefined,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AIWorkflowOrigin {
-    CommandSearch,
-    AgentMode,
-}
-
-/// Workflows used by cloud, AI suggestions and notebooks.
+/// Workflows used by cloud and notebooks.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WorkflowType {
     /// Saved workflows from personal or team collections, saved using cloud-sync.
     Cloud(Box<CloudWorkflow>),
-    /// Ephemeral/transient workflows created from Warp AI output
-    AIGenerated {
-        workflow: Workflow,
-        origin: AIWorkflowOrigin,
-    },
     /// A workflow that's part of a cloud notebook.
-    Notebook(Workflow),
+    Notebook(Box<Workflow>),
 }
 
 impl WorkflowType {
     pub fn as_workflow(&self) -> &Workflow {
         match self {
-            WorkflowType::AIGenerated { workflow, .. } => workflow,
             WorkflowType::Cloud(workflow) => &workflow.model().data,
             WorkflowType::Notebook(workflow) => workflow,
         }
@@ -97,11 +85,6 @@ impl WorkflowType {
             _ => None,
         }
     }
-
-    /// We don't show env var selection for Agent Mode suggested commands.
-    pub(super) fn should_show_env_var_selection(&self) -> bool {
-        !matches!(self, WorkflowType::AIGenerated { .. },)
-    }
 }
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -111,11 +94,7 @@ impl CloudModelType for CloudWorkflowModel {
     type IdType = WorkflowId;
 
     fn model_type_name(&self) -> &'static str {
-        if self.data.is_agent_mode_workflow() {
-            "Prompt"
-        } else {
-            "Workflow"
-        }
+        "Workflow"
     }
 
     fn object_type(&self) -> ObjectType {
@@ -211,7 +190,7 @@ impl CloudModelType for CloudWorkflowModel {
     }
 
     fn renders_in_warp_drive(&self) -> bool {
-        true
+        !self.data.is_agent_mode_workflow()
     }
 
     fn to_warp_drive_item(
@@ -220,6 +199,9 @@ impl CloudModelType for CloudWorkflowModel {
         _appearance: &Appearance,
         workflow: &CloudWorkflow,
     ) -> Option<Box<dyn WarpDriveItem>> {
+        if self.data.is_agent_mode_workflow() {
+            return None;
+        }
         Some(Box::new(WarpDriveWorkflow::new(
             self.cloud_object_type_and_id(id),
             workflow.clone(),

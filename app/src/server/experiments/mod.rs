@@ -28,14 +28,8 @@ pub use model::{Event as ServerExperimentsEvent, ServerExperiments};
 pub enum ServerExperiment {
     SessionSharingExperiment,
     SessionSharingControl,
-    DisableAgentModeExperiment,
     EnvVarsEarlyAccessExperiment,
-    AgentModeAnalyticsExperiment,
     WindowsLaunchExperiment,
-    OzMultiHarnessControl,
-    OzMultiHarnessExperiment,
-    MacosRunnersControl,
-    MacosRunnersExperiment,
     /// A test-only experiment.
     /// Does not correspond to a real server-side experiment.
     #[cfg(test)]
@@ -63,28 +57,12 @@ impl ServerExperiment {
             Self::SessionSharingControl => {
                 FeatureFlag::CreatingSharedSessions.set_enabled(false);
             }
-            Self::DisableAgentModeExperiment => {
-                FeatureFlag::AgentMode.set_enabled(false);
-            }
             Self::EnvVarsEarlyAccessExperiment => {
                 // EnvVars is now always enabled; no-op.
-            }
-            Self::AgentModeAnalyticsExperiment => {
-                FeatureFlag::AgentModeAnalytics.set_enabled(true);
-                FeatureFlag::AIRules.set_enabled(true);
             }
             Self::WindowsLaunchExperiment => {
                 // TODO(alokedesai): Clean this up now that we no longer gate access to the Windows
                 // build on an allowlist.
-            }
-            Self::OzMultiHarnessControl => {
-                FeatureFlag::AgentHarness.set_enabled(false);
-            }
-            Self::OzMultiHarnessExperiment => {
-                FeatureFlag::AgentHarness.set_enabled(true);
-            }
-            Self::MacosRunnersControl | Self::MacosRunnersExperiment => {
-                // Runner availability is gated directly by the experiment arm.
             }
             #[cfg(test)]
             Self::TestExperiment => {

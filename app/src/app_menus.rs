@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::path::PathBuf;
 
-use ai::workspace::WorkspaceMetadata;
+use crate::code::persisted_workspace::WorkspaceMetadata;
 use csv::Writer;
 use enclose::enclose;
 use itertools::Itertools;
@@ -18,14 +18,14 @@ use warpui::platform::menu::{
 use warpui::windowing::WindowManager;
 use warpui::{AppContext, SingletonEntity};
 
-use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::auth;
 use crate::auth::AuthStateProvider;
+use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::default_terminal::DefaultTerminal;
 use crate::features::{FeatureFlag, runtime_flags_menu_items};
 use crate::root_view::OpenLaunchConfigArg;
 use crate::server::telemetry::LaunchConfigUiLocation;
-use crate::settings::{AISettings, BlockVisibilitySettings, DebugSettings, SelectionSettings};
+use crate::settings::{BlockVisibilitySettings, DebugSettings, SelectionSettings};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
@@ -67,7 +67,6 @@ pub fn menu_bar(ctx: &mut AppContext) -> MenuBar {
         make_new_view_menu(ctx),
         make_new_tab_menu(ctx),
         make_new_blocks_menu(ctx),
-        make_new_ai_menu(ctx),
         make_new_drive_menu(ctx),
         make_new_window_menu(),
         make_new_help_menu(),
@@ -368,7 +367,6 @@ fn make_new_view_menu(ctx: &AppContext) -> Menu {
         updateable_custom_item_without_checkmark(CustomAction::LaunchConfigPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::FilesPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::ToggleProjectExplorer, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleConversationListView, ctx),
         updateable_custom_item_without_checkmark(CustomAction::ToggleGlobalSearch, ctx),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::History, ctx),
@@ -499,27 +497,6 @@ fn make_new_tab_menu(ctx: &AppContext) -> Menu {
     Menu::new("Tab", items)
 }
 
-fn make_new_ai_menu(ctx: &AppContext) -> Menu {
-    let mut items = vec![updateable_custom_item_without_checkmark(
-        CustomAction::NewAgentModePane,
-        ctx,
-    )];
-
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::AttachSelectionAsAgentModeContext,
-        ctx,
-    ));
-
-    if FeatureFlag::AIRules.is_enabled() {
-        items.extend([
-            MenuItem::Separator,
-            updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
-        ]);
-    }
-
-    Menu::new("AI", items)
-}
-
 fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
     let mut items = vec![
         updateable_custom_item_without_checkmark(CustomAction::ClearBlocks, ctx),
@@ -576,7 +553,6 @@ fn make_new_drive_menu(ctx: &AppContext) -> Menu {
     items.extend([
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
     ]);
 
     items.push(updateable_custom_item_without_checkmark(
@@ -977,27 +953,6 @@ fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
             },
             Some(Keystroke::parse("cmd-t").expect("Valid keystroke")),
         )),
-        MenuItem::Custom(CustomMenuItem::new(
-            "New Agent Tab",
-            open_new_agent_tab_or_window,
-            move |_props: &MenuItemProperties, ctx: &mut AppContext| {
-                let mut changes = MenuItemPropertyChanges::default();
-                let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-                if !is_any_ai_enabled {
-                    changes.disabled = Some(true);
-                    return changes;
-                }
-                let trigger = Trigger::Custom(CustomAction::NewAgentTab.into());
-                let binding = ctx
-                    .get_key_bindings()
-                    .find(|b| b.trigger == &trigger || b.original_trigger == Some(&trigger));
-                if let Some(binding) = binding {
-                    changes.keystroke = Some(bindings::trigger_to_keystroke(binding.trigger));
-                }
-                changes
-            },
-            None,
-        )),
         non_updateable_custom_item(CustomAction::NewFile, ctx),
     ];
 
@@ -1046,15 +1001,6 @@ fn custom_action_dispatcher(action: CustomAction) -> impl Fn(&mut AppContext) + 
 fn open_new_default_tab_or_window(ctx: &mut AppContext) {
     match WindowManager::handle(ctx).as_ref(ctx).active_window() {
         Some(wid) => ctx.dispatch_custom_action(CustomAction::NewTab, wid),
-        _ => open_new_window(ctx),
-    }
-}
-
-/// Dispatch events to open an agent tab in the active window
-/// or make a new window if there is no active window.
-fn open_new_agent_tab_or_window(ctx: &mut AppContext) {
-    match WindowManager::handle(ctx).as_ref(ctx).active_window() {
-        Some(wid) => ctx.dispatch_custom_action(CustomAction::NewAgentTab, wid),
         _ => open_new_window(ctx),
     }
 }

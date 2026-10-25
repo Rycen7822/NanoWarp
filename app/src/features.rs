@@ -41,8 +41,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ViewingSharedSessions,
         #[cfg(feature = "creating_shared_sessions")]
         FeatureFlag::CreatingSharedSessions,
-        #[cfg(feature = "agent_mode")]
-        FeatureFlag::AgentMode,
         #[cfg(feature = "shared_session_long_running_commands")]
         FeatureFlag::SharedSessionWriteToLongRunningCommands,
         #[cfg(feature = "resize_fix")]
@@ -53,8 +51,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::DefaultWaterfallMode,
         #[cfg(feature = "settings_file")]
         FeatureFlag::SettingsFile,
-        #[cfg(feature = "file_backed_execution_profiles")]
-        FeatureFlag::FileBackedExecutionProfiles,
         #[cfg(feature = "rect_selection")]
         FeatureFlag::RectSelection,
         #[cfg(feature = "alacritty_settings_import")]
@@ -63,16 +59,8 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::DynamicWorkflowEnums,
         #[cfg(feature = "shared_with_me")]
         FeatureFlag::SharedWithMe,
-        #[cfg(feature = "am_workflows")]
-        FeatureFlag::AgentModeWorkflows,
-        #[cfg(feature = "ai_rules")]
-        FeatureFlag::AIRules,
         #[cfg(feature = "shell_selector")]
         FeatureFlag::ShellSelector,
-        #[cfg(feature = "integration_command")]
-        FeatureFlag::IntegrationCommand,
-        #[cfg(feature = "account_first_onboarding")]
-        FeatureFlag::AccountFirstOnboarding,
         #[cfg(feature = "session_sharing_acls")]
         FeatureFlag::SessionSharingAcls,
         #[cfg(feature = "full_screen_zen_mode")]
@@ -99,96 +87,36 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::KittyImages,
         #[cfg(feature = "warp_packs")]
         FeatureFlag::WarpPacks,
-        #[cfg(feature = "global_ai_analytics_banner")]
-        FeatureFlag::GlobalAIAnalyticsBanner,
-        #[cfg(feature = "global_ai_analytics_collection")]
-        FeatureFlag::GlobalAIAnalyticsCollection,
         #[cfg(feature = "default_adeberry_theme")]
         FeatureFlag::DefaultAdeberryTheme,
-        #[cfg(feature = "agent_mode_primary_xml")]
-        FeatureFlag::AgentModePrimaryXML,
-        #[cfg(feature = "agent_mode_pre_plan_xml")]
-        FeatureFlag::AgentModePrePlanXML,
-        #[cfg(feature = "agent_onboarding")]
-        FeatureFlag::AgentOnboarding,
-        #[cfg(feature = "agent_shared_sessions")]
-        FeatureFlag::AgentSharedSessions,
         #[cfg(feature = "command_correction_key")]
         FeatureFlag::CommandCorrectionKey,
         #[cfg(feature = "use_tantivy_search")]
         FeatureFlag::UseTantivySearch,
-        #[cfg(feature = "grep_tool")]
-        FeatureFlag::GrepTool,
         #[cfg(feature = "markdown_tables")]
         FeatureFlag::MarkdownTables,
         #[cfg(feature = "jupyter_notebook_rendering")]
         FeatureFlag::JupyterNotebookRendering,
-        #[cfg(feature = "blocklist_markdown_table_rendering")]
-        FeatureFlag::BlocklistMarkdownTableRendering,
-        #[cfg(feature = "blocklist_markdown_images")]
-        FeatureFlag::BlocklistMarkdownImages,
         #[cfg(feature = "markdown_mermaid")]
         FeatureFlag::MarkdownMermaid,
         #[cfg(feature = "editable_markdown_mermaid")]
         FeatureFlag::EditableMarkdownMermaid,
-        #[cfg(feature = "image_as_context")]
-        FeatureFlag::ImageAsContext,
         #[cfg(feature = "msys2_shells")]
         FeatureFlag::MSYS2Shells,
-        #[cfg(feature = "file_retrieval_tools")]
-        FeatureFlag::FileRetrievalTools,
-        #[cfg(feature = "reload_stale_conversation_files")]
-        FeatureFlag::ReloadStaleConversationFiles,
-        #[cfg(feature = "retry_truncated_code_responses")]
-        FeatureFlag::RetryTruncatedCodeResponses,
-        #[cfg(feature = "read_image_files")]
-        FeatureFlag::ReadImageFiles,
-        #[cfg(feature = "usage_based_pricing")]
-        FeatureFlag::UsageBasedPricing,
-        #[cfg(feature = "ai_resume_button")]
-        FeatureFlag::AIResumeButton,
-        #[cfg(feature = "agent_decides_command_execution")]
-        FeatureFlag::AgentDecidesCommandExecution,
         #[cfg(feature = "context_line_review_comments")]
         FeatureFlag::ContextLineReviewComments,
-        #[cfg(feature = "fast_forward_autoexecute_button")]
-        FeatureFlag::FastForwardAutoexecuteButton,
         #[cfg(feature = "code_find_replace")]
         FeatureFlag::CodeFindReplace,
         #[cfg(feature = "command_palette_file_search")]
         FeatureFlag::CommandPaletteFileSearch,
-        #[cfg(feature = "expand_edit_to_pane")]
-        FeatureFlag::ExpandEditToPane,
-        #[cfg(feature = "fallback_model_load_output_messaging")]
-        FeatureFlag::FallbackModelLoadOutputMessaging,
-        #[cfg(feature = "warping_model_name")]
-        FeatureFlag::WarpingModelName,
         #[cfg(feature = "tab_close_button_on_left")]
         FeatureFlag::TabCloseButtonOnLeft,
-        #[cfg(feature = "profiles_design_revamp")]
-        FeatureFlag::ProfilesDesignRevamp,
-        #[cfg(feature = "linked_code_blocks")]
-        FeatureFlag::LinkedCodeBlocks,
         #[cfg(feature = "tabbed_editor_view")]
         FeatureFlag::TabbedEditorView,
         #[cfg(feature = "send_telemetry_to_file")]
         FeatureFlag::SendTelemetryToFile,
         #[cfg(feature = "undo_closed_panes")]
         FeatureFlag::UndoClosedPanes,
-        #[cfg(feature = "multi_profile")]
-        FeatureFlag::MultiProfile,
-        #[cfg(feature = "conversation_artifacts")]
-        FeatureFlag::ConversationArtifacts,
-        #[cfg(feature = "projects")]
-        FeatureFlag::Projects,
-        #[cfg(feature = "pr_comments_v2")]
-        FeatureFlag::PRCommentsV2,
-        #[cfg(feature = "pr_comments_skill")]
-        FeatureFlag::PRCommentsSkill,
-        #[cfg(feature = "selection_as_context")]
-        FeatureFlag::SelectionAsContext,
-        #[cfg(feature = "code_mode_chip")]
-        FeatureFlag::CodeModeChip,
         #[cfg(feature = "github_pr_prompt_chip")]
         FeatureFlag::GithubPrPromptChip,
         #[cfg(feature = "vim_code_editor")]
@@ -203,120 +131,48 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::FileTree,
         #[cfg(feature = "allow_ignoring_input_suggestions")]
         FeatureFlag::AllowIgnoringInputSuggestions,
-        #[cfg(feature = "conversation_api")]
-        FeatureFlag::ConversationApi,
         #[cfg(feature = "code_launch_modal")]
         FeatureFlag::CodeLaunchModal,
         #[cfg(feature = "api_key_management")]
         FeatureFlag::APIKeyManagement,
-        #[cfg(feature = "diff_set_as_context")]
-        FeatureFlag::DiffSetAsContext,
         #[cfg(feature = "discard_per_file_and_all_changes")]
         FeatureFlag::DiscardPerFileAndAllChanges,
-        #[cfg(feature = "summarization_cancellation_confirmation")]
-        FeatureFlag::SummarizationCancellationConfirmation,
         #[cfg(feature = "code_review_find")]
         FeatureFlag::CodeReviewFind,
         #[cfg(feature = "ui_zoom")]
         FeatureFlag::UIZoom,
-        #[cfg(feature = "auto_open_code_review_pane")]
-        FeatureFlag::AutoOpenCodeReviewPane,
         #[cfg(feature = "inline_code_review")]
         FeatureFlag::InlineCodeReview,
-        #[cfg(feature = "summarize_conversation_command")]
-        FeatureFlag::SummarizationConversationCommand,
-        #[cfg(feature = "web_search_ui")]
-        FeatureFlag::WebSearchUI,
-        #[cfg(feature = "web_fetch_ui")]
-        FeatureFlag::WebFetchUI,
-        #[cfg(feature = "context_window_usage_v2")]
-        FeatureFlag::ContextWindowUsageV2,
-        #[cfg(feature = "context_window_usage_breakdown")]
-        FeatureFlag::ContextWindowUsageBreakdown,
         #[cfg(feature = "global_search")]
         FeatureFlag::GlobalSearch,
         #[cfg(feature = "embedded_code_review_comments")]
         FeatureFlag::EmbeddedCodeReviewComments,
         #[cfg(feature = "file_and_diff_set_comments")]
         FeatureFlag::FileAndDiffSetComments,
-        #[cfg(feature = "revert_to_checkpoints")]
-        FeatureFlag::RevertToCheckpoints,
-        #[cfg(feature = "agent_management_view")]
-        FeatureFlag::AgentManagementView,
-        #[cfg(feature = "agent_management_details_view")]
-        FeatureFlag::AgentManagementDetailsView,
-        #[cfg(feature = "agent_view")]
-        FeatureFlag::AgentView,
-        #[cfg(feature = "agent_view_block_context")]
-        FeatureFlag::AgentViewBlockContext,
-        #[cfg(feature = "warp_managed_secrets")]
-        FeatureFlag::WarpManagedSecrets,
-        #[cfg(feature = "v4a_file_diffs")]
-        FeatureFlag::V4AFileDiffs,
-        #[cfg(feature = "interactive_conversation_management_view")]
-        FeatureFlag::InteractiveConversationManagementView,
         #[cfg(feature = "team_api_keys")]
         FeatureFlag::TeamApiKeys,
         #[cfg(feature = "named_agents")]
         FeatureFlag::NamedAgents,
-        #[cfg(feature = "cloud_conversations")]
-        FeatureFlag::CloudConversations,
-        #[cfg(feature = "agent_toolbar_editor")]
-        FeatureFlag::AgentToolbarEditor,
         #[cfg(feature = "configurable_toolbar")]
         FeatureFlag::ConfigurableToolbar,
-        #[cfg(feature = "agent_view_prompt_chip")]
-        FeatureFlag::AgentViewPromptChip,
-        #[cfg(feature = "ambient_agents_rtc")]
-        FeatureFlag::AmbientAgentsRTC,
         #[cfg(feature = "classic_completions")]
         FeatureFlag::ClassicCompletions,
         #[cfg(feature = "force_classic_completions")]
         FeatureFlag::ForceClassicCompletions,
         #[cfg(feature = "native_shell_completions")]
         FeatureFlag::NativeShellCompletions,
-        #[cfg(feature = "agent_view_conversation_list_view")]
-        FeatureFlag::AgentViewConversationListView,
-        #[cfg(feature = "summarization_via_message_replacement")]
-        FeatureFlag::SummarizationViaMessageReplacement,
         #[cfg(feature = "pluggable_notifications")]
         FeatureFlag::PluggableNotifications,
         #[cfg(feature = "async_find")]
         FeatureFlag::AsyncFind,
-        #[cfg(feature = "list_skills")]
-        FeatureFlag::ListSkills,
-        #[cfg(feature = "ask_user_question")]
-        FeatureFlag::AskUserQuestion,
-        #[cfg(feature = "lsp_as_a_tool")]
-        FeatureFlag::LSPAsATool,
-        #[cfg(feature = "oz_platform_skills")]
-        FeatureFlag::OzPlatformSkills,
-        #[cfg(feature = "oz_identity_federation")]
-        FeatureFlag::OzIdentityFederation,
-        #[cfg(feature = "bundled_skills")]
-        FeatureFlag::BundledSkills,
         #[cfg(feature = "new_tab_styling")]
         FeatureFlag::NewTabStyling,
-        #[cfg(feature = "skill_arguments")]
-        FeatureFlag::SkillArguments,
-        #[cfg(feature = "active_conversation_requires_interaction")]
-        FeatureFlag::ActiveConversationRequiresInteraction,
-        #[cfg(feature = "conversations_as_context")]
-        FeatureFlag::ConversationsAsContext,
         #[cfg(feature = "incremental_auto_reload")]
         FeatureFlag::IncrementalAutoReload,
-        #[cfg(feature = "pending_user_query_indicator")]
-        FeatureFlag::PendingUserQueryIndicator,
-        #[cfg(feature = "queue_slash_command")]
-        FeatureFlag::QueueSlashCommand,
-        #[cfg(feature = "queued_prompts_v2")]
-        FeatureFlag::QueuedPromptsV2,
         #[cfg(feature = "kitty_keyboard_protocol")]
         FeatureFlag::KittyKeyboardProtocol,
         #[cfg(feature = "directory_tab_colors")]
         FeatureFlag::DirectoryTabColors,
-        #[cfg(feature = "hoa_code_review")]
-        FeatureFlag::HoaCodeReview,
         #[cfg(feature = "vertical_tabs")]
         FeatureFlag::VerticalTabs,
         #[cfg(feature = "vertical_tabs_summary_mode")]
@@ -327,44 +183,18 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::GroupedTabs,
         #[cfg(feature = "pinned_tabs")]
         FeatureFlag::PinnedTabs,
-        #[cfg(feature = "agent_harness")]
-        FeatureFlag::AgentHarness,
         #[cfg(feature = "hoa_notifications")]
         FeatureFlag::HOANotifications,
-        #[cfg(feature = "transfer_control_tool")]
-        FeatureFlag::TransferControlTool,
         #[cfg(feature = "warpify_footer")]
         FeatureFlag::WarpifyFooter,
-        #[cfg(feature = "solo_user_byok")]
-        FeatureFlag::SoloUserByok,
-        #[cfg(feature = "billing_and_usage_page_v2")]
-        FeatureFlag::BillingAndUsagePageV2,
-        #[cfg(feature = "gpt_configurable_context_window")]
-        FeatureFlag::GPTConfigurableContextWindow,
         #[cfg(feature = "skip_firebase_anonymous_user")]
         FeatureFlag::SkipFirebaseAnonymousUser,
         #[cfg(feature = "hoa_onboarding_flow")]
         FeatureFlag::HOAOnboardingFlow,
         #[cfg(feature = "git_operations_in_code_review")]
         FeatureFlag::GitOperationsInCodeReview,
-        #[cfg(feature = "hoa_remote_control")]
-        FeatureFlag::HOARemoteControl,
-        #[cfg(feature = "git_credential_refresh")]
-        FeatureFlag::GitCredentialRefresh,
         #[cfg(feature = "remote_code_review")]
         FeatureFlag::RemoteCodeReview,
-        #[cfg(feature = "custom_model_routers")]
-        FeatureFlag::CustomModelRouters,
-        #[cfg(feature = "supergrok")]
-        FeatureFlag::SuperGrok,
-        #[cfg(feature = "chatgpt_subscription")]
-        FeatureFlag::ChatGPTSubscription,
-        #[cfg(feature = "gemini_enterprise")]
-        FeatureFlag::GeminiEnterprise,
-        #[cfg(feature = "nld_prompt_history_match")]
-        FeatureFlag::NldPromptHistoryMatch,
-        #[cfg(feature = "prompt_cache_expiry_warning")]
-        FeatureFlag::PromptCacheExpiryWarning,
         #[cfg(feature = "osc_hyperlinks")]
         FeatureFlag::OscHyperlinks,
         #[cfg(feature = "terminal_lifecycle_recovery")]
@@ -373,8 +203,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ShellWidgetHandoff,
         #[cfg(feature = "history_search_ranking_v2")]
         FeatureFlag::HistorySearchRankingV2,
-        #[cfg(feature = "acp_harness")]
-        FeatureFlag::AcpHarness,
     ]);
 
     flags

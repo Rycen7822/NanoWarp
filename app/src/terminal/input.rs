@@ -1,5 +1,3 @@
-mod agent;
-pub mod buffer_model;
 mod classic;
 mod common;
 pub mod decorations;
@@ -7,7 +5,6 @@ pub mod message_bar;
 mod suggestions_mode_menu;
 pub mod suggestions_mode_model;
 mod terminal;
-mod universal;
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -30,9 +27,8 @@ use ordered_float::Float;
 use parking_lot::FairMutex;
 #[cfg(feature = "local_fs")]
 use parking_lot::Mutex;
-use regex::Regex;
 use serde::Serialize;
-use session_sharing_protocol::common::{AgentAttachment, ParticipantId, ServerConversationToken};
+use session_sharing_protocol::common::ParticipantId;
 use settings::{Setting as _, ToggleableSetting};
 use string_offset::{ByteOffset, CharOffset};
 use vim::vim::VimMode;
@@ -45,11 +41,8 @@ use warp_completer::meta::{HasSpan, Span, Spanned};
 use warp_completer::parsers::LiteCommand;
 use warp_completer::parsers::simple::command_at_cursor_position;
 use warp_completer::signatures::CommandRegistry;
-use warp_completer::util::parse_current_commands_and_tokens;
 use warp_core::r#async::debounce;
 use warp_core::context_flag::ContextFlag;
-use warp_core::ui::theme::AnsiColorIdentifier;
-use warp_core::ui::theme::color::internal_colors;
 use warp_editor::editor::NavigationKey;
 use warp_errors::{report_error, report_if_error};
 use warp_util::path::ShellFamily;
@@ -57,14 +50,12 @@ pub use warpui::WindowId;
 use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use warpui::r#async::SpawnedFutureHandle;
-use warpui::clipboard::{ClipboardContent, ImageData};
-use warpui::clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES;
+use warpui::clipboard::ClipboardContent;
 use warpui::color::ColorU;
 use warpui::elements::{
-    Align, AnchorPair, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-    DispatchEventResult, DropTargetData, Element, EventHandler, Flex, MainAxisAlignment,
-    MainAxisSize, MouseStateHandle, OffsetType, ParentElement, Radius, ResizableStateHandle,
-    SavePosition, SelectionHandle, Text, Wrap, YAxisAnchor, resizable_state_handle,
+    AnchorPair, Clipped, ConstrainedBox, Container, DispatchEventResult, DropTargetData, Element,
+    EventHandler, MouseStateHandle, OffsetType, ResizableStateHandle, SavePosition,
+    SelectionHandle, YAxisAnchor, resizable_state_handle,
 };
 pub use warpui::elements::{ParentElement as _, Stack};
 pub use warpui::geometry::vector::{Vector2F, vec2f};
@@ -72,8 +63,6 @@ use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding, Keystrok
 use warpui::platform::OperatingSystem;
 use warpui::presenter::ChildView;
 use warpui::text_layout::TextStyle;
-use warpui::ui_components::chip::Chip;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::IntoPixels;
 use warpui::{
     AppContext, Entity, EntityId, FocusContext, ModelAsRef, ModelHandle, SingletonEntity,
@@ -82,65 +71,29 @@ use warpui::{
 
 use self::decorations::InputBackgroundJobOptions;
 use super::alias::is_expandable_alias;
-use super::block_list_viewport::InputMode;
 use super::event::{BlockCompletedEvent, BlockType, UserBlockCompleted};
 use super::ligature_settings::LigatureSettings;
-use super::model::block::{
-    AgentInteractionMetadata, BlockId, BlockMetadata, BlocklistEnvVarMetadata,
-};
+use super::model::block::{BlockId, BlockMetadata, BlocklistEnvVarMetadata};
 use super::model::completions::ShellCompletion;
 use super::model::session::{Session, SessionId, Sessions};
 use super::prompt_render_helper::{
     PromptRenderHelper, SameLinePromptElements, should_render_prompt_on_same_line,
-    should_render_prompt_using_editor_decorator_elements,
 };
 use super::safe_mode_settings::{
     SafeModeSettings, SafeModeSettingsChangedEvent, get_secret_obfuscation_mode,
 };
 use super::session_settings::{SessionSettings, SessionSettingsChangedEvent};
-use super::settings::{SpacingMode, TerminalSettings, TerminalSettingsChangedEvent};
+use super::settings::{TerminalSettings, TerminalSettingsChangedEvent};
 use super::shared_session::SharedSessionStatus;
 use super::shared_session::presence_manager::PresenceManager;
 use super::shared_session::viewer::history_model::SharedSessionHistoryModel;
 use super::shell::ShellType;
-use super::universal_developer_input::{
-    UniversalDeveloperInputButtonBar, UniversalDeveloperInputButtonBarEvent,
-};
-use super::view::queued_prompts_panel::{QueuedPromptsPanelEvent, QueuedPromptsPanelView};
 use super::view::{
     ExecuteCommandEvent, PADDING_LEFT as TERMINAL_VIEW_PADDING_LEFT, SyncInputType, TerminalAction,
 };
 use super::warpify::SubshellSource;
 use super::{History, HistoryEntry, SizeInfo, TerminalModel, prompt, should_right_click_paste};
-#[allow(unused_imports)]
-use crate::ASSETS;
-use crate::ai::AIRequestUsageModel;
-use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent::{AIAgentContext, CancellationReason, EntrypointType};
-use crate::ai::blocklist::agent_view::shortcuts::AgentShortcutViewModel;
-use crate::ai::blocklist::agent_view::{
-    AgentInputFooter, AgentInputFooterEvent, AgentViewController, AgentViewEntryOrigin,
-    EphemeralMessageModel,
-};
-use crate::ai::blocklist::block::cli_controller::{CLISubagentController, CLISubagentEvent};
-use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBar;
-use crate::ai::blocklist::prompt::prompt_alert::{PromptAlertEvent, PromptAlertView};
-use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;
-use crate::ai::blocklist::{
-    AttachmentType, BLOCK_CONTEXT_ATTACHMENT_REGEX, BlocklistAIActionModel,
-    BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIController,
-    BlocklistAIControllerEvent, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
-    BlocklistAIInputModel, DIFF_HUNK_ATTACHMENT_REGEX, DRIVE_OBJECT_ATTACHMENT_REGEX, InputConfig,
-    InputType, InputTypeAutoDetectionSource, QueuedQuery, QueuedQueryEvent, QueuedQueryId,
-    QueuedQueryModel, QueuedQueryOrigin, ai_indicator_height, render_ai_agent_mode_icon,
-    render_ai_follow_up_icon,
-};
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::conversation_export::export_conversation_markdown;
-use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::appearance::{Appearance, AppearanceEvent};
-use crate::channel::ChannelState;
-use crate::cloud_object::model::actions::ObjectActionType;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, Space};
 #[cfg(feature = "local_fs")]
@@ -148,18 +101,16 @@ use crate::code::editor_management::CodeSource;
 use crate::completer::SessionContext;
 use crate::completer::is_command_valid;
 use crate::context_chips::display::{PromptDisplay, PromptDisplayEvent};
-use crate::context_chips::display_chip::{DisplayChipConfig, PromptChipShellCommand};
+use crate::context_chips::display_chip::PromptChipShellCommand;
 use crate::context_chips::prompt_type::PromptType;
-use crate::context_chips::spacing;
 use crate::editor::{
-    AttachedImage as AttachedImageRawData, AutosuggestionLocation, AutosuggestionType,
-    BaselinePositionComputationMethod, CommandXRayAnchor, CrdtOperation, CursorColors,
-    DisplayPoint, EditOrigin, EditorAction, EditorDecoratorElements, EditorOptions, EditorSnapshot,
-    EditorView, Event as EditorEvent, ImageContextOptions, InteractionState,
-    MAX_IMAGES_PER_CONVERSATION, PathTransformerFn, PlainTextEditorViewAction,
-    Point as BufferPoint, PropagateAndNoOpEscapeKey, PropagateAndNoOpNavigationKeys,
-    PropagateHorizontalNavigationKeys, ReplicaId, TextColors, TextRun, default_cursor_colors,
-    position_id_for_cached_point, position_id_for_cursor, position_id_for_first_cursor,
+    AutosuggestionLocation, AutosuggestionType, BaselinePositionComputationMethod,
+    CommandXRayAnchor, CrdtOperation, DisplayPoint, EditOrigin, EditorAction,
+    EditorDecoratorElements, EditorOptions, EditorSnapshot, EditorView, Event as EditorEvent,
+    InteractionState, PathTransformerFn, PlainTextEditorViewAction, Point as BufferPoint,
+    PropagateAndNoOpEscapeKey, PropagateAndNoOpNavigationKeys, PropagateHorizontalNavigationKeys,
+    ReplicaId, TextColors, TextRun, default_cursor_colors, position_id_for_cached_point,
+    position_id_for_cursor, position_id_for_first_cursor,
 };
 use crate::env_vars::EnvVarCollectionExt;
 use crate::features::FeatureFlag;
@@ -176,42 +127,31 @@ use crate::resource_center::{
     Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
 use crate::search::QueryFilter;
-use crate::server::cloud_objects::update_manager::UpdateManager;
+use crate::send_telemetry_from_ctx;
 use crate::server::ids::SyncId;
 use crate::server::telemetry::{
-    AgentModeAutoDetectionFalsePositivePayload, AgentModeAutoDetectionSettingOrigin,
-    AnonymousUserSignupEntrypoint, CommandXRayTrigger, EnvVarTelemetryMetadata, PaletteSource,
-    QueuedPromptSendNowTrigger, TelemetryEvent,
+    CommandXRayTrigger, EnvVarTelemetryMetadata, PaletteSource, TelemetryEvent,
 };
 use crate::session_management::SessionNavigationPromptElements;
 use crate::settings::{
-    AISettings, AISettingsChangedEvent, AliasExpansionSettings, AppEditorSettings,
-    AppEditorSettingsChangedEvent, InputModeSettings, InputSettings, InputSettingsChangedEvent,
-    MAX_TIMES_TO_SHOW_AUTOSUGGESTION_HINT, PrivacySettings,
+    AliasExpansionSettings, AppEditorSettings, AppEditorSettingsChangedEvent, InputModeSettings,
+    InputSettings, InputSettingsChangedEvent, MAX_TIMES_TO_SHOW_AUTOSUGGESTION_HINT,
 };
-use crate::settings_view::{SettingsSection, flags};
+use crate::settings_view::flags;
 use crate::suggestions::ignored_suggestions_model::{
     IgnoredSuggestionsModel, IgnoredSuggestionsModelEvent, SuggestionType,
 };
 #[cfg(feature = "local_fs")]
 use crate::terminal::history::find_next_commands_from_similar_history;
 use crate::terminal::history::find_potential_autosuggestions_from_history;
-use crate::terminal::input::buffer_model::InputBufferModel;
 use crate::terminal::input::suggestions_mode_model::InputSuggestionsModeModel;
 use crate::terminal::model::session::shell_quote_arg;
 use crate::terminal::prompt_render_helper::should_render_ps1_prompt;
-use crate::terminal::view::init::CAN_ATTACH_FILE_KEY;
-use crate::terminal::view::{
-    AIQueryRouting, file_attach_allowed_for_shared_session, resolve_ai_query_routing,
-};
-use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon;
 use crate::util::bindings::{self, CustomAction};
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor;
-use crate::util::image::MAX_IMAGE_COUNT_FOR_QUERY;
 use crate::util::truncation::truncate_from_end;
-use crate::view_components::{DismissibleToast, ToastFlavor};
+use crate::view_components::DismissibleToast;
 use crate::workflows::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
     compute_workflow_display_data_with_overrides,
@@ -223,9 +163,6 @@ use crate::workflows::workflow_enum::EnumVariants;
 use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, InitContent, ToastStack, WorkspaceAction};
-use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
-#[allow(unused_imports)]
-use crate::{AgentModeEntrypoint, ServerApiProvider, cmd_or_ctrl_shift, send_telemetry_from_ctx};
 
 /// Drop target data for dropping content on the [`Input`].
 #[derive(Debug, Clone)]
@@ -276,74 +213,6 @@ pub(crate) const EXTERNAL_ALT_C_BINDING_CONTEXT: &str = "ExternalAltCDirectorySe
 pub const INPUT_A11Y_LABEL: &str = "Command Input.";
 pub const INPUT_A11Y_HELPER: &str = "Input your shell command, press enter to execute. Press cmd-up to navigate to output of previously executed commands. Press cmd-l to re-focus command input.";
 
-const AGENT_MODE_AI_DISABLED_AUTODETECTION_DISABLED_HINT_TEXT: &str = "Run commands";
-
-// Rotating hint text options for new Agent Mode conversations
-const AGENT_MODE_HINT_OPTIONS: &[&str] = &[
-    "Warp anything e.g. Deploy my React app to Vercel and set up environment variables",
-    "Warp anything e.g. Help me debug why my Python tests are failing in CI",
-    "Warp anything e.g. Set up a new microservice with Docker and create the deployment pipeline",
-    "Warp anything e.g. Find and fix the memory leak in my Node.js application",
-    "Warp anything e.g. Create a backup script for my PostgreSQL database and schedule it",
-    "Warp anything e.g. Help me migrate my data from MySQL to PostgreSQL",
-    "Warp anything e.g. Set up monitoring and alerts for my AWS infrastructure",
-    "Warp anything e.g. Build a REST API for my mobile app using FastAPI",
-    "Warp anything e.g. Help me optimize my SQL queries that are running slowly",
-    "Warp anything e.g. Create a GitHub Actions workflow to automatically deploy on merge",
-    "Warp anything e.g. Set up Redis caching for my web application",
-    "Warp anything e.g. Help me troubleshoot why my Kubernetes pods keep crashing",
-    "Warp anything e.g. Build a data pipeline to process CSV files and load them into BigQuery",
-    "Warp anything e.g. Set up SSL certificates and configure HTTPS for my domain",
-    "Warp anything e.g. Help me refactor this legacy code to use modern design patterns",
-    "Warp anything e.g. Create unit tests for my authentication service",
-    "Warp anything e.g. Set up log aggregation with ELK stack for my distributed system",
-    "Warp anything e.g. Help me implement OAuth2 authentication in my Express.js app",
-    "Warp anything e.g. Optimize my Docker images to reduce build times and size",
-    "Warp anything e.g. Set up A/B testing infrastructure for my web application",
-];
-
-fn get_agent_mode_new_conversation_hint_text() -> &'static str {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static HINT_INDEX: AtomicUsize = AtomicUsize::new(0);
-
-    let index = HINT_INDEX.fetch_add(1, Ordering::Relaxed) % AGENT_MODE_HINT_OPTIONS.len();
-    AGENT_MODE_HINT_OPTIONS[index]
-}
-
-fn get_stable_agent_mode_hint_text(cached_hint: &mut Option<&'static str>) -> &'static str {
-    if let Some(hint) = cached_hint {
-        hint
-    } else {
-        let new_hint = get_agent_mode_new_conversation_hint_text();
-        *cached_hint = Some(new_hint);
-        new_hint
-    }
-}
-
-const AGENT_MODE_AI_ENABLED_STEER_HINT_TEXT_UDI: &str = "Steer the running agent";
-const AGENT_MODE_AI_ENABLED_STEER_HINT_TEXT_CLASSIC: &str =
-    "Steer the running agent, or backspace to exit";
-const AGENT_MODE_AI_ENABLED_QUEUE_HINT_TEXT_UDI: &str = "Queue a follow up for the running agent";
-const AGENT_MODE_AI_ENABLED_QUEUE_HINT_TEXT_CLASSIC: &str =
-    "Queue a follow up for the running agent, or backspace to exit";
-const AGENT_MODE_AI_ENABLED_FOLLOW_UP_HINT_TEXT_UDI: &str = "Ask a follow up";
-const AGENT_MODE_AI_ENABLED_FOLLOW_UP_HINT_TEXT_CLASSIC: &str =
-    "Ask a follow up, or backspace to exit";
-
-/// Action name for setting input mode to agent mode
-pub const SET_INPUT_MODE_AGENT_ACTION_NAME: &str = "input:set_mode_agent";
-
-/// Action name for setting input mode to terminal mode
-pub const SET_INPUT_MODE_TERMINAL_ACTION_NAME: &str = "input:set_mode_terminal";
-
-/// Action name for setting input mode to unlocked agent mode (with natural language detection)
-pub const SET_INPUT_MODE_UNLOCKED_AGENT_ACTION_NAME: &str = "input:set_mode_unlocked_agent";
-
-/// Action name for setting input mode to unlocked terminal mode (with natural language detection)
-pub const SET_INPUT_MODE_UNLOCKED_TERMINAL_ACTION_NAME: &str = "input:set_mode_unlocked_terminal";
-
-const START_NEW_CONVERSATION_KEYBINDING_NAME: &str = "input:start_new_agent_conversation";
-
 /// The position ID used to identify the start of the replacement span for completions.
 const COMPLETIONS_START_OF_REPLACEMENT_SPAN_POSITION_ID: &str =
     "start_of_completions_replacement_span";
@@ -351,22 +220,6 @@ const COMPLETIONS_START_OF_REPLACEMENT_SPAN_POSITION_ID: &str =
 const HISTORY_DETAILS_VIEW_WIDTH_REQUIREMENT: f32 = 1100.;
 
 const MIN_BUFFER_LEN_TO_SHOW_COMPLETIONS_WHILE_TYPING: usize = 2;
-
-const QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT: &str = "QueuedPromptInlineEditorOpen";
-
-/// If the editor buffer matches this prefix, AI input is enabled.
-const AI_INPUT_PREFIX: &str = "* ";
-
-/// If the editor buffer matches this prefix, terminal input is enabled and locked.
-const TERMINAL_INPUT_PREFIX: &str = "!";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InputPrefixMode {
-    None,
-    Shell,
-}
-
-const VIM_STATUS_BAR_BOTTOM_PADDING: f32 = 20.;
 
 const DYNAMIC_ENUM_GENERATE_MESSAGE: &str = "Run the following command to generate variants:";
 const DYNAMIC_ENUM_RUN_MESSAGE: &str = "Run command";
@@ -446,10 +299,6 @@ pub enum InputSuggestionsMode {
         /// TODO: eventually, we should support saving/resetting _many_ cursors rather than a single one.
         original_cursor_point: Option<BufferPoint>,
         search_mode: HistorySearchMode,
-        /// The AI input mode when arrow-up is pressed.
-        original_input_type: InputType,
-        /// The AI input's lock status when the arrow-up is pressed.
-        original_input_was_locked: bool,
     },
     CompletionSuggestions {
         /// Stores the byte index of the beginning of the text we are replacing
@@ -570,13 +419,6 @@ struct ViewerCommandExecutionRequest {
 /// Where a command execution request originates from.
 #[derive(Clone)]
 pub enum CommandExecutionSource {
-    /// A non-shared command execution request from Warp AI++.
-    /// Shared commands use the SharedSession variant instead.
-    AI {
-        /// Metadata associated with the execution.
-        metadata: AgentInteractionMetadata,
-    },
-
     /// A command execution request in a shared session (by a viewer or sharer).
     ///
     /// For a sharer, this will be processed similar to [`CommandExecutionSource::User`]
@@ -589,51 +431,13 @@ pub enum CommandExecutionSource {
         /// The block ID associated to the active block when
         /// the request was fired.
         block_id: BlockId,
-        /// Optional AI metadata if this command was requested by the AI agent
-        /// in a shared session. This is used to associate the resulting command block
-        /// with the original agent command.
-        ai_metadata: Option<AgentInteractionMetadata>,
-        /// True when the command was dispatched by a queued command row rather than the current
-        /// editor buffer, so input draft state should be preserved.
-        preserve_input: bool,
     },
 
     /// A normal command execution request.
     User,
-    /// A command dispatched by the queued-prompts panel. It should execute like a user command but
-    /// must not treat the current editor contents as the submitted command.
-    QueuedCommand,
-
     EnvVarCollection {
         metadata: BlocklistEnvVarMetadata,
     },
-}
-
-impl CommandExecutionSource {
-    /// Whether this command execution originates from an AI command.
-    pub fn is_ai_command(&self) -> bool {
-        // TODO: at some point we will want to couple both of these cases
-        // into one source variant, as they are both AI sources.
-        matches!(
-            self,
-            CommandExecutionSource::AI { .. }
-                | CommandExecutionSource::SharedSession {
-                    ai_metadata: Some(_),
-                    ..
-                }
-        )
-    }
-
-    pub fn should_preserve_input(&self) -> bool {
-        matches!(
-            self,
-            CommandExecutionSource::QueuedCommand
-                | CommandExecutionSource::SharedSession {
-                    preserve_input: true,
-                    ..
-                }
-        )
-    }
 }
 
 fn render_prompt_chip_shell_command(
@@ -686,15 +490,6 @@ impl HistoryUpMode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InputEmptyStateChangeReason {
-    /// The buffer transitioned between empty and non-empty due to a regular edit.
-    Edited,
-    /// The buffer was cleared because a user-executed command completed and we reinitialized the
-    /// buffer for the next command.
-    UserCommandCompleted,
-}
-
 pub enum Event {
     AutosuggestionAccepted,
     ClearSelectedBlock,
@@ -708,11 +503,6 @@ pub enum Event {
     UnhandledModifierKeyOnEditor(Arc<String>),
     ClearSelectionsWhenShellMode,
     InputStateChanged(InputState),
-    /// Emitted when the input text transitions between empty and non-empty states
-    InputEmptyStateChanged {
-        is_empty: bool,
-        reason: InputEmptyStateChangeReason,
-    },
     Escape,
     /// note: Terminal Inputs should only emit the variant
     /// SyncInputType::InputEditorContentsChanged.
@@ -724,7 +514,6 @@ pub enum Event {
         cleared_buffer_len: usize,
     },
     ExecuteCommand(Box<ExecuteCommandEvent>),
-    ExecuteAIQuery,
     EmacsBindingUsed,
     /// The input editor was locally edited and
     /// peers should be notified, if applicable.
@@ -736,47 +525,17 @@ pub enum Event {
         /// The CRDT-compliant operations.
         operations: Rc<Vec<CrdtOperation>>,
     },
-    /// A viewer in a shared session is requesting to send an agent prompt.
-    SendAgentPrompt {
-        server_conversation_token: Option<ServerConversationToken>,
-        prompt: String,
-        attachments: Vec<AgentAttachment>,
-    },
-
-    /// A viewer in a shared session is requesting to cancel the active agent conversation.
-    CancelSharedSessionConversation {
-        server_conversation_token: ServerConversationToken,
-    },
     InputFocusedFromMiddleClick,
     EditorFocused,
-    SignupAnonymousUser {
-        entrypoint: AnonymousUserSignupEntrypoint,
-    },
-    OpenSettings(SettingsSection),
     #[cfg(feature = "local_fs")]
     OpenCodeInWarp {
         source: CodeSource,
         layout: external_editor::settings::EditorLayout,
     },
     OpenCodeReviewPane,
-    OpenProjectRulesPane,
     OpenFilesPalette {
         source: PaletteSource,
     },
-
-    ShowToast {
-        message: String,
-        flavor: ToastFlavor,
-    },
-
-    EnterAgentView {
-        initial_prompt: Option<String>,
-        conversation_id: Option<AIConversationId>,
-        origin: AgentViewEntryOrigin,
-    },
-
-    OpenShareSessionModal,
-    StartRemoteControl,
 }
 
 pub enum InputState {
@@ -800,33 +559,11 @@ pub enum InputAction {
 
     ToggleClassicCompletionsMode,
 
-    StartNewAgentConversation {
-        origin: AgentViewEntryOrigin,
-    },
-
-    /// This is for toggling whether autodetection is enabled/disabled at the app-level,
-    /// not for whether its enabled/disabled for the current input
-    ToggleInputAutoDetection,
-
-    /// Triggers the lightbulb button click behavior to enable/toggle auto-detection
-    EnableAutoDetection,
-
-    /// Sets the hover state of the Universal Developer Input
-    SetUDIHovered(bool),
-
     /// Persist the completions menu width when the user resizes it.
     UpdateCompletionsMenuWidth(f32),
 
     /// Persist the completions menu height when the user resizes it.
     UpdateCompletionsMenuHeight(f32),
-
-    /// Toggles the '?' shortcuts UI in the agent view.
-    ToggleAgentViewShortcuts,
-
-    /// Opens the model selector menu.
-
-    /// Clears attached blocks and text selection context.
-    ClearAttachedContext,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -1064,37 +801,6 @@ impl Entity for InputRenderStateModel {
     type Event = ();
 }
 
-lazy_static! {
-    /// Define the regex patterns that we show completions-as-you-type in AI input on.
-    /// We only show file completions - as such, we match on the following patterns:
-    /// 1. "/": The last word starts with a slash
-    /// 2. "./": The last word starts with "./"
-    /// 3. "../": The last word starts with "../"
-    /// 4. "{text}/": The last word contains a slash after some text
-    /// We combine all the regex patterns for performance reasons (one string scan).
-    /// NOTE: this assumes Unix-style paths. When we expand to Windows, we'll want to update this!
-    static ref FILEPATH_PATTERN: Regex = Regex::new(
-        r"^(?:/|\.\/|\.\./|[^/]+/)"
-    ).expect("Expect regex to be valid");
-}
-
-/// Returns boolean indicating whether completions-as-you-type should pop up, while in AI input.
-/// This is primarily based on the last word in the buffer text, and whether it makes sense to show
-/// filepath completions.
-fn should_show_completions_in_ai_input(buffer_text: &str) -> bool {
-    if buffer_text.ends_with(char::is_whitespace) {
-        return false;
-    }
-
-    let last_word = buffer_text.split_whitespace().last();
-
-    if let Some(last_word) = last_word {
-        FILEPATH_PATTERN.is_match(last_word)
-    } else {
-        false
-    }
-}
-
 fn strip_control_characters(text: &str) -> Cow<'_, str> {
     if text.chars().any(|c| c.is_control()) {
         text.chars()
@@ -1138,7 +844,6 @@ impl CompletionSources {
 /// sits above [`CompletionSources::resolve`].
 fn resolve_completion_sources(
     feature_flag_enabled: bool,
-    is_ai_input: bool,
     buffer_text_is_multiline: bool,
     completions_trigger: CompletionsTrigger,
     warp_completions_enabled: bool,
@@ -1150,14 +855,10 @@ fn resolve_completion_sources(
         (true, false)
     };
 
-    if is_ai_input {
-        return CompletionSources::WarpOnly;
-    }
-
     let native_shell_completions_eligible = completions_trigger != CompletionsTrigger::AsYouType
         && native_shell_completions_enabled
         && !buffer_text_is_multiline // For now, don't use native shell completions for multi-line commands.
-        && !is_ai_input;
+        ;
 
     CompletionSources::resolve(warp_completions_enabled, native_shell_completions_eligible)
 }
@@ -1242,8 +943,6 @@ pub struct Input {
     sessions: ModelHandle<Sessions>,
     focus_handle: Option<PaneFocusHandle>,
     active_block_metadata: Option<BlockMetadata>,
-    /// The [`EntityId`] of the terminal view that this input view is inside.
-    terminal_view_id: EntityId,
     view_id: EntityId,
     input_render_state_model_handle: ModelHandle<InputRenderStateModel>,
     workflows_state: WorkflowsState,
@@ -1255,15 +954,6 @@ pub struct Input {
     /// precmd message.
     has_pending_command: bool,
     last_word_insertion: LastWordInsertion,
-
-    ai_controller: ModelHandle<BlocklistAIController>,
-    ai_context_model: ModelHandle<BlocklistAIContextModel>,
-    ai_input_model: ModelHandle<BlocklistAIInputModel>,
-    ai_action_model: ModelHandle<BlocklistAIActionModel>,
-    /// The input is responsible for managing the lifetime
-    /// of this mouse state handle.
-    #[allow(dead_code)]
-    ai_follow_up_icon_mouse_state: MouseStateHandle,
 
     /// To ensure we only have one run of completions-as-you-type at any given time,
     /// we keep an abort handle of the current run. If we have reason to start a new run
@@ -1320,33 +1010,14 @@ pub struct Input {
     #[cfg(feature = "local_fs")]
     conn: Option<Arc<Mutex<SqliteConnection>>>,
 
-    /// Cached hint text to ensure it remains stable during shell initialization hooks
-    cached_agent_mode_hint_text: Option<&'static str>,
-
-    attachment_chips: Vec<AttachmentChip>,
-
-    is_processing_attached_images: bool,
-
-    universal_developer_input_button_bar: ViewHandle<UniversalDeveloperInputButtonBar>,
-
-    agent_input_footer: ViewHandle<AgentInputFooter>,
-
     /// Cached flag indicating whether the editor buffer is empty, used to track changes between
     /// empty and non-empty states.
     ///
     /// If simply looking for if the editor contents empty, check the editor view directly instead
     /// of using this flag.
-    is_editor_empty_on_last_edit: bool,
 
     /// Weak handle to this input view for drop target data
     weak_view_handle: WeakViewHandle<Input>,
-
-    agent_status_view: ViewHandle<BlocklistAIStatusBar>,
-    /// Optional queued-prompts panel rendered between `agent_status_view` and the input editor.
-    /// Constructed in [`Input::new`] when [`FeatureFlag::QueueSlashCommand`] is enabled.
-    queued_prompts_panel: Option<ViewHandle<QueuedPromptsPanelView>>,
-    agent_view_controller: ModelHandle<AgentViewController>,
-    agent_shortcut_view_model: ModelHandle<AgentShortcutViewModel>,
 
     /// When a command is executed from a prompt chip (e.g. `cd` from the directory dropdown),
     /// we snapshot the current input contents here so we can restore them after the command
@@ -1392,15 +1063,6 @@ impl PendingShellWidgetHandoff {
             }
         }
     }
-}
-
-#[derive(Clone)]
-struct AttachmentChip {
-    file_name: String,
-    mouse_state_handle: MouseStateHandle,
-    attachment_type: AttachmentType,
-    /// Index into the unified pending_attachments list for deletion.
-    index: usize,
 }
 
 /// A map of remote buffer operations that were deferred because
@@ -1460,13 +1122,7 @@ pub fn init(app: &mut AppContext) {
             "Show History",
             // We need to ensure the workflow info box is not open as the "up" arrow
             // key is used to navigate the environment variables dropdown.
-            // Same goes with the LLM menu.
-            id!("Input")
-                & !id!("IMEOpen")
-                & !id!("WorkflowInfoBox")
-                & !id!("AgentSelectorOpen")
-                & !id!("PromptChipMenuOpen")
-                & !id!(QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT),
+            id!("Input") & !id!("IMEOpen") & !id!("WorkflowInfoBox") & !id!("PromptChipMenuOpen"),
         ),
     ]);
 
@@ -1514,9 +1170,7 @@ pub fn init(app: &mut AppContext) {
     .with_context_predicate(
         id!("Input")
             & id!(SharedSessionStatus::ActiveSharer.as_keymap_context())
-            & !id!("LongRunningCommand")
-            & !id!(flags::ACTIVE_AGENT_VIEW)
-            & !id!(flags::ACTIVE_INLINE_AGENT_VIEW),
+            & !id!("LongRunningCommand"),
     )]);
 
     if FeatureFlag::ClassicCompletions.is_enabled()
@@ -1581,53 +1235,6 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!(EXTERNAL_ALT_C_BINDING_CONTEXT))
         .with_key_binding("alt-c"),
     ]);
-
-    app.register_editable_bindings([
-        EditableBinding::new(
-            START_NEW_CONVERSATION_KEYBINDING_NAME,
-            "New agent conversation",
-            InputAction::StartNewAgentConversation {
-                origin: AgentViewEntryOrigin::Input {
-                    was_prompt_autodetected: false,
-                },
-            },
-        )
-        .with_enabled(|| !FeatureFlag::AgentView.is_enabled())
-        .with_group(bindings::BindingGroup::WarpAi.as_str())
-        .with_context_predicate(
-            id!("Input") & id!(flags::IS_ANY_AI_ENABLED) & id!("TerminalView_NonEmptyBlockList"),
-        )
-        .with_mac_key_binding("cmd-shift-N")
-        .with_linux_or_windows_key_binding("ctrl-alt-shift-N"),
-        EditableBinding::new(
-            "input:enable_auto_detection",
-            "Trigger Auto Detection",
-            InputAction::EnableAutoDetection,
-        )
-        .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
-        .with_group(bindings::BindingGroup::WarpAi.as_str())
-        .with_context_predicate(
-            id!("Input")
-                & id!("UniversalDeveloperInput")
-                & id!(flags::IS_ANY_AI_ENABLED)
-                & !id!("IMEOpen"),
-        )
-        .with_key_binding("alt-shift-I"),
-    ]);
-
-    if FeatureFlag::AgentView.is_enabled() {
-        app.register_fixed_bindings([FixedBinding::new(
-            "shift-?",
-            InputAction::ToggleAgentViewShortcuts,
-            id!("Input")
-                & !id!("IMEOpen")
-                & id!(flags::EMPTY_INPUT_BUFFER)
-                & id!(flags::ACTIVE_AGENT_VIEW)
-                & !id!("LongRunningCommand")
-                & !id!(QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT)
-                & !(id!(flags::TERMINAL_MODE_INPUT) & id!(flags::LOCKED_INPUT)),
-        )]);
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1678,16 +1285,8 @@ impl Input {
         size_info: SizeInfo,
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
         current_prompt: ModelHandle<PromptType>,
-        ai_controller: ModelHandle<BlocklistAIController>,
-        ai_context_model: ModelHandle<BlocklistAIContextModel>,
-        ai_input_model: ModelHandle<BlocklistAIInputModel>,
-        ai_action_model: ModelHandle<BlocklistAIActionModel>,
-        cli_subagent_controller: ModelHandle<CLISubagentController>,
-        terminal_view_id: EntityId,
         current_repo_path: Option<PathBuf>,
         model_events: ModelHandle<crate::terminal::model_events::ModelEventDispatcher>,
-        agent_view_controller: ModelHandle<AgentViewController>,
-        ephemeral_message_model: ModelHandle<EphemeralMessageModel>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let initial_session_context = {
@@ -1701,29 +1300,13 @@ impl Input {
         };
 
         let is_shared_session_viewer = model.lock().shared_session_status().is_viewer();
-        let footer_display_chip_config = DisplayChipConfig {
-            ai_input_model: ai_input_model.clone(),
-            ai_context_model: ai_context_model.clone(),
-            terminal_view_id,
-            menu_positioning_provider: menu_positioning_provider.clone(),
-            session_context: initial_session_context.clone(),
-            current_repo_path: current_repo_path.clone(),
-            model_events: model_events.clone(),
-            is_shared_session_viewer,
-            agent_view_controller: agent_view_controller.clone(),
-        };
-
         let prompt_view = ctx.add_typed_action_view(|ctx| {
             PromptDisplay::new(
                 current_prompt.clone(),
-                ai_input_model.clone(),
-                ai_context_model.clone(),
-                terminal_view_id,
                 menu_positioning_provider.clone(),
                 initial_session_context.clone(),
                 current_repo_path.clone(),
                 model_events.clone(),
-                agent_view_controller.clone(),
                 is_shared_session_viewer,
                 ctx,
             )
@@ -1741,20 +1324,6 @@ impl Input {
                 ctx.notify();
             }
         });
-        ctx.subscribe_to_model(&agent_view_controller, |me, _, event, ctx| {
-            use crate::ai::blocklist::agent_view::AgentViewControllerEvent;
-            if let AgentViewControllerEvent::EnteredAgentView { .. } = event {
-                me.close_suggestion_modes_for_new_conversation(ctx);
-                // Entering Agent View can remove multiline same-line prompt decorator content in a
-                // single render pass. Reset shrink-delay so we don't hold onto stale input height
-                // for one frame (which shows up as extra bottom padding/jitter).
-                me.editor.update(ctx, |editor, ctx| {
-                    editor.reset_height_shrink_delay(ctx);
-                });
-            }
-            ctx.notify();
-        });
-
         let prompt_selection_state_handle = SelectionHandle::default();
 
         let view_id = ctx.view_id();
@@ -1762,104 +1331,20 @@ impl Input {
         let input_render_state_model_handle: ModelHandle<InputRenderStateModel> =
             ctx.add_model(|_| InputRenderStateModel::new(false, size_info));
 
-        let universal_developer_input_button_bar = ctx.add_typed_action_view(|ctx| {
-            UniversalDeveloperInputButtonBar::new(
-                terminal_view_id,
-                ai_input_model.clone(),
-                cli_subagent_controller.clone(),
-                model.clone(),
-                ctx,
-            )
-        });
-        ctx.subscribe_to_view(
-            &universal_developer_input_button_bar,
-            |me, _, event, ctx| {
-                me.handle_universal_developer_input_button_bar_event(event, ctx);
-            },
-        );
-        let agent_input_footer = ctx.add_typed_action_view(|ctx| {
-            AgentInputFooter::new(
-                menu_positioning_provider.clone(),
-                terminal_view_id,
-                model.clone(),
-                current_prompt.clone(),
-                footer_display_chip_config.clone(),
-                ctx,
-            )
-        });
-
-        ctx.subscribe_to_view(&agent_input_footer, |me, _, event, ctx| {
-            match event {
-                AgentInputFooterEvent::SelectFile => {
-                    me.select_image(ctx);
-                }
-                AgentInputFooterEvent::StartRemoteControl
-                | AgentInputFooterEvent::StopRemoteControl => {
-                    // Handled by UseAgentToolbar's subscription, not here.
-                }
-                // The file explorer event is handled by UseAgentToolbar's subscription.
-                AgentInputFooterEvent::ToggleFileExplorer => {}
-                AgentInputFooterEvent::ToggledChipMenu { open } => {
-                    me.handle_prompt_event(&PromptDisplayEvent::ToggleMenu { open: *open }, ctx);
-                }
-                AgentInputFooterEvent::TryExecuteChipCommand(cmd) => {
-                    me.handle_prompt_event(
-                        &PromptDisplayEvent::TryExecuteCommand(cmd.clone()),
-                        ctx,
-                    );
-                }
-                AgentInputFooterEvent::PromptAlert(prompt_alert_event) => {
-                    me.handle_prompt_alert(prompt_alert_event, ctx);
-                }
-                AgentInputFooterEvent::OpenSettings(section) => {
-                    ctx.emit(Event::OpenSettings(*section));
-                }
-                AgentInputFooterEvent::OpenCodeReview => {
-                    ctx.emit(Event::OpenCodeReviewPane);
-                }
-                AgentInputFooterEvent::ShowContextMenu { position } => {
-                    let position_id = format!("prompt_area_{}", me.view_id);
-                    let offset = if let Some(prompt_rect) = ctx.element_position_by_id(&position_id)
-                    {
-                        *position - prompt_rect.origin()
-                    } else {
-                        *position
-                    };
-                    ctx.dispatch_typed_action(&TerminalAction::PromptContextMenu {
-                        position_offset_from_prompt: offset,
-                    });
-                }
-            }
-        });
         let prompt_render_helper = PromptRenderHelper::new(
             sessions.clone(),
             prompt_view,
             prompt_selection_state_handle,
             view_id,
             input_render_state_model_handle.clone(),
-            ai_input_model.clone(),
         );
 
-        let ai_follow_up_icon_mouse_state = MouseStateHandle::default();
         let editor = {
             // Clones used in render_decorator_elements closure below.
             let prompt_render_helper_clone = prompt_render_helper.clone();
             let model_clone = model.clone();
             // Clone used in keymap_context_modifier closure below.
             let input_render_state_model_handle_clone = input_render_state_model_handle.clone();
-
-            let ai_context_model_clone = ai_context_model.clone();
-            let ai_input_model = ai_input_model.clone();
-
-            ctx.subscribe_to_model(&ai_input_model, |me, _, _, ctx| {
-                me.update_image_context_options(ctx);
-                me.update_editor_input_mode(ctx);
-            });
-
-            let ai_input_model_clone = ai_input_model.clone();
-            let ai_follow_up_icon_mouse_state_clone = ai_follow_up_icon_mouse_state.clone();
-            let agent_view_controller_clone = agent_view_controller.clone();
-            let other_agent_view_controller_clone = agent_view_controller.clone();
 
             ctx.add_typed_action_view(|ctx| {
                 let options = EditorOptions {
@@ -1885,15 +1370,11 @@ impl Input {
                             let is_universal_developer_input_enabled = InputSettings::as_ref(app)
                                 .is_universal_developer_input_enabled(app);
 
-                            if (!FeatureFlag::AgentView.is_enabled()
-                                || !agent_view_controller_clone.as_ref(app).is_active())
-                                && should_render_prompt_using_editor_decorator_elements(
-                                    is_universal_developer_input_enabled,
-                                    &ai_input_model,
-                                    &terminal_model,
-                                    app,
-                                )
-                            {
+                            if should_render_prompt_on_same_line(
+                                is_universal_developer_input_enabled,
+                                &terminal_model,
+                                app,
+                            ) {
                                 let SameLinePromptElements {
                                     lprompt_top,
                                     lprompt_bottom,
@@ -1916,108 +1397,33 @@ impl Input {
                                 )
                             }
 
-                            // Render the AI mode indicator to the left of the editor if we're in AI mode or the AI suggested a command.
-                            // Also renders the reply icon when following up in an existing conversation.
-                            if let Some(ai_input_indicator) = maybe_render_ai_input_indicators(
-                                &ai_input_model,
-                                &ai_context_model_clone,
-                                &agent_view_controller_clone,
-                                ai_follow_up_icon_mouse_state_clone.clone(),
-                                app,
-                            ) {
-                                editor_decorator_elements.left_notch =
-                                    match editor_decorator_elements.left_notch {
-                                        Some(left_notch) => {
-                                            // If there is already a left notch, place the  to
-                                            // the right of the notch to keep the pill immediately
-                                            // to the left of the editor.
-                                            Some(
-                                                Flex::row()
-                                                    .with_child(left_notch)
-                                                    .with_child(ai_input_indicator)
-                                                    .finish(),
-                                            )
-                                        }
-                                        None => Some(ai_input_indicator),
-                                    }
-                            }
-
                             editor_decorator_elements
                         },
                     )),
-                    cursor_colors_fn: Box::new(move |app| {
-                        let is_ai_input_enabled =
-                            ai_input_model_clone.as_ref(app).is_ai_input_enabled();
-                        let appearance = Appearance::as_ref(app);
-                        if is_ai_input_enabled {
-                            let color_identifier = if FeatureFlag::AgentView.is_enabled() {
-                                AnsiColorIdentifier::Magenta
-                            } else {
-                                AnsiColorIdentifier::Yellow
-                            };
-                            let cursor_color = color_identifier
-                                .to_ansi_color(&appearance.theme().terminal_colors().normal);
-                            let selection_color = ColorU::new(
-                                cursor_color.r,
-                                cursor_color.g,
-                                cursor_color.b,
-                                // Text selection color tones down the alpha to 40%.
-                                (0.4 * 255.) as u8,
-                            );
-
-                            CursorColors {
-                                cursor: cursor_color.into(),
-                                selection: selection_color.into(),
-                            }
-                        } else {
-                            default_cursor_colors(app)
-                        }
-                    }),
+                    cursor_colors_fn: Box::new(default_cursor_colors),
                     baseline_position_computation_method: BaselinePositionComputationMethod::Grid,
                     // We implement middle-click paste at the [`TerminalView`] level,
                     // and we don't want to double-paste.
                     middle_click_paste: false,
                     allow_user_cursor_preference: true,
                     delegate_paste_handling: true,
-                    keymap_context_modifier: Some(Box::new(move |context, app| {
+                    keymap_context_modifier: Some(Box::new(move |context, _app| {
                         context
                             .set
                             .insert(flags::TERMINAL_INPUT_PAGE_KEYS_HANDLED_BY_INPUT);
-
-                        if FeatureFlag::AgentView.is_enabled() {
-                            context.set.insert(flags::AGENT_VIEW_ENABLED);
-                        }
-
-                        if !other_agent_view_controller_clone.as_ref(app).is_active()
-                            && !cfg!(target_os = "macos")
-                        {
-                            context.set.insert(flags::CTRL_ENTER_ENTERS_AGENT_VIEW);
-                        }
                     })),
                     ..Default::default()
                 };
-                EditorView::new(options, ctx).with_context_model(ai_context_model.clone())
+                EditorView::new(options, ctx)
             })
         };
 
-        let buffer_model = ctx.add_model(|ctx| InputBufferModel::new(&editor, ctx));
         let suggestions_mode_model = ctx.add_model(|_| InputSuggestionsModeModel::default());
-
-        let agent_shortcut_view_model = ctx.add_model(|ctx| {
-            AgentShortcutViewModel::new(buffer_model.clone(), agent_view_controller.clone(), ctx)
-        });
-        ctx.subscribe_to_model(&agent_shortcut_view_model, |_, _, _, ctx| {
-            ctx.notify();
-        });
 
         current_prompt.update(ctx, |prompt_type, ctx| {
             if let PromptType::Dynamic { prompt } = prompt_type {
                 prompt.update(ctx, |current_prompt, ctx| {
-                    current_prompt.subscribe_to_input_editor(
-                        editor.clone(),
-                        agent_view_controller.clone(),
-                        ctx,
-                    );
+                    current_prompt.subscribe_to_input_editor(editor.clone(), ctx);
                 });
             }
         });
@@ -2081,207 +1487,8 @@ impl Input {
             Self::handle_input_settings_event,
         );
 
-        ctx.subscribe_to_model(&ai_controller, |me, _, event, ctx| match event {
-            BlocklistAIControllerEvent::SentRequest {
-                contains_user_query: is_user_initiated,
-                is_queued_prompt,
-                ..
-            } => {
-                // Skip the buffer clear for queued prompts. The user may have typed new
-                // input while the agent was busy and we don't want to wipe it on auto-send.
-                if *is_user_initiated && !*is_queued_prompt {
-                    me.editor.update(ctx, |editor, ctx| {
-                        editor.system_clear_buffer(true, ctx);
-                    });
-                    ctx.notify();
-                }
-            }
-            BlocklistAIControllerEvent::ExportConversationToFile {
-                #[cfg_attr(target_family = "wasm", allow(unused))]
-                filename,
-            } => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    me.export_conversation_to_file(filename.clone(), ctx);
-                }
-                #[cfg(target_family = "wasm")]
-                {
-                    log::warn!("Export to file is not supported on WASM");
-                }
-            }
-            _ => {}
-        });
-
-        ctx.subscribe_to_model(&suggestions_mode_model, |me, _, _, ctx| {
-            me.set_zero_state_hint_text(ctx);
+        ctx.subscribe_to_model(&suggestions_mode_model, |_, _, _, ctx| {
             ctx.notify();
-        });
-
-        ctx.subscribe_to_model(&ai_input_model, |me, _, event, ctx| {
-            let _ = me
-                .debounce_input_background_tx
-                .try_send(InputBackgroundJobOptions::default().with_command_decoration());
-
-            let config = event.updated_config();
-            if config.is_locked && me.suggestions_mode_model.as_ref(ctx).is_visible() {
-                me.close_input_suggestions(/*should_focus_input=*/ false, ctx);
-            }
-
-            if config.input_type.is_ai() && !config.is_locked {
-                // If command x-ray is open, hide it -- it shouldn't show in AI input mode.
-                me.hide_x_ray(ctx);
-            }
-
-            me.editor.update(ctx, |editor, ctx| {
-                editor.clear_autosuggestion_for_input_type(config.input_type, ctx);
-            });
-            me.set_zero_state_hint_text(ctx);
-            ctx.notify();
-        });
-        // Re-render the input's placeholder/hint text when any history event that could
-        // change `selected_conversation_status_for_hint` fires — the selected conversation
-        // swapping, its status changing, its title being set/unset, it becoming non-empty,
-        // or its being cleared. Mirrors the set used by
-        // `agent_conversation_event_affects_vertical_tabs` in `workspace/view.rs` that keeps
-        // vertical tab progress indicators in sync.
-        ctx.subscribe_to_model(
-            &BlocklistAIHistoryModel::handle(ctx),
-            move |me, _, event, ctx| {
-                let affects_hint = matches!(
-                    event,
-                    BlocklistAIHistoryEvent::UpdatedConversationStatus { .. }
-                        | BlocklistAIHistoryEvent::SetActiveConversation { .. }
-                        | BlocklistAIHistoryEvent::ClearedActiveConversation { .. }
-                        | BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface { .. }
-                        | BlocklistAIHistoryEvent::StartedNewConversation { .. }
-                        | BlocklistAIHistoryEvent::SplitConversation { .. }
-                        | BlocklistAIHistoryEvent::AppendedExchange { .. }
-                        | BlocklistAIHistoryEvent::UpdatedStreamingExchange { .. }
-                        | BlocklistAIHistoryEvent::UpdatedConversationTitle { .. }
-                        | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
-                        | BlocklistAIHistoryEvent::RestoredConversations { .. }
-                );
-                if !affects_hint {
-                    return;
-                }
-                if event.terminal_surface_id() != Some(terminal_view_id) {
-                    return;
-                }
-                me.set_zero_state_hint_text(ctx);
-                ctx.notify();
-            },
-        );
-        ctx.subscribe_to_model(&QueuedQueryModel::handle(ctx), |me, _, event, ctx| {
-            let affects_hint = match event {
-                QueuedQueryEvent::QueueNextPromptToggled { conversation_id } => me
-                    .ai_context_model
-                    .as_ref(ctx)
-                    .selected_conversation_id(ctx)
-                    .is_some_and(|selected_id| selected_id == *conversation_id),
-                QueuedQueryEvent::DefaultModeChanged => true,
-                _ => false,
-            };
-            if affects_hint {
-                me.set_zero_state_hint_text(ctx);
-                ctx.notify();
-            }
-        });
-
-        // Refresh the ghost text when control of a long-running command changes hands —
-        // queue mode is auto-enabled while the agent holds control, so the steer/queue
-        // hint must track the control state.
-        ctx.subscribe_to_model(&cli_subagent_controller, |me, _, event, ctx| {
-            if matches!(
-                event,
-                CLISubagentEvent::SpawnedSubagent { .. }
-                    | CLISubagentEvent::UpdatedControl { .. }
-                    | CLISubagentEvent::FinishedSubagent { .. }
-                    | CLISubagentEvent::ControlHandedBackAfterTransfer
-            ) {
-                me.set_zero_state_hint_text(ctx);
-                ctx.notify();
-            }
-        });
-
-        ctx.subscribe_to_model(&ai_context_model, |me, context_model, event, ctx| {
-            match event {
-                BlocklistAIContextEvent::PendingQueryStateUpdated => {
-                    me.remove_excess_images(ctx);
-                    me.update_image_context_options(ctx);
-                    me.set_zero_state_hint_text(ctx);
-                    // If buffer empty and autodetect enabled, set the underlying input type to AI.
-                    // Visually to the user, empty buffer is really a separate unclassified state. But since we don't support a third state
-                    // in the model right now, we set the type to AI to make sure conversation block context is rendered when a conversation is selected
-                    // on empty buffer. The actual underlying type doesn't otherwise matter on an empty buffer.
-                    let is_empty_buffer = me.editor().as_ref(ctx).buffer_text(ctx).is_empty();
-                    if is_empty_buffer {
-                        me.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                            let is_auto_detection_enabled = !ai_input_model.is_input_type_locked();
-                            if is_auto_detection_enabled {
-                                ai_input_model.set_input_type(
-                                    InputType::AI,
-                                    Some(InputTypeAutoDetectionSource::ConversationContextRender),
-                                    ctx,
-                                );
-                            }
-                        });
-                    }
-                    // The editor view renders the follow up icon, so we need to re-render the editor view.
-                    me.editor().update(ctx, |_, ctx| {
-                        ctx.notify();
-                    })
-                }
-                BlocklistAIContextEvent::UpdatedPendingContext { .. } => {
-                    me.update_image_context_options(ctx);
-                    me.attachment_chips = context_model
-                        .as_ref(ctx)
-                        .pending_attachments()
-                        .iter()
-                        .enumerate()
-                        .map(|(i, attachment)| AttachmentChip {
-                            file_name: attachment.file_name().to_string(),
-                            mouse_state_handle: Default::default(),
-                            attachment_type: attachment.attachment_type(),
-                            index: i,
-                        })
-                        .collect_vec();
-                }
-            }
-            ctx.notify();
-        });
-
-        ctx.subscribe_to_model(&LLMPreferences::handle(ctx), |me, _, event, ctx| {
-            if let LLMPreferencesEvent::UpdatedActiveAgentModeLLM = event {
-                // If the new model doesn't support vision and we had image chips,
-                // the context model already cleared them — show a toast.
-                let has_image_chips = me
-                    .attachment_chips
-                    .iter()
-                    .any(|c| matches!(c.attachment_type, AttachmentType::Image));
-                let scope = ResolvedTeamScope::from_scope(
-                    &UserWorkspaces::as_ref(ctx).team_context_for_view(ctx),
-                );
-                let vision_supported = LLMPreferences::as_ref(ctx)
-                    .vision_supported(&scope, ctx, Some(me.terminal_view_id));
-                if has_image_chips && !vision_supported {
-                    let window_id = ctx.window_id();
-                    ToastStack::handle(ctx).update(ctx, |ts, ctx| {
-                        ts.add_ephemeral_toast(
-                            DismissibleToast::error(
-                                "Attached images were removed — the selected model does not support images.".to_string(),
-                            ),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-                me.update_image_context_options(ctx);
-                ctx.notify();
-            }
-        });
-
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
-            me.handle_ai_settings_changed_event(event, ctx)
         });
 
         ctx.subscribe_to_model(
@@ -2291,56 +1498,6 @@ impl Input {
             },
         );
 
-        let ai_req_usage_model = AIRequestUsageModel::handle(ctx);
-        ctx.subscribe_to_model(&ai_req_usage_model, |_, _, _, ctx| {
-            ctx.notify();
-        });
-        ctx.observe(&ai_req_usage_model, |_, _, ctx| {
-            ctx.notify();
-        });
-
-        let agent_status_view = ctx.add_typed_action_view(|ctx| {
-            BlocklistAIStatusBar::new(
-                ai_controller.clone(),
-                agent_view_controller.clone(),
-                cli_subagent_controller.clone(),
-                ai_action_model.clone(),
-                ai_context_model.clone(),
-                ai_input_model.clone(),
-                buffer_model,
-                &model_events,
-                model.clone(),
-                agent_shortcut_view_model.clone(),
-                ephemeral_message_model.clone(),
-                terminal_view_id,
-                ctx,
-            )
-        });
-
-        let queued_prompts_panel = FeatureFlag::QueueSlashCommand.is_enabled().then(|| {
-            let cli_subagent_controller = cli_subagent_controller.clone();
-            let host_editor = editor.clone();
-            let panel = ctx.add_typed_action_view(|ctx| {
-                QueuedPromptsPanelView::new(
-                    terminal_view_id,
-                    cli_subagent_controller,
-                    host_editor,
-                    ctx,
-                )
-            });
-            ctx.subscribe_to_view(&panel, |me, _, event, ctx| {
-                me.handle_queued_prompts_panel_event(event, ctx);
-            });
-            // Seed the host-pushed send permission; later changes flow through the
-            // shared-session role-change push in `TerminalView::on_self_role_updated`. Input
-            // emptiness is not pushed: the panel reads the host editor live.
-            let can_send_prompt = !model.lock().shared_session_status().is_reader();
-            panel.update(ctx, |panel, ctx| {
-                panel.set_can_send_prompt(can_send_prompt, ctx);
-            });
-            panel
-        });
-
         let deferred_remote_operations =
             DeferredRemoteOperations::new(model.lock().block_list().active_block_id().clone());
 
@@ -2349,7 +1506,6 @@ impl Input {
         let completions_menu_width = *input_settings.completions_menu_width.value();
         let completions_menu_height = *input_settings.completions_menu_height.value();
 
-        let is_editor_empty = editor.as_ref(ctx).is_empty(ctx);
         let mut input = Self {
             input_suggestions,
             suggestions_mode_model,
@@ -2374,14 +1530,8 @@ impl Input {
             autosuggestions_abort_handle: None,
             completions_abort_handle: None,
             menu_positioning_provider,
-            universal_developer_input_button_bar,
             prompt_render_helper,
             prompt_type: current_prompt,
-            ai_controller,
-            ai_context_model,
-            ai_input_model,
-            ai_action_model,
-            ai_follow_up_icon_mouse_state: MouseStateHandle::default(),
             enable_autosuggestions_setting: *editor_settings_handle
                 .as_ref(ctx)
                 .enable_autosuggestions,
@@ -2391,19 +1541,9 @@ impl Input {
             shared_session_presence_manager: None,
             last_user_block_completed: None,
             hoverable_handle: Default::default(),
-            terminal_view_id,
             #[cfg(feature = "local_fs")]
             conn: None,
-            attachment_chips: Default::default(),
-            is_processing_attached_images: false,
-            cached_agent_mode_hint_text: None,
-            is_editor_empty_on_last_edit: is_editor_empty,
             weak_view_handle: ctx.handle(),
-            agent_status_view,
-            queued_prompts_panel,
-            agent_view_controller,
-            agent_input_footer,
-            agent_shortcut_view_model,
             input_contents_before_prompt_chip_command: None,
             pending_shell_widget_handoff: None,
         };
@@ -2419,130 +1559,12 @@ impl Input {
             input.editor.update(ctx, |editor, ctx| {
                 editor.set_interaction_state(InteractionState::Selectable, ctx);
             });
-        } else {
-            input.set_zero_state_hint_text(ctx);
         }
-
-        input.update_image_context_options(ctx);
-        input.update_editor_input_mode(ctx);
 
         input
     }
 
-    fn update_editor_input_mode(&mut self, ctx: &mut ViewContext<Self>) {
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-        let is_ai_input = ai_input_model.input_type().is_ai();
-        self.editor.update(ctx, move |editor, ctx| {
-            editor.set_is_ai_input(is_ai_input, ctx);
-            ctx.notify();
-        });
-    }
-
-    pub fn agent_status_bar(&self) -> &ViewHandle<BlocklistAIStatusBar> {
-        &self.agent_status_view
-    }
-
-    fn handle_queued_prompts_panel_event(
-        &mut self,
-        event: &QueuedPromptsPanelEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            QueuedPromptsPanelEvent::SendNow {
-                conversation_id,
-                query_id,
-                text,
-                is_command,
-            } => {
-                self.send_queued_row_immediately(
-                    *conversation_id,
-                    *query_id,
-                    text.clone(),
-                    *is_command,
-                    QueuedPromptSendNowTrigger::SendNowButton,
-                    ctx,
-                );
-            }
-            QueuedPromptsPanelEvent::RowDeleted => {
-                self.focus_input_box(ctx);
-            }
-            QueuedPromptsPanelEvent::EditEnded => {
-                self.focus_input_box(ctx);
-            }
-        }
-    }
-
-    /// Dispatches a queued row immediately: commands execute in the terminal, prompts submit to
-    /// the conversation's current target. On dispatch, removes the fired row and refocuses the
-    /// input. Shared by the row's send-now button and empty-buffer Enter.
-    fn send_queued_row_immediately(
-        &mut self,
-        conversation_id: AIConversationId,
-        query_id: QueuedQueryId,
-        text: String,
-        is_command: bool,
-        trigger: QueuedPromptSendNowTrigger,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Read the origin before dispatch; the row is removed once it fires.
-        let origin = QueuedQueryModel::as_ref(ctx)
-            .queue(conversation_id)
-            .iter()
-            .find(|row| row.id() == query_id)
-            .map(|row| row.origin());
-        let dispatched = if is_command {
-            self.execute_queued_command(&text, conversation_id, ctx)
-        } else {
-            self.submit_queued_prompt_for_active_pane(text, conversation_id, query_id, ctx);
-            true
-        };
-        if !dispatched {
-            return;
-        }
-        if let Some(origin) = origin {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::QueuedPromptSentNow {
-                    origin: origin.into(),
-                    trigger,
-                },
-                ctx
-            );
-        }
-        QueuedQueryModel::handle(ctx).update(ctx, |model, ctx| {
-            model.remove_fired_row(conversation_id, query_id, ctx);
-        });
-        self.focus_input_box(ctx);
-    }
-
-    /// The queued prompts panel, when [`FeatureFlag::QueueSlashCommand`] is enabled.
-    pub(crate) fn queued_prompts_panel(&self) -> Option<&ViewHandle<QueuedPromptsPanelView>> {
-        self.queued_prompts_panel.as_ref()
-    }
-
-    /// Returns whether this input's queued-prompt inline editor is currently focused.
-    pub(crate) fn is_queued_prompt_inline_editor_focused(&self, ctx: &AppContext) -> bool {
-        self.queued_prompts_panel
-            .as_ref()
-            .is_some_and(|panel| panel.as_ref(ctx).is_inline_edit_editor_focused(ctx))
-    }
-
-    /// Returns whether the active queued prompt is being edited inline.
-    fn is_editing_queued_prompt(&self, ctx: &AppContext) -> bool {
-        let Some(conversation_id) =
-            BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_view_id)
-        else {
-            return false;
-        };
-        QueuedQueryModel::as_ref(ctx)
-            .editing_row(conversation_id)
-            .is_some()
-    }
-
-    pub fn agent_input_footer(&self) -> &ViewHandle<AgentInputFooter> {
-        &self.agent_input_footer
-    }
-
-    /// Shows a transient error toast for a follow-up submission that was blocked or redirected.
+    /// Shows a transient error toast for an input operation that was blocked or redirected.
     fn show_ephemeral_error_toast(&self, message: &str, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
@@ -2554,263 +1576,11 @@ impl Input {
         });
     }
 
-    /// Routes an AI query submission to the correct non-local target, using the same
-    /// [`resolve_ai_query_routing`] source of truth as the footer live-VM indicator, so a
-    /// shared conversation never continues on the local agent. Shared by
-    /// [`Self::submit_ai_query_with_routing`] (the Enter submit path) and
-    /// `input_cmd_enter`.
-    ///
-    /// Returns `true` when the submission was forwarded or blocked with a toast and the caller should stop; `false` when the
-    /// caller should handle the local case (submit locally for Enter). Also returns `false` for an executor viewer
-    /// running a local-action slash command such as `/fork`.
-    fn maybe_route_ai_query_to_remote_target(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        // Nothing to route for an empty buffer; let the caller's normal (no-op) handling run.
-        if self.editor.as_ref(ctx).buffer_text(ctx).trim().is_empty() {
-            return false;
-        }
-
-        let ai_query_routing = resolve_ai_query_routing(&self.model.lock());
-        match ai_query_routing {
-            AIQueryRouting::Local => false,
-            AIQueryRouting::LiveRemoteVm {
-                is_executor: true, ..
-            } => {
-                // Returns false for local-action slash commands (e.g. /fork), which should still
-                // run on the viewer's own machine; the caller then proceeds to local submission.
-                self.submit_viewer_ai_query(ctx)
-            }
-            AIQueryRouting::LiveRemoteVm {
-                is_executor: false, ..
-            } => {
-                if self.model.lock().shared_session_status().is_active_viewer() {
-                    // Connected to the live session but without an executor role.
-                    log::warn!("Viewer tried to submit AI query without executor role");
-                    self.show_ephemeral_error_toast(
-                        "Cannot send queries as a read-only viewer.",
-                        ctx,
-                    );
-                }
-                true
-            }
-            AIQueryRouting::UnconnectedReadOnly => {
-                self.show_ephemeral_error_toast("This shared session is not connected.", ctx);
-                true
-            }
-        }
-    }
-
-    /// Primary entry point for submitting the input buffer as an AI query. Routes to the correct
-    /// target via [`Self::maybe_route_ai_query_to_remote_target`] (live viewer, disconnected or
-    /// read-only), falling back to [`Self::submit_ai_query_local`] for ordinary local panes and
-    /// for an executor viewer running a local-action slash command (e.g. `/fork`).
-    fn submit_ai_query_with_routing(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.maybe_route_ai_query_to_remote_target(ctx) {
-            self.submit_ai_query_local(ctx);
-        }
-    }
-
-    fn prefix_mode(&self, ctx: &AppContext) -> InputPrefixMode {
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-        let is_shell_active =
-            ai_input_model.is_input_type_locked() && !ai_input_model.input_type().is_ai();
-
-        if is_shell_active {
-            InputPrefixMode::Shell
-        } else {
-            InputPrefixMode::None
-        }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn export_conversation_to_file(
-        &mut self,
-        filename_arg: Option<String>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let history = BlocklistAIHistoryModel::handle(ctx);
-        let Some(conversation) = history
-            .as_ref(ctx)
-            .active_conversation(self.terminal_view_id)
-        else {
-            let window_id = ctx.window_id();
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                let toast =
-                    DismissibleToast::default(String::from("No active conversation to export"));
-                toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-            });
-            return;
-        };
-        let current_directory = self
-            .active_block_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.current_working_directory())
-            .map(str::to_owned);
-        let conversation_title = conversation.title();
-
-        let action_model = self.ai_action_model.as_ref(ctx);
-        let conversation_text = conversation.export_to_markdown(Some(action_model));
-        match export_conversation_markdown(
-            current_directory.as_deref(),
-            filename_arg.as_deref(),
-            conversation_title.as_deref(),
-            &conversation_text,
-        ) {
-            Ok(export) => {
-                let window_id = ctx.window_id();
-                let display_path = export.path().display().to_string();
-                ToastStack::handle(ctx).update(ctx, move |toast_stack, ctx| {
-                    if export.overwrote_existing() {
-                        let toast = DismissibleToast::default(format!(
-                            "File {display_path} already exists and will be overwritten"
-                        ));
-                        toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                    }
-                    let toast = DismissibleToast::default(format!(
-                        "Conversation exported to {display_path}"
-                    ));
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-            }
-            Err(error) => {
-                let user_message = error.user_message();
-                let path = error.path().to_path_buf();
-
-                log::error!(
-                    "Failed to write conversation to file {}: {error}",
-                    path.display()
-                );
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, move |toast_stack, ctx| {
-                    let toast = DismissibleToast::default(user_message);
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-            }
-        }
-        self.editor.update(ctx, |editor, ctx| {
-            editor.clear_buffer(ctx);
-        });
-    }
-    /// When the active conversation is changed, the number of attached images may exceed the
-    /// limit of images for a conversation
-    pub fn remove_excess_images(&mut self, ctx: &mut ViewContext<Self>) {
-        let num_images_attached = self.ai_context_model.as_ref(ctx).pending_images().len();
-
-        let Some(conversation) = self.ai_context_model.as_ref(ctx).selected_conversation(ctx)
-        else {
-            return;
-        };
-
-        let num_images_in_conversation = conversation
-            .get_root_task()
-            .into_iter()
-            .flat_map(|task| {
-                task.all_contexts()
-                    .filter(|context| matches!(context, AIAgentContext::Image(_)))
-            })
-            .count();
-
-        let excess_images = (num_images_in_conversation + num_images_attached)
-            .saturating_sub(MAX_IMAGES_PER_CONVERSATION);
-
-        let images_removed = self.ai_context_model.update(ctx, |context_model, ctx| {
-            context_model.remove_last_pending_images(excess_images, ctx)
-        });
-
-        if images_removed > 0 {
-            let window_id = ctx.window_id();
-
-            let message = if images_removed == 1 {
-                "1 image was removed - limit is 20 per conversation.".into()
-            } else {
-                format!("{images_removed} images were removed - limit is 20 per conversation.")
-            };
-
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                toast_stack.add_persistent_toast(DismissibleToast::error(message), window_id, ctx);
-            });
-        }
-    }
-
-    pub fn update_image_context_options(&mut self, ctx: &mut ViewContext<Self>) {
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-
-        let llm_prefs = LLMPreferences::as_ref(ctx);
-
-        let scope =
-            ResolvedTeamScope::from_scope(&UserWorkspaces::as_ref(ctx).team_context_for_view(ctx));
-        let vision_supported = llm_prefs.vision_supported(&scope, ctx, Some(self.terminal_view_id));
-
-        let num_images_attached = self.ai_context_model.as_ref(ctx).pending_images().len();
-
-        let conversation = self.ai_context_model.as_ref(ctx).selected_conversation(ctx);
-
-        let num_images_in_conversation = conversation
-            .and_then(|conversation| conversation.get_root_task())
-            .into_iter()
-            .flat_map(|task| {
-                task.all_contexts()
-                    .filter(|context| matches!(context, AIAgentContext::Image(_)))
-            })
-            .count();
-
-        // Image context is available whenever the feature flag is enabled and we're in AI input
-        // mode, including cloud mode
-        let image_context_options = if FeatureFlag::ImageAsContext.is_enabled()
-            && matches!(ai_input_model.input_type(), InputType::AI)
-        {
-            ImageContextOptions::Enabled {
-                unsupported_model: !vision_supported,
-                is_processing_attached_images: self.is_processing_attached_images,
-                num_images_attached,
-                num_images_in_conversation,
-            }
-        } else {
-            ImageContextOptions::Disabled
-        };
-
-        self.editor.update(ctx, move |editor, ctx| {
-            editor.update_image_context_options(image_context_options, ctx);
-            ctx.notify();
-        });
-    }
-
     pub fn set_shared_session_presence_manager(
         &mut self,
         presence_manager: ModelHandle<PresenceManager>,
     ) {
         self.shared_session_presence_manager = Some(presence_manager);
-    }
-
-    // Auto-attach the last block for this query.
-    pub fn clear_attached_context(&mut self, ctx: &mut ViewContext<Self>) {
-        self.ai_context_model.update(ctx, |model, ctx| {
-            model.reset_context_to_default(ctx);
-        });
-        ctx.emit(Event::ClearSelectionsWhenShellMode);
-    }
-
-    pub fn ai_input_model(&self) -> &ModelHandle<BlocklistAIInputModel> {
-        &self.ai_input_model
-    }
-
-    fn cancel_active_conversation(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-        cancellation_reason: CancellationReason,
-    ) {
-        self.ai_controller.update(ctx, |controller, ctx| {
-            let active_conversation_id = BlocklistAIHistoryModel::as_ref(ctx)
-                .active_conversation(self.terminal_view_id)
-                .filter(|conversation| conversation.status().is_in_progress())
-                .map(|conversation| conversation.id());
-            if let Some(active_conversation_id) = active_conversation_id {
-                controller.cancel_conversation_progress(
-                    active_conversation_id,
-                    cancellation_reason,
-                    ctx,
-                );
-            }
-        });
     }
 
     fn handle_prompt_event(&mut self, event: &PromptDisplayEvent, ctx: &mut ViewContext<Self>) {
@@ -2847,19 +1617,6 @@ impl Input {
                     source: PaletteSource::ContextChip,
                 });
             }
-            PromptDisplayEvent::RunAgentQuery(query) => {
-                self.cancel_active_conversation(ctx, CancellationReason::UserCommandExecuted);
-                let query = query.clone();
-                self.ai_controller.update(ctx, |controller, ctx| {
-                    controller.send_user_query_in_new_conversation(
-                        query,
-                        None,
-                        EntrypointType::UserInitiated,
-                        None,
-                        ctx,
-                    );
-                });
-            }
             PromptDisplayEvent::TryExecuteCommand(command) => {
                 let Some(shell_type) = self
                     .active_session(ctx)
@@ -2876,11 +1633,9 @@ impl Input {
                     CommandExecutionSource::User,
                     true,
                     ctx,
-                ) {
-                    self.cancel_active_conversation(ctx, CancellationReason::UserCommandExecuted);
-                    if !current_input.is_empty() {
-                        self.input_contents_before_prompt_chip_command = Some(current_input);
-                    }
+                ) && !current_input.is_empty()
+                {
+                    self.input_contents_before_prompt_chip_command = Some(current_input);
                 }
             }
         }
@@ -2959,16 +1714,6 @@ impl Input {
                 .update(ctx, |prompt_view, ctx| {
                     prompt_view.on_pane_focus_changed(is_focused, ctx);
                 });
-
-            me.set_zero_state_hint_text(ctx);
-
-            // Update the universal developer input button bar blurred state when focus changes
-            if me.should_show_universal_developer_input(ctx) {
-                me.universal_developer_input_button_bar
-                    .update(ctx, |button_bar, ctx| {
-                        button_bar.set_is_in_active_terminal(is_focused, ctx);
-                    });
-            }
         });
     }
 
@@ -3034,77 +1779,6 @@ impl Input {
             .start_byte_index_of_first_selection(ctx)
     }
 
-    // Returns the appropriate hint/placeholder text to render in an empty input when Agent Mode is
-    // enabled (the feature flag, not the specific AI input mode). This method ensures that hint text
-    // is cached when needed for new conversations.
-    fn agent_mode_hint_text(&mut self, app: &AppContext) -> String {
-        let input_model = self.ai_input_model.as_ref(app);
-        let is_udi_enabled = InputSettings::as_ref(app).is_universal_developer_input_enabled(app);
-        let selected_conversation_id = self
-            .ai_context_model
-            .as_ref(app)
-            .selected_conversation_id(app);
-        let is_queue_next_prompt_enabled = FeatureFlag::QueueSlashCommand.is_enabled()
-            && selected_conversation_id.is_some_and(|conversation_id| {
-                let terminal_model = self.model.lock();
-                QueuedQueryModel::as_ref(app).is_queue_next_prompt_enabled(
-                    conversation_id,
-                    terminal_model.block_list().active_block(),
-                    app,
-                )
-            });
-
-        match (
-            input_model.input_type(),
-            input_model.should_run_input_autodetection(app),
-        ) {
-            (InputType::Shell, false) => {
-                AGENT_MODE_AI_DISABLED_AUTODETECTION_DISABLED_HINT_TEXT.to_owned()
-            }
-            (InputType::Shell, true) => {
-                // Ensure hint text is cached for new conversations
-                get_stable_agent_mode_hint_text(&mut self.cached_agent_mode_hint_text).to_owned()
-            }
-            (InputType::AI, _) => {
-                // Follow the `agent_indicator` pattern (see `app/src/tab.rs`):
-                //  * `None` (no conversation, empty, or untitled) => new conversation => "Warp anything"
-                //  * `InProgress`                                           => agent running    => "Steer"
-                //  * Any other status                                       => finished         => "Ask a follow up"
-                match self
-                    .ai_context_model
-                    .as_ref(app)
-                    .selected_conversation_status_for_hint(app)
-                {
-                    Some(status) if status.is_in_progress() => {
-                        if is_queue_next_prompt_enabled {
-                            if is_udi_enabled {
-                                AGENT_MODE_AI_ENABLED_QUEUE_HINT_TEXT_UDI.to_owned()
-                            } else {
-                                AGENT_MODE_AI_ENABLED_QUEUE_HINT_TEXT_CLASSIC.to_owned()
-                            }
-                        } else if is_udi_enabled {
-                            AGENT_MODE_AI_ENABLED_STEER_HINT_TEXT_UDI.to_owned()
-                        } else {
-                            AGENT_MODE_AI_ENABLED_STEER_HINT_TEXT_CLASSIC.to_owned()
-                        }
-                    }
-                    Some(_) => {
-                        if is_udi_enabled {
-                            AGENT_MODE_AI_ENABLED_FOLLOW_UP_HINT_TEXT_UDI.to_owned()
-                        } else {
-                            AGENT_MODE_AI_ENABLED_FOLLOW_UP_HINT_TEXT_CLASSIC.to_owned()
-                        }
-                    }
-                    None => {
-                        // Ensure hint text is cached for new conversations
-                        get_stable_agent_mode_hint_text(&mut self.cached_agent_mode_hint_text)
-                            .to_owned()
-                    }
-                }
-            }
-        }
-    }
-
     fn handle_input_settings_event(
         &mut self,
         input_settings: ModelHandle<InputSettings>,
@@ -3112,10 +1786,6 @@ impl Input {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            InputSettingsChangedEvent::ShowHintText { .. } => {
-                self.set_zero_state_hint_text(ctx);
-                ctx.notify();
-            }
             InputSettingsChangedEvent::SyntaxHighlighting { .. } => {
                 if !*input_settings.as_ref(ctx).syntax_highlighting.value() {
                     self.clear_decorations(ctx);
@@ -3137,7 +1807,6 @@ impl Input {
             InputSettingsChangedEvent::InputBoxTypeSetting { .. } => {
                 // Force a re-render when switching between Universal and Classic input modes
                 // to ensure all UI elements update in real-time
-                self.set_zero_state_hint_text(ctx);
                 ctx.notify();
             }
             InputSettingsChangedEvent::CompletionsMenuWidth { .. } => {
@@ -3155,234 +1824,6 @@ impl Input {
                 ctx.notify();
             }
             _ => {}
-        }
-    }
-
-    pub(crate) fn attach_file(&mut self, ctx: &mut ViewContext<Self>) {
-        self.agent_input_footer.update(ctx, |footer, ctx| {
-            footer.select_file(ctx);
-        });
-    }
-
-    fn select_image(&mut self, ctx: &mut ViewContext<Self>) {
-        self.focus_input_box(ctx);
-        self.ensure_agent_mode_for_ai_features(
-            true,
-            Some(InputTypeAutoDetectionSource::AttachmentForcedAi),
-            ctx,
-        );
-
-        // Update image context options immediately after switching to AI mode
-        // to ensure attach_images has the correct state
-        self.update_image_context_options(ctx);
-
-        self.editor.update(ctx, |editor, ctx| {
-            editor.attach_files(ctx);
-        });
-    }
-    fn handle_prompt_alert(
-        &mut self,
-        prompt_alert: &PromptAlertEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match prompt_alert {
-            PromptAlertEvent::SignupAnonymousUser => {
-                ctx.emit(Event::SignupAnonymousUser {
-                    entrypoint: AnonymousUserSignupEntrypoint::SignUpAIPrompt,
-                });
-            }
-        }
-    }
-
-    fn enable_auto_detection(&mut self, ctx: &mut ViewContext<Self>) {
-        // Don't allow input mode changes for read-only viewers in shared sessions
-        if self.model.lock().shared_session_status().is_reader() {
-            return;
-        }
-
-        // Don't allow enabling autodetection when agent is monitoring a command
-        if self
-            .model
-            .lock()
-            .block_list()
-            .active_block()
-            .is_agent_in_control_or_tagged_in()
-        {
-            return;
-        }
-
-        let ai_settings = AISettings::as_ref(ctx);
-        if FeatureFlag::AgentView.is_enabled() {
-            if self.agent_view_controller.as_ref(ctx).is_fullscreen() {
-                if !ai_settings.is_ai_autodetection_enabled(ctx) {
-                    return;
-                }
-            } else if !ai_settings.is_nld_in_terminal_enabled(ctx) {
-                return;
-            }
-        } else if !ai_settings.is_ai_autodetection_enabled(ctx) {
-            return;
-        }
-
-        self.focus_input_box(ctx);
-
-        if !self.ai_input_model.as_ref(ctx).is_input_type_locked() {
-            return;
-        }
-
-        let buffer_text = self.buffer_text(ctx);
-        if buffer_text.is_empty() {
-            // For empty buffer, immediately set to Shell mode with auto-detection enabled
-            self.ai_input_model.update(ctx, |model, ctx| {
-                let new_config = InputConfig {
-                    input_type: InputType::Shell,
-                    is_locked: false, // Set to auto-detection mode
-                };
-                model.set_input_config(new_config, buffer_text.is_empty(), None, ctx);
-            });
-        } else {
-            // For non-empty buffer, run the actual auto-detection algorithm
-            // First unlock the input mode to enable auto-detection
-            self.ai_input_model.update(ctx, |model, ctx| {
-                let current_config = model.input_config();
-                let new_config = InputConfig {
-                    input_type: current_config.input_type, // Keep current type temporarily
-                    is_locked: false,                      // Enable auto-detection
-                };
-                model.set_input_config(new_config, buffer_text.is_empty(), None, ctx);
-            });
-
-            // Then run auto-detection on the current buffer content
-            self.run_input_background_jobs(
-                InputBackgroundJobOptions::default().with_ai_input_detection(),
-                ctx,
-            );
-        }
-    }
-
-    fn handle_universal_developer_input_button_bar_event(
-        &mut self,
-        event: &UniversalDeveloperInputButtonBarEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            UniversalDeveloperInputButtonBarEvent::InputTypeSelected(input_type) => {
-                if self.is_input_mode_toggle_disabled() {
-                    return;
-                }
-
-                self.focus_input_box(ctx);
-
-                let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-
-                let switch_to_auto = self.ai_input_model.update(ctx, |model, ctx| {
-                    let is_autodetection_enabled =
-                        AISettings::as_ref(ctx).is_ai_autodetection_enabled(ctx);
-                    let input_type = *input_type;
-
-                    // If the user clicked on the button to "unlock" the current mode,
-                    // we want to enable autodetection.
-                    if input_type == model.input_type()
-                        && is_autodetection_enabled
-                        && model.is_input_type_locked()
-                    {
-                        true
-                    } else {
-                        let new_config = InputConfig {
-                            input_type,
-                            is_locked: true,
-                        };
-                        model.set_input_config(
-                            new_config,
-                            is_input_buffer_empty,
-                            Some(InputTypeAutoDetectionSource::ManualToggle),
-                            ctx,
-                        );
-                        false
-                    }
-                });
-
-                if switch_to_auto {
-                    self.set_input_mode_natural_language_detection(ctx);
-                } else if *input_type == InputType::AI {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::AgentModeClickedEntrypoint {
-                            entrypoint: AgentModeEntrypoint::UDITerminalInputSwitcher,
-                        },
-                        ctx
-                    );
-                }
-            }
-            UniversalDeveloperInputButtonBarEvent::EnableAutoDetection => {
-                self.enable_auto_detection(ctx);
-            }
-            UniversalDeveloperInputButtonBarEvent::SelectFile => {
-                self.select_image(ctx);
-            }
-            UniversalDeveloperInputButtonBarEvent::PromptAlert(prompt_alert_event) => {
-                self.handle_prompt_alert(prompt_alert_event, ctx);
-            }
-        }
-    }
-
-    /// Switches to AI mode but preserves current lock state.
-    fn enter_ai_mode(
-        &mut self,
-        decision_source: Option<InputTypeAutoDetectionSource>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-        self.ai_input_model.update(ctx, |input_model, ctx| {
-            let new_config = input_model.input_config().with_input_type(InputType::AI);
-            input_model.set_input_config(new_config, is_input_buffer_empty, decision_source, ctx);
-        });
-    }
-
-    /// Helper function to ensure agent mode when needed, using the same logic as SelectFile.
-    /// This handles the transition from shell mode to agent mode while preserving lock semantics.
-    /// Only forces agent mode if the user hasn't explicitly locked the mode to Shell.
-    ///
-    /// Pass `decision_source` to attribute the resulting input type change in NLD telemetry;
-    /// callers without a meaningful source may pass `None`.
-    pub fn ensure_agent_mode_for_ai_features(
-        &mut self,
-        should_override_shell_lock: bool,
-        decision_source: Option<InputTypeAutoDetectionSource>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-        let config = ai_input_model.input_config();
-
-        // Don't force agent mode if user has explicitly locked to Shell mode
-        if (!should_override_shell_lock || FeatureFlag::AgentView.is_enabled())
-            && config.is_locked
-            && !config.input_type.is_ai()
-        {
-            return;
-        }
-        self.enter_ai_mode(decision_source, ctx);
-    }
-
-    /// Clear the cached hint text to generate a new one on next render
-    pub fn clear_cached_hint_text(&mut self) {
-        self.cached_agent_mode_hint_text = None;
-    }
-    pub fn set_zero_state_hint_text(&mut self, ctx: &mut ViewContext<Self>) {
-        let toggled_on = *InputSettings::as_ref(ctx).show_hint_text;
-
-        if toggled_on
-            && FeatureFlag::AgentMode.is_enabled()
-            && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-        {
-            let hint_text = self.agent_mode_hint_text(ctx);
-            self.editor.update(ctx, |editor, ctx| {
-                editor.set_placeholder_text(hint_text, ctx);
-            });
-        } else {
-            self.editor.update(ctx, |editor, ctx| {
-                editor.clear_placeholder_text(ctx);
-                ctx.notify();
-            });
         }
     }
 
@@ -3410,55 +1851,6 @@ impl Input {
                     .lock()
                     .set_obfuscate_secrets(get_secret_obfuscation_mode(ctx));
             }
-        }
-    }
-
-    fn handle_ai_settings_changed_event(
-        &mut self,
-        event: &AISettingsChangedEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AISettingsChangedEvent::IsAnyAIEnabled { .. } => {
-                let ai_settings = AISettings::handle(ctx);
-                self.set_zero_state_hint_text(ctx);
-
-                let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-                // If there is no AI enabled, ensure input is locked in command mode.
-                if !ai_settings.as_ref(ctx).is_any_ai_enabled(ctx) {
-                    self.ai_input_model.update(ctx, |input_model, ctx| {
-                        input_model.set_input_config(
-                            InputConfig {
-                                input_type: InputType::Shell,
-                                is_locked: true,
-                            },
-                            is_input_buffer_empty,
-                            None,
-                            ctx,
-                        );
-                    });
-                }
-
-                ctx.notify();
-            }
-            AISettingsChangedEvent::AIAutoDetectionEnabled { .. }
-            | AISettingsChangedEvent::NLDInTerminalEnabled { .. } => {
-                // The input model handles updating the lock state via its own subscription.
-                // If NLD is now enabled for the current context and the buffer is non-empty,
-                // trigger autodetection on the current buffer contents.
-                if self
-                    .ai_input_model
-                    .as_ref(ctx)
-                    .should_run_input_autodetection(ctx)
-                    && !self.editor.as_ref(ctx).buffer_text(ctx).is_empty()
-                {
-                    self.run_input_background_jobs(
-                        InputBackgroundJobOptions::default().with_ai_input_detection(),
-                        ctx,
-                    );
-                }
-            }
-            _ => {}
         }
     }
 
@@ -3555,36 +1947,14 @@ impl Input {
         &mut self,
         command: &str,
         participant_id: ParticipantId,
-        preserve_input: bool,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
-        // Cancel any active agent conversation when the sharer executes a command on behalf of the viewer
-        // (this is handled automatically when the sharer executes a command that they requested).
-        // This will also notify viewers to cancel their representation of the conversation.
-        let is_participant_viewer = self
-            .shared_session_presence_manager
-            .as_ref()
-            .and_then(|pm| pm.as_ref(ctx).get_participant(&participant_id))
-            .and_then(|participant| participant.role)
-            .is_some();
-        if FeatureFlag::AgentMode.is_enabled()
-            && self.model.lock().shared_session_status().is_sharer()
-            && is_participant_viewer
-        {
-            self.cancel_active_agent_conversation_for_shared_session(
-                CancellationReason::UserCommandExecuted,
-                ctx,
-            );
-        }
-
         let block_id = self.model.lock().block_list().active_block_id().clone();
         self.try_execute_command_from_source(
             command,
             CommandExecutionSource::SharedSession {
                 participant_id,
                 block_id,
-                ai_metadata: None,
-                preserve_input,
             },
             true,
             ctx,
@@ -3599,10 +1969,6 @@ impl Input {
     }
 
     /// Freeze the editor and render `"{display_text} ◌"` as the loading indicator.
-    /// Shared between the user-initiated viewer submission path (which passes the
-    /// editor's current buffer text) and the queued-prompt drain path (which passes
-    /// the popped prompt text without ever reading from / writing to the user's
-    /// in-progress buffer).
     fn freeze_input_in_loading_state_with_text(
         &mut self,
         buffer_text: &str,
@@ -3622,10 +1988,6 @@ impl Input {
             let appearance = Appearance::as_ref(ctx);
             editor.set_text_colors(TextColors::all_hint_color(appearance), ctx);
         });
-    }
-
-    pub fn try_execute_command(&mut self, command: &str, ctx: &mut ViewContext<Self>) -> bool {
-        self.try_execute_command_with_options(command, false, ctx)
     }
 
     /// Applies `selection` only if `session_id` matches the in-flight handoff.
@@ -3683,12 +2045,7 @@ impl Input {
         started
     }
 
-    fn try_execute_command_with_options(
-        &mut self,
-        command: &str,
-        preserve_input: bool,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
+    pub fn try_execute_command(&mut self, command: &str, ctx: &mut ViewContext<Self>) -> bool {
         let shared_session_status = self.model.lock().shared_session_status().clone();
         if shared_session_status.is_sharer_or_viewer() {
             // If this is a viewer who isn't also an executor, they should not
@@ -3699,7 +2056,7 @@ impl Input {
                 // caller of this API is the `enter` handler.
                 log::warn!("Viewer tried to execute a command as a reader");
                 return false;
-            } else if shared_session_status.is_executor() && !preserve_input {
+            } else if shared_session_status.is_executor() {
                 let original_buffer = self.freeze_input_in_loading_state(ctx);
 
                 if let Some(shared_session_input_state) = self.shared_session_input_state.as_mut() {
@@ -3719,45 +2076,11 @@ impl Input {
             self.try_execute_command_on_behalf_of_shared_session_participant(
                 command,
                 participant_id,
-                preserve_input,
-                ctx,
-            )
-        } else if preserve_input {
-            self.try_execute_command_from_source(
-                command,
-                CommandExecutionSource::QueuedCommand,
-                true,
                 ctx,
             )
         } else {
             self.try_execute_command_from_source(command, CommandExecutionSource::User, true, ctx)
         }
-    }
-
-    /// Executes a command drained or sent immediately from the queued-prompts panel and keeps the
-    /// remaining queue paused until the command's terminal block finishes.
-    pub(crate) fn execute_queued_command(
-        &mut self,
-        command: &str,
-        conversation_id: AIConversationId,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let started = self.try_execute_command_with_options(command, true, ctx);
-        if started {
-            QueuedQueryModel::handle(ctx).update(ctx, |model, _| {
-                model.arm_command_in_flight(conversation_id);
-            });
-        }
-        started
-    }
-
-    fn has_queued_command_in_flight(&self, ctx: &AppContext) -> bool {
-        QueuedQueryModel::as_ref(ctx)
-            .command_in_flight_for_terminal_view(
-                self.terminal_view_id,
-                BlocklistAIHistoryModel::as_ref(ctx),
-            )
-            .is_some()
     }
 
     /// Executes the given command if the terminal session is in a valid state to accept and
@@ -3837,14 +2160,6 @@ impl Input {
             .active_block_mut()
             .set_cloud_env_var_state(env_var_collection_id);
 
-        // Record whether NLD was overridden (input type manually locked) at submission time.
-        let nld_overridden = self.ai_input_model.as_ref(ctx).is_input_type_locked();
-        self.model
-            .lock()
-            .block_list_mut()
-            .active_block_mut()
-            .set_nld_overridden(nld_overridden);
-
         let did_execute = if self
             .model
             .lock()
@@ -3894,6 +2209,25 @@ impl Input {
         did_execute
     }
 
+    /// Restore shared-session editor interaction and colors after command execution starts.
+    pub fn unfreeze_shared_session_input(&mut self, ctx: &mut ViewContext<Self>) {
+        if matches!(
+            self.model.lock().shared_session_status(),
+            SharedSessionStatus::ActiveViewer { .. } | SharedSessionStatus::ActiveSharer
+        ) {
+            self.editor.update(ctx, |editor, ctx| {
+                if let SharedSessionStatus::ActiveViewer { role } =
+                    self.model.lock().shared_session_status()
+                {
+                    editor.set_interaction_state(role.into(), ctx);
+                    editor.exit_ephemeral_loading_state(ctx);
+                }
+                let appearance: &Appearance = Appearance::as_ref(ctx);
+                editor.set_text_colors(TextColors::from_appearance(appearance), ctx);
+            });
+        }
+    }
+
     /// We locked the viewer's input when they attempted to execute a command.
     /// On failure, we must restore the editor to its original state before the attempt.
     pub fn on_execute_command_for_shared_session_participant_failure(
@@ -3919,7 +2253,7 @@ impl Input {
                 editor.set_buffer_text(original_buffer, ctx);
                 editor.set_interaction_state(role.into(), ctx);
 
-                // Shared-session pending-command and cloud-followup flows can swap the editor into
+                // Shared-session pending-command flows can swap the editor into
                 // a frozen/pending color treatment, so restore the normal palette alongside the
                 // buffer + interaction state reset.
                 let appearance: &Appearance = Appearance::as_ref(ctx);
@@ -3927,104 +2261,6 @@ impl Input {
             });
         }
         shared_session_input_state.pending_command_execution_request = None;
-    }
-
-    /// Restores the frozen/loading visual state of the agent input for both the sharer
-    /// and viewer without touching the CRDT buffer contents.
-    ///
-    /// Does NOT clear or reinitialize the buffer. Buffer clearing for agent prompts is
-    /// handled by the sharer emitting CRDT delete operations via `system_clear_buffer`
-    /// (triggered when `BlocklistAIControllerEvent::SentRequest` fires). Viewers receive
-    /// those delete ops through `InputUpdated` and apply them via the normal CRDT path.
-    ///
-    /// For viewers, this exits the ephemeral loading state created by
-    /// `freeze_input_in_loading_state`. When `is_shared_session_viewer_prompt_inflight` is true,
-    /// we optimistically clear the buffer using a display-only empty ephemeral
-    /// so the viewer sees an empty buffer immediately before crdt operations for actually clearing
-    /// the real buffer are received from the sharer.
-    ///
-    /// The display-only ephemeral is safe for CRDT: when the viewer next makes an edit
-    /// (materializing the ephemeral), its empty content is **discarded** — no delete ops
-    /// are generated for the regular buffer's contents. The edit proceeds directly on
-    /// the regular buffer (which the sharer's delete ops will have cleared by then).
-    pub fn unfreeze_agent_input(
-        &mut self,
-        is_shared_session_viewer_prompt_inflight: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if matches!(
-            self.model.lock().shared_session_status(),
-            SharedSessionStatus::ActiveViewer { .. } | SharedSessionStatus::ActiveSharer
-        ) {
-            self.editor.update(ctx, |editor, ctx| {
-                if let SharedSessionStatus::ActiveViewer { role } =
-                    self.model.lock().shared_session_status()
-                {
-                    // reinstate role for viewers
-                    editor.set_interaction_state(role.into(), ctx);
-                    // Exit the ephemeral loading state so the regular CRDT buffer is
-                    // accessible. The sharer's delete ops (arriving via InputUpdated)
-                    // will clear the regular buffer.
-                    editor.exit_ephemeral_loading_state(ctx);
-                    if is_shared_session_viewer_prompt_inflight {
-                        // Create a display-only empty ephemeral for immediate visual
-                        // feedback. This is an optimistic clear for UI purposes, without
-                        // affecting the real buffer synced by crdt operations.
-                        // Unlike a regular ephemeral, materializing this one
-                        // discards its content instead of restoring it to the regular
-                        // buffer, so no spurious CRDT delete ops are generated.
-                        editor.show_display_only_empty_buffer(ctx);
-                    }
-                }
-
-                let appearance: &Appearance = Appearance::as_ref(ctx);
-                editor.set_text_colors(TextColors::from_appearance(appearance), ctx);
-            });
-        }
-    }
-
-    /// Cancel any active agent conversation in a shared session
-    /// and fan out a cancellation control action.
-    pub(crate) fn cancel_active_agent_conversation_for_shared_session(
-        &mut self,
-        cancellation_reason: CancellationReason,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let active_conversation =
-            BlocklistAIHistoryModel::as_ref(ctx).active_conversation(self.terminal_view_id);
-
-        if self.model.lock().shared_session_status().is_viewer() {
-            let server_conversation_token = active_conversation
-                .and_then(|conversation| conversation.server_conversation_token().cloned())
-                .and_then(|server_token| {
-                    server_token
-                        .as_str()
-                        .parse()
-                        .ok()
-                        .map(ServerConversationToken::from_uuid)
-                });
-
-            if let Some(server_conversation_token) = server_conversation_token {
-                ctx.emit(Event::CancelSharedSessionConversation {
-                    server_conversation_token,
-                });
-            }
-        } else if self.model.lock().shared_session_status().is_sharer() {
-            let active_conversation_id = active_conversation
-                .filter(|conversation| conversation.status().is_in_progress())
-                .map(|conversation| conversation.id());
-
-            if let Some(active_conversation_id) = active_conversation_id {
-                // First, cancel locally via the existing pipeline.
-                self.ai_controller.update(ctx, |controller, ctx| {
-                    controller.cancel_conversation_progress(
-                        active_conversation_id,
-                        cancellation_reason,
-                        ctx,
-                    );
-                });
-            }
-        }
     }
 
     fn clear_selected_env_var_collection(&mut self) {
@@ -4188,20 +2424,10 @@ impl Input {
         should_show_more_info_view: bool,
         ctx: &mut ViewContext<Input>,
     ) {
-        let input_type = if workflow_type.as_workflow().is_agent_mode_workflow() {
-            InputType::AI
-        } else {
-            InputType::Shell
-        };
-
-        // Set input type based on whether or not this is a shell or AI workflow.
-        self.ai_input_model.update(ctx, |input_model, ctx| {
-            input_model.set_input_type(
-                input_type,
-                Some(InputTypeAutoDetectionSource::WorkflowInsertion),
-                ctx,
-            );
-        });
+        if workflow_type.as_workflow().is_agent_mode_workflow() {
+            self.show_ephemeral_error_toast("Agent workflows are no longer supported.", ctx);
+            return;
+        }
 
         // As the first step, clear the existing buffer so that selecting a workflow
         // is effectively a buffer replacement (not append).
@@ -4674,14 +2900,6 @@ impl Input {
                         self.editor.update(ctx, |editor, ctx| {
                             editor.set_buffer_text_ignoring_undo(selected_item.text(), ctx);
                         });
-
-                        self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                            ai_input_model.set_input_type(
-                                InputType::Shell,
-                                Some(InputTypeAutoDetectionSource::HistorySelection),
-                                ctx,
-                            );
-                        });
                     }
                     InputSuggestionsMode::CompletionSuggestions {
                         replacement_start, ..
@@ -4839,30 +3057,11 @@ impl Input {
             && let InputSuggestionsMode::HistoryUp {
                 original_buffer,
                 original_cursor_point,
-                original_input_was_locked,
-                original_input_type,
                 ..
             } = self.suggestions_mode_model.as_ref(ctx).mode()
         {
             let original_buffer = original_buffer.clone();
             let original_cursor_point = *original_cursor_point;
-            let original_input_was_locked = *original_input_was_locked;
-            let original_input_type = *original_input_type;
-            // If the user closes the input suggestions menu, we want to reset the AI input mode
-            // to the exact same state it was originally, which includes the mode itself and
-            // whether it was locked to that mode.
-            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                ai_input_model.set_input_config(
-                    InputConfig {
-                        input_type: original_input_type,
-                        is_locked: original_input_was_locked,
-                    },
-                    original_buffer.is_empty(),
-                    Some(InputTypeAutoDetectionSource::RestoreSavedConfig),
-                    ctx,
-                );
-            });
-
             self.editor.update(ctx, |editor, ctx| {
                 editor.set_buffer_text_ignoring_undo(&original_buffer, ctx);
                 if let Some(original_cursor_point) = original_cursor_point {
@@ -4894,7 +3093,6 @@ impl Input {
     }
 
     pub fn clear_buffer_and_reset_undo_stack(&mut self, ctx: &mut ViewContext<Self>) {
-        self.clear_cached_hint_text();
         self.editor.update(ctx, |view, ctx| {
             view.clear_buffer_and_reset_undo_stack(ctx);
         });
@@ -4942,10 +3140,6 @@ impl Input {
         ctx.focus_self();
     }
 
-    pub fn input_type(&self, app: &AppContext) -> InputType {
-        self.ai_input_model.as_ref(app).input_type()
-    }
-
     /// Close all overlays managed by the input view. Does not change what is focused.
     /// If should_restore_buffer_before_history_up is true, the buffer will be restored to the state it was in before the history up menu was opened.
     pub fn close_overlays(
@@ -4961,20 +3155,7 @@ impl Input {
         self.clear_selected_workflow(ctx);
     }
 
-    /// Closes any active suggestion mode UI when starting a new conversation.
-    ///
-    /// This leaves workflow info overlays open.
-    fn close_suggestion_modes_for_new_conversation(&mut self, ctx: &mut ViewContext<Self>) {
-        self.suggestions_mode_model.update(ctx, |model, ctx| {
-            model.set_mode(InputSuggestionsMode::Closed, ctx);
-        });
-    }
-
     fn editor_up(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.is_editing_queued_prompt(ctx) {
-            return;
-        }
-
         // History and input suggestions are not available for
         // read-only viewers in a shared session
         if self.model.lock().shared_session_status().is_reader() {
@@ -5007,16 +3188,12 @@ impl Input {
                 });
 
             let original_cursor_point = self.editor.as_ref(ctx).single_cursor_to_point(ctx);
-            let original_input_type = self.ai_input_model.as_ref(ctx).input_type();
-            let original_input_was_locked = self.ai_input_model.as_ref(ctx).is_input_type_locked();
             self.suggestions_mode_model.update(ctx, |m, ctx| {
                 m.set_mode(
                     InputSuggestionsMode::HistoryUp {
                         original_buffer,
                         original_cursor_point,
                         search_mode: HistorySearchMode::Prefix,
-                        original_input_type,
-                        original_input_was_locked,
                     },
                     ctx,
                 );
@@ -5049,11 +3226,6 @@ impl Input {
 
     fn editor_escape(&mut self, ctx: &mut ViewContext<Self>) {
         let vim_mode = self.editor.as_ref(ctx).vim_mode(ctx);
-        let has_attached_context = {
-            let context_model = self.ai_context_model.as_ref(ctx);
-            !context_model.pending_context_block_ids().is_empty()
-                || context_model.pending_context_selected_text().is_some()
-        };
         let should_escape_vim_before_dismissing = vim_mode == Some(VimMode::Insert)
             && self.suggestions_mode_model.as_ref(ctx).is_history_up();
 
@@ -5072,76 +3244,8 @@ impl Input {
             self.editor.update(ctx, |editor, editor_ctx| {
                 editor.handle_action(&EditorAction::VimEscape, editor_ctx);
             });
-        } else if FeatureFlag::AgentView.is_enabled()
-            && self.agent_view_controller.as_ref(ctx).is_active()
-            && has_attached_context
-        {
-            self.clear_attached_context(ctx);
         } else {
-            if FeatureFlag::AgentView.is_enabled()
-                && !self.agent_view_controller.as_ref(ctx).is_fullscreen()
-            {
-                if self.ai_input_model.as_ref(ctx).is_ai_input_enabled() {
-                    // This implies the contents of the terminal input are autodetected as an agent
-                    // prompt; overrides the autodetection by explicitly setting input mode back to
-                    // terminal.
-                    self.set_input_mode_terminal(false, ctx);
-                }
-            } else {
-                self.set_input_mode_natural_language_detection(ctx);
-            }
             ctx.emit(Event::Escape);
-        }
-    }
-
-    /// Emits an `AgentModeAutodetectionFalsePositive` telemetry event if the current input text has
-    /// been autodetected as AI input and the user manually toggled to shell.
-    /// Also emits `AgentModeChangedInputType` if the user is part of the analytics experiment.
-    ///
-    /// This is intended to be called whenever the user manually toggles the input to new_input_type. Because the user is manually toggling
-    /// back to shell mode after input has been autodetected as natural language, we infer that the
-    /// current input text may not have been correctly classified as natural language.
-    /// For users opted in to the analytics experiment, we collect the input buffer text whenever the input type is toggled
-    /// in either direction.
-    fn maybe_send_autodetection_telemetry_on_manual_toggle(
-        &self,
-        new_input_type: InputType,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let input_buffer_text = self.buffer_text(ctx);
-        let buffer_length = input_buffer_text.len();
-        let input =
-            should_collect_ai_ugc_telemetry(ctx, PrivacySettings::as_ref(ctx).is_telemetry_enabled)
-                .then_some(input_buffer_text);
-        let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AgentModeChangedInputType {
-                input,
-                buffer_length,
-                is_manually_changed: true,
-                new_input_type,
-                active_block_id: self.model.lock().block_list().active_block_id().clone(),
-                is_udi_enabled,
-            },
-            ctx
-        );
-
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-        if matches!(new_input_type, InputType::Shell) && !ai_input_model.is_input_type_locked() {
-            let current_input_text = self.buffer_text(ctx);
-            if !current_input_text.is_empty() {
-                let event_payload = if ChannelState::channel().is_dogfood() {
-                    AgentModeAutoDetectionFalsePositivePayload::InternalDogfoodUsers {
-                        input_text: current_input_text,
-                    }
-                } else {
-                    AgentModeAutoDetectionFalsePositivePayload::ExternalUsers
-                };
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::AgentModePotentialAutoDetectionFalsePositive(event_payload),
-                    ctx
-                );
-            }
         }
     }
 
@@ -5213,9 +3317,8 @@ impl Input {
     fn maybe_generate_autosuggestion(&mut self, ctx: &mut ViewContext<Self>) {
         let editor = self.editor.as_ref(ctx);
 
-        let should_generate_autosuggestion = !editor.active_autosuggestion()
-            && self.enable_autosuggestions_setting
-            && !self.ai_input_model.as_ref(ctx).is_ai_input_enabled();
+        let should_generate_autosuggestion =
+            !editor.active_autosuggestion() && self.enable_autosuggestions_setting;
 
         if should_generate_autosuggestion {
             let buffer_text = editor.buffer_text(ctx);
@@ -5614,17 +3717,6 @@ impl Input {
                     ctx.notify();
                 }
 
-                let is_editor_empty = self.editor.as_ref(ctx).is_empty(ctx);
-                if is_editor_empty != self.is_editor_empty_on_last_edit {
-                    self.is_editor_empty_on_last_edit = is_editor_empty;
-                    ctx.emit(Event::InputEmptyStateChanged {
-                        is_empty: is_editor_empty,
-                        reason: InputEmptyStateChangeReason::Edited,
-                    });
-                }
-
-                let is_ai_input_enabled = self.ai_input_model.as_ref(ctx).is_ai_input_enabled();
-
                 let mut short_circuit_highlighting = false;
                 let mut check_alias_expansion = false;
 
@@ -5641,204 +3733,17 @@ impl Input {
                     }
                 });
 
-                // Force AI mode if buffer contains any attachment patterns (blocks, drive objects, diffs)
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) && edit_origin.is_user() {
-                    let buffer_text = self.buffer_text(ctx);
-                    if Self::buffer_contains_attachment_patterns(&buffer_text) {
-                        self.ensure_agent_mode_for_ai_features(
-                            false,
-                            Some(InputTypeAutoDetectionSource::AttachmentForcedAi),
-                            ctx,
-                        );
-                    }
-                }
-
                 if check_alias_expansion {
                     self.run_expansion_on_space(ctx);
                 }
 
-                let should_run_ai_input_detection = match edit_origin {
-                    // Edits made by the local user should trigger autodetection, if
-                    // it is enabled.
-                    EditOrigin::UserInitiated
-                    | EditOrigin::UserTyped
-                    | EditOrigin::SyncedTerminalInput => self
-                        .ai_input_model
-                        .as_ref(ctx)
-                        .should_run_input_autodetection(ctx),
-                    // Remote edits from shared session viewers should trigger autodetection
-                    // on the sharer's side, so that the sharer's input mode adjusts as viewers type.
-                    EditOrigin::RemoteEdit => {
-                        let is_sharer = self.model.lock().shared_session_status().is_sharer();
-                        is_sharer
-                            && self
-                                .ai_input_model
-                                .as_ref(ctx)
-                                .should_run_input_autodetection(ctx)
-                    }
-                    // System edits should never trigger autodetection.
-                    EditOrigin::SystemEdit => false,
-                };
-
-                // Abort any autodetection work on the old buffer state.
-                self.ai_input_model.update(ctx, |controller, _| {
-                    controller.abort_in_progress_detection();
-                });
-
-                if self.should_apply_decorations(ctx)
-                    || should_run_ai_input_detection
-                    || is_ai_input_enabled
-                {
-                    let mut mode = InputBackgroundJobOptions::default();
-
-                    if self.should_apply_decorations(ctx) {
-                        mode = mode.with_command_decoration();
-                    }
-
-                    if should_run_ai_input_detection {
-                        mode = mode.with_ai_input_detection();
-                    }
-
+                if self.should_apply_decorations(ctx) {
+                    let mode = InputBackgroundJobOptions::default().with_command_decoration();
                     if short_circuit_highlighting {
                         self.run_input_background_jobs(mode, ctx);
                     } else {
                         let _ = self.debounce_input_background_tx.try_send(mode);
                     }
-                }
-
-                let is_input_mode_locked = self.ai_input_model.as_ref(ctx).is_input_type_locked();
-                let buffer_text = self.buffer_text(ctx);
-
-                // If the last buffer didn't start with the AI input prefix and the current buffer does, then enable AI input.
-                if FeatureFlag::AgentMode.is_enabled()
-                    && !FeatureFlag::AgentView.is_enabled()
-                    && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-                    && (!is_ai_input_enabled || !is_input_mode_locked)
-                {
-                    if buffer_text.starts_with(AI_INPUT_PREFIX)
-                        && *edit_origin == EditOrigin::UserTyped
-                    {
-                        let last_buffer_text = self.editor.as_ref(ctx).last_buffer_text(ctx);
-
-                        if !last_buffer_text.starts_with(AI_INPUT_PREFIX) {
-                            // Remove the prefix from the editor contents.
-                            let is_input_buffer_empty =
-                                self.editor.update(ctx, |editor_view, ctx| {
-                                    if let Some(query) =
-                                        editor_view.buffer_text(ctx).strip_prefix(AI_INPUT_PREFIX)
-                                    {
-                                        editor_view.set_buffer_text(query, ctx);
-                                    }
-                                    editor_view.buffer_text(ctx).is_empty()
-                                });
-
-                            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                                ai_input_model.set_input_config(
-                                    InputConfig {
-                                        input_type: InputType::AI,
-                                        is_locked: true,
-                                    },
-                                    is_input_buffer_empty,
-                                    Some(InputTypeAutoDetectionSource::AgentModePrefix),
-                                    ctx,
-                                );
-                            });
-                        }
-                    } else if buffer_text.is_empty() && is_input_mode_locked {
-                        self.ai_input_model.update(ctx, |input_model, ctx| {
-                            input_model.set_input_config_for_classic_mode(
-                                input_model
-                                    .input_config()
-                                    .unlocked_if_autodetection_enabled(false, ctx),
-                                ctx,
-                            );
-                        });
-                    }
-
-                    ctx.notify();
-                }
-
-                let ai_settings = AISettings::as_ref(ctx);
-                if FeatureFlag::AgentView.is_enabled() && buffer_text.is_empty() {
-                    let last_buffer_text = self.editor.as_ref(ctx).last_buffer_text(ctx);
-                    let was_shell_mode_prefix_stripped =
-                        last_buffer_text == TERMINAL_INPUT_PREFIX && buffer_text.is_empty();
-
-                    let is_fullscreen_agent_view_active =
-                        self.agent_view_controller.as_ref(ctx).is_fullscreen();
-                    let current_input_config = self.ai_input_model.as_ref(ctx).input_config();
-
-                    // We should re-enable autodetection if the user overrode an autodetection
-                    // result:
-                    // * In agent view, this means the user overrode a mis-classified shell command
-                    //   to be an agent prompt.
-                    // * In terminal view, this eans the user overrode a mis-classified agent prompt
-                    //   to a terminal command.
-                    let should_reenable_autodetection = (ai_settings
-                        .is_ai_autodetection_enabled(ctx)
-                        && is_fullscreen_agent_view_active
-                        && current_input_config.is_ai()
-                        && current_input_config.is_locked
-                        && !was_shell_mode_prefix_stripped)
-                        || (ai_settings.is_nld_in_terminal_enabled(ctx)
-                            && !self.agent_view_controller.as_ref(ctx).is_active()
-                            && current_input_config.is_shell()
-                            && current_input_config.is_locked);
-                    if should_reenable_autodetection {
-                        self.ai_input_model.update(ctx, |input_model, ctx| {
-                            input_model.enable_autodetection(input_model.input_type(), ctx);
-                        });
-                        ctx.notify();
-                    }
-                }
-
-                // If the last buffer didn't start with the terminal input prefix and the current buffer does, then enable terminal input and lock it.
-                let is_locked_shell_mode = !is_ai_input_enabled && is_input_mode_locked;
-                let is_agent_view_active = self.agent_view_controller.as_ref(ctx).is_active();
-                let is_agent_in_control_or_tagged_in = self
-                    .model
-                    .lock()
-                    .block_list()
-                    .active_block()
-                    .is_agent_in_control_or_tagged_in();
-                if FeatureFlag::AgentMode.is_enabled()
-                    && !is_locked_shell_mode
-                    && (!FeatureFlag::AgentView.is_enabled() || is_agent_view_active)
-                    && !is_agent_in_control_or_tagged_in
-                {
-                    let buffer_text = self.buffer_text(ctx);
-                    if buffer_text.starts_with(TERMINAL_INPUT_PREFIX)
-                        && *edit_origin == EditOrigin::UserTyped
-                    {
-                        let last_buffer_text = self.editor.as_ref(ctx).last_buffer_text(ctx);
-
-                        if !last_buffer_text.starts_with(TERMINAL_INPUT_PREFIX) {
-                            // Remove the prefix from the editor contents.
-                            let is_input_buffer_empty =
-                                self.editor.update(ctx, |editor_view, ctx| {
-                                    if let Some(command) = editor_view
-                                        .buffer_text(ctx)
-                                        .strip_prefix(TERMINAL_INPUT_PREFIX)
-                                    {
-                                        editor_view.set_buffer_text(command, ctx);
-                                    }
-                                    editor_view.buffer_text(ctx).is_empty()
-                                });
-
-                            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                                ai_input_model.set_input_config(
-                                    InputConfig {
-                                        input_type: InputType::Shell,
-                                        is_locked: true,
-                                    },
-                                    is_input_buffer_empty,
-                                    Some(InputTypeAutoDetectionSource::ShellPrefix),
-                                    ctx,
-                                );
-                            });
-                        }
-                    }
-                    ctx.notify();
                 }
 
                 // We only sync on EditorEvent::Edited events because we're only
@@ -5973,15 +3878,7 @@ impl Input {
                                 return;
                             }
 
-                            let has_active_ai_block =
-                                self.model.lock().block_list().has_active_ai_block(ctx);
-                            // We only focus the input if there is no active AI
-                            // block. Otherwise, the input is incorrectly focused
-                            // when executing an AI query from the history menu.
-                            self.close_input_suggestions(
-                                !has_active_ai_block, /*should_focus_input=*/
-                                ctx,
-                            );
+                            self.close_input_suggestions(true, ctx);
                         }
                     }
                     InputSuggestionsMode::Closed => {
@@ -6006,26 +3903,6 @@ impl Input {
                             self.open_completion_suggestions(CompletionsTrigger::AsYouType, ctx);
                         }
                     }
-                }
-            }
-            EditorEvent::BufferReplaced => {
-                let ai_input_model = self.ai_input_model.as_ref(ctx);
-                if FeatureFlag::AgentMode.is_enabled()
-                    && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-                    && !ai_input_model.is_ai_input_enabled()
-                    && ai_input_model.is_input_type_locked()
-                {
-                    // If this edit effectively emptied the buffer and we're in shell mode,
-                    // unlock the input so autodetection can kick in.
-                    self.ai_input_model.update(ctx, |input_model, ctx| {
-                        input_model.set_input_config_for_classic_mode(
-                            input_model
-                                .input_config()
-                                .unlocked_if_autodetection_enabled(false, ctx),
-                            ctx,
-                        );
-                    });
-                    ctx.notify();
                 }
             }
             EditorEvent::SelectionChanged => {
@@ -6096,14 +3973,6 @@ impl Input {
                     });
                 match autosuggestion_type {
                     AutosuggestionType::Command => {
-                        // Switch to shell input mode but preserve current lock state when accepting a command autosuggestion.
-                        self.ai_input_model.update(ctx, |input_model, ctx| {
-                            input_model.set_input_type(
-                                InputType::Shell,
-                                Some(InputTypeAutoDetectionSource::CommandAutosuggestionAccepted),
-                                ctx,
-                            );
-                        });
                         // Count accepted command autosuggestions for the right-arrow hint.
                         InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
                             let current_count =
@@ -6126,20 +3995,6 @@ impl Input {
                                 )
                             }
                         })
-                    }
-                    AutosuggestionType::AgentModeQuery { context_block_ids } => {
-                        // Switch to AI input mode but preserve current lock state when accepting an Agent Mode query autosuggestion.
-                        self.enter_ai_mode(
-                            Some(InputTypeAutoDetectionSource::AgentQueryAutosuggestionAccepted),
-                            ctx,
-                        );
-                        self.ai_context_model.update(ctx, |context_model, ctx| {
-                            context_model.set_pending_context_block_ids(
-                                context_block_ids.clone(),
-                                true,
-                                ctx,
-                            )
-                        });
                     }
                 };
             }
@@ -6167,41 +4022,9 @@ impl Input {
             EditorEvent::CtrlC { cleared_buffer_len } => {
                 self.close_input_suggestions(/*should_focus_input=*/ true, ctx);
 
-                self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                    ai_input_model.set_input_config_for_classic_mode(
-                        InputConfig {
-                            input_type: InputType::Shell,
-                            is_locked: true,
-                        }
-                        .unlocked_if_autodetection_enabled(false, ctx),
-                        ctx,
-                    );
-                });
                 ctx.emit(Event::CtrlC {
                     cleared_buffer_len: *cleared_buffer_len,
                 });
-            }
-            EditorEvent::DeleteAllLeft => {
-                if self.ai_input_model.as_ref(ctx).is_ai_input_enabled() {
-                    let new_input_type = InputType::Shell;
-                    self.maybe_send_autodetection_telemetry_on_manual_toggle(new_input_type, ctx);
-                    self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                        ai_input_model.set_input_config_for_classic_mode(
-                            InputConfig {
-                                input_type: new_input_type,
-                                is_locked: true,
-                            }
-                            .unlocked_if_autodetection_enabled(false, ctx),
-                            ctx,
-                        );
-                    });
-                } else if self.ai_input_model.as_ref(ctx).is_input_type_locked() {
-                    let is_agent_view_fullscreen =
-                        self.agent_view_controller.as_ref(ctx).is_fullscreen();
-                    if is_agent_view_fullscreen {
-                        self.exit_shell_mode_to_ai(ctx);
-                    }
-                }
             }
             EditorEvent::CmdUpOnFirstRow => ctx.emit(Event::SelectRecentBlocks { count: 1 }),
             EditorEvent::Copy => ctx.emit(Event::Copy),
@@ -6214,26 +4037,19 @@ impl Input {
             EditorEvent::HideXRay => {
                 self.hide_x_ray(ctx);
             }
-            EditorEvent::TryToShowXRay(token_at) => {
-                if self.ai_input_model.as_ref(ctx).is_ai_input_enabled() {
-                    // Don't show command x-ray for AI queries.
-                    return;
+            EditorEvent::TryToShowXRay(token_at) => match token_at {
+                CommandXRayAnchor::Cursor => {
+                    let pos = self.start_byte_index_of_first_selection(ctx);
+                    self.start_xray_at_offset(pos, CommandXRayTrigger::Keystroke, ctx);
                 }
-
-                match token_at {
-                    CommandXRayAnchor::Cursor => {
-                        let pos = self.start_byte_index_of_first_selection(ctx);
-                        self.start_xray_at_offset(pos, CommandXRayTrigger::Keystroke, ctx);
-                    }
-                    CommandXRayAnchor::Hover(mouse_position) => {
-                        if let Some(offset) = self.start_byte_index_at_point(mouse_position, ctx)
-                            && !self.suggestions_mode_model.as_ref(ctx).is_visible()
-                        {
-                            self.start_xray_at_offset(offset, CommandXRayTrigger::Hover, ctx);
-                        }
+                CommandXRayAnchor::Hover(mouse_position) => {
+                    if let Some(offset) = self.start_byte_index_at_point(mouse_position, ctx)
+                        && !self.suggestions_mode_model.as_ref(ctx).is_visible()
+                    {
+                        self.start_xray_at_offset(offset, CommandXRayTrigger::Hover, ctx);
                     }
                 }
-            }
+            },
             EditorEvent::InsertLastWordPrevCommand => self.insert_last_word_previous_command(ctx),
             // For this particular view, the terminal Input, we ignore search direction because in
             // this context, search means search through History which isn't actually sensitive to
@@ -6245,9 +4061,6 @@ impl Input {
                 }));
             }
             EditorEvent::VimStatusUpdate => ctx.notify(),
-            EditorEvent::BackspaceOnEmptyBuffer | EditorEvent::BackspaceAtBeginningOfBuffer => {
-                self.handle_backspace_at_buffer_boundary(ctx);
-            }
             EditorEvent::EmacsBindingUsed => {
                 ctx.emit(Event::EmacsBindingUsed);
             }
@@ -6267,38 +4080,25 @@ impl Input {
                 ctx.emit(Event::InputFocusedFromMiddleClick);
             }
             EditorEvent::Focused => ctx.emit(Event::EditorFocused),
-            EditorEvent::ProcessingAttachedImages(is_processing) => {
-                self.set_is_processing_attached_images(*is_processing, ctx);
-            }
             EditorEvent::Paste => {
                 self.process_paste_event(ctx);
             }
             EditorEvent::DroppedImageFiles(image_filepaths) => {
-                // Handle image processing from EditorView drag-and-drop
-                let num_attached =
-                    self.handle_pasted_or_dragdropped_image_filepaths(image_filepaths.clone(), ctx);
+                let shell_family = self.editor.read(ctx, |editor, _| editor.shell_family());
+                let converter = self
+                    .active_session(ctx)
+                    .as_deref()
+                    .and_then(Session::windows_path_converter);
+                let transformed: Vec<String> = match converter {
+                    Some(convert) => image_filepaths.iter().map(|p| convert(p)).collect(),
+                    None => image_filepaths.clone(),
+                };
+                let paths_str =
+                    warpui::clipboard_utils::escaped_paths_str(&transformed, shell_family);
 
-                // If any attachment failed, insert all dropped image paths as text. Apply the
-                // same session-aware path transformation that the editor uses for dropped
-                // non-image paths so the fallback matches the primary drop flow (e.g.
-                // `/mnt/c/...` in a WSL session).
-                if num_attached < image_filepaths.len() {
-                    let shell_family = self.editor.read(ctx, |editor, _| editor.shell_family());
-                    let converter = self
-                        .active_session(ctx)
-                        .as_deref()
-                        .and_then(Session::windows_path_converter);
-                    let transformed: Vec<String> = match converter {
-                        Some(convert) => image_filepaths.iter().map(|p| convert(p)).collect(),
-                        None => image_filepaths.clone(),
-                    };
-                    let paths_str =
-                        warpui::clipboard_utils::escaped_paths_str(&transformed, shell_family);
-
-                    self.editor.update(ctx, |editor, ctx| {
-                        editor.user_insert(&paths_str, ctx);
-                    });
-                }
+                self.editor.update(ctx, |editor, ctx| {
+                    editor.user_insert(&paths_str, ctx);
+                });
             }
             EditorEvent::IgnoreAutosuggestion { suggestion } => {
                 IgnoredSuggestionsModel::handle(ctx).update(ctx, |model, ctx| {
@@ -6317,51 +4117,10 @@ impl Input {
         }
     }
 
-    /// Process paste event by checking clipboard for images and handling appropriately.
+    /// Inserts clipboard text and shell-escaped paths into the input.
     fn process_paste_event(&mut self, ctx: &mut ViewContext<Self>) {
-        // Read from app clipboard
         let content = ctx.clipboard().read();
-
-        // If AI is disabled, attachment isn't possible
-        if !AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-            self.insert_clipboard_text_content(ctx, content);
-            return;
-        }
-
-        // Shared session viewers cannot attach images.
-        if self.model.lock().shared_session_status().is_viewer() {
-            self.insert_clipboard_text_content(ctx, content);
-            return;
-        }
-
-        // Check if we should insert clipboard text in advance
-        let mut already_inserted_text = false;
-        if warpui::clipboard::should_insert_text_on_paste(&content) {
-            self.insert_clipboard_text_content(ctx, content.clone());
-            already_inserted_text = true;
-        }
-
-        // Try to attach images
-        // If any attachment fails, should_insert_text = true.
-        let should_insert_text = if content.has_image_data() {
-            // If we have image data, process the image data.
-            self.handle_pasted_image_data(content.clone(), ctx) == 0
-        } else if content.num_paths() > 0 {
-            // Else, we check the pasted file paths for any images.
-            let image_filepaths = warpui::clipboard_utils::get_image_filepaths_from_paths(
-                content.paths.as_deref().unwrap_or(&[]),
-            );
-            let num_images_expected = image_filepaths.len();
-            self.handle_pasted_or_dragdropped_image_filepaths(image_filepaths, ctx)
-                < num_images_expected
-        } else {
-            true
-        };
-
-        // Fallback to inserting text
-        if should_insert_text && !already_inserted_text {
-            self.insert_clipboard_text_content(ctx, content);
-        }
+        self.insert_clipboard_text_content(ctx, content);
     }
 
     /// Insert clipboard text content (paths / plaintext)
@@ -6380,289 +4139,6 @@ impl Input {
                 ctx,
             );
         });
-    }
-
-    /// Check if we can attach on filepaths paste or drag-drop
-    fn can_attach_on_filepaths_paste_or_dragdrop(&self, ctx: &mut ViewContext<Self>) -> bool {
-        // Shared session viewers cannot attach images.
-        if self.model.lock().shared_session_status().is_viewer() {
-            return false;
-        }
-
-        let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-        if !is_udi_enabled && !FeatureFlag::AgentView.is_enabled() {
-            return false;
-        }
-
-        // Check if Agent Mode enabled, in active agent view, or if the buffer is empty
-        // (if the buffer is empty, we assume that the user wants the images to be attached).
-        let ai_input = self.ai_input_model.as_ref(ctx);
-        let in_agent_mode = matches!(ai_input.input_type(), InputType::AI);
-        let is_buffer_empty = self.buffer_text(ctx).is_empty();
-        let in_active_agent_view = self.agent_view_controller.as_ref(ctx).is_active();
-        in_agent_mode || is_buffer_empty || in_active_agent_view
-    }
-
-    /// Handle direct image data from clipboard (e.g., copied images). Returns number of images attached.
-    fn handle_pasted_image_data(
-        &mut self,
-        clipboard_content: ClipboardContent,
-        ctx: &mut ViewContext<Self>,
-    ) -> usize {
-        if self.check_image_limits_for_paste(1, ctx) == 0 {
-            return 0;
-        }
-
-        if let Some(images) = clipboard_content.images {
-            let best_image = CLIPBOARD_IMAGE_MIME_TYPES
-                .iter()
-                .find_map(|format| images.iter().find(|img| img.mime_type == *format));
-
-            if let Some(image) = best_image {
-                self.process_and_attach_clipboard_image(image.clone(), ctx);
-                return 1;
-            }
-        }
-
-        0
-    }
-
-    /// Handle pasted file paths that point to images for auto-attachment. Returns number of images attached.
-    pub fn handle_pasted_or_dragdropped_image_filepaths(
-        &mut self,
-        image_filepaths: Vec<String>,
-        ctx: &mut ViewContext<Self>,
-    ) -> usize {
-        // Return early if no image paths
-        if image_filepaths.is_empty() {
-            return 0;
-        }
-
-        if !self.can_attach_on_filepaths_paste_or_dragdrop(ctx) {
-            return 0;
-        }
-
-        self.maybe_enter_agent_view_for_image_add(ctx);
-
-        let num_images_to_attach = self.check_image_limits_for_paste(image_filepaths.len(), ctx);
-        if num_images_to_attach == 0 {
-            return 0;
-        }
-
-        let is_buffer_empty = self.buffer_text(ctx).is_empty();
-        let in_active_agent_view = self.agent_view_controller.as_ref(ctx).is_active();
-        if is_buffer_empty || in_active_agent_view {
-            self.set_input_mode_agent(true, ctx);
-            self.update_image_context_options(ctx);
-        }
-
-        let paths_to_process: Vec<String> = image_filepaths
-            .into_iter()
-            .take(num_images_to_attach)
-            .collect();
-
-        let num_paths = paths_to_process.len();
-        self.editor.update(ctx, |editor, ctx| {
-            editor.read_and_process_images_async(num_paths, paths_to_process, ctx);
-        });
-        num_paths
-    }
-
-    /// Convert clipboard image data to AttachedImage and attach to editor in Agent Mode.
-    fn process_and_attach_clipboard_image(
-        &mut self,
-        image: ImageData,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.maybe_enter_agent_view_for_image_add(ctx);
-
-        // Switch to AI mode with block-level lock, unless already AI-mode-locked
-        if !self.is_locked_in_ai_mode(ctx) {
-            self.set_input_mode_agent(true, ctx);
-            self.update_image_context_options(ctx);
-        }
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let ext = match image.mime_type.as_str() {
-            "image/png" => "png",
-            "image/jpeg" | "image/jpg" => "jpg",
-            "image/gif" => "gif",
-            "image/webp" => "webp",
-            _ => "img",
-        };
-
-        // Use preserved filename if available, otherwise generate fallback name
-        let file_name = if let Some(original_filename) = &image.filename {
-            original_filename.clone()
-        } else {
-            format!("pasted-image-{timestamp}.{ext}")
-        };
-
-        let attached_image = AttachedImageRawData {
-            data: image.data,
-            mime_type: image.mime_type,
-            file_name,
-        };
-
-        self.editor.update(ctx, |editor, ctx| {
-            editor.process_and_attach_images_as_ai_context(1, vec![attached_image], ctx);
-        });
-    }
-
-    /// Enters agent view when adding images, unless Agent View is disabled,
-    /// we're already in the agent view, or a long running command is in progress.
-    fn maybe_enter_agent_view_for_image_add(&mut self, ctx: &mut ViewContext<Self>) {
-        let is_in_long_running_command = self
-            .model
-            .lock()
-            .block_list()
-            .active_block()
-            .is_active_and_long_running();
-        if !FeatureFlag::AgentView.is_enabled()
-            || self.agent_view_controller.as_ref(ctx).is_active()
-            || is_in_long_running_command
-        {
-            return;
-        }
-
-        if let Err(e) = self.agent_view_controller.update(ctx, |controller, ctx| {
-            controller.try_enter_agent_view(None, AgentViewEntryOrigin::ImageAdded, ctx)
-        }) {
-            log::warn!("Failed to enter agent view when adding images: {e}");
-        }
-    }
-
-    /// Display an error toast for image paste operation failures.
-    fn show_image_paste_error(&self, ctx: &mut ViewContext<Self>, message: String) {
-        let window_id = ctx.window_id();
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            toast_stack.add_persistent_toast(DismissibleToast::error(message), window_id, ctx);
-        });
-    }
-
-    /// Check attachment limits, return attachable count (shows toast for excess).
-    fn check_image_limits_for_paste(
-        &self,
-        num_images_to_add: usize,
-        ctx: &mut ViewContext<Self>,
-    ) -> usize {
-        let (num_images_attached, num_images_in_conversation) =
-            self.editor.read(ctx, |editor, _| {
-                (
-                    editor.image_context_options.num_images_attached(),
-                    editor.image_context_options.num_images_in_conversation(),
-                )
-            });
-
-        // Calculate how many images we can add based on per-query limit
-        let available_per_query = MAX_IMAGE_COUNT_FOR_QUERY.saturating_sub(num_images_attached);
-
-        // Calculate how many images we can add based on per-conversation limit
-        let total_images_current = num_images_attached + num_images_in_conversation;
-        let available_per_conversation =
-            MAX_IMAGES_PER_CONVERSATION.saturating_sub(total_images_current);
-
-        // Take the more restrictive limit
-        let max_attachable = available_per_query.min(available_per_conversation);
-
-        // Determine how many we can actually attach
-        let images_to_attach = num_images_to_add.min(max_attachable);
-        let excess_images = num_images_to_add.saturating_sub(images_to_attach);
-
-        // Show toast for excess images if any
-        if excess_images > 0 {
-            let (limit_name, limit_value) = if available_per_query < available_per_conversation {
-                ("per query", MAX_IMAGE_COUNT_FOR_QUERY)
-            } else {
-                ("per conversation", MAX_IMAGES_PER_CONVERSATION)
-            };
-
-            let message = if excess_images == 1 {
-                format!("1 image wasn't attached - limit is {limit_value} images {limit_name}.")
-            } else {
-                format!(
-                    "{excess_images} images weren't attached - limit is {limit_value} images {limit_name}."
-                )
-            };
-            self.show_image_paste_error(ctx, message);
-        }
-
-        images_to_attach
-    }
-
-    pub fn set_is_processing_attached_images(
-        &mut self,
-        is_processing_attached_images: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.is_processing_attached_images = is_processing_attached_images;
-        self.update_image_context_options(ctx);
-        ctx.notify();
-    }
-
-    /// Handles backspace at the buffer boundary (empty buffer or cursor at
-    /// position 0). Covers shell-prefix exit (`!`) and legacy
-    /// classic-mode AI icon toggling in a single function.
-    fn handle_backspace_at_buffer_boundary(&mut self, ctx: &mut ViewContext<Self>) {
-        match self.prefix_mode(ctx) {
-            InputPrefixMode::Shell => {
-                if self.agent_view_controller.as_ref(ctx).is_fullscreen() {
-                    self.exit_shell_mode_to_ai(ctx);
-                    ctx.notify();
-                }
-                return;
-            }
-            InputPrefixMode::None => {}
-        }
-
-        // Legacy classic-mode AI icon toggling (only reachable when Agent View
-        // is inactive and no prefix mode is set).
-        if !self.ai_input_model.as_ref(ctx).is_ai_input_enabled() {
-            return;
-        }
-
-        let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-        if is_udi_enabled {
-            return;
-        }
-
-        // When the agent view is active, the classic-mode AI icon toggling and follow-up clearing
-        // logic below does not apply.
-        if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(ctx).is_active()
-        {
-            return;
-        }
-
-        // If we have an AI follow up icon, backspace should clear that icon.
-        if self
-            .ai_context_model
-            .as_ref(ctx)
-            .is_targeting_existing_conversation(ctx)
-        {
-            self.ai_context_model.update(ctx, |ai_context_model, ctx| {
-                ai_context_model.set_pending_query_state_for_new_conversation(
-                    // This origin is unused in this codepath, which doesn't get called when
-                    // AgentView is enabled.
-                    AgentViewEntryOrigin::Input {
-                        was_prompt_autodetected: false,
-                    },
-                    ctx,
-                );
-            });
-        } else {
-            // Otherwise backspace away the AI icon.
-            let new_input_type = self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                let new_input_config = ai_input_model.input_config().with_toggled_type().locked();
-                let new_input_type = new_input_config.input_type;
-                ai_input_model.set_input_config_for_classic_mode(new_input_config, ctx);
-                new_input_type
-            });
-            self.maybe_send_autodetection_telemetry_on_manual_toggle(new_input_type, ctx);
-        }
     }
 
     /// Updates the tab completion menu given the current text of the editor and location of the
@@ -6765,7 +4241,7 @@ impl Input {
                 .update(ctx, |input_suggestions, ctx| {
                     input_suggestions.select_prev(ctx);
                 });
-        } else if !self.ai_input_model.as_ref(ctx).is_ai_input_enabled() {
+        } else {
             self.fuzzy_history_search(ctx);
         }
     }
@@ -6782,16 +4258,12 @@ impl Input {
         let original_cursor_point = editor.single_cursor_to_point(ctx);
 
         let original_buffer = editor.buffer_text(ctx);
-        let original_input_type = self.ai_input_model.as_ref(ctx).input_type();
-        let original_input_was_locked = self.ai_input_model.as_ref(ctx).is_input_type_locked();
         self.suggestions_mode_model.update(ctx, |m, ctx| {
             m.set_mode(
                 InputSuggestionsMode::HistoryUp {
                     original_buffer,
                     original_cursor_point,
                     search_mode: HistorySearchMode::Fuzzy,
-                    original_input_type,
-                    original_input_was_locked,
                 },
                 ctx,
             );
@@ -6927,8 +4399,6 @@ impl Input {
         let buffer_text = editor.buffer_text(ctx);
 
         self.is_completions_while_typing_turned_on(ctx)
-            && (!self.ai_input_model.as_ref(ctx).is_ai_input_enabled()
-                || should_show_completions_in_ai_input(&buffer_text))
             && buffer_text.len() >= MIN_BUFFER_LEN_TO_SHOW_COMPLETIONS_WHILE_TYPING
             && self.is_cursor_in_valid_position_for_completions_while_typing(ctx)
     }
@@ -6946,10 +4416,6 @@ impl Input {
     }
 
     fn should_expand_aliases(&self, ctx: &mut ViewContext<Self>) -> bool {
-        // Never expand aliases when in AI input mode, regardless of the setting.
-        if self.ai_input_model.as_ref(ctx).input_type().is_ai() {
-            return false;
-        }
         *AliasExpansionSettings::as_ref(ctx)
             .alias_expansion_enabled
             .value()
@@ -7004,13 +4470,11 @@ impl Input {
         ctx: &mut ViewContext<'_, Input>,
     ) {
         let buffer_text = self.buffer_text(ctx);
-        let input_type = self.ai_input_model.as_ref(ctx).input_type();
 
         let comp_sources = {
             let input_settings = InputSettings::as_ref(ctx);
             resolve_completion_sources(
                 FeatureFlag::NativeShellCompletions.is_enabled(),
-                input_type.is_ai(),
                 buffer_text.contains('\n'),
                 completions_trigger,
                 *input_settings.warp_completions_enabled,
@@ -7032,15 +4496,6 @@ impl Input {
             && let Some(last_abort_handle) = self.completions_abort_handle.take()
         {
             last_abort_handle.abort();
-        }
-
-        // Don't trigger completions if the last character typed is whitespace, in AI input mode.
-        // The user is likely typing in a natural language word at this point, not a filepath.
-        if input_type.is_ai()
-            && completions_trigger == CompletionsTrigger::AsYouType
-            && before_cursor_text.ends_with(char::is_whitespace)
-        {
-            return;
         }
 
         let Some(session_id) = self.completer_data().active_block_session_id() else {
@@ -7071,8 +4526,8 @@ impl Input {
                             CompleterOptions {
                                 match_strategy: matcher,
                                 fallback_strategy,
-                                suggest_file_path_completions_only: input_type.is_ai(),
-                                parse_quotes_as_literals: input_type.is_ai(),
+                                suggest_file_path_completions_only: false,
+                                parse_quotes_as_literals: false,
                             },
                             &completion_context,
                         )
@@ -7189,8 +4644,8 @@ impl Input {
                         CompleterOptions {
                             match_strategy: matcher,
                             fallback_strategy,
-                            suggest_file_path_completions_only: input_type.is_ai(),
-                            parse_quotes_as_literals: input_type.is_ai(),
+                            suggest_file_path_completions_only: false,
+                            parse_quotes_as_literals: false,
                         },
                         &completion_context,
                     )
@@ -8134,37 +5589,6 @@ impl Input {
             self.editor.update(ctx, |editor, ctx| {
                 editor.user_initiated_insert("\n", PlainTextEditorViewAction::NewLine, ctx)
             });
-        } else if self
-            .queued_prompts_panel
-            .as_ref()
-            .is_some_and(|panel| panel.as_ref(ctx).enter_sends_queued_prompt(ctx))
-        {
-            // An empty-buffer Enter sends the top queued row, mirroring its send-now button.
-            // A pending LRC row cannot be sent until its action snapshot fires.
-            let conversation_id =
-                BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_view_id);
-            let top_row = conversation_id.and_then(|conversation_id| {
-                QueuedQueryModel::as_ref(ctx)
-                    .queue(conversation_id)
-                    .first()
-                    .filter(|row| !row.is_locked())
-                    .map(|row| (row.id(), row.text().to_owned(), row.is_command()))
-            });
-            if let (Some(conversation_id), Some((query_id, text, is_command))) =
-                (conversation_id, top_row)
-            {
-                self.send_queued_row_immediately(
-                    conversation_id,
-                    query_id,
-                    text,
-                    is_command,
-                    QueuedPromptSendNowTrigger::EnterOnEmptyInput,
-                    ctx,
-                );
-            }
-            return;
-        } else if self.maybe_queue_input_for_in_progress_conversation(ctx) {
-            return;
         } else if matches!(
             self.suggestions_mode_model.as_ref(ctx).mode(),
             InputSuggestionsMode::CompletionSuggestions { .. }
@@ -8181,56 +5605,11 @@ impl Input {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
                 suggestions.confirm(ctx);
             });
-        } else if FeatureFlag::AgentMode.is_enabled()
-            && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-            && self.ai_input_model.as_ref(ctx).is_ai_input_enabled()
-        {
-            self.submit_ai_query_with_routing(ctx);
         } else {
             let command = self.get_command(ctx);
             if !self.try_execute_command(&command, ctx) {
                 return;
             }
-            self.emit_input_buffer_submitted_telemetry(ctx);
-
-            if FeatureFlag::AgentMode.is_enabled()
-                && AISettings::as_ref(ctx).is_ai_autodetection_enabled(ctx)
-            {
-                self.ai_input_model.update(ctx, |input, ctx| {
-                    input.abort_in_progress_detection();
-
-                    // The default input state after executing a shell command is Shell mode with
-                    // autodetection enabled.
-                    input.set_input_config_for_classic_mode(
-                        InputConfig {
-                            input_type: InputType::Shell,
-                            is_locked: true,
-                        }
-                        .unlocked_if_autodetection_enabled(false, ctx),
-                        ctx,
-                    );
-                });
-            }
-
-            // Cancel actively streaming conversations if we're able to run the command.
-            // This is possible in persistent input mode.
-            self.ai_controller.update(ctx, |controller, ctx| {
-                let active_conversation_id = BlocklistAIHistoryModel::as_ref(ctx)
-                    .active_conversation(self.terminal_view_id)
-                    .filter(|conversation| conversation.status().is_in_progress())
-                    .map(|conversation| conversation.id());
-                if let Some(active_conversation_id) = active_conversation_id {
-                    controller.cancel_conversation_progress(
-                        active_conversation_id,
-                        CancellationReason::UserCommandExecuted,
-                        ctx,
-                    );
-                }
-            });
-
-            self.ai_input_model.update(ctx, |model, ctx| {
-                model.handle_input_buffer_submitted(ctx);
-            });
 
             if SyncedInputState::as_ref(ctx).is_syncing_any_inputs(ctx.window_id()) {
                 ctx.emit(Event::SyncInput(SyncInputType::RanCommand));
@@ -8238,695 +5617,19 @@ impl Input {
 
             self.model.lock().set_is_input_dirty(false);
         }
-
-        AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
-            // Don't show the quota banner once a user has run a command or AI query.
-            ai_settings.mark_quota_banner_as_dismissed(ctx);
-            ctx.notify();
-        });
     }
 
     fn input_cmd_enter(&mut self, ctx: &mut ViewContext<Self>) {
-        // NaturalLanguageCommandSearch has its own `cmd+enter` behaviour, not expected to execute here
         let mode = self.suggestions_mode_model.as_ref(ctx).mode().clone();
-        match &mode {
-            InputSuggestionsMode::CompletionSuggestions { .. }
-            | InputSuggestionsMode::HistoryUp { .. }
-                // If FeatureFlag::AgentView is enabled, cmd-enter should unconditionally enter the
-                // agent view with the current buffer contents as agent input.
-                //
-                // I'm (ZB) not even sure what this legacy behavior is for, because if you have any
-                // selected completion or history suggestion, that suggestion has already been
-                // inserted into the buffer so enter (without cmd- prefix) would directly execute
-                // it anyway.
-                if !FeatureFlag::AgentView.is_enabled() =>
-            {
-                self.input_suggestions.update(ctx, |suggestions, ctx| {
-                    suggestions.confirm_and_execute(ctx);
-                });
-            }
-            InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-                dynamic_enum_status: DynamicEnumSuggestionStatus::Unapproved,
-                command,
-                ..
-            } => {
-                let editor_model = self.editor.read(ctx, |view, ctx| view.snapshot_model(ctx));
-                self.get_enum_suggestions_async(command.clone(), editor_model, ctx);
-            }
-            _ => {
-                // Cmd+Enter is not a local-submit gesture (Enter is), so only route the
-                // shared-session cases here.
-                self.maybe_route_ai_query_to_remote_target(ctx);
-            }
-        }
-    }
-
-    /// Re-submits a queued prompt through the correct handler (slash, skill, or regular AI query),
-    /// without touching the input buffer or triggering NLD / autosuggestion side-effects.
-    ///
-    /// Cancels the in-flight stream first so slash/skill paths don't trip the in-flight assertion.
-    /// `is_for_same_conversation: true` keeps the conversation status `InProgress` so the warping
-    /// indicator stays visible.
-    pub(crate) fn submit_queued_prompt(
-        &mut self,
-        prompt: String,
-        conversation_id: AIConversationId,
-        query_id: QueuedQueryId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.ai_controller.update(ctx, |controller, ctx| {
-            controller.cancel_conversation_progress(
-                conversation_id,
-                CancellationReason::FollowUpSubmitted {
-                    is_for_same_conversation: true,
-                },
-                ctx,
-            );
-        });
-
-        // A fired queued row always belongs to the existing conversation that finished, so we
-        // submit into that conversation directly rather than re-deriving from the current UI
-        // selection (which may point at a different conversation the user navigated to).
-        self.ai_controller.update(ctx, move |controller, ctx| {
-            controller.send_queued_user_query_in_conversation(
-                prompt,
-                conversation_id,
-                None,
-                query_id,
-                ctx,
-            );
-        });
-
-        ctx.emit(Event::ExecuteAIQuery);
-    }
-
-    /// Submits `prompt` immediately as a regular (non-queued) user query — the same controller
-    /// path `submit_ai_query` uses for a typed-and-entered prompt. Used by the `/queue`
-    /// not-in-progress fallback and the legacy pending-user-query submission paths, which are
-    /// immediate sends (not queued-row fires) and therefore reset their live staging.
-    pub(crate) fn submit_user_query_now(&mut self, prompt: String, ctx: &mut ViewContext<Self>) {
-        if let Some(conversation_id) = self
-            .ai_context_model
-            .as_ref(ctx)
-            .selected_conversation_id(ctx)
+        if let InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
+            dynamic_enum_status: DynamicEnumSuggestionStatus::Unapproved,
+            command,
+            ..
+        } = mode
         {
-            self.ai_controller.update(ctx, move |controller, ctx| {
-                controller.send_user_query_in_conversation(prompt, conversation_id, None, ctx);
-            });
-        } else {
-            self.ai_controller.update(ctx, move |controller, ctx| {
-                controller.send_user_query_in_new_conversation(
-                    prompt,
-                    None,
-                    EntrypointType::UserInitiated,
-                    None,
-                    ctx,
-                );
-            });
+            let editor_model = self.editor.read(ctx, |view, ctx| view.snapshot_model(ctx));
+            self.get_enum_suggestions_async(command, editor_model, ctx);
         }
-
-        ctx.emit(Event::ExecuteAIQuery);
-    }
-
-    /// Routes a popped queued prompt to the correct submission path for the active pane,
-    /// without touching the editor buffer or freezing the input. Queue draining must not
-    /// borrow the user-initiated submission UI (loading indicator, buffer replace), because
-    /// the queue panel itself is already the "this prompt is in flight" affordance and the
-    /// user may be typing a different prompt locally.
-    pub(crate) fn submit_queued_prompt_for_active_pane(
-        &mut self,
-        prompt: String,
-        conversation_id: AIConversationId,
-        query_id: QueuedQueryId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Shared-session viewer path.
-        // Send the prompt straight to the sharer via Event::SendAgentPrompt, carrying the queued
-        // text. When the user's editor is empty we
-        // also surface the standard `"<prompt> ◌"` loading affordance so the queued submission has
-        // visible feedback while the sharer ack flight is in flight; the
-        // `NetworkEvent::AgentPromptRequestInFlight` -> `unfreeze_and_clear_agent_input` hop will
-        // clear it once the sharer acknowledges receipt. If the user has typed something locally,
-        // we leave the buffer alone so their in-progress prompt is not clobbered.
-        if self.model.lock().shared_session_status().is_viewer() {
-            let server_conversation_token = BlocklistAIHistoryModel::as_ref(ctx)
-                .conversation(&conversation_id)
-                .and_then(|conv| conv.server_conversation_token().cloned())
-                .and_then(|token| {
-                    token
-                        .as_str()
-                        .parse()
-                        .ok()
-                        .map(ServerConversationToken::from_uuid)
-                });
-
-            if self.editor.as_ref(ctx).buffer_text(ctx).is_empty() {
-                self.freeze_input_in_loading_state_with_text(&prompt, ctx);
-            }
-            ctx.emit(Event::SendAgentPrompt {
-                server_conversation_token,
-                prompt,
-                attachments: vec![],
-            });
-            return;
-        }
-
-        // Local Agent Mode path.
-        self.submit_queued_prompt(prompt, conversation_id, query_id, ctx);
-    }
-
-    /// Queues the current input instead of submitting it when the active conversation is
-    /// busy and queueing is in effect for it. Returns true when the input was queued, in
-    /// which case the caller should skip normal submission.
-    fn maybe_queue_input_for_in_progress_conversation(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        if !FeatureFlag::QueueSlashCommand.is_enabled() {
-            return false;
-        }
-
-        // A shell-mode submission queues as a command; an AI-mode submission queues as a prompt.
-        // Command queueing is gated on the V2 surface.
-        let is_command = !self.ai_input_model.as_ref(ctx).is_ai_input_enabled();
-        if is_command && !FeatureFlag::QueuedPromptsV2.is_enabled() {
-            return false;
-        }
-
-        let Some(conversation_id) = self
-            .ai_context_model
-            .as_ref(ctx)
-            .selected_conversation_id(ctx)
-        else {
-            return false;
-        };
-
-        let is_summarizing = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .is_some_and(|c| c.is_summarizing());
-        // Summarization only routes a prompt into the queued-prompts panel under QueuedPromptsV2;
-        // with the flag off, only the auto-queue toggle queues (pre-V2 behavior).
-        let queue_for_summarize = is_summarizing && FeatureFlag::QueuedPromptsV2.is_enabled();
-
-        let queue_model = QueuedQueryModel::as_ref(ctx);
-        let queue_head_allows_lrc = match queue_model.queue(conversation_id).first() {
-            Some(row) => matches!(
-                row.origin(),
-                QueuedQueryOrigin::LrcAutoQueue | QueuedQueryOrigin::PendingLrcAutoQueue
-            ),
-            None => true,
-        };
-        let queue_enabled = {
-            let terminal_model = self.model.lock();
-            queue_model.is_queue_next_prompt_enabled(
-                conversation_id,
-                terminal_model.block_list().active_block(),
-                ctx,
-            )
-        };
-
-        // True when the LRC branch is the effective enabler (queueing would be off outside
-        // the command) and the current queue head can fire at command finish too.
-        let queued_for_lrc = queue_enabled
-            && !queue_model.is_queue_next_prompt_toggle_enabled(conversation_id)
-            && queue_head_allows_lrc;
-
-        // When queue mode is not normally active but an agent-requested run_shell_command
-        // action is still pending (snapshot not yet fired), queue as PendingLrcAutoQueue
-        // to prevent the CliAgentUserQuery / LRC snapshot race.
-        let queued_for_pending_lrc = !queue_enabled && !queue_for_summarize && !is_command && {
-            let pending_action_id = {
-                let terminal_model = self.model.lock();
-                let active_block = terminal_model.block_list().active_block();
-                if active_block.is_active_and_long_running() && !active_block.is_agent_monitoring()
-                {
-                    active_block.requested_command_action_id().cloned()
-                } else {
-                    None
-                }
-            };
-            pending_action_id.as_ref().is_some_and(|action_id| {
-                self.ai_action_model
-                    .as_ref(ctx)
-                    .is_shell_command_action_pending(action_id, conversation_id)
-            })
-        };
-
-        if !queue_enabled && !queue_for_summarize && !queued_for_pending_lrc {
-            return false;
-        }
-
-        let conversation_in_progress = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .is_some_and(|c| {
-                !c.is_empty() && (c.status().is_in_progress() || c.status().is_blocked())
-            });
-        // While a drained queued command is running the agent is idle, but the queue must keep
-        // accepting rows so FIFO order is preserved (PRODUCT §14).
-        let command_in_flight =
-            QueuedQueryModel::as_ref(ctx).has_command_in_flight(conversation_id);
-        if !conversation_in_progress && !command_in_flight {
-            return false;
-        }
-
-        let prompt = self.editor.as_ref(ctx).buffer_text(ctx);
-        if prompt.is_empty() {
-            return false;
-        }
-
-        self.ai_input_model.update(ctx, |model, ctx| {
-            model.handle_input_buffer_submitted(ctx);
-        });
-        self.emit_input_buffer_submitted_telemetry(ctx);
-        self.editor.update(ctx, |editor, ctx| {
-            editor.clear_buffer(ctx);
-        });
-
-        // PendingLrcAutoQueue rows are locked until the snapshot fires; LrcAutoQueue
-        // rows auto-fire when the command completes. Command rows use AutoQueueToggle.
-        let origin = if queued_for_pending_lrc {
-            QueuedQueryOrigin::PendingLrcAutoQueue
-        } else if queued_for_lrc && !is_command {
-            QueuedQueryOrigin::LrcAutoQueue
-        } else {
-            QueuedQueryOrigin::AutoQueueToggle
-        };
-        // Commands carry no attachments; only prompts consume the pending attachments.
-        let query = if is_command {
-            QueuedQuery::new_command(prompt, origin)
-        } else {
-            let attachments = self.ai_context_model.update(ctx, |context_model, ctx| {
-                context_model.take_pending_attachments(ctx)
-            });
-            QueuedQuery::new_with_attachments(prompt, origin, attachments)
-        };
-        QueuedQueryModel::handle(ctx)
-            .update(ctx, |model, ctx| model.append(conversation_id, query, ctx));
-
-        true
-    }
-
-    /// Submit the input buffer contents as an AI query to continue the conversation locally on the
-    /// machine. This is the local case of [`Self::submit_ai_query_with_routing`]; prefer calling
-    /// that so cloud/remote panes are routed correctly.
-    fn submit_ai_query_local(&mut self, ctx: &mut ViewContext<Self>) {
-        self.editor.update(ctx, |editor, ctx| {
-            editor.abort_attached_images_future_handle(ctx);
-        });
-
-        // Cloud/remote follow-up routing (live viewer, disconnected or read-only) is handled
-        // by `submit_ai_query_with_routing` / `maybe_route_ai_query_to_remote_target` before this point,
-        // so this method only performs local submission.
-
-        // If the agent view is inactive but the current input is detected as AI, submitting
-        // this query triggers entering the agent view.
-        if FeatureFlag::AgentView.is_enabled()
-            && !self.agent_view_controller.as_ref(ctx).is_active()
-        {
-            let prompt = self.editor.as_ref(ctx).buffer_text(ctx);
-            let prompt = prompt.trim().to_owned();
-            // Don't enter the agent view if input is autodetected as AI but the input is empty.
-            //
-            // This may happen because the input mode must be set to either shell or agent, and
-            // when the buffer cleared the input remains in whichever mode it was in previously
-            // until new input is entered.
-            if prompt.is_empty() {
-                return;
-            }
-            ctx.emit(Event::EnterAgentView {
-                initial_prompt: Some(prompt),
-                conversation_id: None,
-                origin: AgentViewEntryOrigin::Input {
-                    was_prompt_autodetected: !self
-                        .ai_input_model
-                        .as_ref(ctx)
-                        .is_input_type_locked(),
-                },
-            });
-            return;
-        }
-
-        let alert_blocks_ai = {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            let scope = user_workspaces.team_context_for_view(ctx);
-            PromptAlertView::does_alert_block_ai_requests(&scope, ctx)
-        };
-        if alert_blocks_ai {
-            AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                // Rate limit requests to fetch the user's AI usage if triggered by enter
-                // keypress.
-                const USAGE_LIMIT_UPDATE_REQUEST_RATE_LIMIT: Duration = Duration::from_secs(10);
-
-                let last_update_time = usage_model.last_update_time();
-                if last_update_time
-                    .is_some_and(|time| time.elapsed() >= USAGE_LIMIT_UPDATE_REQUEST_RATE_LIMIT)
-                    || last_update_time.is_none()
-                {
-                    usage_model.refresh_request_usage_async(ctx);
-                }
-            });
-
-            return;
-        }
-
-        let ai_query = self.editor.as_ref(ctx).buffer_text(ctx);
-        // We don't send AI requests with empty queries, even if the context is non-empty. We
-        // also don't send a query when the input (query plus context) is over the length limit.
-        // If we haven't calculated the input length, we optimistically as if it is within the
-        // limit. We always check the length before sending making the API request.
-        if ai_query.is_empty() {
-            return;
-        }
-
-        IgnoredSuggestionsModel::handle(ctx).update(ctx, |model, ctx| {
-            model.remove_ignored_suggestion(ai_query.clone(), SuggestionType::AIQuery, ctx);
-        });
-        self.emit_input_buffer_submitted_telemetry(ctx);
-
-        self.ai_input_model.update(ctx, |model, ctx| {
-            model.handle_input_buffer_submitted(ctx);
-        });
-
-        if let Some(conversation_id) = self
-            .ai_context_model
-            .as_ref(ctx)
-            .selected_conversation_id(ctx)
-        {
-            self.ai_controller.update(ctx, move |controller, ctx| {
-                controller.send_user_query_in_conversation(ai_query, conversation_id, None, ctx)
-            });
-        } else {
-            self.ai_controller.update(ctx, move |controller, ctx| {
-                controller.send_user_query_in_new_conversation(
-                    ai_query,
-                    None,
-                    EntrypointType::UserInitiated,
-                    None,
-                    ctx,
-                );
-            });
-        }
-
-        ctx.emit(Event::ExecuteAIQuery);
-
-        if let Some(workflow_state) = self.workflows_state.selected_workflow_state.as_ref()
-            && let WorkflowType::Cloud(workflow) = &workflow_state.workflow_type
-        {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::ExecutedWarpDrivePrompt {
-                    id: workflow.id.into_server().map(Into::into),
-                    selection_source: workflow_state.workflow_selection_source,
-                },
-                ctx
-            );
-
-            UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                update_manager.record_object_action(
-                    workflow.cloud_object_type_and_id(),
-                    ObjectActionType::Execute,
-                    None,
-                    ctx,
-                )
-            });
-        }
-    }
-
-    /// Send the given query to the session sharer for them to execute on their machine.
-    /// Returns false if the query should be run locally instead of being sent to the sharer
-    /// (which is the case for slash commands like fork and fork-and-compact).
-    fn submit_viewer_ai_query(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        let prompt = self.editor.as_ref(ctx).buffer_text(ctx);
-        if prompt.is_empty() {
-            return true;
-        }
-
-        // We're committed to sending the prompt, so finalize any in-flight image-attachment
-        // processing. This drops images that haven't finished processing; already-processed ones
-        // are collected as pending context below. (Local-action slash commands returned above.)
-        self.emit_input_buffer_submitted_telemetry(ctx);
-        self.editor.update(ctx, |editor, ctx| {
-            editor.abort_attached_images_future_handle(ctx);
-        });
-
-        // Freeze the editor and put it in a loading state
-        self.freeze_input_in_loading_state(ctx);
-
-        // Look up the conversation's server token from the conversation metadata.
-        let selected_conv_id = self
-            .ai_context_model
-            .as_ref(ctx)
-            .selected_conversation_id(ctx);
-        let server_conversation_token = selected_conv_id
-            .and_then(|id| {
-                BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation(&id)
-                    .and_then(|conv| conv.server_conversation_token().cloned())
-            })
-            .and_then(|token| {
-                token
-                    .as_str()
-                    .parse()
-                    .ok()
-                    .map(ServerConversationToken::from_uuid)
-            });
-
-        // Collect block/selected-text references from the context model.
-        let attachments: Vec<AgentAttachment> = self
-            .ai_context_model
-            .as_ref(ctx)
-            .pending_context(ctx, true, None)
-            .into_iter()
-            .filter_map(|context| match context {
-                AIAgentContext::Block(block) => Some(AgentAttachment::BlockReference {
-                    block_id: block.id.into(),
-                }),
-                AIAgentContext::SelectedText(text) => {
-                    Some(AgentAttachment::PlainText { content: text })
-                }
-                // For now, only AgentAttachment context is supported.
-                // TODO: Add support for other context types.
-                _ => None,
-            })
-            .collect();
-
-        ctx.emit(Event::SendAgentPrompt {
-            server_conversation_token,
-            prompt,
-            attachments,
-        });
-
-        true
-    }
-
-    fn emit_input_buffer_submitted_telemetry(&self, ctx: &mut ViewContext<Self>) {
-        let input_model = self.ai_input_model.as_ref(ctx);
-        let block_id = self.model.lock().active_block_id().clone();
-        send_telemetry_from_ctx!(
-            TelemetryEvent::InputBufferSubmitted {
-                input_type: input_model.input_type(),
-                is_locked: input_model.is_input_type_locked(),
-                input_type_decision_source: input_model.last_ai_autodetection_source(),
-                was_lock_set_with_empty_buffer: input_model.was_lock_set_with_empty_buffer(),
-                block_id,
-            },
-            ctx
-        );
-    }
-
-    /// Returns true if toggling the input mode is disabled.
-    fn is_input_mode_toggle_disabled(&self) -> bool {
-        // Don't allow input mode changes for:
-        // - read-only viewers in shared sessions.
-        // - long-running commands with an agent tagged in or in control.
-        let terminal_model = self.model.lock();
-        let active_block = terminal_model.block_list().active_block();
-        terminal_model.shared_session_status().is_reader()
-            || active_block.is_agent_in_control_or_tagged_in()
-    }
-
-    /// Set input mode to natural language detection (auto-detection)
-    pub fn set_input_mode_natural_language_detection(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.is_input_mode_toggle_disabled() {
-            return;
-        }
-
-        let is_autodetection_enabled = AISettings::as_ref(ctx).is_ai_autodetection_enabled(ctx);
-
-        if !is_autodetection_enabled {
-            return;
-        }
-
-        let buffer_text = self.editor.as_ref(ctx).buffer_text(ctx);
-
-        self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-            // If we're already configured to do autodetection, there's nothing to do here.
-            if ai_input_model.should_run_input_autodetection(ctx) {
-                return;
-            }
-
-            // Update the input mode to remove any locks and re-enable autodetection.
-            // If the buffer is empty, this returns the input mode to the default.
-            let input_type = if buffer_text.is_empty() {
-                InputType::default()
-            } else {
-                ai_input_model.input_config().input_type
-            };
-            ai_input_model.enable_autodetection(input_type, ctx);
-        });
-
-        // If the buffer is non-empty, we should kick off the autodetection process, in case the
-        // classification doesn't match the previous locked mode.
-        if !buffer_text.is_empty()
-            && let Some(completion_context) = self.completion_session_context(ctx)
-        {
-            let ai_input_model = self.ai_input_model.clone();
-
-            ctx.spawn(
-                async move {
-                    (
-                        parse_current_commands_and_tokens(buffer_text, &completion_context).await,
-                        completion_context,
-                    )
-                },
-                move |_input, (parsed_tokens, completion_context), ctx| {
-                    let session_id = completion_context.session.id();
-                    ai_input_model.update(ctx, |model, ctx| {
-                        model.detect_and_set_input_type(
-                            parsed_tokens,
-                            completion_context,
-                            Some(session_id),
-                            ctx,
-                        );
-                    });
-                },
-            );
-        }
-    }
-
-    /// Set input mode to Agent Mode (AI input)
-    pub fn set_input_mode_agent(
-        &mut self,
-        ensure_input_is_focused: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Don't allow input mode changes for read-only viewers in shared sessions
-        if self.model.lock().shared_session_status().is_reader() {
-            return;
-        }
-
-        let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-
-        // When AgentView is enabled, reverting to AI mode in an active agent view with an empty
-        // buffer should unlock (re-enable autodetection) - semantically like clearing the "!".
-        //
-        // If there is a pending image / file attachment, do NOT unlock. The user's intent is
-        // unambiguously "talk to the agent"; letting the classifier flip the input back to
-        // shell mode would be a bug.
-        let has_locking_attachment = self.ai_context_model.as_ref(ctx).has_locking_attachment();
-        let should_unlock = FeatureFlag::AgentView.is_enabled()
-            && self.agent_view_controller.as_ref(ctx).is_fullscreen()
-            && is_input_buffer_empty
-            && AISettings::as_ref(ctx).is_ai_autodetection_enabled(ctx)
-            && !has_locking_attachment;
-
-        if should_unlock {
-            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                ai_input_model.enable_autodetection(InputType::AI, ctx);
-            });
-        } else {
-            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                let new_config = InputConfig {
-                    input_type: InputType::AI,
-                    is_locked: true,
-                };
-                let decision_source = if has_locking_attachment {
-                    InputTypeAutoDetectionSource::AttachmentForcedAi
-                } else {
-                    InputTypeAutoDetectionSource::ManualToggle
-                };
-                ai_input_model.set_input_config(
-                    new_config,
-                    is_input_buffer_empty,
-                    Some(decision_source),
-                    ctx,
-                );
-            });
-        }
-
-        if ensure_input_is_focused {
-            self.focus_input_box(ctx);
-        }
-    }
-
-    /// Set input mode to Terminal Mode (shell command input)
-    pub fn set_input_mode_terminal(&mut self, steal_focus: bool, ctx: &mut ViewContext<Self>) {
-        if self.is_input_mode_toggle_disabled() {
-            return;
-        }
-
-        let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-        self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-            let new_config = InputConfig {
-                input_type: InputType::Shell,
-                is_locked: true,
-            };
-            ai_input_model.set_input_config(
-                new_config,
-                is_input_buffer_empty,
-                Some(InputTypeAutoDetectionSource::ManualToggle),
-                ctx,
-            );
-        });
-
-        if steal_focus {
-            self.focus_input_box(ctx);
-        }
-    }
-
-    /// Applies an input config update from an external source (e.g., session sharing).
-    pub fn apply_external_input_config_update(
-        &mut self,
-        config: InputConfig,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // do nothing if the config is the same as the current config
-        if config == self.ai_input_model.as_ref(ctx).input_config() {
-            return;
-        }
-
-        let is_input_buffer_empty = self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
-        self.ai_input_model.update(ctx, |model, ctx| {
-            model.set_input_config(
-                config,
-                is_input_buffer_empty,
-                Some(InputTypeAutoDetectionSource::SessionSharingApply),
-                ctx,
-            );
-        });
-    }
-
-    /// Exits `!` shell mode by switching back to AI mode, respecting the agent view's
-    /// autodetection setting.
-    fn exit_shell_mode_to_ai(&mut self, ctx: &mut ViewContext<Self>) {
-        let new_config = InputConfig {
-            input_type: InputType::AI,
-            is_locked: true,
-        }
-        .unlocked_if_autodetection_enabled(true, ctx);
-        self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-            ai_input_model.set_input_config(
-                new_config,
-                true,
-                Some(InputTypeAutoDetectionSource::ShellPrefix),
-                ctx,
-            );
-        });
-    }
-
-    /// Returns true if the input is locked in AI mode
-    fn is_locked_in_ai_mode(&self, ctx: &ViewContext<Self>) -> bool {
-        let ai_input_model = self.ai_input_model.as_ref(ctx);
-        ai_input_model.is_input_type_locked() && ai_input_model.input_type().is_ai()
     }
 
     fn get_command(&mut self, ctx: &mut ViewContext<Self>) -> String {
@@ -8937,10 +5640,7 @@ impl Input {
         self.editor.as_ref(ctx).buffer_text(ctx)
     }
 
-    /// Inserts the given text into the input buffer. Note that this requires a TerminalModel lock
-    /// because when not in Agent Mode, we clear all active selections when inserting text into the
-    /// editor! Any upstream caller should NOT be holding a lock on the TerminalModel when calling
-    /// this method, to avoid a deadlock.
+    /// Inserts text into the input buffer. Callers must not hold the TerminalModel lock.
     fn insert_internal(
         &mut self,
         text: &str,
@@ -8950,19 +5650,7 @@ impl Input {
         if matches!(edit_origin, EditOrigin::UserTyped) {
             self.model.lock().set_is_input_dirty(true);
         }
-        // If not in Agent Mode, clear any active text selections in the blocklist when inserting
-        // new text. Note that the TerminalModel lock is instantly dropped after this expression,
-        // since it's stored in a temporary variable.
-        //
-        // When `FeatureFlag::AgentView` is enabled, blocks are attachable as AI context in terminal
-        // mode. Selections are preserved so they can be attached to the query when entering the
-        // agent view.
-        if !self.ai_input_model.as_ref(ctx).is_ai_input_enabled()
-            && !FeatureFlag::AgentView.is_enabled()
-        {
-            self.model.lock().block_list_mut().clear_selection();
-        }
-
+        self.model.lock().block_list_mut().clear_selection();
         ctx.focus(&self.editor);
         self.editor.update(ctx, |editor, ctx| match edit_origin {
             EditOrigin::UserTyped => editor.user_insert(text, ctx),
@@ -9041,10 +5729,7 @@ impl Input {
         // cleared. For the multiline input box case, this also caused contents to go
         // off the screen because we were forcing the long running command to be the same
         // size of the cleared input box.
-        if let BlockType::User(user_block) = &block_completed_event.block_type {
-            // Only clear the input buffer for user-executed commands, not agent-executed ones.
-            let should_clear_buffer = !user_block.was_part_of_agent_interaction
-                && !self.has_queued_command_in_flight(ctx);
+        if let BlockType::User(_) = &block_completed_event.block_type {
             let latest_block_id = self.model.lock().block_list().active_block_id().clone();
             // Prefer a prompt-chip restore (e.g. `cd`) over a shell-widget handoff restore.
             let completed_handoff = self
@@ -9065,67 +5750,47 @@ impl Input {
                         .map(|handoff| handoff.restore_text().to_string())
                 });
 
-            if should_clear_buffer {
-                // We want to reinitialize the buffer whenever a command is completed so that
-                // state does not leak from buffer to buffer (e.g. edit history).
-                if self.deferred_remote_operations.latest_block_id != latest_block_id {
-                    self.deferred_remote_operations.latest_block_id = latest_block_id;
-                    self.editor
-                        .update(ctx, |editor, ctx| editor.reinitialize_buffer(None, ctx));
-                    self.latest_buffer_operations = Vec::new();
+            // We want to reinitialize the buffer whenever a command is completed so that
+            // state does not leak from buffer to buffer (e.g. edit history).
+            if self.deferred_remote_operations.latest_block_id != latest_block_id {
+                self.deferred_remote_operations.latest_block_id = latest_block_id;
+                self.editor
+                    .update(ctx, |editor, ctx| editor.reinitialize_buffer(None, ctx));
+                self.latest_buffer_operations = Vec::new();
 
-                    // If we have a pending input restore (from a prompt chip command like cd, or
-                    // a ctrl-r/ctrl-t external handoff), restore the input contents instead of
-                    // leaving the buffer empty.
-                    if let Some(restore_text) = pending_input_restore {
-                        self.editor.update(ctx, |editor, ctx| {
-                            editor.set_buffer_text(&restore_text, ctx);
-                            if let Some(handoff) = &completed_handoff {
-                                match (
-                                    handoff.apply_mode,
-                                    &handoff.selection,
-                                    handoff.cursor_offset,
-                                ) {
-                                    (
-                                        ShellWidgetApplyMode::Splice,
-                                        Some(insertion),
-                                        Some(cursor_offset),
-                                    ) => editor.select_and_replace(
-                                        insertion,
+                // If we have a pending input restore (from a prompt chip command like cd, or
+                // a ctrl-r/ctrl-t external handoff), restore the input contents instead of
+                // leaving the buffer empty.
+                if let Some(restore_text) = pending_input_restore {
+                    self.editor.update(ctx, |editor, ctx| {
+                        editor.set_buffer_text(&restore_text, ctx);
+                        if let Some(handoff) = &completed_handoff {
+                            match (
+                                handoff.apply_mode,
+                                &handoff.selection,
+                                handoff.cursor_offset,
+                            ) {
+                                (
+                                    ShellWidgetApplyMode::Splice,
+                                    Some(insertion),
+                                    Some(cursor_offset),
+                                ) => editor.select_and_replace(
+                                    insertion,
+                                    [cursor_offset..cursor_offset],
+                                    PlainTextEditorViewAction::InsertSelectedText,
+                                    ctx,
+                                ),
+                                (_, None, Some(cursor_offset)) => editor
+                                    .select_ranges_by_byte_offset(
                                         [cursor_offset..cursor_offset],
-                                        PlainTextEditorViewAction::InsertSelectedText,
                                         ctx,
                                     ),
-                                    (_, None, Some(cursor_offset)) => editor
-                                        .select_ranges_by_byte_offset(
-                                            [cursor_offset..cursor_offset],
-                                            ctx,
-                                        ),
-                                    (ShellWidgetApplyMode::Replace, Some(_), _)
-                                    | (ShellWidgetApplyMode::Splice, Some(_), None)
-                                    | (_, None, None) => {}
-                                }
+                                (ShellWidgetApplyMode::Replace, Some(_), _)
+                                | (ShellWidgetApplyMode::Splice, Some(_), None)
+                                | (_, None, None) => {}
                             }
-                        });
-                        self.is_editor_empty_on_last_edit = false;
-                    } else {
-                        // This is the one place where buffer contents can change without an `Edit`
-                        // -- this is because the buffer semantically isn't being edited, a new one is
-                        // being constructed. We can guarantee in this case that the buffer was previously
-                        // non-empty and should emit this event, because this code path is executed upon block
-                        // completion in response to an executed command, though this guarantee is not explicitly
-                        // enforced by the code.
-                        self.is_editor_empty_on_last_edit = true;
-                        ctx.emit(Event::InputEmptyStateChanged {
-                            is_empty: true,
-                            reason: InputEmptyStateChangeReason::UserCommandCompleted,
-                        });
-                    }
-                }
-            } else {
-                // For agent-executed commands, still update the latest block ID but don't clear the buffer
-                if self.deferred_remote_operations.latest_block_id != latest_block_id {
-                    self.deferred_remote_operations.latest_block_id = latest_block_id;
+                        }
+                    });
                 }
             }
 
@@ -9146,12 +5811,6 @@ impl Input {
                     shared_session_input_state.pending_command_execution_request = None;
                 };
             }
-
-            // Update the segmented control disabled state based on the new state.
-            self.universal_developer_input_button_bar
-                .update(ctx, |button_bar, ctx| {
-                    button_bar.update_segmented_control_disabled_state(ctx);
-                });
 
             // Generate autosuggestion if the input is not empty (user had type-ahead).
             self.maybe_generate_autosuggestion(ctx);
@@ -9177,17 +5836,6 @@ impl Input {
     ) {
         if let BlockType::User(block_completed) = block {
             self.last_user_block_completed = Some(block_completed.clone());
-
-            let is_in_fullscreen_agent_view =
-                self.agent_view_controller.as_ref(ctx).is_fullscreen();
-            self.ai_input_model.update(ctx, |ai_input_model, ctx| {
-                // If the user has autodetection enabled, unlock the input mode.
-                // Otherwise, keep it locked in the current mode.
-                let new_config = ai_input_model
-                    .input_config()
-                    .unlocked_if_autodetection_enabled(is_in_fullscreen_agent_view, ctx);
-                ai_input_model.set_input_config(new_config, false, None, ctx);
-            });
 
             let viewing_shared_session = self.model.lock().shared_session_status().is_viewer();
             if viewing_shared_session {
@@ -9450,10 +6098,6 @@ impl Input {
             .update(ctx, |prompt, prompt_ctx| {
                 prompt.update_session_context(session_context.clone(), prompt_ctx);
             });
-
-        self.agent_input_footer.update(ctx, |footer, footer_ctx| {
-            footer.update_session_context(session_context, footer_ctx);
-        });
     }
 
     pub fn update_repo_path(&mut self, repo_path: Option<PathBuf>, ctx: &mut ViewContext<Self>) {
@@ -9462,105 +6106,9 @@ impl Input {
             .update(ctx, |prompt, prompt_ctx| {
                 prompt.update_repo_path(repo_path.clone(), prompt_ctx);
             });
-
-        self.agent_input_footer.update(ctx, |footer, footer_ctx| {
-            footer.set_current_repo_path(repo_path.clone(), footer_ctx);
-        });
     }
 
-    fn render_attachment_chips(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
-        if self.attachment_chips.is_empty() {
-            None
-        } else {
-            let chips = self
-                .attachment_chips
-                .iter()
-                .map(|chip| self.render_attached_chip(chip, appearance));
-
-            Some(
-                Wrap::row()
-                    .with_run_spacing(spacing::UDI_CHIP_MARGIN)
-                    .with_main_axis_alignment(MainAxisAlignment::Start)
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_children(chips)
-                    .finish(),
-            )
-        }
-    }
-
-    fn render_attached_chip(
-        &self,
-        chip: &AttachmentChip,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let delete_chip_index = chip.index;
-        let close_button = appearance
-            .ui_builder()
-            .close_button(
-                appearance.monospace_font_size(),
-                chip.mouse_state_handle.clone(),
-            )
-            .build()
-            .on_click(move |ctx, _, _| {
-                ctx.dispatch_typed_action(TerminalAction::DeleteAttachment {
-                    index: delete_chip_index,
-                });
-            })
-            .finish();
-
-        let icon = match chip.attachment_type {
-            AttachmentType::Image => Icon::Image,
-            AttachmentType::File => Icon::File,
-        };
-
-        let attachment_chip = Chip::new(
-            chip.file_name.clone(),
-            UiComponentStyles {
-                margin: Some(Coords {
-                    top: 0.,
-                    bottom: 0.,
-                    left: 0.,
-                    right: 6.,
-                }),
-                font_family_id: Some(appearance.ui_font_family()),
-                font_size: Some(appearance.monospace_font_size()),
-                font_color: Some(blended_colors::text_main(
-                    appearance.theme(),
-                    appearance.theme().background(),
-                )),
-                border_width: Some(1.),
-                border_color: Some(internal_colors::neutral_4(appearance.theme()).into()),
-                border_radius: Some(CornerRadius::with_all(Radius::Pixels(5.))),
-                ..Default::default()
-            },
-        )
-        .with_icon(icon.to_warpui_icon(
-            blended_colors::text_main(appearance.theme(), appearance.theme().background()).into(),
-        ))
-        .with_close_button(close_button)
-        .build();
-
-        if matches!(chip.attachment_type, AttachmentType::Image) {
-            let preview_chip_index = chip.index;
-            EventHandler::new(attachment_chip.finish())
-                .on_left_mouse_down(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(TerminalAction::OpenAttachmentLightbox {
-                        index: preview_chip_index,
-                    });
-                    DispatchEventResult::StopPropagation
-                })
-                .finish()
-        } else {
-            attachment_chip.finish()
-        }
-    }
-
-    fn render_input_box(
-        &self,
-        show_vim_status: bool,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
+    fn render_input_box(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
         // Set editor height to be half of the terminal view height
         let editor_height = self.size_info(app).pane_height_px() / 2.0.into_pixels();
 
@@ -9576,25 +6124,7 @@ impl Input {
         let terminal_settings = TerminalSettings::as_ref(app);
         let terminal_spacing =
             terminal_settings.terminal_input_spacing(appearance.line_height_ratio(), app);
-        let mut bottom_padding = terminal_spacing.editor_bottom_padding;
-
-        // When `FeatureFlag::AgentView` is enabled, always render with UDI-style spacing values,
-        // regardless of terminal/agent mode or prompt setting.
-        let is_udi_style_spacing =
-            self.should_show_universal_developer_input(app) || FeatureFlag::AgentView.is_enabled();
-
-        let is_compact_mode =
-            matches!(terminal_settings.spacing_mode.value(), SpacingMode::Compact)
-                && !is_udi_style_spacing;
-
-        // In compact mode, allocate some extra padding for the Vim status bar.
-        if is_compact_mode && show_vim_status {
-            bottom_padding = VIM_STATUS_BAR_BOTTOM_PADDING;
-        }
-
-        if is_udi_style_spacing {
-            bottom_padding = terminal_spacing.editor_bottom_padding - 4.;
-        }
+        let bottom_padding = terminal_spacing.editor_bottom_padding - 4.;
 
         let input_box = Container::new(
             ConstrainedBox::new(Clipped::new(ChildView::new(&self.editor).finish()).finish())
@@ -9631,14 +6161,6 @@ impl Input {
         .finish()
     }
 
-    /// Returns whether the buffer contains any attachment patterns (blocks, drive objects, or diffs).
-    /// These patterns indicate the user is referencing context that requires AI mode.
-    fn buffer_contains_attachment_patterns(buffer_text: &str) -> bool {
-        BLOCK_CONTEXT_ATTACHMENT_REGEX.is_match(buffer_text)
-            || DRIVE_OBJECT_ATTACHMENT_REGEX.is_match(buffer_text)
-            || DIFF_HUNK_ATTACHMENT_REGEX.is_match(buffer_text)
-    }
-
     /// Returns the SavePosition ID for the input.
     ///
     /// This may be used by parent views to position UI elements relative to the input.
@@ -9662,24 +6184,8 @@ impl Input {
         format!("status_free_input_{}", self.view_id)
     }
 
-    /// Returns a reference to the universal developer input button bar, if it exists
-    pub fn universal_developer_input_button_bar(
-        &self,
-    ) -> &ViewHandle<UniversalDeveloperInputButtonBar> {
-        &self.universal_developer_input_button_bar
-    }
-
     pub fn should_show_universal_developer_input(&self, app: &AppContext) -> bool {
         InputSettings::as_ref(app).is_universal_developer_input_enabled(app)
-    }
-
-    /// Returns whether the input box is currently pinned to the top of the screen.
-    fn is_input_at_top(&self, model: &TerminalModel, ctx: &AppContext) -> bool {
-        match InputModeSettings::as_ref(ctx).input_mode.value() {
-            InputMode::PinnedToBottom => false,
-            InputMode::PinnedToTop => true,
-            InputMode::Waterfall => model.is_block_list_empty(),
-        }
     }
 }
 
@@ -9730,45 +6236,6 @@ impl TypedActionView for Input {
                     }
                 });
             }
-            InputAction::ToggleInputAutoDetection => {
-                if let Ok(new_value) =
-                    AISettings::handle(ctx).update(ctx, |ai_settings, model_ctx| {
-                        ai_settings
-                            .ai_autodetection_enabled_internal
-                            .toggle_and_save_value(model_ctx)
-                    })
-                {
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::AgentModeToggleAutoDetectionSetting {
-                            is_autodetection_enabled: new_value,
-                            origin: AgentModeAutoDetectionSettingOrigin::Banner
-                        },
-                        ctx
-                    );
-                }
-            }
-            InputAction::EnableAutoDetection => {
-                // Call the same logic that clicking the lightbulb icon triggers
-                self.handle_universal_developer_input_button_bar_event(
-                    &UniversalDeveloperInputButtonBarEvent::EnableAutoDetection,
-                    ctx,
-                );
-            }
-            InputAction::ToggleAgentViewShortcuts => {
-                self.agent_shortcut_view_model.update(ctx, |model, ctx| {
-                    if model.is_shortcut_view_open() {
-                        model.hide_shortcut_view(ctx);
-                    } else {
-                        model.open_shortcut_view(ctx);
-                    }
-                });
-            }
-            InputAction::SetUDIHovered(is_hovered) => {
-                self.universal_developer_input_button_bar
-                    .update(ctx, |button_bar, ctx| {
-                        button_bar.set_udi_hovered(*is_hovered, ctx);
-                    });
-            }
             InputAction::UpdateCompletionsMenuWidth(width) => {
                 InputSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.completions_menu_width.set_value(*width, ctx));
@@ -9778,59 +6245,6 @@ impl TypedActionView for Input {
                 InputSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.completions_menu_height.set_value(*height, ctx));
                 });
-            }
-            InputAction::StartNewAgentConversation { origin } => {
-                // Block starting a new conversation if the agent is in control of a long-running command
-                if !self
-                    .ai_context_model
-                    .as_ref(ctx)
-                    .can_start_new_conversation()
-                {
-                    let window_id = ctx.window_id();
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            DismissibleToast::error(
-                                "Cannot start a new conversation while agent is monitoring a command.".to_string()
-                            ),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                    return;
-                }
-
-                if FeatureFlag::AgentView.is_enabled() {
-                    if let AgentViewEntryOrigin::Keybinding(keystroke) = origin {
-                        let should_start_new_conversation =
-                            self.agent_view_controller.update(ctx, |controller, ctx| {
-                                controller.should_start_new_conversation_for_keystroke(
-                                    keystroke.clone(),
-                                    ctx,
-                                )
-                            });
-                        if !should_start_new_conversation {
-                            return;
-                        }
-                    }
-                    ctx.emit(Event::EnterAgentView {
-                        initial_prompt: None,
-                        conversation_id: None,
-                        origin: origin.clone(),
-                    });
-                } else if self.should_show_universal_developer_input(ctx) {
-                    // Clear follow-up state (start a fresh conversation)
-                    self.ai_context_model.update(ctx, |ai_context_model, ctx| {
-                        ai_context_model
-                            .set_pending_query_state_for_new_conversation(origin.clone(), ctx);
-                    });
-                    self.enter_ai_mode(
-                        Some(InputTypeAutoDetectionSource::StartNewConversation),
-                        ctx,
-                    );
-                }
-            }
-            InputAction::ClearAttachedContext => {
-                self.clear_attached_context(ctx);
             }
         }
     }
@@ -9855,9 +6269,6 @@ impl View for Input {
             if self.prompt_render_helper.has_open_chip_menu(ctx) {
                 // Focus the PromptDisplay, which will in turn focus any open chip menu
                 ctx.focus(self.prompt_render_helper.prompt_view());
-            } else if self.agent_input_footer.as_ref(ctx).has_open_chip_menu(ctx) {
-                // Focus the AgentInputFooter, which will in turn focus any open chip menu
-                ctx.focus(&self.agent_input_footer);
             } else {
                 ctx.focus(&self.editor);
                 ctx.notify();
@@ -9868,48 +6279,8 @@ impl View for Input {
 
     fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
         let mut ctx = Self::default_keymap_context();
-        let ai_settings = AISettings::as_ref(app);
-
-        if self.ai_input_model.as_ref(app).is_ai_input_enabled() {
-            ctx.set.insert("AIInput");
-        }
-
         if InputSettings::as_ref(app).is_universal_developer_input_enabled(app) {
             ctx.set.insert("UniversalDeveloperInput");
-        }
-
-        if self.ai_input_model.as_ref(app).is_ai_input_enabled() {
-            ctx.set.insert(flags::AGENT_MODE_INPUT);
-        } else {
-            ctx.set.insert(flags::TERMINAL_MODE_INPUT);
-        }
-
-        if self.ai_input_model.as_ref(app).is_input_type_locked() {
-            ctx.set.insert(flags::LOCKED_INPUT);
-        }
-
-        // Keep Input's keymap context in sync with TerminalView's context for AgentView-related
-        // bindings (e.g. cmd-i).
-        if FeatureFlag::AgentView.is_enabled() {
-            ctx.set.insert(flags::AGENT_VIEW_ENABLED);
-            let agent_view_state = self.agent_view_controller.as_ref(app).agent_view_state();
-            if agent_view_state.is_fullscreen() {
-                ctx.set.insert(flags::ACTIVE_AGENT_VIEW);
-            } else if agent_view_state.is_inline() {
-                ctx.set.insert(flags::ACTIVE_INLINE_AGENT_VIEW);
-            }
-        }
-
-        if self.buffer_text(app).is_empty() {
-            ctx.set.insert(flags::EMPTY_INPUT_BUFFER);
-        }
-
-        if ai_settings.is_any_ai_enabled(app) {
-            ctx.set.insert(flags::IS_ANY_AI_ENABLED);
-        }
-
-        if ai_settings.is_ai_autodetection_enabled(app) {
-            ctx.set.insert(flags::AI_INPUT_AUTODETECTION_FLAG);
         }
 
         if let Some(workflow) = self.workflows_state.selected_workflow_state.clone()
@@ -9918,17 +6289,8 @@ impl View for Input {
             ctx.set.insert("WorkflowInfoBox");
         }
 
-        if self.prompt_render_helper.has_open_chip_menu(app)
-            || self.agent_input_footer.as_ref(app).has_open_chip_menu(app)
-        {
+        if self.prompt_render_helper.has_open_chip_menu(app) {
             ctx.set.insert("PromptChipMenuOpen");
-        }
-
-        if BlocklistAIHistoryModel::as_ref(app)
-            .all_live_conversations_for_terminal_surface(self.terminal_view_id)
-            .any(|conversation| conversation.initial_user_query().is_some())
-        {
-            ctx.set.insert("ActiveAIConversationHasHistory");
         }
 
         if AppEditorSettings::as_ref(app).vim_mode_enabled() {
@@ -9939,15 +6301,9 @@ impl View for Input {
             ctx.set.insert("VimNormalMode");
         }
 
-        if self.is_editing_queued_prompt(app) {
-            ctx.set.insert(QUEUED_PROMPT_INLINE_EDITOR_OPEN_CONTEXT);
-        }
         let model_lock = self.model.lock();
         ctx.set
             .insert(model_lock.shared_session_status().as_keymap_context());
-        if file_attach_allowed_for_shared_session(model_lock.shared_session_status()) {
-            ctx.set.insert(CAN_ATTACH_FILE_KEY);
-        }
 
         if model_lock
             .block_list()
@@ -9967,19 +6323,10 @@ impl View for Input {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        let is_universal_input = self.should_show_universal_developer_input(app);
-        if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(app).is_active()
-        {
-            self.render_agent_input(app)
-        } else if FeatureFlag::AgentView.is_enabled()
-            && !self.agent_view_controller.as_ref(app).is_active()
-            && !should_render_ps1_prompt(&self.model.lock(), app)
-        {
-            self.render_terminal_input(app)
-        } else if !FeatureFlag::AgentView.is_enabled() && is_universal_input {
-            self.render_universal_developer_input(app)
-        } else {
+        if should_render_ps1_prompt(&self.model.lock(), app) {
             self.render_classic_input(app)
+        } else {
+            self.render_terminal_input(app)
         }
     }
 }
@@ -10013,130 +6360,6 @@ impl Autosuggester for Input {
 
     fn set_autosuggestion_future(&mut self, abort_handle: AbortHandle) {
         self.autosuggestions_abort_handle = Some(abort_handle);
-    }
-}
-
-/// Returns an optional element to be rendered at the start of the editor buffer, almost like a
-/// rich UI 'prefix'.
-///
-/// When AgentView is enabled, this is responsible for rendering the '!' shell mode indicator.
-///
-/// When Agent View is disabled, this renders the agent mode icon and optional follow-up icon when
-/// classic input is enabled.
-fn render_prefix_mode_indicator(
-    prefix: &'static str,
-    color: ColorU,
-    appearance: &Appearance,
-    em_width: f32,
-    app: &AppContext,
-) -> Box<dyn Element> {
-    let indicator_size = ai_indicator_height(app);
-    Container::new(
-        ConstrainedBox::new(
-            Align::new(
-                Text::new(
-                    prefix,
-                    appearance.monospace_font_family(),
-                    appearance.monospace_font_size(),
-                )
-                .with_color(color)
-                .finish(),
-            )
-            .finish(),
-        )
-        .with_height(indicator_size)
-        .with_width(indicator_size)
-        .finish(),
-    )
-    .with_margin_right(em_width)
-    .finish()
-}
-fn maybe_render_ai_input_indicators(
-    ai_input_model: &ModelHandle<BlocklistAIInputModel>,
-    ai_context_model: &ModelHandle<BlocklistAIContextModel>,
-    agent_view_controller: &ModelHandle<AgentViewController>,
-    ai_follow_up_icon_mouse_state: MouseStateHandle,
-    app: &AppContext,
-) -> Option<Box<dyn Element>> {
-    let ai_input_model = ai_input_model.as_ref(app);
-    let appearance = Appearance::as_ref(app);
-    let em_width = app.font_cache().em_width(
-        appearance.monospace_font_family(),
-        appearance.monospace_font_size(),
-    );
-
-    let is_agent_view_active = agent_view_controller.as_ref(app).is_fullscreen();
-    let is_ai_input_enabled = ai_input_model.is_ai_input_enabled();
-    let is_input_type_locked = ai_input_model.is_input_type_locked();
-
-    // Show the `!` shell mode indicator when in locked shell mode inside the agent view.
-    let is_locked_shell = !is_ai_input_enabled && is_input_type_locked;
-    if is_locked_shell && is_agent_view_active {
-        return Some(render_prefix_mode_indicator(
-            TERMINAL_INPUT_PREFIX,
-            appearance.theme().ansi_fg_blue(),
-            appearance,
-            em_width,
-            app,
-        ));
-    }
-
-    if is_agent_view_active {
-        return None;
-    }
-
-    if !ai_input_model.is_ai_input_enabled() || FeatureFlag::AgentView.is_enabled() {
-        return None;
-    }
-
-    let is_universal_developer_input_enabled =
-        InputSettings::as_ref(app).is_universal_developer_input_enabled(app);
-
-    // If universal developer input is enabled, don't show any AI indicators
-    if is_universal_developer_input_enabled {
-        return None;
-    }
-
-    let ai_icon = render_ai_agent_mode_icon(
-        app,
-        AnsiColorIdentifier::Yellow.to_ansi_color(&appearance.theme().terminal_colors().normal),
-    );
-
-    let all_icons = if ai_context_model
-        .as_ref(app)
-        .is_targeting_existing_conversation(app)
-    {
-        let reply_icon = render_ai_follow_up_icon(ai_follow_up_icon_mouse_state, app);
-        Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(ai_icon)
-            .with_child(reply_icon)
-            .finish()
-    } else {
-        ai_icon
-    };
-    Some(
-        Container::new(all_icons)
-            .with_margin_right(em_width)
-            .finish(),
-    )
-}
-
-#[cfg(feature = "integration_tests")]
-impl Input {}
-
-#[cfg(test)]
-impl Input {
-    pub fn agent_footer_chip_kinds(
-        &self,
-        app: &AppContext,
-    ) -> (
-        Vec<crate::context_chips::ContextChipKind>,
-        Vec<crate::context_chips::ContextChipKind>,
-    ) {
-        self.agent_input_footer
-            .as_ref(app)
-            .displayed_chip_kinds(app)
     }
 }
 

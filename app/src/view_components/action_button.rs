@@ -176,12 +176,6 @@ pub enum ButtonSize {
     XSmall,
     InlineActionHeader,
     InputPrompt,
-    /// Sizing for buttons at the bottom of the UDI.
-    UDIButton,
-    /// Sizing for prompt chips in the UDI.
-    UDIPromptChip,
-    /// Sizing for buttons in the AgentView input, e.g. when `FeatureFlag::AgentView` is enabled.
-    AgentInputButton,
 }
 
 /// Source for the keystrokes associated with an [`ActionButton`].
@@ -425,7 +419,7 @@ impl ActionButton {
     pub fn height(&self, app: &AppContext) -> f32 {
         let appearance = Appearance::as_ref(app);
         self.custom_height
-            .unwrap_or_else(|| self.size.button_height(appearance, app))
+            .unwrap_or_else(|| self.size.button_height(appearance))
     }
 
     pub fn set_icon(&mut self, icon: Option<Icon>, ctx: &mut ViewContext<Self>) {
@@ -533,13 +527,12 @@ impl ActionButton {
         &self,
         has_preceding_element: bool,
         appearance: &Appearance,
-        app: &AppContext,
     ) -> Option<Box<dyn Element>> {
         match self.callout.as_ref()? {
             Callout::Beta => {
                 // The beta callout should overall be the same height as an icon, so we set the font size accordingly.
                 let padding = self.size.callout_padding();
-                let overall_height = self.size.icon_size(appearance, app);
+                let overall_height = self.size.icon_size(appearance);
 
                 Some(
                     Container::new(
@@ -767,7 +760,7 @@ impl View for ActionButton {
             };
 
             if let Some(icon) = self.icon {
-                let icon_size = self.size.icon_size(appearance, app);
+                let icon_size = self.size.icon_size(appearance);
                 let icon_fill = self
                     .icon_ansi_color
                     .map(|ansi| {
@@ -829,8 +822,7 @@ impl View for ActionButton {
                 has_preceding_element = true;
             }
 
-            if let Some(callout) = self.maybe_render_callout(has_preceding_element, appearance, app)
-            {
+            if let Some(callout) = self.maybe_render_callout(has_preceding_element, appearance) {
                 row.add_child(callout);
                 has_preceding_element = true;
             }
@@ -841,7 +833,7 @@ impl View for ActionButton {
             }
 
             if self.has_menu {
-                let icon_size = self.size.icon_size(appearance, app);
+                let icon_size = self.size.icon_size(appearance);
                 row.add_child(
                     Container::new(
                         ConstrainedBox::new(
@@ -913,7 +905,7 @@ impl View for ActionButton {
 
                 let button_height = self
                     .custom_height
-                    .unwrap_or_else(|| self.size.button_height(appearance, app))
+                    .unwrap_or_else(|| self.size.button_height(appearance))
                     - border_height;
 
                 let mut constrained_box = ConstrainedBox::new(
@@ -1029,50 +1021,6 @@ impl ActionButtonTheme for DangerPrimaryTheme {
         _appearance: &Appearance,
     ) -> Option<ColorU> {
         Some(coloru_with_opacity(text_color, 60))
-    }
-}
-
-/// "DangerSecondary" buttons have no fill and a colorful border.
-///
-/// [Figma spec](https://www.figma.com/design/chk9pwt35jTJhf9KnHmZyE/Components?node-id=3628-14344&t=c27DwGHWevMlisVN-0)
-pub struct DangerSecondaryTheme;
-
-impl ActionButtonTheme for DangerSecondaryTheme {
-    fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        if hovered {
-            Some(
-                appearance
-                    .theme()
-                    .ansi_overlay_2(
-                        AnsiColorIdentifier::Red
-                            .to_ansi_color(&appearance.theme().terminal_colors().normal),
-                    )
-                    .into(),
-            )
-        } else {
-            None
-        }
-    }
-
-    fn text_color(
-        &self,
-        _hovered: bool,
-        _background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        appearance.theme().ansi_fg_red()
-    }
-
-    fn border(&self, appearance: &Appearance) -> Option<ColorU> {
-        Some(appearance.theme().ansi_fg_red())
-    }
-
-    fn keyboard_shortcut_border(
-        &self,
-        _text_color: ColorU,
-        appearance: &Appearance,
-    ) -> Option<ColorU> {
-        Some(appearance.theme().ansi_fg_red())
     }
 }
 
@@ -1327,19 +1275,13 @@ impl ActionButtonTheme for PrimaryRightBiasedTheme {
 }
 
 impl ButtonSize {
-    pub fn icon_size(&self, appearance: &Appearance, app: &AppContext) -> f32 {
+    pub fn icon_size(&self, appearance: &Appearance) -> f32 {
         match self {
             ButtonSize::Default => 16.,
             ButtonSize::Small => 14.,
             ButtonSize::XSmall => 14.,
             ButtonSize::InlineActionHeader => appearance.monospace_font_size(),
             ButtonSize::InputPrompt => appearance.monospace_font_size(),
-            ButtonSize::UDIButton => appearance.monospace_font_size() - 1.0,
-            ButtonSize::UDIPromptChip => appearance.monospace_font_size() - 1.0,
-            ButtonSize::AgentInputButton => app.font_cache().line_height(
-                appearance.monospace_font_size(),
-                DEFAULT_UI_LINE_HEIGHT_RATIO / 1.4,
-            ),
         }
     }
 
@@ -1350,9 +1292,6 @@ impl ButtonSize {
             ButtonSize::XSmall => 12.,
             ButtonSize::InlineActionHeader => appearance.monospace_font_size() - 2.,
             ButtonSize::InputPrompt => appearance.monospace_font_size(),
-            ButtonSize::UDIButton => appearance.monospace_font_size() - 1.0,
-            ButtonSize::UDIPromptChip => appearance.monospace_font_size() - 1.0,
-            ButtonSize::AgentInputButton => appearance.monospace_font_size() - 1.0,
         }
     }
 
@@ -1363,9 +1302,6 @@ impl ButtonSize {
             ButtonSize::XSmall => Properties::default().weight(Weight::Normal),
             ButtonSize::InlineActionHeader => Properties::default().weight(Weight::Semibold),
             ButtonSize::InputPrompt => Properties::default(),
-            ButtonSize::UDIButton => Properties::default(),
-            ButtonSize::UDIPromptChip => Properties::default().weight(Weight::Semibold),
-            ButtonSize::AgentInputButton => Properties::default(),
         }
     }
 
@@ -1377,9 +1313,6 @@ impl ButtonSize {
             ButtonSize::XSmall => 4.,
             ButtonSize::InlineActionHeader => 6.,
             ButtonSize::InputPrompt => 5.,
-            ButtonSize::UDIButton => 5.,
-            ButtonSize::UDIPromptChip => 4.,
-            ButtonSize::AgentInputButton => 4.,
         }
     }
 
@@ -1435,27 +1368,6 @@ impl ButtonSize {
                 padding: Some(Coords::default()),
                 ..Default::default()
             },
-            ButtonSize::UDIButton => UiComponentStyles {
-                font_size: Some(appearance.monospace_font_size() - 4.),
-                width: Some(appearance.monospace_font_size() * DEFAULT_UI_LINE_HEIGHT_RATIO),
-                height: Some(appearance.monospace_font_size() * DEFAULT_UI_LINE_HEIGHT_RATIO),
-                padding: Some(Coords::default()),
-                ..Default::default()
-            },
-            ButtonSize::UDIPromptChip => UiComponentStyles {
-                font_size: Some(appearance.monospace_font_size() - 4.),
-                width: Some(appearance.monospace_font_size()),
-                height: Some(appearance.monospace_font_size()),
-                padding: Some(Coords::default()),
-                ..Default::default()
-            },
-            ButtonSize::AgentInputButton => UiComponentStyles {
-                font_size: Some(appearance.monospace_font_size() - 4.),
-                width: Some(appearance.monospace_font_size()),
-                height: Some(appearance.monospace_font_size()),
-                padding: Some(Coords::default()),
-                ..Default::default()
-            },
         }
     }
 
@@ -1463,7 +1375,7 @@ impl ButtonSize {
     ///
     /// We use this, rather than padding on the [`Container`] element, to ensure a consistent
     /// button height regardless of contents (e.g. whether or not there's an icon).
-    pub fn button_height(&self, appearance: &Appearance, app: &AppContext) -> f32 {
+    pub fn button_height(&self, appearance: &Appearance) -> f32 {
         match self {
             ButtonSize::Default => 32.,
             ButtonSize::Small => 24.,
@@ -1472,22 +1384,6 @@ impl ButtonSize {
             ButtonSize::InlineActionHeader => 10. + appearance.monospace_font_size(),
             // Should be 20px high at a 14px font size, and scale accordingly.
             ButtonSize::InputPrompt => 6. + appearance.monospace_font_size(),
-            ButtonSize::UDIButton => 6. + appearance.monospace_font_size(),
-            ButtonSize::UDIPromptChip => {
-                // Add 1 to the vertical padding to account for the border.
-                let vertical_padding =
-                    1. + crate::context_chips::spacing::UDI_CHIP_VERTICAL_PADDING;
-                2. * vertical_padding + self.font_size(appearance)
-            }
-            ButtonSize::AgentInputButton => {
-                // Add 1 to the vertical padding to account for the border.
-                let vertical_padding =
-                    1. + crate::context_chips::spacing::UDI_CHIP_VERTICAL_PADDING;
-                let line_height = app
-                    .font_cache()
-                    .line_height(self.font_size(appearance), appearance.line_height_ratio());
-                2. * vertical_padding + line_height
-            }
         }
     }
 
@@ -1499,9 +1395,6 @@ impl ButtonSize {
             ButtonSize::XSmall => None,
             ButtonSize::InlineActionHeader => None,
             ButtonSize::InputPrompt => Some(-2.),
-            ButtonSize::UDIButton => None,
-            ButtonSize::UDIPromptChip => None,
-            ButtonSize::AgentInputButton => None,
         }
     }
 
@@ -1513,10 +1406,6 @@ impl ButtonSize {
             ButtonSize::XSmall => 6.,
             ButtonSize::InlineActionHeader => 8.,
             ButtonSize::InputPrompt => 4.,
-            ButtonSize::UDIButton => 4.,
-            ButtonSize::UDIPromptChip | ButtonSize::AgentInputButton => {
-                crate::context_chips::spacing::UDI_CHIP_HORIZONTAL_PADDING
-            }
         }
     }
 
@@ -1529,8 +1418,6 @@ impl ButtonSize {
             ButtonSize::InlineActionHeader => -4.,
             // Account for the negative margin on prompt buttons.
             ButtonSize::InputPrompt => -8.,
-            ButtonSize::UDIButton => -8.,
-            ButtonSize::UDIPromptChip | ButtonSize::AgentInputButton => -8.,
         }
     }
 
@@ -1542,10 +1429,6 @@ impl ButtonSize {
             ButtonSize::XSmall => Padding::uniform(2.),
             ButtonSize::InlineActionHeader => Padding::uniform(2.),
             ButtonSize::InputPrompt => Padding::default().with_vertical(1.).with_horizontal(2.),
-            ButtonSize::UDIButton => Padding::default().with_vertical(1.).with_horizontal(2.),
-            ButtonSize::UDIPromptChip | ButtonSize::AgentInputButton => {
-                Padding::default().with_vertical(1.).with_horizontal(2.)
-            }
         }
     }
 }

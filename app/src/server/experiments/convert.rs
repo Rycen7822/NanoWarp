@@ -12,14 +12,8 @@ impl Display for ServerExperiment {
         let str = match self {
             Self::SessionSharingControl => "SESSION_SHARING_CONTROL",
             Self::SessionSharingExperiment => "SESSION_SHARING_EXPERIMENT",
-            Self::DisableAgentModeExperiment => "DISABLE_AGENT_MODE_EXPERIMENT",
             Self::EnvVarsEarlyAccessExperiment => "ENV_VARS_EARLY_ACCESS_EXPERIMENT",
-            Self::AgentModeAnalyticsExperiment => "AGENT_MODE_ANALYTICS_EXPERIMENT",
             Self::WindowsLaunchExperiment => "WINDOWS_LAUNCH_EXPERIMENT",
-            Self::OzMultiHarnessControl => "OZ_MULTI_HARNESS_CONTROL",
-            Self::OzMultiHarnessExperiment => "OZ_MULTI_HARNESS_EXPERIMENT",
-            Self::MacosRunnersControl => "MACOS_RUNNERS_CONTROL",
-            Self::MacosRunnersExperiment => "MACOS_RUNNERS_EXPERIMENT",
             #[cfg(test)]
             Self::TestExperiment => "TEST_EXPERIMENT",
         };
@@ -32,14 +26,8 @@ impl ServerExperiment {
         match s.as_str() {
             "SESSION_SHARING_CONTROL" => Ok(Self::SessionSharingControl),
             "SESSION_SHARING_EXPERIMENT" => Ok(Self::SessionSharingExperiment),
-            "DISABLE_AGENT_MODE_EXPERIMENT" => Ok(Self::DisableAgentModeExperiment),
             "ENV_VARS_EARLY_ACCESS_EXPERIMENT" => Ok(Self::EnvVarsEarlyAccessExperiment),
-            "AGENT_MODE_ANALYTICS_EXPERIMENT" => Ok(Self::AgentModeAnalyticsExperiment),
             "WINDOWS_LAUNCH_EXPERIMENT" => Ok(Self::WindowsLaunchExperiment),
-            "OZ_MULTI_HARNESS_CONTROL" => Ok(Self::OzMultiHarnessControl),
-            "OZ_MULTI_HARNESS_EXPERIMENT" => Ok(Self::OzMultiHarnessExperiment),
-            "MACOS_RUNNERS_CONTROL" => Ok(Self::MacosRunnersControl),
-            "MACOS_RUNNERS_EXPERIMENT" => Ok(Self::MacosRunnersExperiment),
             s => Err(anyhow::anyhow!(
                 "String doesn't match any server experiment variant {s}"
             )),
@@ -54,14 +42,8 @@ impl TryFrom<Experiment> for ServerExperiment {
         match value {
             Experiment::SessionSharingExperiment => Ok(Self::SessionSharingExperiment),
             Experiment::SessionSharingControl => Ok(Self::SessionSharingControl),
-            Experiment::DisableAgentModeExperiment => Ok(Self::DisableAgentModeExperiment),
             Experiment::EnvVarsEarlyAccessExperiment => Ok(Self::EnvVarsEarlyAccessExperiment),
-            Experiment::AgentModeAnalyticsExperiment => Ok(Self::AgentModeAnalyticsExperiment),
             Experiment::WindowsLaunchExperiment => Ok(Self::WindowsLaunchExperiment),
-            Experiment::OzMultiHarnessControl => Ok(Self::OzMultiHarnessControl),
-            Experiment::OzMultiHarnessExperiment => Ok(Self::OzMultiHarnessExperiment),
-            Experiment::MacosRunnersControl => Ok(Self::MacosRunnersControl),
-            Experiment::MacosRunnersExperiment => Ok(Self::MacosRunnersExperiment),
             // Experiments that we no longer support on the client.
             e => Err(anyhow::anyhow!(
                 "Server-side enabled experiment '{e:?}' is no longer supported by the client."

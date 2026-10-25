@@ -82,7 +82,6 @@ impl ObjectType {
 
 const NOTEBOOK_OBJECT_STRING: &str = "notebook";
 const WORKFLOW_OBJECT_STRING: &str = "workflow";
-const PROMPT_OBJECT_STRING: &str = "prompt";
 const FOLDER_OBJECT_STRING: &str = "folder";
 const ENV_VAR_COLLECTION_STRING: &str = "env-vars";
 
@@ -93,7 +92,6 @@ impl FromStr for ObjectType {
         match s {
             NOTEBOOK_OBJECT_STRING => Ok(Self::Notebook),
             WORKFLOW_OBJECT_STRING => Ok(Self::Workflow),
-            PROMPT_OBJECT_STRING => Ok(Self::Workflow),
             FOLDER_OBJECT_STRING => Ok(Self::Folder),
             ENV_VAR_COLLECTION_STRING => Ok(Self::GenericStringObject(
                 GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
@@ -112,9 +110,6 @@ impl fmt::Display for ObjectType {
             ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
                 JsonObjectType::EnvVarCollection,
             )) => write!(f, "{ENV_VAR_COLLECTION_STRING}"),
-            ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                JsonObjectType::AIFact,
-            )) => write!(f, "rule"),
             ObjectType::GenericStringObject(_) => write!(f, "string_object_placeholder"), // placeholder value
         }
     }
@@ -183,11 +178,6 @@ pub enum JsonObjectType {
     Preference,
     EnvVarCollection,
     WorkflowEnum,
-    AIFact,
-    AIExecutionProfile,
-    CloudEnvironment,
-    ScheduledAmbientAgent,
-    CloudAgentConfig,
 }
 
 impl JsonObjectType {
@@ -196,11 +186,6 @@ impl JsonObjectType {
             JsonObjectType::Preference => "PREFERENCE",
             JsonObjectType::EnvVarCollection => "ENVVARCOLLECTION",
             JsonObjectType::WorkflowEnum => "WORKFLOWENUM",
-            JsonObjectType::AIFact => "AIFACT",
-            JsonObjectType::AIExecutionProfile => "AIEXECUTIONPROFILE",
-            JsonObjectType::CloudEnvironment => "CLOUDENVIRONMENT",
-            JsonObjectType::ScheduledAmbientAgent => "SCHEDULEDAMBIENTAGENT",
-            JsonObjectType::CloudAgentConfig => "CLOUDAGENTCONFIG",
         }
     }
 }
@@ -213,11 +198,6 @@ impl TryFrom<&str> for JsonObjectType {
             "PREFERENCE" => Ok(JsonObjectType::Preference),
             "ENVVARCOLLECTION" => Ok(JsonObjectType::EnvVarCollection),
             "WORKFLOWENUM" => Ok(JsonObjectType::WorkflowEnum),
-            "AIFACT" => Ok(JsonObjectType::AIFact),
-            "AIEXECUTIONPROFILE" => Ok(JsonObjectType::AIExecutionProfile),
-            "CLOUDENVIRONMENT" => Ok(JsonObjectType::CloudEnvironment),
-            "SCHEDULEDAMBIENTAGENT" => Ok(JsonObjectType::ScheduledAmbientAgent),
-            "CLOUDAGENTCONFIG" => Ok(JsonObjectType::CloudAgentConfig),
             _ => Err(anyhow!("could not convert unknown json object type")),
         }
     }
@@ -227,9 +207,6 @@ impl TryFrom<warp_graphql::object::ObjectType> for ObjectIdType {
     type Error = anyhow::Error;
     fn try_from(object_type: warp_graphql::object::ObjectType) -> Result<Self, Self::Error> {
         match object_type {
-            warp_graphql::object::ObjectType::AIConversation => Err(anyhow!(
-                "AIConversation is not a supported object type for this operation"
-            )),
             warp_graphql::object::ObjectType::Notebook => Ok(ObjectIdType::Notebook),
             warp_graphql::object::ObjectType::Workflow => Ok(ObjectIdType::Workflow),
             warp_graphql::object::ObjectType::Folder => Ok(ObjectIdType::Folder),
@@ -841,19 +818,6 @@ impl From<GenericStringObjectFormat>
             }
             GenericStringObjectFormat::Json(JsonObjectType::WorkflowEnum) => {
                 GraphQLFormat::JsonWorkflowEnum
-            }
-            GenericStringObjectFormat::Json(JsonObjectType::AIFact) => GraphQLFormat::JsonAIFact,
-            GenericStringObjectFormat::Json(JsonObjectType::AIExecutionProfile) => {
-                GraphQLFormat::JsonAIExecutionProfile
-            }
-            GenericStringObjectFormat::Json(JsonObjectType::CloudEnvironment) => {
-                GraphQLFormat::JsonCloudEnvironment
-            }
-            GenericStringObjectFormat::Json(JsonObjectType::ScheduledAmbientAgent) => {
-                GraphQLFormat::JsonScheduledAmbientAgent
-            }
-            GenericStringObjectFormat::Json(JsonObjectType::CloudAgentConfig) => {
-                unreachable!("JsonCloudAgentConfig is no longer present in GraphQL schema")
             }
         }
     }

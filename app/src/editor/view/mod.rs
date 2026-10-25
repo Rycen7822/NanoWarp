@@ -9,18 +9,13 @@ use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
-use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use async_fs;
-use base64::Engine as _;
-use base64::engine::general_purpose;
 use element::CommandXRayMouseStateHandle;
 use itertools::{Either, Itertools};
-use mime_guess::from_path;
 use model::{
     Anchor, AnchorBias, Bias, DisplayMap, DrawableSelection, EditorModel, EditorModelEvent, Edits,
     LocalPendingSelection, LocalSelection, MarkedTextState, MovementResult, SelectionMode,
@@ -47,31 +42,28 @@ use vim::{
 };
 use warp_completer::completer::Description;
 use warp_core::semantic_selection::SemanticSelection;
-use warp_core::{safe_error, send_telemetry_from_ctx};
 use warp_editor::editor::NavigationKey;
 use warp_util::path::ShellFamily;
 use warp_util::user_input::UserInput;
 use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
 use warpui::actions::StandardAction;
-use warpui::r#async::{SpawnedFutureHandle, Timer};
+use warpui::r#async::Timer;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
-    Container, CornerRadius, CrossAxisAlignment, DEFAULT_UI_LINE_HEIGHT_RATIO, Flex, Hoverable,
-    MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
+    CornerRadius, DEFAULT_UI_LINE_HEIGHT_RATIO, Hoverable, MouseStateHandle, Radius,
 };
 use warpui::fonts::{Cache as FontCache, FamilyId, Properties, Weight};
 use warpui::keymap::{EditableBinding, FixedBinding, Keystroke, PerPlatformKeystroke};
-use warpui::platform::{Cursor, FilePickerConfiguration, OperatingSystem};
+use warpui::platform::{Cursor, OperatingSystem};
 use warpui::text::TextBuffer;
 use warpui::text::word_boundaries::WordBoundariesPolicy;
 use warpui::text_layout::TextStyle;
-use warpui::ui_components::button::ButtonTooltipPosition;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::ui_components::components::UiComponentStyles;
 use warpui::windowing::WindowManager;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, EntityId, FocusContext, ModelAsRef,
     ModelContext, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
-    WindowId, elements, windowing,
+    WindowId, windowing,
 };
 /// The editor interfaces that we publicly expose to consumers.
 /// This should be a very limited set; if you need to add something here,
@@ -88,44 +80,30 @@ pub use {
 use self::model::{LocalSelections, Selection, UpdateBufferOption};
 use super::Point;
 use super::soft_wrap::{ClampDirection, DisplayPointAndClampDirection};
-use crate::BlocklistAIHistoryModel;
-use crate::ai::agent::ImageContext;
-use crate::ai::blocklist::{BlocklistAIContextModel, InputType, PendingAttachment, PendingFile};
 use crate::appearance::Appearance;
 use crate::channel::{Channel, ChannelState};
 use crate::editor::RangeExt;
 use crate::editor::accept_autosuggestion_keybinding_view::AcceptAutosuggestionKeybinding;
 use crate::editor::autosuggestion_ignore_view::{AutosuggestionIgnore, AutosuggestionIgnoreEvent};
 use crate::features::FeatureFlag;
-use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{
     AppEditorSettings, AppEditorSettingsChangedEvent, CursorBlink, CursorDisplayType,
-    InputSettings, SelectionSettings,
+    SelectionSettings,
 };
 use crate::settings_view::flags;
 use crate::terminal::grid_size_util::grid_cell_dimensions;
-use crate::terminal::model::block::BlockId;
 use crate::themes::theme::Fill;
 use crate::ui_components::avatar::{Avatar, AvatarContent};
-use crate::ui_components::buttons::icon_button;
-use crate::ui_components::icons;
 use crate::util::bindings::{CustomAction, cmd_or_ctrl_shift, keybinding_name_to_keystroke};
 use crate::util::clipboard::clipboard_content_with_escaped_paths;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use crate::util::image::{MAX_IMAGE_COUNT_FOR_QUERY, MAX_IMAGE_SIZE_BYTES, resize_image};
 use crate::util::merge_ranges;
-use crate::view_components::DismissibleToast;
 use crate::vim_registers::{RegisterContent, VimRegisters};
-use crate::workspace::{ToastStack, Workspace};
 
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_TAB_SIZE: usize = 4;
 
 pub const ACCEPT_AUTOSUGGESTION_KEYBINDING_NAME: &str = "editor_view:insert_autosuggestion";
-
-pub const MAX_IMAGES_PER_CONVERSATION: usize = 200;
-
-use warpui::clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES;
 
 #[derive(Clone, Copy)]
 pub enum AutosuggestionLocation {
@@ -136,17 +114,6 @@ pub enum AutosuggestionLocation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AutosuggestionType {
     Command,
-    AgentModeQuery { context_block_ids: Vec<BlockId> },
-}
-
-impl AutosuggestionType {
-    pub fn matches_input_type(&self, input_type: InputType) -> bool {
-        if input_type.is_ai() {
-            matches!(self, AutosuggestionType::AgentModeQuery { .. })
-        } else {
-            matches!(self, AutosuggestionType::Command)
-        }
-    }
 }
 
 impl fmt::Display for AutosuggestionLocation {
@@ -360,9 +327,7 @@ pub fn init(ctx: &mut AppContext) {
         FixedBinding::new(
             "ctrl-enter",
             EditorAction::CtrlEnter,
-            id!("EditorView")
-                & !id!("IMEOpen")
-                & !(id!(flags::AGENT_VIEW_ENABLED) & id!(flags::CTRL_ENTER_ENTERS_AGENT_VIEW)),
+            id!("EditorView") & !id!("IMEOpen"),
         ),
         FixedBinding::new(
             "alt-enter",
@@ -899,25 +864,13 @@ pub fn init(ctx: &mut AppContext) {
         ),
     ]);
 
-    ctx.register_editable_bindings([
-        // With Agent Mode, cmdorctrl-i toggles AI input mode (same as GH Copilot) -- so
-        // reassign command x ray to something else.
-        EditableBinding::new(
-            "editor_view:inspect_command",
-            "Inspect Command",
-            EditorAction::InspectCommand,
-        )
-        .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
-        .with_context_predicate(id!("EditorView") & !id!("IMEOpen")),
-        EditableBinding::new(
-            "editor_view:inspect_command",
-            "Inspect Command",
-            EditorAction::InspectCommand,
-        )
-        .with_enabled(|| !FeatureFlag::AgentMode.is_enabled())
-        .with_context_predicate(id!("EditorView") & !id!("IMEOpen"))
-        .with_key_binding("cmdorctrl-i"),
-    ]);
+    ctx.register_editable_bindings([EditableBinding::new(
+        "editor_view:inspect_command",
+        "Inspect Command",
+        EditorAction::InspectCommand,
+    )
+    .with_context_predicate(id!("EditorView") & !id!("IMEOpen"))
+    .with_key_binding("cmdorctrl-i")]);
 
     ctx.register_editable_bindings([EditableBinding::new(
         "editor_view:clear_buffer",
@@ -1067,15 +1020,6 @@ pub enum EditorAction {
     ShowCharacterPalette,
     InsertAutosuggestion,
     EmacsBinding,
-    AttachFiles,
-    ReadAndProcessImagesAsync {
-        num_images_user_attached: usize,
-        file_paths: Vec<String>,
-    },
-    /// Stores non-image file paths picked via the attach-file button into the pending files state.
-    ProcessNonImageFiles {
-        file_paths: Vec<String>,
-    },
 }
 
 impl EditorAction {
@@ -1385,26 +1329,6 @@ pub enum BaselinePositionComputationMethod {
 
 use warp_errors::report_error;
 
-/// Similar to [`ImageContext`], but contains un-processed and un-resized image data.
-#[derive(Clone)]
-pub struct AttachedImage {
-    pub data: Vec<u8>,
-    pub mime_type: String,
-    pub file_name: String,
-}
-
-impl fmt::Debug for AttachedImage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // We log dispatching typed actions (with `AttachedImage` as an argument) and we don't want
-        // to log any UGC in prod.
-        f.debug_struct("AttachedImage")
-            .field("data", &"REDACTED_B64_IMAGE_DATA_UGC")
-            .field("mime_type", &self.mime_type)
-            .field("file_name", &"REDACTED_FILE_NAME_UGC")
-            .finish()
-    }
-}
-
 /// Interface for picking different options for the editor's behavior.
 pub struct EditorOptions {
     pub text: TextOptions,
@@ -1589,120 +1513,6 @@ pub fn default_cursor_colors(ctx: &AppContext) -> CursorColors {
     }
 }
 
-#[derive(Debug)]
-pub enum ImageContextOptions {
-    /// Attaching image context is enabled, possibly showing an image button if LLM supports vision.
-    Enabled {
-        unsupported_model: bool,
-        is_processing_attached_images: bool,
-        num_images_attached: usize,
-        num_images_in_conversation: usize,
-    },
-
-    /// Attaching image context is disabled.
-    Disabled,
-}
-
-impl ImageContextOptions {
-    pub fn is_enabled(&self) -> bool {
-        match self {
-            ImageContextOptions::Enabled {
-                unsupported_model,
-                is_processing_attached_images,
-                num_images_attached,
-                num_images_in_conversation,
-            } => {
-                if *unsupported_model {
-                    return false;
-                }
-
-                if *is_processing_attached_images {
-                    return false;
-                }
-
-                if *num_images_attached >= MAX_IMAGE_COUNT_FOR_QUERY {
-                    return false;
-                }
-
-                let total_images = *num_images_attached + *num_images_in_conversation;
-                if total_images >= MAX_IMAGES_PER_CONVERSATION {
-                    return false;
-                }
-
-                true
-            }
-            ImageContextOptions::Disabled => false,
-        }
-    }
-
-    pub fn should_show_button(&self) -> bool {
-        matches!(self, ImageContextOptions::Enabled { .. })
-    }
-
-    pub fn tooltip_text(&self) -> String {
-        if let ImageContextOptions::Enabled {
-            unsupported_model,
-            is_processing_attached_images,
-            num_images_attached,
-            num_images_in_conversation,
-        } = self
-        {
-            if *unsupported_model {
-                return "Image attachment isn't supported by this model".into();
-            }
-
-            if *is_processing_attached_images {
-                return "Loading...".into();
-            }
-
-            if *num_images_attached >= MAX_IMAGE_COUNT_FOR_QUERY {
-                return format!(
-                    "Image attachment is disabled — limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query"
-                );
-            }
-
-            let total_images = *num_images_attached + *num_images_in_conversation;
-            if total_images >= MAX_IMAGES_PER_CONVERSATION {
-                return format!(
-                    "Image attachment is disabled — limit is {MAX_IMAGES_PER_CONVERSATION} per conversation"
-                );
-            }
-        }
-
-        "Attach images".into()
-    }
-
-    pub fn num_images_attached(&self) -> usize {
-        match self {
-            ImageContextOptions::Enabled {
-                num_images_attached,
-                ..
-            } => *num_images_attached,
-            _ => 0,
-        }
-    }
-
-    pub fn num_images_in_conversation(&self) -> usize {
-        match self {
-            ImageContextOptions::Enabled {
-                num_images_in_conversation,
-                ..
-            } => *num_images_in_conversation,
-            _ => 0,
-        }
-    }
-
-    pub fn is_unsupported_model(&self) -> bool {
-        matches!(
-            self,
-            ImageContextOptions::Enabled {
-                unsupported_model: true,
-                ..
-            }
-        )
-    }
-}
-
 pub struct EditorView {
     view_id: EntityId,
     editor_model: ModelHandle<EditorModel>,
@@ -1809,26 +1619,12 @@ pub struct EditorView {
     show_autosuggestion_keybinding_hint: bool,
     show_autosuggestion_ignore_button: bool,
 
-    context_model: Option<ModelHandle<BlocklistAIContextModel>>,
-
-    /// Options for attaching image context.
-    /// Made public to allow terminal input to access image attachment state and limits.
-    pub image_context_options: ImageContextOptions,
-
-    /// The mouse handle for the image context icon.
-    image_context_button_mouse_handle: MouseStateHandle,
-
-    /// Whether this editor is in AI input mode.
-    is_ai_input: bool,
-
     /// Whether this editor should delegate handling of paste events to its parent.
     delegate_paste_handling: bool,
 
     /// Optional hook that transforms each dropped path before it is escaped and inserted into
     /// the buffer. See [`EditorOptions::drag_drop_path_transformer`].
     drag_drop_path_transformer: Option<PathTransformerFn>,
-
-    process_attached_images_future_handle: Option<SpawnedFutureHandle>,
 
     is_password: bool,
 
@@ -1873,7 +1669,7 @@ pub struct AutosuggestionState {
     /// the end of the buffer.
     pub location: AutosuggestionLocation,
 
-    /// Type of autosuggestion - whether it's a command or AI prompt.
+    /// Type of the command autosuggestion.
     /// Note we cannot use `type` since that's a reserved Rust keyword.
     pub autosuggestion_type: AutosuggestionType,
 }
@@ -2916,13 +2712,6 @@ impl EditorView {
         Self::new_internal("", options, ctx)
     }
 
-    pub fn with_context_model(self, context_model: ModelHandle<BlocklistAIContextModel>) -> Self {
-        Self {
-            context_model: Some(context_model),
-            ..self
-        }
-    }
-
     /// Creates an [`EditorView`] with the initial text
     /// equal to `base_text` and with behaviour specified by `options`.
     #[cfg(test)]
@@ -3044,41 +2833,12 @@ impl EditorView {
             show_autosuggestion_ignore_button: *editor_settings_handle
                 .as_ref(ctx)
                 .show_autosuggestion_ignore_button,
-            is_ai_input: false,
             convert_newline_to_space: options.convert_newline_to_space,
-            context_model: None,
-            image_context_options: ImageContextOptions::Disabled,
-            image_context_button_mouse_handle: Default::default(),
             delegate_paste_handling: options.delegate_paste_handling,
             drag_drop_path_transformer: options.drag_drop_path_transformer,
-            process_attached_images_future_handle: None,
             is_password: options.is_password,
             keymap_context_modifier: options.keymap_context_modifier,
         }
-    }
-
-    pub fn set_is_ai_input(&mut self, is_ai_input: bool, ctx: &mut ViewContext<Self>) {
-        self.is_ai_input = is_ai_input;
-        ctx.notify();
-    }
-
-    pub fn update_image_context_options(
-        &mut self,
-        options: ImageContextOptions,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        log::debug!("update_image_context_options: {options:?}");
-        self.image_context_options = options;
-        ctx.notify();
-    }
-
-    pub fn abort_attached_images_future_handle(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(process_attached_images_future_handle) =
-            self.process_attached_images_future_handle.take()
-        {
-            process_attached_images_future_handle.abort();
-        }
-        ctx.emit(Event::ProcessingAttachedImages(false));
     }
 
     /// The replica ID of the collaborative buffer.
@@ -3328,22 +3088,6 @@ impl EditorView {
         }
     }
 
-    /// Clears any existing autosuggestion that does not match the current input type.
-    pub fn clear_autosuggestion_for_input_type(
-        &mut self,
-        input_type: InputType,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // If our existing autosuggestion is not meant for the current input type, clear it.
-        if self
-            .autosuggestion_state
-            .as_ref()
-            .is_some_and(|state| !state.autosuggestion_type.matches_input_type(input_type))
-        {
-            self.clear_autosuggestion(ctx);
-        }
-    }
-
     /// Set placeholder text that appears when buffer matches the given prefix.
     /// Use empty string prefix "" for the default placeholder (shown when buffer is empty).
     pub fn set_placeholder_text_with_prefix(
@@ -3453,7 +3197,7 @@ impl EditorView {
     /// Clears the transient editor-height shrink-delay state.
     ///
     /// The shrink-delay is useful when height briefly drops during autosuggestion churn, but
-    /// certain mode transitions (for example entering Agent View from multiline PS1/classic input)
+    /// editor layout transitions
     /// intentionally remove decorator content in one step. In that case, carrying over the
     /// previous baseline for even one frame causes visible layout jitter.
     pub fn reset_height_shrink_delay(&mut self, ctx: &mut ViewContext<Self>) {
@@ -4130,40 +3874,11 @@ impl EditorView {
             return;
         }
 
-        let terminal_view = ctx
-            .windows()
-            .active_window()
-            .and_then(|active_window| {
-                ctx
-                    // Need to get the workspace info since we don't have access to the terminal view
-                    // from the ClearBuffer action.
-                    .views_of_type::<Workspace>(active_window)
-                    .and_then(|views| views.first().cloned())
-            })
-            .and_then(|workspace| {
-                workspace
-                    .as_ref(ctx)
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .active_session_view(ctx)
-            });
-
-        // If an agent is responding, we don't want ctrl+c to clear the persistent input.
-        let is_agent_responding = terminal_view
-            .as_ref()
-            .and_then(|terminal_view| {
-                BlocklistAIHistoryModel::as_ref(ctx).active_conversation(terminal_view.id())
-            })
-            .is_some_and(|conversation| {
-                conversation.status().is_in_progress() && conversation.exchange_count() > 0
-            });
-
         let mut cleared_buffer_len = 0;
-        if (!self.vim_mode_enabled(ctx)
+        if !self.vim_mode_enabled(ctx)
             || self
                 .vim_mode(ctx)
-                .is_some_and(|vim_mode| matches![vim_mode, VimMode::Normal | VimMode::Insert]))
-            && !is_agent_responding
+                .is_some_and(|vim_mode| matches![vim_mode, VimMode::Normal | VimMode::Insert])
         {
             cleared_buffer_len = self.buffer_size(ctx).as_usize();
             self.clear_buffer(ctx);
@@ -4735,403 +4450,6 @@ impl EditorView {
                 }
             }),
         );
-    }
-
-    pub fn attach_files(&mut self, ctx: &mut ViewContext<Self>) {
-        let window_id = ctx.window_id();
-        let view_id = self.view_id;
-
-        let file_picker_config = FilePickerConfiguration::new().allow_multi_select();
-
-        let is_unsupported_model = self.image_context_options.is_unsupported_model();
-        let num_images_attached = self.image_context_options.num_images_attached();
-        let num_images_in_conversation = self.image_context_options.num_images_in_conversation();
-
-        ctx.open_file_picker(
-            move |result, ctx| {
-                match result {
-                    Ok(paths) => {
-                        // Split picked paths into image and non-image files by MIME type.
-                        let mut image_paths = Vec::new();
-                        let mut non_image_paths = Vec::new();
-                        for path in &paths {
-                            let mime = mime_guess::from_path(path)
-                                .first_or_octet_stream()
-                                .to_string();
-                            if CLIPBOARD_IMAGE_MIME_TYPES.contains(&mime.as_str()) {
-                                image_paths.push(path.clone());
-                            } else {
-                                non_image_paths.push(path.clone());
-                            }
-                        }
-
-                        // If the model doesn't support vision, show toast and clear images.
-                        if !image_paths.is_empty() && is_unsupported_model {
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_ephemeral_toast(
-                                    DismissibleToast::error(
-                                        "The selected model does not support images as context."
-                                            .to_string(),
-                                    ),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                            image_paths.clear();
-                        }
-
-                        // Apply image count limits.
-                        let num_images_user_attached = image_paths.len();
-                        let num_excess_images_by_query_limit = (image_paths.len()
-                            + num_images_attached)
-                            .saturating_sub(MAX_IMAGE_COUNT_FOR_QUERY);
-                        let num_excess_images_by_conversation_limit =
-                            (image_paths.len() + num_images_attached + num_images_in_conversation)
-                                .saturating_sub(MAX_IMAGES_PER_CONVERSATION);
-                        let num_excess_images = num_excess_images_by_query_limit
-                            .max(num_excess_images_by_conversation_limit);
-
-                        if num_excess_images > 0 {
-                            let limit_reason = if num_excess_images
-                                == num_excess_images_by_query_limit
-                            {
-                                format!("limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query")
-                            } else {
-                                format!("limit is {MAX_IMAGES_PER_CONVERSATION} per conversation")
-                            };
-
-                            let message = if num_excess_images == 1 {
-                                format!("1 image wasn't attached - {limit_reason}.")
-                            } else {
-                                format!(
-                                    "{num_excess_images} images weren't attached - {limit_reason}."
-                                )
-                            };
-
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_persistent_toast(
-                                    DismissibleToast::error(message),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                        }
-
-                        // Process image paths (excluding excess).
-                        let image_paths_to_process: Vec<String> =
-                            image_paths[0..(image_paths.len() - num_excess_images)].to_vec();
-
-                        if !image_paths_to_process.is_empty() {
-                            ctx.dispatch_typed_action_for_view(
-                                window_id,
-                                view_id,
-                                &EditorAction::ReadAndProcessImagesAsync {
-                                    num_images_user_attached,
-                                    file_paths: image_paths_to_process,
-                                },
-                            );
-                        }
-
-                        // Process non-image file paths.
-                        if !non_image_paths.is_empty() {
-                            ctx.dispatch_typed_action_for_view(
-                                window_id,
-                                view_id,
-                                &EditorAction::ProcessNonImageFiles {
-                                    file_paths: non_image_paths,
-                                },
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                            toast_stack.add_persistent_toast(
-                                DismissibleToast::error(format!("{err}")),
-                                window_id,
-                                ctx,
-                            );
-                        });
-                    }
-                }
-            },
-            file_picker_config,
-        );
-
-        ctx.notify();
-    }
-
-    /// Reads and processes images asynchronously from file paths.
-    ///
-    /// This function reads image files from the given paths, validates they are supported formats,
-    /// and processes them for AI context attachment via `process_and_attach_images_as_ai_context`.
-    pub fn read_and_process_images_async(
-        &mut self,
-        num_images_user_attached: usize,
-        file_paths: Vec<String>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !self.image_context_options.is_enabled() {
-            if self.image_context_options.is_unsupported_model() {
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        DismissibleToast::error(
-                            "The selected model does not support images as context".to_owned(),
-                        ),
-                        window_id,
-                        ctx,
-                    );
-                });
-            }
-            return;
-        }
-
-        let window_id = ctx.window_id();
-
-        ctx.spawn(
-            async move {
-                let mut images = vec![];
-                let mut num_unsupported_images: usize = 0;
-                let mut num_read_errors: usize = 0;
-
-                for path_str in &file_paths {
-                    match async_fs::read(path_str).await {
-                        Ok(bytes) => {
-                            let path = Path::new(path_str);
-                            let Some(file_name) = path
-                                .file_name()
-                                .and_then(|path| path.to_str())
-                                .map(|path| path.to_string())
-                            else {
-                                continue;
-                            };
-
-                            let mime_type = from_path(path).first_or_octet_stream().to_string();
-
-                            if !CLIPBOARD_IMAGE_MIME_TYPES.contains(&mime_type.as_str()) {
-                                num_unsupported_images += 1;
-                                continue;
-                            }
-
-                            images.push(AttachedImage {
-                                data: bytes,
-                                mime_type,
-                                file_name,
-                            });
-                        }
-                        Err(e) => {
-                            safe_error!(
-                                safe: ("Failed to read file: {e}"),
-                                full: ("Failed to read file {path_str}: {e}")
-                            );
-                            num_read_errors += 1;
-                        }
-                    }
-                }
-
-                (images, num_unsupported_images, num_read_errors)
-            },
-            move |this, (images, num_unsupported_images, num_read_errors), ctx| {
-                if num_unsupported_images > 0 {
-                    let message = if num_unsupported_images == 1 && num_images_user_attached == 1 {
-                        "Image cannot be attached - supported types are PNG, JPG, GIF, WEBP.".into()
-                    } else if num_unsupported_images == 1 {
-                        "1 image wasn't attached - supported types are PNG, JPG, GIF, WEBP.".into()
-                    } else {
-                        format!("{num_unsupported_images} images weren't attached - supported types are PNG, JPG, GIF, WEBP.")
-                    };
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_persistent_toast(
-                            DismissibleToast::error(message),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-
-                if num_read_errors > 0 {
-                    let message = if num_read_errors == 1 && num_images_user_attached == 1 {
-                        "Image cannot be attached - failed to read file.".into()
-                    } else if num_read_errors == 1 {
-                        "1 image wasn't attached - failed to read file.".into()
-                    } else {
-                        format!("{num_read_errors} images weren't attached - failed to read files.")
-                    };
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_persistent_toast(
-                            DismissibleToast::error(message),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-
-                if !images.is_empty() {
-                    this.process_and_attach_images_as_ai_context(num_images_user_attached, images, ctx);
-                }
-            },
-        );
-    }
-
-    /// Processes and attaches images to the AI context model.
-    ///
-    /// This function handles the final step of image attachment after validation,
-    /// updating the context model and UI state accordingly.
-    pub fn process_and_attach_images_as_ai_context(
-        &mut self,
-        num_images_user_attached: usize,
-        pending_images: Vec<AttachedImage>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !self.image_context_options.is_enabled() {
-            if self.image_context_options.is_unsupported_model() {
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        DismissibleToast::error(
-                            "The selected model does not support images as context".to_owned(),
-                        ),
-                        window_id,
-                        ctx,
-                    );
-                });
-            }
-            return;
-        }
-
-        let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AttachedImagesToAgentModeQuery {
-                num_images: pending_images.len(),
-                is_udi_enabled,
-            },
-            ctx
-        );
-
-        self.process_attached_images_future_handle = Some(ctx.spawn(
-            async move {
-                let mut processed_pending_images = vec![];
-                let mut num_oversized_images: usize = 0;
-                let mut num_unprocessed_images: usize = 0;
-
-                for image in pending_images {
-                    let resized_image_bytes = match resize_image(&image.data) {
-                        Ok(resized_image_bytes) => resized_image_bytes,
-                        Err(err) => {
-                            num_unprocessed_images += 1;
-                            log::warn!("Error resizing attached image {err:?}");
-                            continue;
-                        }
-                    };
-
-                    if resized_image_bytes.len() > MAX_IMAGE_SIZE_BYTES {
-                        num_oversized_images += 1;
-                        continue;
-                    }
-
-                    let base64_str = general_purpose::STANDARD.encode(&resized_image_bytes);
-
-                    processed_pending_images.push(ImageContext {
-                        data: base64_str,
-                        mime_type: image.mime_type,
-                        file_name: image.file_name,
-                    });
-                }
-
-                (
-                    num_oversized_images,
-                    num_unprocessed_images,
-                    processed_pending_images,
-                )
-            },
-            move |this, (num_oversized_images, num_unprocessed_images, pending_images), ctx| {
-                // Future was aborted
-                if this.process_attached_images_future_handle.is_none() {
-                    return;
-                }
-
-                let window_id = ctx.window_id();
-
-                if num_oversized_images > 0 {
-                    let message = if num_oversized_images == 1 && num_images_user_attached == 1 {
-                        "Image cannot be attached - file is too large.".into()
-                    } else if num_oversized_images == 1 {
-                        "1 image wasn't attached — file is too large.".into()
-                    } else {
-                        format!(
-                            "{num_oversized_images} images weren't attached — files are too large."
-                        )
-                    };
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_persistent_toast(
-                            DismissibleToast::error(message),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-
-                if num_unprocessed_images > 0 {
-                    let message = if num_unprocessed_images == 1 && num_images_user_attached == 1 {
-                        "Image cannot be attached - error processing.".into()
-                    } else if num_unprocessed_images == 1 {
-                        "1 image wasn't attached - error processing.".into()
-                    } else {
-                        format!(
-                            "{num_unprocessed_images} images weren't attached - error processing."
-                        )
-                    };
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_persistent_toast(
-                            DismissibleToast::error(message),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-
-                if let Some(context_model) = &this.context_model {
-                    context_model.update(ctx, |context_model, ctx| {
-                        context_model.append_pending_images(pending_images, ctx);
-                    });
-                }
-
-                ctx.emit(Event::ProcessingAttachedImages(false));
-            },
-        ));
-
-        ctx.emit(Event::ProcessingAttachedImages(true));
-    }
-
-    /// Stores non-image files selected via the file picker into the pending files context.
-    fn process_non_image_files(&mut self, file_paths: Vec<String>, ctx: &mut ViewContext<Self>) {
-        let attachments: Vec<PendingAttachment> = file_paths
-            .iter()
-            .filter_map(|path_str| {
-                let path = std::path::Path::new(path_str);
-                let file_name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_string())?;
-                let mime_type = from_path(path).first_or_octet_stream().to_string();
-                Some(PendingAttachment::File(PendingFile {
-                    file_name,
-                    file_path: path.to_path_buf(),
-                    mime_type,
-                }))
-            })
-            .collect();
-
-        if let Some(context_model) = &self.context_model {
-            context_model.update(ctx, |context_model, ctx| {
-                context_model.append_pending_attachments(attachments, ctx);
-            });
-        }
     }
 
     /// Alternate path to Self::user_insert for when Vim mode is enabled. Forwards character
@@ -7218,12 +6536,6 @@ impl EditorView {
             .is_some_and(|s| s.is_active())
     }
 
-    pub fn active_autosuggestion_type(&self) -> Option<&AutosuggestionType> {
-        self.autosuggestion_state
-            .as_ref()
-            .map(|s| &s.autosuggestion_type)
-    }
-
     pub fn current_autosuggestion_text(&self) -> Option<&str> {
         self.autosuggestion_state
             .as_ref()
@@ -7761,84 +7073,6 @@ impl EditorView {
         self.user_insert(&input, ctx);
     }
 
-    fn render_menu_button_tooltip(
-        &self,
-        tooltip_text: String,
-        appearance: &Appearance,
-    ) -> Box<dyn FnOnce() -> Box<dyn Element>> {
-        let tooltip_background = appearance.theme().surface_1().into_solid();
-        let tooltip_text_color = appearance
-            .theme()
-            .main_text_color(tooltip_background.into())
-            .into_solid();
-        let ui_builder = appearance.ui_builder().clone();
-
-        Box::new(move || {
-            let tool_tip_style = UiComponentStyles {
-                background: Some(elements::Fill::Solid(tooltip_background)),
-                font_color: Some(tooltip_text_color),
-                ..Default::default()
-            };
-
-            ui_builder
-                .tool_tip(tooltip_text)
-                .with_style(tool_tip_style)
-                .build()
-                .finish()
-        })
-    }
-
-    fn render_image_context_button(
-        &self,
-        disabled: bool,
-        tooltip_text: String,
-        icon_size: f32,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let button = icon_button(
-            appearance,
-            icons::Icon::Image,
-            false,
-            self.image_context_button_mouse_handle.clone(),
-        )
-        .with_tooltip_position(ButtonTooltipPosition::Above)
-        .with_tooltip(self.render_menu_button_tooltip(tooltip_text, appearance))
-        .with_style(UiComponentStyles {
-            width: Some(icon_size),
-            height: Some(icon_size),
-            padding: Some(Coords::uniform(icon_size / 10.)),
-            ..Default::default()
-        });
-
-        let button = if disabled {
-            button
-                .with_style(UiComponentStyles {
-                    font_color: Some(
-                        appearance
-                            .theme()
-                            .disabled_text_color(appearance.theme().background())
-                            .into(),
-                    ),
-                    ..Default::default()
-                })
-                .with_hovered_styles(UiComponentStyles {
-                    background: None,
-                    ..Default::default()
-                })
-                .build()
-                .with_cursor(Cursor::Arrow)
-        } else {
-            button
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAction::AttachFiles);
-                })
-                .with_cursor(Cursor::PointingHand)
-        };
-
-        button.finish()
-    }
-
     /// Commits the currently composed text from the IME (if there is any) to properly handle one of the following:
     /// - a new selection
     /// - clicking outside of the editor
@@ -7909,40 +7143,6 @@ impl EditorView {
         self.editor_model.update(ctx, |editor_model, ctx| {
             editor_model.clear_marked_text(ctx);
         });
-    }
-
-    /// If the editor should show any controls, render them.
-    /// Otherwise, return the child element.
-    fn render_controls(&self, ctx: &AppContext) -> Option<Box<dyn Element>> {
-        let input_settings = InputSettings::as_ref(ctx);
-        let is_universal_input_enabled = input_settings.is_universal_developer_input_enabled(ctx);
-        let should_show_image = !FeatureFlag::AgentView.is_enabled()
-            && self.image_context_options.should_show_button()
-            && !is_universal_input_enabled;
-        if !should_show_image {
-            return None;
-        }
-
-        let appearance = Appearance::as_ref(ctx);
-        let font_cache = ctx.font_cache();
-        let icon_size = self.line_height(font_cache, appearance);
-
-        let mut controls = Flex::row().with_main_axis_size(MainAxisSize::Min);
-
-        if should_show_image {
-            controls.add_child(
-                Container::new(self.render_image_context_button(
-                    !self.image_context_options.is_enabled(),
-                    self.image_context_options.tooltip_text(),
-                    icon_size,
-                    appearance,
-                ))
-                .with_margin_left(4.)
-                .finish(),
-            );
-        }
-
-        Some(controls.finish())
     }
 }
 
@@ -8050,7 +7250,6 @@ pub enum Event {
     UpdatePeers {
         operations: Rc<Vec<CrdtOperation>>,
     },
-    ProcessingAttachedImages(bool),
     /// Request parent to process image file paths from drag-and-drop
     DroppedImageFiles(Vec<String>),
     IgnoreAutosuggestion {
@@ -8120,18 +7319,6 @@ impl TypedActionView for EditorView {
             Scroll(position) => self.scroll(*position, ctx),
             Select(action) => self.select(action, ctx),
             UserInsert(text) => self.user_insert(text.as_ref(), ctx),
-            AttachFiles => self.attach_files(ctx),
-            ReadAndProcessImagesAsync {
-                num_images_user_attached,
-                file_paths,
-            } => self.read_and_process_images_async(
-                *num_images_user_attached,
-                file_paths.clone(),
-                ctx,
-            ),
-            ProcessNonImageFiles { file_paths } => {
-                self.process_non_image_files(file_paths.clone(), ctx);
-            }
             Tab => self.tab(ctx),
             ShiftTab => self.shift_tab(ctx),
             Copy => self.copy(ctx),
@@ -8332,21 +7519,9 @@ impl View for EditorView {
             self.show_autosuggestion_ignore_button,
         );
 
-        let hoverable = Hoverable::new(self.hover_handle.clone(), |_state| editor_element.finish())
+        (Hoverable::new(self.hover_handle.clone(), |_state| editor_element.finish())
             .with_cursor(Cursor::IBeam)
-            .finish();
-
-        match self.render_controls(ctx) {
-            Some(controls) => {
-                let mut row = Flex::row()
-                    .with_main_axis_size(MainAxisSize::Max)
-                    .with_cross_axis_alignment(CrossAxisAlignment::End);
-                row.add_child(Shrinkable::new(1., hoverable).finish());
-                row.add_child(controls);
-                row.finish()
-            }
-            _ => hoverable,
-        }
+            .finish()) as _
     }
 
     fn keymap_context(&self, ctx: &AppContext) -> warpui::keymap::Context {
@@ -8370,10 +7545,6 @@ impl View for EditorView {
             if vim_mode == VimMode::Normal {
                 context.set.insert("VimNormalMode");
             }
-        }
-
-        if self.is_ai_input {
-            context.set.insert("AIInput");
         }
 
         // Allow parent views to add additional flags to the context

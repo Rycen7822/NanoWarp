@@ -11,15 +11,11 @@ use warpui::{
 };
 
 use super::team_tester::{TeamTesterStatus, TeamTesterStatusEvent};
-use super::user_workspaces::{
-    UserWorkspaces, WorkspacesMetadataResponse, WorkspacesMetadataWithPricing,
-};
+use super::user_workspaces::{UserWorkspaces, WorkspacesMetadataResponse};
 use super::workspace::WorkspaceUid;
-use crate::ai::request_usage_model::AIRequestUsageModel;
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::persistence::ModelEvent;
-use crate::pricing::PricingInfoModel;
 use crate::server::retry_strategies::{
     OUT_OF_BAND_REQUEST_RETRY_STRATEGY, PERIODIC_POLL, PERIODIC_POLL_RETRY_STRATEGY, with_retry,
 };
@@ -104,14 +100,9 @@ impl TeamUpdateManager {
         // avoid noisy `No matching expectation found` errors.
         let mut team_client = MockTeamClient::new();
         team_client.expect_workspaces_metadata().returning(|| {
-            Ok(WorkspacesMetadataWithPricing {
-                metadata: WorkspacesMetadataResponse {
-                    workspaces: vec![],
-                    experiments: None,
-                    ai_credit_availability: None,
-                    user_tier: Default::default(),
-                },
-                pricing_info: None,
+            Ok(WorkspacesMetadataResponse {
+                workspaces: vec![],
+                experiments: None,
             })
         });
 
@@ -292,18 +283,12 @@ impl TeamUpdateManager {
 
     fn handle_workspace_metadata_with_request_state(
         &mut self,
-        request_state: RequestState<WorkspacesMetadataWithPricing>,
+        request_state: RequestState<WorkspacesMetadataResponse>,
         ctx: &mut ModelContext<Self>,
     ) -> Option<Result<()>> {
         match request_state {
             RequestState::RequestSucceeded(response) => {
-                if let Some(pricing_info) = response.pricing_info.clone() {
-                    PricingInfoModel::handle(ctx).update(ctx, |model, ctx| {
-                        model.update_pricing_info(pricing_info, ctx);
-                    });
-                }
-
-                self.on_workspaces_updated(Ok(response.metadata), ctx);
+                self.on_workspaces_updated(Ok(response), ctx);
                 Some(Ok(()))
             }
             RequestState::RequestFailedRetryPending(err) => {
@@ -330,16 +315,8 @@ impl TeamUpdateManager {
             Ok(user_workspaces_access) => {
                 let workspaces = user_workspaces_access.workspaces;
                 let experiments = user_workspaces_access.experiments;
-                let user_tier = user_workspaces_access.user_tier;
-
-                if let Some(availability) = user_workspaces_access.ai_credit_availability {
-                    AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                        usage_model.apply_server_availability(Ok(availability), ctx);
-                    });
-                }
 
                 UserWorkspaces::handle(ctx).update(ctx, |user_workspaces, ctx| {
-                    user_workspaces.set_user_tier(user_tier);
                     user_workspaces.update_workspaces(workspaces.clone(), ctx);
                 });
 

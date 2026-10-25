@@ -1,9 +1,7 @@
 use std::default::Default;
 use std::sync::Arc;
 
-use byte_unit::Byte;
 use parking_lot::FairMutex;
-use warp_core::features::FeatureFlag;
 use warpui::elements::{
     Container, Flex, MainAxisSize, MouseStateHandle, ParentElement, Shrinkable, Text,
 };
@@ -16,11 +14,8 @@ use warpui::ui_components::radio_buttons::{
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use super::style::{self, BUTTON_GAP, MODAL_MARGIN};
-use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::appearance::Appearance;
 use crate::terminal::TerminalModel;
-use crate::terminal::shared_session::ai_agent::encode_agent_response_event;
-use crate::terminal::shared_session::replay_agent_conversations::reconstruct_response_events_from_conversations;
 use crate::terminal::shared_session::role_change_modal::TEXT_FONT_SIZE;
 use crate::terminal::shared_session::{
     SharedSessionActionSource, SharedSessionScrollbackType, max_session_size,
@@ -48,7 +43,6 @@ struct ScrollbackOption {
 pub struct Body {
     button_mouse_states: ButtonMouseStateHandles,
     radio_button_mouse_states: RadioButtonGroupState,
-    has_agent_conversations: bool,
 }
 
 #[derive(Debug)]
@@ -69,29 +63,7 @@ impl Body {
         Self {
             button_mouse_states: Default::default(),
             radio_button_mouse_states: Default::default(),
-            has_agent_conversations: false,
         }
-    }
-
-    /// Calculate the total size of agent conversation response events that will be sent
-    /// during session initialization. This is important because these events count toward
-    /// the session size quota, but are separate from the scrollback blocks.
-    fn calculate_agent_conversations_size(
-        terminal_view_id: warpui::EntityId,
-        ctx: &ViewContext<Self>,
-    ) -> Byte {
-        let conversations: Vec<_> = BlocklistAIHistoryModel::as_ref(ctx)
-            .all_live_conversations_for_terminal_surface(terminal_view_id)
-            .filter(|conv| conv.exchange_count() > 0)
-            .cloned()
-            .collect();
-
-        let total_bytes: usize = reconstruct_response_events_from_conversations(&conversations)
-            .iter()
-            .map(|event| encode_agent_response_event(event).len())
-            .sum();
-
-        Byte::from_u64(total_bytes as u64)
     }
 }
 
@@ -100,7 +72,6 @@ impl Body {
         &mut self,
         open_source: SharedSessionActionSource,
         model: Arc<FairMutex<TerminalModel>>,
-        terminal_view_id: warpui::EntityId,
         ctx: &mut ViewContext<Self>,
     ) {
         let model = model.lock();
@@ -118,42 +89,13 @@ impl Body {
         // client and server to ensure that the actual share won't be started if the size is
         // too large.
 
-        // Check if agent shared sessions is enabled and there are active conversations
-        self.has_agent_conversations = if FeatureFlag::AgentSharedSessions.is_enabled() {
-            BlocklistAIHistoryModel::as_ref(ctx)
-                .all_live_conversations_for_terminal_surface(terminal_view_id)
-                .any(|conv| conv.exchange_count() > 0)
-        } else {
-            false
-        };
-
-        // Calculate the size of agent conversation response events that will be sent during initialization.
-        // Only include this if the feature flag is enabled, since the events won't be sent otherwise.
-        let agent_conversations_size =
-            if FeatureFlag::AgentSharedSessions.is_enabled() && self.has_agent_conversations {
-                Self::calculate_agent_conversations_size(terminal_view_id, ctx)
-            } else {
-                Byte::from_u64(0)
-            };
-
         let scrollback_from_active_block = SharedSessionScrollbackType::None.to_scrollback(&model);
-        let mut is_scrollback_from_active_block_disabled = scrollback_from_active_block
-            .num_bytes()
-            .as_u64()
-            .saturating_add(agent_conversations_size.as_u64())
-            > max_session_size.as_u64();
-
-        // Disable the "without scrollback" option if there are agent conversations
-        if self.has_agent_conversations {
-            is_scrollback_from_active_block_disabled = true;
-        }
+        let is_scrollback_from_active_block_disabled =
+            scrollback_from_active_block.num_bytes().as_u64() > max_session_size.as_u64();
 
         let all_scrollback = SharedSessionScrollbackType::All.to_scrollback(&model);
-        let is_all_scrollback_disabled = all_scrollback
-            .num_bytes()
-            .as_u64()
-            .saturating_add(agent_conversations_size.as_u64())
-            > max_session_size.as_u64();
+        let is_all_scrollback_disabled =
+            all_scrollback.num_bytes().as_u64() > max_session_size.as_u64();
 
         let scrollback_from_active_block_message = if model.is_alt_screen_active() {
             "Share from current screen"
@@ -189,21 +131,12 @@ impl Body {
             // Context menu from blocklist can be opened with or without block selection
             // Add option only if a block is selected
             let scrollback_type = SharedSessionScrollbackType::FromBlock { block_index };
-            let mut is_disabled = if !is_all_scrollback_disabled {
+            let is_disabled = if !is_all_scrollback_disabled {
                 false
             } else {
                 let block_scrollback = scrollback_type.to_scrollback(&model);
-                block_scrollback
-                    .num_bytes()
-                    .as_u64()
-                    .saturating_add(agent_conversations_size.as_u64())
-                    > max_session_size.as_u64()
+                block_scrollback.num_bytes().as_u64() > max_session_size.as_u64()
             };
-
-            // Disable this option if there are agent conversations in the current session.
-            if self.has_agent_conversations {
-                is_disabled = true;
-            }
 
             options.insert(
                 0,
@@ -272,7 +205,7 @@ impl View for Body {
             .on_click(|ctx, _, _| ctx.dispatch_typed_action(BodyAction::Cancel))
             .finish();
 
-        // When agent conversations exist, default to "Share from start of session"
+        // Select the first option that fits within the sharing size limit.
         let default_option = self
             .radio_button_mouse_states
             .items
@@ -329,27 +262,8 @@ impl View for Body {
             .filter(|i| i.is_disabled)
             .count();
 
-        let explanation_message = if disabled_count == 0 {
-            None
-        } else if disabled_count > 1 {
-            // Multiple options disabled - mention both reasons if agent conversations exist
-            if self.has_agent_conversations {
-                Some(
-                    "Some options are disabled due to sharing size limits and the presence of agent conversations in the session",
-                )
-            } else {
-                Some("Some options are disabled due to sharing size limits")
-            }
-        } else {
-            // Only one option disabled - use specific message if it's due to agent conversations
-            if self.has_agent_conversations {
-                Some(
-                    "Sharing without scrollback is disabled because this session has agent conversations",
-                )
-            } else {
-                Some("Some options are disabled due to sharing size limits")
-            }
-        };
+        let explanation_message =
+            (disabled_count > 0).then_some("Some options are disabled due to sharing size limits");
 
         if let Some(message) = explanation_message {
             column.add_child(

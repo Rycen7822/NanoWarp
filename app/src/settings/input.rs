@@ -22,7 +22,7 @@ pub const MAX_TIMES_TO_SHOW_AUTOSUGGESTION_HINT: i8 = 2;
 )]
 #[schemars(description = "Terminal input style.", rename_all = "snake_case")]
 pub enum InputBoxType {
-    /// AI-first input
+    /// Warp prompt input
     Universal,
 
     #[default]
@@ -32,15 +32,6 @@ pub enum InputBoxType {
 
 define_settings_group!(InputSettings,
     settings: [
-        show_hint_text: ShowHintText {
-            type: bool,
-            default: true,
-            supported_platforms: SupportedPlatforms::ALL,
-            sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-            private: false,
-            toml_path: "terminal.input.show_hint_text",
-            description: "Whether hint text is shown in the terminal input.",
-        },
         classic_completions_mode: ClassicCompletionsMode {
             type: bool,
             default: false,

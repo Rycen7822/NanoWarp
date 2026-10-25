@@ -7,7 +7,7 @@ use url::{Origin, ParseError, Url};
 
 use super::Channel;
 use crate::AppId;
-use crate::channel::config::{ChannelConfig, OzConfig, RudderStackDestination, WarpServerConfig};
+use crate::channel::config::{ChannelConfig, RudderStackDestination, WarpServerConfig};
 use crate::features::FeatureFlag;
 
 lazy_static! {
@@ -42,7 +42,6 @@ impl ChannelState {
                 app_id,
                 logfile_name: "".into(),
                 server_config: WarpServerConfig::production(),
-                oz_config: OzConfig::production(),
                 telemetry_config: None,
             },
         }
@@ -240,51 +239,12 @@ impl ChannelState {
         }
     }
 
-    pub fn oz_root_url() -> Cow<'static, str> {
-        CHANNEL_STATE.lock().config.oz_config.oz_root_url.clone()
-    }
-
     pub fn server_root_url() -> Cow<'static, str> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "test-util")] {
                 Cow::Owned(MOCK_SERVER_URL.clone())
             } else {
                 CHANNEL_STATE.lock().config.server_config.server_root_url.clone()
-            }
-        }
-    }
-
-    pub fn override_prewarmed_sandbox_control_url(
-        url: impl Into<Cow<'static, str>>,
-    ) -> Result<(), ParseError> {
-        let url = url.into();
-        Url::parse(&url)?;
-        CHANNEL_STATE
-            .lock()
-            .config
-            .server_config
-            .prewarmed_sandbox_control_url = Some(url);
-        Ok(())
-    }
-
-    pub fn prewarmed_sandbox_control_url() -> Cow<'static, str> {
-        let state = CHANNEL_STATE.lock();
-        match &state.config.server_config.prewarmed_sandbox_control_url {
-            Some(url) => url.clone(),
-            None => {
-                drop(state);
-                Self::server_root_url()
-            }
-        }
-    }
-
-    pub fn workload_audience_url() -> Cow<'static, str> {
-        let state = CHANNEL_STATE.lock();
-        match &state.config.oz_config.workload_audience_url {
-            Some(url) => url.clone(),
-            None => {
-                drop(state);
-                Self::server_root_url()
             }
         }
     }
@@ -306,19 +266,6 @@ impl ChannelState {
             .as_ref()
             .and_then(|tc| tc.rudderstack_config.as_ref())
             .map(|rs| rs.non_ugc_destination())
-            .unwrap_or_default()
-    }
-
-    /// Returns the rudderstack destination for all events that contain user-generated content.
-    pub fn rudderstack_ugc_destination() -> RudderStackDestination {
-        let state = CHANNEL_STATE.lock();
-
-        state
-            .config
-            .telemetry_config
-            .as_ref()
-            .and_then(|tc| tc.rudderstack_config.as_ref())
-            .map(|rs| rs.ugc_destination())
             .unwrap_or_default()
     }
 

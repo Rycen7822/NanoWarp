@@ -8,7 +8,6 @@ use std::sync::mpsc::{SendError, SyncSender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use ai::api_keys::ApiKeyManager;
 use anyhow::Context as _;
 use async_broadcast::InactiveReceiver;
 use instant::Instant;
@@ -30,7 +29,6 @@ use super::spawner::{PtySpawnHooks, PtySpawnMode};
 #[cfg(unix)]
 use super::terminal_attributes::TerminalAttributesPoller;
 use super::{mio_channel, recorder};
-use crate::ai::aws_credentials::AwsCredentialRefresher as _;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_state::AuthState;
 use crate::banner::BannerState;
@@ -55,7 +53,7 @@ use crate::terminal::model::terminal_model::{ExitReason, ShellProcessInfo};
 #[cfg(unix)]
 use crate::terminal::model_events::ModelEvent as TerminalModelEvent;
 use crate::terminal::model_events::ModelEventDispatcher;
-use crate::terminal::session_settings::{SessionSettings, ToolbarChipSelection};
+use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::shared_session::sharer::network::Network;
 use crate::terminal::shared_session::{IsSharedSessionCreator, SharedSessionStatus};
 use crate::terminal::shell::ShellName;
@@ -309,13 +307,6 @@ impl<S> TerminalManager<S> {
         );
         let colors = model.colors();
         let model = Arc::new(FairMutex::new(model));
-
-        // Have ApiKeyManager subscribe to block completion events for AWS credential refresh.
-        // This must happen after `model` is created, since the subscription needs it to resolve
-        // lazily-computed `UserBlockCompleted` fields.
-        ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.register_model_event_dispatcher(&model_events, model.clone(), ctx);
-        });
 
         // This is purely for measuring throughput on WarpDev.
         if FeatureFlag::RecordPtyThroughput.is_enabled() {
@@ -984,23 +975,11 @@ impl<S> TerminalManager<S> {
             .value();
         let is_honor_ps1_enabled = *SessionSettings::as_ref(ctx).honor_ps1;
 
-        // Determine whether the Node.js Version chip is enabled anywhere it could be
-        // shown (the Warp prompt or the agent footer). When it
-        // is not, the shell bootstrap skips the expensive per-prompt `node --version`
-        // detection. The chip value is fed by the same precmd payload regardless of
-        // where it is displayed, so both locations must be checked.
-        let node_version_chip_enabled = {
-            let in_prompt = !is_honor_ps1_enabled
-                && Prompt::as_ref(ctx)
-                    .chip_kinds()
-                    .contains(&ContextChipKind::NodeVersion);
-            let settings = SessionSettings::as_ref(ctx);
-            in_prompt
-                || settings
-                    .agent_footer_chip_selection
-                    .all_chips()
-                    .contains(&ContextChipKind::NodeVersion)
-        };
+        // Skip per-prompt `node --version` detection unless its prompt chip is shown.
+        let node_version_chip_enabled = !is_honor_ps1_enabled
+            && Prompt::as_ref(ctx)
+                .chip_kinds()
+                .contains(&ContextChipKind::NodeVersion);
 
         // `enable_ssh_warpification` is the single source of truth for whether the SSH
         // wrapper is active. The bootstrap scripts check `WARP_USE_SSH_WRAPPER` (derived
