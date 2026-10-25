@@ -972,7 +972,6 @@ pub enum TelemetryEvent {
         confirmation_footprint_bytes: u64,
     },
     EnvVarCollectionInvoked(EnvVarTelemetryMetadata),
-    EnvVarWorkflowParameterization(EnvVarTelemetryMetadata),
 
     /// The user imported settings from another terminal.
     CompletedSettingsImport {
@@ -1574,7 +1573,6 @@ impl TelemetryEvent {
                 "confirmation_footprint_bytes": confirmation_footprint_bytes,
             })),
             TelemetryEvent::EnvVarCollectionInvoked(metadata) => Some(json!(metadata)),
-            TelemetryEvent::EnvVarWorkflowParameterization(metadata) => Some(json!(metadata)),
             TelemetryEvent::CompletedSettingsImport {
                 terminal_type,
                 imported_settings,
@@ -2087,7 +2085,6 @@ impl TelemetryEvent {
             | TelemetryEvent::MemoryUsageHigh { .. }
             | TelemetryEvent::TransientMemorySpike { .. }
             | TelemetryEvent::EnvVarCollectionInvoked(_)
-            | TelemetryEvent::EnvVarWorkflowParameterization(_)
             | TelemetryEvent::CompletedSettingsImport { .. }
             | TelemetryEvent::SettingsImportConfigFocused(_)
             | TelemetryEvent::SettingsImportResetButtonClicked
@@ -2369,9 +2366,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             },
             Self::MemoryUsageHigh => EnablementState::Always,
             Self::TransientMemorySpike => EnablementState::Always,
-            Self::EnvVarCollectionInvoked | Self::EnvVarWorkflowParameterization => {
-                EnablementState::Always
-            }
+            Self::EnvVarCollectionInvoked => EnablementState::Always,
             Self::BlockCompletedOnDogfoodOnly => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
@@ -2629,9 +2624,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::MemoryUsageHigh => "perf_metrics.memory_usage_high",
             Self::TransientMemorySpike => "perf_metrics.transient_memory_spike",
             Self::EnvVarCollectionInvoked => "Invoked Environment Variables",
-            Self::EnvVarWorkflowParameterization => {
-                "Parameterized Workflow With Environment Variables"
-            }
             Self::CompletedSettingsImport => "Completed Settings Import",
             Self::SettingsImportConfigFocused => "Focused Config in Settings Import",
             Self::SettingsImportResetButtonClicked => {
@@ -3040,9 +3032,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                  dropped back under it before being reported as high"
             }
             Self::EnvVarCollectionInvoked => "Invoked an environment variables object",
-            Self::EnvVarWorkflowParameterization => {
-                "Selected from environment variables dropdown to parameterize workflow"
-            }
             Self::ObjectLinkCopied => "The web link to an object has been copied.",
             Self::FileTreeToggled => "Opened the file tree/project explorer",
             Self::GlobalSearchOpened => "Opened the global search view",

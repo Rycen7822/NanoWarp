@@ -52,8 +52,6 @@ fn test_agent_dropdown_is_searchable() {
         });
 
         // Only the 3 available agents are listed, and all are visible with no filter.
-        let total = view.read(&app, |modal, ctx| modal.agent_dropdown.as_ref(ctx).len());
-        assert_eq!(total, 3, "only available agents should be listed");
         let all_visible = view.read(&app, |modal, ctx| {
             modal
                 .agent_dropdown

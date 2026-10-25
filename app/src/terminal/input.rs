@@ -92,8 +92,6 @@ use super::view::{
 use super::warpify::SubshellSource;
 use super::{History, HistoryEntry, SizeInfo, TerminalModel, prompt, should_right_click_paste};
 use crate::appearance::{Appearance, AppearanceEvent};
-use crate::cloud_object::model::persistence::CloudModel;
-use crate::cloud_object::{CloudObject, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 use crate::completer::SessionContext;
@@ -110,7 +108,6 @@ use crate::editor::{
     ReplicaId, TextColors, TextRun, default_cursor_colors, position_id_for_cached_point,
     position_id_for_cursor, position_id_for_first_cursor,
 };
-use crate::env_vars::EnvVarCollectionExt;
 use crate::features::FeatureFlag;
 use crate::input_suggestions::{
     Event as InputSuggestionsEvent, InputSuggestions, TabCompletionsPreselectOption,
@@ -126,10 +123,7 @@ use crate::resource_center::{
 };
 use crate::search::QueryFilter;
 use crate::send_telemetry_from_ctx;
-use crate::server::ids::SyncId;
-use crate::server::telemetry::{
-    CommandXRayTrigger, EnvVarTelemetryMetadata, PaletteSource, TelemetryEvent,
-};
+use crate::server::telemetry::{CommandXRayTrigger, PaletteSource, TelemetryEvent};
 use crate::session_management::SessionNavigationPromptElements;
 use crate::settings::{
     AliasExpansionSettings, AppEditorSettings, AppEditorSettingsChangedEvent, InputModeSettings,
@@ -155,9 +149,7 @@ use crate::workflows::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
     compute_workflow_display_data_with_overrides,
 };
-use crate::workflows::info_box::{
-    WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowsInfoBoxViewEvent, WorkflowsMoreInfoView,
-};
+use crate::workflows::info_box::{WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowsMoreInfoView};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, InitContent, ToastStack, WorkspaceAction};
 
@@ -541,10 +533,6 @@ struct WorkflowsState {
     selected_workflow_state: Option<SelectedWorkflowState>,
 }
 
-struct EnvVarCollectionState {
-    selected_env_vars: Option<SyncId>,
-}
-
 /// State when a workflow is selected.
 #[derive(Clone)]
 struct SelectedWorkflowState {
@@ -560,8 +548,6 @@ struct SelectedWorkflowState {
     /// Map of arguments to the corresponding index of highlights. This is necessary so that we can
     /// select all instances of an argument when a user changes the selected argument.
     argument_index_to_highlight_index: HashMap<WorkflowArgumentIndex, Vec<usize>>,
-
-    workflow_type: Workflow,
 
     /// `true` if the WorkflowsMoreInfoView should be shown for the selected workflow. This is true
     /// when the viewer may display workflow details.
@@ -858,7 +844,6 @@ pub struct Input {
     view_id: EntityId,
     input_render_state_model_handle: ModelHandle<InputRenderStateModel>,
     workflows_state: WorkflowsState,
-    env_var_collection_state: EnvVarCollectionState,
     command_x_ray_description: Option<Arc<Description>>,
     last_parsed_tokens: Option<decorations::ParsedTokensSnapshot>,
     debounce_input_background_tx: Sender<InputBackgroundJobOptions>,
@@ -1385,10 +1370,6 @@ impl Input {
             selected_workflow_state: None,
         };
 
-        let env_var_collection_state = EnvVarCollectionState {
-            selected_env_vars: None,
-        };
-
         let last_word_insertion = LastWordInsertion {
             insert_command_from_history_index: 0,
             is_latest_editor_event: false,
@@ -1432,7 +1413,6 @@ impl Input {
             view_id,
             input_render_state_model_handle,
             workflows_state,
-            env_var_collection_state,
             command_x_ray_description: None,
             last_parsed_tokens: None,
             debounce_input_background_tx,
@@ -2053,13 +2033,6 @@ impl Input {
             .active_block_mut()
             .set_home_dir(home_dir);
 
-        let env_var_collection_id = self.env_var_collection_state.selected_env_vars;
-        self.model
-            .lock()
-            .block_list_mut()
-            .active_block_mut()
-            .set_cloud_env_var_state(env_var_collection_id);
-
         let did_execute = if self
             .model
             .lock()
@@ -2163,15 +2136,8 @@ impl Input {
         shared_session_input_state.pending_command_execution_request = None;
     }
 
-    fn clear_selected_env_var_collection(&mut self) {
-        self.env_var_collection_state.selected_env_vars = None;
-    }
-
     /// Closes the workflows panel.
     fn clear_selected_workflow(&mut self, ctx: &mut ViewContext<Self>) {
-        // Clear the env var state if we had one.
-        self.clear_selected_env_var_collection();
-
         // `take()` closes the Workflows panel because the panel is only
         // rendered if `selected_workflow_state` is Some(..).
         if let Some(state) = self.workflows_state.selected_workflow_state.take() {
@@ -2286,7 +2252,6 @@ impl Input {
         self.insert_workflow_into_input(
             workflow_type,
             argument_override,
-            None,
             should_show_more_info_view,
             ctx,
         );
@@ -2301,7 +2266,6 @@ impl Input {
         &mut self,
         workflow_type: Workflow,
         argument_overrides: Option<HashMap<String, String>>,
-        selected_env_vars: Option<SyncId>,
         should_show_more_info_view: bool,
         ctx: &mut ViewContext<Input>,
     ) {
@@ -2310,19 +2274,6 @@ impl Input {
         self.editor.update(ctx, |editor, ctx| {
             editor.clear_buffer(ctx);
         });
-
-        if let Some(env_vars_command) = selected_env_vars
-            .as_ref()
-            .and_then(|id| self.env_vars_command_prefix(id, ctx))
-        {
-            self.editor.update(ctx, |editor, ctx| {
-                editor.system_insert(
-                    &env_vars_command,
-                    PlainTextEditorViewAction::SystemInsert,
-                    ctx,
-                )
-            });
-        }
 
         let WorkflowDisplayData {
             command_with_replaced_arguments,
@@ -2357,25 +2308,10 @@ impl Input {
         });
 
         self.workflows_state.selected_workflow_state = Some(SelectedWorkflowState {
-            more_info_view: self.create_workflows_info_view(workflow_type.clone(), ctx),
+            more_info_view: self.create_workflows_info_view(workflow_type, ctx),
             argument_index_to_highlight_index: argument_index_to_highlight_index_map,
-            workflow_type,
             should_show_more_info_view,
         });
-
-        self.env_var_collection_state.selected_env_vars = selected_env_vars;
-
-        // Ensure the env var selector dropdown is consistent with the selected env vars.
-        if let Some(more_info_view) = self
-            .workflows_state
-            .selected_workflow_state
-            .as_ref()
-            .map(|state| &state.more_info_view)
-        {
-            more_info_view.update(ctx, |info_view, ctx| {
-                info_view.set_environment_variables_selection(selected_env_vars, ctx);
-            })
-        }
 
         // Emit the a11y content as the last step so that it overwrites any of the a11y content
         // emitted by the editor (if multiple `AccessibilityContent`s are emitted within the same
@@ -2404,76 +2340,17 @@ impl Input {
         self.focus_input_box(ctx);
     }
 
-    /// Builds a prefix for applying env vars to a command in the current session.
-    fn env_vars_command_prefix(&self, env_vars_id: &SyncId, ctx: &AppContext) -> Option<String> {
-        let shell_type = self.active_session(ctx)?.shell().shell_type();
-        let env_vars = &CloudModel::as_ref(ctx)
-            .get_env_var_collection(env_vars_id)?
-            .model()
-            .string_model;
-
-        if shell_type == ShellType::Fish {
-            // Warp currently doesn't support newlines in Fish, just prepend the vars
-            let mut command = env_vars.export_variables_for_shell(ShellType::Fish);
-            command.push(' ');
-            Some(command)
-        } else {
-            // Add newlines at the end to separate the vars from the comment/command
-            Some(format!(
-                "# Environment variables\n{}\n\n",
-                env_vars.export_variables(" ", shell_type.into())
-            ))
-        }
-    }
-
     fn create_workflows_info_view(
         &mut self,
         workflow: Workflow,
         ctx: &mut ViewContext<Input>,
     ) -> ViewHandle<WorkflowsMoreInfoView> {
-        let workflow_more_info_view = ctx.add_typed_action_view(|ctx| {
+        ctx.add_typed_action_view(|ctx| {
             WorkflowsMoreInfoView::new(
                 *InputSettings::as_ref(ctx).workflows_box_expanded.value(),
                 workflow,
-                ctx,
             )
-        });
-
-        ctx.subscribe_to_view(&workflow_more_info_view, move |me, _, event, ctx| {
-            me.handle_workflow_more_info_event(event, ctx);
-        });
-
-        workflow_more_info_view
-    }
-
-    fn handle_workflow_more_info_event(
-        &mut self,
-        event: &WorkflowsInfoBoxViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            WorkflowsInfoBoxViewEvent::PrefixCommandWithEnvironmentVariables(env_vars) => {
-                self.reset_workflow_state(*env_vars, ctx);
-
-                // The ID may be `None` if the user is *clearing* environment variables.
-                if let Some(env_vars_id) = env_vars {
-                    let env_vars_object =
-                        CloudModel::as_ref(ctx).get_env_var_collection(env_vars_id);
-                    let telemetry_metadata = EnvVarTelemetryMetadata {
-                        object_id: env_vars_id.into_server().map(Into::into),
-                        team_uid: env_vars_object
-                            .and_then(|object| object.permissions.owner.into()),
-                        space: env_vars_object
-                            .map_or(Space::Personal, |object| object.space(ctx))
-                            .into(),
-                    };
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::EnvVarWorkflowParameterization(telemetry_metadata),
-                        ctx
-                    );
-                }
-            }
-        }
+        })
     }
 
     /// Returns the a11y text for a workflow that is selected. `None`, if there is no workflow
@@ -2753,19 +2630,6 @@ impl Input {
         }
     }
 
-    /// Resets the SelectedWorkflowState back to the original workflow, with its original arguments. This
-    /// is useful when the command does not match the original workflow.
-    fn reset_workflow_state(&mut self, env_vars: Option<SyncId>, ctx: &mut ViewContext<Input>) {
-        // We want to also initially clear the stored selected env var.
-        self.clear_selected_env_var_collection();
-
-        if let Some(state) = self.workflows_state.selected_workflow_state.take() {
-            self.insert_workflow_into_input(state.workflow_type, None, env_vars, true, ctx)
-        }
-
-        ctx.notify();
-    }
-
     fn confirm_suggestion(&mut self, suggestion: &str, ctx: &mut ViewContext<Input>) -> bool {
         self.confirm_suggestion_internal(suggestion, Executing::No, ctx)
     }
@@ -3028,9 +2892,6 @@ impl Input {
     }
 
     fn clear_current_workflow(&mut self, ctx: &mut ViewContext<Input>) {
-        // Whenever we clear the workflow we also want to clear the env vars
-        self.clear_selected_env_var_collection();
-
         if let Some(state) = self.workflows_state.selected_workflow_state.take() {
             self.update_workflows_info_box_expanded_setting(ctx, &state);
         }

@@ -72,26 +72,6 @@ fn get_init_command_for_env_var(value: &EnvVarValue, shell_family: ShellFamily) 
     }
 }
 
-pub trait EnvVarCollectionExt {
-    fn export_variables_for_shell(&self, shell_type: ShellType) -> String;
-}
-
-impl EnvVarCollectionExt for EnvVarCollection {
-    fn export_variables_for_shell(&self, shell_type: ShellType) -> String {
-        serialize_variables_for_shell(self.key_value_iter(), shell_type)
-    }
-}
-
-trait EnvVarCollectionKeyValueIter {
-    fn key_value_iter(&self) -> impl Iterator<Item = (&str, &EnvVarValue)>;
-}
-
-impl EnvVarCollectionKeyValueIter for EnvVarCollection {
-    fn key_value_iter(&self) -> impl Iterator<Item = (&str, &EnvVarValue)> {
-        self.vars.iter().map(|var| (var.name.as_str(), &var.value))
-    }
-}
-
 impl StringModel for EnvVarCollection {
     type CloudObjectType = CloudEnvVarCollection;
 

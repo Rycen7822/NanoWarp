@@ -35,13 +35,6 @@ pub enum FilterableDropdownEvent {
     Close,
 }
 
-#[derive(Default, Debug, PartialEq)]
-pub enum FilterableDropdownOrientation {
-    Up,
-    #[default]
-    Down,
-}
-
 pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     is_expanded: bool,
     disabled: bool,
@@ -52,7 +45,6 @@ pub struct FilterableDropdown<A: DropdownItemAction = ()> {
     self_handle: WeakViewHandle<Self>,
     selected_item: Option<MenuItem<DropdownAction>>,
     items: Vec<MenuItem<DropdownAction>>,
-    orientation: FilterableDropdownOrientation,
     static_menu_header: Option<&'static str>,
     style_override: Option<UiComponentStyles>,
     hovered_style_override: Option<UiComponentStyles>,
@@ -113,7 +105,6 @@ where
             top_bar_max_width: TOP_MENU_BAR_MAX_WIDTH,
             selected_item: None,
             items: Default::default(),
-            orientation: Default::default(),
             static_menu_header: None,
             style_override: None,
             hovered_style_override: None,
@@ -139,10 +130,6 @@ where
 
     pub fn set_style(&mut self, style: UiComponentStyles) {
         self.style_override = Some(style);
-    }
-
-    pub fn set_orientation(&mut self, orientation: FilterableDropdownOrientation) {
-        self.orientation = orientation;
     }
 
     pub fn add_items(&mut self, items: Vec<DropdownItem<A>>, ctx: &mut ViewContext<Self>) {
@@ -171,11 +158,6 @@ where
             self.selected_item = None;
             ctx.notify();
         }
-    }
-
-    /// The number of items in the dropdown.
-    pub fn len(&self) -> usize {
-        self.items.len()
     }
 
     #[expect(dead_code)]
@@ -721,23 +703,13 @@ where
 
         let mut dropdown_stack = Stack::new().with_child(self.render_top_bar(appearance));
         if self.is_expanded {
-            let positioning = if self.orientation == FilterableDropdownOrientation::Down {
-                OffsetPositioning::offset_from_save_position_element(
-                    self.top_bar_label(),
-                    vec2f(0., 0.),
-                    PositionedElementOffsetBounds::WindowByPosition,
-                    PositionedElementAnchor::BottomLeft,
-                    ChildAnchor::TopLeft,
-                )
-            } else {
-                OffsetPositioning::offset_from_save_position_element(
-                    self.top_bar_label(),
-                    vec2f(0., 0.),
-                    PositionedElementOffsetBounds::WindowByPosition,
-                    PositionedElementAnchor::TopLeft,
-                    ChildAnchor::BottomLeft,
-                )
-            };
+            let positioning = OffsetPositioning::offset_from_save_position_element(
+                self.top_bar_label(),
+                vec2f(0., 0.),
+                PositionedElementOffsetBounds::WindowByPosition,
+                PositionedElementAnchor::BottomLeft,
+                ChildAnchor::TopLeft,
+            );
             dropdown_stack.add_positioned_overlay_child(dropdown_menu, positioning);
         }
         Container::new(dropdown_stack.finish())
