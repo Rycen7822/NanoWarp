@@ -1,6 +1,6 @@
 use warpui::{Entity, ModelContext};
 
-use super::{DynamicEnumSuggestionStatus, InputSuggestionsMode};
+use super::InputSuggestionsMode;
 
 /// Model responsible for managing the input suggestions mode state.
 #[derive(Default)]
@@ -29,21 +29,6 @@ impl InputSuggestionsModeModel {
         ctx.emit(());
     }
 
-    pub fn set_dynamic_enum_status(
-        &mut self,
-        status: DynamicEnumSuggestionStatus,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-            dynamic_enum_status,
-            ..
-        } = &mut self.mode
-        {
-            *dynamic_enum_status = status;
-            ctx.emit(());
-        }
-    }
-
     pub fn is_visible(&self) -> bool {
         self.mode.is_visible()
     }
@@ -67,13 +52,6 @@ impl InputSuggestionsModeModel {
         matches!(
             self.mode,
             InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-        )
-    }
-
-    pub fn is_dynamic_workflow_enum_suggestions(&self) -> bool {
-        matches!(
-            self.mode,
-            InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
         )
     }
 }

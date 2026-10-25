@@ -19,6 +19,7 @@ use warp_completer::completer::{
 };
 use warp_completer::meta::Span;
 use warp_util::user_input::UserInput;
+use warpui::keymap::Keystroke;
 use warpui::platform::WindowStyle;
 use warpui::text::SelectionType;
 use warpui::{App, UpdateView, WindowId};

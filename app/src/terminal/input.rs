@@ -22,7 +22,6 @@ use diesel::SqliteConnection;
 use futures::FutureExt as _;
 use futures::stream::AbortHandle;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use ordered_float::Float;
 use parking_lot::FairMutex;
 #[cfg(feature = "local_fs")]
@@ -59,8 +58,7 @@ use warpui::elements::{
 };
 pub use warpui::elements::{ParentElement as _, Stack};
 pub use warpui::geometry::vector::{Vector2F, vec2f};
-use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding, Keystroke};
-use warpui::platform::OperatingSystem;
+use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding};
 use warpui::presenter::ChildView;
 use warpui::text_layout::TextStyle;
 use warpui::units::IntoPixels;
@@ -221,32 +219,6 @@ const HISTORY_DETAILS_VIEW_WIDTH_REQUIREMENT: f32 = 1100.;
 
 const MIN_BUFFER_LEN_TO_SHOW_COMPLETIONS_WHILE_TYPING: usize = 2;
 
-const DYNAMIC_ENUM_GENERATE_MESSAGE: &str = "Run the following command to generate variants:";
-const DYNAMIC_ENUM_RUN_MESSAGE: &str = "Run command";
-const DYNAMIC_ENUM_PENDING_MESSAGE: &str = "Command pending...";
-const DYNAMIC_ENUM_FAILURE_MESSAGE: &str = "Command failed";
-const DYNAMIC_ENUM_NO_RESULTS_MESSAGE: &str = "Command returned no results";
-const DYNAMIC_ENUM_MENU_PADDING: f32 = 10.;
-const DYNAMIC_ENUM_MENU_HEIGHT_OFFSET: f32 = 25.;
-const DYNAMIC_ENUM_HORIZONTAL_TEXT_PADDING: f32 = 5.;
-
-lazy_static! {
-    static ref RUN_DYNAMIC_ENUM_COMMAND_KEYSTROKE: Keystroke = if OperatingSystem::get().is_mac() {
-        Keystroke {
-            cmd: true,
-            key: "enter".to_owned(),
-            ..Default::default()
-        }
-    } else {
-        Keystroke {
-            ctrl: true,
-            shift: true,
-            key: "enter".to_owned(),
-            ..Default::default()
-        }
-    };
-}
-
 #[derive(PartialEq, Eq, Copy, Clone, Serialize)]
 pub enum TelemetryInputSuggestionsMode {
     HistoryFuzzySearch,
@@ -254,7 +226,6 @@ pub enum TelemetryInputSuggestionsMode {
     HistoryUp,
     NaturalLanguageCommandSearch,
     StaticWorkflowEnumSuggestions,
-    DynamicWorkflowEnumSuggestions,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -334,41 +305,9 @@ pub enum InputSuggestionsMode {
         cursor_point: BufferPoint,
     },
 
-    DynamicWorkflowEnumSuggestions {
-        /// The suggested values for the workflow argument.
-        suggestions: Vec<String>,
-
-        /// Where the menu should be positioned.
-        menu_position: TabCompletionsMenuPosition,
-
-        /// The selected ranges for every instance of the argument.
-        selected_ranges: Vec<Range<ByteOffset>>,
-
-        /// Store the cursor point of the end of the first selected argument.
-        cursor_point: BufferPoint,
-
-        /// Store the current state of the dynamic enum suggestions menu.
-        dynamic_enum_status: DynamicEnumSuggestionStatus,
-
-        /// The command associated with the dynamic enum.
-        command: String,
-    },
-
     /// Mode indicating that no suggestion UI is being shown.
     #[default]
     Closed,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum DynamicEnumSuggestionStatus {
-    /// When the command has not yet been approved to run on the users laptop
-    Unapproved,
-    /// The command is running asynchronously, but has not yet finished so we do not have suggestions to display
-    Pending,
-    /// The command succeeded; display suggested variants
-    Success,
-    /// The command failed
-    Failure,
 }
 
 impl InputSuggestionsMode {
@@ -391,9 +330,6 @@ impl InputSuggestionsMode {
             }
             InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. } => {
                 TelemetryInputSuggestionsMode::StaticWorkflowEnumSuggestions
-            }
-            InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
-                TelemetryInputSuggestionsMode::DynamicWorkflowEnumSuggestions
             }
             InputSuggestionsMode::Closed => unreachable!(),
         }
@@ -2770,40 +2706,18 @@ impl Input {
             );
         });
 
-        let variants = match enum_variants {
-            EnumVariants::Static(variants) => {
-                self.suggestions_mode_model.update(ctx, |m, ctx| {
-                    m.set_mode(
-                        InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                            suggestions: variants.clone(),
-                            menu_position: TabCompletionsMenuPosition::AtFirstCursor,
-                            selected_ranges,
-                            cursor_point: position,
-                        },
-                        ctx,
-                    );
-                });
-                variants
-            }
-            EnumVariants::Dynamic(command) => {
-                if FeatureFlag::DynamicWorkflowEnums.is_enabled() {
-                    self.suggestions_mode_model.update(ctx, |m, ctx| {
-                        m.set_mode(
-                            InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-                                suggestions: vec![],
-                                menu_position: TabCompletionsMenuPosition::AtFirstCursor,
-                                selected_ranges,
-                                cursor_point: position,
-                                dynamic_enum_status: DynamicEnumSuggestionStatus::Unapproved,
-                                command,
-                            },
-                            ctx,
-                        );
-                    });
-                }
-                vec![]
-            }
-        };
+        let EnumVariants::Static(variants) = enum_variants;
+        self.suggestions_mode_model.update(ctx, |m, ctx| {
+            m.set_mode(
+                InputSuggestionsMode::StaticWorkflowEnumSuggestions {
+                    suggestions: variants.clone(),
+                    menu_position: TabCompletionsMenuPosition::AtFirstCursor,
+                    selected_ranges,
+                    cursor_point: position,
+                },
+                ctx,
+            );
+        });
 
         self.input_suggestions.update(ctx, |input, ctx| {
             input.set_enum_variants(variants, ctx);
@@ -2909,8 +2823,7 @@ impl Input {
                             ctx.notify();
                         }
                     }
-                    InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-                    | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. } => {
+                    InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. } => {
                         // If in the future we want to replace the selected arguments with suggestion options as we cycle, this is where we do it
                     }
                     InputSuggestionsMode::Closed => {
@@ -3009,9 +2922,6 @@ impl Input {
                 true
             }
             InputSuggestionsMode::StaticWorkflowEnumSuggestions {
-                selected_ranges, ..
-            }
-            | InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
                 selected_ranges, ..
             } => {
                 let selected_ranges = selected_ranges.clone();
@@ -3831,9 +3741,6 @@ impl Input {
                     }
                     InputSuggestionsMode::StaticWorkflowEnumSuggestions {
                         cursor_point, ..
-                    }
-                    | InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-                        cursor_point, ..
                     } => {
                         let cursor_point = *cursor_point;
                         let point = self.editor.as_ref(ctx).first_selection_end_to_point(ctx);
@@ -3923,10 +3830,6 @@ impl Input {
                         InputSuggestionsMode::StaticWorkflowEnumSuggestions {
                             cursor_point,
                             ..
-                        }
-                        | InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-                            cursor_point,
-                            ..
                         } => {
                             let cursor_point = *cursor_point;
                             let point = self.editor.as_ref(ctx).first_selection_end_to_point(ctx);
@@ -3998,7 +3901,6 @@ impl Input {
                 self.input_shift_tab(ctx);
             }
             EditorEvent::Enter => self.input_enter(ctx),
-            EditorEvent::CmdEnter => self.input_cmd_enter(ctx),
             EditorEvent::Escape => self.editor_escape(ctx),
             EditorEvent::CtrlC { cleared_buffer_len } => {
                 self.close_input_suggestions(/*should_focus_input=*/ true, ctx);
@@ -4742,98 +4644,6 @@ impl Input {
         self.completions_abort_handle = Some(abort_handle);
     }
 
-    /// Asynchronously generates dynamic enum suggestions.
-    fn get_enum_suggestions_async(
-        &mut self,
-        command: String,
-        editor_snapshot: EditorSnapshot,
-        ctx: &mut ViewContext<'_, Input>,
-    ) {
-        if let Some(completion_context) = self.completion_session_context(ctx) {
-            self.suggestions_mode_model.update(ctx, |m, ctx| {
-                m.set_dynamic_enum_status(DynamicEnumSuggestionStatus::Pending, ctx);
-            });
-            let abort_handle = ctx
-                .spawn(
-                    async move {
-                        let variants = super::dynamic_enum_suggestions::run_dynamic_enum_command(
-                            command.as_str(),
-                            &completion_context,
-                        )
-                        .await;
-
-                        (variants, editor_snapshot)
-                    },
-                    move |input, (variants, editor_model), ctx| {
-                        input.handle_enum_completion_results(variants, editor_model, ctx);
-                    },
-                )
-                .abort_handle();
-
-            self.completions_abort_handle = Some(abort_handle);
-            ctx.notify();
-        }
-    }
-
-    /// When the command finishes running, update the input suggestions menu with the suggestions.
-    fn handle_enum_completion_results(
-        &mut self,
-        results: anyhow::Result<Vec<String>>,
-        editor_snapshot_when_completer_was_ran: EditorSnapshot,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let current_editor_model = self
-            .editor
-            .read(ctx, |editor, ctx| editor.snapshot_model(ctx));
-
-        let buffer_text = self.editor.as_ref(ctx).buffer_text(ctx);
-        // If the editor has changed since the completions trigger was hit-- noop since the
-        // suggestions are no longer valid. Note that we purposely ignore attributes such as text
-        // styles for the purposes of this check (we only care about the buffer text content and
-        // the cursor selections state).
-        if buffer_text != editor_snapshot_when_completer_was_ran.text()
-            || current_editor_model.selections()
-                != editor_snapshot_when_completer_was_ran.selections()
-        {
-            return;
-        }
-
-        let (variants, status) = match results {
-            Ok(variants) => (variants, DynamicEnumSuggestionStatus::Success),
-            Err(e) => {
-                log::warn!("Failed to generate dynamic enum suggestions: {e:?}");
-                (vec![], DynamicEnumSuggestionStatus::Failure)
-            }
-        };
-
-        self.input_suggestions.update(ctx, |input, ctx| {
-            input.set_enum_variants(variants.clone(), ctx);
-        });
-
-        if let InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-            menu_position,
-            selected_ranges,
-            cursor_point,
-            command,
-            ..
-        } = self.suggestions_mode_model.as_ref(ctx).mode()
-        {
-            let updated_mode = InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-                dynamic_enum_status: status,
-                suggestions: variants,
-                menu_position: *menu_position,
-                selected_ranges: selected_ranges.clone(),
-                cursor_point: *cursor_point,
-                command: command.clone(),
-            };
-            self.suggestions_mode_model.update(ctx, |model, ctx| {
-                model.set_mode(updated_mode, ctx);
-            });
-        }
-
-        ctx.notify();
-    }
-
     fn path_separators(&self, ctx: &AppContext) -> PathSeparators {
         self.active_session(ctx)
             .map(|session| session.path_separators())
@@ -5409,7 +5219,6 @@ impl Input {
         } else if matches!(
             self.suggestions_mode_model.as_ref(ctx).mode(),
             InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-                | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
         ) {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
                 suggestions.select_next(ctx);
@@ -5581,7 +5390,6 @@ impl Input {
         } else if matches!(
             self.suggestions_mode_model.as_ref(ctx).mode(),
             InputSuggestionsMode::StaticWorkflowEnumSuggestions { .. }
-                | InputSuggestionsMode::DynamicWorkflowEnumSuggestions { .. }
         ) {
             self.input_suggestions.update(ctx, |suggestions, ctx| {
                 suggestions.confirm(ctx);
@@ -5597,19 +5405,6 @@ impl Input {
             }
 
             self.model.lock().set_is_input_dirty(false);
-        }
-    }
-
-    fn input_cmd_enter(&mut self, ctx: &mut ViewContext<Self>) {
-        let mode = self.suggestions_mode_model.as_ref(ctx).mode().clone();
-        if let InputSuggestionsMode::DynamicWorkflowEnumSuggestions {
-            dynamic_enum_status: DynamicEnumSuggestionStatus::Unapproved,
-            command,
-            ..
-        } = mode
-        {
-            let editor_model = self.editor.read(ctx, |view, ctx| view.snapshot_model(ctx));
-            self.get_enum_suggestions_async(command, editor_model, ctx);
         }
     }
 
