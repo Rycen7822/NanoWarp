@@ -11,11 +11,7 @@ use crate::proto::{
 async fn round_trip_client_message() {
     let msg = ClientMessage::session_scoped(
         "test-123".to_string(),
-        session_scoped_request::Message::Initialize(Initialize {
-            auth_token: String::new(),
-            user_id: String::new(),
-            user_email: String::new(),
-        }),
+        session_scoped_request::Message::Initialize(Initialize {}),
     );
 
     let mut buf = Vec::new();
@@ -190,11 +186,7 @@ async fn write_message_too_large() {
 fn try_extract_request_id_from_valid_message() {
     let msg = ClientMessage::session_scoped(
         "abc-123".to_string(),
-        session_scoped_request::Message::Initialize(Initialize {
-            auth_token: String::new(),
-            user_id: String::new(),
-            user_email: String::new(),
-        }),
+        session_scoped_request::Message::Initialize(Initialize {}),
     );
     let buf = msg.encode_to_vec();
     assert_eq!(try_extract_request_id(&buf), Some("abc-123".to_string()));

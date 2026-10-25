@@ -21,22 +21,22 @@ use super::diff_state_tracker::{
     DiffModelKey, DiffStateUpdate, RemoteDiffStateManager, SubscribeOutcome,
 };
 use super::proto::{
-    Abort, Authenticate, BranchInfo, BufferEdit, BufferUpdatedPush, ClientMessage, CloseBuffer,
-    DeleteFile, DeleteFileResponse, DeleteFileSuccess, DiscardFilesError, DiscardFilesResponse,
+    Abort, BranchInfo, BufferEdit, BufferUpdatedPush, ClientMessage, CloseBuffer, DeleteFile,
+    DeleteFileResponse, DeleteFileSuccess, DiscardFilesError, DiscardFilesResponse,
     DiscardFilesSuccess, ErrorCode, ErrorResponse, FailedFileRead, FileContextProto,
     FileOperationError, GetBranchesError, GetBranchesResponse, GetBranchesSuccess,
     GetDiffStateResponse, GitCommitChainRequest, GitCommitChainResponse, GitCommitChainSuccess,
     GitCreatePrRequest, GitCreatePrResponse, GitGetCommittedBranchFilesRequest,
     GitGetCommittedBranchFilesResponse, GitGetCommittedBranchFilesSuccess, GitHubPrInfoPush,
     GitHubRepositoryInfoPush, GitOpDelta, GitOpError, GitPushRequest, GitPushResponse,
-    GitStatusPush, Initialize, InitializeResponse, NavigatedToDirectory,
-    NavigatedToDirectoryResponse, OpenBuffer, OpenBufferResponse, ReadFileContextResponse,
-    RenameFile, RenameFileResponse, RenameFileSuccess, ResolveConflict, ResolveConflictResponse,
-    ResolveConflictSuccess, RipgrepSearchRequest, RunCommandError, RunCommandErrorCode,
-    RunCommandRequest, RunCommandResponse, RunCommandSuccess, SaveBuffer, SaveBufferResponse,
-    SaveBufferSuccess, ServerMessage, SessionBootstrapped, TextEdit, UpdateGitHubPrInfo,
-    UpdateGitHubRepoInfo, UpdateGitStatus, WriteFile, WriteFileResponse, WriteFileSuccess,
-    client_message, delete_file_response, discard_files_response, get_diff_state_response,
+    GitStatusPush, InitializeResponse, NavigatedToDirectory, NavigatedToDirectoryResponse,
+    OpenBuffer, OpenBufferResponse, ReadFileContextResponse, RenameFile, RenameFileResponse,
+    RenameFileSuccess, ResolveConflict, ResolveConflictResponse, ResolveConflictSuccess,
+    RipgrepSearchRequest, RunCommandError, RunCommandErrorCode, RunCommandRequest,
+    RunCommandResponse, RunCommandSuccess, SaveBuffer, SaveBufferResponse, SaveBufferSuccess,
+    ServerMessage, SessionBootstrapped, TextEdit, UpdateGitHubPrInfo, UpdateGitHubRepoInfo,
+    UpdateGitStatus, WriteFile, WriteFileResponse, WriteFileSuccess, client_message,
+    delete_file_response, discard_files_response, get_diff_state_response,
     git_commit_chain_response, git_create_pr_response, git_get_committed_branch_files_response,
     git_push_response, host_scoped_request, notification, rename_file_response,
     resolve_conflict_response, run_command_response, save_buffer_response, server_message,
@@ -63,7 +63,6 @@ const MAX_BRANCH_COUNT_CAP: usize = 500;
 /// Unique identifier for a connected proxy session in daemon mode.
 pub type ConnectionId = uuid::Uuid;
 use super::protocol::RequestId;
-use crate::auth::auth_state::{AuthState, AuthStateProvider};
 use crate::code_review::git_actions;
 use crate::terminal::model::session::command_executor::{
     ExecuteCommandOptions, LocalCommandExecutor,
@@ -200,8 +199,6 @@ pub struct ServerModel {
     executors: HashMap<SessionId, Arc<LocalCommandExecutor>>,
     /// Tracks in-flight file operations and handles cleanup.
     pending_file_ops: PendingFileOps,
-    /// Daemon-wide auth credentials and user identity.
-    auth_state: Arc<AuthState>,
     /// Tracks open buffers, per-buffer connection sets, and pending async
     /// buffer requests (OpenBuffer, SaveBuffer).
     buffers: ServerBufferTracker,
@@ -254,7 +251,6 @@ impl ServerModel {
             host_id,
             executors: HashMap::new(),
             pending_file_ops: PendingFileOps::new(),
-            auth_state: AuthStateProvider::as_ref(ctx).get().clone(),
             buffers: ServerBufferTracker::new(),
             diff_states: ctx.add_model(|_| RemoteDiffStateManager::new()),
             host_scoped_requests: HashMap::new(),
@@ -770,8 +766,8 @@ impl ServerModel {
             // ── Session-scoped requests (response tied to originating connection) ───
             Some(client_message::Message::SessionScoped(wrapper)) => {
                 let outcome = match wrapper.message {
-                    Some(session_scoped_request::Message::Initialize(m)) => {
-                        self.handle_initialize(m, &request_id)
+                    Some(session_scoped_request::Message::Initialize(_)) => {
+                        self.handle_initialize(&request_id)
                     }
                     Some(session_scoped_request::Message::NavigatedToDirectory(m)) => {
                         self.handle_navigated_to_directory(m, &request_id, conn_id, ctx)
@@ -809,9 +805,6 @@ impl ServerModel {
                 match wrapper.message {
                     Some(notification::Message::Abort(m)) => {
                         self.handle_abort(m, &request_id, ctx);
-                    }
-                    Some(notification::Message::Authenticate(m)) => {
-                        self.handle_authenticate(m);
                     }
                     Some(notification::Message::SessionBootstrapped(m)) => {
                         self.handle_session_bootstrapped(m);
@@ -997,11 +990,8 @@ impl ServerModel {
     }
 
     /// Handles `Initialize` by returning the server version and host id.
-    ///
-    /// Also applies the connecting client's auth context.
-    fn handle_initialize(&mut self, msg: Initialize, request_id: &RequestId) -> HandlerOutcome {
+    fn handle_initialize(&mut self, request_id: &RequestId) -> HandlerOutcome {
         log::info!("Handling Initialize (request_id={request_id})");
-        self.apply_initialize_auth(&msg);
 
         let server_version = ChannelState::app_version().unwrap_or("").to_string();
         HandlerOutcome::Sync(server_message::Message::InitializeResponse(
@@ -1010,23 +1000,6 @@ impl ServerModel {
                 host_id: self.host_id.clone(),
             },
         ))
-    }
-
-    /// Applies the auth token from an `Initialize` message.
-    /// Extracted so unit tests can call it without a `ModelContext`.
-    fn apply_initialize_auth(&mut self, msg: &Initialize) {
-        self.auth_state.apply_remote_server_auth_context(
-            msg.auth_token.clone(),
-            msg.user_id.clone(),
-            msg.user_email.clone(),
-        );
-    }
-
-    /// Handles `Authenticate` by replacing the daemon-wide credential.
-    /// This is a notification — no response is sent.
-    fn handle_authenticate(&mut self, msg: Authenticate) {
-        self.auth_state
-            .set_remote_server_bearer_token(msg.auth_token);
     }
 
     /// Handles `Abort` by cancelling the in-progress request it targets.

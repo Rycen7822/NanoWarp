@@ -1,7 +1,5 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use remote_server::auth::RemoteServerAuthContext;
 use remote_server::setup::{PreinstallCheckResult, PreinstallStatus};
 use remote_server::transport::Error;
 use settings::Setting;
@@ -9,11 +7,9 @@ use warp_core::SessionId;
 use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 
 use super::pty_controller::{EventLoopSender, PtyController};
-use crate::auth::auth_state::AuthStateProvider;
-use crate::remote_server::auth_context::server_api_auth_context;
 use crate::remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
 use crate::remote_server::ssh_transport::SshTransport;
-use crate::server::server_api::ServerApiProvider;
+use crate::settings::remote_server_instance_id;
 use crate::terminal::model::session::{IsSSHWrapperSession, SessionInfo};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::warpify::settings::{SshExtensionInstallMode, WarpifySettings};
@@ -195,11 +191,17 @@ impl<T: EventLoopSender> RemoteServerController<T> {
                 self.flush_stashed_bootstrap(old_info, ctx);
             }
         }
-        let transport = SshTransport::new(
-            socket_path,
-            self.build_auth_context(ctx),
-            warp_owns_control_master,
-        );
+        let instance_id = match remote_server_instance_id(ctx) {
+            Ok(instance_id) => instance_id,
+            Err(error) => {
+                log::warn!(
+                    "Failed to load remote server instance ID, continuing ordinary SSH: {error:#}"
+                );
+                self.flush_stashed_bootstrap(info, ctx);
+                return;
+            }
+        };
+        let transport = SshTransport::new(socket_path, instance_id, warp_owns_control_master);
         self.state = SshInitState::AwaitingCheck {
             session_info: info,
             transport: transport.clone(),
@@ -245,20 +247,12 @@ impl<T: EventLoopSender> RemoteServerController<T> {
 
         match result {
             Ok(true) => {
-                let socket_path = transport.socket_path().clone();
-                let warp_owns_control_master = transport.warp_owns_control_master();
                 let connection_label = connection_label_for_session_info(&session_info);
                 self.state = SshInitState::AwaitingConnect {
                     session_id,
                     session_info,
                 };
-                self.connect_session_for_current_identity(
-                    session_id,
-                    socket_path,
-                    warp_owns_control_master,
-                    connection_label,
-                    ctx,
-                );
+                self.connect_session(session_id, transport, connection_label, ctx);
             }
             Ok(false) if has_old_binary => {
                 // Auto-update: a prior install exists, so skip the modal
@@ -437,20 +431,12 @@ impl<T: EventLoopSender> RemoteServerController<T> {
         };
         match result {
             Ok(()) => {
-                let socket_path = transport.socket_path().clone();
-                let warp_owns_control_master = transport.warp_owns_control_master();
                 let connection_label = connection_label_for_session_info(&session_info);
                 self.state = SshInitState::AwaitingConnect {
                     session_id,
                     session_info,
                 };
-                self.connect_session_for_current_identity(
-                    session_id,
-                    socket_path,
-                    warp_owns_control_master,
-                    connection_label,
-                    ctx,
-                );
+                self.connect_session(session_id, transport, connection_label, ctx);
             }
             Err(err) => {
                 log::warn!(
@@ -461,32 +447,15 @@ impl<T: EventLoopSender> RemoteServerController<T> {
         }
     }
 
-    /// Builds a fresh [`RemoteServerAuthContext`] for the current app identity.
-    fn build_auth_context(&self, ctx: &ModelContext<Self>) -> Arc<RemoteServerAuthContext> {
-        let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-        let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
-        Arc::new(server_api_auth_context(auth_state, auth_client))
-    }
-
-    fn connect_session_for_current_identity(
+    fn connect_session(
         &mut self,
         session_id: SessionId,
-        socket_path: PathBuf,
-        warp_owns_control_master: bool,
+        transport: SshTransport,
         connection_label: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        let auth_context = self.build_auth_context(ctx);
-        let transport =
-            SshTransport::new(socket_path, auth_context.clone(), warp_owns_control_master);
         RemoteServerManager::handle(ctx).update(ctx, |mgr, ctx| {
-            mgr.connect_session(
-                session_id,
-                transport,
-                auth_context,
-                Some(connection_label),
-                ctx,
-            );
+            mgr.connect_session(session_id, transport, Some(connection_label), ctx);
         });
     }
 }

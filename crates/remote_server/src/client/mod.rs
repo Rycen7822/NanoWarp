@@ -10,7 +10,7 @@ use futures::io::{AsyncRead, AsyncWrite};
 use warpui_core::r#async::{FutureExt as _, executor};
 
 use crate::proto::{
-    Abort, Authenticate, BufferEdit, ClientMessage, CloseBuffer, DiffMode, DiffStateFileDelta,
+    Abort, BufferEdit, ClientMessage, CloseBuffer, DiffMode, DiffStateFileDelta,
     DiffStateMetadataUpdate, DiffStateSnapshot, ErrorCode, GitStatusMetadata, Initialize,
     InitializeResponse, LoadRepoMetadataDirectoryResponse, NavigatedToDirectoryResponse, PrInfo,
     RepositoryInfo, RunCommandRequest, RunCommandResponse, ServerMessage, SessionBootstrapped,
@@ -133,13 +133,6 @@ pub enum ClientEvent {
         repo_path: StandardizedPath,
         repository_info: Option<RepositoryInfo>,
     },
-}
-
-/// Parameters for the `Initialize` handshake, sent to the daemon at
-/// connection time.
-pub struct InitializeParams {
-    pub user_id: String,
-    pub user_email: String,
 }
 
 /// A request-failure notification emitted by [`RemoteServerClient::send_request`].
@@ -338,19 +331,11 @@ impl RemoteServerClient {
     }
 
     /// Sends an `Initialize` request and awaits the `InitializeResponse`.
-    pub async fn initialize(
-        &self,
-        auth_token: Option<&str>,
-        params: InitializeParams,
-    ) -> Result<InitializeResponse, ClientError> {
+    pub async fn initialize(&self) -> Result<InitializeResponse, ClientError> {
         let request_id = RequestId::new();
         let msg = ClientMessage::session_scoped(
             request_id.to_string(),
-            session_scoped_request::Message::Initialize(Initialize {
-                auth_token: auth_token.unwrap_or_default().to_owned(),
-                user_id: params.user_id,
-                user_email: params.user_email,
-            }),
+            session_scoped_request::Message::Initialize(Initialize {}),
         );
 
         let response = self.send_request_internal(request_id, msg).await?;
@@ -365,15 +350,6 @@ impl RemoteServerClient {
                 Err(ClientError::UnexpectedResponse)
             }
         }
-    }
-
-    /// Sends an `Authenticate` notification to rotate the daemon-wide
-    /// credential after initialization.
-    pub fn authenticate(&self, auth_token: &str) {
-        let msg = ClientMessage::notification(notification::Message::Authenticate(Authenticate {
-            auth_token: auth_token.to_owned(),
-        }));
-        self.send_notification(msg);
     }
 
     /// Sends a `SessionBootstrapped` notification (fire-and-forget) so the

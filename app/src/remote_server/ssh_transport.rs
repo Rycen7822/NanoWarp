@@ -10,7 +10,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Result;
-use remote_server::auth::RemoteServerAuthContext;
 use remote_server::client::RemoteServerClient;
 use remote_server::manager::RemoteServerExitStatus;
 use remote_server::setup::{
@@ -32,7 +31,7 @@ pub(crate) mod installation;
 #[derive(Clone)]
 pub struct SshTransport {
     socket_path: PathBuf,
-    auth_context: Arc<RemoteServerAuthContext>,
+    instance_id: String,
     /// Whether Warp owns the ControlMaster behind `socket_path`. `false`
     /// when the SSH wrapper attached to a master the user already had
     /// running, in which case Warp must not run `ssh -O exit` against it
@@ -50,30 +49,18 @@ impl fmt::Debug for SshTransport {
 }
 
 impl SshTransport {
-    pub fn new(
-        socket_path: PathBuf,
-        auth_context: Arc<RemoteServerAuthContext>,
-        warp_owns_control_master: bool,
-    ) -> Self {
+    pub fn new(socket_path: PathBuf, instance_id: String, warp_owns_control_master: bool) -> Self {
         Self {
             socket_path,
-            auth_context,
+            instance_id,
             warp_owns_control_master,
         }
-    }
-
-    pub fn socket_path(&self) -> &PathBuf {
-        &self.socket_path
-    }
-
-    pub fn warp_owns_control_master(&self) -> bool {
-        self.warp_owns_control_master
     }
 
     pub fn remote_daemon_socket_path(&self) -> String {
         format!(
             "{}/{}",
-            remote_server_daemon_dir(&self.auth_context.remote_server_identity_key()),
+            remote_server_daemon_dir(&self.instance_id),
             remote_server::setup::daemon_socket_name(),
         )
     }
@@ -81,15 +68,14 @@ impl SshTransport {
     pub fn remote_daemon_pid_path(&self) -> String {
         format!(
             "{}/{}",
-            remote_server_daemon_dir(&self.auth_context.remote_server_identity_key()),
+            remote_server_daemon_dir(&self.instance_id),
             remote_server::setup::daemon_pid_name(),
         )
     }
 
     fn remote_proxy_command(&self) -> String {
         let binary = remote_server::setup::remote_server_binary();
-        let identity_key = self.auth_context.remote_server_identity_key();
-        let quoted_identity_key = shell_words::quote(&identity_key);
+        let quoted_identity_key = shell_words::quote(&self.instance_id);
         format!("{binary} remote-server-proxy --identity-key {quoted_identity_key}")
     }
 }

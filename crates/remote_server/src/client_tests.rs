@@ -103,88 +103,9 @@ async fn initialize_round_trip() {
         })
     });
 
-    let resp = client
-        .initialize(
-            None,
-            InitializeParams {
-                user_id: String::new(),
-                user_email: String::new(),
-            },
-        )
-        .await
-        .unwrap();
+    let resp = client.initialize().await.unwrap();
     assert_eq!(resp.server_version, "test-0.1.0");
     assert_eq!(resp.host_id, "test-host-id");
-}
-
-#[tokio::test]
-async fn initialize_sends_empty_auth_token_when_none() {
-    let (client, _disconnect_rx, _executor) = setup_mock_client(|msg| {
-        let session_scoped_request::Message::Initialize(init) = unwrap_session_scoped(msg) else {
-            panic!("Expected Initialize");
-        };
-        assert!(init.auth_token.is_empty());
-        server_message::Message::InitializeResponse(InitializeResponse {
-            server_version: "test-0.1.0".to_string(),
-            host_id: "test-host-id".to_string(),
-        })
-    });
-
-    client
-        .initialize(
-            None,
-            InitializeParams {
-                user_id: String::new(),
-                user_email: String::new(),
-            },
-        )
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn initialize_sends_auth_token_when_provided() {
-    let (client, _disconnect_rx, _executor) = setup_mock_client(|msg| {
-        let session_scoped_request::Message::Initialize(init) = unwrap_session_scoped(msg) else {
-            panic!("Expected Initialize");
-        };
-        assert_eq!(init.auth_token, "secret-token");
-        server_message::Message::InitializeResponse(InitializeResponse {
-            server_version: "test-0.1.0".to_string(),
-            host_id: "test-host-id".to_string(),
-        })
-    });
-
-    client
-        .initialize(
-            Some("secret-token"),
-            InitializeParams {
-                user_id: String::new(),
-                user_email: String::new(),
-            },
-        )
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn authenticate_sends_fire_and_forget_message() {
-    let (client_stream, server_stream) = tokio::io::duplex(4096);
-    let (server_read, _server_write) = tokio::io::split(server_stream);
-    let (client_read, client_write) = tokio::io::split(client_stream);
-    let executor = executor::Background::default();
-    let (client, _event_rx, _failure_rx, _host_rx) =
-        RemoteServerClient::new(client_read.compat(), client_write.compat_write(), &executor);
-
-    client.authenticate("rotated-secret");
-
-    let msg = protocol::read_client_message(&mut server_read.compat())
-        .await
-        .unwrap();
-    let notification::Message::Authenticate(auth) = unwrap_notification(&msg) else {
-        panic!("Expected Authenticate");
-    };
-    assert_eq!(auth.auth_token, "rotated-secret");
 }
 
 #[tokio::test]
@@ -231,15 +152,7 @@ async fn disconnected_on_closed_stream() {
         RemoteServerClient::new(client_read.compat(), client_write.compat_write(), &executor);
 
     // An initialize call on a dead stream must complete with an error rather than hang.
-    let result = client
-        .initialize(
-            None,
-            InitializeParams {
-                user_id: String::new(),
-                user_email: String::new(),
-            },
-        )
-        .await;
+    let result = client.initialize().await;
     assert!(result.is_err());
 
     // The reader task should detect EOF and emit a Disconnected event.
@@ -365,15 +278,7 @@ async fn concurrent_in_flight_requests() {
     for _ in 0..10 {
         let c = Arc::clone(&client);
         handles.push(tokio::spawn(async move {
-            c.initialize(
-                None,
-                InitializeParams {
-                    user_id: String::new(),
-                    user_email: String::new(),
-                },
-            )
-            .await
-            .expect("concurrent initialize failed")
+            c.initialize().await.expect("concurrent initialize failed")
         }));
     }
 
