@@ -301,9 +301,7 @@ use crate::util::repo_detection::{RepoDetectionSessionType, detect_possible_git_
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workspace::sync_inputs::SyncedInputState;
-use crate::workspace::{
-    CommandSearchOptions, OneTimeModalModel, ToastStack, WorkspaceAction, WorkspaceRegistry,
-};
+use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction, WorkspaceRegistry};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{ActiveSession as WindowActiveSession, safe_warn};
 
@@ -9261,10 +9259,6 @@ impl TerminalView {
             // calls on_blur and closes the context menu when it is supposed
             // to open after closing the command palette
             // TODO: refactor in the future
-            return;
-        }
-
-        if OneTimeModalModel::as_ref(ctx).is_any_modal_open() {
             return;
         }
 

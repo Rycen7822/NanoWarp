@@ -465,13 +465,11 @@ default = [
     "markdown_mermaid",
     "warpify_footer",
     "configurable_toolbar",
-    "hoa_notifications",
     "vertical_tabs",
     "vertical_tabs_summary_mode",
     "tab_configs",
     "grouped_tabs",
     "pinned_tabs",
-    "hoa_onboarding_flow",
     "skip_firebase_anonymous_user",
     "settings_file",
     "directory_tab_colors",
@@ -622,11 +620,9 @@ vertical_tabs_summary_mode = []
 tab_configs = []
 grouped_tabs = []
 pinned_tabs = []
-hoa_notifications = []
 skip_firebase_anonymous_user = []
 configurable_toolbar = []
 warpify_footer = []
-hoa_onboarding_flow = []
 git_operations_in_code_review = []
 osc_hyperlinks = []
 shell_widget_handoff = []

@@ -103,12 +103,8 @@ use super::action::{
     InitContent, NewSessionMenuAnchor, TabContextMenuAnchor, VerticalTabsPaneContextMenuTarget,
     WorkspaceAction,
 };
-use super::hoa_onboarding::{
-    HoaOnboardingFlow, HoaOnboardingFlowEvent, HoaOnboardingStep, mark_hoa_onboarding_completed,
-};
 use super::lightbox_view::{LightboxParams, LightboxView, LightboxViewEvent};
 use super::native_modal::{NativeModal, NativeModalEvent};
-use super::one_time_modal_model::OneTimeModalEvent;
 use super::tab_settings::{
     HeaderToolbarChipSelection, NewTabPlacement, TabSettings, TabSettingsChangedEvent,
     VerticalTabsDisplayGranularity, WorkspaceDecorationVisibility,
@@ -286,7 +282,6 @@ use crate::workspace::cross_window_tab_drag::{
 };
 use crate::workspace::header_toolbar_editor::{HeaderToolbarEditorEvent, HeaderToolbarEditorModal};
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
-use crate::workspace::one_time_modal_model::OneTimeModalModel;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::tab_group::{TabGroup, TabGroupId};
 use crate::workspace::tab_settings::TabCloseButtonPosition;
@@ -362,10 +357,7 @@ fn team_navigation_mode(has_current_team: bool, can_switch_teams: bool) -> TeamN
     }
 }
 
-/// Save position for the vertical tabs panel.
-/// HOA onboarding callouts anchor relative to this position, so whichever code
-/// path renders the vertical tabs panel must wrap it in a `SavePosition` with
-/// this id.
+/// Save position for the vertical tabs panel, used to locate the active tab bar.
 pub(crate) const VERTICAL_TABS_PANEL_POSITION_ID: &str = "workspace_view:vertical_tabs_panel";
 
 /// The main content area in a workspace. This is directly below the tab bar.
@@ -739,10 +731,6 @@ pub struct Workspace {
     right_panel_view: ViewHandle<RightPanelView>,
     working_directories_model: ModelHandle<pane_group::WorkingDirectoriesModel>,
     lightbox_view: Option<ViewHandle<LightboxView>>,
-    hoa_onboarding_flow: Option<ViewHandle<HoaOnboardingFlow>>,
-    /// Pinned position for the vertical tabs callout so it doesn't move when
-    /// the user toggles between vertical and horizontal tabs.
-    hoa_vtabs_callout_pinned_position: Option<Vector2F>,
     /// When true, this workspace was created to receive a transferred PaneGroup.
     /// The placeholder tab will be replaced when adopt_transferred_pane_group is called.
     pending_pane_group_transfer: bool,
@@ -1619,70 +1607,6 @@ impl Workspace {
     ) {
     }
 
-    fn show_hoa_onboarding_flow(&mut self, ctx: &mut ViewContext<Self>) {
-        // Mark as completed immediately so the flow is never shown again,
-        // even if the user quits mid-flow.
-        mark_hoa_onboarding_completed(ctx);
-
-        // Enable vertical tabs and open the panel so Step 2 has something to anchor to.
-        TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-            let _ = settings.use_vertical_tabs.set_value(true, ctx);
-        });
-        self.vertical_tabs_panel_open = true;
-        self.sync_window_button_visibility(ctx);
-
-        // The pinned position is captured lazily on the first step change
-        // (when the user advances past the welcome banner). At that point the
-        // vertical tabs panel has been rendered for several frames and the save
-        // position is accurate.
-        self.hoa_vtabs_callout_pinned_position = None;
-
-        let flow = ctx.add_typed_action_view(HoaOnboardingFlow::new);
-        ctx.subscribe_to_view(&flow, |me, _, event, ctx| match event {
-            HoaOnboardingFlowEvent::StepChanged | HoaOnboardingFlowEvent::TabLayoutToggled => {
-                if me.hoa_vtabs_callout_pinned_position.is_none() {
-                    me.hoa_vtabs_callout_pinned_position = ctx
-                        .element_position_by_id(VERTICAL_TABS_PANEL_POSITION_ID)
-                        .map(|rect| vec2f(rect.max_x(), rect.min_y() + 8.));
-                }
-                if let Some(flow) = &me.hoa_onboarding_flow {
-                    ctx.focus(flow);
-                }
-                ctx.notify();
-            }
-            _ => me.handle_hoa_onboarding_event(event, ctx),
-        });
-        self.hoa_onboarding_flow = Some(flow.clone());
-        ctx.focus(&flow);
-        ctx.notify();
-    }
-
-    fn handle_hoa_onboarding_event(
-        &mut self,
-        event: &HoaOnboardingFlowEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        OneTimeModalModel::handle(ctx).update(ctx, |model, ctx| {
-            model.mark_hoa_onboarding_dismissed(ctx);
-        });
-
-        match event {
-            HoaOnboardingFlowEvent::Completed(Some(selection)) => {
-                self.hoa_onboarding_flow = None;
-                self.handle_session_config_completed(selection, ctx);
-            }
-            HoaOnboardingFlowEvent::Completed(None) | HoaOnboardingFlowEvent::Dismissed => {
-                self.hoa_onboarding_flow = None;
-            }
-            HoaOnboardingFlowEvent::StepChanged | HoaOnboardingFlowEvent::TabLayoutToggled => {
-                return;
-            }
-        }
-
-        self.focus_active_tab(ctx);
-        ctx.notify();
-    }
-
     pub(crate) fn show_session_config_modal(&mut self, ctx: &mut ViewContext<Self>) {
         self.session_config_modal.view.update(ctx, |modal, ctx| {
             modal.body().update(ctx, |body, ctx| {
@@ -2083,19 +2007,6 @@ impl Workspace {
 
         let native_modal = Self::build_native_modal_view(ctx);
 
-        ctx.subscribe_to_model(&OneTimeModalModel::handle(ctx), |me, model, event, ctx| {
-            let OneTimeModalEvent::VisibilityChanged { is_open } = event;
-            if *is_open {
-                let model_ref = model.as_ref(ctx);
-                if model_ref.target_window_id() == Some(ctx.window_id())
-                    && model_ref.is_hoa_onboarding_open()
-                {
-                    me.show_hoa_onboarding_flow(ctx);
-                }
-            }
-            ctx.notify();
-        });
-
         let mut ws = Self {
             tabs: Vec::new(),
             active_tab_index: 0,
@@ -2174,8 +2085,6 @@ impl Workspace {
             wasm_nux_dialog,
             tab_fixed_width: None,
             lightbox_view: None,
-            hoa_onboarding_flow: None,
-            hoa_vtabs_callout_pinned_position: None,
             pending_pane_group_transfer: false,
             suppress_detach_panes_on_window_close: false,
             is_tab_drag_preview: false,
@@ -2258,11 +2167,7 @@ impl Workspace {
             }
             TabSettingsChangedEvent::UseVerticalTabs { .. } => {
                 let vertical_tabs_enabled = *TabSettings::as_ref(ctx).use_vertical_tabs;
-                // During HOA onboarding, keep the vertical tabs panel open
-                // regardless of the setting so the callout stays anchored.
-                if self.hoa_onboarding_flow.is_none() {
-                    self.vertical_tabs_panel_open = vertical_tabs_enabled;
-                }
+                self.vertical_tabs_panel_open = vertical_tabs_enabled;
 
                 if vertical_tabs_enabled {
                     Self::ensure_tabs_panel_in_config(ctx);
@@ -8964,13 +8869,6 @@ impl Workspace {
             return ShowTabBar::Stacked;
         }
 
-        // Always show the tab bar during HoA onboarding so that callouts
-        // pointing at tabs render correctly even when the user has
-        // "show tab bar on hover" enabled.
-        if self.hoa_onboarding_flow.is_some() {
-            return ShowTabBar::Stacked;
-        }
-
         if !FeatureFlag::FullScreenZenMode.is_enabled() {
             return ShowTabBar::default();
         }
@@ -14582,8 +14480,6 @@ impl TypedActionView for Workspace {
             OpenNewSessionMenu { anchor } => self.open_new_session_dropdown_menu(*anchor, ctx),
             ToggleTabConfigsMenu => self.toggle_tab_configs_menu(ctx),
             ShowSessionConfigModal => self.show_session_config_modal(ctx),
-            #[cfg(debug_assertions)]
-            ShowHoaOnboardingFlow => self.show_hoa_onboarding_flow(ctx),
             SaveCurrentTabAsNewConfig(tab_index) => {
                 self.save_current_tab_as_new_config(*tab_index, ctx)
             }
@@ -16229,106 +16125,6 @@ impl View for Workspace {
 
         if self.current_workspace_state.is_header_toolbar_editor_open {
             stack.add_child(ChildView::new(&self.header_toolbar_editor_modal).finish());
-        }
-
-        if let Some(hoa_flow) = &self.hoa_onboarding_flow {
-            let step = hoa_flow.as_ref(app).step();
-
-            // Block all mouse events from reaching the workspace underneath.
-            // The onboarding flow elements are rendered on top and receive events normally.
-            stack.add_child(
-                Dismiss::new(Empty::new().finish())
-                    .prevent_interaction_with_other_elements()
-                    .finish(),
-            );
-
-            match step {
-                HoaOnboardingStep::WelcomeBanner => {
-                    stack.add_child(ChildView::new(hoa_flow).finish());
-                }
-                HoaOnboardingStep::VerticalTabsCallout => {
-                    if let Some(pinned) = self.hoa_vtabs_callout_pinned_position {
-                        let use_vertical = *TabSettings::as_ref(app).use_vertical_tabs;
-                        // The pinned position is the bubble body's top-left when
-                        // using a Left arrow. With Left arrow, the element origin
-                        // is at (0, 0) and the body starts at (~21, 0) due to the
-                        // arrow width. With Up arrow, the body starts at (0, ~21).
-                        // To keep the body in the same window position:
-                        // - Left arrow: element origin = pinned (arrow is to the left)
-                        // - Up arrow: shift left by ~21 (no arrow width) and up by ~21 (arrow height)
-                        let offset = if use_vertical {
-                            pinned
-                        } else {
-                            // Left arrow: body at (21, 0) from origin.
-                            // Up arrow: body at (0, 21) from origin.
-                            // To keep body fixed: origin.x += 21, origin.y -= 21.
-                            vec2f(pinned.x() + 21., pinned.y() - 21.)
-                        };
-                        stack.add_positioned_child(
-                            ChildView::new(hoa_flow).finish(),
-                            OffsetPositioning::offset_from_parent(
-                                offset,
-                                ParentOffsetBounds::WindowByPosition,
-                                ParentAnchor::TopLeft,
-                                ChildAnchor::TopLeft,
-                            ),
-                        );
-                    } else {
-                        stack.add_positioned_child(
-                            ChildView::new(hoa_flow).finish(),
-                            OffsetPositioning::offset_from_save_position_element(
-                                VERTICAL_TABS_PANEL_POSITION_ID,
-                                vec2f(0., 8.),
-                                PositionedElementOffsetBounds::WindowByPosition,
-                                PositionedElementAnchor::TopRight,
-                                ChildAnchor::TopLeft,
-                            ),
-                        );
-                    }
-                }
-                HoaOnboardingStep::TabConfig => {
-                    let use_vertical = *TabSettings::as_ref(app).use_vertical_tabs;
-                    if use_vertical {
-                        // Left arrow: anchor to the vertical tabs panel.
-                        if let Some(pinned) = self.hoa_vtabs_callout_pinned_position {
-                            stack.add_positioned_child(
-                                ChildView::new(hoa_flow).finish(),
-                                OffsetPositioning::offset_from_parent(
-                                    pinned,
-                                    ParentOffsetBounds::WindowByPosition,
-                                    ParentAnchor::TopLeft,
-                                    ChildAnchor::TopLeft,
-                                ),
-                            );
-                        } else {
-                            stack.add_positioned_child(
-                                ChildView::new(hoa_flow).finish(),
-                                OffsetPositioning::offset_from_save_position_element(
-                                    VERTICAL_TABS_PANEL_POSITION_ID,
-                                    vec2f(0., 8.),
-                                    PositionedElementOffsetBounds::WindowByPosition,
-                                    PositionedElementAnchor::TopRight,
-                                    ChildAnchor::TopLeft,
-                                ),
-                            );
-                        }
-                    } else {
-                        // Up arrow centered: anchor the callout's top-center
-                        // to the + button's bottom-center so the arrow points
-                        // at the button.
-                        stack.add_positioned_child(
-                            ChildView::new(hoa_flow).finish(),
-                            OffsetPositioning::offset_from_save_position_element(
-                                NEW_SESSION_MENU_BUTTON_POSITION_ID,
-                                vec2f(0., 8.),
-                                PositionedElementOffsetBounds::WindowByPosition,
-                                PositionedElementAnchor::BottomMiddle,
-                                ChildAnchor::TopMiddle,
-                            ),
-                        );
-                    }
-                }
-            }
         }
 
         if let Some(lightbox_view) = &self.lightbox_view {

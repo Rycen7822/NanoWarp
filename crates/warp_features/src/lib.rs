@@ -258,9 +258,6 @@ pub enum FeatureFlag {
     /// Enables vertical tab layout as an alternative to the horizontal tab bar.
     VerticalTabs,
 
-    /// Enables Native Agent mailbox notifications and notification toasts.
-    HOANotifications,
-
     /// When enabled, the "Skip for now" login flow does not create a Firebase
     /// anonymous user. The user remains fully logged out (no credentials) and
     /// login-gated features are disabled until they sign in.
@@ -271,10 +268,6 @@ pub enum FeatureFlag {
 
     /// Replaces the in-block warpification banner with a warpify footer.
     WarpifyFooter,
-
-    /// Guided onboarding flow for existing users introducing HOA features
-    /// (vertical tabs, agent inbox, tab configs).
-    HOAOnboardingFlow,
 
     /// Enables commit, push, and create-PR actions in the code review panel.
     GitOperationsInCodeReview,

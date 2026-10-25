@@ -161,14 +161,10 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::GroupedTabs,
         #[cfg(feature = "pinned_tabs")]
         FeatureFlag::PinnedTabs,
-        #[cfg(feature = "hoa_notifications")]
-        FeatureFlag::HOANotifications,
         #[cfg(feature = "warpify_footer")]
         FeatureFlag::WarpifyFooter,
         #[cfg(feature = "skip_firebase_anonymous_user")]
         FeatureFlag::SkipFirebaseAnonymousUser,
-        #[cfg(feature = "hoa_onboarding_flow")]
-        FeatureFlag::HOAOnboardingFlow,
         #[cfg(feature = "git_operations_in_code_review")]
         FeatureFlag::GitOperationsInCodeReview,
         #[cfg(feature = "remote_code_review")]

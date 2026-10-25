@@ -37,7 +37,7 @@ use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseStack;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::workspace::sync_inputs::SyncedInputState;
-use crate::workspace::{ActiveSession, OneTimeModalModel, WorkspaceRegistry};
+use crate::workspace::{ActiveSession, WorkspaceRegistry};
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -81,7 +81,6 @@ fn initialize_app(app: &mut App) {
     app.update(experiments::init);
     AltScreenReporting::register(app);
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
-    app.add_singleton_model(OneTimeModalModel::new);
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));

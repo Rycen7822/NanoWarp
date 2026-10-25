@@ -5,11 +5,9 @@ pub(crate) mod cross_window_tab_drag;
 mod global_actions;
 pub mod header_toolbar_editor;
 pub mod header_toolbar_item;
-pub mod hoa_onboarding;
 mod home;
 mod lightbox_view;
 mod native_modal;
-mod one_time_modal_model;
 mod registry;
 pub mod sync_inputs;
 pub mod tab_group;
@@ -48,7 +46,6 @@ pub fn panel_header_corner_radius() -> warpui::elements::CornerRadius {
     warpui::elements::CornerRadius::with_top(warpui::elements::Radius::Pixels(8.))
 }
 
-pub use one_time_modal_model::OneTimeModalModel;
 pub use registry::WorkspaceRegistry;
 pub use toast_stack::{ToastStack, ToastStackEvent};
 
@@ -70,7 +67,6 @@ pub fn init(app: &mut AppContext) {
     native_modal::init(app);
     lightbox_view::init(app);
     crate::tab_configs::remove_confirmation_dialog::init(app);
-    hoa_onboarding::init(app);
     tab_configs::session_config_modal::init(app);
     view::global_search::view::GlobalSearchView::init(app);
     view::right_panel::RightPanelView::init(app);
@@ -108,20 +104,12 @@ pub fn init(app: &mut AppContext) {
         #[cfg(debug_assertions)]
         {
             // Debug actions available in the command palette.
-            app.register_editable_bindings([
-                EditableBinding::new(
-                    "workspace:open_session_config_modal",
-                    "[Debug] Open Session Config Modal",
-                    WorkspaceAction::ShowSessionConfigModal,
-                )
-                .with_context_predicate(id!("Workspace")),
-                EditableBinding::new(
-                    "workspace:show_hoa_onboarding_flow",
-                    "[Debug] Start HOA Onboarding Flow",
-                    WorkspaceAction::ShowHoaOnboardingFlow,
-                )
-                .with_context_predicate(id!("Workspace")),
-            ]);
+            app.register_editable_bindings([EditableBinding::new(
+                "workspace:open_session_config_modal",
+                "[Debug] Open Session Config Modal",
+                WorkspaceAction::ShowSessionConfigModal,
+            )
+            .with_context_predicate(id!("Workspace"))]);
         }
     }
 
