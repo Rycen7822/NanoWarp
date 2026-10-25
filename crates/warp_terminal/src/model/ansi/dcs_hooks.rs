@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use ordered_float::OrderedFloat;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use warp_core::command::ExitCode;
@@ -368,12 +367,6 @@ impl DProtoHook {
                 "shell_options" => {
                     value.shell_options = Some(parse_shell_options_list(v));
                 }
-                "rcfiles_start_time" => {
-                    value.rcfiles_start_time = parse_float_from_string(v);
-                }
-                "rcfiles_end_time" => {
-                    value.rcfiles_end_time = parse_float_from_string(v);
-                }
                 "shell_plugins" => {
                     value.shell_plugins = Some(parse_shell_options_list(v));
                 }
@@ -719,14 +712,6 @@ pub struct BootstrappedValue {
     /// be None if the shell doesn't support listing options via builtin.
     pub shell_options: Option<HashSet<String>>,
 
-    /// The time at which we started sourcing the user rcfiles, measured in
-    /// seconds since epoch.
-    pub rcfiles_start_time: Option<OrderedFloat<f64>>,
-
-    /// The time at which we finished sourcing the user rcfiles, measured in
-    /// seconds since epoch.
-    pub rcfiles_end_time: Option<OrderedFloat<f64>>,
-
     /// Tags for known shell configurations/plugins, especially ones that are
     /// incompatible with Warp.
     pub shell_plugins: Option<HashSet<String>>,
@@ -791,22 +776,6 @@ impl RawBootstrappedField {
             Self::Present(s) => Some(parse_shell_options_list(s)),
         }
     }
-
-    /// Mirrors the former `parse_float_from_string_deserializer` field
-    /// deserializer, with a missing field mapping to `None`. A non-empty
-    /// string that does not parse as a float is an error, exactly as in the
-    /// former field deserializer.
-    fn float_from_string<E: serde::de::Error>(self) -> Result<Option<OrderedFloat<f64>>, E> {
-        match self {
-            Self::Missing => Ok(None),
-            Self::Present(s) => {
-                if s.is_empty() {
-                    return Ok(None);
-                }
-                Ok(Some(s.parse::<f64>().map_err(E::custom)?.into()))
-            }
-        }
-    }
 }
 
 /// The raw wire shape of [`BootstrappedValue`]. Fields without a
@@ -834,10 +803,6 @@ struct RawBootstrappedValue {
     shell_version: String,
     #[serde(default)]
     shell_options: RawBootstrappedField,
-    #[serde(default)]
-    rcfiles_start_time: RawBootstrappedField,
-    #[serde(default)]
-    rcfiles_end_time: RawBootstrappedField,
     #[serde(default)]
     shell_plugins: RawBootstrappedField,
     #[serde(default)]
@@ -874,8 +839,6 @@ impl<'de> Deserialize<'de> for BootstrappedValue {
             keywords: empty_string_to_none(raw.keywords),
             shell_version: empty_string_to_none(raw.shell_version),
             shell_options: raw.shell_options.shell_options(),
-            rcfiles_start_time: raw.rcfiles_start_time.float_from_string()?,
-            rcfiles_end_time: raw.rcfiles_end_time.float_from_string()?,
             shell_plugins: raw.shell_plugins.shell_options(),
             vi_mode_enabled: raw.vi_mode_enabled.empty_string_to_none(),
             os_category: raw.os_category.empty_string_to_none(),
@@ -884,13 +847,6 @@ impl<'de> Deserialize<'de> for BootstrappedValue {
             shell_path: raw.shell_path.empty_string_to_none(),
         })
     }
-}
-
-fn parse_float_from_string(s: String) -> Option<OrderedFloat<f64>> {
-    if s.is_empty() {
-        return None;
-    }
-    s.parse::<f64>().map(|f| f.into()).ok()
 }
 
 /// Received from the pty when Warp's SSH wrapper is executed, prior to

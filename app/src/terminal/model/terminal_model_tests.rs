@@ -246,8 +246,6 @@ fn ssh_bootstraps_if_blocklist_empty_and_reconciles_parent_return() {
         shell_version: None,
         shell_options: None,
         shell_plugins: None,
-        rcfiles_start_time: None,
-        rcfiles_end_time: None,
         vi_mode_enabled: None,
         os_category: None,
         linux_distribution: None,

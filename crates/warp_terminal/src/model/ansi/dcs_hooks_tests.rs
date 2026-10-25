@@ -22,8 +22,6 @@ fn bootstrapped_hook_parses_full_payload() {
             "keywords": "if then",
             "shell_version": "5.9",
             "shell_options": "autocd extendedglob",
-            "rcfiles_start_time": "100.5",
-            "rcfiles_end_time": "101.25",
             "shell_plugins": "ohmyzsh",
             "vi_mode_enabled": "",
             "os_category": "MacOS",
@@ -55,8 +53,6 @@ fn bootstrapped_hook_parses_full_payload() {
             "autocd".to_string(),
             "extendedglob".to_string(),
         ])),
-        rcfiles_start_time: Some(100.5.into()),
-        rcfiles_end_time: Some(101.25.into()),
         shell_plugins: Some(HashSet::from(["ohmyzsh".to_string()])),
         vi_mode_enabled: None,
         os_category: Some("MacOS".to_string()),
@@ -99,27 +95,6 @@ fn bootstrapped_hook_defaults_optional_fields() {
 fn bootstrapped_hook_requires_required_fields() {
     // The histfile field has no default, so its absence is an error.
     let json = r#"{"hook": "Bootstrapped", "value": {"home_dir": "/Users/me"}}"#;
-    assert!(serde_json::from_str::<DProtoHook>(json).is_err());
-}
-
-#[test]
-fn bootstrapped_hook_rejects_malformed_rcfiles_time() {
-    let json = r#"{
-        "hook": "Bootstrapped",
-        "value": {
-            "histfile": "",
-            "home_dir": "",
-            "path": "",
-            "aliases": "",
-            "abbreviations": "",
-            "function_names": "",
-            "env_var_names": "",
-            "builtins": "",
-            "keywords": "",
-            "shell_version": "",
-            "rcfiles_start_time": "not-a-float"
-        }
-    }"#;
     assert!(serde_json::from_str::<DProtoHook>(json).is_err());
 }
 

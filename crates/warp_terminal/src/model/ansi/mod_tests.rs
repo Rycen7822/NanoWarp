@@ -842,8 +842,6 @@ fn parse_dcs_bootstrapped() {
                     "keywords": "for\nif",
                     "shell_version": "5.8.0",
                     "shell_options": "alwaystoend\nautocd",
-                    "rcfiles_start_time": "1675789245.4744160175",
-                    "rcfiles_end_time": "1675789246.9067308903",
                     "shell_plugins": "powerlevel10k pure",
                     "shell_path": "/usr/local/bin/bash"
                 }
@@ -878,8 +876,6 @@ fn parse_dcs_bootstrapped() {
                     "powerlevel10k".to_string(),
                     "pure".to_string()
                 ])),
-                rcfiles_start_time: Some(1675789245.474416.into()),
-                rcfiles_end_time: Some(1675789246.906731.into()),
                 vi_mode_enabled: None,
                 os_category: None,
                 linux_distribution: None,

@@ -1358,10 +1358,6 @@ esac
     #
     # If this is a subshell, the user and system RC files have already been sourced.
     if [[ -z $WARP_IS_SUBSHELL ]]; then
-        # Make sure we force the locale used for number formatting to "C", to avoid
-        # issues in locales that use a comma as the decimal separator.
-        rcfiles_start_time="$(LC_ALL="C"; echo $EPOCHREALTIME)"
-
         if [[ -e /etc/profile ]]; then
             source /etc/profile;
         elif [[ -e /etc/bash.bashrc ]]; then
@@ -1381,8 +1377,6 @@ esac
         elif [[ -e "$HOME/.profile" ]]; then
             source "$HOME/.profile"
         fi
-
-        rcfiles_end_time="$(LC_ALL="C"; echo $EPOCHREALTIME)"
     fi
 
     # Unset HISTFILESIZE and HISTSIZE if the user rcfiles didn't change them
@@ -1613,8 +1607,6 @@ esac
           warp_send_hook_kv_pair_escaped "shell_plugins" "$shell_plugins_list"
           warp_send_hook_kv_pair "shell_version" "$BASH_VERSION"
           warp_send_hook_kv_pair "shell_options" "$shell_options"
-          warp_send_hook_kv_pair "rcfiles_start_time" "$rcfiles_start_time"
-          warp_send_hook_kv_pair "rcfiles_end_time" "$rcfiles_end_time"
           warp_send_hook_kv_pair "vi_mode_enabled" "$vi_mode_enabled"
           warp_send_hook_kv_pair "os_category" "$os_category"
           warp_send_hook_kv_pair "linux_distribution" "$linux_distribution"
@@ -1625,7 +1617,7 @@ esac
           local escaped_editor="$(warp_escape_json "$EDITOR")"
           local escaped_shell_path="$(warp_escape_json "$BASH")"
           local escaped_cdpath="$(warp_escape_json "$CDPATH")"
-          local escaped_json="{\"hook\": \"Bootstrapped\", \"value\": {\"histfile\": \"$escaped_histfile\", \"session_id\": $WARP_SESSION_ID, \"shell\": \"bash\",  \"home_dir\": \"$HOME\", \"user\":\"$_user\", \"host\":\"$_hostname\", \"path\": \"$escaped_path\", \"cdpath\": \"$escaped_cdpath\", \"editor\": \"$escaped_editor\", \"env_var_names\": \"$escaped_env_var_names\", \"abbreviations\": \"$escaped_abbrs\", \"aliases\": \"$escaped_aliases\", \"function_names\": \"$escaped_function_names\", \"builtins\": \"$escaped_builtins\", \"keywords\": \"$escaped_keywords\", \"shell_version\": \"$BASH_VERSION\", \"shell_options\": \"$escaped_shell_options\", \"rcfiles_start_time\": \"$rcfiles_start_time\", \"rcfiles_end_time\": \"$rcfiles_end_time\", \"shell_plugins\": \"$escaped_shell_plugins\", \"vi_mode_enabled\": \"$vi_mode_enabled\", \"os_category\": \"$os_category\", \"linux_distribution\": \"$linux_distribution\", \"wsl_name\": \"$WSL_DISTRO_NAME\", \"shell_path\": \"$escaped_shell_path\"}}"
+          local escaped_json="{\"hook\": \"Bootstrapped\", \"value\": {\"histfile\": \"$escaped_histfile\", \"session_id\": $WARP_SESSION_ID, \"shell\": \"bash\",  \"home_dir\": \"$HOME\", \"user\":\"$_user\", \"host\":\"$_hostname\", \"path\": \"$escaped_path\", \"cdpath\": \"$escaped_cdpath\", \"editor\": \"$escaped_editor\", \"env_var_names\": \"$escaped_env_var_names\", \"abbreviations\": \"$escaped_abbrs\", \"aliases\": \"$escaped_aliases\", \"function_names\": \"$escaped_function_names\", \"builtins\": \"$escaped_builtins\", \"keywords\": \"$escaped_keywords\", \"shell_version\": \"$BASH_VERSION\", \"shell_options\": \"$escaped_shell_options\", \"shell_plugins\": \"$escaped_shell_plugins\", \"vi_mode_enabled\": \"$vi_mode_enabled\", \"os_category\": \"$os_category\", \"linux_distribution\": \"$linux_distribution\", \"wsl_name\": \"$WSL_DISTRO_NAME\", \"shell_path\": \"$escaped_shell_path\"}}"
           warp_send_json_message "$escaped_json"
         fi
     }

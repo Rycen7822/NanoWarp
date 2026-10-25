@@ -141,13 +141,9 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
     # Load the Warp Common functions in the current session
     . $warpCommon
 
-    function Get-EpochTime {
-        [decimal]([DateTime]::UtcNow - [DateTime]::new(1970, 1, 1, 0, 0, 0, 0)).Ticks / 1e7
-    }
-
     function Warp-Bootstrapped {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'WARP_BOOTSTRAPPED', Justification = 'False positive as we are assigning to global')]
-        param([decimal]$rcStartTime, [decimal]$rcEndTime)
+        param()
 
         $envVarNames = (Get-ChildItem env: | Select-Object -ExpandProperty Name | ForEach-Object { 'env:' + $_ }) + `
         (Get-Variable | Select-Object -ExpandProperty Name) -join ' '
@@ -243,8 +239,6 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
                 keywords = "$PSKeywords"
                 shell_version = $shellVersion
                 shell_options = ''
-                rcfiles_start_time = "$rcStartTime"
-                rcfiles_end_time = "$rcEndTime"
                 shell_plugins = ''
                 vi_mode_enabled = $(if ($script:viEditModeOverridden) { '1' } else { '' })
                 os_category = $osCategory
@@ -998,7 +992,6 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
     }
 
     function Warp-Finish-Bootstrap {
-        param([decimal]$rcStartTime, [decimal]$rcEndTime)
         Warp-Configure-PSReadLine
 
         # This is the closest we can get in PowerShell to a proper preexec hook. We wrap the
@@ -1035,7 +1028,7 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
         # This sets up our wrapper around $function:prompt, which runs the precmd hook
         # and computes the user's custom prompt.
         $function:global:prompt = (Get-Command Warp-Prompt).ScriptBlock
-        Warp-Bootstrapped -rcStartTime $rcStartTime -rcEndTime $rcEndTime
+        Warp-Bootstrapped
     }
 
     ###########################################################
@@ -1046,13 +1039,12 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
     # bootstrap logic pasted into the PTY and the output of shell startup files.
     Warp-Precmd -status $global:? -code $global:LASTEXITCODE
 
-    Export-ModuleMember -Function clear, Clear-Host, Get-EpochTime, Warp-Run-GeneratorCommand, Warp-Run-GeneratorCommand-NativeCompletion, Warp-Finish-Bootstrap
+    Export-ModuleMember -Function clear, Clear-Host, Warp-Run-GeneratorCommand, Warp-Run-GeneratorCommand-NativeCompletion, Warp-Finish-Bootstrap
 }
 
 # Finally, get ready to source the user's RC files. This must be done in the global scope (not
 # inside Warp-Module) in order to obey the expected scoping in PowerShell's typical startup process.
 . {
-    $rcStartTime = Get-EpochTime
     # Source the user's RC files
     # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#profile-types-and-locations
     # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#the-profile-variable
@@ -1080,14 +1072,12 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
         Set-PSReadLineKeyHandler -Chord 'Control+c' -Function CopyOrCancelLine
     }
 
-    $rcEndTime = Get-EpochTime
-
     # Capture the current prompt (potentially modified by a profile),
     # and then reset the prompt to our current noop prompt.
     $global:_warpOriginalPrompt = $function:global:prompt
 
-    Warp-Finish-Bootstrap -rcStartTime $rcStartTime -rcEndTime $rcEndTime
-    Remove-Variable -Name enterHandler, ctrlcHandler, rcStartTime, rcEndTime -Scope global -ErrorAction Ignore
+    Warp-Finish-Bootstrap
+    Remove-Variable -Name enterHandler, ctrlcHandler -Scope global -ErrorAction Ignore
 
     # Restore the process's original execution policy now that the user's RC files have been loaded.
     if ($global:_warp_PSProcessExecPolicy -ne $null) {
