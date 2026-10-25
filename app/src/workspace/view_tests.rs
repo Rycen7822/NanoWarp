@@ -234,8 +234,6 @@ fn test_open_new_window_for_team_rebinds_current_window_without_creating() {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use crate::workspaces::user_workspaces::UserWorkspacesEvent;
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -248,10 +246,8 @@ fn test_open_new_window_for_team_rebinds_current_window_without_creating() {
         let team_changes = Rc::new(Cell::new(0));
         let team_changes_for_subscription = team_changes.clone();
         app.update(|ctx| {
-            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeam) {
-                    team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
-                }
+            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, _, _| {
+                team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
             });
         });
 
@@ -286,8 +282,6 @@ fn test_open_new_window_for_team_same_team_is_noop() {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use crate::workspaces::user_workspaces::UserWorkspacesEvent;
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -299,10 +293,8 @@ fn test_open_new_window_for_team_same_team_is_noop() {
         let team_changes = Rc::new(Cell::new(0));
         let team_changes_for_subscription = team_changes.clone();
         app.update(|ctx| {
-            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeam) {
-                    team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
-                }
+            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, _, _| {
+                team_changes_for_subscription.set(team_changes_for_subscription.get() + 1);
             });
         });
 

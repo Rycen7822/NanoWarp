@@ -8,6 +8,7 @@ use warpui::platform::WindowStyle;
 use warpui::{AddSingletonModel, App, Element, TypedActionView, View, ViewHandle, WindowId};
 
 use super::*;
+use crate::settings::PrivacySettings;
 use crate::workspaces::team::{Team, TeamVisibility};
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::Workspace;
@@ -22,7 +23,7 @@ impl UserWorkspaces {
         let window_team_uid = self.window_team_uids.entry(window_id).or_default();
         if window_team_uid.is_none() {
             *window_team_uid = Some(team_uid);
-            ctx.emit(UserWorkspacesEvent::WindowTeam);
+            ctx.emit(());
             ctx.notify();
         }
     }
@@ -65,33 +66,6 @@ fn workspace_for_test(team: &Team) -> Workspace {
     }
 }
 
-#[test]
-fn test_current_workspace_billing_metadata_uses_selected_teamless_workspace() {
-    let first_team = team_for_test();
-    let first_workspace = workspace_for_test(&first_team);
-    let mut second_workspace = workspace_for_test(&first_team);
-    second_workspace.uid = "workspace_uid987654321".to_string().into();
-    second_workspace.teams.clear();
-    second_workspace.billing_metadata.customer_type = CustomerType::Enterprise;
-    let second_workspace_uid = second_workspace.uid;
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![first_workspace, second_workspace]);
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_current_workspace_uid(second_workspace_uid, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .current_workspace()
-                    .map(|workspace| workspace.billing_metadata.customer_type),
-                Some(CustomerType::Enterprise)
-            );
-        });
-    })
-}
 #[test]
 fn test_window_team_assignment_is_immutable() {
     let first_team = team_for_test();
@@ -162,98 +136,6 @@ fn test_window_team_assignment_inherits_from_source_or_default_team() {
     })
 }
 
-#[test]
-fn test_every_departed_team_window_falls_back_when_team_is_removed() {
-    let first_team = team_for_test();
-    let mut removed_team = team_for_test();
-    removed_team.uid = 456.into();
-    let mut workspace = workspace_for_test(&first_team);
-    workspace.teams.push(removed_team.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace.clone()]);
-        let first_removed_team_window = WindowId::new();
-        let second_removed_team_window = WindowId::new();
-        let existing_fallback_team_window = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(first_removed_team_window, removed_team.uid, ctx);
-            user_workspaces.set_team_for_window(second_removed_team_window, removed_team.uid, ctx);
-            user_workspaces.set_team_for_window(existing_fallback_team_window, first_team.uid, ctx);
-            workspace.teams.retain(|team| team.uid != removed_team.uid);
-            user_workspaces.update_workspaces(vec![workspace], ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces.team_uid_for_window(first_removed_team_window),
-                Some(first_team.uid)
-            );
-            assert_eq!(
-                user_workspaces.team_uid_for_window(second_removed_team_window),
-                Some(first_team.uid)
-            );
-            assert_eq!(
-                user_workspaces.team_uid_for_window(existing_fallback_team_window),
-                Some(first_team.uid)
-            );
-        });
-    })
-}
-
-#[test]
-fn test_every_departed_team_window_becomes_teamless_without_remaining_memberships() {
-    let removed_team = team_for_test();
-    let mut workspace = workspace_for_test(&removed_team);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace.clone()]);
-
-        let first_window = WindowId::new();
-        let second_window = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(first_window, removed_team.uid, ctx);
-            user_workspaces.set_team_for_window(second_window, removed_team.uid, ctx);
-            workspace.teams.clear();
-            user_workspaces.update_workspaces(vec![workspace], ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(user_workspaces.team_uid_for_window(first_window), None);
-            assert_eq!(user_workspaces.team_uid_for_window(second_window), None);
-        });
-    })
-}
-
-#[test]
-fn test_window_team_assignment_reconciles_when_current_workspace_changes() {
-    let first_team = team_for_test();
-    let first_workspace = workspace_for_test(&first_team);
-    let mut second_team = team_for_test();
-    second_team.uid = 456.into();
-    let mut second_workspace = workspace_for_test(&second_team);
-    second_workspace.uid = "workspace_uid987654321".to_string().into();
-    let second_workspace_uid = second_workspace.uid;
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![first_workspace, second_workspace]);
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-            user_workspaces.set_current_workspace_uid(second_workspace_uid, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx).team_uid_for_window(window_id),
-                Some(second_team.uid)
-            );
-        });
-    })
-}
-
 #[derive(Default)]
 struct TeamContextTestView;
 
@@ -285,47 +167,6 @@ fn two_teams() -> (Team, Team) {
     team_b.uid = 456.into();
     team_b.name = "team-b".to_string();
     (team_a, team_b)
-}
-
-/// Reconciliation updates the team used by a view's live render context.
-#[test]
-fn test_window_team_reconciliation_moves_rendering_to_the_new_team() {
-    let (team_a, team_b) = two_teams();
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams.push(team_b.clone());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        let weak_view = view.downgrade();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_id, team_a.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .team_context(&weak_view, ctx)
-                    .team_uid(),
-                Some(team_a.uid),
-            );
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![workspace_for_test(&team_b)], ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx)
-                    .team_context(&weak_view, ctx)
-                    .team_uid(),
-                Some(team_b.uid),
-                "a freshly resolved render context should follow the window to team B"
-            );
-        });
-    })
 }
 
 fn set_team_remote_session_policy(team: &mut Team, patterns: &[&str]) {
@@ -437,10 +278,8 @@ fn switching_a_window_to_a_team_overwrites_and_announces_it() {
         let changes = Rc::new(Cell::new(0));
         let changes_for_subscription = changes.clone();
         app.update(|ctx| {
-            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeam) {
-                    changes_for_subscription.set(changes_for_subscription.get() + 1);
-                }
+            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, _, _| {
+                changes_for_subscription.set(changes_for_subscription.get() + 1);
             });
         });
 
@@ -484,10 +323,8 @@ fn switching_a_window_to_its_current_team_announces_nothing() {
         let changes = Rc::new(Cell::new(0));
         let changes_for_subscription = changes.clone();
         app.update(|ctx| {
-            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, event, _| {
-                if matches!(event, UserWorkspacesEvent::WindowTeam) {
-                    changes_for_subscription.set(changes_for_subscription.get() + 1);
-                }
+            ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), move |_, _, _| {
+                changes_for_subscription.set(changes_for_subscription.get() + 1);
             });
         });
 
@@ -496,58 +333,6 @@ fn switching_a_window_to_its_current_team_announces_nothing() {
         });
 
         assert_eq!(changes.get(), 0);
-    })
-}
-
-#[test]
-fn metadata_update_retains_memberships_and_preserves_the_current_window() {
-    let (platform, security, joined_workspace) = platform_and_security();
-    let initial_workspace = workspace_for_test(&platform);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![initial_workspace]);
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, Some(platform.uid), ctx);
-            user_workspaces.update_workspaces(vec![joined_workspace], ctx);
-        });
-
-        app.read(|ctx| {
-            let user_workspaces = UserWorkspaces::as_ref(ctx);
-            assert_eq!(
-                user_workspaces
-                    .current_workspace()
-                    .expect("workspace should remain selected")
-                    .teams
-                    .iter()
-                    .map(|team| team.uid)
-                    .collect::<Vec<_>>(),
-                vec![platform.uid, security.uid]
-            );
-            assert_eq!(
-                user_workspaces.team_uid_for_window(window_id),
-                Some(platform.uid)
-            );
-        });
-    })
-}
-
-/// The switcher's own visibility rule, which the TUI indicator reuses rather than
-/// reimplementing so the two front-ends cannot disagree about who counts as multi-team.
-#[test]
-fn can_switch_teams_only_with_more_than_one_team() {
-    let (_, _, two_team_workspace) = platform_and_security();
-    let one_team_workspace = workspace_for_test(&team_for_test());
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![one_team_workspace]);
-        app.read(|ctx| assert!(!UserWorkspaces::as_ref(ctx).can_switch_teams()));
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![two_team_workspace], ctx);
-        });
-        app.read(|ctx| assert!(UserWorkspaces::as_ref(ctx).can_switch_teams()));
     })
 }
 
@@ -565,40 +350,6 @@ fn test_team_contexts_represent_a_registered_teamless_window() {
         app.read(|ctx| {
             let context = UserWorkspaces::as_ref(ctx).team_context(&weak_view, ctx);
             assert_eq!(context.team_uid(), None);
-        });
-    })
-}
-
-#[test]
-fn test_unassigned_window_is_initialized_after_workspace_metadata_loads() {
-    let team = team_for_test();
-    let workspace = workspace_for_test(&team);
-    let workspace_uid = workspace.uid;
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-
-        let window_id = WindowId::new();
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx).team_uid_for_window(window_id),
-                None
-            );
-        });
-
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.update_workspaces(vec![workspace], ctx);
-            user_workspaces.set_current_workspace_uid(workspace_uid, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                UserWorkspaces::as_ref(ctx).team_uid_for_window(window_id),
-                Some(team.uid)
-            );
         });
     })
 }

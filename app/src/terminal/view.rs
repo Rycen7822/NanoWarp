@@ -302,7 +302,7 @@ use crate::view_components::find::{Event as FindEvent, Find, FindDirection, Find
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction, WorkspaceRegistry};
-use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
+use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{ActiveSession as WindowActiveSession, safe_warn};
 
 lazy_static! {
@@ -1904,12 +1904,6 @@ impl TerminalView {
                 }
             },
         );
-
-        ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |_, _, event, ctx| {
-            if matches!(event, UserWorkspacesEvent::Teams) {
-                ctx.notify();
-            }
-        });
 
         let (resize_tx, resize_rx) = async_channel::unbounded();
         let (find_link_tx, find_link_rx) = async_channel::unbounded();
