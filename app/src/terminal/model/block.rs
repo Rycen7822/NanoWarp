@@ -107,15 +107,6 @@ const FLOATING_POINT_ROUNDING_ADJUSTMENT: f32 = 0.0001;
 #[cfg(not(test))]
 const BACKGROUND_OUTPUT_RENDER_DELAY_MS: u64 = 100;
 
-/// Blocklist Env Var metadata associated with this block.
-#[derive(Debug, Clone)]
-pub struct BlocklistEnvVarMetadata {
-    /// The id used to uniquely identify the block's execution
-    pub block_id: String,
-    /// whether or not the env var block should be hidden
-    pub should_hide_block: bool,
-}
-
 pub struct Block {
     id: BlockId,
     size: SizeInfo,
@@ -180,9 +171,6 @@ pub struct Block {
 
     /// `true` if this command block corresponds to a startup command in an oz environment executed
     /// in cloud mode.
-
-    /// Blocklist Env var metadata associated with this block, if any.
-    env_var_metadata: Option<BlocklistEnvVarMetadata>,
 
     /// This represents when a banner appears in this Block above the prompt.
     pub(super) block_banner: Option<WithinBlockBanner>,
@@ -749,7 +737,6 @@ impl Block {
             block_index,
             shell_host: None,
             is_for_in_band_command: false,
-            env_var_metadata: None,
             block_banner: None,
             ignore_next_rprompt: false,
             prompt_snapshot: None,
@@ -854,15 +841,6 @@ impl Block {
 
         self.header_grid.start_command_grid();
         self.wakeup_after_delay();
-    }
-
-    /// Returns the `env_var_metadata` associated with this block, if any.
-    pub fn env_var_metadata(&self) -> Option<&BlocklistEnvVarMetadata> {
-        self.env_var_metadata.as_ref()
-    }
-
-    pub fn set_env_var_metadata(&mut self, env_var_metadata: BlocklistEnvVarMetadata) {
-        self.env_var_metadata = Some(env_var_metadata);
     }
 
     pub fn all_bytes_scanned_for_secrets(&self) -> bool {
@@ -1061,10 +1039,6 @@ impl Block {
         (is_bootstrap_block && !self.show_bootstrap_block)
             || is_empty_bootstrap_script_execution_block
             || is_empty_background_block
-            || self
-                .env_var_metadata
-                .as_ref()
-                .is_some_and(|metadata| metadata.should_hide_block)
             || (self.is_for_in_band_command && !self.show_in_band_command_blocks)
     }
 

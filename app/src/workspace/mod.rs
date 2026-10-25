@@ -954,38 +954,6 @@ pub fn init(app: &mut AppContext) {
 
     app.register_editable_bindings([
         EditableBinding::new(
-            "workspace:create_team_env_vars",
-            BindingDescription::new("Create new team environment variables")
-                .with_custom_description(
-                    bindings::MAC_MENUS_CONTEXT,
-                    "New Team Environment Variables",
-                ),
-            WorkspaceAction::CreateTeamEnvVarCollection,
-        )
-        .with_custom_action(CustomAction::NewTeamEnvVars)
-        .with_context_predicate(
-            id!("Workspace")
-                & id!(flags::ENABLE_WARP_DRIVE)
-                & id!("WarpDrive_BelongsToTeam")
-                & id!("IsOnline"),
-        )
-        .with_group(bindings::BindingGroup::EnvVarCollection.as_str()),
-        EditableBinding::new(
-            "workspace:create_personal_env_vars",
-            BindingDescription::new("Create new personal environment variables")
-                .with_custom_description(
-                    bindings::MAC_MENUS_CONTEXT,
-                    "New Personal Environment Variables",
-                ),
-            WorkspaceAction::CreatePersonalEnvVarCollection,
-        )
-        .with_group(bindings::BindingGroup::EnvVarCollection.as_str())
-        .with_custom_action(CustomAction::NewPersonalEnvVars)
-        .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
-    ]);
-
-    app.register_editable_bindings([
-        EditableBinding::new(
             "workspace:shift_focus_left",
             "Switch Focus to Left Panel",
             WorkspaceAction::FocusLeftPanel,

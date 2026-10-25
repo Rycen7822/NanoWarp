@@ -5,12 +5,11 @@ use diesel::prelude::*;
 
 use super::schema::{
     app, blocks, cloud_objects_refreshes, code_pane_tabs, code_panes, code_review_panes, commands,
-    current_user_information, env_var_collection_panes, folders, generic_string_objects,
-    ignored_suggestions, notebook_panes, notebooks, object_actions, object_metadata,
-    object_permissions, pane_branches, pane_leaves, pane_nodes, panels, server_experiments,
-    settings_panes, tab_groups, tabs, team_members, team_settings, teams, terminal_panes,
-    user_profiles, windows, workspace_language_server, workspace_metadata, workspace_teams,
-    workspaces,
+    current_user_information, folders, generic_string_objects, ignored_suggestions, notebook_panes,
+    notebooks, object_actions, object_metadata, object_permissions, pane_branches, pane_leaves,
+    pane_nodes, panels, server_experiments, settings_panes, tab_groups, tabs, team_members,
+    team_settings, teams, terminal_panes, user_profiles, windows, workspace_language_server,
+    workspace_metadata, workspace_teams, workspaces,
 };
 
 #[derive(Insertable)]
@@ -383,15 +382,6 @@ pub struct NotebookPane {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = env_var_collection_panes)]
-#[diesel(primary_key(id))]
-pub struct EnvVarCollectionPane {
-    pub id: i32,
-    pub kind: String,
-    pub env_var_collection_id: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = code_panes)]
 #[diesel(primary_key(id))]
 pub struct CodePane {
@@ -476,9 +466,6 @@ pub const TERMINAL_PANE_KIND: &str = "terminal";
 /// The [`pane_leaves::kind`] value for notebook panes.
 pub const NOTEBOOK_PANE_KIND: &str = "notebook";
 
-/// The [`pane_leaves::kind`] value for EVC panes.
-pub const ENV_VAR_COLLECTION_PANE_KIND: &str = "env_var_collection";
-
 /// The [`pane_leaves::kind`] value for code panes.
 pub const CODE_PANE_KIND: &str = "code";
 
@@ -518,13 +505,6 @@ pub struct NewNotebookPane {
     pub id: i32,
     pub notebook_id: Option<String>,
     pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = env_var_collection_panes)]
-pub struct NewEnvVarCollectionPane {
-    pub id: i32,
-    pub env_var_collection_id: Option<String>,
 }
 
 #[derive(Insertable)]

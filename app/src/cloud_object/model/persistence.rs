@@ -13,16 +13,15 @@ use super::generic_string_model::GenericStringObjectId;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::{
     CloudModelType, CloudObject, CloudObjectLocation, CloudObjectPermissions, GenericCloudObject,
-    GenericServerObject, GenericStringObjectFormat, JsonObjectType, ObjectIdType, ObjectType,
-    ObjectsToUpdate, Owner, Revision, RevisionAndLastEditor, ServerCloudObject, ServerCreationInfo,
-    ServerFolder, ServerMetadata, ServerNotebook, ServerPermissions, Space,
+    GenericServerObject, ObjectIdType, ObjectType, ObjectsToUpdate, Owner, Revision,
+    RevisionAndLastEditor, ServerCloudObject, ServerCreationInfo, ServerFolder, ServerMetadata,
+    ServerNotebook, ServerPermissions, Space,
 };
 use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::drive::{
     CloudObjectTypeAndId, DriveIndexVariant, should_auto_open_welcome_folder,
     write_has_auto_opened_welcome_folder_to_user_defaults,
 };
-use crate::env_vars::{CloudEnvVarCollection, CloudEnvVarCollectionModel, EnvVarCollection};
 use crate::notebooks::CloudNotebook;
 use crate::persistence::ModelEvent;
 use crate::server::ids::{ClientId, HashableId, ObjectUid, ServerId, SyncId, ToServerId};
@@ -499,9 +498,6 @@ impl CloudModel {
             ServerCloudObject::Preference(preferences) => {
                 self.upsert_from_server_object(preferences, ctx);
             }
-            ServerCloudObject::EnvVarCollection(env_var_collection) => {
-                self.upsert_from_server_object(env_var_collection, ctx);
-            }
         }
     }
 
@@ -767,26 +763,6 @@ impl CloudModel {
         }
     }
 
-    pub fn overwrite_env_var_collection(
-        &mut self,
-        env_var_collection: EnvVarCollection,
-        env_var_collection_id: SyncId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let Some(cloud_env_var_collection) = self
-            .get_object_of_type_mut::<GenericStringObjectId, CloudEnvVarCollectionModel>(
-                &env_var_collection_id,
-            )
-        {
-            cloud_env_var_collection.set_model(CloudEnvVarCollectionModel::new(env_var_collection));
-            ctx.emit(CloudModelEvent::ObjectUpdated {
-                type_and_id: cloud_env_var_collection.cloud_object_type_and_id(),
-                source: UpdateSource::Server,
-            });
-            ctx.notify();
-        }
-    }
-
     fn set_folder_open_state(
         &mut self,
         folder_id: SyncId,
@@ -956,16 +932,8 @@ impl CloudModel {
             CloudObjectTypeAndId::Folder(sync_id) => {
                 self.force_expand_object_and_ancestors(sync_id, ctx)
             }
-            CloudObjectTypeAndId::GenericStringObject { object_type, id } => {
-                if let GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) =
-                    object_type
-                {
-                    self.force_expand_object_and_ancestors(id, ctx)
-                } else {
-                    report_error!(
-                        "Attempted to force expand an unsupported GenericStringObject type"
-                    )
-                }
+            CloudObjectTypeAndId::GenericStringObject { .. } => {
+                report_error!("Attempted to force expand an unsupported GenericStringObject type")
             }
         }
     }
@@ -1087,16 +1055,6 @@ impl CloudModel {
             .filter_map(|object| object.into())
     }
 
-    /// Returns all active (not trashed) and non-welcome env var collections in the space.
-    pub fn active_non_welcome_env_var_collections_in_space<'a>(
-        &'a self,
-        space: Space,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = &'a CloudEnvVarCollection> + 'a {
-        self.active_non_welcome_cloud_objects_in_space(space, app)
-            .filter_map(|object| object.into())
-    }
-
     /// Returns a map of CloudPreference models keyed by their storage key.
     pub fn get_all_cloud_preferences_by_storage_key(&self) -> HashMap<String, &CloudPreference> {
         let mut keys: HashSet<String> = HashSet::new();
@@ -1184,29 +1142,6 @@ impl CloudModel {
         self.objects_by_id
             .get_mut(&notebook_id.uid())
             .and_then(|notebook| notebook.into())
-    }
-
-    pub fn get_env_var_collection(
-        &self,
-        env_var_collection_id: &SyncId,
-    ) -> Option<&CloudEnvVarCollection> {
-        self.objects_by_id
-            .get(&env_var_collection_id.uid())
-            .and_then(|object| object.into())
-    }
-
-    pub fn get_env_var_collection_by_uid(&self, uid: &str) -> Option<&CloudEnvVarCollection> {
-        self.objects_by_id.get(uid).and_then(|object| object.into())
-    }
-
-    /// Returns only active (not trashed) EVCs in cloud model.
-    pub fn get_all_active_env_var_collections(
-        &self,
-    ) -> impl Iterator<Item = &CloudEnvVarCollection> {
-        self.objects_by_id
-            .values()
-            .filter(|object| !object.is_trashed(self))
-            .filter_map(|object| object.into())
     }
 
     pub fn current_revision(&self, id: &SyncId) -> Option<&Revision> {

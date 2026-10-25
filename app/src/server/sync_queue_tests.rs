@@ -8,6 +8,7 @@ use cloud_object_client::MockObjectClient;
 use cloud_objects::cloud_object::ServerPermissions;
 use firebase::FirebaseError;
 use itertools::Itertools;
+use settings::{RespectUserSyncSetting, SyncToCloud};
 use warpui::{App, Entity, ModelHandle, SingletonEntity};
 
 use super::QueueDependency;
@@ -21,7 +22,6 @@ use crate::cloud_object::{
     RevisionAndLastEditor, ServerCreationInfo, UpdateCloudObjectResult,
 };
 use crate::drive::CloudObjectTypeAndId;
-use crate::env_vars::{CloudEnvVarCollectionModel, EnvVarCollection};
 use crate::notebooks::{CloudNotebookModel, NotebookId};
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::server::ids::{ClientId, HashableId, ServerId, ServerIdAndType, SyncId};
@@ -31,6 +31,7 @@ use crate::server::sync_queue::{
     CreationFailureReason, GenericStringObjectToCreate, QueueItemId, SerializedModel,
     SyncQueueEvent,
 };
+use crate::settings::{CloudPreferenceModel, Preference};
 use crate::system::SystemStats;
 use crate::test_util::assert_eventually;
 use crate::{NetworkStatus, QueueItem, SyncQueue};
@@ -1303,7 +1304,7 @@ fn test_sync_queue_generic_string_object_update_depends_on_pending_create() {
             let create_id = sync_queue.enqueue(
                 QueueItem::CreateObject {
                     object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                        JsonObjectType::EnvVarCollection,
+                        JsonObjectType::Preference,
                     )),
                     owner: Owner::mock_current_user(),
                     id: client_id,
@@ -1317,12 +1318,15 @@ fn test_sync_queue_generic_string_object_update_depends_on_pending_create() {
             );
 
             let update_id = sync_queue.enqueue(
-                QueueItem::UpdateEnvVarCollection {
-                    model: CloudEnvVarCollectionModel::new(EnvVarCollection {
-                        title: Some("new rule".to_string()),
-                        description: None,
-                        vars: vec![],
-                    })
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "true",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: SyncId::ClientId(client_id),
                     revision: Some(revision_after_create),
@@ -1372,12 +1376,15 @@ fn test_sync_queue_generic_string_object_update_depends_on_pending_create() {
             );
 
             let update_id_2 = sync_queue.enqueue(
-                QueueItem::UpdateEnvVarCollection {
-                    model: CloudEnvVarCollectionModel::new(EnvVarCollection {
-                        title: Some("final rule".to_string()),
-                        description: None,
-                        vars: vec![],
-                    })
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "false",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: server_id,
                     revision: Some(revision_after_create),
@@ -1412,7 +1419,7 @@ fn test_sync_queue_generic_string_object_update_depends_on_pending_create() {
                 &HashSet::<QueueDependency>::new()
             );
             let queued_revision = sync_queue.queue().iter().find_map(|(_, item)| match item {
-                QueueItem::UpdateEnvVarCollection { id, revision, .. } if *id == server_id => {
+                QueueItem::UpdateCloudPreferences { id, revision, .. } if *id == server_id => {
                     Some(*revision)
                 }
                 _ => None,
@@ -1439,7 +1446,7 @@ fn test_sync_queue_bulk_generic_string_object_update_waits_for_matching_create()
         sync_queue.update(&mut app, |sync_queue, ctx| {
             let object_to_create = |id| GenericStringObjectToCreate {
                 id,
-                format: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                format: GenericStringObjectFormat::Json(JsonObjectType::Preference),
                 serialized_model: Arc::new(SerializedModel::new("{}".to_string())),
                 initial_folder_id: None,
                 entrypoint: CloudObjectEventEntrypoint::Unknown,
@@ -1471,12 +1478,15 @@ fn test_sync_queue_bulk_generic_string_object_update_waits_for_matching_create()
             }
 
             let update_b_id = sync_queue.enqueue(
-                QueueItem::UpdateEnvVarCollection {
-                    model: CloudEnvVarCollectionModel::new(EnvVarCollection {
-                        title: Some("updated rule".to_string()),
-                        description: None,
-                        vars: vec![],
-                    })
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "true",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: SyncId::ClientId(client_id_b),
                     revision: Some(revision_after_create_a),
@@ -1561,7 +1571,7 @@ fn test_sync_queue_bulk_generic_string_object_update_waits_for_matching_create()
                     .contains_key(&bulk_create_id)
             );
             let queued_revision = sync_queue.queue().iter().find_map(|(_, item)| match item {
-                QueueItem::UpdateEnvVarCollection { id, revision, .. }
+                QueueItem::UpdateCloudPreferences { id, revision, .. }
                     if *id == SyncId::ClientId(client_id_b) =>
                 {
                     Some(*revision)

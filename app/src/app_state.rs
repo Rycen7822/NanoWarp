@@ -123,7 +123,6 @@ pub enum LeafContents {
     Terminal(TerminalPaneSnapshot),
     Notebook(NotebookPaneSnapshot),
     Code(CodePaneSnapShot),
-    EnvVarCollection(EnvVarCollectionPaneSnapshot),
     Settings(SettingsPaneSnapshot),
     CodeReview(CodeReviewPaneSnapshot),
     /// The in-app network log pane. Not persisted across restarts because the
@@ -151,7 +150,6 @@ impl LeafContents {
             LeafContents::Terminal(_)
             | LeafContents::Notebook(_)
             | LeafContents::Code(_)
-            | LeafContents::EnvVarCollection(_)
             | LeafContents::Settings(_)
             | LeafContents::CodeReview(_) => true,
         }
@@ -199,15 +197,6 @@ pub enum CodePaneSnapShot {
         active_tab_index: usize,
         /// The full `CodeSource` for this pane, serialized as JSON in the DB.
         source: Option<CodeSource>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum EnvVarCollectionPaneSnapshot {
-    // CloudEnvVarCollection snapshots operate under the same heuristics
-    // as NotebookPaneSnapshot::CloudNotebook
-    CloudEnvVarCollection {
-        env_var_collection_id: Option<SyncId>,
     },
 }
 

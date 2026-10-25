@@ -60,7 +60,6 @@ pub struct AnonymousUserInfo {
 
 #[derive(cynic::QueryFragment, Debug, Clone)]
 pub struct AnonymousUserPersonalObjectLimits {
-    pub env_var_limit: i32,
     pub notebook_limit: i32,
 }
 

@@ -1738,23 +1738,6 @@ impl BlockList {
         );
     }
 
-    pub fn toggle_visibility_of_block_for_env_var(&mut self, block_id: &str) {
-        let block_id = block_id.to_owned();
-        self.update_blocks_and_sumtree(
-            None,
-            None,
-            move |block| match block.env_var_metadata() {
-                Some(metadata) if metadata.block_id == block_id => {
-                    let mut updated_metadata = metadata.clone();
-                    updated_metadata.should_hide_block = !metadata.should_hide_block;
-                    block.set_env_var_metadata(updated_metadata);
-                }
-                _ => (),
-            },
-            |_| {},
-        );
-    }
-
     pub fn set_show_bootstrap_block(&mut self, show_bootstrap_block: bool) {
         self.show_warp_bootstrap_block = show_bootstrap_block;
         self.update_blocks_and_sumtree(

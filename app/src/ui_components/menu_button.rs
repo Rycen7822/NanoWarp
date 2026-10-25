@@ -55,38 +55,6 @@ where
     button_with_menu
 }
 
-pub fn highlight_icon_button_with_context_menu<F, V: View>(
-    icon: Icon,
-    on_click_action: F,
-    mouse_state_handle: MouseStateHandle,
-    context_menu: &ViewHandle<V>,
-    is_menu_open: bool,
-    menu_direction: MenuDirection,
-    appearance: &Appearance,
-) -> Stack
-where
-    F: 'static + FnMut(&mut EventContext, &AppContext, Vector2F),
-{
-    let mut button_with_menu = Stack::new().with_child(
-        highlight(
-            icon_button(appearance, icon, is_menu_open, mouse_state_handle),
-            appearance,
-        )
-        .build()
-        .on_click(on_click_action)
-        .finish(),
-    );
-
-    if is_menu_open {
-        button_with_menu.add_positioned_overlay_child(
-            ChildView::new(context_menu).finish(),
-            offset_positioning(menu_direction),
-        );
-    }
-
-    button_with_menu
-}
-
 /// Variant with surface_1 hover background for Warp Drive items
 #[allow(clippy::too_many_arguments)]
 pub fn icon_button_with_context_menu_drive<F, V: View>(

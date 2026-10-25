@@ -22,7 +22,7 @@ use warpui::elements::{
 };
 use warpui::fonts::Weight;
 use warpui::keymap::FixedBinding;
-use warpui::platform::{Cursor, OperatingSystem};
+use warpui::platform::Cursor;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::IntoPixels;
@@ -32,10 +32,7 @@ use warpui::{
 };
 
 use super::cloud_object_naming_dialog::CloudObjectNamingDialog;
-use super::drive_helpers::{
-    has_feature_gated_anonymous_user_reached_env_var_limit,
-    has_feature_gated_anonymous_user_reached_notebook_limit,
-};
+use super::drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit;
 use super::empty_trash_confirmation_dialog::{
     EmptyTrashConfirmationDialog, EmptyTrashConfirmationEvent,
 };
@@ -43,8 +40,8 @@ use super::folders::CloudFolder;
 use super::items::WarpDriveItemId;
 use super::items::item::{ItemStates, WarpDriveRow, tools_panel_menu_direction};
 use super::settings::WarpDriveSettings;
+use super::sharing::ShareableObject;
 use super::sharing::dialog::{SharingDialog, SharingDialogEvent};
-use super::sharing::{ContentEditability, ShareableObject};
 use super::{CloudObjectTypeAndId, DriveObjectType, DriveSortOrder};
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
@@ -55,10 +52,9 @@ use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::model::view::{CloudViewModel, CloudViewModelEvent, UpdateTimestamp};
 use crate::cloud_object::{
     CloudObject, CloudObjectEventEntrypoint, CloudObjectLocation, CloudObjectSyncStatus,
-    GenericStringObjectFormat, JsonObjectType, NumInFlightRequests, ObjectType, Space,
+    NumInFlightRequests, ObjectType, Space,
 };
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
-use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 use crate::network::NetworkStatus;
@@ -79,7 +75,6 @@ use crate::ui_components::menu_button::{MenuDirection, icon_button_with_context_
 use crate::uri::web_intent_parser::open_url_on_desktop;
 use crate::util::color::coloru_with_opacity;
 use crate::view_components::{Dropdown, DropdownItem};
-use crate::workspace::active_terminal_in_window;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::WorkspaceUid;
@@ -141,10 +136,8 @@ const OFFLINE_BANNER_PADDING_VERTICAL: f32 = 4.;
 
 const FOLDER_LABEL: &str = "Folder";
 const NOTEBOOK_LABEL: &str = "Notebook";
-const ENV_VAR_COLLECTION_LABEL: &str = "Environment variables";
 const INDEX_FOLDER_LABEL: &str = "New folder";
 const INDEX_NOTEBOOK_LABEL: &str = "New notebook";
-const INDEX_ENV_VAR_COLLECTION_LABEL: &str = "New environment variables";
 
 const REMOVE_LABEL: &str = "Remove";
 const OFFLINE_BANNER_TEXT: &str = "You are offline. Some files will be read only.";
@@ -195,7 +188,6 @@ pub enum DriveIndexAction {
         space: Space,
         initial_folder_id: Option<SyncId>,
     },
-    CopyObjectToClipboard(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
     CopyObjectLinkToClipboard(String),
     OpenObjectLinkOnDesktop(Url),
@@ -236,10 +228,8 @@ pub enum DriveIndexAction {
     },
     ClearDropTarget,
     ToggleSectionCollapsed(Space),
-    RunObject(CloudObjectTypeAndId),
     ToggleFolderOpen(SyncId),
     CollapseAllInLocation(CloudObjectLocation),
-    InvokeEnvVarCollectionInSubshell(CloudObjectTypeAndId),
     TrashObject {
         cloud_object_type_and_id: CloudObjectTypeAndId,
     },
@@ -297,13 +287,11 @@ impl DriveIndexAction {
                 cloud_object_type_and_id: None,
                 initial_folder_id,
             },
-            (_, DriveObjectType::Notebook | DriveObjectType::EnvVarCollection) => {
-                DriveIndexAction::CreateObject {
-                    object_type,
-                    space,
-                    initial_folder_id,
-                }
-            }
+            (_, DriveObjectType::Notebook) => DriveIndexAction::CreateObject {
+                object_type,
+                space,
+                initial_folder_id,
+            },
         }
     }
 }
@@ -319,15 +307,8 @@ pub enum DriveIndexEvent {
         title: String,
         initial_folder_id: Option<SyncId>,
     },
-    CreateEnvVarCollection {
-        space: Space,
-        title: Option<String>,
-        initial_folder_id: Option<SyncId>,
-    },
     OpenObject(CloudObjectTypeAndId),
     DuplicateObject(CloudObjectTypeAndId),
-    RunObject(CloudObjectTypeAndId),
-    InvokeEnvVarCollectionInSubshell(CloudObjectTypeAndId),
     FocusWarpDrive,
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
 }
@@ -832,14 +813,6 @@ impl DriveIndex {
         }
     }
 
-    fn edit_object_enabled(
-        &self,
-        cloud_object_type_and_id: &CloudObjectTypeAndId,
-        app: &AppContext,
-    ) -> bool {
-        self.is_online(app) || !cloud_object_type_and_id.has_server_id()
-    }
-
     fn online_only_operation_allowed(
         &self,
         cloud_object_type_and_id: &CloudObjectTypeAndId,
@@ -1048,16 +1021,10 @@ impl DriveIndex {
                 CloudObjectTypeAndId::Folder(sync_id) => {
                     self.expand_section_for_object(&sync_id.uid().clone(), ctx);
                 }
-                CloudObjectTypeAndId::GenericStringObject { object_type, id } => {
-                    if let GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) =
-                        object_type
-                    {
-                        self.expand_section_for_object(&id.uid().clone(), ctx);
-                    } else {
-                        log::warn!(
-                            "unknown GenericStringObject type found while trying to manually expand drive section. {object_id:?}"
-                        );
-                    }
+                CloudObjectTypeAndId::GenericStringObject { .. } => {
+                    log::warn!(
+                        "unknown GenericStringObject type found while trying to manually expand drive section. {object_id:?}"
+                    );
                 }
             };
         }
@@ -2775,17 +2742,6 @@ impl DriveIndex {
                     });
                 }
             }
-            DriveObjectType::EnvVarCollection => {
-                if has_feature_gated_anonymous_user_reached_env_var_limit(ctx) {
-                    return;
-                }
-
-                ctx.emit(DriveIndexEvent::CreateEnvVarCollection {
-                    space,
-                    title,
-                    initial_folder_id,
-                })
-            }
         }
 
         self.cloud_object_naming_dialog.close(ctx);
@@ -2879,23 +2835,13 @@ impl DriveIndex {
                         _ => (),
                     }
                 }
-                Space::Personal => match cloud_object_type_and_id {
-                    CloudObjectTypeAndId::Notebook(_) => {
-                        if has_feature_gated_anonymous_user_reached_notebook_limit(ctx) {
-                            return;
-                        }
+                Space::Personal => {
+                    if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Notebook(_))
+                        && has_feature_gated_anonymous_user_reached_notebook_limit(ctx)
+                    {
+                        return;
                     }
-                    CloudObjectTypeAndId::GenericStringObject {
-                        object_type:
-                            GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
-                        id: _,
-                    } => {
-                        if has_feature_gated_anonymous_user_reached_env_var_limit(ctx) {
-                            return;
-                        }
-                    }
-                    _ => {}
-                },
+                }
                 // We have to rely on server checks here, since the client doesn't know how many
                 // objects are in the owning drive.
                 Space::Shared => (),
@@ -2971,17 +2917,6 @@ impl DriveIndex {
                         None,
                     ))
                     .with_icon(Icon::Notebook)
-                    .into_item(),
-            );
-
-            menu_items.push(
-                MenuItemFields::new(ENV_VAR_COLLECTION_LABEL)
-                    .with_on_select_action(DriveIndexAction::create_object(
-                        DriveObjectType::EnvVarCollection,
-                        *space,
-                        None,
-                    ))
-                    .with_icon(Icon::EnvVarCollection)
                     .into_item(),
             );
 
@@ -3179,17 +3114,6 @@ impl DriveIndex {
                                 .into_item(),
                         );
 
-                        menu_items.push(
-                            MenuItemFields::new(INDEX_ENV_VAR_COLLECTION_LABEL)
-                                .with_on_select_action(DriveIndexAction::create_object(
-                                    DriveObjectType::EnvVarCollection,
-                                    *space,
-                                    Some(*folder_id),
-                                ))
-                                .with_icon(Icon::EnvVarCollection)
-                                .into_item(),
-                        );
-
                         menu_items.push(MenuItem::Separator);
                     }
                     if !FeatureFlag::SharedWithMe.is_enabled() || editability.can_edit() {
@@ -3256,72 +3180,26 @@ impl DriveIndex {
                 }
             }
         } else {
-            if let Some(object) = object {
-                if self.is_online(app) && object.metadata().is_errored() {
+            if let Some(object) = object
+                && self.is_online(app)
+                && object.metadata().is_errored()
+            {
+                menu_items.push(
+                    MenuItemFields::new("Retry")
+                        .with_on_select_action(DriveIndexAction::RetryFailedObject(
+                            *cloud_object_type_and_id,
+                        ))
+                        .with_icon(Icon::Refresh)
+                        .into_item(),
+                );
+
+                if let Some(server_id) = cloud_object_type_and_id.server_id() {
                     menu_items.push(
-                        MenuItemFields::new("Retry")
-                            .with_on_select_action(DriveIndexAction::RetryFailedObject(
-                                *cloud_object_type_and_id,
-                            ))
-                            .with_icon(Icon::Refresh)
+                        MenuItemFields::new("Revert to server")
+                            .with_on_select_action(DriveIndexAction::RevertFailedObject(server_id))
+                            .with_icon(Icon::ReverseLeft)
                             .into_item(),
                     );
-
-                    if let Some(server_id) = cloud_object_type_and_id.server_id() {
-                        menu_items.push(
-                            MenuItemFields::new("Revert to server")
-                                .with_on_select_action(DriveIndexAction::RevertFailedObject(
-                                    server_id,
-                                ))
-                                .with_icon(Icon::ReverseLeft)
-                                .into_item(),
-                        );
-                    }
-                }
-
-                let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
-
-                if self.edit_object_enabled(cloud_object_type_and_id, app)
-                    && env_var_collection.is_some()
-                {
-                    menu_items.push(
-                        Self::pane_menu_item(editability, false)
-                            .with_on_select_action(DriveIndexAction::OpenObject(
-                                object.cloud_object_type_and_id(),
-                            ))
-                            .into_item(),
-                    )
-                }
-            }
-
-            // Copy variables or load them in a subshell, both online and offline.
-            if let Some(object) = object {
-                match object.object_type() {
-                    ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                        JsonObjectType::EnvVarCollection,
-                    )) => {
-                        menu_items.push(
-                            MenuItemFields::new("Copy variables")
-                                .with_on_select_action(DriveIndexAction::CopyObjectToClipboard(
-                                    *cloud_object_type_and_id,
-                                ))
-                                .with_icon(Icon::CopyMenuItem)
-                                .into_item(),
-                        );
-                        menu_items.push(
-                            MenuItemFields::new("Load in subshell")
-                                .with_on_select_action(
-                                    DriveIndexAction::InvokeEnvVarCollectionInSubshell(
-                                        object.cloud_object_type_and_id(),
-                                    ),
-                                )
-                                .with_icon(Icon::Terminal)
-                                .into_item(),
-                        );
-                    }
-                    ObjectType::Notebook
-                    | ObjectType::Folder
-                    | ObjectType::GenericStringObject(_) => (),
                 }
             }
 
@@ -3355,10 +3233,7 @@ impl DriveIndex {
 
             if let Some(object) = object {
                 match object.object_type() {
-                    ObjectType::Notebook
-                    | ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                        JsonObjectType::EnvVarCollection,
-                    )) => {
+                    ObjectType::Notebook => {
                         if let Some(object_link) = object.object_link() {
                             menu_items.push(
                                 MenuItemFields::new("Copy link")
@@ -3441,21 +3316,6 @@ impl DriveIndex {
         }
 
         menu_items
-    }
-
-    /// Builder for a menu item to open a Warp Drive object in a pane. The icon and label depend
-    /// on whether the object is editable or not.
-    ///
-    /// If `prefer_open` is `true`, the item defaults to view/open mode rather than edit mode.
-    fn pane_menu_item(
-        editability: ContentEditability,
-        prefer_open: bool,
-    ) -> MenuItemFields<DriveIndexAction> {
-        if (FeatureFlag::SharedWithMe.is_enabled() && !editability.can_edit()) || prefer_open {
-            MenuItemFields::new("Open").with_icon(Icon::Eye)
-        } else {
-            MenuItemFields::new("Edit").with_icon(Icon::Rename)
-        }
     }
 
     fn trash_menu_items(
@@ -3669,14 +3529,7 @@ impl DriveIndex {
                             _ => {}
                         });
                     }
-                    CloudObjectTypeAndId::GenericStringObject { object_type, id: _ } => {
-                        if let GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) =
-                            object_type
-                            && let DriveIndexAction::EnterKey = key
-                        {
-                            ctx.emit(DriveIndexEvent::RunObject(*cloud_id))
-                        }
-                    }
+                    CloudObjectTypeAndId::GenericStringObject { .. } => {}
                 },
                 WarpDriveItemId::Space(space) => {
                     let section = *space;
@@ -3819,41 +3672,6 @@ impl TypedActionView for DriveIndex {
                     ctx.emit(DriveIndexEvent::OpenObject(*cloud_object_type_and_id))
                 }
             }
-            DriveIndexAction::CopyObjectToClipboard(cloud_object_type_and_id) => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::CopyObjectToClipboard(cloud_object_type_and_id.into()),
-                    ctx
-                );
-
-                let shell_family =
-                    active_terminal_in_window(ctx.window_id(), ctx, |terminal, ctx| {
-                        terminal.shell_family(ctx)
-                    })
-                    .unwrap_or_else(|| OperatingSystem::get().default_shell_family());
-
-                let cloud_model = CloudModel::as_ref(ctx);
-                let object = cloud_model.get_by_uid(&cloud_object_type_and_id.uid());
-
-                if let Some(object) = object {
-                    match object.object_type() {
-                        ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                            JsonObjectType::EnvVarCollection,
-                        )) => {
-                            let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
-                            if let Some(env_var_collection) = env_var_collection {
-                                let vars = env_var_collection
-                                    .model()
-                                    .string_model
-                                    .export_variables(" ", shell_family);
-                                ctx.clipboard().write(ClipboardContent::plain_text(vars));
-                            }
-                        }
-                        ObjectType::Notebook
-                        | ObjectType::Folder
-                        | ObjectType::GenericStringObject(_) => (),
-                    }
-                }
-            }
 
             DriveIndexAction::DuplicateObject(cloud_object_type_and_id) => {
                 send_telemetry_from_ctx!(
@@ -3912,9 +3730,6 @@ impl TypedActionView for DriveIndex {
                         );
                         ctx.focus(&self.cloud_object_naming_dialog.title_editor);
                     }
-                    DriveObjectType::EnvVarCollection => {
-                        report_error!("Creation of EnvVarCollections is not yet supported")
-                    }
                 }
 
                 ctx.notify();
@@ -3950,11 +3765,6 @@ impl TypedActionView for DriveIndex {
             DriveIndexAction::ClearDropTarget => self.clear_drop_target(ctx),
             DriveIndexAction::ToggleSectionCollapsed(section) => {
                 self.toggle_section_collapse(section, ctx);
-            }
-            DriveIndexAction::RunObject(id) => {
-                if !matches!(self.index_variant, DriveIndexVariant::Trash) {
-                    ctx.emit(DriveIndexEvent::RunObject(*id));
-                }
             }
             DriveIndexAction::ToggleFolderOpen(id) => {
                 // If WD is focused, then clicking a folder will set that folder to be focused
@@ -4086,9 +3896,6 @@ impl TypedActionView for DriveIndex {
             #[cfg(not(target_family = "wasm"))]
             DriveIndexAction::OpenObjectLinkOnDesktop(_) => {
                 // No-op when not on wasm
-            }
-            DriveIndexAction::InvokeEnvVarCollectionInSubshell(id) => {
-                ctx.emit(DriveIndexEvent::InvokeEnvVarCollectionInSubshell(*id))
             }
             DriveIndexAction::ToggleShareDialog { warp_drive_item_id } => {
                 self.toggle_share_dialog(

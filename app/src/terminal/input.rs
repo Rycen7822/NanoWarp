@@ -71,7 +71,7 @@ use self::decorations::InputBackgroundJobOptions;
 use super::alias::is_expandable_alias;
 use super::event::{BlockCompletedEvent, BlockType, UserBlockCompleted};
 use super::ligature_settings::LigatureSettings;
-use super::model::block::{BlockId, BlockMetadata, BlocklistEnvVarMetadata};
+use super::model::block::{BlockId, BlockMetadata};
 use super::model::completions::ShellCompletion;
 use super::model::session::{Session, SessionId, Sessions};
 use super::prompt_render_helper::{
@@ -89,7 +89,6 @@ use super::shell::ShellType;
 use super::view::{
     ExecuteCommandEvent, PADDING_LEFT as TERMINAL_VIEW_PADDING_LEFT, SyncInputType, TerminalAction,
 };
-use super::warpify::SubshellSource;
 use super::{History, HistoryEntry, SizeInfo, TerminalModel, prompt, should_right_click_paste};
 use crate::appearance::{Appearance, AppearanceEvent};
 #[cfg(feature = "local_fs")]
@@ -344,9 +343,6 @@ pub enum CommandExecutionSource {
 
     /// A normal command execution request.
     User,
-    EnvVarCollection {
-        metadata: BlocklistEnvVarMetadata,
-    },
 }
 
 fn render_prompt_chip_shell_command(
@@ -1017,9 +1013,7 @@ pub fn init(app: &mut AppContext) {
             CustomAction::History,
             InputAction::Up,
             "Show History",
-            // We need to ensure the workflow info box is not open as the "up" arrow
-            // key is used to navigate the environment variables dropdown.
-            id!("Input") & !id!("IMEOpen") & !id!("WorkflowInfoBox") & !id!("PromptChipMenuOpen"),
+            id!("Input") & !id!("IMEOpen") & !id!("PromptChipMenuOpen"),
         ),
     ]);
 
@@ -1145,7 +1139,7 @@ pub enum CompletionsTrigger {
 enum SubshellRenderState {
     /// Contains the subshell-spawning command for the flag. Render the flag
     /// and extend the flag into the input editor.
-    Flag(SubshellSource),
+    Flag(String),
     /// The input is inside a subshell, extend the flag into the input editor,
     /// but do not render the actual flag.
     Flagpole,
@@ -5487,15 +5481,10 @@ impl Input {
             .get(session_id)
             .and_then(|session| {
                 session.subshell_info().as_ref().map(|info| {
-                    if let Some(env_var_collection_name) = &info.env_var_collection_name {
-                        Some(SubshellRenderState::Flag(SubshellSource::EnvVarCollection(
-                            env_var_collection_name.to_owned(),
-                        )))
-                    } else {
-                        info.spawning_command.split_whitespace().next().map(|exec| {
-                            SubshellRenderState::Flag(SubshellSource::Command(exec.to_owned()))
-                        })
-                    }
+                    info.spawning_command
+                        .split_whitespace()
+                        .next()
+                        .map(|exec| SubshellRenderState::Flag(exec.to_owned()))
                 })
             })?;
 
@@ -5745,12 +5734,6 @@ impl View for Input {
         let mut ctx = Self::default_keymap_context();
         if InputSettings::as_ref(app).is_universal_developer_input_enabled(app) {
             ctx.set.insert("UniversalDeveloperInput");
-        }
-
-        if let Some(workflow) = self.workflows_state.selected_workflow_state.clone()
-            && workflow.should_show_more_info_view
-        {
-            ctx.set.insert("WorkflowInfoBox");
         }
 
         if self.prompt_render_helper.has_open_chip_menu(app) {

@@ -1,5 +1,4 @@
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 use warp_core::ui::appearance::Appearance;
@@ -13,7 +12,6 @@ use warpui::fonts::{FamilyId, Properties, Weight};
 use warpui::ui_components::components::{UiComponent as _, UiComponentStyles};
 use warpui::{AppContext, Element, EventContext, PaintContext, SingletonEntity as _};
 
-use super::SubshellSource;
 use super::settings::WarpifySettings;
 use crate::ui_components::blended_colors;
 use crate::ui_components::inline_action_icons;
@@ -26,8 +24,6 @@ pub const MAXIMUM_FLAG_FONT_SIZE: f32 = 13.;
 const SUBSHELL_FLAG_HORIZONTAL_PADDING: f32 = 8.;
 const SUBSHELL_FLAG_VERTICAL_PADDING: f32 = 1.;
 
-// TODO(liam): remove this once figuring out how to get theme color in layout()
-const WARP_DRIVE_ENV_VAR_COLLECTION_ICON_COLOR: u32 = 0xC464FFFF;
 const ICON_MARGIN: f32 = 4.;
 const TERMINAL_ICON: &str = "bundled/svg/terminal.svg";
 pub const HORIZONTAL_TEXT_MARGIN: f32 = 20.;
@@ -201,16 +197,6 @@ pub fn render_never_warpify_ssh_link(
     Some(Align::new(link).bottom_right().finish())
 }
 
-fn get_subshell_flag_info(subshell_source: &SubshellSource, theme: &WarpTheme) -> (String, Fill) {
-    match subshell_source {
-        SubshellSource::EnvVarCollection(environment_name) => (
-            environment_name.to_string(),
-            Fill::Solid(ColorU::from_u32(WARP_DRIVE_ENV_VAR_COLLECTION_ICON_COLOR)),
-        ),
-        SubshellSource::Command(command) => (command.to_string(), theme.subshell_background()),
-    }
-}
-
 /// A single solid color vertical bar positioned on the left-hand side of a blocklist element
 /// or the TextInput area, used to indicate being inside a context (like a subshell).
 /// Implementation should match `[render_subshell_flag_pole]`.
@@ -241,23 +227,22 @@ pub fn render_subshell_flag_pole(
 /// This function creates the Element for the subshell flag, which may be needed by the block list
 /// and the input editor.
 pub fn render_subshell_flag(
-    subshell_source: SubshellSource,
+    spawning_command: String,
     font_family: FamilyId,
     font_size: f32,
     theme: &WarpTheme,
 ) -> Box<dyn Element> {
-    let (flag_name, background_color) = get_subshell_flag_info(&subshell_source, theme);
     let container = Container::new(
         Flex::row()
             .with_children([
                 render_icon(font_size - 2., theme.foreground()),
-                Text::new_inline(flag_name, font_family, font_size - 2.)
+                Text::new_inline(spawning_command, font_family, font_size - 2.)
                     .with_color(theme.foreground().into())
                     .finish(),
             ])
             .finish(),
     )
-    .with_background(background_color)
+    .with_background(theme.subshell_background())
     .with_padding_left(SUBSHELL_FLAG_HORIZONTAL_PADDING)
     .with_padding_right(SUBSHELL_FLAG_HORIZONTAL_PADDING)
     .with_padding_top(SUBSHELL_FLAG_VERTICAL_PADDING)

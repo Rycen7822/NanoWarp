@@ -18,7 +18,6 @@ use warpui::rendering::ThinStrokes;
 
 use crate::auth::auth_manager::LoginGatedFeature;
 use crate::channel::Channel;
-use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
 use crate::cloud_object::{GenericStringObjectFormat, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -146,7 +145,7 @@ impl From<Space> for TelemetrySpace {
 
 /// Common metadata to include in all Warp Drive telemetry events that act on a specific object.
 /// Events that only apply to a single object type may use [`NotebookTelemetryMetadata`]
-/// or [`EnvVarTelemetryMetadata`] instead.
+/// instead.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CloudObjectTelemetryMetadata {
     pub object_type: TelemetryCloudObjectType,
@@ -211,15 +210,6 @@ pub struct NotebookActionEvent {
     pub action: NotebookTelemetryAction,
     #[serde(flatten)]
     pub metadata: NotebookTelemetryMetadata,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct EnvVarTelemetryMetadata {
-    /// The object ID, only available for cloud env vars that have been synced to the server.
-    pub object_id: Option<GenericStringObjectId>,
-    /// The team UID, only available for cloud env vars in a shared team.
-    pub team_uid: Option<ServerId>,
-    pub space: TelemetrySpace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -896,7 +886,6 @@ pub enum TelemetryEvent {
         num_teammates: usize,
         team_uid: ServerId,
     },
-    CopyObjectToClipboard(TelemetryCloudObjectType),
     OpenAndWarpifyDockerSubshell {
         /// Some variant if we support this shell type, and None otherwise.
         shell_type: Option<ShellType>,
@@ -971,7 +960,6 @@ pub enum TelemetryEvent {
         /// The OS footprint, not RSS, at confirmation time.
         confirmation_footprint_bytes: u64,
     },
-    EnvVarCollectionInvoked(EnvVarTelemetryMetadata),
 
     /// The user imported settings from another terminal.
     CompletedSettingsImport {
@@ -1472,9 +1460,6 @@ impl TelemetryEvent {
                 Some(json!({ "source": source, "reason": reason }))
             }
             TelemetryEvent::UnsupportedShell { shell } => Some(json!({ "shell": shell })),
-            TelemetryEvent::CopyObjectToClipboard(object_type) => {
-                Some(json!({ "object_type": object_type }))
-            }
             TelemetryEvent::OpenAndWarpifyDockerSubshell { shell_type } => {
                 Some(json!({ "shell_type": shell_type }))
             }
@@ -1572,7 +1557,6 @@ impl TelemetryEvent {
                 "triggering_footprint_bytes": triggering_footprint_bytes,
                 "confirmation_footprint_bytes": confirmation_footprint_bytes,
             })),
-            TelemetryEvent::EnvVarCollectionInvoked(metadata) => Some(json!(metadata)),
             TelemetryEvent::CompletedSettingsImport {
                 terminal_type,
                 imported_settings,
@@ -2065,7 +2049,6 @@ impl TelemetryEvent {
             | TelemetryEvent::UnsupportedShell { .. }
             | TelemetryEvent::LogOut
             | TelemetryEvent::InviteTeammates { .. }
-            | TelemetryEvent::CopyObjectToClipboard(_)
             | TelemetryEvent::OpenAndWarpifyDockerSubshell { .. }
             | TelemetryEvent::UpdateBlockFilterQuery
             | TelemetryEvent::UpdateBlockFilterQueryContextLines { .. }
@@ -2084,7 +2067,6 @@ impl TelemetryEvent {
             | TelemetryEvent::MemoryUsageStats { .. }
             | TelemetryEvent::MemoryUsageHigh { .. }
             | TelemetryEvent::TransientMemorySpike { .. }
-            | TelemetryEvent::EnvVarCollectionInvoked(_)
             | TelemetryEvent::CompletedSettingsImport { .. }
             | TelemetryEvent::SettingsImportConfigFocused(_)
             | TelemetryEvent::SettingsImportResetButtonClicked
@@ -2339,7 +2321,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::LogOut => EnablementState::Always,
             Self::SettingsImportInitiated => EnablementState::Always,
             Self::InviteTeammates => EnablementState::Always,
-            Self::CopyObjectToClipboard => EnablementState::Always,
             Self::OpenAndWarpifyDockerSubshell => EnablementState::Always,
             Self::UpdateBlockFilterQuery => EnablementState::Always,
             Self::UpdateBlockFilterQueryContextLines => EnablementState::Always,
@@ -2366,7 +2347,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             },
             Self::MemoryUsageHigh => EnablementState::Always,
             Self::TransientMemorySpike => EnablementState::Always,
-            Self::EnvVarCollectionInvoked => EnablementState::Always,
             Self::BlockCompletedOnDogfoodOnly => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
             },
@@ -2595,7 +2575,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::UnsupportedShell => "Unsupported Shell",
             Self::SettingsImportInitiated => "Settings Import Initiated",
             Self::InviteTeammates => "Invited Teammates",
-            Self::CopyObjectToClipboard => "Copy Object To Clipboard",
             Self::OpenAndWarpifyDockerSubshell => "OpenAndWarpifyDockerSubshell",
             Self::UpdateBlockFilterQuery => "Update Block Filter Query",
             Self::ToggleBlockFilterQuery => "Toggle Block Filter Query",
@@ -2623,7 +2602,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::MemoryUsageStats => "perf_metrics.memory_usage",
             Self::MemoryUsageHigh => "perf_metrics.memory_usage_high",
             Self::TransientMemorySpike => "perf_metrics.transient_memory_spike",
-            Self::EnvVarCollectionInvoked => "Invoked Environment Variables",
             Self::CompletedSettingsImport => "Completed Settings Import",
             Self::SettingsImportConfigFocused => "Focused Config in Settings Import",
             Self::SettingsImportResetButtonClicked => {
@@ -2999,7 +2977,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::LogOut => "Logged out of the Warp client",
             Self::SettingsImportInitiated => "Started the import settings flow for new users",
             Self::InviteTeammates => "Sent emails to invite teammates to join Warp Drive team",
-            Self::CopyObjectToClipboard => "Copied an object to the user's keyboard",
             Self::OpenAndWarpifyDockerSubshell => {
                 "Warpifying a docker subshell from using the docker extension"
             }
@@ -3031,7 +3008,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Application memory usage briefly crossed the excessive-usage threshold but \
                  dropped back under it before being reported as high"
             }
-            Self::EnvVarCollectionInvoked => "Invoked an environment variables object",
             Self::ObjectLinkCopied => "The web link to an object has been copied.",
             Self::FileTreeToggled => "Opened the file tree/project explorer",
             Self::GlobalSearchOpened => "Opened the global search view",

@@ -9,7 +9,6 @@ use crate::cloud_object::{CloudObjectMetadata, Space};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 
-pub mod env_var_collection;
 pub mod folder;
 pub mod item;
 pub mod notebook;

@@ -490,9 +490,6 @@ impl<T: EventLoopSender> PtyController<T> {
                     model.start_command_execution_for_shared_session(participant_id)
                 }
                 CommandExecutionSource::User => model.start_command_execution(),
-                CommandExecutionSource::EnvVarCollection { metadata } => {
-                    model.start_command_execution_from_env_var_collection(metadata)
-                }
             };
             if !outcome.is_accepted() {
                 return outcome;

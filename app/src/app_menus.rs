@@ -538,18 +538,10 @@ fn make_new_drive_menu(ctx: &AppContext) -> Menu {
         CustomAction::NewPersonalNotebook,
         ctx,
     )];
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::NewPersonalEnvVars,
-        ctx,
-    ));
     items.extend([
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::NewTeamNotebook, ctx),
     ]);
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::NewTeamEnvVars,
-        ctx,
-    ));
     items.extend([
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),

@@ -39,7 +39,6 @@ const clientMutations = [
   'sendOnboardingSurveyResponses',
   'setObjectLinkPermissions',
   'setUserIsOnboarded',
-  'transferGenericStringObjectOwner',
   'transferNotebookOwner',
   'trashObject',
   'untrashObject',

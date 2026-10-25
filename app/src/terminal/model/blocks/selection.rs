@@ -14,7 +14,6 @@ use warpui::{AppContext, EntityId, ViewAsRef as _};
 use super::{
     BlockHeight, BlockHeightItem, BlockHeightSummary, BlockList, BlockListPoint, RichContentItem,
 };
-use crate::env_vars::env_var_collection_block::EnvVarCollectionBlock;
 use crate::terminal::GridType;
 use crate::terminal::event::Event as TerminalEvent;
 use crate::terminal::model::block::BlockSection;
@@ -991,23 +990,13 @@ impl BlockList {
 
                 let mut selected_texts = vec![];
                 for view_id in ids {
-                    if let Some(active_window_id) = app.windows().active_window() {
-                        if let Some(env_var_block) =
-                            app.view_with_id::<EnvVarCollectionBlock>(active_window_id, view_id)
-                        {
-                            let block = app.view(&env_var_block);
-                            if let Some(selected_text) = block.selected_text(app) {
-                                selected_texts.push(selected_text);
-                            }
-                        }
-
-                        if let Some(ssh_block) =
+                    if let Some(active_window_id) = app.windows().active_window()
+                        && let Some(ssh_block) =
                             app.view_with_id::<WarpifySuccessBlock>(active_window_id, view_id)
-                        {
-                            let warpify_success_block = app.view(&ssh_block);
-                            if let Some(selected_text) = warpify_success_block.selected_text() {
-                                selected_texts.push(selected_text);
-                            }
+                    {
+                        let warpify_success_block = app.view(&ssh_block);
+                        if let Some(selected_text) = warpify_success_block.selected_text() {
+                            selected_texts.push(selected_text);
                         }
                     }
                 }

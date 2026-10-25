@@ -76,13 +76,6 @@ pub enum LocalShellStateEvent {}
 /// which asynchronously collects information about the user's default
 /// shell/corresponding path environment variable. It's useful in
 /// executing commands locally without having to initiate a session.
-///
-/// Its usage pattern can be seen in app/src/external_secrets/mod.rs,
-/// where the shell_path is fetched from a caller view (in this case,
-/// fetch_secrets in app/src/env_vars/env_var_collection.rs) via a
-/// LocalShell handle, and is passed into the external secret manager
-/// interface. The interface then dispatches commands to execute via
-/// execute_command in this file.
 #[cfg(feature = "local_tty")]
 impl LocalShellState {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {

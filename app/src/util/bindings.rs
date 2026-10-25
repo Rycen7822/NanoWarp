@@ -97,9 +97,7 @@ pub enum CustomAction {
     CloseCurrentSession,
     CloseWindow,
     NewPersonalNotebook,
-    NewPersonalEnvVars,
     NewTeamNotebook,
-    NewTeamEnvVars,
     ShareCurrentSession,
     SharePaneContents,
     #[cfg(windows)]
@@ -414,9 +412,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::DisableSyncTerminalInputs
         | CustomAction::ToggleSyncAllTerminalInputsInAllTabs
         | CustomAction::NewPersonalNotebook
-        | CustomAction::NewPersonalEnvVars
         | CustomAction::NewTeamNotebook
-        | CustomAction::NewTeamEnvVars
         | CustomAction::ShareCurrentSession
         | CustomAction::SharePaneContents => None,
     }
@@ -754,7 +750,6 @@ pub enum BindingGroup {
     Folders,
     KeyboardShortcuts,
     Notifications,
-    EnvVarCollection,
     Terminal,
 }
 
@@ -769,7 +764,6 @@ impl BindingGroup {
             Self::KeyboardShortcuts => "keyboard_shortcuts",
             Self::Close => "close",
             Self::Notifications => "notifications",
-            Self::EnvVarCollection => "env_var_collections",
             Self::Terminal => "terminal",
         }
     }

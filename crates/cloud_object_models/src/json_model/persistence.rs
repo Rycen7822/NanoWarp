@@ -10,19 +10,12 @@ use cloud_objects::ids::GenericStringObjectId;
 use diesel::SqliteConnection;
 use diesel::result::Error;
 
-use crate::{
-    CloudEnvVarCollection, CloudEnvVarCollectionModel, CloudPreference, CloudPreferenceModel,
-};
-
-pub enum PersistedGenericStringObject {
-    Preference(CloudPreference),
-    EnvVarCollection(CloudEnvVarCollection),
-}
+use crate::{CloudPreference, CloudPreferenceModel};
 
 pub fn read_generic_string_objects(
     conn: &mut SqliteConnection,
     read_context: &CloudObjectReadContext,
-) -> Result<Vec<PersistedGenericStringObject>, Error> {
+) -> Result<Vec<CloudPreference>, Error> {
     Ok(read_generic_string_object_rows(conn)?
         .into_iter()
         .filter_map(|object| {
@@ -34,37 +27,22 @@ pub fn read_generic_string_objects(
             )?;
             let object_id = id_from_metadata::<GenericStringObjectId>(metadata)?;
             let cloud_object_permissions = read_context.permissions_for_metadata(metadata)?;
-            let json_object_type: JsonObjectType = metadata
+            let JsonObjectType::Preference = metadata
                 .object_type
                 .strip_prefix(&format!(
                     "{GENERIC_STRING_OBJECT_PREFIX}{JSON_OBJECT_PREFIX}"
                 ))?
                 .try_into()
                 .ok()?;
-            match json_object_type {
-                JsonObjectType::Preference => {
-                    let model = CloudPreferenceModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::Preference(CloudPreference::new(
-                            object_id,
-                            model,
-                            to_cloud_object_metadata(metadata),
-                            cloud_object_permissions,
-                        ))
-                    })
-                }
-                JsonObjectType::EnvVarCollection => {
-                    let model = CloudEnvVarCollectionModel::deserialize_owned(&object.data);
-                    model.ok().map(|model| {
-                        PersistedGenericStringObject::EnvVarCollection(CloudEnvVarCollection::new(
-                            object_id,
-                            model,
-                            to_cloud_object_metadata(metadata),
-                            cloud_object_permissions,
-                        ))
-                    })
-                }
-            }
+            let model = CloudPreferenceModel::deserialize_owned(&object.data);
+            model.ok().map(|model| {
+                CloudPreference::new(
+                    object_id,
+                    model,
+                    to_cloud_object_metadata(metadata),
+                    cloud_object_permissions,
+                )
+            })
         })
         .collect())
 }

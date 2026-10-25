@@ -298,8 +298,6 @@ pub enum WorkspaceAction {
     CreateTeamNotebook,
     CreatePersonalFolder,
     CreateTeamFolder,
-    CreateTeamEnvVarCollection,
-    CreatePersonalEnvVarCollection,
     ToggleMouseReporting,
     ToggleScrollReporting,
     ToggleFocusReporting,
@@ -369,7 +367,6 @@ pub enum WorkspaceAction {
     ToggleSyncTerminalInputsInTab,
     /// An action to force terminal input syncing off
     DisableTerminalInputSync,
-    HandleConflictingEnvVarCollection(SyncId),
     OpenPromptEditor {
         open_source: PromptEditorOpenSource,
     },
@@ -561,7 +558,6 @@ impl From<&WorkspaceAction> for LoginGatedFeature {
         match val {
             CreateTeamNotebook => "Creating a team notebook",
             CreateTeamFolder => "Creating a team folder",
-            CreateTeamEnvVarCollection => "Creating a team environment variable collection",
             OpenShareSessionModal(_) => "Sharing a session",
             _ => "Unknown reason",
         }
@@ -573,10 +569,7 @@ impl WorkspaceAction {
         use WorkspaceAction::*;
         matches!(
             self,
-            CreateTeamNotebook
-                | CreateTeamFolder
-                | CreateTeamEnvVarCollection
-                | OpenShareSessionModal(_)
+            CreateTeamNotebook | CreateTeamFolder | OpenShareSessionModal(_)
         )
     }
 
@@ -709,8 +702,6 @@ impl WorkspaceAction {
             | CreateTeamNotebook
             | CreatePersonalFolder
             | CreateTeamFolder
-            | CreateTeamEnvVarCollection
-            | CreatePersonalEnvVarCollection
             | OpenInExplorer { .. }
             | DragTab { .. }
             | StartTabDrag
@@ -747,7 +738,6 @@ impl WorkspaceAction {
             | ToggleSyncAllTerminalInputsInAllTabs
             | ToggleSyncTerminalInputsInTab
             | DisableTerminalInputSync
-            | HandleConflictingEnvVarCollection(_)
             | OpenPromptEditor { .. }
             | OpenHeaderToolbarEditor
             | ShowHeaderToolbarContextMenu { .. }

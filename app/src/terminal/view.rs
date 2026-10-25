@@ -142,9 +142,7 @@ use super::available_shells::AvailableShell;
 use super::block_list_viewport::FindMatchScrollLocation;
 use super::event::SshLoginStatus;
 use super::find::FindOptions;
-use super::model::block::{
-    BlockSection, BlocklistEnvVarMetadata, LONG_RUNNING_COMMAND_DURATION_MS,
-};
+use super::model::block::{BlockSection, LONG_RUNNING_COMMAND_DURATION_MS};
 use super::model::completions::ShellCompletion;
 use super::model::rich_content::RichContentType;
 use super::model::selection::ExpandedSelectionRange;
@@ -163,8 +161,6 @@ use crate::banner::{
     Banner, BannerAction, BannerEvent, BannerState, BannerTextButton, BannerTextContent,
     DismissalType,
 };
-use crate::cloud_object::CloudObject;
-use crate::cloud_object::model::actions::ObjectActionType;
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 #[cfg(feature = "local_fs")]
@@ -179,10 +175,6 @@ use crate::context_chips::prompt_type::PromptType;
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::settings::WarpDriveSettings;
 use crate::editor::{AutosuggestionType, CrdtOperation, EditorAction};
-use crate::env_vars::env_var_collection_block::{
-    EnvVarCollectionBlock, EnvVarCollectionBlockEvent,
-};
-use crate::env_vars::{CloudEnvVarCollection, EnvVar, EnvVarExt};
 use crate::features::FeatureFlag;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
@@ -197,7 +189,6 @@ use crate::remote_server::manager::{
 use crate::resource_center::{
     Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
-use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::ObjectUid;
 use crate::server::server_api::ServerApi;
 use crate::server::telemetry::{
@@ -311,7 +302,6 @@ use crate::terminal::view::ssh_tmux_deprecation_banner::{
     SshTmuxDeprecationBanner, SshTmuxDeprecationBannerEvent,
 };
 use crate::terminal::view::zero_state_block::TerminalViewZeroStateBlock;
-use crate::terminal::warpify::SubshellSource;
 use crate::terminal::warpify::render::render_subshell_separator;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::terminal::waterfall_gap_element::WaterfallGapElement;
@@ -442,11 +432,6 @@ const BRACKETED_PASTE_SUFFIX: &str = "\x1b[201~";
 
 /// Duration before we consider a session to have failed bootstrapping.
 const BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(7);
-/// Duration before we consider a session invoked from an env vars object to
-/// have failed bootstrapping. The longer duration is meant to account for
-/// a user needing to type in one or many secret manager passwords
-/// during the bootstrap period.
-const ENV_VAR_BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(60);
 /// How long the slow-bootstrap banner stays visible after it first appears
 /// before it auto-dismisses. The banner used to persist until the user
 /// dismissed it manually or bootstrap finished, but in workflows where
@@ -1576,7 +1561,7 @@ pub struct TerminalViewRenderContext {
     pub terminal_view_id: EntityId,
     /// This map contains the IDs of sessions that were subshells as keys. Their corresponding
     /// values are the command that spawned the subshell, which is needed to paint the "flag"
-    pub spawning_command_for_subshell_sessions: HashMap<SessionId, SubshellSource>,
+    pub spawning_command_for_subshell_sessions: HashMap<SessionId, String>,
 
     pub obfuscate_secrets: ObfuscateSecrets,
     pub hovered_secret: Option<SecretHandle>,
@@ -1864,12 +1849,9 @@ pub struct TerminalView {
     /// The type of the subshell that we will bootstrap/"warpify"" on the next [`AfterBlockStarted`]
     /// terminal model event. Will only be `Some` with a [`ShellType`] we can bootstrap.
     pending_auto_bootstrap_shell_type: Option<ShellType>,
-    env_vars: Vec<EnvVar>,
 
     show_snackbar: bool,
     hover_near_snackbar_area: bool,
-
-    pending_env_var_collection: Option<CloudEnvVarCollection>,
 
     // TODO(suraj): consider flattening this to the [`SharedSessionKind`]
     // and adding a `Unshared` variant to it. This would require [`SharedSessionKind::Sharer`]
@@ -2678,8 +2660,6 @@ impl TerminalView {
             onboarding_prompt_block: None,
             settings_import_onboarding_block: None,
             pending_auto_bootstrap_shell_type: None,
-            pending_env_var_collection: None,
-            env_vars: Vec::new(),
             show_snackbar: true,
             hover_near_snackbar_area: false,
             shared_session: None,
@@ -3648,10 +3628,6 @@ impl TerminalView {
             return false;
         }
 
-        if self.active_env_var_collection_block(app).is_some() {
-            return false;
-        }
-
         // Hide the input box while the SSH remote-server choice block is shown.
         // User must choose to install or skip before any shell input is possible.
         if self.active_ssh_remote_server_choice_block().is_some() {
@@ -3684,10 +3660,6 @@ impl TerminalView {
         }
 
         true
-    }
-
-    pub fn has_active_env_var_block(&self, app: &AppContext) -> bool {
-        self.active_env_var_collection_block(app).is_some()
     }
 
     /// Shuts down the pty and event loop, terminating the shell process.
@@ -3780,21 +3752,6 @@ impl TerminalView {
     fn ctrl_c_to_active_block(&mut self, is_long_running: bool, ctx: &mut ViewContext<Self>) {
         if is_long_running {
             self.user_write_ctrl_c_to_pty(ctx);
-        } else {
-            self.maybe_handle_ctrl_c_in_rich_content_block(ctx);
-        }
-    }
-
-    /// If there is an active rich content block that is set up to handle ctrl-c
-    /// events, allow it to handle the event.
-    ///
-    /// TODO(CORE-3415): We should probably remove the FixedBindings for ctrl-c
-    /// in the SSH warpification blocks and handle them here as well.
-    fn maybe_handle_ctrl_c_in_rich_content_block(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(active_env_var_block) = self.active_env_var_collection_block(ctx) {
-            active_env_var_block.update(ctx, |env_var_block, ctx| {
-                env_var_block.handle_ctrl_c(ctx);
-            });
         }
     }
 
@@ -4527,12 +4484,7 @@ impl TerminalView {
 
         self.write_init_subshell_bytes_to_pty(shell_type, ctx);
 
-        if !self.env_vars.is_empty() {
-            self.start_bootstrap_timer(ENV_VAR_BOOTSTRAP_FAILED_DURATION, ctx);
-            self.env_vars = Vec::new();
-        } else {
-            self.start_bootstrap_timer(BOOTSTRAP_FAILED_DURATION, ctx);
-        }
+        self.start_bootstrap_timer(BOOTSTRAP_FAILED_DURATION, ctx);
 
         send_telemetry_from_ctx!(
             TelemetryEvent::TriggerSubshellBootstrap {
@@ -5680,38 +5632,6 @@ impl TerminalView {
                 self.find_model.update(ctx, |find_model, ctx| {
                     find_model.notify_block_completed(completed_block_index, ctx);
                 });
-
-                if !matches!(block_completed_event.block_type, BlockType::BootstrapHidden)
-                    && let Some(env_var_block) = self.active_env_var_collection_block(ctx)
-                {
-                    let output_truncated =
-                        if let BlockType::User(completed) = &block_completed_event.block_type {
-                            Some(
-                                completed
-                                    .output_truncated
-                                    .get_with(|compute| {
-                                        let model = self.model.lock();
-                                        compute(model.block_list())
-                                    })
-                                    .to_owned(),
-                            )
-                        } else {
-                            None
-                        };
-                    env_var_block.update(ctx, move |block, ctx| {
-                        if block.is_running() {
-                            match output_truncated {
-                                // If we have a non-empty response we assume it's an error. We are
-                                // relying on this because we don't get a non-zero exit code for the
-                                // `export` function
-                                Some(output) if !output.is_empty() => {
-                                    block.on_failed(Some(output), ctx)
-                                }
-                                _ => block.on_succeeded(ctx),
-                            }
-                        }
-                    });
-                }
 
                 // If this block ran a possible subshell command, and it exited before the 1s timer
                 // completed, abort showing the banner.
@@ -6886,10 +6806,6 @@ impl TerminalView {
             self.attempt_to_share_session(SharedSessionScrollbackType::All, None, source, ctx);
         }
 
-        if let Some(env_var_collection) = self.pending_env_var_collection.take() {
-            self.invoke_environment_variables(env_var_collection, false, ctx);
-        }
-
         let is_subshell_or_ssh = session.is_subshell_or_ssh();
 
         // Make sure we decorate any text that is already in the input.  We
@@ -7288,7 +7204,7 @@ impl TerminalView {
         let session_id = crate::terminal::bootstrap::generate_session_id();
         self.model.lock().register_session_id(session_id);
         self.clear_line_editor_and_write_to_pty(
-            init_subshell_command(shell_type, &self.env_vars, session_id, ctx).into_bytes(),
+            init_subshell_command(shell_type, session_id, ctx).into_bytes(),
             ctx,
         );
         self.write_to_pty(vec![escape_sequences::C0::CR], ctx);
@@ -10324,73 +10240,10 @@ impl TerminalView {
         ctx.notify();
     }
 
-    /// Clears selected text across all types of blocks and handles side effects (i.e. Agent Mode
-    /// context, etc.). Never invoke `block_list_mut().clear_selection()` elsewhere on its own.
+    /// Clears selected text and handles selection side effects.
     fn clear_selected_text(&mut self, ctx: &mut ViewContext<Self>) {
-        self.clear_selected_text_except(None, ctx);
-    }
-
-    /// Clears selected text across all types of blocks and handles side effects (i.e. Agent Mode
-    /// context, etc.). Never invoke `block_list_mut().clear_selection()` elsewhere on its own.
-    ///
-    /// Provides the option of keeping the existing text selection for one rich content view, whose
-    /// view ID must be passed in via `exempt_rich_content_view_id`. This is helpful for ensuring that
-    /// text selections don't simultaneously exist on unrelated views (i.e. a regular command block
-    /// and a suggested plan).
-    fn clear_selected_text_except(
-        &mut self,
-        exempt_rich_content_view_id: Option<EntityId>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // The below function clears all text selections within the underlying `TerminalModel`:
-        // - Text selection rendering on regular blocks is tied to the underlying model.
-        // - Text selection rendering on rich content blocks is **not** tied to the underlying model.
-        //
-        // Thus, not only is invoking `clear_selection()` on its own insufficient for clearing all
-        // on-screen text selections, but the invocation must also be followed by supplementary logic
-        // to clear visual text selections on rich content views.
-        //
-        // This also explains why we don't invoke this function unless we're attempting to clear
-        // **all** selected text; because rich content text copying will stop working otherwise.
-        if exempt_rich_content_view_id.is_none() {
-            self.model.lock().block_list_mut().clear_selection();
-        }
-
-        // Clear all selected text within rich content block view sub-hierarchies,
-        // except for the rich content block with a matching view ID.
-        for rich_content in self.rich_content_views.iter() {
-            match rich_content.metadata() {
-                Some(RichContentMetadata::EnvVarCollectionBlock {
-                    env_var_collection_block_handle,
-                    ..
-                }) => {
-                    if exempt_rich_content_view_id
-                        .is_some_and(|view_id| env_var_collection_block_handle.id() == view_id)
-                    {
-                        continue;
-                    }
-                    env_var_collection_block_handle.update(ctx, |env_var_collection_block, ctx| {
-                        env_var_collection_block.clear_selection(ctx);
-                    });
-                }
-                Some(RichContentMetadata::WarpifySuccessBlock { .. }) => {
-                    // TODO(Simon): We should be checking for WarpifySuccessBlocks here as well.
-                    // The `WarpifySuccessBlock` implements a `SelectableArea`.
-                }
-                _ => {}
-            }
-        }
-
-        // When this function is invoked because of an ongoing text selection within a nested
-        // rich content view component (i.e. `CodeEditorView`), setting `is_selecting` to false
-        // will prevent the selection from "spilling" into neighbouring blocks.
+        self.model.lock().block_list_mut().clear_selection();
         self.is_selecting = false;
-
-        // TODO(Simon): This doesn't work as intended for nested inline SelectableAreas.
-        // This includes inline action headers, requested commands, and env var collection blocks.
-        // The reasoning behind this is that `SelectableArea`s don't produce selected text until
-        // the selection is **complete**, but `clear_selected_text_except` is only invoked while
-        // nested selections are **ongoing**.
         self.maybe_copy_selection_to_clipboard(ctx);
     }
 
@@ -10428,25 +10281,6 @@ impl TerminalView {
     fn focus_block_filter_editor(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.focus(&self.block_filter_editor);
         ctx.notify();
-    }
-
-    /// Returns the last block's `EnvVarCollectionBlock` if it is uncompleted, scoped to the
-    /// currently visible conversation.
-    fn active_env_var_collection_block(
-        &self,
-        ctx: &AppContext,
-    ) -> Option<&ViewHandle<EnvVarCollectionBlock>> {
-        let last_visible_block = self.rich_content_views.last()?;
-        if let Some(RichContentMetadata::EnvVarCollectionBlock {
-            env_var_collection_block_handle,
-        }) = last_visible_block.metadata()
-        {
-            return (!env_var_collection_block_handle
-                .as_ref(ctx)
-                .is_block_completed())
-            .then_some(env_var_collection_block_handle);
-        }
-        None
     }
 
     /// Examines the local state of the [`TerminalView`] and chooses where best to assign focus.
@@ -10534,15 +10368,7 @@ impl TerminalView {
                 Some(ssh_choice_view) => {
                     ctx.focus(&ssh_choice_view);
                 }
-                _ => {
-                    if let Some(env_var_collection_block_handle) =
-                        self.active_env_var_collection_block(ctx)
-                    {
-                        ctx.focus(env_var_collection_block_handle);
-                    } else {
-                        self.focus_input_box(ctx);
-                    }
-                }
+                _ => self.focus_input_box(ctx),
             }
         }
     }
@@ -11886,7 +11712,7 @@ impl TerminalView {
     fn spawning_command_for_subshell_sessions(
         &self,
         app: &AppContext,
-    ) -> HashMap<SessionId, SubshellSource> {
+    ) -> HashMap<SessionId, String> {
         self.sessions
             .as_ref(app)
             .spawning_command_for_subshell_sessions()
@@ -13375,122 +13201,10 @@ impl TerminalView {
         });
     }
 
-    fn reset_focus_after_rich_block(&mut self, ctx: &mut ViewContext<Self>) {
-        self.redetermine_terminal_focus(ctx);
-        self.input.update(ctx, |input, ctx| {
-            input.editor().update(ctx, |editor, ctx| {
-                editor.clear_autosuggestion(ctx);
-            });
-        });
-    }
-
-    pub fn cancel_env_var_block(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(block) = self.active_env_var_collection_block(ctx) {
-            block.update(ctx, |view, ctx| {
-                view.cancel(ctx);
-            });
-        }
-    }
-
-    fn add_env_var_block_to_blocklist(
-        &mut self,
-        collection_title: String,
-        command: String,
-        session_id: SessionId,
-        cloud_object_type_and_id: CloudObjectTypeAndId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let block_id = Uuid::new_v4().to_string();
-        let env_var_collection_block = ctx.add_typed_action_view(|ctx| {
-            EnvVarCollectionBlock::new(block_id.clone(), collection_title, command, ctx)
-        });
-        env_var_collection_block.update(ctx, |block, ctx| block.focus(ctx));
-
-        ctx.subscribe_to_view(&env_var_collection_block, move |me, block, event, ctx| {
-            let event = event.clone();
-            match event {
-                EnvVarCollectionBlockEvent::RanCommand(command) => {
-                    ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
-                        command,
-                        session_id,
-                        should_add_command_to_history: false,
-                        source: CommandExecutionSource::EnvVarCollection {
-                            metadata: BlocklistEnvVarMetadata {
-                                block_id: block_id.clone(),
-                                should_hide_block: true,
-                            },
-                        },
-                    }));
-
-                    UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                        update_manager.record_object_action(
-                            cloud_object_type_and_id,
-                            ObjectActionType::Execute,
-                            None,
-                            ctx,
-                        )
-                    });
-                    me.reset_focus_after_rich_block(ctx);
-                }
-                EnvVarCollectionBlockEvent::Cancelled => {
-                    // Send the escape code corresponding to ctrl-c, indicating the running command
-                    // should be terminated. Note that this will not revert already-run `export`s.
-                    me.keydown_on_terminal("\u{0003}", ctx);
-                    me.reset_focus_after_rich_block(ctx);
-                }
-                EnvVarCollectionBlockEvent::ToggledExpanded(block_id) => {
-                    me.model
-                        .lock()
-                        .block_list_mut()
-                        .toggle_visibility_of_block_for_env_var(&block_id);
-                    me.redetermine_global_focus(ctx);
-                    ctx.notify();
-                }
-                EnvVarCollectionBlockEvent::TextSelected => {
-                    me.clear_selected_text_except(Some(block.id()), ctx);
-                }
-            }
-
-            ctx.notify();
-        });
-
-        self.insert_rich_content(
-            None,
-            env_var_collection_block.clone(),
-            Some(RichContentMetadata::EnvVarCollectionBlock {
-                env_var_collection_block_handle: env_var_collection_block,
-            }),
-            RichContentInsertionPosition::Append {
-                insert_below_long_running_block: false,
-            },
-            ctx,
-        );
-    }
-
-    fn display_non_local_environment_variable_error(
-        &self,
-        window_id: WindowId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            toast_stack.add_ephemeral_toast(
-                DismissibleToast::error(
-                    "Can not invoke environment variable subshell in a non-local session"
-                        .to_owned(),
-                ),
-                window_id,
-                ctx,
-            );
-        });
-    }
-
     #[allow(unused_variables)]
     fn get_shell_starter_local(&self, ctx: &mut ViewContext<Self>) -> Option<(String, ShellType)> {
         #[cfg(feature = "local_tty")]
         {
-            // TODO(CORE-2300): This appears to be used for invoking env vars.
-            // Before we close out CORE-2300, we should evaluate if we need to add
-            // shell info here.
             let shell_starter = get_shell_starter(None, &self.auth_state, ctx)?;
             let shell_path = match &shell_starter {
                 ShellStarter::Direct(direct_shell_starter)
@@ -13505,132 +13219,6 @@ impl TerminalView {
 
         #[cfg(not(feature = "local_tty"))]
         None
-    }
-
-    pub fn invoke_environment_variables(
-        &mut self,
-        cloud_env_var_collection: CloudEnvVarCollection,
-        in_subshell: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let session_id = self.active_block_session_id();
-
-        if !in_subshell {
-            let Some(shell_type) = self.active_session_shell_type(ctx) else {
-                return;
-            };
-            self.invoke_env_vars_in_current_session(
-                cloud_env_var_collection.clone(),
-                shell_type,
-                session_id,
-                ctx,
-            );
-        } else {
-            let window_id = ctx.window_id();
-            let shell_session_info =
-                if self.active_session_is_local(ctx).unwrap_or(false) || !in_subshell {
-                    if let Some(shell_info) = self.get_shell_starter_local(ctx) {
-                        shell_info
-                    } else {
-                        // TODO(PR): This can fail for reasons besides being "non-local". We can also
-                        // not find a fallback shell.
-                        self.display_non_local_environment_variable_error(window_id, ctx);
-                        return;
-                    }
-                } else {
-                    self.display_non_local_environment_variable_error(window_id, ctx);
-                    return;
-                };
-
-            self.invoke_env_vars_in_subshell(
-                cloud_env_var_collection,
-                shell_session_info,
-                window_id,
-                ctx,
-            );
-        }
-    }
-
-    fn invoke_env_vars_in_current_session(
-        &mut self,
-        cloud_env_var_collection: CloudEnvVarCollection,
-        shell_type: ShellType,
-        session_id: Option<SessionId>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let env_var_collection = cloud_env_var_collection.model().string_model.clone();
-        if let Some(session_id) = session_id {
-            self.add_env_var_block_to_blocklist(
-                env_var_collection
-                    .title
-                    .clone()
-                    .unwrap_or("Untitled".to_owned()),
-                env_var_collection
-                    .vars
-                    .iter()
-                    .map(|var| var.get_initialization_string(shell_type))
-                    .collect_vec()
-                    .join(" "),
-                session_id,
-                cloud_env_var_collection.cloud_object_type_and_id(),
-                ctx,
-            );
-        } else {
-            self.pending_env_var_collection = Some(cloud_env_var_collection)
-        }
-    }
-
-    fn set_and_execute_subshell_command(
-        &mut self,
-        shell_command: &str,
-        shell_type: ShellType,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Attempt to auto warpify the subshell when bootstrapped
-        self.pending_auto_bootstrap_shell_type = Some(shell_type);
-
-        self.input.update(ctx, |input, ctx| {
-            input.set_pending_command(shell_command, ctx);
-            input.execute_pending_command(ctx);
-        });
-    }
-
-    fn invoke_env_vars_in_subshell(
-        &mut self,
-        cloud_env_var_collection: CloudEnvVarCollection,
-        shell_session_info: (String, ShellType),
-        window_id: WindowId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let env_var_collection = cloud_env_var_collection.model().string_model.clone();
-
-        let (shell_path_string, shell_type) = shell_session_info;
-        if shell_type == ShellType::PowerShell {
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                let toast =
-                    DismissibleToast::error("PowerShell subshells not supported".to_owned());
-                toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-            });
-            return;
-        }
-
-        // Set the env vars before executing a subshell command so that it will be loaded on
-        // subshell start
-        self.env_vars = env_var_collection.vars;
-        self.model.lock().set_env_var_collection_name(Some(
-            env_var_collection.title.unwrap_or("Untitled".to_owned()),
-        ));
-        self.set_and_execute_subshell_command(&shell_path_string, shell_type, ctx);
-
-        // Ok to update the execution record here because we auto-execute when in subshell
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.record_object_action(
-                cloud_env_var_collection.cloud_object_type_and_id(),
-                ObjectActionType::Execute,
-                None,
-                ctx,
-            )
-        });
     }
 
     #[cfg(feature = "integration_tests")]

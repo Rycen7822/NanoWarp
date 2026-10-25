@@ -76,7 +76,6 @@ use crate::terminal::model::selection::{SelectAction, SelectionPoint};
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
-use crate::terminal::warpify::SubshellSource;
 use crate::terminal::{SizeInfo, grid_renderer, should_right_click_paste};
 use crate::themes::theme::{Fill, WarpTheme};
 use crate::ui_components::icons as UIIcon;
@@ -588,7 +587,7 @@ pub struct BlockListElement {
     is_terminal_selecting: bool,
     /// This map contains the IDs of sessions that were subshells as keys. Their corresponding
     /// values are the command that spawned the subshell, which is needed to paint the "flag"
-    subshell_sessions: HashMap<SessionId, SubshellSource>,
+    subshell_sessions: HashMap<SessionId, String>,
     size: Option<Vector2F>,
     /// These are the bounds the UI framework paints in, which are NOT necessarily the same as the visible bounds of the blocklist element.
     /// If we have a horizontal scroll bar (see horizontal_clipped_scroll_state), the UI bounds can go beyond the actually visible bounds.
@@ -3052,17 +3051,11 @@ impl Element for BlockListElement {
                                         && self.subshell_separator_height == 0.
                                         && !block.is_background()
                                     {
-                                        let command = if let SubshellSource::Command(cmd) = command
-                                        {
-                                            cmd.split_whitespace()
-                                                .next()
-                                                .map(|exec| {
-                                                    SubshellSource::Command(exec.to_owned())
-                                                })
-                                                .unwrap_or_else(|| command.clone())
-                                        } else {
-                                            command.clone()
-                                        };
+                                        let command = command
+                                            .split_whitespace()
+                                            .next()
+                                            .map(ToOwned::to_owned)
+                                            .unwrap_or_else(|| command.clone());
 
                                         let mut flag_element = render_subshell_flag(
                                             command,

@@ -29,7 +29,6 @@ type SortByComparator<'a> = dyn FnMut(&&dyn CloudObject, &&dyn CloudObject) -> O
 pub enum DriveObjectType {
     Notebook,
     Folder,
-    EnvVarCollection,
 }
 
 impl From<DriveObjectType> for Icon {
@@ -37,7 +36,6 @@ impl From<DriveObjectType> for Icon {
         match cloud_object_type {
             DriveObjectType::Notebook => Icon::Notebook,
             DriveObjectType::Folder => Icon::Folder,
-            DriveObjectType::EnvVarCollection => Icon::EnvVarCollection,
         }
     }
 }
@@ -47,7 +45,6 @@ impl fmt::Display for DriveObjectType {
         match self {
             DriveObjectType::Notebook => write!(f, "notebook"),
             DriveObjectType::Folder => write!(f, "folder"),
-            DriveObjectType::EnvVarCollection => write!(f, "env var collection"),
         }
     }
 }

@@ -857,8 +857,7 @@ pub use cloud_object_client::{
     ObjectDeleteResult, ObjectMetadataUpdateResult, ObjectPermissionsUpdateData,
 };
 pub use cloud_object_models::{
-    ServerCloudObject, ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
-    TryFromGql,
+    ServerCloudObject, ServerFolder, ServerNotebook, ServerPreference, TryFromGql,
 };
 use warp_errors::report_error;
 

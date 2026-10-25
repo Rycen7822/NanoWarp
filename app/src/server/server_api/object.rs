@@ -67,10 +67,6 @@ use warp_graphql::mutations::set_object_link_permissions::{
     SetObjectLinkPermissions, SetObjectLinkPermissionsInput, SetObjectLinkPermissionsResult,
     SetObjectLinkPermissionsVariables,
 };
-use warp_graphql::mutations::transfer_generic_string_object_owner::{
-    TransferGenericStringObjectOwner, TransferGenericStringObjectOwnerInput,
-    TransferGenericStringObjectOwnerResult, TransferGenericStringObjectOwnerVariables,
-};
 use warp_graphql::mutations::transfer_notebook_owner::{
     TransferNotebookOwner, TransferNotebookOwnerInput, TransferNotebookOwnerResult,
     TransferNotebookOwnerVariables,
@@ -122,7 +118,6 @@ use crate::cloud_object::{
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
-use crate::env_vars::EnvVarCollection;
 use crate::notebooks::{NotebookId, SerializedNotebook};
 use crate::server::graphql::schema::{
     action_type_to_gql_action_type, object_action_history_from_gql,
@@ -636,13 +631,6 @@ impl ObjectClient for ServerApi {
                 if let Some(objects) = output.generic_string_objects {
                     for gso in objects {
                         match gso.format {
-                            warp_graphql::generic_string_object::GenericStringObjectFormat::JsonEnvVarCollection => {
-                                parse_server_gso::<EnvVarCollection, JsonSerializer>(
-                                    &mut updated_generic_string_objects,
-                                    GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
-                                    gso,
-                                );
-                            }
                             warp_graphql::generic_string_object::GenericStringObjectFormat::JsonPreference => {
                                 parse_server_gso::<Preference, JsonSerializer>(
                                     &mut updated_generic_string_objects,
@@ -787,29 +775,6 @@ impl ObjectClient for ServerApi {
         let response = self.send_graphql_request(operation, None).await?;
         match response.transfer_notebook_owner {
             TransferNotebookOwnerResult::TransferNotebookOwnerOutput(output) => Ok(output.success),
-            _ => Ok(false),
-        }
-    }
-
-    async fn transfer_generic_string_object_owner(
-        &self,
-        gso_id: GenericStringObjectId,
-        owner: Owner,
-    ) -> Result<bool> {
-        let variables = TransferGenericStringObjectOwnerVariables {
-            input: TransferGenericStringObjectOwnerInput {
-                uid: cynic::Id::new(gso_id),
-                owner: owner.into(),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = TransferGenericStringObjectOwner::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.transfer_generic_string_object_owner {
-            TransferGenericStringObjectOwnerResult::TransferGenericStringObjectOwnerOutput(
-                output,
-            ) => Ok(output.success),
             _ => Ok(false),
         }
     }

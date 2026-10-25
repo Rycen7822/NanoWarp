@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Duration, Utc};
+#[cfg(test)]
+use chrono::Duration;
+use chrono::{DateTime, Utc};
 pub use cloud_object_client::{
     ObjectAction, ObjectActionHistory, ObjectActionSubtype, ObjectActionType,
 };
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use crate::server::ids::{HashedSqliteId, ObjectUid};
+#[cfg(test)]
+use crate::server::ids::HashedSqliteId;
+use crate::server::ids::ObjectUid;
 
 pub enum ObjectActionsEvent {}
 
@@ -112,6 +116,7 @@ impl ObjectActions {
     }
 
     /// Insert a single action into the model. Returns the created action.
+    #[cfg(test)]
     pub fn insert_action(
         &mut self,
         uid: ObjectUid,
@@ -242,6 +247,7 @@ impl ObjectActions {
     ///
     /// This function operates by cloning a filtered Iterator<Item=&ObjectAction>, saving some performance overhead
     /// by cloning references instead of objects.
+    #[cfg(test)]
     pub fn get_action_history_summary_for_action_type(
         &self,
         uid: &ObjectUid,

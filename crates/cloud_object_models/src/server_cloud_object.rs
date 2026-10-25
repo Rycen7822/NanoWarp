@@ -8,8 +8,8 @@ use cloud_objects::ids::{GenericStringObjectId, ObjectUid, ServerId, SyncId};
 use warp_graphql::object::CloudObjectWithDescendants;
 
 use crate::{
-    CloudFolderModel, CloudNotebookModel, EnvVarCollection, JsonSerializer, Preference,
-    ServerEnvVarCollection, ServerFolder, ServerNotebook, ServerPreference,
+    CloudFolderModel, CloudNotebookModel, JsonSerializer, Preference, ServerFolder, ServerNotebook,
+    ServerPreference,
 };
 
 /// A cloud object from the server.
@@ -18,7 +18,6 @@ pub enum ServerCloudObject {
     Notebook(ServerNotebook),
     Folder(ServerFolder),
     Preference(ServerPreference),
-    EnvVarCollection(ServerEnvVarCollection),
 }
 
 impl ServerCloudObject {
@@ -27,7 +26,6 @@ impl ServerCloudObject {
             ServerCloudObject::Notebook(notebook) => &notebook.metadata,
             ServerCloudObject::Folder(folder) => &folder.metadata,
             ServerCloudObject::Preference(preferences) => &preferences.metadata,
-            ServerCloudObject::EnvVarCollection(env_var_collection) => &env_var_collection.metadata,
         }
     }
 
@@ -36,7 +34,6 @@ impl ServerCloudObject {
             ServerCloudObject::Notebook(notebook) => notebook.id.uid(),
             ServerCloudObject::Folder(folder) => folder.id.uid(),
             ServerCloudObject::Preference(preferences) => preferences.id.uid(),
-            ServerCloudObject::EnvVarCollection(env_var_collection) => env_var_collection.id.uid(),
         }
     }
 }
@@ -54,10 +51,6 @@ where
             ServerCloudObject::Folder(server_folder.clone())
         } else if let Some(server_preferences) = value.downcast_ref::<ServerPreference>() {
             ServerCloudObject::Preference(server_preferences.clone())
-        } else if let Some(server_env_var_collection) =
-            value.downcast_ref::<ServerEnvVarCollection>()
-        {
-            ServerCloudObject::EnvVarCollection(server_env_var_collection.clone())
         } else {
             panic!("Unknown server object type");
         }
@@ -169,14 +162,6 @@ fn server_gso_to_cloud_object(
     gso: warp_graphql::generic_string_object::GenericStringObject,
 ) -> Result<ServerCloudObject> {
     match gso.format {
-        warp_graphql::generic_string_object::GenericStringObjectFormat::JsonEnvVarCollection => {
-            Ok(ServerCloudObject::EnvVarCollection(GenericServerObject::<
-                GenericStringObjectId,
-                GenericStringModel<EnvVarCollection, JsonSerializer>,
-            >::try_from_gql(
-                gso
-            )?))
-        }
         warp_graphql::generic_string_object::GenericStringObjectFormat::JsonPreference => {
             Ok(ServerCloudObject::Preference(GenericServerObject::<
                 GenericStringObjectId,

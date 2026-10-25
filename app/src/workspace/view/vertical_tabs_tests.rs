@@ -90,7 +90,7 @@ fn summary_pane_kind_icons_recompute_when_oldest_kind_is_removed() {
 fn pane_type_supports_vertical_tabs_detail_sidecar(pane_type: IPaneType) -> bool {
     matches!(
         pane_type,
-        IPaneType::Terminal | IPaneType::Code | IPaneType::Notebook | IPaneType::EnvVarCollection
+        IPaneType::Terminal | IPaneType::Code | IPaneType::Notebook
     )
 }
 
@@ -125,9 +125,6 @@ fn detail_sidecar_supports_terminal_code_and_warp_drive_object_panes() {
     ));
     assert!(pane_type_supports_vertical_tabs_detail_sidecar(
         IPaneType::Notebook
-    ));
-    assert!(pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::EnvVarCollection
     ));
     assert!(!pane_type_supports_vertical_tabs_detail_sidecar(
         IPaneType::Settings

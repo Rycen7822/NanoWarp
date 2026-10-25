@@ -25,9 +25,9 @@ use warpui::{
 use super::listener::ObjectUpdateMessage;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
-use crate::cloud_object::model::actions::{
-    ObjectAction, ObjectActionHistory, ObjectActionType, ObjectActions,
-};
+#[cfg(test)]
+use crate::cloud_object::model::actions::ObjectActionType;
+use crate::cloud_object::model::actions::{ObjectAction, ObjectActionHistory, ObjectActions};
 use crate::cloud_object::model::generic_string_model::{
     GenericStringModel, GenericStringObjectId, Serializer, StringModel,
 };
@@ -38,17 +38,12 @@ use crate::cloud_object::{
     CloudObjectSyncStatus, GenericCloudObject, GenericServerObject, GenericStringObjectFormat,
     JsonObjectType, NumInFlightRequests, ObjectDeleteResult, ObjectIdType,
     ObjectMetadataUpdateResult, ObjectPermissionsUpdateData, ObjectType, Owner, Revision,
-    RevisionAndLastEditor, ServerCloudObject, ServerEnvVarCollection, ServerMetadata,
-    ServerPermissions, ServerPreference, Space,
+    ServerCloudObject, ServerMetadata, ServerPermissions, ServerPreference, Space,
 };
 use crate::drive::CloudObjectTypeAndId;
-use crate::drive::drive_helpers::{
-    is_feature_gated_anonymous_user_past_env_var_limit,
-    is_feature_gated_anonymous_user_past_notebook_limit,
-};
+use crate::drive::drive_helpers::is_feature_gated_anonymous_user_past_notebook_limit;
 use crate::drive::folders::{CloudFolderModel, FolderId};
 use crate::drive::sharing::SharingAccessLevel;
-use crate::env_vars::{CloudEnvVarCollectionModel, EnvVarCollection};
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::notebooks::{CloudNotebookModel, NotebookId};
 use crate::persistence::ModelEvent;
@@ -453,7 +448,7 @@ impl UpdateManager {
                 id,
                 object: conflicting_object,
             } => {
-                self.handle_conflicting_object(conflicting_object, id, ctx);
+                self.handle_conflicting_object(conflicting_object, ctx);
                 ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
                     result: ObjectOperationResult {
                         success_type: OperationSuccessType::Rejection,
@@ -761,21 +756,6 @@ impl UpdateManager {
                         ctx,
                     );
                     sqlite_events.push(event);
-                }
-                GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) => {
-                    let typed_objects = objects
-                        .iter()
-                        .filter_map(|obj| {
-                            let server_obj: Option<&ServerEnvVarCollection> = obj.into();
-                            server_obj.cloned()
-                        })
-                        .collect::<Vec<_>>();
-                    sqlite_events.push(Self::handle_object_updates(
-                        typed_objects,
-                        force_refresh,
-                        !is_first_load,
-                        ctx,
-                    ));
                 }
             }
         }
@@ -1420,7 +1400,6 @@ impl UpdateManager {
     fn handle_conflicting_object(
         &self,
         conflicting_object: &Arc<ServerCloudObject>,
-        uid: &ObjectUid,
         ctx: &mut ModelContext<Self>,
     ) {
         match conflicting_object.as_ref() {
@@ -1441,41 +1420,6 @@ impl UpdateManager {
                         ctx.notify();
                     }
                 });
-            }
-            ServerCloudObject::EnvVarCollection(env_var_collection) => {
-                CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                    cloud_model.overwrite_env_var_collection(
-                        env_var_collection.clone().model.string_model,
-                        env_var_collection.id,
-                        ctx,
-                    );
-                    let env_var_collection_metadata = env_var_collection.clone().metadata;
-                    cloud_model.set_latest_revision_and_editor(
-                        uid,
-                        RevisionAndLastEditor {
-                            revision: env_var_collection_metadata.revision,
-                            last_editor_uid: env_var_collection_metadata.last_editor_uid,
-                        },
-                        ctx,
-                    );
-                    if let Some(object) = cloud_model.get_mut_by_uid(uid) {
-                        object.decrement_in_flight_request_count(
-                            CloudObjectSyncStatus::NoLocalChanges,
-                        );
-                        ctx.notify();
-                    }
-                });
-
-                let cloud_model = CloudModel::as_ref(ctx);
-                if let Some(env_var_collection) = cloud_model
-                    .get_object_of_type::<GenericStringObjectId, CloudEnvVarCollectionModel>(
-                        &env_var_collection.id,
-                    )
-                {
-                    self.save_to_db([ModelEvent::UpsertGenericStringObject {
-                        object: Box::new(env_var_collection.clone()),
-                    }]);
-                }
             }
             // folders and preferences are last-write-wins, no need to do anything here
             ServerCloudObject::Folder(_) | ServerCloudObject::Preference(_) => {}
@@ -1506,21 +1450,6 @@ impl UpdateManager {
         if had_conflicts {
             self.save_in_memory_object_to_sqlite(cloud_model_handle.as_ref(ctx), uid);
         }
-    }
-
-    pub fn update_env_var_collection(
-        &mut self,
-        env_var_collection: EnvVarCollection,
-        env_var_collection_id: SyncId,
-        revision_ts: Option<Revision>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.update_object(
-            CloudEnvVarCollectionModel::new(env_var_collection),
-            env_var_collection_id,
-            revision_ts,
-            ctx,
-        );
     }
 
     pub fn update_notebook_data(
@@ -1763,14 +1692,6 @@ impl UpdateManager {
                             object_client
                                 .transfer_notebook_owner(
                                     NotebookId::from(server_id),
-                                    destination_owner,
-                                )
-                                .await
-                        }
-                        ObjectType::GenericStringObject(GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection)) => {
-                            object_client
-                                .transfer_generic_string_object_owner(
-                                    GenericStringObjectId::from(server_id),
                                     destination_owner,
                                 )
                                 .await
@@ -2322,17 +2243,9 @@ impl UpdateManager {
             CloudObjectTypeAndId::Notebook(notebook_id) => {
                 self.duplicate_object_internal::<NotebookId, CloudNotebookModel>(notebook_id, ctx);
             }
-            CloudObjectTypeAndId::GenericStringObject { object_type, id } => {
-                if let GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) =
-                    object_type
-                {
-                    self.duplicate_object_internal::<GenericStringObjectId, CloudEnvVarCollectionModel>(
-                        id, ctx,
-                    );
-                } else {
-                    report_error!("Tried to duplicate an unsupported type: json object");
-                    debug_assert!(false, "Tried to duplicate an unsupported type: json object");
-                }
+            CloudObjectTypeAndId::GenericStringObject { .. } => {
+                report_error!("Tried to duplicate an unsupported type: json object");
+                debug_assert!(false, "Tried to duplicate an unsupported type: json object");
             }
             CloudObjectTypeAndId::Folder(_) => {
                 // Duplicating folders not currently supported.
@@ -2460,45 +2373,6 @@ impl UpdateManager {
             duplicate_name = get_duplicate_object_name(&duplicate_name);
         }
         duplicate_name
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_env_var_collection(
-        &mut self,
-        client_id: ClientId,
-        owner: Owner,
-        initial_folder_id: Option<SyncId>,
-        model: CloudEnvVarCollectionModel,
-        entrypoint: CloudObjectEventEntrypoint,
-        force_expand: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let count = CloudModel::handle(ctx).read(ctx, |model, ctx| {
-            model
-                .active_non_welcome_env_var_collections_in_space(Space::Personal, ctx)
-                .count()
-        });
-        if AuthStateProvider::handle(ctx).read(ctx, |auth_state_provider, _ctx| {
-            is_feature_gated_anonymous_user_past_env_var_limit(auth_state_provider.get(), count + 1)
-        }) {
-            AuthManager::handle(ctx).update(ctx, |auth_manager: &mut AuthManager, ctx| {
-                auth_manager.anonymous_user_hit_drive_object_limit(ctx);
-            });
-            return;
-        };
-
-        self.create_object(
-            model,
-            owner,
-            client_id,
-            entrypoint,
-            force_expand,
-            initial_folder_id,
-            // When adding the initiated_by parameter to this function call, InitiatedBy::User was set as a default value.
-            // This can be changed to InitiatedBy::System if this action was automatically kicked off by the system and we do not want a user facing toast.
-            InitiatedBy::User,
-            ctx,
-        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2710,6 +2584,7 @@ impl UpdateManager {
     }
 
     // Takes a generic SyncId and records the action.
+    #[cfg(test)]
     pub fn record_object_action(
         &mut self,
         id_and_type: CloudObjectTypeAndId,

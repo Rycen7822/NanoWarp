@@ -13,8 +13,6 @@ pub struct GenericStringObject {
 #[derive(cynic::Enum, Clone, Copy, Debug)]
 #[cynic(non_exhaustive)]
 pub enum GenericStringObjectFormat {
-    #[cynic(rename = "JsonEnvVarCollection")]
-    JsonEnvVarCollection,
     #[cynic(rename = "JsonPreference")]
     JsonPreference,
     /// Fallback for GSO formats this client build does not recognize (for example
@@ -40,7 +38,6 @@ pub enum UniquePer {
 impl std::fmt::Display for GenericStringObjectFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            GenericStringObjectFormat::JsonEnvVarCollection => "JsonEnvVarCollection",
             GenericStringObjectFormat::JsonPreference => "JsonPreference",
             GenericStringObjectFormat::Unknown => "Unknown",
         };

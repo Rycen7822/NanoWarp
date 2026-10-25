@@ -10,18 +10,13 @@ use warpui::{
     ViewHandle,
 };
 
-use super::drive_helpers::{
-    has_feature_gated_anonymous_user_reached_env_var_limit,
-    has_feature_gated_anonymous_user_reached_notebook_limit,
-};
+use super::drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit;
 use super::index::{DriveIndex, DriveIndexAction, DriveIndexEvent};
 use super::items::WarpDriveItemId;
 use super::{CloudObjectTypeAndId, DriveObjectType};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
-use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType, Owner, Space};
-use crate::env_vars::CloudEnvVarCollection;
-use crate::env_vars::manager::EnvVarCollectionSource;
+use crate::cloud_object::{Owner, Space};
 use crate::notebooks::CloudNotebook;
 use crate::notebooks::manager::NotebookSource;
 use crate::server::cloud_objects::update_manager::{InitiatedBy, UpdateManager};
@@ -56,13 +51,8 @@ pub enum DrivePanelAction {
 
 #[derive(Clone, Debug)]
 pub enum DrivePanelEvent {
-    InvokeEnvironmentVariables {
-        env_var_collection: Box<CloudEnvVarCollection>,
-        in_subshell: bool,
-    },
     OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
     OpenNotebook(NotebookSource),
-    OpenEnvVarCollection(EnvVarCollectionSource),
     FocusWarpDrive,
 }
 
@@ -159,25 +149,6 @@ impl DrivePanel {
                     );
                 }
             },
-            DriveIndexEvent::CreateEnvVarCollection {
-                space,
-                title,
-                initial_folder_id,
-            } => match Self::new_object_owner(*space, initial_folder_id.as_ref(), ctx) {
-                Some(owner) => ctx.emit(DrivePanelEvent::OpenEnvVarCollection(
-                    EnvVarCollectionSource::New {
-                        title: title.clone(),
-                        owner,
-                        initial_folder_id: *initial_folder_id,
-                    },
-                )),
-                None => {
-                    report_error!(
-                        "Cannot identify an env var owner",
-                        extra: { "space" => ?space }
-                    );
-                }
-            },
             DriveIndexEvent::OpenObject(cloud_object_type_and_id) => {
                 let cloud_model = CloudModel::as_ref(ctx);
                 let object = cloud_model.get_by_uid(&cloud_object_type_and_id.uid());
@@ -187,45 +158,18 @@ impl DrivePanel {
                     notebook.map(|notebook| notebook.id)
                 });
 
-                let env_var_collection_id = object.and_then(|object| {
-                    let env_var_collection: Option<&CloudEnvVarCollection> = object.into();
-                    env_var_collection.map(|env_var_collection| env_var_collection.id)
-                });
-
                 if let Some(notebook_id) = notebook_id {
                     self.open_existing_notebook(notebook_id, ctx);
-                } else if let Some(env_var_collection_id) = env_var_collection_id {
-                    self.open_existing_env_var_collection(env_var_collection_id, ctx);
                 }
             }
             DriveIndexEvent::DuplicateObject(cloud_object_type_and_id) => {
                 self.duplicate_object(cloud_object_type_and_id, ctx);
-            }
-            DriveIndexEvent::RunObject(id) => {
-                let cloud_model = CloudModel::as_ref(ctx);
-                let object = cloud_model.get_by_uid(&id.uid());
-                if let Some(cloud_object) = object {
-                    let env_var_collection: Option<&CloudEnvVarCollection> = cloud_object.into();
-                    if let Some(env_var_collection) = env_var_collection {
-                        self.invoke_environment_variables(env_var_collection.clone(), false, ctx);
-                    }
-                }
             }
             DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(object_type, team_uid) => ctx
                 .emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
                     *object_type,
                     *team_uid,
                 )),
-            DriveIndexEvent::InvokeEnvVarCollectionInSubshell(id) => {
-                let cloud_model = CloudModel::as_ref(ctx);
-                let object = cloud_model.get_by_uid(&id.uid());
-                if let Some(cloud_object) = object {
-                    let env_var_collection: Option<&CloudEnvVarCollection> = cloud_object.into();
-                    if let Some(env_var_collection) = env_var_collection {
-                        self.invoke_environment_variables(env_var_collection.clone(), true, ctx);
-                    }
-                }
-            }
         }
     }
 
@@ -253,23 +197,13 @@ impl DrivePanel {
                         return;
                     }
                 }
-                Space::Personal => match cloud_object_type_and_id {
-                    CloudObjectTypeAndId::Notebook(_) => {
-                        if has_feature_gated_anonymous_user_reached_notebook_limit(ctx) {
-                            return;
-                        }
+                Space::Personal => {
+                    if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Notebook(_))
+                        && has_feature_gated_anonymous_user_reached_notebook_limit(ctx)
+                    {
+                        return;
                     }
-                    CloudObjectTypeAndId::GenericStringObject {
-                        object_type:
-                            GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
-                        id: _,
-                    } => {
-                        if has_feature_gated_anonymous_user_reached_env_var_limit(ctx) {
-                            return;
-                        }
-                    }
-                    _ => {}
-                },
+                }
                 // We're reliant on server checks here, since the client doesn't know how many
                 // objects are in the owning drive.
                 Space::Shared => (),
@@ -317,34 +251,10 @@ impl DrivePanel {
         });
     }
 
-    pub fn invoke_environment_variables(
-        &mut self,
-        env_var_collection: CloudEnvVarCollection,
-        in_subshell: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(DrivePanelEvent::InvokeEnvironmentVariables {
-            env_var_collection: Box::new(env_var_collection),
-            in_subshell,
-        });
-        ctx.notify();
-    }
-
     pub fn open_existing_notebook(&self, notebook_id: SyncId, ctx: &mut ViewContext<Self>) {
         ctx.emit(DrivePanelEvent::OpenNotebook(NotebookSource::Existing(
             notebook_id,
         )));
-        ctx.notify();
-    }
-
-    pub fn open_existing_env_var_collection(
-        &mut self,
-        env_var_collection_id: SyncId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(DrivePanelEvent::OpenEnvVarCollection(
-            EnvVarCollectionSource::Existing(env_var_collection_id),
-        ));
         ctx.notify();
     }
 

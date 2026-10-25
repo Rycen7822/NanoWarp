@@ -31,7 +31,6 @@ use crate::cloud_object::{
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::folders::CloudFolderModel;
-use crate::env_vars::CloudEnvVarCollectionModel;
 use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::settings::cloud_preferences::CloudPreferenceModel;
@@ -143,11 +142,6 @@ pub enum QueueItem {
     },
     UpdateCloudPreferences {
         model: Arc<CloudPreferenceModel>,
-        id: SyncId,
-        revision: Option<Revision>,
-    },
-    UpdateEnvVarCollection {
-        model: Arc<CloudEnvVarCollectionModel>,
         id: SyncId,
         revision: Option<Revision>,
     },
@@ -357,8 +351,7 @@ impl SyncQueue {
             // Update requests will depend on any existing create/updates to the same object
             QueueItem::UpdateNotebook { id, .. }
             | QueueItem::UpdateFolder { id, .. }
-            | QueueItem::UpdateCloudPreferences { id, .. }
-            | QueueItem::UpdateEnvVarCollection { id, .. } => self.get_update_dependencies(id),
+            | QueueItem::UpdateCloudPreferences { id, .. } => self.get_update_dependencies(id),
 
             // These queue item types do not have inferred dependencies.
             QueueItem::CreateObject { .. }
@@ -413,7 +406,6 @@ impl SyncQueue {
                 QueueItem::UpdateCloudPreferences { id, .. }
                 | QueueItem::UpdateNotebook { id, .. }
                 | QueueItem::UpdateFolder { id, .. }
-                | QueueItem::UpdateEnvVarCollection { id, .. }
                     if id.uid() == item_id =>
                 {
                     Some(QueueDependency::QueueItem(*queue_item_id))
@@ -468,8 +460,7 @@ impl SyncQueue {
         for (_item_id, item) in &mut self.queue {
             match item {
                 QueueItem::UpdateNotebook { id, revision, .. }
-                | QueueItem::UpdateCloudPreferences { id, revision, .. }
-                | QueueItem::UpdateEnvVarCollection { id, revision, .. } => {
+                | QueueItem::UpdateCloudPreferences { id, revision, .. } => {
                     Self::maybe_update_queue_item_with_new_revision(
                         &self.client_id_to_server,
                         id,
@@ -546,20 +537,6 @@ impl SyncQueue {
                     );
                 }
                 QueueItem::UpdateCloudPreferences {
-                    model,
-                    id,
-                    revision,
-                } => {
-                    self.update_object(
-                        model.clone(),
-                        id,
-                        revision,
-                        object_client,
-                        dequeued_item_id,
-                        ctx,
-                    );
-                }
-                QueueItem::UpdateEnvVarCollection {
                     model,
                     id,
                     revision,
@@ -887,13 +864,6 @@ impl SyncQueue {
                         )) => match json_object_type {
                             JsonObjectType::Preference => {
                                 CloudPreferenceModel::send_create_request(
-                                    object_client_clone,
-                                    create_request,
-                                )
-                                .await
-                            }
-                            JsonObjectType::EnvVarCollection => {
-                                CloudEnvVarCollectionModel::send_create_request(
                                     object_client_clone,
                                     create_request,
                                 )
@@ -1416,9 +1386,6 @@ impl SyncQueue {
                     self.handle_update_failure_response(id, item_id, ctx);
                 }
                 QueueItem::UpdateCloudPreferences { id, .. } => {
-                    self.handle_update_failure_response(id, item_id, ctx);
-                }
-                QueueItem::UpdateEnvVarCollection { id, .. } => {
                     self.handle_update_failure_response(id, item_id, ctx);
                 }
 

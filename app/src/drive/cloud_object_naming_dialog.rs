@@ -31,7 +31,6 @@ const BUTTON_MARGIN_BETWEEN: f32 = 8.;
 
 const NOTEBOOK_TITLE: &str = "Notebook name";
 const FOLDER_TITLE: &str = "Folder name";
-const ENV_VAR_COLLECTION_TITLE: &str = "Collection name";
 const CREATE_BUTTON_TEXT: &str = "Create";
 const CANCEL_BUTTON_TEXT: &str = "Cancel";
 const RENAME_BUTTON_TEXT: &str = "Rename";
@@ -141,7 +140,6 @@ impl CloudObjectNamingDialog {
         let title = match object_type {
             DriveObjectType::Notebook => NOTEBOOK_TITLE,
             DriveObjectType::Folder => FOLDER_TITLE,
-            DriveObjectType::EnvVarCollection => ENV_VAR_COLLECTION_TITLE,
         };
 
         Text::new_inline(

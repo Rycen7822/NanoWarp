@@ -20,9 +20,3 @@ pub(crate) mod window_focus_dimming;
 pub use warp_core::ui::icons;
 
 const BORDER_RADIUS: f32 = 4.;
-
-/// Shared horizontal padding for block content.
-pub(crate) const CONTENT_HORIZONTAL_PADDING: f32 = 20.;
-
-/// Shared vertical spacing between block content items.
-pub(crate) const CONTENT_ITEM_VERTICAL_MARGIN: f32 = 16.;

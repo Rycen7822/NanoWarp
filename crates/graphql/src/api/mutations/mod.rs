@@ -19,7 +19,6 @@ pub mod remove_object_guest;
 pub mod remove_object_link_permissions;
 pub mod set_object_link_permissions;
 pub mod set_user_is_onboarded;
-pub mod transfer_generic_string_object_owner;
 pub mod transfer_notebook_owner;
 pub mod trash_object;
 pub mod untrash_object;

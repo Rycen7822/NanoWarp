@@ -187,7 +187,6 @@ impl SearchItemIcon for BindingGroup {
             Self::Folders => Icon::Folder,
             Self::KeyboardShortcuts => Icon::Keyboard,
             Self::Notifications => Icon::Bell,
-            Self::EnvVarCollection => Icon::EnvVarCollection,
             Self::Terminal => Icon::Terminal,
         }
     }
@@ -202,9 +201,6 @@ impl SearchItemIcon for BindingGroup {
             | Self::Terminal
             | Self::Notifications => appearance.theme().foreground().into_solid(),
             Self::Notebooks => warp_drive_icon_color(appearance, DriveObjectType::Notebook),
-            Self::EnvVarCollection => {
-                warp_drive_icon_color(appearance, DriveObjectType::EnvVarCollection)
-            }
         }
     }
 }

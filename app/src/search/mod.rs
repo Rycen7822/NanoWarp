@@ -3,7 +3,6 @@ pub(crate) mod async_snapshot_data_source;
 pub mod binding_source;
 pub mod command_palette;
 pub mod command_search;
-pub mod external_secrets;
 pub mod files;
 mod filter_chip_renderer;
 mod palette_styles;

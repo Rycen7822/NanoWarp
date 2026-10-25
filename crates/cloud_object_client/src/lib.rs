@@ -272,12 +272,6 @@ pub trait ObjectClient: 'static + Send + Sync {
         owner: Owner,
     ) -> Result<bool>;
 
-    async fn transfer_generic_string_object_owner(
-        &self,
-        object_id: GenericStringObjectId,
-        owner: Owner,
-    ) -> Result<bool>;
-
     async fn trash_object(&self, id: ServerId) -> Result<bool>;
 
     async fn untrash_object(&self, id: ServerId) -> Result<ObjectMetadataUpdateResult>;

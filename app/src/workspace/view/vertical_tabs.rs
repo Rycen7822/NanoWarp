@@ -863,7 +863,6 @@ pub(super) enum SummaryPaneKind {
     File,
     Notebook,
     Settings,
-    EnvVarCollection,
     Other,
 }
 
@@ -3227,7 +3226,7 @@ fn resolve_icon_with_status_variant(
                 icon_color: sub_text,
             },
         },
-        // Settings and environment management use the foreground color per design spec
+        // Settings use the foreground color per design spec
         TypedPane::Settings => PaneIcon::Neutral {
             icon: typed.icon(),
             icon_color: main_text,
@@ -3236,10 +3235,6 @@ fn resolve_icon_with_status_variant(
         TypedPane::Notebook => PaneIcon::Neutral {
             icon: typed.icon(),
             icon_color: drive_color(DriveObjectType::Notebook),
-        },
-        TypedPane::EnvVarCollection => PaneIcon::Neutral {
-            icon: typed.icon(),
-            icon_color: drive_color(DriveObjectType::EnvVarCollection),
         },
         // Other pane types use sub-text color
         other => PaneIcon::Neutral {
@@ -3463,7 +3458,6 @@ enum TypedPane<'a> {
     File,
     Notebook,
     Settings,
-    EnvVarCollection,
     Other,
 }
 
@@ -3477,7 +3471,6 @@ impl TypedPane<'_> {
             TypedPane::File => SummaryPaneKind::File,
             TypedPane::Notebook => SummaryPaneKind::Notebook,
             TypedPane::Settings => SummaryPaneKind::Settings,
-            TypedPane::EnvVarCollection => SummaryPaneKind::EnvVarCollection,
             TypedPane::Other => SummaryPaneKind::Other,
         }
     }
@@ -3497,7 +3490,6 @@ impl TypedPane<'_> {
             TypedPane::File => "File",
             TypedPane::Notebook => "Notebook",
             TypedPane::Settings => "Settings",
-            TypedPane::EnvVarCollection => "Environment Variables",
             TypedPane::Other => "Other",
         }
     }
@@ -3513,7 +3505,6 @@ impl TypedPane<'_> {
             | TypedPane::File
             | TypedPane::Notebook
             | TypedPane::Settings
-            | TypedPane::EnvVarCollection
             | TypedPane::Other => None,
         }
     }
@@ -3525,7 +3516,6 @@ impl TypedPane<'_> {
             TypedPane::File => WarpIcon::File,
             TypedPane::Notebook => WarpIcon::Notebook,
             TypedPane::Settings => WarpIcon::Gear,
-            TypedPane::EnvVarCollection => WarpIcon::EnvVarCollection,
             TypedPane::Other => WarpIcon::File,
         }
     }
@@ -3651,11 +3641,7 @@ fn build_vertical_tabs_summary_data(
                     &pane_subtitle,
                 );
             }
-            TypedPane::File
-            | TypedPane::Notebook
-            | TypedPane::Settings
-            | TypedPane::EnvVarCollection
-            | TypedPane::Other => {
+            TypedPane::File | TypedPane::Notebook | TypedPane::Settings | TypedPane::Other => {
                 push_normalized_unique_summary_label(
                     &mut primary_labels,
                     &mut primary_seen,
@@ -3788,7 +3774,6 @@ impl<'a> PaneProps<'a> {
             | TypedPane::File
             | TypedPane::Notebook
             | TypedPane::Settings
-            | TypedPane::EnvVarCollection
             | TypedPane::Other => {
                 non_terminal_search_text_fragments(self.generated_or_tab_title(), &self.subtitle)
             }
@@ -4092,7 +4077,6 @@ impl PaneGroup {
             IPaneType::File => TypedPane::File,
             IPaneType::Notebook => TypedPane::Notebook,
             IPaneType::Settings => TypedPane::Settings,
-            IPaneType::EnvVarCollection => TypedPane::EnvVarCollection,
             IPaneType::NetworkLog => TypedPane::Other,
             #[cfg(test)]
             IPaneType::Dummy => TypedPane::Other,
@@ -4725,7 +4709,6 @@ pub(super) fn render_summary_pane_kind_icon_circle(
         | SummaryPaneKind::File
         | SummaryPaneKind::Notebook
         | SummaryPaneKind::Settings
-        | SummaryPaneKind::EnvVarCollection
         | SummaryPaneKind::Other => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
             (
@@ -4765,10 +4748,6 @@ fn summary_pane_kind_icon(
         SummaryPaneKind::File => (WarpIcon::File, sub_text),
         SummaryPaneKind::Notebook => (WarpIcon::Notebook, drive_color(DriveObjectType::Notebook)),
         SummaryPaneKind::Settings => (WarpIcon::Gear, main_text),
-        SummaryPaneKind::EnvVarCollection => (
-            WarpIcon::EnvVarCollection,
-            drive_color(DriveObjectType::EnvVarCollection),
-        ),
         SummaryPaneKind::Other => (WarpIcon::File, sub_text),
     }
 }
@@ -6536,7 +6515,6 @@ fn code_detail_kind_label(file_name: &str) -> Option<String> {
 fn typed_pane_warp_drive_object_type(typed: &TypedPane<'_>) -> Option<DriveObjectType> {
     match typed {
         TypedPane::Notebook => Some(DriveObjectType::Notebook),
-        TypedPane::EnvVarCollection => Some(DriveObjectType::EnvVarCollection),
         TypedPane::Terminal(_)
         | TypedPane::Code(_)
         | TypedPane::File
@@ -6558,9 +6536,7 @@ fn render_detail_section(
             app,
         ),
         TypedPane::Code(_) => render_code_detail_section(props, appearance, app),
-        TypedPane::Notebook | TypedPane::EnvVarCollection => {
-            render_warp_drive_object_detail_section(props, appearance)
-        }
+        TypedPane::Notebook => render_warp_drive_object_detail_section(props, appearance),
         TypedPane::File | TypedPane::Settings | TypedPane::Other => Empty::new().finish(),
     }
 }

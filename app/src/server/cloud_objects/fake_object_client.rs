@@ -347,14 +347,6 @@ impl ObjectClient for FakeObjectClient {
         unimplemented!("FakeObjectClient::transfer_notebook_owner")
     }
 
-    async fn transfer_generic_string_object_owner(
-        &self,
-        _id: GenericStringObjectId,
-        _owner: Owner,
-    ) -> Result<bool> {
-        unimplemented!("FakeObjectClient::transfer_generic_string_object_owner")
-    }
-
     async fn trash_object(&self, _id: ServerId) -> Result<bool> {
         unimplemented!("FakeObjectClient::trash_object")
     }
