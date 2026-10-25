@@ -126,6 +126,7 @@ fn identity_dir_name_differs_for_different_keys() {
 #[test]
 fn data_dir_uses_percent_encoded_identity_key() {
     let data_dir = remote_server_daemon_data_dir("user@example.com/ssh host");
+    assert!(data_dir.starts_with("~/.nanowarp"));
     assert_eq!(
         data_dir,
         format!(
@@ -635,8 +636,8 @@ fn socket_path_fits_within_sun_path_worst_case() {
     // Worst case: preview channel (longest base dir) + 32-char username
     // (Linux max) + hashed identity (8 chars) + hashed socket (20 chars).
     //
-    // Path: /home/{user}/.warp-preview/remote-server/{hash8}/server-{hash8}.sock
-    //       6 + 32 + 1 + 29 + 8 + 1 + 20 = 97 bytes → well under 103 (macOS)
+    // Path: /home/{user}/.nanowarp-preview/remote-server/{hash8}/server-{hash8}.sock
+    // Keep short names within the 103-byte macOS limit.
     let long_home = "/home/a]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]";
     let identity_dir = remote_server_identity_dir_name("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
     assert_eq!(identity_dir.len(), 8);
@@ -644,8 +645,8 @@ fn socket_path_fits_within_sun_path_worst_case() {
     let hashed_socket = "server-a1b2c3d4.sock";
     let old_socket = "server-v0.2026.05.13.09.15.stable_01.sock";
 
-    // Use .warp-preview (longest channel base dir) for worst case.
-    let daemon_dir = format!("{long_home}/.warp-preview/remote-server/{identity_dir}");
+    // Use .nanowarp-preview (longest channel base dir) for worst case.
+    let daemon_dir = format!("{long_home}/.nanowarp-preview/remote-server/{identity_dir}");
 
     let hashed_path = format!("{daemon_dir}/{hashed_socket}");
 
@@ -661,7 +662,7 @@ fn socket_path_fits_within_sun_path_worst_case() {
     // The OLD naming scheme (full version + unhashed identity) should
     // exceed the limit, confirming the regression.
     let old_identity = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"; // 36 chars unhashed
-    let old_daemon_dir = format!("{long_home}/.warp-preview/remote-server/{old_identity}");
+    let old_daemon_dir = format!("{long_home}/.nanowarp-preview/remote-server/{old_identity}");
     let old_full_path = format!("{old_daemon_dir}/{old_socket}");
     assert!(
         old_full_path.len() > 107,

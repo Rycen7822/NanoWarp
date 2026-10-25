@@ -334,25 +334,21 @@ pub fn parse_uname_output(
 
 /// Returns the remote directory where the binary is installed, keyed by channel.
 ///
-/// - stable:      `~/.warp/remote-server`
-/// - preview:     `~/.warp-preview/remote-server`
-/// - dev:         `~/.warp-dev/remote-server`
-/// - local:       `~/.warp-local/remote-server`
-/// - integration: `~/.warp-dev/remote-server`
-/// - warp-oss:    `~/.warp-oss/remote-server`
+/// - stable:      `~/.nanowarp/remote-server`
+/// - preview:     `~/.nanowarp-preview/remote-server`
+/// - dev:         `~/.nanowarp-dev/remote-server`
+/// - local:       `~/.nanowarp-local/remote-server`
+/// - integration: `~/.nanowarp-dev/remote-server`
+/// - oss:         `~/.nanowarp-oss/remote-server`
 pub fn remote_server_dir() -> String {
-    let warp_dir = match ChannelState::channel() {
-        Channel::Stable => ".warp",
-        Channel::Preview => ".warp-preview",
-        Channel::Dev | Channel::Integration => ".warp-dev",
-        Channel::Local => ".warp-local",
-        Channel::Oss => {
-            // TODO(alokedesai): need to figure out how remote server works with warp-oss
-            // For now, return what Dev returns.
-            ".warp-dev"
-        }
+    let nanowarp_dir = match ChannelState::channel() {
+        Channel::Stable => ".nanowarp",
+        Channel::Preview => ".nanowarp-preview",
+        Channel::Dev | Channel::Integration => ".nanowarp-dev",
+        Channel::Local => ".nanowarp-local",
+        Channel::Oss => ".nanowarp-oss",
     };
-    format!("~/{warp_dir}/remote-server")
+    format!("~/{nanowarp_dir}/remote-server")
 }
 
 /// Returns a short, deterministic directory name for a remote-server
