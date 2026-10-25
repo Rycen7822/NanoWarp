@@ -80,6 +80,7 @@ fn initialize_app(app: &mut App) {
     crate::terminal::available_shells::register(app);
     app.update(experiments::init);
     AltScreenReporting::register(app);
+    app.add_singleton_model(|_| warp_server_client::network_logging::NetworkLogModel::default());
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);

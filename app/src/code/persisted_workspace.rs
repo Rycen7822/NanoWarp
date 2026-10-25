@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "local_fs")]
+use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
 use anyhow::Context;
@@ -16,7 +18,11 @@ use repo_metadata::RepoMetadataModel;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "local_fs")]
 use warp_core::channel::ChannelState;
+#[cfg(feature = "local_fs")]
+use warp_core::context_flag::ContextFlag;
 use warp_errors::report_if_error;
+#[cfg(feature = "local_fs")]
+use warp_server_client::network_logging::NetworkLogModel;
 #[cfg(feature = "local_fs")]
 use warp_util::standardized_path::StandardizedPath;
 #[cfg(feature = "local_fs")]
@@ -27,8 +33,6 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
 
 use crate::persistence::ModelEvent;
-#[cfg(feature = "local_fs")]
-use crate::server::server_api::ServerApiProvider;
 #[cfg(feature = "local_fs")]
 use crate::terminal::local_shell::LocalShellState;
 #[cfg(feature = "local_fs")]
@@ -145,6 +149,8 @@ pub struct PersistedWorkspace {
     /// Global installation status per LSP server type.
     #[cfg(feature = "local_fs")]
     lsp_installation_status: HashMap<LSPServerType, LSPInstallationStatus>,
+    #[cfg(feature = "local_fs")]
+    http_client: Arc<http_client::Client>,
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +196,8 @@ impl PersistedWorkspace {
             model_event_sender: None,
             #[cfg(feature = "local_fs")]
             lsp_installation_status: HashMap::new(),
+            #[cfg(feature = "local_fs")]
+            http_client: Arc::new(http_client::Client::new_external()),
         }
     }
 
@@ -222,12 +230,25 @@ impl PersistedWorkspace {
         #[cfg(feature = "local_fs")]
         let startup_workspace_paths: Vec<PathBuf> = metadata.keys().cloned().collect();
 
+        #[cfg(feature = "local_fs")]
+        let http_client = {
+            let mut client = http_client::Client::new_external();
+            if ContextFlag::NetworkLogConsole.is_enabled() {
+                NetworkLogModel::handle(ctx).update(ctx, |model, model_ctx| {
+                    model.install_on_clients([&mut client], model_ctx);
+                });
+            }
+            Arc::new(client)
+        };
+
         #[allow(unused_mut)]
         let mut result = Self {
             workspaces: metadata,
             model_event_sender,
             #[cfg(feature = "local_fs")]
             lsp_installation_status: HashMap::new(),
+            #[cfg(feature = "local_fs")]
+            http_client,
         };
 
         // Kick off LSP suggestion scanning for all existing workspaces so that
@@ -441,7 +462,7 @@ impl PersistedWorkspace {
         let path_future = LocalShellState::handle(ctx).update(ctx, |shell_state, ctx| {
             shell_state.get_interactive_path_env_var(ctx)
         });
-        let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+        let http_client = self.http_client.clone();
 
         ctx.spawn(
             async move {
@@ -639,7 +660,7 @@ impl PersistedWorkspace {
         let repo_root_clone = repo_root.clone();
         let file_path_clone = file_path.clone();
         let executor = lsp::CommandBuilder::new(path_env_var);
-        let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+        let http_client = self.http_client.clone();
         ctx.spawn(
             async move {
                 let candidate = server_type.candidate(http_client);
@@ -764,7 +785,7 @@ impl PersistedWorkspace {
             );
             let log_relative_path =
                 crate::code::lsp_logs::relative_log_path(server, &workspace_root);
-            let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+            let http_client = self.http_client.clone();
             let config = LspServerConfig::new(
                 server,
                 workspace_root.clone(),
@@ -904,7 +925,7 @@ impl PersistedWorkspace {
                     shell_state.get_interactive_path_env_var(ctx)
                 });
 
-                let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+                let http_client = self.http_client.clone();
                 ctx.spawn(
                     async move {
                         // Wait for interactive PATH, then check installation

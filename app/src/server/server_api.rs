@@ -223,12 +223,6 @@ impl ServerApiProvider {
     pub fn get_team_client(&self) -> Arc<dyn TeamClient> {
         self.server_api.clone()
     }
-
-    /// Returns the shared HTTP client. This client is wired into network logging
-    /// and includes standard Warp request headers.
-    pub fn get_http_client(&self) -> Arc<http_client::Client> {
-        self.server_api.owned_http_client()
-    }
 }
 
 impl Entity for ServerApiProvider {

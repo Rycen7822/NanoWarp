@@ -111,6 +111,7 @@ pub(crate) fn initialize_app(app: &mut App) {
 
     app.update(experiments::init);
 
+    app.add_singleton_model(|_| warp_server_client::network_logging::NetworkLogModel::default());
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
     app.add_singleton_model(|_| History::new(vec![]));
 
