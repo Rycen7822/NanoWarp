@@ -1,20 +1,15 @@
 //! This module contains the implementation of `BackingView` for `TerminalView`, as well as
 //! business logic for integrating the terminal view with the pane infra (`crate::pane_group`).
-use settings::Setting as _;
-use warp_core::context_flag::ContextFlag;
 use warpui::elements::{
     ConstrainedBox, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize, ParentElement,
     Shrinkable,
 };
-use warpui::prelude::{ChildView, Container};
+use warpui::prelude::Container;
 use warpui::text_layout::ClipConfig;
 use warpui::{AppContext, Element, ModelHandle, SingletonEntity, TypedActionView, ViewContext};
 
-use super::shared_session::adapter::Kind as SharedSessionKind;
-use super::{Event, PaneConfiguration, TerminalAction, TerminalViewState, Viewer};
+use super::{Event, PaneConfiguration, TerminalAction, TerminalViewState};
 use crate::appearance::Appearance;
-use crate::drive::sharing::ShareableObject;
-use crate::features::FeatureFlag;
 use crate::menu::{MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent, PaneGroupFocusState};
 use crate::pane_group::pane::view;
@@ -24,13 +19,6 @@ use crate::pane_group::pane::view::header::components::{
 };
 use crate::pane_group::pane::view::header::render_pane_header_draggable;
 use crate::pane_group::{BackingView, SplitPaneState, TOGGLE_MAXIMIZE_PANE_BINDING_NAME};
-use crate::settings::app_installation_detection::{
-    UserAppInstallDetectionSettings, UserAppInstallStatus,
-};
-use crate::terminal::shared_session::SharedSessionActionSource;
-use crate::terminal::shared_session::manager::Manager;
-use crate::terminal::shared_session::participant_avatar_view::render_participants_and_role_elements;
-use crate::terminal::shared_session::render_util::shared_session_indicator_color;
 use crate::terminal::{TerminalManager, TerminalView};
 use crate::ui_components::{blended_colors, icons};
 use crate::util::bindings::keybinding_name_to_display_string;
@@ -89,20 +77,11 @@ impl TerminalView {
             });
     }
 
-    /// Update the terminal title and shared-session controls in the pane header.
+    /// Update the terminal title in the pane header.
     pub(super) fn update_pane_configuration(&mut self, ctx: &mut ViewContext<Self>) {
         let title = self.terminal_title.clone();
-        let shareable_object =
-            self.shared_session
-                .as_ref()
-                .map(|shared_session| ShareableObject::Session {
-                    handle: ctx.handle(),
-                    session_id: *shared_session.session_id(),
-                    started_at: *shared_session.started_at(),
-                });
         self.pane_configuration.update(ctx, |pane_config, ctx| {
             pane_config.set_title(title, ctx);
-            pane_config.set_shareable_object(shareable_object, ctx);
             pane_config.refresh_pane_header_overflow_menu_items(ctx);
             pane_config.notify_header_content_changed(ctx);
         });
@@ -133,32 +112,7 @@ impl TerminalView {
         let pane_config = self.pane_configuration.as_ref(app);
         let title = pane_config.title().to_owned();
         let clip_config = ClipConfig::start();
-        let pane_indicator = if let Some(shared_session) = self.shared_session.as_ref() {
-            if let Some(Viewer {
-                sharer: Some(sharer),
-                ..
-            }) = shared_session.kind().as_viewer()
-            {
-                Some(
-                    Container::new(ChildView::new(&sharer.avatar).finish())
-                        .with_margin_right(4.)
-                        .finish(),
-                )
-            } else {
-                Some(
-                    ConstrainedBox::new(
-                        icons::Icon::Sharing
-                            .to_warpui_icon(shared_session_indicator_color(appearance).into())
-                            .finish(),
-                    )
-                    .with_height(appearance.ui_font_size())
-                    .with_width(appearance.ui_font_size())
-                    .finish(),
-                )
-            }
-        } else {
-            self.render_terminal_mode_indicator(app)
-        };
+        let pane_indicator = self.render_terminal_mode_indicator(app);
 
         let is_pane_dragging = header_ctx.draggable_state.is_dragging();
         let mut center_row = Flex::row()
@@ -196,20 +150,11 @@ impl TerminalView {
         );
         let button_size = None;
 
-        let left_of_overflow = self.render_shared_session_header_content(app);
         let mut icon_button_count: u32 = 0;
 
         let mut right_row = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_main_axis_size(MainAxisSize::Min);
-        if let Some(content) = left_of_overflow {
-            right_row.add_child(content);
-        }
-        let sharing_element = header_ctx.sharing_controls(app, icon_color, button_size);
-        let has_sharing_element = sharing_element.is_some();
-        if let Some(sharing) = sharing_element {
-            right_row.add_child(sharing);
-        }
         let show_close_button = self
             .focus_handle
             .as_ref()
@@ -223,9 +168,7 @@ impl TerminalView {
                 button_size,
             ),
         );
-        icon_button_count += show_close_button as u32
-            + header_ctx.has_overflow_items as u32
-            + has_sharing_element as u32;
+        icon_button_count += show_close_button as u32 + header_ctx.has_overflow_items as u32;
 
         let min_width = header_edge_min_width(icon_button_count);
         (right_row.finish(), min_width)
@@ -285,68 +228,13 @@ impl BackingView for TerminalView {
         self.redetermine_global_focus(ctx);
     }
 
-    fn on_pane_header_overflow_menu_toggled(&mut self, is_open: bool, ctx: &mut ViewContext<Self>) {
-        self.pane_header_overflow_menu_toggled(is_open, ctx);
-    }
-
     fn pane_header_overflow_menu_items(
         &self,
         ctx: &AppContext,
     ) -> Vec<MenuItem<Self::PaneHeaderOverflowMenuAction>> {
-        let model = self.model.lock();
         let mut items = vec![];
-        let source = SharedSessionActionSource::PaneHeader;
-
-        // Shared-session related items.
-        let shared_session_status = model.shared_session_status();
-        if shared_session_status.is_sharer_or_viewer() {
-            // Disable the item (rather than silently no-op) when the Manager does not yet
-            // have a session id (e.g. during ViewPending while the session is still setting up).
-            let has_session_link =
-                Manager::as_ref(ctx).has_session_link(&self.view_id, shared_session_status);
-            items.push(
-                MenuItemFields::new("Copy link")
-                    .with_on_select_action(TerminalAction::CopySharedSessionLink { source })
-                    .with_disabled(!has_session_link)
-                    .into_item(),
-            );
-            if shared_session_status.is_sharer() {
-                items.push(
-                    MenuItemFields::new("Stop sharing session")
-                        .with_on_select_action(TerminalAction::StopSharingCurrentSession { source })
-                        .into_item(),
-                );
-            }
-            if !ContextFlag::HideOpenOnDesktopButton.is_enabled()
-                && *UserAppInstallDetectionSettings::as_ref(ctx)
-                    .user_app_installation_detected
-                    .value()
-                    == UserAppInstallStatus::Detected
-            {
-                items.push(
-                    MenuItemFields::new("Open on Desktop")
-                        .with_on_select_action(TerminalAction::OpenSharedSessionOnDesktop {
-                            source,
-                        })
-                        .into_item(),
-                );
-            }
-        } else if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && ContextFlag::CreateSharedSession.is_enabled()
-        {
-            items.push(
-                MenuItemFields::new("Share session")
-                    .with_on_select_action(TerminalAction::OpenShareSessionModal { source })
-                    .into_item(),
-            );
-        }
-
         // Split-pane related items.
         if self.split_pane_state(ctx).is_in_split_pane() {
-            if !items.is_empty() {
-                items.push(MenuItem::Separator);
-            }
-
             let is_maximized = self.split_pane_state(ctx).is_maximized();
             items.push(
                 MenuItemFields::toggle_pane_action(is_maximized)
@@ -363,17 +251,12 @@ impl BackingView for TerminalView {
     }
 
     fn should_render_header(&self, app: &AppContext) -> bool {
-        let is_shared = self
-            .model
-            .lock()
-            .shared_session_status()
-            .is_sharer_or_viewer();
-        is_shared || self.split_pane_state(app).is_in_split_pane()
+        self.split_pane_state(app).is_in_split_pane()
     }
 
     fn render_header_content(
         &self,
-        header_ctx: &view::HeaderRenderContext<'_>,
+        header_ctx: &view::HeaderRenderContext,
         app: &AppContext,
     ) -> view::HeaderContent {
         view::HeaderContent::Custom {
@@ -438,41 +321,5 @@ impl TerminalView {
         }
 
         None
-    }
-
-    /// Render shared session header content (participant avatars and role controls).
-    fn render_shared_session_header_content(&self, app: &AppContext) -> Option<Box<dyn Element>> {
-        let Some(shared_session) = &self.shared_session else {
-            return None;
-        };
-
-        let presence_manager = shared_session.presence_manager();
-        let role = presence_manager.as_ref(app).role();
-
-        // Get viewer avatars to render
-        let viewers = shared_session.pane_header_viewer_avatars(app);
-
-        // Get role change menu info based on session kind
-        let (role_change_menu, is_role_change_menu_open, mouse_state_handle) =
-            match shared_session.kind() {
-                SharedSessionKind::Viewer(viewer) => (
-                    Some(viewer.role_change_menu.clone()),
-                    viewer.is_role_change_menu_open,
-                    viewer.role_change_menu_button.clone(),
-                ),
-                SharedSessionKind::Sharer(sharer) => {
-                    (None, false, sharer.revoke_all_mouse_state_handle().clone())
-                }
-            };
-
-        // Render participant avatars and role elements
-        Some(render_participants_and_role_elements(
-            viewers,
-            role,
-            mouse_state_handle,
-            role_change_menu,
-            is_role_change_menu_open,
-            app,
-        ))
     }
 }

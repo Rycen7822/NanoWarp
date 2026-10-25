@@ -14,7 +14,6 @@ use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::Message;
 use crate::SessionSettings;
-use crate::terminal::input::CommandExecutionSource;
 use crate::terminal::line_editor_status::{LineEditorStatus, LineEditorStatusEvent};
 use crate::terminal::model::ansi::Handler;
 use crate::terminal::model::completions::ShellCompletion;
@@ -478,19 +477,13 @@ impl<T: EventLoopSender> PtyController<T> {
         &mut self,
         command: &str,
         shell_type: ShellType,
-        source: CommandExecutionSource,
         ctx: &mut ModelContext<Self>,
     ) -> StartCommandOutcome {
         {
             let mut model = self.terminal_model.lock();
 
             // Explicitly start the block now that the command is executed.
-            let outcome = match source {
-                CommandExecutionSource::SharedSession { participant_id, .. } => {
-                    model.start_command_execution_for_shared_session(participant_id)
-                }
-                CommandExecutionSource::User => model.start_command_execution(),
-            };
+            let outcome = model.start_command_execution();
             if !outcome.is_accepted() {
                 return outcome;
             }
@@ -538,7 +531,6 @@ impl<T: EventLoopSender> PtyController<T> {
     pub fn resize_pty(&self, size_update: SizeUpdate, ctx: &mut ModelContext<Self>) {
         // Send a message to the PTY event loop to resize the PTY.
         // We also need to resize when rows/cols changed without a pane size change
-        // (e.g. ViewerSizeReported on the sharer side).
         if size_update.pane_size_changed()
             || size_update.is_refresh()
             || size_update.rows_or_columns_changed()

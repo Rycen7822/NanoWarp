@@ -61,7 +61,6 @@ integration_tests! {
     test_session_restoration_with_multiple_shells,
     test_restore_snapshot_with_background_output,
     test_restore_snapshot_with_notebooks,
-    test_restore_snapshot_with_test_json_object,
     test_restore_snapshot_with_common_shareable_metadata_ids,
     test_restore_snapshot_with_markdown_file,
     test_restore_snapshot_with_settings_page,
@@ -185,11 +184,6 @@ integration_tests! {
     #[ignore]
     test_create_session_with_split_pane_while_bootstrapping,
 
-    // For some reason, disabling the `AgentMode` flag does not actually disable Agent Mode in the test
-    // run. Ignore for now.
-    #[ignore]
-
-    test_create_folder_from_command_palette,
 
     test_tab_behavior_setting,
 
@@ -198,11 +192,6 @@ integration_tests! {
     test_history_command_is_linked_to_local_workflow,
     #[ignore = "Affected by agent_view feature flag UI changes"]
     test_up_arrow_history_enters_shift_tab_for_workflow,
-
-    test_websocket_begins_on_startup,
-    test_websocket_does_not_begin_on_startup,
-    test_websocket_begins_after_joining_a_team,
-    test_websocket_begins_after_creating_an_object,
 
     test_secret_is_obfuscated_on_copy,
     test_secret_tooltip_respects_safe_mode_setting,
@@ -259,7 +248,7 @@ integration_tests! {
     test_block_filtering_active_block,
     test_block_filtering_clear_blocklist,
     test_autosuggestions_are_hidden_when_opening_tab_completions,
-    test_latest_buffer_operations,
+    test_command_execution_clears_input,
 
     test_pass_control_sequences_to_long_running_block,
     test_settings_file_migration_from_native_store,

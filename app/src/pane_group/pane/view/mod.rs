@@ -12,11 +12,10 @@ use warpui::elements::{
     Border, ConstrainedBox, Container, DropTarget, DropTargetData, Flex, MainAxisSize,
     ParentElement, SavePosition, Shrinkable,
 };
-use warpui::keymap::EditableBinding;
 use warpui::presenter::ChildView;
 use warpui::{
-    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
+    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, View, ViewContext,
+    ViewHandle,
 };
 
 use super::{
@@ -26,11 +25,7 @@ use crate::appearance::Appearance;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{Direction, SplitPaneState, TabBarHoverIndex};
-use crate::server::telemetry::SharingDialogSource;
 use crate::settings::{PaneSettings, PaneSettingsChangedEvent};
-use crate::util::bindings::CustomAction;
-
-const HAS_SHARED_OBJECT_CONTEXT_KEY: &str = "PaneView_HasSharedObject";
 
 /// Max width applied to the pane header while the pane renders as a floating drag preview.
 /// During a pane drag the pane is laid out with unbounded constraints; `MainAxisSize::Min`
@@ -39,18 +34,6 @@ const HAS_SHARED_OBJECT_CONTEXT_KEY: &str = "PaneView_HasSharedObject";
 /// infinite/NaN viewport and panicking in `Scene::validate_rect`. Capping the preview keeps
 /// the width finite while still producing a representative header ghost.
 const DRAG_PREVIEW_HEADER_MAX_WIDTH: f32 = 400.;
-
-pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
-
-    app.register_editable_bindings([EditableBinding::new(
-        "pane:share_pane_contents",
-        "Share pane",
-        PaneAction::ShareContents,
-    )
-    .with_custom_action(CustomAction::SharePaneContents)
-    .with_context_predicate(id!("PaneView") & id!(HAS_SHARED_OBJECT_CONTEXT_KEY))]);
-}
 
 pub enum PaneViewEvent {
     MovePaneWithinPaneGroup {
@@ -69,11 +52,6 @@ pub enum PaneViewEvent {
     PaneDraggedOutsideTabBarOrPaneGroup,
     PaneDragEnded,
     PaneHeaderClicked,
-}
-
-#[derive(Debug, Clone)]
-pub enum PaneAction {
-    ShareContents,
 }
 
 impl<P: BackingView> Entity for PaneView<P> {
@@ -235,8 +213,7 @@ impl<P: BackingView> PaneView<P> {
         match event {
             PaneConfigurationEvent::ShowAccentBorderUpdated
             | PaneConfigurationEvent::DimEvenIfFocusedUpdated => ctx.notify(),
-            PaneConfigurationEvent::RefreshPaneHeaderOverflowMenuItems
-            | PaneConfigurationEvent::SharedSessionLinkChanged => {
+            PaneConfigurationEvent::RefreshPaneHeaderOverflowMenuItems => {
                 let child = self.child(ctx);
                 let items = child.read(ctx, |view, ctx| view.pane_header_overflow_menu_items(ctx));
                 self.header.update(ctx, |header, ctx| {
@@ -246,27 +223,7 @@ impl<P: BackingView> PaneView<P> {
                 self.header.update(ctx, |header, ctx| {
                     header.set_toolbelt_buttons(buttons, ctx);
                 });
-                if matches!(event, PaneConfigurationEvent::SharedSessionLinkChanged) {
-                    self.header.update(ctx, |header, ctx| {
-                        header.refresh_shared_session_link(ctx);
-                    });
-                }
                 ctx.notify();
-            }
-            PaneConfigurationEvent::ShareableObjectChanged(object) => {
-                self.header.update(ctx, |header, ctx| {
-                    header.set_shareable_object(object.clone(), ctx);
-                });
-            }
-            PaneConfigurationEvent::ToggleSharingDialog(source) => {
-                self.header.update(ctx, |header, ctx| {
-                    header.share_pane_contents(*source, ctx);
-                });
-            }
-            PaneConfigurationEvent::OpenSharingQrCode(source) => {
-                self.header.update(ctx, |header, ctx| {
-                    header.open_shared_session_qr_code(*source, ctx);
-                });
             }
             _ => {}
         }
@@ -279,11 +236,6 @@ impl<P: BackingView> PaneView<P> {
     ) {
         match event {
             header::Event::PaneHeaderClicked => ctx.emit(PaneViewEvent::PaneHeaderClicked),
-            header::Event::PaneHeaderOverflowMenuToggled(is_open) => {
-                self.child(ctx).update(ctx, |child, ctx| {
-                    child.on_pane_header_overflow_menu_toggled(*is_open, ctx);
-                });
-            }
             header::Event::SelectedOverflowMenuAction(action) => {
                 self.child(ctx).update(ctx, |child, ctx| {
                     child.handle_pane_header_overflow_menu_action(action, ctx);
@@ -447,14 +399,6 @@ impl<P: BackingView> View for PaneView<P> {
         .finish()
     }
 
-    fn keymap_context(&self, ctx: &AppContext) -> warpui::keymap::Context {
-        let mut keymap_context = Self::default_keymap_context();
-        if self.header.as_ref(ctx).is_sharing_dialog_enabled(ctx) {
-            keymap_context.set.insert(HAS_SHARED_OBJECT_CONTEXT_KEY);
-        }
-        keymap_context
-    }
-
     fn child_view_ids(&self, app: &AppContext) -> Vec<EntityId> {
         // The backing views are owned by the `pane_stack` model, and only the
         // active (topmost) one is ever rendered (see `render`), so the
@@ -467,18 +411,6 @@ impl<P: BackingView> View for PaneView<P> {
         let mut ids = vec![self.header.id()];
         ids.extend(self.pane_stack.as_ref(app).views().map(|view| view.id()));
         ids
-    }
-}
-
-impl<P: BackingView> TypedActionView for PaneView<P> {
-    type Action = PaneAction;
-
-    fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
-        match action {
-            PaneAction::ShareContents => self.header.update(ctx, |header, ctx| {
-                header.share_pane_contents(SharingDialogSource::CommandPalette, ctx);
-            }),
-        }
     }
 }
 

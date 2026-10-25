@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod object;
 pub mod team;
 
 use std::ops::Deref;
@@ -10,7 +9,6 @@ use std::time::Duration;
 use ::http::header::CONTENT_LENGTH;
 use anyhow::Result;
 use auth::AuthClient;
-use object::ObjectClient;
 use team::TeamClient;
 use warp_core::context_flag::ContextFlag;
 use warp_core::telemetry::TelemetryEvent;
@@ -23,7 +21,6 @@ use warp_server_client::network_logging::NetworkLogModel;
 use warpui::r#async::BoxFuture;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use super::experiments::{ServerExperiment, ServerExperiments};
 use crate::ChannelState;
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
@@ -286,17 +283,6 @@ impl ServerApiProvider {
         }
     }
 
-    /// Handles fetching server-side experiments by updating the appropriate app state.
-    pub fn handle_experiments_fetched(
-        &self,
-        experiments: Vec<ServerExperiment>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        ServerExperiments::handle(ctx).update(ctx, |state, ctx| {
-            state.apply_latest_state(experiments, ctx);
-        });
-    }
-
     /// Constructs a new SeverApiProvider for tests.
     #[cfg(test)]
     pub fn new_for_test() -> Self {
@@ -319,10 +305,6 @@ impl ServerApiProvider {
     }
 
     pub fn get_team_client(&self) -> Arc<dyn TeamClient> {
-        self.server_api.clone()
-    }
-
-    pub fn get_cloud_objects_client(&self) -> Arc<dyn ObjectClient> {
         self.server_api.clone()
     }
 

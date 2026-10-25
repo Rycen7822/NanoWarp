@@ -11,15 +11,14 @@ use warpui::{
 };
 
 use super::team_tester::{TeamTesterStatus, TeamTesterStatusEvent};
-use super::user_workspaces::{UserWorkspaces, WorkspacesMetadataResponse};
-use super::workspace::WorkspaceUid;
+use super::user_workspaces::UserWorkspaces;
+use super::workspace::{Workspace, WorkspaceUid};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::persistence::ModelEvent;
 use crate::server::retry_strategies::{
     OUT_OF_BAND_REQUEST_RETRY_STRATEGY, PERIODIC_POLL, PERIODIC_POLL_RETRY_STRATEGY, with_retry,
 };
-use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::TeamClient;
 
 /// Refreshes workspace metadata from the server, updates UserWorkspaces and the local database,
@@ -99,12 +98,9 @@ impl TeamUpdateManager {
         // Since the mocked `TeamClient` is inaccessible to tests, stub the metadata polling to
         // avoid noisy `No matching expectation found` errors.
         let mut team_client = MockTeamClient::new();
-        team_client.expect_workspaces_metadata().returning(|| {
-            Ok(WorkspacesMetadataResponse {
-                workspaces: vec![],
-                experiments: None,
-            })
-        });
+        team_client
+            .expect_workspaces_metadata()
+            .returning(|| Ok(vec![]));
 
         Self::new(Arc::new(team_client), Default::default(), ctx)
     }
@@ -283,7 +279,7 @@ impl TeamUpdateManager {
 
     fn handle_workspace_metadata_with_request_state(
         &mut self,
-        request_state: RequestState<WorkspacesMetadataResponse>,
+        request_state: RequestState<Vec<Workspace>>,
         ctx: &mut ModelContext<Self>,
     ) -> Option<Result<()>> {
         match request_state {
@@ -308,14 +304,11 @@ impl TeamUpdateManager {
 
     fn on_workspaces_updated(
         &mut self,
-        result: Result<WorkspacesMetadataResponse>,
+        result: Result<Vec<Workspace>>,
         ctx: &mut ModelContext<Self>,
     ) {
         match result {
-            Ok(user_workspaces_access) => {
-                let workspaces = user_workspaces_access.workspaces;
-                let experiments = user_workspaces_access.experiments;
-
+            Ok(workspaces) => {
                 UserWorkspaces::handle(ctx).update(ctx, |user_workspaces, ctx| {
                     user_workspaces.update_workspaces(workspaces.clone(), ctx);
                 });
@@ -330,12 +323,6 @@ impl TeamUpdateManager {
                     };
                 } else if let Some(workspace_uid) = workspaces.first().map(|w| w.uid) {
                     self.set_current_workspace_uid(workspace_uid, ctx);
-                }
-
-                if let Some(experiments) = experiments {
-                    ServerApiProvider::handle(ctx).update(ctx, |provider, ctx| {
-                        provider.handle_experiments_fetched(experiments, ctx);
-                    });
                 }
 
                 // Update sqlite

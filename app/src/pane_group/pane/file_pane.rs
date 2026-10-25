@@ -5,10 +5,7 @@ use warpui::{AppContext, ModelHandle, View, ViewContext, ViewHandle};
 
 use super::super::Direction;
 use super::view::PaneView;
-use super::{
-    DetachType, PaneConfiguration, PaneContent, PaneGroup, PaneId, ShareableLink,
-    ShareableLinkError,
-};
+use super::{DetachType, PaneConfiguration, PaneContent, PaneGroup, PaneId};
 use crate::app_state::{FilePaneSnapshot, LeafContents};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -25,7 +22,7 @@ impl FilePane {
     fn from_view(file_view: ViewHandle<FileNotebookView>, ctx: &mut AppContext) -> Self {
         let pane_configuration = file_view.as_ref(ctx).pane_configuration();
 
-        let view = ctx.add_typed_action_view(file_view.window_id(ctx), |ctx| {
+        let view = ctx.add_view(file_view.window_id(ctx), |ctx| {
             let pane_id = PaneId::from_file_pane_ctx(ctx);
             PaneView::new(pane_id, file_view, (), pane_configuration.clone(), ctx)
         });
@@ -155,13 +152,6 @@ impl PaneContent for FilePane {
 
     fn focus(&self, ctx: &mut ViewContext<PaneGroup>) {
         self.file_view(ctx).update(ctx, |view, ctx| view.focus(ctx));
-    }
-
-    fn shareable_link(
-        &self,
-        _ctx: &mut ViewContext<PaneGroup>,
-    ) -> Result<ShareableLink, ShareableLinkError> {
-        Ok(ShareableLink::Base)
     }
 
     fn pane_configuration(&self) -> ModelHandle<PaneConfiguration> {

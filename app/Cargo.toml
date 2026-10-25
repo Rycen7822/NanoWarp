@@ -76,8 +76,6 @@ cfg-if.workspace = true
 channel_versions.workspace = true
 chrono.workspace = true
 clap.workspace = true
-cloud_object_client.workspace = true
-cloud_object_models.workspace = true
 cloud_objects.workspace = true
 command = { workspace = true }
 command-corrections.workspace = true
@@ -174,7 +172,6 @@ serde_regex = "1.1.0"
 serde_urlencoded.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
-session-sharing-protocol.workspace = true
 settings.workspace = true
 settings_value = { workspace = true, features = ["derive"] }
 sha2.workspace = true
@@ -283,7 +280,6 @@ app-installation-detection.workspace = true
 async-io.workspace = true
 axum.workspace = true
 build_cache.workspace = true
-cloud_object_persistence.workspace = true
 comfy-table = "7.1.4"
 inquire = "0.9.1"
 diesel = { workspace = true, features = ["sqlite", "chrono"] }
@@ -385,7 +381,6 @@ jsonschema = { workspace = true, default-features = false }
 async-executor = "1.5.1"
 command = { workspace = true, features = ["test-util"] }
 ctor = "0.1.18"
-cloud_object_client = { workspace = true, features = ["test-util"] }
 http_client = { workspace = true, features = ["test-util"] }
 mockall.workspace = true
 mockito.workspace = true
@@ -425,13 +420,9 @@ embed-resource = "3.0"
 async_find = []
 clear_autosuggestion_on_escape = []
 context_line_review_comments = []
-creating_shared_sessions = []
 default = [
     "osc_hyperlinks",
-    "viewing_shared_sessions",
     "render_continuous_block_selections_with_single_border",
-    "shared_with_me",
-    "session_sharing_acls",
     "shell_selector",
     "minimalist_ui",
     "avatar_in_tab_bar",
@@ -462,7 +453,6 @@ default = [
     "inline_code_review",
     "code_review_find",
     "async_find",
-    "shared_session_long_running_commands",
     "classic_completions",
     "force_classic_completions",
     "team_api_keys",
@@ -571,13 +561,11 @@ runtime_feature_flags = []
 selectable_prompt = []
 settings_file = []
 sequential_storage = []
-session_sharing_acls = []
 skip_login = ["warp_server_client/skip_login"]
 # This feature should only be enabled when building a self-contained binary with the bundle script.
 standalone = ["warp_assets/standalone", "warp_core/standalone"]
 tab_close_button_on_left = []
 test-util = [
-    "cloud_object_client/test-util",
     "warp_server_auth/test-util",
     "http_client/test-util",
     "warp_core/test-util",
@@ -595,12 +583,9 @@ integration_tests = [
     "warp_server_client/integration_tests",
 ]
 traces = []
-viewing_shared_sessions = []
 rect_selection = []
 alacritty_settings_import = []
-shared_with_me = []
 shell_selector = []
-shared_session_long_running_commands = []
 minimalist_ui = []
 avatar_in_tab_bar = []
 ssh_drag_and_drop = []

@@ -6,14 +6,12 @@ use warpui::{Entity, SingletonEntity, WindowId};
 use crate::app_state::WindowSnapshot;
 
 pub const DEFAULT_UNIVERSAL_SEARCH_WIDTH: f32 = 700.;
-pub const DEFAULT_WARP_DRIVE_INDEX_WIDTH: f32 = 300.;
 pub const DEFAULT_SETTINGS_PANEL_WIDTH: f32 = 194.;
 pub const DEFAULT_LEFT_PANEL_WIDTH: f32 = 240.;
 pub const DEFAULT_RIGHT_PANEL_WIDTH: f32 = 480.;
 /// A naming system for the ResizableStateHandles
 pub enum ModalType {
     UniversalSearchWidth,
-    WarpDriveIndexWidth,
     SettingsPanelWidth,
     LeftPanelWidth,
     RightPanelWidth,
@@ -23,7 +21,6 @@ pub enum ModalType {
 /// of session restoration.
 pub struct ModalSizes {
     pub universal_search_width: ResizableStateHandle,
-    pub warp_drive_index_width: ResizableStateHandle,
     pub settings_panel_width: ResizableStateHandle,
     pub left_panel_width: ResizableStateHandle,
     pub right_panel_width: ResizableStateHandle,
@@ -39,9 +36,6 @@ impl ModalSizes {
         let universal_search_width = window_snapshot
             .universal_search_width
             .unwrap_or(DEFAULT_UNIVERSAL_SEARCH_WIDTH);
-        let warp_drive_index_width = window_snapshot
-            .warp_drive_index_width
-            .unwrap_or(DEFAULT_WARP_DRIVE_INDEX_WIDTH);
         let settings_panel_width = DEFAULT_SETTINGS_PANEL_WIDTH;
         let left_panel_width = window_snapshot.left_panel_width.unwrap_or(left_panel_size);
         let right_panel_width = window_snapshot
@@ -50,7 +44,6 @@ impl ModalSizes {
 
         Self {
             universal_search_width: resizable_state_handle(universal_search_width),
-            warp_drive_index_width: resizable_state_handle(warp_drive_index_width),
             settings_panel_width: resizable_state_handle(settings_panel_width),
             left_panel_width: resizable_state_handle(left_panel_width),
             right_panel_width: resizable_state_handle(right_panel_width),
@@ -60,7 +53,6 @@ impl ModalSizes {
     pub fn default_with_panel_defaults(left_default: f32, right_default: f32) -> Self {
         ModalSizes {
             universal_search_width: resizable_state_handle(DEFAULT_UNIVERSAL_SEARCH_WIDTH),
-            warp_drive_index_width: resizable_state_handle(DEFAULT_WARP_DRIVE_INDEX_WIDTH),
             settings_panel_width: resizable_state_handle(DEFAULT_SETTINGS_PANEL_WIDTH),
             left_panel_width: resizable_state_handle(left_default),
             right_panel_width: resizable_state_handle(right_default),
@@ -71,7 +63,6 @@ impl ModalSizes {
     pub fn get_resizable_state_handle(&self, modal: ModalType) -> ResizableStateHandle {
         match modal {
             ModalType::UniversalSearchWidth => self.universal_search_width.clone(),
-            ModalType::WarpDriveIndexWidth => self.warp_drive_index_width.clone(),
             ModalType::SettingsPanelWidth => self.settings_panel_width.clone(),
             ModalType::LeftPanelWidth => self.left_panel_width.clone(),
             ModalType::RightPanelWidth => self.right_panel_width.clone(),
@@ -84,7 +75,6 @@ impl Default for ModalSizes {
     fn default() -> Self {
         Self {
             universal_search_width: resizable_state_handle(DEFAULT_UNIVERSAL_SEARCH_WIDTH),
-            warp_drive_index_width: resizable_state_handle(DEFAULT_WARP_DRIVE_INDEX_WIDTH),
             settings_panel_width: resizable_state_handle(DEFAULT_SETTINGS_PANEL_WIDTH),
             left_panel_width: resizable_state_handle(DEFAULT_LEFT_PANEL_WIDTH),
             right_panel_width: resizable_state_handle(DEFAULT_RIGHT_PANEL_WIDTH),

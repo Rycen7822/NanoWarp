@@ -641,36 +641,6 @@ fn waterfall_background_right_click_honors_right_click_pastes_setting() {
     })
 }
 
-#[test]
-fn ctrl_c_from_shared_viewer_forwards_unchanged() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-        let pty_writes: Rc<RefCell<Vec<Vec<u8>>>> = Rc::new(RefCell::new(Vec::new()));
-        let writes = pty_writes.clone();
-        app.update(|ctx| {
-            ctx.subscribe_to_view(&terminal, move |_, event, _| {
-                if let Event::WriteBytesToPty { bytes } = event {
-                    writes.borrow_mut().push(bytes.to_vec());
-                }
-            });
-        });
-
-        terminal.update(&mut app, |view, ctx| {
-            view.model
-                .lock()
-                .simulate_long_running_block("sleep 60", "");
-            view.write_viewer_bytes_to_pty(vec![0x03], ctx);
-        });
-
-        assert_eq!(
-            *pty_writes.borrow(),
-            vec![vec![0x03]],
-            "Ctrl-C must still be forwarded to the pty unchanged"
-        );
-    })
-}
-
 /// Test to verify that blocks created through normal execution
 /// have the correct local status set
 #[test]
@@ -831,8 +801,10 @@ fn org_command_patterns_classify_a_block_remote() {
                 ctx,
             );
             let team_uid = user_workspaces
-                .sole_team_uid()
-                .expect("the fixture workspace has exactly one team");
+                .current_workspace()
+                .expect("the fixture has a current workspace")
+                .teams[0]
+                .uid;
             user_workspaces.set_team_for_window(window_id, team_uid, ctx);
         });
 

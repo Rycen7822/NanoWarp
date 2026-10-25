@@ -2,11 +2,7 @@ use warpui::integration::TestStep;
 use warpui::{SingletonEntity, async_assert, async_assert_eq};
 
 use crate::network::{NetworkStatus, NetworkStatusKind};
-use crate::server::cloud_objects::listener::Listener;
 use crate::util::bindings::keybinding_name_to_display_string;
-use crate::workspaces::team::{Team, TeamVisibility};
-use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::workspaces::workspace::Workspace;
 
 fn set_and_assert_network_status(status: NetworkStatusKind) -> TestStep {
     TestStep::new("Set and assert network status")
@@ -37,54 +33,6 @@ pub fn go_online() -> TestStep {
     set_and_assert_network_status(NetworkStatusKind::Online)
 }
 
-pub fn join_a_workspace() -> TestStep {
-    TestStep::new("Join a Warp Drive workspace")
-        .with_action(move |app, _, _| {
-            UserWorkspaces::handle(app).update(app, |user_workspaces, ctx| {
-                let workspace_uid = "workspace_uid123456789".to_string().into();
-                let teams: Vec<Team> = vec![Team {
-                    uid: "team_uid12345678912345".try_into().expect("ID is valid"),
-                    name: "My Team".to_string(),
-                    color: None,
-                    invite_link: Default::default(),
-                    members: Default::default(),
-                    pending_email_invites: Default::default(),
-                    invite_link_domain_restrictions: Default::default(),
-                    billing_metadata: Default::default(),
-                    stripe_customer_id: None,
-                    settings: Default::default(),
-                    is_eligible_for_discovery: false,
-                    visibility: TeamVisibility::Open,
-                }];
-                let workspaces: Vec<Workspace> = vec![Workspace {
-                    uid: workspace_uid,
-                    name: "My Workspace".to_string(),
-                    stripe_customer_id: None,
-                    teams: teams.clone(),
-                    billing_metadata: Default::default(),
-                    settings: Default::default(),
-                    invite_link_domain_restrictions: Default::default(),
-                    pending_email_invites: Default::default(),
-                    is_eligible_for_discovery: false,
-                    members: Default::default(),
-                }];
-
-                user_workspaces.update_workspaces(workspaces, ctx);
-                user_workspaces.set_current_workspace_uid(workspace_uid, ctx)
-            });
-        })
-        .add_assertion(move |app, _| {
-            UserWorkspaces::handle(app).read(app, |user_workspaces, _| {
-                async_assert!(user_workspaces.has_teams(), "user is on a team")
-            })
-        })
-        .add_assertion(move |app, _| {
-            UserWorkspaces::handle(app).read(app, |user_workspaces, _| {
-                async_assert!(user_workspaces.has_workspaces(), "user is on a workspace")
-            })
-        })
-}
-
 pub fn assert_binding_display_string(
     binding: &'static str,
     display_string: Option<&'static str>,
@@ -96,34 +44,6 @@ pub fn assert_binding_display_string(
                 async_assert_eq!(
                     keybinding_name_to_display_string(binding, ctx).as_deref(),
                     display_string
-                )
-            })
-        },
-    )
-}
-
-pub fn assert_websocket_has_started() -> TestStep {
-    TestStep::new("Assert a websocket has started").add_named_assertion(
-        "subscription abort handle should exist",
-        move |app, _| {
-            Listener::handle(app).read(app, |listener, _| {
-                async_assert!(
-                    listener.has_current_subscription_abort_handle(),
-                    "subscription has started"
-                )
-            })
-        },
-    )
-}
-
-pub fn assert_websocket_has_not_started() -> TestStep {
-    TestStep::new("Assert a websocket has not started").add_named_assertion(
-        "subscription abort handle should not exist",
-        move |app, _| {
-            Listener::handle(app).read(app, |listener, _| {
-                async_assert!(
-                    !listener.has_current_subscription_abort_handle(),
-                    "subscription has not started"
                 )
             })
         },

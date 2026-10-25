@@ -1,15 +1,12 @@
 use super::*;
 use crate::auth::AuthManager;
-use crate::cloud_object::model::actions::ObjectActions;
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::server::ids::ServerId;
+use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::MockTeamClient;
-use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings::PrivacySettings;
 use crate::system::SystemStats;
 use crate::workspaces::team::Team;
-use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspacesEvent;
 use crate::workspaces::workspace::{Workspace, WorkspaceUid};
 use warpui::{AddSingletonModel, App};
@@ -19,11 +16,7 @@ fn initialize_app(workspaces: Vec<Workspace>, app: &mut App) {
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(TeamTesterStatus::new);
     app.add_singleton_model(|ctx| UserWorkspaces::mock(workspaces, ctx));
-    app.add_singleton_model(SyncQueue::mock);
-    app.add_singleton_model(CloudModel::mock);
-    app.add_singleton_model(|_| ObjectActions::new(vec![]));
     app.add_singleton_model(PrivacySettings::mock);
-    app.add_singleton_model(|_| UserProfiles::new(vec![]));
     app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
     app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
@@ -43,10 +36,7 @@ fn out_of_band_metadata_refresh_applies_metadata_without_waiting_for_the_receive
                 if attempts == 1 {
                     return Err(anyhow::anyhow!("workspace metadata unavailable"));
                 }
-                Ok(WorkspacesMetadataResponse {
-                    workspaces: vec![],
-                    experiments: None,
-                })
+                Ok(vec![])
             });
         let team_client = Arc::new(team_client);
         initialize_app(vec![], &mut app);
@@ -90,23 +80,17 @@ fn on_workspaces_updated_keeps_teams_distinct_and_prunes_a_team_the_response_omi
 
         team_update_manager.update(&mut app, |manager, ctx| {
             manager.on_workspaces_updated(
-                Ok(WorkspacesMetadataResponse {
-                    workspaces: vec![workspace_with_teams(vec![
-                        team_with_uid(team_a),
-                        team_with_uid(team_b),
-                    ])],
-                    experiments: None,
-                }),
+                Ok(vec![workspace_with_teams(vec![
+                    team_with_uid(team_a),
+                    team_with_uid(team_b),
+                ])]),
                 ctx,
             );
         });
 
         team_update_manager.update(&mut app, |manager, ctx| {
             manager.on_workspaces_updated(
-                Ok(WorkspacesMetadataResponse {
-                    workspaces: vec![workspace_with_teams(vec![team_with_uid(team_b)])],
-                    experiments: None,
-                }),
+                Ok(vec![workspace_with_teams(vec![team_with_uid(team_b)])]),
                 ctx,
             );
         });
@@ -121,13 +105,7 @@ fn on_workspaces_updated_keeps_teams_distinct_and_prunes_a_team_the_response_omi
         });
 
         team_update_manager.update(&mut app, |manager, ctx| {
-            manager.on_workspaces_updated(
-                Ok(WorkspacesMetadataResponse {
-                    workspaces: vec![workspace_with_teams(vec![])],
-                    experiments: None,
-                }),
-                ctx,
-            );
+            manager.on_workspaces_updated(Ok(vec![workspace_with_teams(vec![])]), ctx);
         });
 
         app.read(|ctx| {

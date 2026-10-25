@@ -6,7 +6,6 @@ pub mod assertions;
 pub mod block;
 pub mod block_filtering;
 pub mod clipboard;
-pub mod cloud_object;
 pub mod code_review;
 pub mod command_palette;
 pub mod command_search;
@@ -31,7 +30,6 @@ pub mod terminal;
 pub mod themes;
 pub mod type_getters;
 pub mod view_getters;
-pub mod warp_drive;
 pub mod window;
 pub mod workspace;
 

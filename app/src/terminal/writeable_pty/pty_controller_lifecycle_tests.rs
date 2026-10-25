@@ -62,12 +62,7 @@ fn rejected_and_coalesced_starts_do_not_mutate_controller_or_write_bytes() {
             StartCommandOutcome::Accepted
         );
         let coalesced = controller.update(&mut app, |controller, ctx| {
-            controller.write_command(
-                "coalesced",
-                ShellType::Zsh,
-                CommandExecutionSource::User,
-                ctx,
-            )
+            controller.write_command("coalesced", ShellType::Zsh, ctx)
         });
         assert_eq!(coalesced, StartCommandOutcome::Coalesced);
         controller.read(&app, |controller, _| {
@@ -81,12 +76,7 @@ fn rejected_and_coalesced_starts_do_not_mutate_controller_or_write_bytes() {
             session_id: None,
         });
         let rejected = controller.update(&mut app, |controller, ctx| {
-            controller.write_command(
-                "rejected",
-                ShellType::Zsh,
-                CommandExecutionSource::User,
-                ctx,
-            )
+            controller.write_command("rejected", ShellType::Zsh, ctx)
         });
         assert_eq!(rejected, StartCommandOutcome::RejectedExecuting);
         controller.read(&app, |controller, _| {

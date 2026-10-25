@@ -85,12 +85,10 @@ pub struct WorkspaceState {
     pub is_launch_config_save_modal_open: bool,
     pub is_resource_center_open: bool,
     pub is_command_search_open: bool,
-    pub is_warp_drive_open: bool,
     pub is_auth_override_modal_open: bool,
     pub is_require_login_modal_open: bool,
     pub is_prompt_editor_open: bool,
     pub is_header_toolbar_editor_open: bool,
-    pub is_close_session_confirmation_dialog_open: bool,
     pub is_native_quit_modal_open: bool,
     pub is_tab_config_params_modal_open: bool,
     pub is_session_config_modal_open: bool,
@@ -104,7 +102,7 @@ pub struct WorkspaceState {
 
 impl WorkspaceState {
     pub fn is_any_non_terminal_view_open(&self) -> bool {
-        self.is_any_modal_open() || self.is_theme_chooser_open || self.is_warp_drive_open
+        self.is_any_modal_open() || self.is_theme_chooser_open
     }
 
     pub fn is_any_non_palette_modal_open(&self) -> bool {
@@ -159,7 +157,6 @@ impl WorkspaceState {
     }
 
     pub fn close_all_left_panels(&mut self) {
-        self.is_warp_drive_open = false;
         self.is_theme_chooser_open = false;
     }
 

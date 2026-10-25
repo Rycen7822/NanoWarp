@@ -6,8 +6,7 @@ use crate::server::ids::ServerId;
 use crate::workspaces::team::Team;
 use crate::workspaces::workspace::Workspace;
 use regex::Regex;
-use std::rc::Rc;
-use warpui::{AppContext, Entity, SingletonEntity, ViewContext, WeakViewHandle, WindowId};
+use warpui::{AppContext, Entity, ViewContext, WeakViewHandle};
 
 mod sealed {
     pub trait Sealed {}
@@ -40,15 +39,6 @@ impl TeamScope for TeamContextForOperation {
     }
 }
 
-#[cfg(test)]
-impl TeamContextForOperation {
-    pub(crate) fn new_for_test(team_uid: ServerId) -> Self {
-        Self {
-            team_uid: Some(team_uid),
-        }
-    }
-}
-
 /// The team a view renders as, borrowed for the duration of a single read.
 ///
 /// It is resolved at the point of use so policy reads follow the view between windows.
@@ -64,40 +54,6 @@ impl TeamScope for TeamContext<'_> {
     }
 }
 
-pub struct ResolvedTeamScope(Option<ServerId>);
-
-impl ResolvedTeamScope {
-    pub fn from_scope(scope: &(impl TeamScope + ?Sized)) -> Self {
-        Self(scope.team_uid())
-    }
-}
-
-impl sealed::Sealed for ResolvedTeamScope {}
-
-impl TeamScope for ResolvedTeamScope {
-    fn team_uid(&self) -> Option<ServerId> {
-        self.0
-    }
-}
-
-/// A teamless [`TeamScope`] for tests that pass a scope without standing up a window.
-#[cfg(test)]
-pub(crate) struct TeamlessScopeForTest;
-
-#[cfg(test)]
-impl sealed::Sealed for TeamlessScopeForTest {}
-
-#[cfg(test)]
-impl TeamScope for TeamlessScopeForTest {
-    fn team_uid(&self) -> Option<ServerId> {
-        None
-    }
-}
-
-/// Resolves a [`TeamContext`] on demand from a view captured up front. See
-/// [`UserWorkspaces::team_context_resolver`].
-pub type TeamContextResolver = Rc<dyn for<'a> Fn(&'a AppContext) -> TeamContext<'a>>;
-
 impl UserWorkspaces {
     /// Captures the team selected in `ctx`'s window as an operation's
     /// [`TeamContextForOperation`]. Always succeeds -- a window with no team selected still yields
@@ -106,15 +62,8 @@ impl UserWorkspaces {
         &self,
         ctx: &ViewContext<T>,
     ) -> TeamContextForOperation {
-        self.team_context_for_window_operation(ctx.window_id())
-    }
-    /// Captures the team selected in a headless frontend's window.
-    pub fn team_context_for_window_operation(
-        &self,
-        window_id: WindowId,
-    ) -> TeamContextForOperation {
         TeamContextForOperation {
-            team_uid: self.team_uid_for_window(window_id),
+            team_uid: self.team_uid_for_window(ctx.window_id()),
         }
     }
 
@@ -125,25 +74,6 @@ impl UserWorkspaces {
     ) -> TeamContext<'a> {
         let team_uid = self.team_for_view_handle(view, app).map(|team| &team.uid);
         TeamContext { team_uid }
-    }
-
-    /// Captures `view` as a reusable source of [`TeamContext`], for consumers that cannot name
-    /// a view at the boundaries where they need one.
-    pub fn team_context_resolver<T: Entity>(view: WeakViewHandle<T>) -> TeamContextResolver {
-        Rc::new(move |app| Self::as_ref(app).team_context(&view, app))
-    }
-
-    fn team_context_for_window_id(&self, window_id: WindowId) -> TeamContext<'_> {
-        TeamContext {
-            team_uid: self
-                .team_uid_for_window(window_id)
-                .and_then(|team_uid| self.team_from_uid(team_uid))
-                .map(|team| &team.uid),
-        }
-    }
-
-    pub fn team_context_for_window(&self, window_id: WindowId) -> TeamContext<'_> {
-        self.team_context_for_window_id(window_id)
     }
 
     /// The team a scope names, when it names one that is still in the current workspace.
@@ -177,42 +107,6 @@ impl UserWorkspaces {
             Some(_) => self.team_from_scope(scope).map_or(absent, from_team),
             None => self.current_workspace().map_or(absent, from_workspace),
         }
-    }
-
-    pub(crate) fn is_anyone_with_link_sharing_enabled<S: TeamScope + ?Sized>(
-        &self,
-        scope: &S,
-    ) -> bool {
-        self.scoped_or_workspace_setting(
-            scope,
-            |team| {
-                team.settings
-                    .link_sharing
-                    .anyone_with_link_sharing_enabled
-                    .value
-            },
-            |workspace| {
-                workspace
-                    .settings
-                    .link_sharing_settings
-                    .anyone_with_link_sharing_enabled
-            },
-            true,
-        )
-    }
-
-    pub(crate) fn is_direct_link_sharing_enabled<S: TeamScope + ?Sized>(&self, scope: &S) -> bool {
-        self.scoped_or_workspace_setting(
-            scope,
-            |team| team.settings.link_sharing.direct_link_sharing_enabled.value,
-            |workspace| {
-                workspace
-                    .settings
-                    .link_sharing_settings
-                    .direct_link_sharing_enabled
-            },
-            true,
-        )
     }
 
     /// The remote-session command patterns configured by `scope`'s team. See

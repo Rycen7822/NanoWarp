@@ -26,13 +26,12 @@ pub fn initialize_settings_for_tests_with_mode(
     use warp_core::execution_mode::AppExecutionMode;
     use warp_core::semantic_selection::SemanticSelection;
 
-    use crate::drive::settings::WarpDriveSettings;
     use crate::settings::app_icon::AppIconSettings;
     use crate::settings::manager::SettingsManager;
     use crate::settings::{
         AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
-        CloudPreferencesSettings, CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings,
-        GPUSettings, InputModeSettings, InputSettings, NativePreferenceSettings, PaneSettings,
+        CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings, GPUSettings,
+        InputModeSettings, InputSettings, NativePreferenceSettings, PaneSettings,
         SameLinePromptBlockSettings, ScrollSettings, SelectionSettings, SshSettings, ThemeSettings,
         VimBannerSettings, init_and_register_user_preferences,
     };
@@ -43,7 +42,6 @@ pub fn initialize_settings_for_tests_with_mode(
     use crate::terminal::safe_mode_settings::SafeModeSettings;
     use crate::terminal::session_settings::SessionSettings;
     use crate::terminal::settings::TerminalSettings;
-    use crate::terminal::shared_session::settings::SharedSessionSettings;
     use crate::terminal::warpify::settings::WarpifySettings;
     use crate::undo_close::UndoCloseSettings;
     use crate::user_config::WarpConfig;
@@ -64,7 +62,6 @@ pub fn initialize_settings_for_tests_with_mode(
     AppEditorSettings::register(app);
     BlockVisibilitySettings::register(app);
     BlockListSettings::register(app);
-    CloudPreferencesSettings::register(app);
     DebugSettings::register(app);
     AppIconSettings::register(app);
     EmacsBindingsSettings::register(app);
@@ -104,9 +101,7 @@ pub fn initialize_settings_for_tests_with_mode(
     ThemeSettings::register(app);
     UndoCloseSettings::register(app);
     VimBannerSettings::register(app);
-    WarpDriveSettings::register(app);
     WindowSettings::register(app);
-    SharedSessionSettings::register(app);
     CodeSettings::register(app);
     SemanticSelection::register(app);
 }

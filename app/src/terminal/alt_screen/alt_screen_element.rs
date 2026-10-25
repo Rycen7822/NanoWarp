@@ -3,12 +3,10 @@ use std::sync::Arc;
 
 use num_traits::Float as _;
 use parking_lot::FairMutex;
-use pathfinder_geometry::vector::vec2f;
 use vec1::Vec1;
 use warp_core::features::FeatureFlag;
 use warp_util::user_input::UserInput;
-use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
-use warpui::elements::{Axis, Point as UiPoint, ScrollData, ScrollableElement};
+use warpui::elements::Point as UiPoint;
 use warpui::event::{DispatchedEvent, InBoundsExt, KeyState, ModifiersState};
 use warpui::fonts::Properties;
 use warpui::geometry::rect::RectF;
@@ -39,15 +37,10 @@ use crate::terminal::model::mouse::{MouseAction, MouseButton, MouseState};
 use crate::terminal::model::selection::{SelectAction, SelectionPoint};
 use crate::terminal::model::terminal_model::WithinModel;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
-use crate::terminal::shared_session::presence_manager::{
-    MUTED_PARTICIPANT_COLOR, PresenceManager, text_selection_color,
-};
 use crate::terminal::view::{
     ActiveSessionState, TerminalAction, TerminalEditor, TerminalViewRenderContext,
 };
-use crate::terminal::{
-    SizeInfo, TerminalModel, grid_renderer, heights_approx_eq, should_right_click_paste,
-};
+use crate::terminal::{SizeInfo, TerminalModel, grid_renderer, should_right_click_paste};
 
 pub struct AltScreenElement {
     model: Arc<FairMutex<TerminalModel>>,
@@ -71,11 +64,6 @@ pub struct AltScreenElement {
     active_session_state: ActiveSessionState,
     selection_range: Option<Vec1<Range<Point>>>,
 
-    presence_manager: Option<ModelHandle<PresenceManager>>,
-
-    // Fields needed for vertical scrolling for shared session viewer when window is smaller than sharer's
-    scroll_top: Lines,
-    max_scroll_top: Option<Lines>,
     visible_lines: Option<Lines>,
 
     cursor_hint_text: Option<Box<dyn Element>>,
@@ -90,7 +78,6 @@ impl AltScreenElement {
         enforce_minimum_contrast: EnforceMinimumContrast,
         selection_range: Option<Vec1<Range<Point>>>,
         appearance: &Appearance,
-        scroll_top: Lines,
         cursor_hint_text: Option<Box<dyn Element>>,
     ) -> Self {
         let highlighted_url = terminal_view_render_context
@@ -139,24 +126,13 @@ impl AltScreenElement {
                 ),
                 use_ligature_rendering: false,
             },
-            presence_manager: None,
-            scroll_top,
             visible_lines: None,
-            max_scroll_top: None,
             cursor_hint_text,
         }
     }
 
     pub fn with_ligature_rendering(mut self) -> Self {
         self.grid_render_params.use_ligature_rendering = true;
-        self
-    }
-
-    pub fn with_shared_session_presence(
-        mut self,
-        presence_manager: Option<ModelHandle<PresenceManager>>,
-    ) -> Self {
-        self.presence_manager = presence_manager;
         self
     }
 
@@ -435,12 +411,6 @@ impl AltScreenElement {
             delta.y().into_lines()
         };
 
-        // The alt screen can be vertically scrollable iff we're a shared session reader
-        // and our window is smaller than the sharer's.
-        if self.model.lock().shared_session_status().is_reader() {
-            ScrollableElement::scroll(self, delta.to_pixels(cell_height), ctx);
-        }
-
         ctx.dispatch_typed_action(TerminalAction::MaybeDismissToolTip {
             from_keybinding: false,
         });
@@ -454,14 +424,6 @@ impl AltScreenElement {
         let point = self.coord_to_point(local_position);
         ctx.dispatch_typed_action(TerminalAction::AltScroll { delta, point });
         true
-    }
-
-    /// Return a Vector2F that can be used to adjust a position to account for vertical scrolling.
-    fn vertical_scroll_pixels(&self) -> Vector2F {
-        vec2f(
-            0.,
-            self.scroll_top.as_f64() as f32 * self.line_height().as_f32(),
-        )
     }
 
     /// Converts a pixel coordinate to a point in the `AltScreen` coordinate space.
@@ -512,65 +474,6 @@ impl AltScreenElement {
         };
     }
 
-    /// Renders any shared session participants' selections.
-    fn render_participant_selections(
-        &self,
-        size_info: &SizeInfo,
-        origin: Vector2F,
-        ctx: &mut PaintContext,
-        app: &AppContext,
-    ) {
-        if let Some(presence_manager) = &self.presence_manager {
-            let is_self_reconnecting = presence_manager.as_ref(app).is_reconnecting();
-            for participant in presence_manager.as_ref(app).all_present_participants() {
-                let session_sharing_protocol::common::Selection::AltScreenText {
-                    start,
-                    end,
-                    is_reversed,
-                } = &participant.info.selection
-                else {
-                    continue;
-                };
-                let start = SelectionPoint {
-                    row: start.row.into_lines(),
-                    col: start.col,
-                };
-                let end = SelectionPoint {
-                    row: end.row.into_lines(),
-                    col: end.col,
-                };
-                let participant_color = if is_self_reconnecting {
-                    MUTED_PARTICIPANT_COLOR
-                } else {
-                    participant.color
-                };
-                grid_renderer::render_selection(
-                    &start,
-                    &end,
-                    size_info,
-                    Lines::zero(),
-                    origin,
-                    text_selection_color(participant_color),
-                    ctx,
-                );
-                let cursor_point = if *is_reversed { &start } else { &end };
-                grid_renderer::render_selection_cursor(
-                    cursor_point,
-                    size_info,
-                    Lines::zero(),
-                    origin,
-                    participant_color,
-                    !*is_reversed,
-                    ctx,
-                );
-            }
-        }
-    }
-
-    fn total_lines(&self) -> Lines {
-        self.grid_render_params.size_info.rows().into_lines()
-    }
-
     fn line_height(&self) -> Pixels {
         self.grid_render_params.size_info.cell_height_px()
     }
@@ -595,10 +498,6 @@ impl Element for AltScreenElement {
     fn after_layout(&mut self, _ctx: &mut AfterLayoutContext, _app: &AppContext) {
         let size = self.size.expect("Size should be set in `layout()`");
         self.visible_lines = Some(size.y().into_pixels().to_lines(self.line_height()).floor());
-        self.max_scroll_top = Some(self.total_lines() - self.visible_lines.unwrap());
-        // After resizing the window to be larger, the max_scroll_top could have decreased,
-        // so we need to make sure scroll_top is in bounds.
-        self.scroll_top = self.scroll_top.min(self.max_scroll_top.unwrap());
     }
 
     fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
@@ -642,18 +541,15 @@ impl Element for AltScreenElement {
 
         // Render grid cells. Since the alt screen has no scrollback we can always start at index 0.
         record_trace_event!("alt_screen_element:paint:preparing_to_render_grid");
-        let start_row = self.scroll_top.as_f64();
-        let end_row = (start_row
-            + self
-                .visible_lines
-                .expect("should be set after layout")
-                .as_f64())
-        .min(grid.visible_rows() as f64);
-        let adjusted_grid_origin = origin - self.vertical_scroll_pixels();
+        let end_row = self
+            .visible_lines
+            .expect("should be set after layout")
+            .as_f64()
+            .min(grid.visible_rows() as f64);
         let cursor_visible = model.alt_screen().is_mode_set(TermMode::SHOW_CURSOR);
         grid_renderer::render_grid(
             grid,
-            start_row.floor() as usize,
+            0,
             end_row.ceil() as usize,
             &model.colors(),
             &override_colors,
@@ -664,7 +560,7 @@ impl Element for AltScreenElement {
             self.grid_render_params.line_height_ratio,
             cell_size,
             padding_x,
-            adjusted_grid_origin,
+            origin,
             &mut glyphs,
             255, /* alpha */
             self.highlighted_url.as_ref(),
@@ -692,7 +588,7 @@ impl Element for AltScreenElement {
                 grid.is_cursor_on_wide_char(),
                 model.alt_screen().cursor_style(),
                 padding_x,
-                adjusted_grid_origin,
+                origin,
                 self.grid_render_params.warp_theme.cursor().into(),
                 ctx,
                 self.terminal_view_id,
@@ -703,17 +599,7 @@ impl Element for AltScreenElement {
 
         record_trace_event!("alt_screen_element:paint:cursor_rendered");
 
-        self.render_selections(
-            &self.grid_render_params.size_info,
-            adjusted_grid_origin,
-            ctx,
-        );
-        self.render_participant_selections(
-            &self.grid_render_params.size_info,
-            adjusted_grid_origin,
-            ctx,
-            app,
-        );
+        self.render_selections(&self.grid_render_params.size_info, origin, ctx);
 
         record_trace_event!("alt_screen_element:paint:selection_rendered");
         end_trace!();
@@ -733,10 +619,9 @@ impl Element for AltScreenElement {
             .bounds
             .expect("Bounds should be set before event dispatching");
         let in_bounds = event.raw_event().in_bounds(bounds);
-        let vertical_scroll_pixels = self.vertical_scroll_pixels();
         // Helper function to convert a global (window-space) position to a
         // local (element-space) one.
-        let to_local = |position| position - bounds.origin() + vertical_scroll_pixels;
+        let to_local = |position| position - bounds.origin();
 
         let z_index = self.z_index().expect("Z-index should exist.");
         let Some(event_at_z_index) = event.at_z_index(z_index, ctx) else {
@@ -870,55 +755,5 @@ impl Element for AltScreenElement {
 
     fn origin(&self) -> Option<UiPoint> {
         self.origin
-    }
-}
-
-impl NewScrollableElement for AltScreenElement {
-    fn axis(&self) -> ScrollableAxis {
-        ScrollableAxis::Vertical
-    }
-
-    fn scroll_data(&self, _axis: Axis, app: &AppContext) -> Option<ScrollData> {
-        ScrollableElement::scroll_data(self, app)
-    }
-
-    fn scroll(&mut self, delta: Pixels, _axis: Axis, ctx: &mut EventContext) {
-        ScrollableElement::scroll(self, delta, ctx)
-    }
-
-    fn axis_should_handle_scroll_wheel(&self, axis: Axis) -> bool {
-        matches!(axis, Axis::Horizontal)
-    }
-}
-
-impl ScrollableElement for AltScreenElement {
-    fn scroll_data(&self, _app: &AppContext) -> Option<ScrollData> {
-        let line_height = self.line_height();
-        let visible_lines = self.visible_lines.expect("should be set after layout");
-        let total_lines = self.total_lines();
-        // If the number of visible_lines is within a rounding error of total
-        // lines, just set them to be exactly equal so the scrollable element
-        // knows not to render a scrollbar in that case.  Otherwise, we risk
-        // seeing spurious scrollbars because of our issues with f32 rounding
-        // errors.
-        let visible_px = if heights_approx_eq(visible_lines, total_lines) {
-            total_lines.to_pixels(line_height)
-        } else {
-            visible_lines.to_pixels(line_height)
-        };
-        Some(ScrollData {
-            scroll_start: self.scroll_top.to_pixels(line_height),
-            visible_px,
-            total_size: total_lines.to_pixels(line_height),
-        })
-    }
-
-    fn scroll(&mut self, delta: Pixels, ctx: &mut EventContext) {
-        self.scroll_top = (self.scroll_top - delta.to_lines(self.line_height()))
-            .max(Lines::zero())
-            .min(self.max_scroll_top.unwrap());
-        ctx.dispatch_typed_action(TerminalAction::SharedSessionViewerAltScroll {
-            new_scroll_top: self.scroll_top,
-        });
     }
 }

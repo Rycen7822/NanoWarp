@@ -15,7 +15,6 @@ use warpui::{App, ViewHandle};
 use super::*;
 use crate::NotebookKeybindings;
 use crate::auth::AuthStateProvider;
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::editor::view::{CodeEditorRenderOptions, CodeEditorView};
 use crate::code::local_code_editor::LocalCodeEditorView;
@@ -77,8 +76,6 @@ fn initialize_test_app(app: &mut App) {
     app.add_singleton_model(|_| GlobalCodeReviewModel);
     app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
 
-    // Add mocks required by rich text editor (used in the CommentEditor)
-    app.add_singleton_model(CloudModel::mock);
     app.add_singleton_model(|_| ActiveSession::default());
     app.add_singleton_model(NotebookKeybindings::new);
     app.add_singleton_model(|_| ServerApiProvider::new_for_test());

@@ -21,7 +21,7 @@ use warpui::{
 
 use super::UserUid;
 use super::auth_manager::{AuthManager, AuthManagerEvent};
-use super::auth_view_body::{AuthStep, AuthViewBodyAction, AuthViewBodyEvent};
+use super::auth_view_body::{AuthStep, AuthViewBodyEvent};
 use super::credentials::RefreshToken;
 use super::login_failure_notification::{self, LoginFailureReason};
 use crate::appearance::Appearance;
@@ -143,7 +143,6 @@ const MODAL_WIDTH: f32 = 352.;
 pub enum AuthViewVariant {
     Initial,
     RequireLoginCloseable,
-    ShareRequirementCloseable,
 }
 
 impl AuthView {
@@ -212,12 +211,6 @@ impl AuthView {
 
     pub fn skip_to_browser_open_step(&mut self, ctx: &mut ViewContext<Self>) {
         self.set_auth_step(ctx, AuthStep::BrowserOpen);
-    }
-
-    pub fn start_sign_in(&mut self, ctx: &mut ViewContext<Self>) {
-        self.update_auth_body(ctx, |body, ctx| {
-            body.handle_action(&AuthViewBodyAction::Login, ctx);
-        });
     }
 
     fn focus(&self, ctx: &mut ViewContext<Self>) {
@@ -369,9 +362,7 @@ impl View for AuthView {
 
         let background_color = match self.auth_view_variant {
             AuthViewVariant::Initial => appearance.theme().background().into(),
-            AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable => {
-                ColorU::transparent_black()
-            }
+            AuthViewVariant::RequireLoginCloseable => ColorU::transparent_black(),
         };
 
         // TODO(liam): use theme colors for background and window border

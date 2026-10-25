@@ -61,7 +61,6 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Features,
     SettingsSection::Keybindings,
     SettingsSection::Privacy,
-    SettingsSection::WarpDrive,
     SettingsSection::Warpify,
     SettingsSection::Projects,
     SettingsSection::EditorAndCodeReview,
@@ -83,7 +82,6 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Features
             | SettingsSection::Keybindings
             | SettingsSection::Privacy
-            | SettingsSection::WarpDrive
             | SettingsSection::Warpify
             | SettingsSection::Projects
             | SettingsSection::EditorAndCodeReview
@@ -153,10 +151,6 @@ fn renamed_sections_keep_the_slug_they_were_seeded_with() {
 #[test]
 fn from_slug_accepts_legacy_spellings() {
     assert_eq!(
-        SettingsSection::from_slug("WarpDrive"),
-        Some(SettingsSection::WarpDrive)
-    );
-    assert_eq!(
         SettingsSection::from_slug("Projects"),
         Some(SettingsSection::Projects)
     );
@@ -192,7 +186,7 @@ use nav::{SettingsNavItem, SettingsUmbrella};
 const GENERAL_SUBPAGES: &[SettingsSection] = &[
     SettingsSection::Features,
     SettingsSection::Warpify,
-    SettingsSection::WarpDrive,
+    SettingsSection::Privacy,
 ];
 
 /// Builds the existing trimmed sidebar fixture for generic navigation tests.
@@ -242,7 +236,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
         NavStop::CollapsedUmbrella {
             nav_index: 1,
             first_subpage: SettingsSection::Features,
-            last_subpage: SettingsSection::WarpDrive,
+            last_subpage: SettingsSection::Privacy,
         }
     ));
     assert!(matches!(
@@ -275,7 +269,7 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
 
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Expect: Appearance, Features, Warpify, WarpDrive,
+    // Expect: Appearance, Features, Warpify, Privacy,
     // <Code umbrella>,
     // <Cloud platform umbrella>, Keybindings.
     let sections: Vec<_> = stops
@@ -291,7 +285,7 @@ fn expanded_umbrella_produces_section_stop_per_subpage() {
             "Appearance",
             "Features",
             "Warpify",
-            "WarpDrive",
+            "Privacy",
             "Umbrella@2",
             "Umbrella@3",
             "Keybindings",
@@ -328,7 +322,7 @@ fn collapsed_umbrella_with_filtered_subpages_uses_first_visible_subpage() {
             );
             assert_eq!(
                 *last_subpage,
-                SettingsSection::WarpDrive,
+                SettingsSection::Privacy,
                 "last_subpage is unaffected by hiding Features and should remain the last visible subpage"
             );
         }
@@ -404,11 +398,11 @@ fn current_stop_index_maps_subpage_to_collapsed_umbrella() {
     let nav_items = nav_items_fixture();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    let idx = current_stop_index(&stops, &nav_items, SettingsSection::WarpDrive);
+    let idx = current_stop_index(&stops, &nav_items, SettingsSection::Privacy);
     assert_eq!(
         idx,
         Some(1),
-        "WarpDrive is under the collapsed General umbrella at nav_index 1"
+        "Privacy is under the collapsed General umbrella at nav_index 1"
     );
 }
 
@@ -418,10 +412,10 @@ fn current_stop_index_returns_none_when_section_is_not_present() {
     // Filter out all General subpages (and therefore the umbrella) entirely.
     let stops = build_nav_stops(&nav_items, |section| !GENERAL_SUBPAGES.contains(&section));
 
-    // WarpDrive isn't directly in stops, and no remaining collapsed umbrella
+    // Privacy isn't directly in stops, and no remaining collapsed umbrella
     // contains it, so current_stop_index should return None.
     assert_eq!(
-        current_stop_index(&stops, &nav_items, SettingsSection::WarpDrive),
+        current_stop_index(&stops, &nav_items, SettingsSection::Privacy),
         None
     );
 }
@@ -494,7 +488,7 @@ fn arrow_up_from_projects_with_collapsed_general_lands_on_last_subpage() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Pressing Up from Projects should land on the collapsed General
-    // umbrella, which resolves to WarpDrive (last visible subpage)
+    // umbrella, which resolves to Privacy (last visible subpage)
     // so the user continues moving in natural reading order rather than being
     // jumped back to the top of the umbrella.
     let next = simulate_cycle(
@@ -503,7 +497,7 @@ fn arrow_up_from_projects_with_collapsed_general_lands_on_last_subpage() {
         SettingsSection::Projects,
         CycleDirection::Up,
     );
-    assert_eq!(next, SettingsSection::WarpDrive);
+    assert_eq!(next, SettingsSection::Privacy);
 }
 
 #[test]
@@ -511,11 +505,11 @@ fn arrow_up_into_collapsed_umbrella_respects_search_filter_for_last_subpage() {
     let nav_items = nav_items_fixture();
     // Hide the last general subpage; the last *visible* subpage of the
     // still-collapsed General umbrella should be Warpify.
-    let is_visible = |section: SettingsSection| section != SettingsSection::WarpDrive;
+    let is_visible = |section: SettingsSection| section != SettingsSection::Privacy;
     let stops = build_nav_stops(&nav_items, is_visible);
 
     // From Projects, Up should land on the last *visible* general subpage
-    // (Warpify), not on the filtered-out WarpDrive
+    // (Warpify), not on the filtered-out Privacy
     // or on the first subpage Features.
     let next = simulate_cycle(
         &nav_items,
@@ -532,12 +526,12 @@ fn arrow_down_from_expanded_last_subpage_leaves_umbrella() {
     set_expanded(&mut nav_items, 1, true); // expand General
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // WarpDrive is the last General subpage; Down should move to
+    // Privacy is the last General subpage; Down should move to
     // Projects (the first subpage of the next umbrella).
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::WarpDrive,
+        SettingsSection::Privacy,
         CycleDirection::Down,
     );
     assert_eq!(next, SettingsSection::Projects);
@@ -554,7 +548,7 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
     let next_after_general = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::WarpDrive,
+        SettingsSection::Privacy,
         CycleDirection::Down,
     );
     assert_eq!(next_after_general, SettingsSection::Projects);
@@ -575,7 +569,7 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
 fn arrow_down_collapsed_umbrella_respects_search_filter() {
     let nav_items = nav_items_fixture();
     // Search filter hides Features and Warpify so the first visible general
-    // subpage is WarpDrive.
+    // subpage is Privacy.
     let is_visible = |section: SettingsSection| {
         !matches!(
             section,
@@ -584,7 +578,7 @@ fn arrow_down_collapsed_umbrella_respects_search_filter() {
     };
     let stops = build_nav_stops(&nav_items, is_visible);
 
-    // From Appearance, Down should land on WarpDrive (first visible
+    // From Appearance, Down should land on Privacy (first visible
     // subpage of the still-collapsed General umbrella), not on Features /
     // Warpify.
     let next = simulate_cycle(
@@ -593,7 +587,7 @@ fn arrow_down_collapsed_umbrella_respects_search_filter() {
         SettingsSection::Appearance,
         CycleDirection::Down,
     );
-    assert_eq!(next, SettingsSection::WarpDrive);
+    assert_eq!(next, SettingsSection::Privacy);
 }
 
 // ── PageType filter lifecycle across a rebuild (APP-4922) ────────────────────

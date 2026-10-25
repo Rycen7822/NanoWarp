@@ -6,9 +6,6 @@ use super::hoa_onboarding;
 use crate::auth::auth_manager::AuthManagerEvent;
 use crate::auth::{AuthManager, AuthStateProvider};
 use crate::settings::CodeSettings;
-use crate::settings::cloud_preferences_syncer::{
-    CloudPreferencesSyncer, CloudPreferencesSyncerEvent,
-};
 
 /// Tracks the HOA onboarding flow.
 pub struct OneTimeModalModel {
@@ -19,7 +16,7 @@ pub struct OneTimeModalModel {
 
 impl OneTimeModalModel {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
-        ctx.subscribe_to_model(&AuthManager::handle(ctx), |_, _, event, ctx| {
+        ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| {
             let AuthManagerEvent::AuthComplete = event else {
                 return;
             };
@@ -28,16 +25,7 @@ impl OneTimeModalModel {
                 .is_onboarded()
                 .unwrap_or_default();
             if is_existing_user {
-                // Wait for synced onboarding markers before checking the existing-user flow.
-                ctx.subscribe_to_model(
-                    &CloudPreferencesSyncer::handle(ctx),
-                    |me, _, event, ctx| {
-                        if let CloudPreferencesSyncerEvent::InitialLoadCompleted = event {
-                            ctx.unsubscribe_from_model(&CloudPreferencesSyncer::handle(ctx));
-                            me.check_and_trigger_all_modals(ctx);
-                        }
-                    },
-                );
+                me.check_and_trigger_all_modals(ctx);
             } else {
                 hoa_onboarding::mark_hoa_onboarding_completed(ctx);
             }

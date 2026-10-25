@@ -1,9 +1,7 @@
 use warp_util::path::LineAndColumnArg;
 use warpui::{AppContext, ModelHandle, SingletonEntity, View, ViewContext, ViewHandle};
 
-use super::{
-    DetachType, PaneConfiguration, PaneContent, PaneId, PaneView, ShareableLink, ShareableLinkError,
-};
+use super::{DetachType, PaneConfiguration, PaneContent, PaneId, PaneView};
 use crate::app_state::{CodePaneSnapShot, CodePaneTabSnapshot, LeafContents};
 use crate::code::editor_management::{CodeEditorStatus, CodeManager, CodeSource};
 use crate::code::view::{CodeView, CodeViewEvent};
@@ -18,7 +16,7 @@ impl CodePane {
     pub fn from_view(file_view: ViewHandle<CodeView>, ctx: &mut AppContext) -> Self {
         let pane_configuration = file_view.as_ref(ctx).pane_configuration();
 
-        let view = ctx.add_typed_action_view(file_view.window_id(ctx), |ctx| {
+        let view = ctx.add_view(file_view.window_id(ctx), |ctx| {
             let pane_id = PaneId::from_code_pane_ctx(ctx);
             PaneView::new(pane_id, file_view, (), pane_configuration.clone(), ctx)
         });
@@ -224,13 +222,6 @@ impl PaneContent for CodePane {
 
     fn has_application_focus(&self, ctx: &mut ViewContext<PaneGroup>) -> bool {
         self.view.is_self_or_child_focused(ctx)
-    }
-
-    fn shareable_link(
-        &self,
-        _ctx: &mut ViewContext<PaneGroup>,
-    ) -> Result<ShareableLink, ShareableLinkError> {
-        Ok(ShareableLink::Base)
     }
 
     fn pane_configuration(&self) -> ModelHandle<PaneConfiguration> {

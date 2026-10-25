@@ -13,11 +13,11 @@ use warpui_core::{
 };
 
 use crate::manager::{SettingsEvent, SettingsManager};
-use crate::{Setting, SupportedPlatforms, SyncToCloud};
+use crate::{Setting, SupportedPlatforms};
 
 /// Parses a serialized setting value. Tries the settings-file representation
 /// first (which handles snake_case enums and other file forms), then falls
-/// back to plain serde for cloud sync values.
+/// back to plain serde for platform-native stored values.
 fn parse_value<V: SettingsValue + DeserializeOwned>(serialized: &str) -> Option<V> {
     serde_json::from_str::<serde_json::Value>(serialized)
         .ok()
@@ -54,21 +54,13 @@ fn equals_serialized<S: Setting>(left: &str, right: &str) -> Result<bool> {
 ///
 /// The `register_settings_events!` macro constructs this struct at its
 /// expansion site, with the concrete group and setting types. This keeps
-/// method resolution local to the concrete setting, so an inherent method
-/// (for example `current_value_is_syncable`) can shadow the [`Setting`] trait
-/// default.
+/// method resolution local to the concrete setting.
 pub struct SettingCallbacks<G: Entity, V> {
-    /// Applies an updated value with `set_value`, or with
-    /// `set_value_from_cloud_sync` when the second argument is true.
-    pub apply_set: fn(&mut G, V, bool, &mut ModelContext<G>) -> Result<()>,
-    /// Clears the setting from local storage when its value is syncable on
-    /// the current platform.
-    pub apply_clear: fn(&mut G, &mut ModelContext<G>) -> Result<()>,
+    /// Applies an updated value with `set_value`.
+    pub apply_set: fn(&mut G, V, &mut ModelContext<G>) -> Result<()>,
     /// Loads a value into memory with `load_value`; the second argument is
     /// whether the value was explicitly set.
     pub apply_load: fn(&mut G, V, bool, &mut ModelContext<G>) -> Result<()>,
-    /// Reports whether the setting's current value should sync to the cloud.
-    pub current_value_is_syncable: fn(&G) -> bool,
 }
 
 impl<G: Entity, V> Clone for SettingCallbacks<G, V> {
@@ -83,7 +75,6 @@ impl<G: Entity, V> Copy for SettingCallbacks<G, V> {}
 /// [`Setting`] trait before it hands off to the shared registration body.
 struct SettingMetadata {
     storage_key: &'static str,
-    sync_to_cloud: SyncToCloud,
     supported_platforms: SupportedPlatforms,
     serialized_default_value: String,
     file_serialized_default_value: String,
@@ -119,7 +110,6 @@ pub fn register_setting_events<S, C>(
         settings_group,
         SettingMetadata {
             storage_key: S::storage_key(),
-            sync_to_cloud: S::sync_to_cloud(),
             supported_platforms: S::supported_platforms(),
             serialized_default_value,
             file_serialized_default_value,
@@ -151,22 +141,17 @@ fn register_setting_events_impl<G, V, C>(
 {
     SettingsManager::handle(ctx).update(ctx, |manager, ctx| {
         let storage_key = metadata.storage_key;
-        let sync_to_cloud = metadata.sync_to_cloud;
         // Propagate per settings change events through the SettingsManager.
         ctx.subscribe_to_model(&settings_group, move |_manager, _, _, ctx| {
             ctx.emit(SettingsEvent::LocalPreferencesUpdated {
                 storage_key: storage_key.to_string(),
-                sync_to_cloud,
             });
         });
         // Register callbacks for updating individual settings model by storage key.
         let settings_group_update_clone = settings_group.clone();
-        let settings_group_reset_clone = settings_group.clone();
         let settings_group_load_clone = settings_group.clone();
-        let settings_group_is_syncable_clone = settings_group.clone();
         manager.register_setting(
             metadata.storage_key,
-            metadata.sync_to_cloud,
             metadata.supported_platforms,
             metadata.serialized_default_value,
             metadata.file_serialized_default_value,
@@ -174,7 +159,7 @@ fn register_setting_events_impl<G, V, C>(
             metadata.toml_key,
             metadata.max_table_depth,
             metadata.is_private,
-            move |value, from_cloud_sync, ctx| {
+            move |value, ctx| {
                 let Some(value) = parse_value::<V>(&value) else {
                     return Err(anyhow!(
                         "Failed to parse updated value for setting {}: Not updating",
@@ -182,12 +167,7 @@ fn register_setting_events_impl<G, V, C>(
                     ));
                 };
                 settings_group_update_clone.update(ctx, |settings_group, ctx| {
-                    (callbacks.apply_set)(settings_group, value, from_cloud_sync, ctx)
-                })
-            },
-            move |ctx| {
-                settings_group_reset_clone.update(ctx, |settings_group, ctx| {
-                    (callbacks.apply_clear)(settings_group, ctx)
+                    (callbacks.apply_set)(settings_group, value, ctx)
                 })
             },
             move |value, explicitly_set, ctx| {
@@ -202,9 +182,6 @@ fn register_setting_events_impl<G, V, C>(
                 })
             },
             equals,
-            move |ctx| {
-                (callbacks.current_value_is_syncable)(settings_group_is_syncable_clone.as_ref(ctx))
-            },
         );
     });
 }

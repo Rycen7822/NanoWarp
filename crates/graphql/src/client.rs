@@ -210,10 +210,7 @@ pub fn get_request_context() -> RequestContext {
 pub fn get_user_facing_error_message(e: UserFacingError) -> String {
     match e.error {
         UserFacingErrorInterface::PlatformError(e) => e.message,
-        UserFacingErrorInterface::SharedObjectsLimitExceeded(e) => e.message,
-        UserFacingErrorInterface::PersonalObjectsLimitExceeded(e) => e.message,
         UserFacingErrorInterface::AccountDelinquencyError(e) => e.message,
-        UserFacingErrorInterface::GenericStringObjectUniqueKeyConflict(e) => e.message,
         UserFacingErrorInterface::BudgetExceededError(e) => e.message,
         UserFacingErrorInterface::PaymentMethodDeclinedError(e) => e.message,
         UserFacingErrorInterface::InvalidAttachmentError(e) => e.message,

@@ -4,7 +4,7 @@ use warp::features::FeatureFlag;
 use warp::integration_testing::clipboard::write_to_clipboard;
 use warp::integration_testing::input::{
     AutosuggestionState, assert_autosuggestion_state, input_contains_string, input_is_empty,
-    latest_buffer_operations_are_empty, tab_completions_menu_is_open,
+    tab_completions_menu_is_open,
 };
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::util::{
@@ -86,7 +86,7 @@ pub fn test_autosuggestions_are_hidden_when_opening_tab_completions() -> Builder
         )
 }
 
-pub fn test_latest_buffer_operations() -> Builder {
+pub fn test_command_execution_clears_input() -> Builder {
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         // Execute a command so that we can generate autosuggestions.
@@ -97,31 +97,17 @@ pub fn test_latest_buffer_operations() -> Builder {
             (),
         ))
         .with_step(
-            new_step_with_default_assertions("Check initial state").add_named_assertion(
-                "Ensure the latest buffer operations start off empty",
-                latest_buffer_operations_are_empty(0, true),
-            ),
-        )
-        .with_step(
             new_step_with_default_assertions("Write into the input")
                 .with_typed_characters(&["echo 'foo'"])
                 .add_named_assertion(
                     "Ensure the input was written to",
                     input_contains_string(0, String::from("echo 'foo'")),
-                )
-                .add_named_assertion(
-                    "Ensure the latest buffer operations are non-empty",
-                    latest_buffer_operations_are_empty(0, false),
                 ),
         )
         .with_step(
             new_step_with_default_assertions("Run the command with the current buffer text")
                 .with_keystrokes(&["enter"])
-                .add_named_assertion("Ensure the input is empty", input_is_empty(0))
-                .add_named_assertion(
-                    "Ensure the latest buffer operations are empty",
-                    latest_buffer_operations_are_empty(0, true),
-                ),
+                .add_named_assertion("Ensure the input is empty", input_is_empty(0)),
         )
 }
 

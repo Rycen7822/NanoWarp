@@ -1,18 +1,12 @@
 pub mod billing;
 pub mod error;
-pub mod experiment;
-pub mod folder;
-pub mod generic_string_object;
 pub mod mutations;
 pub mod object;
-pub mod object_actions;
 pub mod object_permissions;
 pub mod platform_error;
 pub mod queries;
 pub mod request_context;
 pub mod response_context;
-pub mod subscriptions;
-pub mod user;
 pub mod workspace;
 
 use cynic::impl_scalar;

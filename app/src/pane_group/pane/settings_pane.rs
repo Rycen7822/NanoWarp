@@ -1,10 +1,7 @@
 use warpui::{AppContext, ModelHandle, SingletonEntity, View, ViewContext, ViewHandle, WindowId};
 
 use super::view::PaneView;
-use super::{
-    DetachType, PaneConfiguration, PaneContent, PaneGroup, PaneId, ShareableLink,
-    ShareableLinkError,
-};
+use super::{DetachType, PaneConfiguration, PaneContent, PaneGroup, PaneId};
 use crate::app_state::{LeafContents, SettingsPaneSnapshot};
 use crate::settings_view::pane_manager::SettingsPaneManager;
 use crate::settings_view::{SettingsSection, SettingsView, SettingsViewEvent};
@@ -17,7 +14,7 @@ pub struct SettingsPane {
 impl SettingsPane {
     fn from_view(settings_view: ViewHandle<SettingsView>, ctx: &mut AppContext) -> Self {
         let pane_configuration = settings_view.as_ref(ctx).pane_configuration();
-        let view = ctx.add_typed_action_view(settings_view.window_id(ctx), |ctx| {
+        let view = ctx.add_view(settings_view.window_id(ctx), |ctx| {
             let pane_id = PaneId::from_settings_pane_ctx(ctx);
             PaneView::new(pane_id, settings_view, (), pane_configuration.clone(), ctx)
         });
@@ -118,13 +115,6 @@ impl PaneContent for SettingsPane {
     fn focus(&self, ctx: &mut ViewContext<PaneGroup>) {
         self.settings_view(ctx)
             .update(ctx, |view, ctx| view.focus(ctx));
-    }
-
-    fn shareable_link(
-        &self,
-        _ctx: &mut ViewContext<PaneGroup>,
-    ) -> Result<ShareableLink, ShareableLinkError> {
-        Ok(ShareableLink::Base)
     }
 
     fn pane_configuration(&self) -> ModelHandle<PaneConfiguration> {

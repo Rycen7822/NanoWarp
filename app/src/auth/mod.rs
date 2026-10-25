@@ -7,12 +7,11 @@ mod auth_view_shared_helpers;
 mod login_error_modal;
 mod login_failure_notification;
 pub mod needs_sso_link_view;
-mod user_properties;
 pub use warp_server_auth::{auth_state, credentials, user, user_uid};
 #[cfg(target_family = "wasm")]
 pub mod web_handoff;
 
-use ::settings::{Setting, SettingsManager, ToggleableSetting};
+use ::settings::{Setting, ToggleableSetting};
 pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
 use itertools::Itertools;
@@ -23,17 +22,13 @@ use warp_errors::{report_error, report_if_error};
 use warpui::modals::{AlertDialogWithCallbacks, ModalButton};
 use warpui::{AppContext, SingletonEntity};
 
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
 use crate::palette::PaletteMode;
 use crate::root_view::RootView;
-use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::{PaletteSource, TelemetryEvent};
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
-use crate::settings::{CloudPreferencesSettings, PrivacySettings, TELEMETRY_ENABLED_DEFAULTS_KEY};
+use crate::settings::{PrivacySettings, TELEMETRY_ENABLED_DEFAULTS_KEY};
 use crate::terminal::general_settings::GeneralSettings;
-use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
 use crate::workspace::{Workspace, WorkspaceAction};
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::{
@@ -67,9 +62,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
     let num_long_running_commands = RunningSessionSummary::new(&sessions)
         .long_running_cmds
         .len();
-    let num_shared_sessions = crate::session_management::num_shared_sessions(app);
-    let num_unsaved_objects =
-        CloudModel::as_ref(app).num_unsaved_objects_to_warn_about_before_quitting();
 
     let code_editors = CodeEditorStatus::all_editors(app).collect_vec();
     let code_editor_summary = CodeEditorSummary::new(&code_editors);
@@ -79,12 +71,7 @@ pub fn maybe_log_out(app: &mut AppContext) {
     let show_warning_before_log_out = *GeneralSettings::as_ref(app)
         .show_warning_before_quitting
         .value();
-    if show_warning_before_log_out
-        && (num_long_running_commands > 0
-            || num_shared_sessions > 0
-            || num_unsaved_objects > 0
-            || num_unsaved_files > 0)
-    {
+    if show_warning_before_log_out && (num_long_running_commands > 0 || num_unsaved_files > 0) {
         send_telemetry_sync_from_app_ctx!(TelemetryEvent::LogOutModalShown, app);
         let mut button_data = vec![ModalButton::for_app("Yes, log out", |ctx| {
             log_out_and_open_web(ctx);
@@ -131,27 +118,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
                     );
                 }
             }))
-        }
-
-        if num_shared_sessions > 0 {
-            let plural = if num_shared_sessions > 1 {
-                "sessions"
-            } else {
-                "session"
-            };
-            info_text_vec.push(format!("You have {num_shared_sessions} shared {plural}."));
-        }
-
-        if num_unsaved_objects > 0 {
-            let plural = if num_unsaved_objects > 1 {
-                "objects"
-            } else {
-                "object"
-            };
-            info_text_vec.push(format!(
-                "You have {num_unsaved_objects} unsynced Warp Drive {plural}. \
-            Logging out will cause you to lose the {plural}."
-            ));
         }
 
         if num_unsaved_files > 0 {
@@ -226,28 +192,10 @@ pub fn log_out(app: &mut AppContext) {
     AuthManager::handle(app).update(app, |auth_manager, ctx| {
         auth_manager.log_out(ctx);
     });
-    CloudModel::handle(app).update(app, |cloud_model, _| {
-        cloud_model.reset();
-    });
-    // Clear the sync queue so that we don't try to sync the old user's objects to the new user.
-    SyncQueue::handle(app).update(app, |sync_queue, _| {
-        sync_queue.clear();
-    });
-
-    // Stop the cloud object and workspace metadata polling loops that were started on login.
-    UpdateManager::handle(app).update(app, |manager, _| {
-        manager.stop_polling_for_updated_objects();
-    });
     TeamUpdateManager::handle(app).update(app, |manager, _| {
         manager.stop_polling_for_workspace_metadata_updates();
     });
     remove_cloud_persisted_settings(app);
-
-    // Stop and leave all shared sessions
-    SharedSessionManager::handle(app).update(app, |manager, ctx| {
-        manager.stop_all_shared_sessions(ctx);
-        manager.clear_joined();
-    });
 
     // Dispatch the GUI root-view action on every open GUI window so its state can be updated
     // correctly. Other front-ends, such as the TUI, manage their logout transition separately.
@@ -276,18 +224,6 @@ pub fn log_out(app: &mut AppContext) {
 // This is so they do not experience the old settings when they log in with a different account.
 // Partial deletion of user defaults is a stopgap for Logout v0. The correct solution is:
 fn remove_cloud_persisted_settings(app: &mut AppContext) {
-    let is_settings_sync_enabled = *CloudPreferencesSettings::as_ref(app).settings_sync_enabled;
-    if is_settings_sync_enabled {
-        SettingsManager::handle(app).update(app, |settings_manager, ctx| {
-            let errors = settings_manager.clear_cloud_settings_local_state(ctx);
-            for e in errors {
-                report_error!(
-                    e.context("Failed to remove cloud synced setting from user defaults")
-                );
-            }
-        });
-    }
-
     if let Err(e) = app
         .private_user_preferences()
         .remove_value(TELEMETRY_ENABLED_DEFAULTS_KEY)

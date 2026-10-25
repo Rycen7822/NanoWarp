@@ -2,7 +2,7 @@ use thiserror::Error;
 #[cfg(any(test, feature = "test-util"))]
 pub use warp_server_client::auth::MockAuthClient;
 pub use warp_server_client::auth::{
-    AuthClient, FetchUserResult, MintCustomTokenError, SyncedUserSettings, UserAuthenticationError,
+    AuthClient, FetchUserResult, MintCustomTokenError, UserAuthenticationError,
 };
 
 #[derive(Error, Debug)]

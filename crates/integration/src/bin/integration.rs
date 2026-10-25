@@ -181,7 +181,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_restore_snapshot_with_deleted_cwd);
     register_test!(test_session_restoration_with_multiple_shells);
     register_test!(test_restore_snapshot_with_background_output);
-    register_test!(test_restore_snapshot_with_test_json_object);
     register_test!(test_restore_snapshot_with_markdown_file);
     register_test!(test_restore_snapshot_with_code_file);
     register_test!(test_restore_snapshot_with_settings_page);
@@ -318,8 +317,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
 
     register_test!(test_can_auto_bootstrap);
 
-    register_test!(test_create_folder_from_command_palette);
-
     register_test!(test_tab_behavior_setting);
 
     register_test!(test_private_public_settings_routing_with_flag_enabled);
@@ -327,11 +324,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
 
     register_test!(test_command_search_loads_history);
     register_test!(test_histfile_left_joined_with_persisted_history);
-
-    register_test!(test_websocket_does_not_begin_on_startup);
-    register_test!(test_websocket_begins_on_startup);
-    register_test!(test_websocket_begins_after_joining_a_team);
-    register_test!(test_websocket_begins_after_creating_an_object);
 
     register_test!(test_secret_is_obfuscated_on_copy);
     register_test!(test_secret_tooltip_shows_on_click);
@@ -387,7 +379,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_block_filtering_clear_blocklist);
 
     register_test!(test_autosuggestions_are_hidden_when_opening_tab_completions);
-    register_test!(test_latest_buffer_operations);
+    register_test!(test_command_execution_clears_input);
 
     register_test!(test_pass_control_sequences_to_long_running_block);
     register_test!(test_settings_file_migration_from_native_store);

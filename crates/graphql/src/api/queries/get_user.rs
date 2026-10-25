@@ -1,4 +1,3 @@
-use crate::experiment::Experiment;
 use crate::mutations::create_anonymous_user::AnonymousUserType;
 use crate::object_permissions::OwnerType;
 use crate::request_context::RequestContext;
@@ -36,7 +35,6 @@ pub enum PrincipalType {
 #[derive(cynic::QueryFragment, Debug)]
 pub struct User {
     pub anonymous_user_info: Option<AnonymousUserInfo>,
-    pub experiments: Option<Vec<Experiment>>,
     pub is_onboarded: bool,
     pub is_on_work_domain: bool,
     pub profile: FirebaseProfile,

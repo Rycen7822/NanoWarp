@@ -3,7 +3,7 @@ use std::ops::Not;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
+use settings::{Setting, SupportedPlatforms};
 use warpui::AppContext;
 use warpui::clipboard::ClipboardContent;
 
@@ -45,7 +45,6 @@ define_settings_group!(SelectionSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "terminal.copy_on_select",
         description: "Whether text is automatically copied to the clipboard when selected.",
@@ -54,7 +53,6 @@ define_settings_group!(SelectionSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::LINUX,
-        sync_to_cloud: SyncToCloud::PerPlatform(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "system.linux_selection_clipboard",
         description: "Whether the Linux primary selection clipboard is used.",
@@ -66,7 +64,6 @@ define_settings_group!(SelectionSettings, settings: [
             SupportedPlatforms::WINDOWS.into(),
             SupportedPlatforms::MAC.into()
         ),
-        sync_to_cloud: SyncToCloud::PerPlatform(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "terminal.input.middle_click_paste_enabled",
         description: "Whether middle-click pastes from the clipboard.",
@@ -75,7 +72,6 @@ define_settings_group!(SelectionSettings, settings: [
         type: RightClickBehavior,
         default: RightClickBehavior::ContextMenu,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "terminal.input.right_click_behavior",
         description: "What a bare right-click does in the terminal.",

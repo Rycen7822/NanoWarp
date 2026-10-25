@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use warp_core::settings::SupportedPlatforms;
 use warp_core::settings::macros::define_settings_group;
-use warp_core::settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 use warpui::{AppContext, SingletonEntity};
 
 use crate::banner::BannerState;
@@ -36,7 +36,6 @@ settings::macros::implement_setting_for_enum!(
     DefaultSessionMode,
     GeneralSettings,
     SupportedPlatforms::ALL,
-    SyncToCloud::Never,
     private: false,
     toml_path: "general.default_session_mode",
     description: "The default mode for new terminal sessions.",
@@ -59,7 +58,6 @@ define_settings_group!(GeneralSettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "general.default_tab_config_path",
     },
@@ -67,7 +65,6 @@ define_settings_group!(GeneralSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "general.show_warning_before_quitting",
         description: "Whether to show a warning dialog before quitting Warp.",
@@ -76,7 +73,6 @@ define_settings_group!(GeneralSettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::MAC,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "general.quit_on_last_window_closed",
         description: "Whether to quit Warp when the last window is closed.",
@@ -85,7 +81,6 @@ define_settings_group!(GeneralSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "general.restore_session",
         description: "Whether to restore the previous session when Warp starts up.",
@@ -97,7 +92,6 @@ define_settings_group!(GeneralSettings, settings: [
             Box::new(SupportedPlatforms::MAC),
             Box::new(SupportedPlatforms::WINDOWS),
         ),
-        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "general.login_item",
         description: "Whether to launch Warp automatically when you log in.",
@@ -114,14 +108,12 @@ define_settings_group!(GeneralSettings, settings: [
             Box::new(SupportedPlatforms::MAC),
             Box::new(SupportedPlatforms::WINDOWS),
         ),
-        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     link_tooltip: LinkTooltip {
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "general.link_tooltip",
         description: "Whether to show a tooltip when hovering over links.",
@@ -130,42 +122,36 @@ define_settings_group!(GeneralSettings, settings: [
         type: HashSet<Tip>,
         default: HashSet::new(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     welcome_tips_skipped_or_completed: WelcomeTipsCompleted {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     },
     user_default_shell_unsupported_banner_state: UserDefaultShellUnsupportedBannerState {
         type: BannerState,
         default: BannerState::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     },
     open_in_warp_banner_dismissed_for_markdown: OpenInWarpBannerDismissedMarkdown {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     open_in_warp_banner_dismissed_for_code_and_text: OpenInWarpBannerDismissedCode {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     did_non_anonymous_user_log_in: DidNonAnonymousUserLogIn {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
 ]);

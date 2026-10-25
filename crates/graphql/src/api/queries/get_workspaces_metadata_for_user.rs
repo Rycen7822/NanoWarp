@@ -1,4 +1,3 @@
-use crate::experiment::Experiment;
 use crate::request_context::RequestContext;
 use crate::schema;
 use crate::workspace::Workspace;
@@ -24,7 +23,6 @@ pub enum UserResult {
 pub struct User {
     pub profile: UserProfile,
     pub workspaces: Vec<Workspace>,
-    pub experiments: Option<Vec<Experiment>>,
 }
 
 #[derive(cynic::QueryFragment, Debug)]

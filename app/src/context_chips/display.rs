@@ -28,9 +28,6 @@ pub struct PromptDisplay {
 
     /// Whether the pane this prompt belongs to is currently focused.
     pane_is_focused: bool,
-
-    /// Whether this terminal is viewing a shared session.
-    is_shared_session_viewer: bool,
 }
 
 const PROMPT_CHIP_DISPLAY_ID: &str = "PromptChipDisplay";
@@ -57,7 +54,6 @@ impl PromptDisplay {
         session_context: Option<SessionContext>,
         current_repo_path: Option<PathBuf>,
         model_events: ModelHandle<ModelEventDispatcher>,
-        is_shared_session_viewer: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         ctx.observe(&prompt, |me, _, ctx| me.handle_prompt_change(ctx));
@@ -70,7 +66,6 @@ impl PromptDisplay {
             current_repo_path,
             model_events,
             pane_is_focused: true,
-            is_shared_session_viewer,
         }
     }
 
@@ -127,8 +122,6 @@ impl PromptDisplay {
                 .peek()
                 .map(|chip_result| chip_result.kind.clone());
 
-            let is_shared_session_viewer = self.is_shared_session_viewer;
-
             let view_handle = ctx.add_typed_action_view(|ctx| {
                 let mut chip = DisplayChip::new(
                     ctx,
@@ -139,7 +132,6 @@ impl PromptDisplay {
                         session_context: self.session_context.clone(),
                         current_repo_path: self.current_repo_path.clone(),
                         model_events: self.model_events.clone(),
-                        is_shared_session_viewer,
                     },
                 );
                 chip.maybe_set_git_line_changes_info(git_line_changes_info.clone());
@@ -199,22 +191,6 @@ impl PromptDisplay {
             chip_view.update(ctx, |chip, chip_ctx| {
                 chip.update_session_context(session_context.clone(), chip_ctx);
             });
-        }
-    }
-
-    /// Update whether this terminal is viewing a shared session
-    pub fn update_shared_session_viewer_status(
-        &mut self,
-        is_viewer: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.is_shared_session_viewer != is_viewer {
-            self.is_shared_session_viewer = is_viewer;
-
-            // Re-render chips to show/hide the shared session viewer-specific chips
-            let new_chips = self.collect_chips(ctx);
-            self.reset_chips(&new_chips, ctx);
-            ctx.notify();
         }
     }
 

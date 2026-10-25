@@ -59,7 +59,6 @@ pub mod safe_mode_settings;
 mod secret_regex_updater;
 pub mod session_settings;
 pub mod settings;
-pub mod shared_session;
 mod shell_launch_state;
 pub mod shell_recovery;
 
@@ -166,20 +165,6 @@ pub enum SizeUpdateReason {
     /// Updated after the temrinal has been laid out, so some of the element
     /// sizes that drive terminal size may have changed.
     AfterLayout,
-
-    /// The shared session sharer's size changed.
-    /// This is only applicable for shared session viewers.
-    ///
-    /// The resultant [`SizeUpdate`] will use the larger of the
-    /// sharer's and viewer's size.
-    SharerSizeChanged { num_rows: usize, num_cols: usize },
-
-    /// A viewer reported its terminal size to the sharer.
-    /// This is only applicable for shared session sharers.
-    ///
-    /// The resultant [`SizeUpdate`] will use the viewer's reported
-    /// size directly (floored at 1 row and 1 column).
-    ViewerSizeReported { num_rows: usize, num_cols: usize },
 }
 
 /// Encapsulates info for updating the size of the terminal.
@@ -196,12 +181,6 @@ pub struct SizeUpdate {
 
     /// The new gap height, if there is one.
     new_gap_height: Option<Lines>,
-
-    /// The pane-computed rows before any shared session size adjustments.
-    natural_rows: usize,
-
-    /// The pane-computed columns before any shared session size adjustments.
-    natural_cols: usize,
 }
 
 impl SizeUpdate {
@@ -213,8 +192,6 @@ impl SizeUpdate {
             last_size,
             new_size,
             new_gap_height: None,
-            natural_rows: new_size.rows(),
-            natural_cols: new_size.columns(),
         }
     }
 
@@ -255,24 +232,6 @@ impl SizeUpdate {
     /// Returns whether the gap height changed with this update
     pub fn gap_height_changed(&self) -> bool {
         self.new_gap_height.is_some()
-    }
-
-    /// The pane-computed natural rows before shared session adjustments.
-    pub fn natural_rows(&self) -> usize {
-        self.natural_rows
-    }
-
-    /// The pane-computed natural columns before shared session adjustments.
-    pub fn natural_cols(&self) -> usize {
-        self.natural_cols
-    }
-
-    /// Returns true if this resize was caused by a sharer size change.
-    pub fn is_sharer_size_change(&self) -> bool {
-        matches!(
-            self.update_reason,
-            SizeUpdateReason::SharerSizeChanged { .. }
-        )
     }
 }
 

@@ -5,7 +5,6 @@ mod alias_expansion;
 mod notifications_discovery;
 mod notifications_error;
 mod open_in_warp;
-mod shared_sessions;
 mod shell_process_terminated;
 mod vim_mode;
 
@@ -14,7 +13,6 @@ pub use notifications_discovery::*;
 pub use notifications_error::*;
 pub use open_in_warp::*;
 use pathfinder_color::ColorU;
-pub use shared_sessions::*;
 pub use shell_process_terminated::*;
 pub use vim_mode::*;
 use warpui::Element;

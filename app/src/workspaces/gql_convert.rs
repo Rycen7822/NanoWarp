@@ -1,5 +1,4 @@
 use super::team::{MembershipRole, Team, TeamMember, TeamVisibility};
-use super::user_workspaces::WorkspacesMetadataResponse;
 use super::workspace::{
     BillingMetadata, CustomerType, DelinquencyStatus, EmailInvite, EnforceableSetting,
     EnterpriseSecretRegex, InviteLinkDomainRestriction, LinkSharingSettings, MultiAdminPolicy,
@@ -9,12 +8,8 @@ use super::workspace::{
     WorkspaceSettings, WorkspaceSizePolicy,
 };
 use crate::auth::UserUid;
-use crate::convert_to_server_experiment;
-use crate::server::cloud_objects::listener::ObjectUpdateMessage;
-use crate::server::experiments::ServerExperiment;
-use crate::server::graphql::schema::object_action_history_from_gql;
 use crate::server::ids::ServerId;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use regex::Regex;
 use warp_errors::report_error;
 use warp_graphql::billing::{
@@ -26,7 +21,6 @@ use warp_graphql::billing::{
     TelemetryDataCollectionPolicy as GqlTelemetryDataCollectionPolicy, Tier as GqlTier,
 };
 use warp_graphql::queries::get_workspaces_metadata_for_user::User as GqlUser;
-use warp_graphql::subscriptions::get_warp_drive_updates::WarpDriveUpdate;
 use warp_graphql::workspace::{
     EmailInvite as GqlEmailInvite, InviteLinkDomainRestriction as GqlInviteLinkDomainRestriction,
     MembershipRole as GqlMembershipRole, Team as GqlTeam, TeamMember as GqlTeamMember,
@@ -53,7 +47,7 @@ impl From<GqlTeamMember> for TeamMember {
 /// The server hands workspace admins every team in the workspace so admin
 /// surfaces can manage them, but a team the user is not a member of is not one
 /// they can operate as in the client. Filtering here keeps every consumer of
-/// `Workspace::teams` (team switcher, team spaces, warp drive teams, ...)
+/// `Workspace::teams` (team switcher, per-window team scope, ...)
 /// scoped to real memberships.
 ///
 /// Service accounts are never recorded as a human `TeamMember` (that list only tracks
@@ -520,7 +514,7 @@ impl From<GqlWorkspace> for Workspace {
     }
 }
 
-/// Converts the `GetWorkspacesMetadataForUser` response into [`WorkspacesMetadataResponse`].
+/// Converts the `GetWorkspacesMetadataForUser` response into the current workspaces.
 ///
 /// `is_service_account` controls whether [`retain_authenticated_teams`] filters each
 /// workspace's teams down to the caller's own human memberships; see that function's doc
@@ -528,7 +522,7 @@ impl From<GqlWorkspace> for Workspace {
 pub fn workspaces_metadata_response_from_gql(
     gql_user: GqlUser,
     is_service_account: bool,
-) -> WorkspacesMetadataResponse {
+) -> Vec<Workspace> {
     let user_uid = UserUid::new(&gql_user.profile.uid);
 
     let workspaces: Vec<Workspace> = gql_user
@@ -547,59 +541,9 @@ pub fn workspaces_metadata_response_from_gql(
         })
         .collect();
 
-    let experiments = gql_user
-        .experiments
-        .and_then(|experiments| convert_to_server_experiment!(experiments));
-
-    // TODO(skambashi) refactor to return back workspaces, and not teams
-    WorkspacesMetadataResponse {
-        workspaces,
-        experiments,
-    }
+    workspaces
 }
 
 #[cfg(test)]
 #[path = "gql_convert_tests.rs"]
 mod tests;
-
-pub fn object_update_message_from_gql(value: WarpDriveUpdate) -> Result<ObjectUpdateMessage> {
-    match value {
-        WarpDriveUpdate::ObjectActionOccurred(message) => {
-            Ok(ObjectUpdateMessage::ObjectActionOccurred {
-                history: object_action_history_from_gql(message.history)?,
-            })
-        }
-        WarpDriveUpdate::ObjectContentUpdated(message) => {
-            let server_object = message.object.try_into()?;
-            let last_editor = message.last_editor.map(|e| e.into());
-            Ok(ObjectUpdateMessage::ObjectContentChanged {
-                server_object: Box::new(server_object),
-                last_editor,
-            })
-        }
-        WarpDriveUpdate::ObjectDeleted(message) => Ok(ObjectUpdateMessage::ObjectDeleted {
-            object_uid: ServerId::from_string_lossy(message.object_uid.inner()),
-        }),
-        WarpDriveUpdate::ObjectMetadataUpdated(message) => {
-            Ok(ObjectUpdateMessage::ObjectMetadataChanged {
-                metadata: message.metadata.try_into()?,
-            })
-        }
-        WarpDriveUpdate::ObjectPermissionsUpdated(message) => {
-            Ok(ObjectUpdateMessage::ObjectPermissionsChangedV2 {
-                object_uid: ServerId::from_string_lossy(message.object_uid.inner()),
-                user_profiles: message
-                    .user_profiles
-                    .into_iter()
-                    .flatten()
-                    .map(Into::into)
-                    .collect(),
-                permissions: message.permissions.try_into()?,
-            })
-        }
-        WarpDriveUpdate::TeamMembershipsChanged(_) => {
-            Ok(ObjectUpdateMessage::TeamMembershipsChanged)
-        }
-        WarpDriveUpdate::Unknown => bail!("Unexpected WarpDriveUpdate variant"),
-    }
-}

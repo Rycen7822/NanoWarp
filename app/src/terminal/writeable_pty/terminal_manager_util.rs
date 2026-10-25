@@ -84,7 +84,7 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
                 };
 
                 let outcome = controller.update(ctx, |controller, ctx| {
-                    controller.write_command(&event.command, shell_type, event.source.clone(), ctx)
+                    controller.write_command(&event.command, shell_type, ctx)
                 });
                 if !outcome.is_accepted() {
                     return;

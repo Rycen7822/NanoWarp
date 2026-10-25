@@ -14,27 +14,23 @@ use warp_graphql::mutations::create_anonymous_user::{
 use warp_server_auth::API_KEY_PREFIX;
 use warp_server_auth::user::persistence::PersistedUser;
 use warpui::clipboard::ClipboardContent;
-use warpui::{Entity, ModelContext, SingletonEntity, UpdateModel};
+use warpui::{Entity, ModelContext, SingletonEntity};
 
 use super::auth_state::{AuthState, PersistAction};
-use super::auth_view_modal::{AuthRedirectPayload, AuthViewVariant};
+use super::auth_view_modal::AuthRedirectPayload;
 use super::credentials::{Credentials, FirebaseToken, LoginToken};
 use super::user::User;
-use super::user_properties::UserProperties;
 use super::{AuthStateProvider, UserUid};
 use crate::persistence::ModelEvent;
-use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::graphql::get_user_facing_error_message;
+use crate::server::server_api::ServerApi;
 use crate::server::server_api::auth::{
     AnonymousUserCreationError, AuthClient, FetchUserResult, MintCustomTokenError,
     UserAuthenticationError,
 };
-use crate::server::server_api::{ServerApi, ServerApiProvider};
 use crate::server::telemetry::AnonymousUserSignupEntrypoint;
 use crate::settings::PrivacySettings;
-use crate::settings::cloud_preferences_syncer::CloudPreferencesSyncer;
 use crate::terminal::general_settings::GeneralSettings;
-use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
 #[cfg(target_family = "wasm")]
 use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -57,18 +53,12 @@ pub enum AuthManagerEvent {
     /// event might be triggered instead, but there are some code paths where we don't
     /// refresh the entire user, only their token, which is when this event might be emitted.
     NeedsReauth,
-    /// The user is anonymous and has attempted to access a login-gated feature or link.
-    AttemptedLoginGatedFeature {
-        auth_view_variant: AuthViewVariant,
-    },
     // The current user is anonymous and the client has received a browser intent to sign in with a different Warp account.
     // Holds an auth payload from the received browser intent.
     LoginOverrideDetected(AuthRedirectPayload),
     /// Failed to mint a new custom token for an anonymous user.
     MintCustomTokenFailed(MintCustomTokenError),
 }
-
-pub type LoginGatedFeature = &'static str;
 
 type URLConstructorCallback = Box<dyn FnOnce(Option<&str>) -> String>;
 /// AuthManager is a singleton model which manages the currently logged-in user's state.
@@ -177,10 +167,7 @@ impl AuthManager {
         let _ = ctx.spawn(
             async move {
                 auth_client
-                    .fetch_user(
-                        LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)),
-                        false, /* for_refresh */
-                    )
+                    .fetch_user(LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)))
                     .await
             },
             Self::on_user_fetched,
@@ -204,10 +191,7 @@ impl AuthManager {
         let _ = ctx.spawn(
             async move {
                 auth_client
-                    .fetch_user(
-                        LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)),
-                        false, /* for_refresh */
-                    )
+                    .fetch_user(LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)))
                     .await
             },
             Self::on_user_fetched,
@@ -218,11 +202,7 @@ impl AuthManager {
     pub fn initialize_user_from_session_cookie(&self, ctx: &mut ModelContext<Self>) {
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
-            async move {
-                auth_client
-                    .fetch_user(LoginToken::SessionCookie, false)
-                    .await
-            },
+            async move { auth_client.fetch_user(LoginToken::SessionCookie).await },
             Self::on_user_fetched,
         );
     }
@@ -241,7 +221,7 @@ impl AuthManager {
 
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
-            async move { auth_client.fetch_user(token, true).await },
+            async move { auth_client.fetch_user(token).await },
             Self::on_user_fetched,
         );
     }
@@ -259,11 +239,7 @@ impl AuthManager {
         };
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
-            async move {
-                auth_client
-                    .fetch_user(LoginToken::ApiKey(api_key), false)
-                    .await
-            },
+            async move { auth_client.fetch_user(LoginToken::ApiKey(api_key)).await },
             Self::on_user_fetched,
         );
     }
@@ -282,41 +258,18 @@ impl AuthManager {
                 let FetchUserResult {
                     user_output,
                     credentials,
-                    from_refresh,
                 } = fetch_user_result;
-                let UserProperties {
-                    user,
-                    server_experiments,
-                } = user_output.into();
+                let user: User = user_output.into();
 
                 self.complete_authentication(user.clone(), credentials, ctx);
 
                 self.set_needs_reauth(false, ctx);
 
-                ServerApiProvider::handle(ctx).update(ctx, |provider, ctx| {
-                    provider.handle_experiments_fetched(server_experiments, ctx);
-                });
-
-                // Reset the initial-load condition so that any cloud preference
-                // sync waits for the *new* user's cloud objects rather than
-                // resolving immediately against stale data from a prior session.
-                // Only do this for non-refresh fetches (login/signup), not for
-                // token refreshes where the user identity hasn't changed.
-                if !from_refresh {
-                    UpdateManager::handle(ctx).update(ctx, |manager, _| {
-                        manager.reset_initial_load();
-                    });
-                }
-
-                // Now that we have a user, start polling for team and cloud object information.
+                // Now that we have a user, start polling for team information.
                 // The polling loop's first tick fires immediately, so there is no need for a
                 // separate out-of-band refresh here.
                 TeamTesterStatus::handle(ctx).update(ctx, |model, ctx| {
                     model.initiate_data_pollers(false, ctx);
-                });
-
-                CloudPreferencesSyncer::handle(ctx).update(ctx, |model, ctx| {
-                    model.handle_user_fetched(self.auth_state.clone(), ctx)
                 });
 
                 if !user.is_user_anonymous() {
@@ -324,14 +277,6 @@ impl AuthManager {
                         report_if_error!(
                             settings.did_non_anonymous_user_log_in.set_value(true, ctx)
                         );
-                    });
-                }
-
-                // Force refresh for shared sessions if user may have changed.
-                if !from_refresh {
-                    SharedSessionManager::handle(ctx).update(ctx, |manager, ctx| {
-                        manager.stop_all_shared_sessions(ctx);
-                        manager.rejoin_all_shared_sessions(ctx);
                     });
                 }
 
@@ -356,13 +301,9 @@ impl AuthManager {
                     );
                 };
 
-                // Fetch the user's privacy settings from the server if any or update the server settings.
                 let privacy_settings_handle = PrivacySettings::handle(ctx);
                 let privacy_settings_snapshot =
                     privacy_settings_handle.as_ref(ctx).get_snapshot(ctx);
-                ctx.update_model(&privacy_settings_handle, |privacy_settings, ctx| {
-                    privacy_settings.fetch_or_update_settings(ctx);
-                });
 
                 let server_api = self.server_api.clone();
                 let user_id = self.auth_state.user_id().unwrap_or_default();
@@ -522,10 +463,7 @@ impl AuthManager {
                 let _ = ctx.spawn(
                     async move {
                         auth_client
-                            .fetch_user(
-                                LoginToken::Firebase(FirebaseToken::Custom(custom_token)),
-                                false, /* for_refresh */
-                            )
+                            .fetch_user(LoginToken::Firebase(FirebaseToken::Custom(custom_token)))
                             .await
                     },
                     Self::on_user_fetched,
@@ -539,21 +477,6 @@ impl AuthManager {
                 ctx.emit(AuthManagerEvent::CreateAnonymousUserFailed);
             }
         }
-    }
-
-    pub fn attempt_login_gated_feature(
-        &self,
-        feature: LoginGatedFeature,
-        auth_view_variant: AuthViewVariant,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if self.auth_state.is_anonymous_or_logged_out() {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { feature },
-                ctx
-            );
-            ctx.emit(AuthManagerEvent::AttemptedLoginGatedFeature { auth_view_variant });
-        };
     }
 
     pub fn initiate_anonymous_user_linking(

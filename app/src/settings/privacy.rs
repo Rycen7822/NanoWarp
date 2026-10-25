@@ -1,25 +1,13 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
-use anyhow::Result;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use settings::macros::{define_settings_group, maybe_define_setting, register_settings_events};
-use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
-use warp_errors::{report_error, report_if_error};
-use warp_graphql::mutations::update_user_settings::UpdateUserSettingsInput;
+use settings::{Setting, SupportedPlatforms};
+use warp_errors::report_error;
 pub use warp_terminal::model::secrets::RegexDisplayInfo;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, UpdateModel};
 
-use super::cloud_preferences_syncer::CloudPreferencesSyncer;
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_state::AuthState;
-use crate::cloud_object::model::persistence::CloudModel;
-use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::server_api::ServerApiProvider;
-#[cfg(any(test, feature = "test-util"))]
-use crate::server::server_api::auth::MockAuthClient;
-use crate::server::server_api::auth::{AuthClient, SyncedUserSettings};
 use crate::terminal::safe_mode_settings::SafeModeSettings;
 use crate::workspaces::workspace::EnterpriseSecretRegex;
 
@@ -84,7 +72,6 @@ define_settings_group!(WarpDrivePrivacySettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
         private: false,
         storage_key: "TelemetryEnabled",
         toml_path: "privacy.telemetry_enabled",
@@ -96,7 +83,6 @@ maybe_define_setting!(CustomSecretRegexList, group: PrivacySettings, {
     type: Vec<CustomSecretRegex>,
     default: Vec::new(),
     supported_platforms: SupportedPlatforms::ALL,
-    sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
     private: false,
     toml_path: "privacy.custom_secret_regex_list",
     description: "Custom regex patterns for detecting and redacting secrets.",
@@ -104,8 +90,6 @@ maybe_define_setting!(CustomSecretRegexList, group: PrivacySettings, {
 
 /// Singleton model for managing the user's privacy settings.
 pub struct PrivacySettings {
-    auth_state: Arc<AuthState>,
-    auth_client: Arc<dyn AuthClient>,
     pub is_telemetry_enabled: bool,
     /// List of user defined secret regexes.
     /// Enterprise-level secret regexes will always take precedence over user-level secrets,
@@ -116,7 +100,7 @@ pub struct PrivacySettings {
     /// These are kept separate from user-level secrets to support additive behavior.
     pub enterprise_secret_regex_list: Vec<CustomSecretRegex>,
     /// Whether or not the user's organization has forced telemetry on, in which case we ignore any
-    /// user local/cloud settings. If false, we fall back to the user's settings.
+    /// user local settings. If false, we fall back to the user's settings.
     /// This is populated by the server when teams data is fetched.
     pub is_telemetry_force_enabled: bool,
     /// Whether or not the user's organization has enabled enterprise secret redaction.
@@ -171,18 +155,13 @@ impl PrivacySettings {
         );
     }
 
-    /// Returns a new PrivacySettings object initialized from locally cached values. Server-side
-    /// settings are fetched later via `fetch_or_update_settings`, which is called from
-    /// `on_user_fetched` after the user's auth state is established.
+    /// Returns a new PrivacySettings object initialized from locally cached values.
     fn new(ctx: &mut ModelContext<Self>) -> Self {
-        let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-        let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
-
         // Initialize from `WarpDrivePrivacySettings`, which is the source of truth for these
         // booleans.
         let warp_drive_privacy = WarpDrivePrivacySettings::as_ref(ctx);
         let is_telemetry_enabled = *warp_drive_privacy.is_telemetry_enabled.value();
-        // Listen for changes to the cloud model and update ourselves when they happen.
+        // Listen for changes to the local privacy settings.
         ctx.subscribe_to_model(
             &WarpDrivePrivacySettings::handle(ctx),
             |me, _, event, ctx| {
@@ -202,8 +181,6 @@ impl PrivacySettings {
             CustomSecretRegexList::new_from_storage(ctx);
 
         Self {
-            auth_state,
-            auth_client,
             is_telemetry_enabled,
             user_secret_regex_list,
             is_telemetry_force_enabled: false,
@@ -279,69 +256,10 @@ impl PrivacySettings {
         self.is_enterprise_secret_redaction_enabled = false;
     }
 
-    /// Fetch the user's privacy settings from the server if any or update the server settings.
-    pub fn fetch_or_update_settings(&self, ctx: &mut ModelContext<Self>) {
-        let auth_client_clone = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client_clone.get_user_settings().await },
-            Self::initialize_from_fetched_settings_or_update_settings,
-        );
-    }
-
-    /// Initializes state from the [`SyncedUserSettings`] fetched from the server, if any.
-    /// If there are no settings from the server, updates the server settings with local settings.
-    /// TODO: Make this a server-side db transaction.
-    fn initialize_from_fetched_settings_or_update_settings(
-        &mut self,
-        fetched_settings: Result<Option<SyncedUserSettings>>,
-        ctx: &mut ModelContext<PrivacySettings>,
-    ) {
-        match fetched_settings {
-            Ok(Some(fetched_settings)) => {
-                // Until the login experience stops hiding the telemetry settings,
-                // we assume that locally enabled telemetry is unintentional.
-                // As such, where settings differ, we respect whichever setting that is disabled.
-                self.overwrite_local_settings_if_cloud_disabled(fetched_settings, ctx);
-                // If any local setting is disabled, we have to update the server.
-                if !self.is_telemetry_enabled {
-                    self.update_server_with_local_settings(ctx);
-                }
-            }
-            Ok(None) => {
-                // This indicates the user had not logged in before.
-                log::info!("User has no synced privacy settings.");
-                self.update_server_with_local_settings(ctx);
-            }
-            Err(err) => {
-                report_error!(err.context("Failed to fetch user settings."));
-            }
-        }
-
-        self.maybe_sync_with_warp_drive_prefs(ctx);
-    }
-
-    fn overwrite_local_settings_if_cloud_disabled(
-        &mut self,
-        fetched_settings: SyncedUserSettings,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // For now, only overwrite the user's locally stored setting if the cloud version
-        // has is_telemetry_enabled disabled. Until we implement a more reliable retry
-        // mechanism for update settings requests, in addition to possibly a UI for the
-        // user to resolve the conflicting settings themselves, default to "safe" behavior.
-        // Namely, we want to avoid incidentally overwriting is_telemetry_enabled to
-        // `true`.
-        if self.is_telemetry_enabled && !fetched_settings.is_telemetry_enabled {
-            self.set_is_telemetry_enabled(fetched_settings.is_telemetry_enabled, ctx);
-        }
-    }
-
     /// Constructor for tests only.
     #[cfg(any(test, feature = "test-util"))]
     pub fn mock(_ctx: &mut ModelContext<Self>) -> Self {
         Self {
-            auth_state: Arc::new(AuthState::new_for_test()),
-            auth_client: Arc::new(MockAuthClient::new()),
             is_telemetry_enabled: true,
             user_secret_regex_list: CustomSecretRegexList::new(None),
             is_telemetry_force_enabled: false,
@@ -363,8 +281,7 @@ impl PrivacySettings {
 
     /// Sets `is_telemetry_enabled` to the given value.
     ///
-    /// Additionally, this writes the given value to the user's local defaults, and additionally
-    /// sends a request to update the user's `is_telemetry_enabled` value stored server-side.
+    /// Additionally, this writes the given value to the user's local defaults.
     /// Finally, emits a `PrivacySettingsEvent::UpdateIsTelemetryEnabled` event.
     pub fn set_is_telemetry_enabled(
         &mut self,
@@ -380,13 +297,6 @@ impl PrivacySettings {
                 let _ = settings.is_telemetry_enabled.set_value(new_value, ctx);
             });
 
-            if self.auth_state.is_logged_in() {
-                let auth_client = self.auth_client.clone();
-                let _ = ctx.spawn(
-                    async move { auth_client.set_is_telemetry_enabled(new_value).await },
-                    |_, _, _| (),
-                );
-            }
             ctx.emit(PrivacySettingsChangedEvent::UpdateIsTelemetryEnabled {
                 old_value,
                 new_value,
@@ -448,88 +358,6 @@ impl PrivacySettings {
         }
 
         ctx.notify();
-    }
-
-    /// Sends request(s) to update server-side user settings with current local values.
-    fn update_server_with_local_settings(&self, ctx: &mut ModelContext<Self>) {
-        if self.auth_state.is_logged_in() {
-            let auth_client = self.auth_client.clone();
-            let snapshot = self.get_snapshot(ctx);
-            let _ = ctx.spawn(
-                async move {
-                    let result = auth_client
-                        .update_user_settings(UpdateUserSettingsInput {
-                            telemetry_enabled: Some(snapshot.is_telemetry_enabled()),
-                        })
-                        .await;
-                    if let Err(err) = result {
-                        report_error!(
-                            err.context("Failed to update server with local privacy settings.")
-                        )
-                    }
-                },
-                |_, _, _| (),
-            );
-        }
-    }
-
-    /// We wait until warp drive prefs have loaded and then either
-    /// 1) use them as the data store for telemetry, if those
-    ///    values are set in warp drive, or
-    /// 2) update the warp drive prefs to match the values from the legacy user_settings endpoint so
-    ///    that we can use warp drive prefs going forward.
-    pub fn maybe_sync_with_warp_drive_prefs(&mut self, ctx: &mut ModelContext<Self>) {
-        // Wait for cloud objects to load, and, if telemetry are synced to warp drive
-        // initialize from the warp drive values.
-        let update_manager = UpdateManager::as_ref(ctx);
-        ctx.spawn(
-            update_manager.initial_load_complete(),
-            Self::handle_warp_drive_objects_loaded,
-        );
-    }
-
-    fn handle_warp_drive_objects_loaded(&mut self, _: (), ctx: &mut ModelContext<Self>) {
-        // Check if the warp drive preferences are set. If they are, and telemetry
-        // are set as warp drive prefs, then use those.  Otherwise, update the warp drive prefs to match
-        // the values from the legacy user_settings endpoint so that we can use warp drive prefs going forward.
-        let cloud_model = CloudModel::as_ref(ctx);
-        let cloud_prefs = cloud_model.get_all_cloud_preferences_by_storage_key();
-        let cloud_telemetry_value =
-            cloud_prefs
-                .get(IsTelemetryEnabled::storage_key())
-                .map(|pref| {
-                    pref.model()
-                        .string_model
-                        .value
-                        .as_bool()
-                        .unwrap_or_default()
-                });
-        match cloud_telemetry_value {
-            Some(is_telemetry_enabled) => {
-                self.set_is_telemetry_enabled(is_telemetry_enabled, ctx);
-            }
-            _ => {
-                // First, ensure WarpDrivePrivacySettings (the define_settings_group model)
-                // reflects the actual PrivacySettings in-memory values. These may differ
-                // because WarpDrivePrivacySettings defaults to `true` for telemetry,
-                // while the user may have changed them to `false` via PrivacySettings before
-                // signing up. Without this step, maybe_sync_local_prefs_to_cloud would read
-                // the stale WarpDrivePrivacySettings defaults and push those to the cloud.
-                WarpDrivePrivacySettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .is_telemetry_enabled
-                            .set_value(self.is_telemetry_enabled, ctx)
-                    );
-                });
-                CloudPreferencesSyncer::handle(ctx).update(ctx, |syncer, ctx| {
-                    syncer.maybe_sync_local_prefs_to_cloud(
-                        vec![IsTelemetryEnabled::storage_key().to_string()],
-                        ctx,
-                    );
-                });
-            }
-        }
     }
 }
 

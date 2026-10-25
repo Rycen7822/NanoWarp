@@ -92,12 +92,10 @@ pub enum CustomAction {
     ToggleSyncTerminalInputsInCurrentTab,
     DisableSyncTerminalInputs,
     ReopenClosedSession,
-    ToggleWarpDrive,
+    ToggleLeftPanel,
     AddWindow,
     CloseCurrentSession,
     CloseWindow,
-    ShareCurrentSession,
-    SharePaneContents,
     #[cfg(windows)]
     WindowsPaste,
     #[cfg(windows)]
@@ -361,7 +359,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
         CustomAction::AddWindow => Keystroke::parse(cmd_or_ctrl_shift("n")).ok(),
-        CustomAction::ToggleWarpDrive => {
+        CustomAction::ToggleLeftPanel => {
             if OperatingSystem::get().is_mac() {
                 Keystroke::parse("cmd-\\").ok()
             } else {
@@ -408,9 +406,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::TriggerWelcomeBlock
         | CustomAction::HistorySearch
         | CustomAction::DisableSyncTerminalInputs
-        | CustomAction::ToggleSyncAllTerminalInputsInAllTabs
-        | CustomAction::ShareCurrentSession
-        | CustomAction::SharePaneContents => None,
+        | CustomAction::ToggleSyncAllTerminalInputsInAllTabs => None,
     }
 }
 

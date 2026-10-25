@@ -1,4 +1,3 @@
-use super::object::ObjectType;
 use super::platform_error::PlatformErrorInfoResponse;
 use crate::response_context::ResponseContext;
 use crate::schema;
@@ -19,10 +18,7 @@ pub struct PlatformError {
 #[derive(cynic::InlineFragments, Debug)]
 pub enum UserFacingErrorInterface {
     PlatformError(Box<PlatformError>),
-    SharedObjectsLimitExceeded(SharedObjectsLimitExceeded),
-    PersonalObjectsLimitExceeded(PersonalObjectsLimitExceeded),
     AccountDelinquencyError(AccountDelinquencyError),
-    GenericStringObjectUniqueKeyConflict(GenericStringObjectUniqueKeyConflict),
     BudgetExceededError(BudgetExceededError),
     PaymentMethodDeclinedError(PaymentMethodDeclinedError),
     InvalidAttachmentError(InvalidAttachmentError),
@@ -37,26 +33,7 @@ pub struct UserFacingErrorFallback {
 }
 
 #[derive(cynic::QueryFragment, Debug)]
-pub struct SharedObjectsLimitExceeded {
-    pub limit: i32,
-    pub object_type: ObjectType,
-    pub message: String,
-}
-
-#[derive(cynic::QueryFragment, Debug)]
-pub struct PersonalObjectsLimitExceeded {
-    pub limit: i32,
-    pub object_type: ObjectType,
-    pub message: String,
-}
-
-#[derive(cynic::QueryFragment, Debug)]
 pub struct AccountDelinquencyError {
-    pub message: String,
-}
-
-#[derive(cynic::QueryFragment, Debug)]
-pub struct GenericStringObjectUniqueKeyConflict {
     pub message: String,
 }
 

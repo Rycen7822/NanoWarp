@@ -4,12 +4,9 @@ use std::ops::{Range, RangeInclusive};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use async_channel::Sender;
 use base64::Engine;
 use itertools::Either;
 use serde::Serialize;
-use session_sharing_protocol::common::{OrderedTerminalEventType, ParticipantId};
-use session_sharing_protocol::sharer::SessionSourceType;
 use string_offset::CharOffset;
 use warp_completer::meta::Span;
 use warp_core::command::ExitCode;
@@ -73,12 +70,10 @@ use crate::terminal::model::index::VisibleRow;
 use crate::terminal::model::iterm_image::{ITermImage, ITermImageMetadata};
 use crate::terminal::model::secrets::ObfuscateSecrets;
 use crate::terminal::model::session::SessionInfo;
-use crate::terminal::shared_session::SharedSessionStatus;
-use crate::terminal::shell::{ShellName, ShellType};
+use crate::terminal::shell::ShellType;
 use crate::terminal::ssh::util::{InteractiveSshCommand, SshLoginState};
 use crate::terminal::{
-    BlockPadding, ShellHost, ShellLaunchData, ShellLaunchState, SizeUpdate, SizeUpdateReason,
-    color, ssh,
+    BlockPadding, ShellHost, ShellLaunchData, ShellLaunchState, SizeUpdate, color, ssh,
 };
 
 /// Max size of the window title stack.
@@ -460,26 +455,6 @@ pub struct TerminalModel {
 
     /// Whether or not to respect secrets that are obfuscated, respecting the Safe Mode/Secret Redaction setting.
     obfuscate_secrets: ObfuscateSecrets,
-
-    shared_session_status: SharedSessionStatus,
-
-    /// The source of a shared session, or `None` outside a shared session.
-    shared_session_source: Option<SessionSourceType>,
-
-    /// A sender for terminal-state updates that must be ordered against each other.
-    /// This goes through the [`TerminalModel`] because the [`TerminalModel`] is exposed as
-    /// a synchronized data structure (i.e. [`FairMutex<TerminalModel>`]) and thus multiple
-    /// `send`s via the [`TerminalModel`] will be synchronized.
-    ///
-    /// This field is only [`Some`] if this session is shared.
-    /// TODO: consider combining this with `shared_session_status` because
-    /// the state can technically diverge.
-    ordered_terminal_events_for_shared_session_tx: Option<Sender<OrderedTerminalEventType>>,
-
-    /// A sender for write to pty events for a shared session viewer.
-    ///
-    /// This field is only [`Some`] if this session is shared.
-    write_to_pty_events_for_shared_session_tx: Option<Sender<Vec<u8>>>,
 
     /// When some, the TerminalModel emits the event [Event::DetectedEndOfSshLogin]. This
     /// event is emitted either as the initial check or the confirmation check.
@@ -950,6 +925,7 @@ impl TerminalModel {
         session_startup_path: Option<PathBuf>,
     ) -> Self {
         use super::session::get_local_hostname;
+        use crate::terminal::shell::ShellName;
 
         let mut terminal_model = Self::new(
             restored_blocks,
@@ -1005,8 +981,9 @@ impl TerminalModel {
         terminal_model
     }
 
+    /// Creates a terminal model for a local terminal session.
     #[allow(clippy::too_many_arguments)]
-    fn new_internal(
+    pub fn new(
         restored_blocks: Option<&[SerializedBlock]>,
         sizes: BlockSize,
         colors: color::List,
@@ -1020,7 +997,6 @@ impl TerminalModel {
         obfuscate_secrets: ObfuscateSecrets,
         session_startup_path: Option<PathBuf>,
         shell_state: ShellLaunchState,
-        shared_session_status: SharedSessionStatus,
     ) -> Self {
         let alt_screen = AltScreen::new(
             sizes.size,
@@ -1071,10 +1047,6 @@ impl TerminalModel {
             shell_replacement_pending: false,
             shell_launch_state: shell_state,
             obfuscate_secrets,
-            shared_session_status,
-            shared_session_source: None,
-            ordered_terminal_events_for_shared_session_tx: None,
-            write_to_pty_events_for_shared_session_tx: None,
             notify_on_end_of_ssh_login: None,
             is_receiving_hook: IsReceivingHook::No,
             image_id_to_metadata: HashMap::new(),
@@ -1083,159 +1055,6 @@ impl TerminalModel {
             registered_session_ids: HashSet::new(),
             shell_process_info: None,
         }
-    }
-
-    /// Creates a terminal model for a local terminal session.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        restored_blocks: Option<&[SerializedBlock]>,
-        sizes: BlockSize,
-        colors: color::List,
-        event_proxy: ChannelEventListener,
-        background_executor: Arc<Background>,
-        should_show_bootstrap_block: bool,
-        should_show_in_band_command_blocks: bool,
-        should_show_memory_stats: bool,
-        honor_ps1: bool,
-        is_inverted: bool,
-        obfuscate_secrets: ObfuscateSecrets,
-        session_startup_path: Option<PathBuf>,
-        shell_state: ShellLaunchState,
-    ) -> Self {
-        Self::new_internal(
-            restored_blocks,
-            sizes,
-            colors,
-            event_proxy,
-            background_executor,
-            should_show_bootstrap_block,
-            should_show_in_band_command_blocks,
-            should_show_memory_stats,
-            honor_ps1,
-            is_inverted,
-            obfuscate_secrets,
-            session_startup_path,
-            shell_state,
-            SharedSessionStatus::NotShared,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn new_for_shared_session_viewer_internal(
-        sizes: BlockSize,
-        colors: color::List,
-        event_proxy: ChannelEventListener,
-        background_executor: Arc<Background>,
-        show_memory_stats: bool,
-        honor_ps1: bool,
-        is_inverted: bool,
-        obfuscate_secrets: ObfuscateSecrets,
-    ) -> Self {
-        Self::new_internal(
-            None,
-            sizes,
-            colors,
-            event_proxy,
-            background_executor,
-            false,
-            false,
-            show_memory_stats,
-            honor_ps1,
-            is_inverted,
-            obfuscate_secrets,
-            None,
-            // TODO: use the same shell type as the sharer
-            ShellLaunchState::ShellSpawned {
-                available_shell: None,
-                display_name: ShellName::blank(),
-                shell_type: ShellType::Zsh,
-            },
-            SharedSessionStatus::ViewPending,
-        )
-    }
-
-    /// Creates a terminal model for a terminal session that is being viewed.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_for_shared_session_viewer(
-        sizes: BlockSize,
-        colors: color::List,
-        event_proxy: ChannelEventListener,
-        background_executor: Arc<Background>,
-        show_memory_stats: bool,
-        honor_ps1: bool,
-        is_inverted: bool,
-        obfuscate_secrets: ObfuscateSecrets,
-    ) -> Self {
-        Self::new_for_shared_session_viewer_internal(
-            sizes,
-            colors,
-            event_proxy,
-            background_executor,
-            show_memory_stats,
-            honor_ps1,
-            is_inverted,
-            obfuscate_secrets,
-        )
-    }
-
-    pub fn set_ordered_terminal_events_for_shared_session_tx(
-        &mut self,
-        tx: Sender<OrderedTerminalEventType>,
-    ) {
-        self.ordered_terminal_events_for_shared_session_tx = Some(tx);
-    }
-
-    pub fn clear_ordered_terminal_events_for_shared_session_tx(&mut self) {
-        self.ordered_terminal_events_for_shared_session_tx = None;
-    }
-
-    pub fn set_write_to_pty_events_for_shared_session_tx(&mut self, tx: Sender<Vec<u8>>) {
-        self.write_to_pty_events_for_shared_session_tx = Some(tx);
-    }
-
-    pub fn send_write_to_pty_events_for_shared_session(&mut self, bytes: Vec<u8>) {
-        if !FeatureFlag::SharedSessionWriteToLongRunningCommands.is_enabled()
-            || !self.shared_session_status().is_executor()
-        {
-            return;
-        }
-
-        if let Some(tx) = &self.write_to_pty_events_for_shared_session_tx
-            && let Err(e) = tx.try_send(bytes)
-        {
-            log::warn!("Failed to send write to pty events: {e}");
-        }
-    }
-
-    pub fn clear_write_to_pty_events_for_shared_session_tx(&mut self) {
-        self.write_to_pty_events_for_shared_session_tx = None;
-    }
-
-    pub fn set_shared_session_source(&mut self, source: SessionSourceType) {
-        self.shared_session_source = Some(source);
-    }
-
-    pub fn shared_session_source(&self) -> Option<&SessionSourceType> {
-        self.shared_session_source.as_ref()
-    }
-
-    pub fn shared_session_source_type(&self) -> Option<SessionSourceType> {
-        self.shared_session_source.as_ref().cloned()
-    }
-
-    /// Loads the provided scrollback into the model.
-    // TODO: we should be doing this in the constructor of the
-    // terminal model for the viewers so that we're guaranteed that
-    // loading scrollback is the first thing that we do.
-    pub fn load_shared_session_scrollback(&mut self, scrollback: &[SerializedBlock]) {
-        debug_assert!(self.shared_session_status().is_viewer());
-
-        self.block_list_mut()
-            .load_shared_session_scrollback(scrollback);
-        self.lifecycle_coordinator.reset_unknown();
-
-        // The scrollback contains the prompt for the active block, and the terminal view needs to be notified to render it.
-        self.event_proxy.send_wakeup_event();
     }
 
     pub fn obfuscate_secrets(&self) -> ObfuscateSecrets {
@@ -1318,7 +1137,7 @@ impl TerminalModel {
     }
 
     pub fn is_read_only(&self) -> bool {
-        self.handled_exit || self.shared_session_status().is_finished_viewer()
+        self.handled_exit
     }
 
     pub fn colors(&self) -> color::List {
@@ -1467,31 +1286,6 @@ impl TerminalModel {
         self.start_command_execution_for_kind(CommandStartKind::UserOrQueued)
     }
 
-    /// Starts the execution for a command in a shared session (sharer or viewer).
-    pub fn start_command_execution_for_shared_session(
-        &mut self,
-        participant_id: ParticipantId,
-    ) -> StartCommandOutcome {
-        let outcome = self.start_command_execution_for_kind(CommandStartKind::SharedSession);
-        if !outcome.is_accepted() {
-            return outcome;
-        }
-
-        // TODO (suraj): add participant ID to active block metadata.
-
-        // If this is a sharer, send an event to indicate the start of the command execution
-        // along with the identity of the participant that ran the command.
-        if let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-            && let Err(e) = tx.try_send(OrderedTerminalEventType::CommandExecutionStarted {
-                participant_id,
-                ai_metadata: None,
-            })
-        {
-            log::warn!("Failed to send OrderedTerminalEventType::CommandExecutionStarted: {e}");
-        }
-        outcome
-    }
-
     pub(in crate::terminal) fn start_in_band_command_execution(&mut self) -> StartCommandOutcome {
         self.start_command_execution_for_kind(CommandStartKind::InBand)
     }
@@ -1502,9 +1296,7 @@ impl TerminalModel {
         let outcome = match transition.action {
             LifecycleAction::StartActiveBlock => {
                 match kind {
-                    CommandStartKind::UserOrQueued | CommandStartKind::SharedSession => {
-                        self.block_list.start_active_block()
-                    }
+                    CommandStartKind::UserOrQueued => self.block_list.start_active_block(),
                     CommandStartKind::InBand => {
                         self.block_list.start_active_block_for_in_band_command()
                     }
@@ -1803,19 +1595,6 @@ impl TerminalModel {
         }
     }
 
-    pub fn shared_session_status(&self) -> &SharedSessionStatus {
-        &self.shared_session_status
-    }
-
-    pub fn set_shared_session_status(&mut self, shared_session_status: SharedSessionStatus) {
-        self.shared_session_status = shared_session_status;
-    }
-
-    /// Returns whether this terminal is viewing a shared session.
-    pub fn is_shared_session_viewer(&self) -> bool {
-        self.shared_session_status.is_viewer()
-    }
-
     /// Resize terminal to new dimensions.
     /// The block sort direction is needed to update the state of the find dialog.
     pub fn resize(&mut self, size_update: SizeUpdate) {
@@ -1829,36 +1608,7 @@ impl TerminalModel {
         {
             self.alt_screen.resize(&size_update);
 
-            // Don't reflow old blocks for shared session size updates:
-            // - Viewers skip reflow when the sharer's size changed
-            //   (viewers can still reflow via their own pane/font resizes).
-            // - Sharers skip reflow when honoring a viewer's reported size
-            //   (the viewer's smaller size is transient and shouldn't reshape history).
-            let update_old_blocks = match size_update.update_reason {
-                SizeUpdateReason::SharerSizeChanged { .. }
-                    if self.shared_session_status().is_viewer() =>
-                {
-                    false
-                }
-                SizeUpdateReason::ViewerSizeReported { .. } => false,
-                _ => true,
-            };
-            self.block_list.resize(&size_update, update_old_blocks);
-        }
-
-        if size_update.rows_or_columns_changed() {
-            let num_rows = size_update.new_size.rows();
-            let num_cols = size_update.new_size.columns();
-            if let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-                && let Err(e) = tx.try_send(OrderedTerminalEventType::Resize {
-                    window_size: session_sharing_protocol::common::WindowSize {
-                        num_rows,
-                        num_cols,
-                    },
-                })
-            {
-                log::warn!("Failed to send OrderedTerminalEventType::Resize: {e}");
-            }
+            self.block_list.resize(&size_update, true);
         }
     }
 
@@ -1954,48 +1704,9 @@ impl TerminalModel {
 
     /// Sets whether any content within a grid that is "secret-like" should be obfuscated.
     pub fn set_obfuscate_secrets(&mut self, obfuscate_secrets: ObfuscateSecrets) {
-        // Secret obfuscation is forced off in shared sessions so changing
-        // the setting during a shared session should be a no-op (for this session).
-        if self.shared_session_status.is_sharer_or_viewer() {
-            return;
-        }
-
         self.obfuscate_secrets = obfuscate_secrets;
         self.alt_screen.set_obfuscate_secrets(obfuscate_secrets);
         self.block_list.set_obfuscate_secrets(obfuscate_secrets);
-    }
-
-    /// Disables secret obfuscation for shared session creators only.
-    ///
-    /// Specifically, secret obfuscation is disabled starting
-    /// from the `first_scrollback_block_index` onwards.
-    pub fn disable_secret_obfuscation_for_shared_sesson_creator(
-        &mut self,
-        first_scrollback_block_index: BlockIndex,
-    ) {
-        if !self.shared_session_status.is_sharer() {
-            log::warn!(
-                "Tried to disable secret obfuscation without being a shared session creator."
-            );
-            return;
-        }
-
-        let setting = ObfuscateSecrets::No;
-        self.obfuscate_secrets = setting;
-
-        // Disable obfuscation in the alt-screen.
-        self.alt_screen.set_obfuscate_secrets(setting);
-
-        // Ensure that all scrollback blocks and any subsequent blocks don't have their secrets obfuscated.
-        let active_block_index = self.block_list.active_block_index();
-        for block_index in
-            BlockIndex::range_as_iter(first_scrollback_block_index..active_block_index)
-        {
-            self.block_list
-                .set_obfuscate_secrets_for_block(block_index, setting);
-        }
-        self.block_list
-            .set_obfuscate_secrets_for_subsequent_blocks(setting);
     }
 
     fn restored_block_commands(&self) -> Vec<HistoryEntry> {
@@ -2090,7 +1801,6 @@ impl TerminalModel {
         // the blocklist (for the local shell).
         self.exit_alt_screen(true);
 
-        let block_id = data.next_block_id.to_string();
         self.block_list
             .ensure_active_block_executing_for_completion();
         let is_for_in_band_command = self.block_list().active_block().is_in_band_command_block();
@@ -2098,14 +1808,6 @@ impl TerminalModel {
         let active_block_completion = self.block_list.complete_active_block_and_advance(data);
 
         if active_block_completion == ActiveBlockCompletion::NewlyFinished {
-            if let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-                && let Err(e) = tx.try_send(OrderedTerminalEventType::CommandExecutionFinished {
-                    next_block_id: block_id.into(),
-                })
-            {
-                log::warn!("Failed to send OrderedTerminalEventType::CommandFinished: {e}");
-            }
-
             self.emit_handler_event(HandlerEvent::CommandFinished {
                 command_type: if is_for_in_band_command {
                     CommandType::InBandCommand
@@ -2309,10 +2011,6 @@ pub enum HandlerEvent {
 impl ansi::Handler for TerminalModel {
     fn is_registered_session(&self, session_id: SessionId) -> bool {
         self.registered_session_ids.contains(&session_id)
-    }
-
-    fn should_validate_dcs_hook_session_id(&self) -> bool {
-        !self.shared_session_status().is_viewer()
     }
 
     fn set_title(&mut self, title: Option<String>) {
@@ -3030,21 +2728,6 @@ impl ansi::Handler for TerminalModel {
 
         // Send a copy of the bytes to subscribers.
         self.event_proxy.send_pty_read_event(bytes);
-
-        // Send a copy of the bytes for the active shared session, if applicable.
-        // When processing a synchronized output frame, `on_finish_byte_processing` is called
-        // both when the frame is flushed and when we initially process the raw bytes (the ordering of the two
-        // depends on whether we receive the start and end markers in the same batch of bytes). We only want to send
-        // the raw bytes to viewers, not the flushed frame - they'll handle the synchronized output framing themselves.
-        if !input.is_synchronized_output_frame()
-            && self.shared_session_status().is_sharer()
-            && let Some(tx) = &self.ordered_terminal_events_for_shared_session_tx
-            && let Err(e) = tx.try_send(OrderedTerminalEventType::PtyBytesRead {
-                bytes: bytes.to_owned(),
-            })
-        {
-            log::warn!("Failed to send OrderedTerminalEventType::PtyBytesRead: {e}");
-        }
 
         delegate!(self.on_finish_byte_processing(input))
     }

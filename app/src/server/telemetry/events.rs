@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use session_sharing_protocol::common::{ParticipantId, Role, SessionId as SharedSessionId};
-use session_sharing_protocol::sharer::{SessionEndedReason, SessionSourceType};
 use strum_macros::{EnumDiscriminants, EnumIter};
 use warp_completer::completer::MatchType;
 use warp_core::command::ExitCode;
@@ -16,12 +14,9 @@ use warpui::keymap::Keystroke;
 use warpui::notification::{NotificationSendError, RequestPermissionsOutcome};
 use warpui::rendering::ThinStrokes;
 
-use crate::auth::auth_manager::LoginGatedFeature;
 use crate::channel::Channel;
-use crate::cloud_object::{GenericStringObjectFormat, Space};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
-use crate::drive::{CloudObjectTypeAndId, DriveSortOrder};
 use crate::features::FeatureFlag;
 use crate::launch_configs::save_modal::SaveState;
 use crate::notebooks::NotebookLocation;
@@ -37,7 +32,6 @@ use crate::terminal::input::TelemetryInputSuggestionsMode;
 use crate::terminal::model::session::SessionId;
 use crate::terminal::model::terminal_model::BlockSelectionCardinality;
 use crate::terminal::settings::AltScreenPaddingMode;
-use crate::terminal::shared_session::SharedSessionActionSource;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::{
     BlockEntity, BlockSelectionDetails, NotificationsDiscoveryBannerAction,
@@ -102,61 +96,6 @@ pub enum DownloadSource {
     Homebrew,
 }
 
-// For use when recording what type of cloud object a particular telemetry is for.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TelemetryCloudObjectType {
-    Folder,
-    GenericStringObject(GenericStringObjectFormat),
-}
-
-impl From<&CloudObjectTypeAndId> for TelemetryCloudObjectType {
-    fn from(cloud_object_type_and_id: &CloudObjectTypeAndId) -> Self {
-        match cloud_object_type_and_id {
-            CloudObjectTypeAndId::Folder(_) => Self::Folder,
-            CloudObjectTypeAndId::GenericStringObject { object_type, .. } => {
-                Self::GenericStringObject(*object_type)
-            }
-        }
-    }
-}
-
-/// For use when recording how a user has access to a cloud object.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum TelemetrySpace {
-    /// The object is owned by the current user.
-    Personal,
-    /// The object is owned by a team the user is on.
-    Team,
-    /// The object was shared with the user.
-    Shared,
-}
-
-impl From<Space> for TelemetrySpace {
-    fn from(space: Space) -> Self {
-        match space {
-            Space::Personal => Self::Personal,
-            Space::Team { .. } => Self::Team,
-            Space::Shared => Self::Shared,
-        }
-    }
-}
-
-/// Common metadata to include in all Warp Drive telemetry events that act on a specific object.
-/// Events that only apply to a single object type may use [`NotebookTelemetryMetadata`]
-/// instead.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CloudObjectTelemetryMetadata {
-    pub object_type: TelemetryCloudObjectType,
-    /// The server UID of the object. This only exists for objects that have been synced to the
-    /// server.
-    pub object_uid: Option<ServerId>,
-    /// The space through which the user has access to the object.
-    pub space: Option<TelemetrySpace>,
-    /// If the object is owned by a team, this is the owning team's UID. For shared objects, the
-    /// user might not be on the team.
-    pub team_uid: Option<ServerId>,
-}
-
 /// Metadata for file-backed notebook viewer telemetry.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NotebookTelemetryMetadata {
@@ -185,38 +124,6 @@ pub struct NotebookActionEvent {
     pub action: NotebookTelemetryAction,
     #[serde(flatten)]
     pub metadata: NotebookTelemetryMetadata,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenedSharingDialogEvent {
-    pub source: SharingDialogSource,
-
-    /// Metadata for the object being shared, if it's a Warp Drive object.
-    #[serde(flatten)]
-    pub object_metadata: Option<CloudObjectTelemetryMetadata>,
-
-    /// Metadata for the session being shared, if there is one.
-    pub session_id: Option<SharedSessionId>,
-}
-
-/// How the user opened the Warp Drive sharing dialog.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum SharingDialogSource {
-    /// The sharing button in the pane header.
-    PaneHeader,
-    /// The per-pane command palette entry (includes keybindings).
-    CommandPalette,
-    /// The Warp Drive index context menu.
-    DriveIndex,
-    /// The sharing dialog was auto-opened from shared session creation.
-    StartedSessionShare,
-    /// The user intented into Warp with an email address to invite.
-    /// The user jumped from an inherited ACL to its definition on a parent object.
-    InheritedPermission,
-    /// The onboarding block shown after users create new personal objects.
-    OnboardingBlock,
-    /// The conversation list overflow menu.
-    ConversationList,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -277,13 +184,6 @@ pub enum CodePanelsFileOpenEntrypoint {
     CodeReview,
     ProjectExplorer,
     GlobalSearch,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum WarpDriveSource {
-    Legacy,
-    LeftPanelToolbelt,
-    ForceOpened,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -627,9 +527,6 @@ pub enum TelemetryEvent {
     TeamCreated,
     TeamJoined,
     TeamLeft,
-    ToggleSettingsSync {
-        is_settings_sync_enabled: bool,
-    },
     RemovedUserFromTeam,
     DeletedNotebook,
     ToggleApprovalsModal,
@@ -666,7 +563,6 @@ pub enum TelemetryEvent {
     },
     QuitModalShown {
         running_processes: u32,
-        shared_sessions: u32,
         modal_for: CloseTarget,
     },
     QuitModalCancel {
@@ -776,14 +672,7 @@ pub enum TelemetryEvent {
     },
     AnonymousUserExpirationLockout,
     AnonymousUserLinkedFromBrowser,
-    AnonymousUserAttemptLoginGatedFeature {
-        feature: LoginGatedFeature,
-    },
     NeedsReauth,
-    WarpDriveOpened {
-        source: WarpDriveSource,
-        is_code_mode_v2: bool,
-    },
     ToggleSecretRedaction {
         enabled: bool,
     },
@@ -792,9 +681,6 @@ pub enum TelemetryEvent {
         interaction: SecretInteraction,
     },
     CopySecret,
-    UpdateSortingChoice {
-        sorting_choice: DriveSortOrder,
-    },
     UndoClose {
         item_type: UndoCloseItemType,
     },
@@ -804,47 +690,12 @@ pub enum TelemetryEvent {
         /// The maximum PTY throughput in bytes/sec, aggregated over a 10 minute period.
         max_bytes_per_second: usize,
     },
-    DuplicateObject(TelemetryCloudObjectType),
-    DriveSharingOnboardingBlockShown,
     CommandFileRun,
     PageUpDownInEditorPressed {
         // Key pressed when nothing is in the editor (no-op)
         is_empty_editor: bool,
         // Is PageDown. Otherwise is PageUp
         is_down: bool,
-    },
-    /// Emitted on start share attempt, not on success.
-    StartedSharingCurrentSession {
-        includes_scrollback: bool,
-        source: SharedSessionActionSource,
-    },
-    StoppedSharingCurrentSession {
-        source: SharedSessionActionSource,
-        reason: SessionEndedReason,
-    },
-    JoinedSharedSession {
-        session_id: SharedSessionId,
-        source_type: SessionSourceType,
-    },
-    /// Emitted when a shared session sharer cancels granting a role
-    /// (currently only applies when granting executor mode).
-    SharerCancelledGrantRole {
-        role: Role,
-    },
-    /// Emitted when a shared session sharer checks "dont show again"
-    /// in confirmation modal when granting a role.
-    SharerGrantModalDontShowAgain,
-    JumpToSharedSessionParticipant {
-        jumped_to: ParticipantId,
-    },
-    CopiedSharedSessionLink {
-        source: SharedSessionActionSource,
-    },
-    WebSessionOpenedOnDesktop {
-        source: SharedSessionActionSource,
-    },
-    WebCloudObjectOpenedOnDesktop {
-        object_metadata: CloudObjectTelemetryMetadata,
     },
     UnsupportedShell {
         shell: String,
@@ -884,9 +735,6 @@ pub enum TelemetryEvent {
     PaneDragInitiated,
     PaneDropped {
         drop_location: PaneDragDropLocation,
-    },
-    ObjectLinkCopied {
-        link: String,
     },
     FileTreeToggled {
         source: FileTreeSource,
@@ -953,7 +801,6 @@ pub enum TelemetryEvent {
         source: AddTabWithShellSource,
         shell: String,
     },
-    OpenedSharingDialog(OpenedSharingDialogEvent),
     ToggleLigatureRendering {
         enabled: bool,
     },
@@ -1139,9 +986,6 @@ impl TelemetryEvent {
         match self {
             TelemetryEvent::BootstrappingSlow(info) => Some(json!(info)),
             TelemetryEvent::BootstrappingSlowContents(info) => Some(json!(info)),
-            TelemetryEvent::ToggleSettingsSync {
-                is_settings_sync_enabled,
-            } => Some(json!({ "is_settings_sync_enabled": is_settings_sync_enabled })),
             TelemetryEvent::SessionAbandonedBeforeBootstrap {
                 pending_shell,
                 has_pending_ssh_session,
@@ -1222,7 +1066,6 @@ impl TelemetryEvent {
             TelemetryEvent::CursorDisplayType {
                 cursor: cursor_display_type,
             } => Some(json!({"cursor": cursor_display_type})),
-            TelemetryEvent::ObjectLinkCopied { link } => Some(json!({"link": link})),
             TelemetryEvent::FileTreeToggled {
                 source,
                 is_code_mode_v2,
@@ -1292,11 +1135,8 @@ impl TelemetryEvent {
             }
             TelemetryEvent::QuitModalShown {
                 running_processes,
-                shared_sessions,
                 modal_for,
-            } => Some(
-                json!({ "running_processes": running_processes, "shared_sessions": shared_sessions, "modal_for": modal_for }),
-            ),
+            } => Some(json!({ "running_processes": running_processes, "modal_for": modal_for })),
             TelemetryEvent::QuitModalCancel {
                 nav_palette,
                 modal_for,
@@ -1390,9 +1230,6 @@ impl TelemetryEvent {
             TelemetryEvent::ToggleObfuscateSecret { interaction } => {
                 Some(json!({ "interaction": interaction }))
             }
-            TelemetryEvent::UpdateSortingChoice { sorting_choice } => {
-                Some(json!({ "sorting_choice": sorting_choice }))
-            }
             TelemetryEvent::UndoClose { item_type } => Some(json!({ "item_type": item_type })),
             TelemetryEvent::PromptEdited { prompt, entrypoint } => Some(json!({
                 "prompt": prompt,
@@ -1406,20 +1243,10 @@ impl TelemetryEvent {
             } => Some(json!({
                 "max_bytes_per_second": max_bytes_per_second,
             })),
-            TelemetryEvent::DuplicateObject(object_type) => {
-                Some(json!({ "object_type": object_type }))
-            }
             TelemetryEvent::PageUpDownInEditorPressed {
                 is_empty_editor,
                 is_down,
             } => Some(json!({"is_empty_editor": is_empty_editor, "is_down": is_down})),
-            TelemetryEvent::StartedSharingCurrentSession {
-                includes_scrollback,
-                source,
-            } => Some(json!({ "includes_scrollback": includes_scrollback, "source": source })),
-            TelemetryEvent::StoppedSharingCurrentSession { source, reason } => {
-                Some(json!({ "source": source, "reason": reason }))
-            }
             TelemetryEvent::UnsupportedShell { shell } => Some(json!({ "shell": shell })),
             TelemetryEvent::OpenAndWarpifyDockerSubshell { shell_type } => {
                 Some(json!({ "shell_type": shell_type }))
@@ -1450,24 +1277,6 @@ impl TelemetryEvent {
             TelemetryEvent::SshRemoteServerChoiceDoNotAskAgainToggled { checked } => {
                 Some(json!({"checked": checked}))
             }
-            TelemetryEvent::JoinedSharedSession {
-                session_id,
-                source_type,
-            } => Some(json!({
-                "session_id": session_id,
-                "source_type": source_type,
-            })),
-            TelemetryEvent::SharerCancelledGrantRole { role } => Some(json!({ "role": role })),
-            TelemetryEvent::JumpToSharedSessionParticipant { jumped_to } => {
-                Some(json!({ "jumped_to": jumped_to }))
-            }
-            TelemetryEvent::CopiedSharedSessionLink { source } => Some(json!({ "source": source })),
-            TelemetryEvent::WebSessionOpenedOnDesktop { source } => {
-                Some(json!({ "source": source}))
-            }
-            TelemetryEvent::WebCloudObjectOpenedOnDesktop { object_metadata } => Some(json!({
-                "object": object_metadata,
-            })),
             TelemetryEvent::ToggleSnackbarInActivePane { show_snackbar } => {
                 Some(json!({ "show_snackbar": show_snackbar }))
             }
@@ -1530,9 +1339,6 @@ impl TelemetryEvent {
             TelemetryEvent::InitiateAnonymousUserSignup { entrypoint } => {
                 Some(json!({"entrypoint": entrypoint}))
             }
-            TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { feature } => {
-                Some(json!({"feature": feature}))
-            }
             TelemetryEvent::ToggleWorkspaceDecorationVisibility {
                 previous_value,
                 new_value,
@@ -1546,7 +1352,6 @@ impl TelemetryEvent {
             TelemetryEvent::AddTabWithShell { source, shell } => {
                 Some(json!({ "source": source, "shell": shell }))
             }
-            TelemetryEvent::OpenedSharingDialog(event) => Some(json!(event)),
             TelemetryEvent::ToggleLigatureRendering { enabled } => {
                 Some(json!({"enabled": enabled}))
             }
@@ -1645,14 +1450,12 @@ impl TelemetryEvent {
             | TelemetryEvent::CustomSecretRegexAdded
             | TelemetryEvent::CopySecret
             | TelemetryEvent::CommandFileRun
-            | TelemetryEvent::SharerGrantModalDontShowAgain
             | TelemetryEvent::LogOut
             | TelemetryEvent::UpdateBlockFilterQuery
             | TelemetryEvent::BlockFilterToolbeltButtonClicked
             | TelemetryEvent::PaneDragInitiated
             | TelemetryEvent::SettingsImportResetButtonClicked
             | TelemetryEvent::ITermMultipleHotkeys
-            | TelemetryEvent::DriveSharingOnboardingBlockShown
             | TelemetryEvent::SettingsImportInitiated
             | TelemetryEvent::UserMenuUpgradeClicked
             | TelemetryEvent::FileTreeItemCreated
@@ -1814,13 +1617,6 @@ impl TelemetryEvent {
             TelemetryEvent::RecentMenuItemSelected { kind } => Some(json!({
                 "kind": kind,
             })),
-            TelemetryEvent::WarpDriveOpened {
-                source,
-                is_code_mode_v2,
-            } => Some(json!({
-                "source": source,
-                "is_code_mode_v2": is_code_mode_v2,
-            })),
             TelemetryEvent::LoginButtonClicked { source }
             | TelemetryEvent::LoginLaterButtonClicked { source }
             | TelemetryEvent::LoginLaterConfirmationButtonClicked { source }
@@ -1917,7 +1713,6 @@ impl TelemetryEvent {
             | TelemetryEvent::TeamCreated
             | TelemetryEvent::TeamJoined
             | TelemetryEvent::TeamLeft
-            | TelemetryEvent::ToggleSettingsSync { .. }
             | TelemetryEvent::RemovedUserFromTeam
             | TelemetryEvent::DeletedNotebook
             | TelemetryEvent::ToggleApprovalsModal
@@ -1981,29 +1776,15 @@ impl TelemetryEvent {
             | TelemetryEvent::InitiateAnonymousUserSignup { .. }
             | TelemetryEvent::AnonymousUserExpirationLockout
             | TelemetryEvent::AnonymousUserLinkedFromBrowser
-            | TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { .. }
             | TelemetryEvent::NeedsReauth
-            | TelemetryEvent::WarpDriveOpened { .. }
             | TelemetryEvent::ToggleSecretRedaction { .. }
             | TelemetryEvent::CustomSecretRegexAdded
             | TelemetryEvent::ToggleObfuscateSecret { .. }
             | TelemetryEvent::CopySecret
-            | TelemetryEvent::UpdateSortingChoice { .. }
             | TelemetryEvent::UndoClose { .. }
             | TelemetryEvent::PtyThroughput { .. }
-            | TelemetryEvent::DuplicateObject(_)
-            | TelemetryEvent::DriveSharingOnboardingBlockShown
             | TelemetryEvent::CommandFileRun
             | TelemetryEvent::PageUpDownInEditorPressed { .. }
-            | TelemetryEvent::StartedSharingCurrentSession { .. }
-            | TelemetryEvent::StoppedSharingCurrentSession { .. }
-            | TelemetryEvent::JoinedSharedSession { .. }
-            | TelemetryEvent::SharerCancelledGrantRole { .. }
-            | TelemetryEvent::SharerGrantModalDontShowAgain
-            | TelemetryEvent::JumpToSharedSessionParticipant { .. }
-            | TelemetryEvent::CopiedSharedSessionLink { .. }
-            | TelemetryEvent::WebSessionOpenedOnDesktop { .. }
-            | TelemetryEvent::WebCloudObjectOpenedOnDesktop { .. }
             | TelemetryEvent::UnsupportedShell { .. }
             | TelemetryEvent::LogOut
             | TelemetryEvent::InviteTeammates { .. }
@@ -2018,7 +1799,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleSnackbarInActivePane { .. }
             | TelemetryEvent::PaneDragInitiated
             | TelemetryEvent::PaneDropped { .. }
-            | TelemetryEvent::ObjectLinkCopied { .. }
             | TelemetryEvent::FileTreeToggled { .. }
             | TelemetryEvent::TierLimitHit(_)
             | TelemetryEvent::ResourceUsageStats { .. }
@@ -2032,7 +1812,6 @@ impl TelemetryEvent {
             | TelemetryEvent::ToggleWorkspaceDecorationVisibility { .. }
             | TelemetryEvent::UpdateAltScreenPaddingMode { .. }
             | TelemetryEvent::AddTabWithShell { .. }
-            | TelemetryEvent::OpenedSharingDialog(_)
             | TelemetryEvent::ToggleLigatureRendering { .. }
             | TelemetryEvent::ToggleSshWarpification { .. }
             | TelemetryEvent::SetSshExtensionInstallMode { .. }
@@ -2097,7 +1876,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
         // with a feature flag when appropriate.
         #[deny(clippy::wildcard_enum_match_arm)]
         match self {
-            Self::ObjectLinkCopied => EnablementState::Always,
             Self::FileTreeToggled => EnablementState::Flag(FeatureFlag::FileTree),
             Self::FileTreeItemCreated => EnablementState::Flag(FeatureFlag::FileTree),
             Self::PtyThroughput => EnablementState::Flag(FeatureFlag::RecordPtyThroughput),
@@ -2112,15 +1890,9 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::LoginLaterButtonClicked
             | Self::LoginLaterConfirmationButtonClicked
             | Self::AnonymousUserExpirationLockout
-            | Self::AnonymousUserLinkedFromBrowser
-            | Self::AnonymousUserAttemptLoginGatedFeature => EnablementState::Always,
+            | Self::AnonymousUserLinkedFromBrowser => EnablementState::Always,
 
-            Self::StartedSharingCurrentSession | Self::StoppedSharingCurrentSession => {
-                EnablementState::Flag(FeatureFlag::CreatingSharedSessions)
-            }
-            Self::JoinedSharedSession => EnablementState::Flag(FeatureFlag::ViewingSharedSessions),
             Self::OpenNotebook | Self::NotebookAction => EnablementState::Always,
-            Self::ToggleSettingsSync { .. } => EnablementState::Always,
             Self::BlockCompleted => EnablementState::Always,
             Self::BackgroundBlockStarted => EnablementState::Always,
             Self::SessionCreation => EnablementState::Always,
@@ -2262,14 +2034,11 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::DismissVimKeybindingsBanner => EnablementState::Always,
             Self::InitiateReauth => EnablementState::Always,
             Self::NeedsReauth => EnablementState::Always,
-            Self::WarpDriveOpened => EnablementState::Always,
             Self::ToggleSecretRedaction => EnablementState::Always,
             Self::CustomSecretRegexAdded => EnablementState::Always,
             Self::ToggleObfuscateSecret => EnablementState::Always,
             Self::CopySecret => EnablementState::Always,
-            Self::UpdateSortingChoice => EnablementState::Always,
             Self::UndoClose => EnablementState::Always,
-            Self::DuplicateObject => EnablementState::Always,
             Self::CommandFileRun => EnablementState::Always,
             Self::PageUpDownInEditorPressed => EnablementState::Always,
             Self::UnsupportedShell => EnablementState::Always,
@@ -2288,14 +2057,7 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::PaneDragInitiated => EnablementState::Always,
             Self::PaneDropped => EnablementState::Always,
             Self::TierLimitHit => EnablementState::Always,
-            Self::SharerCancelledGrantRole => EnablementState::Always,
-            Self::SharerGrantModalDontShowAgain => EnablementState::Always,
-            Self::JumpToSharedSessionParticipant => EnablementState::Always,
-            Self::CopiedSharedSessionLink => EnablementState::Always,
-            Self::WebSessionOpenedOnDesktop => EnablementState::Always,
-            Self::WebCloudObjectOpenedOnDesktop => EnablementState::Always,
             Self::ToggleShowBlockDividers => EnablementState::Flag(FeatureFlag::MinimalistUI),
-            Self::DriveSharingOnboardingBlockShown => EnablementState::Always,
             Self::ResourceUsageStats => EnablementState::Always,
             Self::MemoryUsageStats => EnablementState::ChannelSpecific {
                 channels: vec![Channel::Local, Channel::Dev],
@@ -2314,7 +2076,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::UpdateAltScreenPaddingMode => EnablementState::Always,
             Self::AddTabWithShell => EnablementState::Flag(FeatureFlag::ShellSelector),
-            Self::OpenedSharingDialog => EnablementState::Always,
             Self::ToggleLigatureRendering => EnablementState::Flag(FeatureFlag::Ligatures),
             #[cfg(windows)]
             Self::WSLRegistryError => EnablementState::Always,
@@ -2347,7 +2108,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::SessionCreation => "Tab Creation",
             Self::Login => "Logged in to native app",
             Self::ReinputCommands => "Context Menu: Reinput Commands",
-            Self::ToggleSettingsSync => "Toggle Settings Sync",
             Self::ToggleFocusPaneOnHover => "Toggle Focus Pane On Hover",
             Self::LoginLaterButtonClicked => "Login Later Button Clicked",
             Self::LoginLaterConfirmationButtonClicked => "Login Later Confirmation Button Clicked",
@@ -2357,15 +2117,11 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::BlockSelection => "Block Selection",
             Self::BootstrappingSlow => "Bootstrapping Slow",
             Self::BootstrappingSlowContents => "Bootstrap Slow Contents",
-            Self::ObjectLinkCopied => "Object Link Copied",
             Self::FileTreeToggled => "File Tree Toggled",
             Self::FileTreeItemCreated => "FileTree.ItemCreated",
             Self::InitiateAnonymousUserSignup => "Anonymous User Initiated Signup",
             Self::AnonymousUserExpirationLockout => "Anonymous User Expiration Lockout",
             Self::AnonymousUserLinkedFromBrowser => "Anonymous User Linked from Browser",
-            Self::AnonymousUserAttemptLoginGatedFeature => {
-                "Anonymous User Attempted Login-Gated Feature"
-            }
             #[cfg(feature = "local_fs")]
             Self::CodePaneOpened { .. } => "Code Pane Opened",
             #[cfg(feature = "local_fs")]
@@ -2502,29 +2258,16 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::EnableAliasExpansionFromBanner => "Enable Alias Expansion From Banner",
             Self::InitiateReauth => "Initiate Reauth",
             Self::NeedsReauth => "Needs Reauth",
-            Self::WarpDriveOpened => "Warp Drive Opened",
             Self::ToggleSecretRedaction => "Toggle Secret Redaction",
             Self::CustomSecretRegexAdded => "Custom Secret Regex Added",
             Self::ToggleObfuscateSecret => "Toggle Obfuscate Secret",
             Self::CopySecret => "Copy Obfuscated Secret",
-            Self::UpdateSortingChoice => "Updated Sorting Choice",
             Self::UndoClose => "Undo Close",
             Self::OpenPromptEditor => "Prompt Editor Opened",
             Self::PromptEdited => "Prompt Edited",
             Self::PtyThroughput => "PTY Throughput",
-            Self::DuplicateObject => "Duplicate Object",
             Self::CommandFileRun => "Command File Run",
             Self::PageUpDownInEditorPressed => "Page Up/Down In Editor Pressed",
-            Self::StartedSharingCurrentSession => "Started Sharing Current Session",
-            Self::StoppedSharingCurrentSession => "Stopped Sharing Current Session",
-            Self::JoinedSharedSession => "Joined Shared Session",
-            Self::SharerCancelledGrantRole => "Sharer Cancelled Grant Role",
-            Self::SharerGrantModalDontShowAgain => "Don't Show Sharer Grant Modal Again",
-            Self::JumpToSharedSessionParticipant { .. } => "Jumped to Shared Session Participant",
-            Self::CopiedSharedSessionLink { .. } => "Copied Shared Session Link",
-            Self::WebSessionOpenedOnDesktop { .. } => "Web session opened on desktop",
-            Self::WebCloudObjectOpenedOnDesktop { .. } => "Warp Drive object opened on desktop",
-            Self::DriveSharingOnboardingBlockShown => "Warp Drive Sharing onboarding block shown",
             Self::UnsupportedShell => "Unsupported Shell",
             Self::SettingsImportInitiated => "Settings Import Initiated",
             Self::InviteTeammates => "Invited Teammates",
@@ -2564,7 +2307,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ToggleWorkspaceDecorationVisibility => "Toggled Tab Bar Visibility",
             Self::UpdateAltScreenPaddingMode => "Updated Alt Screen Padding Mode",
             Self::AddTabWithShell => "Add Tab With Shell",
-            Self::OpenedSharingDialog => "Opened Sharing Dialog",
             Self::ToggleLigatureRendering => "Toggle Ligature Rendering",
 
             Self::RemoteServerBinaryCheck => "RemoteServer.BinaryCheck",
@@ -2601,9 +2343,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AnonymousUserLinkedFromBrowser => {
                 "Received an auth payload from anonymous user after linking in browser"
             }
-            Self::AnonymousUserAttemptLoginGatedFeature => {
-                "Anonymous user attempted to access a login-gated feature"
-            }
             Self::BackgroundBlockStarted => {
                 "Warp created a background-output Block (whenever a processes has been backgrounded and yields some output)"
             }
@@ -2616,7 +2355,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             #[cfg(feature = "local_fs")]
             Self::PreviewPanePromoted => "Promoted a preview code tab to a normal tab",
-            Self::ToggleSettingsSync => "Toggle Settings Sync",
             Self::Login => "Login is successful",
             Self::LoginLaterButtonClicked => "Clicked \"Login later\" button",
             Self::LoginLaterConfirmationButtonClicked => {
@@ -2881,46 +2619,19 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             }
             Self::InitiateReauth => "Started the flow to re-authenticate the client",
             Self::NeedsReauth => "User needs to re-authenticate",
-            Self::WarpDriveOpened => "Opened Warp Drive panel",
             Self::ToggleSecretRedaction => {
                 "Toggled on/off the setting for Secret Redaction - attempts to redact secrets and sensitive information"
             }
             Self::CustomSecretRegexAdded => "Custom Secret Regex Added",
             Self::ToggleObfuscateSecret => "Revealed or hid a secret",
             Self::CopySecret => "Copied a secret's obfuscated contents to clipboard",
-            Self::UpdateSortingChoice => "Modified the sorting scheme for Warp Drive objects",
             Self::UndoClose => "Re-opened a closed tab or window (undo closing a tab or window)",
             Self::PtyThroughput => "A sample of the max PTY throughput in bytes/sec",
-            Self::DuplicateObject => "Cloned a Warp Drive object",
             Self::CommandFileRun => {
                 "Opened a .cmd or unix executable file and ran it directly in Warp"
             }
             Self::PageUpDownInEditorPressed => {
                 "Pressed `PAGE-UP` or `PAGE-DOWN` within the Input Editor"
-            }
-            Self::StartedSharingCurrentSession => "Started sharing the current session",
-            Self::StoppedSharingCurrentSession => "Halted sharing the current session",
-            Self::JoinedSharedSession => {
-                "When you join another instance of Warp using shared sessions"
-            }
-            Self::SharerCancelledGrantRole => {
-                "When you cancel granting a role to a shared session participant"
-            }
-            Self::SharerGrantModalDontShowAgain => {
-                "When you check don't show again on the confirmation modal for granting a role"
-            }
-            Self::JumpToSharedSessionParticipant => {
-                "Clicked on a shared session participant avatar to jump to their location in the session"
-            }
-            Self::CopiedSharedSessionLink => "Copied a shared session link",
-            Self::WebSessionOpenedOnDesktop => {
-                "Shared session viewed on the web was opened on the desktop"
-            }
-            Self::WebCloudObjectOpenedOnDesktop => {
-                "Warp Drive object on the web was opened on the desktop"
-            }
-            Self::DriveSharingOnboardingBlockShown => {
-                "Showed onboarding block for Warp Drive sharing"
             }
             Self::UnsupportedShell => "Booted Warp with a shell that isn't supported",
             Self::LogOut => "Logged out of the Warp client",
@@ -2957,7 +2668,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Application memory usage briefly crossed the excessive-usage threshold but \
                  dropped back under it before being reported as high"
             }
-            Self::ObjectLinkCopied => "The web link to an object has been copied.",
             Self::FileTreeToggled => "Opened the file tree/project explorer",
             Self::GlobalSearchOpened => "Opened the global search view",
             Self::GlobalSearchQueryStarted => "Started a global search (warp_ripgrep) search",
@@ -2982,9 +2692,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
                 "Updated the custom padding setting for the alt-screen"
             }
             Self::AddTabWithShell => "Added a tab with specific shell",
-            Self::OpenedSharingDialog => {
-                "Opened the sharing settings dialog for a session or Warp Drive object"
-            }
             Self::ToggleLigatureRendering => "Toggled ligature rendering",
             #[cfg(windows)]
             Self::WSLRegistryError => {

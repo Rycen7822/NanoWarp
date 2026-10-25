@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, FixedOffset, Local};
 use serde::{Deserialize, Serialize};
-use warp_graphql::queries::get_user::FirebaseProfile;
+use warp_graphql::queries::get_user::{FirebaseProfile, UserOutput as GqlUserOutput};
 use warp_graphql::scalars::time::ServerTimestamp;
 
 use super::UserUid;
@@ -188,3 +188,40 @@ impl From<FirebaseProfile> for UserMetadata {
 #[cfg(test)]
 #[path = "user_tests.rs"]
 mod tests;
+
+impl From<GqlUserOutput> for User {
+    fn from(user_output: GqlUserOutput) -> Self {
+        let principal_type = user_output
+            .principal_type
+            .map(|pt| pt.into())
+            .unwrap_or_default();
+        let user_properties = user_output.user;
+
+        let is_on_work_domain = user_properties.is_on_work_domain;
+        let is_onboarded = user_properties.is_onboarded;
+
+        let linked_at = user_properties
+            .anonymous_user_info
+            .as_ref()
+            .and_then(|info| info.linked_at);
+
+        let anonymous_user_type = user_properties
+            .anonymous_user_info
+            .as_ref()
+            .map(|info| info.anonymous_user_type.clone());
+        let user_profile = user_properties.profile;
+        let local_id = UserUid::new(user_profile.uid.as_str());
+        let needs_sso_link = user_profile.needs_sso_link;
+
+        User {
+            is_onboarded,
+            local_id,
+            metadata: user_profile.into(),
+            needs_sso_link,
+            anonymous_user_type: anonymous_user_type.and_then(|t| t.try_into().ok()),
+            is_on_work_domain,
+            linked_at,
+            principal_type,
+        }
+    }
+}

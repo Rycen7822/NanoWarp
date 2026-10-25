@@ -28,15 +28,10 @@ use warp_graphql::mutations::mint_custom_token::{MintCustomTokenResult, MintCust
 use warp_graphql::mutations::set_user_is_onboarded::{
     SetUserIsOnboarded, SetUserIsOnboardedResult, SetUserIsOnboardedVariables,
 };
-use warp_graphql::mutations::update_user_settings::{
-    UpdateUserSettings, UpdateUserSettingsInput, UpdateUserSettingsResult,
-    UpdateUserSettingsVariables,
-};
 use warp_graphql::queries::api_keys::{
     ApiKeyProperties, ApiKeyPropertiesResult, ApiKeys, ApiKeysVariables,
 };
 use warp_graphql::queries::get_user::{GetUser, GetUserVariables, UserOutput as GqlUserOutput};
-use warp_graphql::queries::get_user_settings::{GetUserSettings, GetUserSettingsVariables};
 use warp_server_auth::credentials::{AuthToken, Credentials, LoginToken};
 pub use warp_server_auth::user_uid;
 
@@ -61,19 +56,11 @@ struct AgentIdentitiesResponse {
     agents: Vec<AgentIdentity>,
 }
 
-/// User settings that are stored server-side on a per-user basis.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SyncedUserSettings {
-    pub is_telemetry_enabled: bool,
-}
-
 /// Protocol-level results of fetching the current user.
 pub struct FetchUserResult {
     pub user_output: GqlUserOutput,
     /// The credentials used to authenticate this user.
     pub credentials: Credentials,
-    /// Whether this attempt to fetch the user was for refreshing an existing logged-in user.
-    pub from_refresh: bool,
 }
 
 #[cfg_attr(any(test, feature = "test-util"), automock)]
@@ -98,7 +85,6 @@ pub trait AuthClient: Send + Sync {
     async fn fetch_user(
         &self,
         token: LoginToken,
-        for_refresh: bool,
     ) -> StdResult<FetchUserResult, UserAuthenticationError>;
 
     /// Creates and fetches a new custom token for the current user from Firebase.
@@ -115,20 +101,6 @@ pub trait AuthClient: Send + Sync {
     /// Queries warp-server for a set of the currently logged-in user's fields.
     async fn fetch_user_properties<'a>(&self, auth_token: Option<&'a str>)
     -> Result<GqlUserOutput>;
-
-    /// Returns the user's settings retrieved from the server, if any.
-    ///
-    /// The user may not have server-side settings if they onboarded before telemetry
-    /// opt-out launched, have not logged in since the launch, and have never changed
-    /// defaults for any setting in [`SyncedUserSettings`]. If the fetched settings
-    /// object exists but is missing required fields, or if the request itself fails,
-    /// this returns an error.
-    async fn get_user_settings(&self) -> Result<Option<SyncedUserSettings>>;
-
-    async fn set_is_telemetry_enabled(&self, value: bool) -> Result<()>;
-
-    /// Sends a request to update the user's settings on the server with values in the given input.
-    async fn update_user_settings(&self, input: UpdateUserSettingsInput) -> Result<()>;
 
     async fn set_user_is_onboarded(&self) -> Result<bool>;
 
@@ -161,34 +133,6 @@ impl AuthClientImpl {
         Self {
             base_client,
             auth_session,
-        }
-    }
-
-    async fn update_settings(
-        &self,
-        input: UpdateUserSettingsInput,
-        unknown_error_message: &'static str,
-    ) -> Result<()> {
-        let operation = UpdateUserSettings::build(UpdateUserSettingsVariables {
-            input,
-            request_context: warp_graphql::client::get_request_context(),
-        });
-        let result = send_graphql_request(&self.base_client, operation, None)
-            .await?
-            .update_user_settings;
-        Self::on_settings_updated(result, unknown_error_message)
-    }
-
-    fn on_settings_updated(
-        result: UpdateUserSettingsResult,
-        unknown_error_message: &'static str,
-    ) -> Result<()> {
-        match result {
-            UpdateUserSettingsResult::UpdateUserSettingsOutput(_) => Ok(()),
-            UpdateUserSettingsResult::UserFacingError(error) => Err(anyhow!(
-                warp_graphql::client::get_user_facing_error_message(error)
-            )),
-            UpdateUserSettingsResult::Unknown => Err(anyhow!(unknown_error_message)),
         }
     }
 }
@@ -226,7 +170,6 @@ impl AuthClient for AuthClientImpl {
     async fn fetch_user(
         &self,
         token: LoginToken,
-        for_refresh: bool,
     ) -> StdResult<FetchUserResult, UserAuthenticationError> {
         let new_credentials = self.auth_session.exchange_credentials(token).await?;
         let auth_token = new_credentials.bearer_token();
@@ -246,7 +189,6 @@ impl AuthClient for AuthClientImpl {
         Ok(FetchUserResult {
             user_output,
             credentials: new_credentials,
-            from_refresh: for_refresh,
         })
     }
 
@@ -300,41 +242,6 @@ impl AuthClient for AuthClientImpl {
                 Err(anyhow!("Unable to fetch user"))
             }
         }
-    }
-
-    async fn get_user_settings(&self) -> Result<Option<SyncedUserSettings>> {
-        let operation = GetUserSettings::build(GetUserSettingsVariables {
-            request_context: warp_graphql::client::get_request_context(),
-        });
-        let response = send_graphql_request(self.base_client.as_ref(), operation, None).await?;
-        match response.user {
-            warp_graphql::queries::get_user_settings::UserResult::UserOutput(user_output) => {
-                Ok(user_output
-                    .user
-                    .settings
-                    .map(|settings| SyncedUserSettings {
-                        is_telemetry_enabled: settings.is_telemetry_enabled,
-                    }))
-            }
-            warp_graphql::queries::get_user_settings::UserResult::Unknown => {
-                Err(anyhow!("Unable to fetch user settings"))
-            }
-        }
-    }
-
-    async fn set_is_telemetry_enabled(&self, value: bool) -> Result<()> {
-        self.update_settings(
-            UpdateUserSettingsInput {
-                telemetry_enabled: Some(value),
-            },
-            "failed to set telemetry enabled",
-        )
-        .await
-    }
-
-    async fn update_user_settings(&self, input: UpdateUserSettingsInput) -> Result<()> {
-        self.update_settings(input, "failed to update user settings")
-            .await
     }
 
     async fn set_user_is_onboarded(&self) -> Result<bool> {
@@ -495,7 +402,3 @@ pub enum MintCustomTokenError {
     #[error("Failed to create new custom token with unknown error")]
     Unknown,
 }
-
-#[cfg(test)]
-#[path = "mod_tests.rs"]
-mod tests;

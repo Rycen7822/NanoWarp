@@ -99,12 +99,9 @@ fn pending_api_key_failure_leaves_auth_state_logged_out() {
         let mut auth_client = MockAuthClient::new();
         auth_client
             .expect_fetch_user()
-            .withf(|token, for_refresh| {
-                matches!(token, LoginToken::ApiKey(key) if key == "wk-inherited-key")
-                    && !for_refresh
-            })
+            .withf(|token| matches!(token, LoginToken::ApiKey(key) if key == "wk-inherited-key"))
             .times(1)
-            .return_once(|_, _| Err(UserAuthenticationError::Unexpected(anyhow!("Unauthorized"))));
+            .return_once(|_| Err(UserAuthenticationError::Unexpected(anyhow!("Unauthorized"))));
 
         initialize_app(&mut app);
         let auth_state = app.read(|ctx| AuthStateProvider::as_ref(ctx).get().clone());

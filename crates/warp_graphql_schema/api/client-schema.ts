@@ -3,53 +3,34 @@ import { getIntrospectionQuery, buildClientSchema, GraphQLSchema } from 'graphql
 import { filterSchema, pruneSchema } from '@graphql-tools/utils';
 
 const clientMutations = [
-  'addObjectGuests',
-  'bulkCreateObjects',
   'confirmFileArtifactUpload',
   'createAgentTask',
   'createAnonymousUser',
   'createFileArtifactUploadTarget',
-  'createFolder',
-  'createGenericStringObject',
   'createManagedMcpClientConfig',
   'createManagedSecret',
   'deleteConversation',
   'deleteManagedSecret',
   'updateManagedSecret',
-  'deleteObject',
-  'emptyTrash',
   'expireApiKey',
   'generateApiKey',
   'generateCodeEmbeddings',
   'generateUniqueUpgradePromoCode',
   'issueTaskIdentityToken',
-  'leaveObject',
   'markAcceptedIntelligentAutosuggestion',
   'mintCustomToken',
-  'moveObject',
   'populateMerkleTreeCache',
   'prewarmedSandboxConfig',
   'provideNegativeFeedbackResponseForAiConversation',
-  'recordObjectAction',
-  'removeObjectGuest',
-  'removeObjectLinkPermissions',
   'sendOnboardingSurveyResponses',
-  'setObjectLinkPermissions',
   'setUserIsOnboarded',
-  'trashObject',
-  'untrashObject',
   'updateAgentTask',
-  'updateFolder',
-  'updateGenericStringObject',
   'updateMerkleTree',
-  'updateObjectGuests',
-  'updateUserSettings',
   'updateOnboardingSurveyStatus',
   'createSimpleIntegration',
 ];
 
 const clientQueries = [
-  'cloudObject',
   'codebaseContextConfig',
   'freeAvailableModels',
   'getRelevantFragments',
@@ -59,7 +40,6 @@ const clientQueries = [
   'pricingInfo',
   'managedSecrets',
   'syncMerkleTree',
-  'updatedCloudObjects',
   'user',
   'userGithubInfo',
   'userRepoAuthStatus',
@@ -75,8 +55,6 @@ const clientQueries = [
   'suggestCloudEnvironmentImage'
 ];
 
-const clientSubscriptions = ['warpDriveUpdates'];
-
 function filterToClient(schema: GraphQLSchema): GraphQLSchema {
   const filtered = filterSchema({
     schema,
@@ -85,11 +63,8 @@ function filterToClient(schema: GraphQLSchema): GraphQLSchema {
         return clientQueries.includes(rootFieldName);
       } else if (operation === 'Mutation') {
         return clientMutations.includes(rootFieldName);
-      } else if (operation === 'Subscription') {
-        return clientSubscriptions.includes(rootFieldName);
       } else {
-        console.error(`Unknown operation ${operation}.${rootFieldName}`);
-        return true;
+        return false;
       }
     }
   });

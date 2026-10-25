@@ -408,15 +408,12 @@ impl AuthViewBody {
             ..hover_button_style
         };
 
-        let on_click_action = if is_anonymous
-            && matches!(
-                self.variant,
-                AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable
-            ) {
-            AuthViewBodyAction::SignupAnonymousUser
-        } else {
-            AuthViewBodyAction::Signup
-        };
+        let on_click_action =
+            if is_anonymous && matches!(self.variant, AuthViewVariant::RequireLoginCloseable) {
+                AuthViewBodyAction::SignupAnonymousUser
+            } else {
+                AuthViewBodyAction::Signup
+            };
 
         ui_builder
             .button_with_custom_styles(
@@ -559,9 +556,6 @@ impl AuthViewBody {
             AuthViewVariant::RequireLoginCloseable => {
                 "To collaborate with others, please create an account."
             }
-            AuthViewVariant::ShareRequirementCloseable => {
-                "In order to share, please create an account."
-            }
             _ => "",
         };
 
@@ -587,9 +581,7 @@ impl AuthViewBody {
 
         let text = match self.variant {
             AuthViewVariant::Initial => "Welcome to Warp!",
-            AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable => {
-                "Sign up for Warp"
-            }
+            AuthViewVariant::RequireLoginCloseable => "Sign up for Warp",
         };
 
         ui_builder
@@ -606,10 +598,7 @@ impl AuthViewBody {
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_child(logo);
 
-        if matches!(
-            self.variant,
-            AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable
-        ) {
+        if matches!(self.variant, AuthViewVariant::RequireLoginCloseable) {
             let close_button = ui_builder
                 .close_button(
                     24.,
@@ -676,7 +665,7 @@ impl AuthViewBody {
                     vec![]
                 }
             }
-            AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable => {
+            AuthViewVariant::RequireLoginCloseable => {
                 vec![logo, header, force_login_disclaimer, sign_up_button]
             }
         }
@@ -858,8 +847,7 @@ impl TypedActionView for AuthViewBody {
             }
             AuthViewBodyAction::SignupAnonymousUser => {
                 let entrypoint = match self.variant {
-                    AuthViewVariant::RequireLoginCloseable
-                    | AuthViewVariant::ShareRequirementCloseable => {
+                    AuthViewVariant::RequireLoginCloseable => {
                         AnonymousUserSignupEntrypoint::LoginGatedFeature
                     }
                     AuthViewVariant::Initial => {
