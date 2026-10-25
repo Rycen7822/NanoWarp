@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
@@ -11,20 +10,18 @@ pub use cloud_object_client::InitialLoadResponse;
 use futures::channel::oneshot::{self, Receiver};
 use futures::stream::AbortHandle;
 use lazy_static::lazy_static;
-use regex::Regex;
 use warp_errors::report_error;
 use warp_graphql::object_permissions::AccessLevel;
 use warp_graphql::scalars::time::ServerTimestamp;
 use warp_util::sync::Condition;
 use warpui::r#async::{FutureId, Timer};
 use warpui::{
-    AppContext, Entity, ModelContext, ModelHandle, RequestState, RetryOption, SingletonEntity,
+    Entity, ModelContext, ModelHandle, RequestState, RetryOption, SingletonEntity,
     duration_with_jitter,
 };
 
 use super::listener::ObjectUpdateMessage;
 use crate::auth::AuthStateProvider;
-use crate::auth::auth_manager::AuthManager;
 #[cfg(test)]
 use crate::cloud_object::model::actions::ObjectActionType;
 use crate::cloud_object::model::actions::{ObjectAction, ObjectActionHistory, ObjectActions};
@@ -32,7 +29,6 @@ use crate::cloud_object::model::generic_string_model::{
     GenericStringModel, GenericStringObjectId, Serializer, StringModel,
 };
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent, UpdateSource};
-use crate::cloud_object::model::view::{CloudViewModel, Editor, EditorState};
 use crate::cloud_object::{
     CloudLinkSharing, CloudModelType, CloudObject, CloudObjectEventEntrypoint, CloudObjectLocation,
     CloudObjectSyncStatus, GenericCloudObject, GenericServerObject, GenericStringObjectFormat,
@@ -41,11 +37,9 @@ use crate::cloud_object::{
     ServerCloudObject, ServerMetadata, ServerPermissions, ServerPreference, Space,
 };
 use crate::drive::CloudObjectTypeAndId;
-use crate::drive::drive_helpers::is_feature_gated_anonymous_user_past_notebook_limit;
 use crate::drive::folders::{CloudFolderModel, FolderId};
 use crate::drive::sharing::SharingAccessLevel;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
-use crate::notebooks::{CloudNotebookModel, NotebookId};
 use crate::persistence::ModelEvent;
 use crate::server::ids::{
     ClientId, HashableId, HashedSqliteId, ObjectUid, ServerId, SyncId, ToServerId,
@@ -65,14 +59,9 @@ use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 lazy_static! {
-    /// For online-only operations, we want to quickly determine if the operation can succeed,
-    /// so that if it can't, we can put the user back into the known good state.
-    /// So we try 3 times to prevent any transient failures.
+    // Keep the existing retry behavior for retained online operations.
     static ref ONLINE_ONLY_OPERATION_RETRY_STRATEGY: RetryOption =
-        RetryOption::exponential(Duration::from_millis(500) /* interval */, 2. /* exponential factor */, 3 /* max retry count */);
-
-    static ref DUPLICATE_OBJECT_NAME_REGEX: Regex = Regex::new(r" \((\d+)\)$").expect("regex should not fail to compile");
-
+        RetryOption::exponential(Duration::from_millis(500), 2., 3);
 }
 
 #[derive(Debug, PartialEq)]
@@ -89,9 +78,7 @@ pub enum ObjectOperation {
     Create { initiated_by: InitiatedBy },
     Update,
     MoveToFolder,
-    MoveToDrive,
     Trash,
-    TakeEditAccess,
     Untrash,
     Delete { initiated_by: InitiatedBy },
     EmptyTrash,
@@ -116,8 +103,6 @@ pub enum UpdateManagerEvent {
 
 /// An enum for choosing the behavior of the fetch_single_cloud_object function.
 pub enum FetchSingleObjectOption {
-    /// Perform the normal upsert behavior.
-    None,
     /// Perform the normal upsert behavior, but additionally force overwrite the
     /// in-memory object to whatever the server object is.
     ForceOverwrite,
@@ -444,11 +429,7 @@ impl UpdateManager {
                     }),
                 }
             }
-            SyncQueueEvent::ObjectUpdateRejected {
-                id,
-                object: conflicting_object,
-            } => {
-                self.handle_conflicting_object(conflicting_object, ctx);
+            SyncQueueEvent::ObjectUpdateRejected { id } => {
                 ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
                     result: ObjectOperationResult {
                         success_type: OperationSuccessType::Rejection,
@@ -694,19 +675,13 @@ impl UpdateManager {
             })
             .collect::<Vec<_>>();
 
-        let deleted_notebook_ids = Self::handle_object_deletions(response.deleted_notebooks, ctx);
         let deleted_folder_ids = Self::handle_object_deletions(response.deleted_folders, ctx);
         let deleted_generic_string_ids =
             Self::handle_object_deletions(response.deleted_generic_string_objects, ctx);
 
-        let deleted_object_ids_and_types: Vec<(SyncId, ObjectIdType)> = deleted_notebook_ids
+        let deleted_object_ids_and_types: Vec<(SyncId, ObjectIdType)> = deleted_folder_ids
             .into_iter()
-            .map(|id| (id, ObjectIdType::Notebook))
-            .chain(
-                deleted_folder_ids
-                    .into_iter()
-                    .map(|id| (id, ObjectIdType::Folder)),
-            )
+            .map(|id| (id, ObjectIdType::Folder))
             .chain(
                 deleted_generic_string_ids
                     .into_iter()
@@ -721,12 +696,6 @@ impl UpdateManager {
             .collect::<Vec<HashedSqliteId>>();
 
         let mut sqlite_events = vec![
-            Self::handle_object_updates(
-                response.updated_notebooks,
-                force_refresh,
-                !is_first_load,
-                ctx,
-            ),
             Self::handle_object_updates(folders, force_refresh, !is_first_load, ctx),
             ModelEvent::DeleteObjects {
                 ids: deleted_object_ids_and_types,
@@ -1397,99 +1366,6 @@ impl UpdateManager {
         }
     }
 
-    fn handle_conflicting_object(
-        &self,
-        conflicting_object: &Arc<ServerCloudObject>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match conflicting_object.as_ref() {
-            ServerCloudObject::Notebook(server_notebook) => {
-                // Update in-memory model with the fact that it was rejected. We don't update sqlite
-                // since we don't want to wipe away the user's content.
-                CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                    if let Some(notebook) = cloud_model.get_notebook_mut(&server_notebook.id) {
-                        notebook.set_conflicting_object(Arc::new(server_notebook.clone()));
-
-                        // Setting the in-memory model state of the object to in conflict since all further sync
-                        // will be rejected until the conflict is cleared. Note that we don't want to clear the pending status
-                        // in the database as on the next app restart we want to fetch the up-to-date revision of the object
-                        // for refresh in initial load.
-                        notebook
-                            .set_pending_content_changes_status(CloudObjectSyncStatus::InConflict);
-
-                        ctx.notify();
-                    }
-                });
-            }
-            // folders and preferences are last-write-wins, no need to do anything here
-            ServerCloudObject::Folder(_) | ServerCloudObject::Preference(_) => {}
-        }
-    }
-
-    /// Replace an object's data with the conflicting version from the server. If the object does
-    /// not have a conflict, this has no effect.
-    pub fn replace_object_with_conflict(&mut self, uid: &ObjectUid, ctx: &mut ModelContext<Self>) {
-        let cloud_model_handle = CloudModel::handle(ctx);
-
-        // Update the in-memory model first, and check for conflicts.
-        let had_conflicts = cloud_model_handle.update(ctx, |cloud_model, ctx| {
-            match cloud_model.get_mut_by_uid(uid) {
-                Some(object) if object.has_conflicting_changes() => {
-                    object.replace_object_with_conflict();
-                    ctx.emit(CloudModelEvent::ObjectUpdated {
-                        type_and_id: object.cloud_object_type_and_id(),
-                        source: UpdateSource::Server,
-                    });
-                    true
-                }
-                _ => false,
-            }
-        });
-
-        // Update SQLite, but only if the in-memory model was updated.
-        if had_conflicts {
-            self.save_in_memory_object_to_sqlite(cloud_model_handle.as_ref(ctx), uid);
-        }
-    }
-
-    pub fn update_notebook_data(
-        &mut self,
-        data: Arc<String>,
-        notebook_id: SyncId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let cloud_model = CloudModel::as_ref(ctx);
-        let revision = cloud_model.current_revision(&notebook_id).cloned();
-        if let Some(notebook) = cloud_model.get_notebook(&notebook_id) {
-            let new_notebook = CloudNotebookModel {
-                title: notebook.model().title.to_owned(),
-                data: data.to_string(),
-            };
-            self.update_object(new_notebook, notebook_id, revision, ctx);
-        } else {
-            log::warn!("Expected notebook to be in model with id {notebook_id:?}");
-        }
-    }
-
-    pub fn update_notebook_title(
-        &mut self,
-        title: Arc<String>,
-        notebook_id: SyncId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let cloud_model = CloudModel::as_ref(ctx);
-        let revision = cloud_model.current_revision(&notebook_id).cloned();
-        if let Some(notebook) = cloud_model.get_notebook(&notebook_id) {
-            let new_notebook = CloudNotebookModel {
-                title: title.to_string(),
-                data: notebook.model().data.to_owned(),
-            };
-            self.update_object(new_notebook, notebook_id, revision, ctx);
-        } else {
-            log::warn!("Expected notebook to be in model with id {notebook_id:?}");
-        }
-    }
-
     /// Attempts to move the object identified by `object_id`
     /// to the folder identified by `folder_id`. If the server accepts
     /// the move, we persist the changes in sqlite. Otherwise, we revert
@@ -1598,168 +1474,6 @@ impl UpdateManager {
                         },
                     });
                     ctx.notify();
-                }
-            },
-        );
-        self.spawned_futures.push(future.future_id());
-    }
-
-    fn move_object_to_drive_failed(
-        server_id: ServerId,
-        current_folder: Option<SyncId>,
-        current_owner: Owner,
-        current_permissions_last_updated_ts: Option<ServerTimestamp>,
-        ctx: &mut ModelContext<UpdateManager>,
-    ) {
-        // Since the move failed, let's return the object to its original location.
-        // TODO: technically the HTTP request could have failed (e.g. network blip)
-        // but it was actually processed by the server. To remedy this,
-        // we could query the object at this point to get the latest server state.
-        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-            if let Some(obj) = cloud_model.get_mut_by_uid(&server_id.uid()) {
-                obj.metadata_mut()
-                    .pending_changes_statuses
-                    .has_pending_permissions_change = false;
-
-                // Only revert the move if the metadata hasn't changed since we started the move.
-                // If it has (e.g. from an RTC message), that message would have updated the
-                // metadata to the latest server state, so we should not do any further updates here.
-                // Otherwise, let's revert the change we did.
-                let permissions_ts_unchanged = obj.permissions().permissions_last_updated_ts
-                    == current_permissions_last_updated_ts;
-                if permissions_ts_unchanged {
-                    // If the folder is still set to root, let's revert those too
-                    // because a space change could have also included a folder change
-                    // (e.g. personal folder A -> team space root).
-                    cloud_model.update_object_location(
-                        &server_id.uid(),
-                        Some(current_owner),
-                        current_folder,
-                        ctx,
-                    );
-                }
-                ctx.notify();
-            }
-        });
-
-        // Show an error toast to relay the failure to the user.
-        ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
-            result: ObjectOperationResult {
-                success_type: OperationSuccessType::Failure,
-                operation: ObjectOperation::MoveToDrive,
-                client_id: None,
-                server_id: Some(server_id),
-                num_objects: None,
-            },
-        });
-        ctx.notify();
-    }
-
-    /// Attempts to move the object identified by `object_id`
-    /// to the root of the drive identified by `destination_owner`.
-    /// If the server accepts  the move, we persist the changes in sqlite.
-    /// Otherwise, we revert the optimistic in-memory update we made earlier
-    /// to indicate that the move failed.
-    #[allow(clippy::too_many_arguments)]
-    fn move_object_to_drive(
-        &mut self,
-        server_id: ServerId,
-        object_type: ObjectType,
-        destination_owner: Owner,
-        current_folder: Option<SyncId>,
-        current_owner: Owner,
-        current_permissions_last_updated_ts: Option<ServerTimestamp>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let object_client = self.object_client.clone();
-
-        CloudModel::handle(ctx).update(ctx, |model, _| {
-            if let Some(object) = model.get_mut_by_uid(&server_id.uid()) {
-                object
-                    .metadata_mut()
-                    .pending_changes_statuses
-                    .has_pending_permissions_change = true;
-            }
-        });
-
-        let future = ctx.spawn_with_retry_on_error(
-            move || {
-                let object_client = object_client.clone();
-                async move {
-                    // TODO: to avoid matches like this, we should introduce a `transfer_object_owner` API.
-                    match object_type {
-                        ObjectType::Notebook => {
-                            object_client
-                                .transfer_notebook_owner(
-                                    NotebookId::from(server_id),
-                                    destination_owner,
-                                )
-                                .await
-                        }
-                        ObjectType::Folder => {
-                            log::info!("Moving a folder to a new space is not supported yet.");
-                            Ok(false)
-                        }
-                        ObjectType::GenericStringObject(_) => {
-                            log::info!("Moving a generic string object to a new space is not supported yet.");
-                            Ok(false)
-                        }
-                    }
-                }
-            },
-            *ONLINE_ONLY_OPERATION_RETRY_STRATEGY,
-            move |me, res, ctx| match res {
-                RequestState::RequestSucceeded(success) => {
-                    if success {
-                        // Mark the change as completed.
-                        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                            if let Some(obj) = cloud_model.get_mut_by_uid(&server_id.uid()) {
-                                obj.metadata_mut()
-                                    .pending_changes_statuses
-                                    .has_pending_permissions_change = false;
-                            }
-                            ctx.notify();
-                        });
-                        // Persist changes in sqlite.
-                        me.save_in_memory_object_to_sqlite(
-                            CloudModel::as_ref(ctx),
-                            &server_id.uid(),
-                        );
-                        ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
-                            result: ObjectOperationResult {
-                                success_type: OperationSuccessType::Success,
-                                operation: ObjectOperation::MoveToDrive,
-                                client_id: None,
-                                server_id: Some(server_id),
-                                num_objects: None,
-                            },
-                        });
-                        ctx.notify();
-
-                    } else {
-
-                        Self::move_object_to_drive_failed(
-                            server_id,
-                            current_folder,
-                            current_owner,
-                            current_permissions_last_updated_ts,
-                            ctx,
-                        );
-                    }
-                }
-                RequestState::RequestFailedRetryPending(e) => {
-                    log::warn!("Failed to move object to space: {e}. Retrying");
-                }
-                RequestState::RequestFailed(e) => {
-                    log::warn!("Failed to move object to space: {e}. Not retrying");
-
-                    Self::move_object_to_drive_failed(
-                        server_id,
-                        current_folder,
-                        current_owner,
-                        current_permissions_last_updated_ts,
-                        ctx,
-                    );
                 }
             },
         );
@@ -2120,7 +1834,6 @@ impl UpdateManager {
             object_type,
             has_pending_online_only_change,
             curr_metadata_ts,
-            curr_permissions_ts,
         )) = CloudModel::handle(ctx).read(ctx, |model, _| {
             let object = model.get_by_uid(&uid)?;
             Some((
@@ -2129,7 +1842,6 @@ impl UpdateManager {
                 object.into(),
                 object.metadata().has_pending_online_only_change(),
                 object.metadata().metadata_last_updated_ts,
-                object.permissions().permissions_last_updated_ts,
             ))
         })
         else {
@@ -2166,23 +1878,7 @@ impl UpdateManager {
                                 ctx,
                             );
                         } else {
-                            CloudModel::handle(ctx).update(ctx, |model, ctx| {
-                                model.update_object_location(
-                                    &uid,
-                                    Some(destination_owner),
-                                    None,
-                                    ctx,
-                                );
-                            });
-                            self.move_object_to_drive(
-                                server_id,
-                                object_type,
-                                destination_owner,
-                                object_current_folder,
-                                object_current_owner,
-                                curr_permissions_ts,
-                                ctx,
-                            );
+                            not_supported = true;
                         }
                     }
                     None => {
@@ -2232,147 +1928,6 @@ impl UpdateManager {
         }
 
         ctx.notify();
-    }
-
-    pub fn duplicate_object(
-        &mut self,
-        cloud_object_type_and_id: &CloudObjectTypeAndId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match cloud_object_type_and_id {
-            CloudObjectTypeAndId::Notebook(notebook_id) => {
-                self.duplicate_object_internal::<NotebookId, CloudNotebookModel>(notebook_id, ctx);
-            }
-            CloudObjectTypeAndId::GenericStringObject { .. } => {
-                report_error!("Tried to duplicate an unsupported type: json object");
-                debug_assert!(false, "Tried to duplicate an unsupported type: json object");
-            }
-            CloudObjectTypeAndId::Folder(_) => {
-                // Duplicating folders not currently supported.
-                report_error!("Tried to duplicate an unsupported type: folder");
-                debug_assert!(false, "Tried to duplicate an unsupported type: folder");
-            }
-        }
-    }
-
-    fn duplicate_object_internal<K, M>(&mut self, id: &SyncId, ctx: &mut ModelContext<Self>)
-    where
-        K: HashableId
-            + ToServerId
-            + std::fmt::Debug
-            + Into<String>
-            + Clone
-            + Copy
-            + Send
-            + Sync
-            + 'static,
-        M: CloudModelType<IdType = K, CloudObjectType = GenericCloudObject<K, M>> + 'static,
-    {
-        let (duplicate_model, client_id, owner, initial_folder_id, entrypoint) = {
-            let cloud_model = CloudModel::as_ref(ctx);
-            let object: GenericCloudObject<K, M> = cloud_model
-                .get_object_of_type(id)
-                .expect("object should exist in order to be duplicated")
-                .clone();
-            let client_id = ClientId::new();
-            let owner = object.permissions.owner;
-            let initial_folder_id = object.metadata.folder_id;
-            let entrypoint = CloudObjectEventEntrypoint::Unknown;
-            let mut duplicate_model = object.model().clone();
-            let duplicate_name =
-                self.get_next_duplicate_object_name(&object as &dyn CloudObject, cloud_model, ctx);
-            duplicate_model.set_display_name(&duplicate_name);
-            (
-                duplicate_model,
-                client_id,
-                owner,
-                initial_folder_id,
-                entrypoint,
-            )
-        };
-        self.create_object(
-            duplicate_model,
-            owner,
-            client_id,
-            entrypoint,
-            true,
-            initial_folder_id,
-            // When adding the initiated_by parameter to this function call, InitiatedBy::User was set as a default value.
-            // This can be changed to InitiatedBy::System if this action was automatically kicked off by the system and we do not want a user facing toast.
-            InitiatedBy::User,
-            ctx,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_notebook(
-        &mut self,
-        client_id: ClientId,
-        owner: Owner,
-        initial_folder_id: Option<SyncId>,
-        model: CloudNotebookModel,
-        entrypoint: CloudObjectEventEntrypoint,
-        force_expand: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let count = CloudModel::handle(ctx).read(ctx, |model, ctx| {
-            model
-                .active_non_welcome_notebooks_in_space(Space::Personal, ctx)
-                .count()
-        });
-        if AuthStateProvider::handle(ctx).read(ctx, |auth_state_provider, _ctx| {
-            is_feature_gated_anonymous_user_past_notebook_limit(
-                auth_state_provider.get(),
-                count + 1,
-            )
-        }) {
-            AuthManager::handle(ctx).update(ctx, |auth_manager: &mut AuthManager, ctx| {
-                auth_manager.anonymous_user_hit_drive_object_limit(ctx);
-            });
-            return;
-        };
-
-        self.create_object(
-            model,
-            owner,
-            client_id,
-            entrypoint,
-            force_expand,
-            initial_folder_id,
-            // When adding the initiated_by parameter to this function call, InitiatedBy::User was set as a default value.
-            // This can be changed to InitiatedBy::System if this action was automatically kicked off by the system and we do not want a user facing toast.
-            InitiatedBy::User,
-            ctx,
-        );
-    }
-
-    fn get_next_duplicate_object_name(
-        &self,
-        original_cloud_object: &dyn CloudObject,
-        cloud_model: &CloudModel,
-        app: &AppContext,
-    ) -> String {
-        let original_name = original_cloud_object.display_name();
-
-        // Iterate through items in the same folder as the original object that are of the
-        // same type, and populate a hashset with those names.
-        let same_type_and_folder_names = cloud_model
-            .active_cloud_objects_in_location_without_descendents(
-                original_cloud_object.location(cloud_model, app),
-                app,
-            )
-            .filter(|&object| object.object_type() == original_cloud_object.object_type())
-            .map(|object| object.display_name())
-            .collect::<HashSet<String>>();
-
-        // Start with "{original_object_name} ({original_object_name's count + 1})".
-        // Keep incrementing by one if there already exists an object of the same type in
-        // the same folder (using the hashset generated above).
-        let mut duplicate_name = get_duplicate_object_name(&original_name);
-        while same_type_and_folder_names.contains(&duplicate_name) {
-            duplicate_name = get_duplicate_object_name(&duplicate_name);
-        }
-        duplicate_name
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2674,147 +2229,6 @@ impl UpdateManager {
         // Overwrite the actions for those objects in sqlite
         let actions_to_sync: Vec<ObjectAction> = actions.values().flatten().cloned().collect();
         self.save_to_db([ModelEvent::SyncObjectActions { actions_to_sync }]);
-    }
-
-    /// Sets the notebooks current editor in memory. SQLite is not updated until we receive
-    /// server confirmation.
-    fn set_notebook_current_editor(
-        &self,
-        notebook_id: &SyncId,
-        editor_uid: Option<String>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-            if let Some(notebook) = cloud_model.get_notebook_mut(notebook_id) {
-                notebook.metadata.set_current_editor(editor_uid);
-                ctx.notify();
-            }
-        });
-    }
-
-    pub fn grab_notebook_edit_access(
-        &mut self,
-        notebook_id: SyncId,
-        optimistically_grant_access: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // If the object isn't known to the server yet, we should not proceed
-        let SyncId::ServerId(server_id) = notebook_id else {
-            return;
-        };
-
-        let auth_state = AuthStateProvider::as_ref(ctx).get();
-        let user_uid = auth_state.user_id().unwrap_or_default();
-        if optimistically_grant_access {
-            self.set_notebook_current_editor(&notebook_id, Some(user_uid.as_string()), ctx);
-        }
-        let cloud_object_client = self.object_client.clone();
-        // Make the request.
-        let future = ctx.spawn_with_retry_on_error(
-            move || {
-                let cloud_object_client = cloud_object_client.clone();
-                async move { cloud_object_client.grab_notebook_edit_access(server_id.into()).await }
-            },
-            *ONLINE_ONLY_OPERATION_RETRY_STRATEGY,
-            move |me, res, ctx| match res {
-                RequestState::RequestSucceeded(metadata) => {
-                    // First, update the local view of metadata.
-                    me.store_metadata_update(server_id, metadata, ctx, |_| {});
-
-                    // If we successfully took access from another user, update the in memory editor
-                    // and emit an event so we know to switch into edit mode.
-                    if !optimistically_grant_access {
-                        me.set_notebook_current_editor(
-                            &notebook_id,
-                            Some(user_uid.as_string()),
-                            ctx,
-                        );
-                        ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
-                            result: ObjectOperationResult {
-                                success_type: OperationSuccessType::Success,
-                                operation: ObjectOperation::TakeEditAccess,
-                                client_id: None,
-                                server_id: Some(server_id),
-                                num_objects: None,
-                            },
-                        });
-                    }
-                }
-                RequestState::RequestFailedRetryPending(e) => {
-                    log::warn!("Failed to grab edit access: {e}. Retrying");
-                }
-                RequestState::RequestFailed(e) => {
-                    // If we are trying to take access, notify the user that the operation failed. If nobody else was
-                    // editing, then we optimistically allow the user to proceed and do nothing here.
-                    if !optimistically_grant_access {
-                        log::warn!("Failed to grab edit access on server: {e}. Not retrying. Edit access not granted on client.");
-                        ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
-                            result: ObjectOperationResult {
-                                success_type: OperationSuccessType::Failure,
-                                operation: ObjectOperation::TakeEditAccess,
-                                client_id: None,
-                                server_id: Some(server_id),
-                                num_objects: None,
-                            },
-                        });
-                    } else {
-                        log::warn!("Failed to grab edit access on server: {e}. Not retrying. Edit access still granted on client.");
-                    }
-                    ctx.notify();
-                }
-            },
-        );
-        self.spawned_futures.push(future.future_id());
-    }
-
-    /// Optimistically gives up edit access for a notebook and sends a request to the server
-    /// to update the notebooks current editor. We current do not have a retry protocol
-    /// for this request and intentionall do nothing on error. For more info see:
-    /// https://docs.google.com/document/d/1KgDFLApPg1uDVP-vOwhZzL1kRIviS8mMECIZg2VCKLY/edit
-    pub fn give_up_notebook_edit_access(
-        &mut self,
-        notebook_id: SyncId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // If the object isn't known to the server yet, we should not proceed
-        let SyncId::ServerId(server_id) = notebook_id else {
-            return;
-        };
-
-        let current_editor = CloudViewModel::as_ref(ctx)
-            .object_current_editor(&notebook_id.uid(), ctx)
-            .unwrap_or(Editor::no_editor());
-
-        // Only give up access if the current user has edit access
-        if matches!(current_editor.state, EditorState::CurrentUser) {
-            self.set_notebook_current_editor(&notebook_id, None, ctx);
-            let object_client = self.object_client.clone();
-            // Make the request.
-            let future = ctx.spawn_with_retry_on_error(
-                move || {
-                    let object_client = object_client.clone();
-                    async move {
-                        object_client
-                            .give_up_notebook_edit_access(server_id.into())
-                            .await
-                    }
-                },
-                *ONLINE_ONLY_OPERATION_RETRY_STRATEGY,
-                move |me, res, ctx| match res {
-                    RequestState::RequestSucceeded(new_metadata) => {
-                        // If the request was successful, ensure we have the most up to date metadata
-                        me.store_metadata_update(server_id, new_metadata, ctx, |_| {});
-                    }
-                    RequestState::RequestFailedRetryPending(e) => {
-                        log::warn!("Failed to give up edit access: {e}. Retrying");
-                    }
-                    RequestState::RequestFailed(e) => {
-                        log::warn!("Failed to give up edit access: {e}. Not retrying");
-                    }
-                },
-            );
-            self.spawned_futures.push(future.future_id());
-        }
     }
 
     /// Optimistically marks the object as trashed, updates the metadata sync status to pending, and returns both
@@ -3414,30 +2828,6 @@ impl UpdateManager {
                 &hashed_sqlite_id,
             );
         }
-    }
-}
-
-/// Return the newly duplicated object's name based on the original object's name. E.g.:
-/// - "my object name" -> "my object name (1)"
-pub fn get_duplicate_object_name(original_name: &str) -> String {
-    match DUPLICATE_OBJECT_NAME_REGEX
-        .captures(original_name)
-        .and_then(|caps| caps.get(1))
-        .and_then(|num| num.as_str().parse::<usize>().ok())
-    {
-        Some(num) => {
-            let new_num = num.saturating_add(1);
-
-            // edge case check for when the duplicate number is usize::MAX
-            if new_num == usize::MAX {
-                format!("{original_name} (1)")
-            } else {
-                DUPLICATE_OBJECT_NAME_REGEX
-                    .replace(original_name, format!(" ({new_num})"))
-                    .to_string()
-            }
-        }
-        None => format!("{original_name} (1)"),
     }
 }
 

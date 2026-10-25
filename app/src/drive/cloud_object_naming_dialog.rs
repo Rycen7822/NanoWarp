@@ -9,7 +9,6 @@ use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, ViewHandle};
 
-use super::DriveObjectType;
 use super::index::DriveIndexAction;
 use crate::appearance::Appearance;
 use crate::cloud_object::Space;
@@ -29,14 +28,13 @@ const BUTTON_FONT_SIZE: f32 = 14.;
 const BUTTON_PADDING: f32 = 12.;
 const BUTTON_MARGIN_BETWEEN: f32 = 8.;
 
-const NOTEBOOK_TITLE: &str = "Notebook name";
 const FOLDER_TITLE: &str = "Folder name";
 const CREATE_BUTTON_TEXT: &str = "Create";
 const CANCEL_BUTTON_TEXT: &str = "Cancel";
 const RENAME_BUTTON_TEXT: &str = "Rename";
 
 /// Struct holding necessary information and states for the dialog
-/// that opens when creating or updating a folder or notebook.
+/// that opens when creating or updating a folder.
 ///
 /// This dialog can be opened for a folder or a space. If open_for_folder_id = None, it's a space.
 /// If open_for_folder_id = Some, it's a specific folder.
@@ -45,7 +43,6 @@ pub struct CloudObjectNamingDialog {
     pub title_editor: ViewHandle<EditorView>,
     cancel_mouse_state: MouseStateHandle,
     primary_action_mouse_state: MouseStateHandle,
-    pub object_type: Option<DriveObjectType>,
     pub space: Option<Space>,
     is_rename: bool,
     // If the naming dialog is opened for a folder, then we store the open_for_folder_id.
@@ -58,7 +55,6 @@ impl CloudObjectNamingDialog {
             title_editor,
             cancel_mouse_state: Default::default(),
             primary_action_mouse_state: Default::default(),
-            object_type: Default::default(),
             space: None,
             is_rename: false,
             open_for_folder_id: None,
@@ -66,7 +62,6 @@ impl CloudObjectNamingDialog {
     }
 
     pub fn close(&mut self, app: &mut AppContext) {
-        self.object_type = None;
         self.space = None;
         self.is_rename = false;
         self.open_for_folder_id = None;
@@ -78,14 +73,12 @@ impl CloudObjectNamingDialog {
 
     pub fn open(
         &mut self,
-        object_type: DriveObjectType,
         space: Space,
         initial_folder_id: Option<SyncId>,
         is_rename: bool,
         existing_name: Option<String>,
         app: &mut AppContext,
     ) {
-        self.object_type = Some(object_type);
         self.space = Some(space);
         self.is_rename = is_rename;
         self.open_for_folder_id = initial_folder_id;
@@ -98,7 +91,7 @@ impl CloudObjectNamingDialog {
     }
 
     pub fn is_open(&self) -> bool {
-        self.object_type.is_some()
+        self.space.is_some()
     }
 
     // The renaming dialog can either be open for a space or a folder. If it's a space, open_for_folder_id = None.
@@ -116,10 +109,8 @@ impl CloudObjectNamingDialog {
         match self.open_for_folder_id {
             Some(folder_id) if self.is_rename => Some(DriveIndexAction::RenameFolder { folder_id }),
             _ => {
-                let object_type = self.object_type?;
                 let space = self.space?;
                 Some(DriveIndexAction::CreateObject {
-                    object_type,
                     space,
                     initial_folder_id: self.open_for_folder_id,
                 })
@@ -132,18 +123,9 @@ impl CloudObjectNamingDialog {
             .then(|| self.title_editor.as_ref(app).buffer_text(app))
     }
 
-    fn render_text_header(
-        &self,
-        object_type: DriveObjectType,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let title = match object_type {
-            DriveObjectType::Notebook => NOTEBOOK_TITLE,
-            DriveObjectType::Folder => FOLDER_TITLE,
-        };
-
+    fn render_text_header(&self, appearance: &Appearance) -> Box<dyn Element> {
         Text::new_inline(
-            title,
+            FOLDER_TITLE,
             appearance.ui_font_family(),
             appearance.header_font_size(),
         )
@@ -290,8 +272,6 @@ impl CloudObjectNamingDialog {
     }
 
     pub fn render(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
-        let object_type = self.object_type.unwrap_or(DriveObjectType::Folder);
-
         if self.space.is_none() {
             return Empty::new().finish();
         }
@@ -301,7 +281,7 @@ impl CloudObjectNamingDialog {
         Dismiss::new(
             Container::new(
                 Flex::column()
-                    .with_child(self.render_text_header(object_type, appearance))
+                    .with_child(self.render_text_header(appearance))
                     .with_child(self.render_input(appearance))
                     .with_child(self.render_action_buttons(appearance, app))
                     .finish(),

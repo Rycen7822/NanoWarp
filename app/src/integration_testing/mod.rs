@@ -17,7 +17,6 @@ pub mod input;
 pub mod keybindings;
 pub mod launch_configs;
 pub mod navigation_palette;
-pub mod notebook;
 pub mod pane_group;
 pub mod persistence;
 #[cfg(target_os = "macos")]

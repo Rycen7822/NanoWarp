@@ -24,7 +24,7 @@ use crate::palette::PaletteMode;
 use crate::pane_group::PaneGroup;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::search;
-use crate::server::ids::{ServerId, SyncId};
+use crate::server::ids::ServerId;
 use crate::server::telemetry::{AddTabWithShellSource, PaletteSource, SharingDialogSource};
 use crate::settings_view::{SettingsAction as SettingsTabAction, SettingsSection};
 use crate::tab::{NewSessionMenuItem, SelectedTabColor};
@@ -294,8 +294,6 @@ pub enum WorkspaceAction {
     ShowCommandSearch(CommandSearchOptions),
     TriggerExternalCtrlTFileSearch,
     TriggerExternalAltCDirectorySearch,
-    CreatePersonalNotebook,
-    CreateTeamNotebook,
     CreatePersonalFolder,
     CreateTeamFolder,
     ToggleMouseReporting,
@@ -443,9 +441,6 @@ pub enum WorkspaceAction {
         full_path: PathBuf,
         line_and_column: Option<LineAndColumnArg>,
     },
-    OpenNotebook {
-        id: SyncId,
-    },
     RunWorkflow {
         workflow: Arc<Workflow>,
         argument_override: Option<HashMap<String, String>>,
@@ -556,7 +551,6 @@ impl From<&WorkspaceAction> for LoginGatedFeature {
     fn from(val: &WorkspaceAction) -> LoginGatedFeature {
         use WorkspaceAction::*;
         match val {
-            CreateTeamNotebook => "Creating a team notebook",
             CreateTeamFolder => "Creating a team folder",
             OpenShareSessionModal(_) => "Sharing a session",
             _ => "Unknown reason",
@@ -567,10 +561,7 @@ impl From<&WorkspaceAction> for LoginGatedFeature {
 impl WorkspaceAction {
     pub fn blocked_for_anonymous_user(&self) -> bool {
         use WorkspaceAction::*;
-        matches!(
-            self,
-            CreateTeamNotebook | CreateTeamFolder | OpenShareSessionModal(_)
-        )
+        matches!(self, CreateTeamFolder | OpenShareSessionModal(_))
     }
 
     /// Matches what actions require the app state to be saved, and which don't. We match all
@@ -643,7 +634,6 @@ impl WorkspaceAction {
             | AddWindowWithShell { .. }
             | CloseWindow
             | ScrollToSettingsWidget { .. }
-            | OpenNotebook { .. }
             | RunWorkflow { .. }
             | OpenFileInNewTab { .. }
             | NewCodeFile
@@ -698,8 +688,6 @@ impl WorkspaceAction {
             | ToggleMouseReporting
             | ToggleScrollReporting
             | ToggleFocusReporting
-            | CreatePersonalNotebook
-            | CreateTeamNotebook
             | CreatePersonalFolder
             | CreateTeamFolder
             | OpenInExplorer { .. }

@@ -189,7 +189,6 @@ use crate::remote_server::manager::{
 use crate::resource_center::{
     Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
-use crate::server::ids::ObjectUid;
 use crate::server::server_api::ServerApi;
 use crate::server::telemetry::{
     self, AnonymousUserSignupEntrypoint, BootstrappingInfo, NotificationsTurnedOnSource,
@@ -1221,7 +1220,6 @@ pub enum Event {
     /// inside this pane group.
     TerminalViewStateChanged,
     ShowCommandSearch(CommandSearchOptions),
-    OpenWarpDriveObjectInPane(ObjectUid),
     OpenPromptEditor,
     CtrlD,
     ShutdownPty,

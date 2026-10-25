@@ -96,8 +96,6 @@ pub enum CustomAction {
     AddWindow,
     CloseCurrentSession,
     CloseWindow,
-    NewPersonalNotebook,
-    NewTeamNotebook,
     ShareCurrentSession,
     SharePaneContents,
     #[cfg(windows)]
@@ -411,8 +409,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::HistorySearch
         | CustomAction::DisableSyncTerminalInputs
         | CustomAction::ToggleSyncAllTerminalInputsInAllTabs
-        | CustomAction::NewPersonalNotebook
-        | CustomAction::NewTeamNotebook
         | CustomAction::ShareCurrentSession
         | CustomAction::SharePaneContents => None,
     }
@@ -746,7 +742,6 @@ pub enum BindingGroup {
     Settings,
     Close,
     Navigation,
-    Notebooks,
     Folders,
     KeyboardShortcuts,
     Notifications,
@@ -759,7 +754,6 @@ impl BindingGroup {
         match self {
             Self::Settings => "settings",
             Self::Navigation => "navigation",
-            Self::Notebooks => "notebooks",
             Self::Folders => "folders",
             Self::KeyboardShortcuts => "keyboard_shortcuts",
             Self::Close => "close",

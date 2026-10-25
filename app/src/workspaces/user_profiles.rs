@@ -75,15 +75,6 @@ impl UserProfiles {
             .get(&uid)
             .map(UserProfileData::displayable_identifier)
     }
-
-    /// Get the display name for the user with the given email address. If the user is unknown,
-    /// returns `None`.
-    pub fn displayable_identifier_for_email(&self, email: &str) -> Option<String> {
-        self.users_by_id
-            .values()
-            .find(|profile| profile.email == email)
-            .map(UserProfileData::displayable_identifier)
-    }
 }
 
 impl UserProfileData {

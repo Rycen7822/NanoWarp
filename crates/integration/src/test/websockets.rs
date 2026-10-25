@@ -1,7 +1,7 @@
 use warp::integration_testing::assertions::{
     assert_websocket_has_not_started, assert_websocket_has_started, join_a_workspace,
 };
-use warp::integration_testing::notebook::create_a_personal_notebook;
+use warp::integration_testing::cloud_object::create_a_personal_folder;
 use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
 use warp::integration_testing::{self};
 
@@ -45,9 +45,6 @@ pub fn test_websocket_begins_after_creating_an_object() -> Builder {
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(assert_websocket_has_not_started())
-        .with_step(create_a_personal_notebook(
-            "the notebook",
-            "A test notebook",
-        ))
+        .with_step(create_a_personal_folder("the folder", "A test folder"))
         .with_step(assert_websocket_has_started())
 }

@@ -3,8 +3,8 @@ use super::user_workspaces::WorkspacesMetadataResponse;
 use super::workspace::{
     BillingMetadata, CustomerType, DelinquencyStatus, EmailInvite, EnforceableSetting,
     EnterpriseSecretRegex, InviteLinkDomainRestriction, LinkSharingSettings, MultiAdminPolicy,
-    NativeWorkspacesPolicy, SecretRedactionSettings, SessionSharingPolicy, SharedNotebooksPolicy,
-    SplitListSetting, TeamLinkSharingSettings, TeamSecretRedactionSettings, TeamSettings,
+    NativeWorkspacesPolicy, SecretRedactionSettings, SessionSharingPolicy, SplitListSetting,
+    TeamLinkSharingSettings, TeamSecretRedactionSettings, TeamSettings,
     TelemetryDataCollectionPolicy, TelemetrySettings, Tier, Workspace, WorkspaceMember,
     WorkspaceSettings, WorkspaceSizePolicy,
 };
@@ -21,8 +21,7 @@ use warp_graphql::billing::{
     BillingMetadata as GqlBillingMetadata, CustomerType as GqlCustomerType,
     DelinquencyStatus as GqlDelinquencyStatus, MultiAdminPolicy as GqlMultiAdminPolicy,
     NativeWorkspacesPolicy as GqlNativeWorkspacesPolicy, ServiceAgreementType,
-    SessionSharingPolicy as GqlSessionSharingPolicy,
-    SharedNotebooksPolicy as GqlSharedNotebooksPolicy, StripeSubscriptionPlan,
+    SessionSharingPolicy as GqlSessionSharingPolicy, StripeSubscriptionPlan,
     TeamSizePolicy as GqlTeamSizePolicy,
     TelemetryDataCollectionPolicy as GqlTelemetryDataCollectionPolicy, Tier as GqlTier,
 };
@@ -163,15 +162,6 @@ impl From<GqlTeamSizePolicy> for WorkspaceSizePolicy {
     }
 }
 
-impl From<GqlSharedNotebooksPolicy> for SharedNotebooksPolicy {
-    fn from(gql_shared_notebooks_policy: GqlSharedNotebooksPolicy) -> SharedNotebooksPolicy {
-        Self {
-            is_unlimited: gql_shared_notebooks_policy.is_unlimited,
-            limit: i64::from(gql_shared_notebooks_policy.limit),
-        }
-    }
-}
-
 impl From<GqlSessionSharingPolicy> for SessionSharingPolicy {
     fn from(gql_session_sharing_policy: GqlSessionSharingPolicy) -> SessionSharingPolicy {
         Self {
@@ -215,7 +205,6 @@ impl From<GqlTier> for Tier {
             name: gql_tier.name,
             description: gql_tier.description,
             workspace_size_policy: gql_tier.team_size_policy.map(From::from),
-            shared_notebooks_policy: gql_tier.shared_notebooks_policy.map(From::from),
             session_sharing_policy: gql_tier.session_sharing_policy.map(From::from),
             telemetry_data_collection_policy: gql_tier
                 .telemetry_data_collection_policy

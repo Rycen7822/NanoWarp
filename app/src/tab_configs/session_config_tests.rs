@@ -316,12 +316,12 @@ fn snapshot_2x2_grid() {
 
 #[test]
 fn snapshot_non_terminal_leaf_replaced_with_terminal() {
-    use crate::app_state::NotebookPaneSnapshot;
+    use crate::app_state::FilePaneSnapshot;
 
-    let notebook_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
+    let file_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
         is_focused: false,
         custom_vertical_tabs_title: None,
-        contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook { notebook_id: None }),
+        contents: LeafContents::File(FilePaneSnapshot { path: None }),
     });
     let snapshot = PaneNodeSnapshot::Branch(BranchSnapshot {
         direction: crate::app_state::SplitDirection::Horizontal,
@@ -330,14 +330,14 @@ fn snapshot_non_terminal_leaf_replaced_with_terminal() {
                 crate::app_state::PaneFlex(0.5),
                 make_terminal_leaf(Some("/home/user"), true),
             ),
-            (crate::app_state::PaneFlex(0.5), notebook_leaf),
+            (crate::app_state::PaneFlex(0.5), file_leaf),
         ],
     });
 
     let config = tab_config_from_pane_snapshot(&snapshot, None, None);
 
     assert_eq!(config.panes.len(), 3);
-    // The notebook pane should be replaced with a terminal (no cwd).
+    // The file pane should be replaced with a terminal (no cwd).
     assert_eq!(config.panes[2].pane_type, Some(TabConfigPaneType::Terminal));
     assert!(config.panes[2].directory.is_none());
 }

@@ -7,15 +7,11 @@ use cloud_objects::cloud_object::{
 use cloud_objects::ids::{GenericStringObjectId, ObjectUid, ServerId, SyncId};
 use warp_graphql::object::CloudObjectWithDescendants;
 
-use crate::{
-    CloudFolderModel, CloudNotebookModel, JsonSerializer, Preference, ServerFolder, ServerNotebook,
-    ServerPreference,
-};
+use crate::{CloudFolderModel, JsonSerializer, Preference, ServerFolder, ServerPreference};
 
 /// A cloud object from the server.
 #[derive(Clone, Debug)]
 pub enum ServerCloudObject {
-    Notebook(ServerNotebook),
     Folder(ServerFolder),
     Preference(ServerPreference),
 }
@@ -23,7 +19,6 @@ pub enum ServerCloudObject {
 impl ServerCloudObject {
     pub fn metadata(&self) -> &ServerMetadata {
         match self {
-            ServerCloudObject::Notebook(notebook) => &notebook.metadata,
             ServerCloudObject::Folder(folder) => &folder.metadata,
             ServerCloudObject::Preference(preferences) => &preferences.metadata,
         }
@@ -31,7 +26,6 @@ impl ServerCloudObject {
 
     pub fn uid(&self) -> ObjectUid {
         match self {
-            ServerCloudObject::Notebook(notebook) => notebook.id.uid(),
             ServerCloudObject::Folder(folder) => folder.id.uid(),
             ServerCloudObject::Preference(preferences) => preferences.id.uid(),
         }
@@ -45,9 +39,7 @@ where
 {
     fn from(value: &GenericServerObject<K, M>) -> Self {
         let value = value as &dyn Any;
-        if let Some(server_notebook) = value.downcast_ref::<ServerNotebook>() {
-            ServerCloudObject::Notebook(server_notebook.clone())
-        } else if let Some(server_folder) = value.downcast_ref::<ServerFolder>() {
+        if let Some(server_folder) = value.downcast_ref::<ServerFolder>() {
             ServerCloudObject::Folder(server_folder.clone())
         } else if let Some(server_preferences) = value.downcast_ref::<ServerPreference>() {
             ServerCloudObject::Preference(server_preferences.clone())
@@ -97,27 +89,6 @@ impl TryFromGql for ServerFolder {
     }
 }
 
-impl TryFromGql for ServerNotebook {
-    type GqlType = warp_graphql::notebook::Notebook;
-
-    fn try_from_gql(value: Self::GqlType) -> Result<Self> {
-        let uid = ServerId::from_string_lossy(value.metadata.uid.inner());
-        anyhow::ensure!(
-            value.ai_document_id.is_none(),
-            "AI documents are no longer supported"
-        );
-        Ok(Self::new(
-            SyncId::ServerId(uid),
-            CloudNotebookModel {
-                title: value.title,
-                data: value.data,
-            },
-            value.metadata.try_into()?,
-            value.permissions.try_into()?,
-        ))
-    }
-}
-
 impl TryFrom<warp_graphql::object::CloudObject> for ServerCloudObject {
     type Error = anyhow::Error;
 
@@ -129,9 +100,6 @@ impl TryFrom<warp_graphql::object::CloudObject> for ServerCloudObject {
             warp_graphql::object::CloudObject::GenericStringObject(gso) => {
                 server_gso_to_cloud_object(gso)
             }
-            warp_graphql::object::CloudObject::Notebook(notebook) => Ok(
-                ServerCloudObject::Notebook(ServerNotebook::try_from_gql(notebook)?),
-            ),
             warp_graphql::object::CloudObject::Unknown => {
                 Err(anyhow::anyhow!("Unable to convert cloud object type"))
             }
@@ -148,9 +116,6 @@ impl TryFrom<CloudObjectWithDescendants> for ServerCloudObject {
                 ServerCloudObject::Folder(ServerFolder::try_from_gql(fwd.folder)?),
             ),
             CloudObjectWithDescendants::GenericStringObject(gso) => server_gso_to_cloud_object(gso),
-            CloudObjectWithDescendants::Notebook(notebook) => Ok(ServerCloudObject::Notebook(
-                ServerNotebook::try_from_gql(notebook)?,
-            )),
             CloudObjectWithDescendants::Unknown => Err(anyhow::anyhow!(
                 "Unable to convert cloud object with descendants type"
             )),

@@ -33,10 +33,10 @@ use super::*;
 use crate::auth::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, CloudObjectGuest};
+use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::drive::sharing::{SharingAccessLevel, Subject, UserKind};
 use crate::features::FeatureFlag;
 use crate::network::NetworkStatus;
-use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::ClientId;
 use crate::server::server_api::ServerApiProvider;
@@ -932,11 +932,8 @@ fn test_spaces_for_window_orders_selected_team_shared_and_personal() {
                 .user_id()
                 .expect("test user should be authenticated")
         });
-        let mut shared_object = CloudNotebook::new_local(
-            CloudNotebookModel {
-                title: "shared notebook".to_string(),
-                data: "echo shared".to_string(),
-            },
+        let mut shared_object = CloudFolder::new_local(
+            CloudFolderModel::new("shared folder", false),
             Owner::User {
                 user_uid: UserUid::new("other-user"),
             },
@@ -1035,11 +1032,8 @@ fn test_joining_team_moves_objects() {
         members: vec![],
     };
 
-    let shared_object = CloudNotebook::new_local(
-        CloudNotebookModel {
-            title: "shared notebook".to_string(),
-            data: "echo shared".to_string(),
-        },
+    let shared_object = CloudFolder::new_local(
+        CloudFolderModel::new("shared folder", false),
         Owner::Team { team_uid },
         None,
         ClientId::default(),
@@ -1167,11 +1161,8 @@ fn test_leaving_team_moves_objects() {
         members: vec![],
     };
 
-    let shared_object = CloudNotebook::new_local(
-        CloudNotebookModel {
-            title: "shared notebook".to_string(),
-            data: "echo shared".to_string(),
-        },
+    let shared_object = CloudFolder::new_local(
+        CloudFolderModel::new("shared folder", false),
         Owner::Team { team_uid },
         None,
         ClientId::default(),
@@ -1252,7 +1243,6 @@ fn gql_tier() -> GqlTier {
         name: "Free".to_string(),
         description: "Free tier".to_string(),
         team_size_policy: None,
-        shared_notebooks_policy: None,
         session_sharing_policy: None,
         telemetry_data_collection_policy: None,
         multi_admin_policy: None,

@@ -31,9 +31,6 @@ impl From<GqlUserOutput> for UserProperties {
             .anonymous_user_info
             .as_ref()
             .map(|info| info.anonymous_user_type.clone());
-        let personal_object_limits = user_properties
-            .anonymous_user_info
-            .and_then(|info| info.personal_object_limits.clone());
         let user_profile = user_properties.profile;
         let local_id = UserUid::new(user_profile.uid.as_str());
         let needs_sso_link = user_profile.needs_sso_link;
@@ -51,7 +48,6 @@ impl From<GqlUserOutput> for UserProperties {
             anonymous_user_type: anonymous_user_type.and_then(|t| t.try_into().ok()),
             is_on_work_domain,
             linked_at,
-            personal_object_limits: personal_object_limits.and_then(|t| t.try_into().ok()),
             principal_type,
         };
 

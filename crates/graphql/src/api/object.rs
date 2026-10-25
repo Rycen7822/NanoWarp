@@ -1,6 +1,5 @@
 use crate::folder::{Folder, FolderWithDescendants};
 use crate::generic_string_object::GenericStringObject;
-use crate::notebook::Notebook;
 use crate::scalars::Time;
 use crate::schema;
 
@@ -24,8 +23,6 @@ pub enum ObjectType {
     Folder,
     #[cynic(rename = "GenericStringObject")]
     GenericStringObject,
-    #[cynic(rename = "Notebook")]
-    Notebook,
     #[cynic(fallback)]
     Unknown,
 }
@@ -41,7 +38,6 @@ pub struct ObjectUpdateSuccess {
 pub enum CloudObject {
     Folder(Folder),
     GenericStringObject(GenericStringObject),
-    Notebook(Notebook),
     #[cynic(fallback)]
     Unknown,
 }
@@ -51,7 +47,6 @@ pub enum CloudObject {
 pub enum CloudObjectWithDescendants {
     FolderWithDescendants(FolderWithDescendants),
     GenericStringObject(GenericStringObject),
-    Notebook(Notebook),
     #[cynic(fallback)]
     Unknown,
 }

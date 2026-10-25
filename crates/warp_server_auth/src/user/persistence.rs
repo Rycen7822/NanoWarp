@@ -3,7 +3,7 @@ use warp_graphql::scalars::time::ServerTimestamp;
 use warpui_core::AppContext;
 use warpui_extras::secure_storage::{self, AppContextExt};
 
-use super::{AnonymousUserType, FirebaseAuthTokens, PersonalObjectLimits, UserMetadata};
+use super::{AnonymousUserType, FirebaseAuthTokens, UserMetadata};
 use crate::UserUid;
 
 const USER_STORAGE_KEY: &str = "User";
@@ -41,8 +41,6 @@ pub struct PersistedUser {
     pub anonymous_user_type: Option<AnonymousUserType>,
     #[serde(default)]
     pub linked_at: Option<ServerTimestamp>,
-    #[serde(default)]
-    pub personal_object_limits: Option<PersonalObjectLimits>,
     /// Whether or not this user is on what we consider a "work" domain.
     #[serde(default)]
     pub is_on_work_domain: bool,

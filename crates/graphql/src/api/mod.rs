@@ -4,7 +4,6 @@ pub mod experiment;
 pub mod folder;
 pub mod generic_string_object;
 pub mod mutations;
-pub mod notebook;
 pub mod object;
 pub mod object_actions;
 pub mod object_permissions;

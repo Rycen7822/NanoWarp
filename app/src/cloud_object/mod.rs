@@ -15,7 +15,6 @@ use warp_graphql::queries::get_updated_cloud_objects::UpdatedObjectInput;
 use warp_graphql::scalars::time::ServerTimestamp;
 use warpui::{AppContext, SingletonEntity};
 
-use self::breadcrumbs::ContainingObject;
 use self::model::actions::ObjectActions;
 use self::model::persistence::CloudModel;
 use crate::appearance::Appearance;
@@ -32,17 +31,13 @@ use crate::util::time_format::format_approx_duration_from_now_utc;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
-pub mod breadcrumbs;
-pub mod grab_edit_access_modal;
 pub mod model;
 pub mod toast_message;
 
 pub use cloud_objects::cloud_object::*;
 
-/// A CloudObject represents
-/// therefore shareable and editable (i.e. Notebooks and Workflows). In order
-/// to support collaborative editing of these objects, they must each store local
-/// revision numbers to ensure a stable way of accepting and rejecting edits.
+/// A cloud object stores a folder or preference with metadata, permissions and sync status.
+/// Revision numbers allow the server to accept or reject changes.
 ///
 /// Note that this trait must be object-safe and non-generic.  The reason for this
 /// is that (a) we need to be able to store instances of it as trait objects in
@@ -65,14 +60,8 @@ pub use cloud_objects::cloud_object::*;
 ///
 /// This implies that, for now, *all* CloudObjects must implement GenericCloudObject.
 ///
-/// Additionally, they must support the "grab the baton" UX for editing, where any
-/// user can grab edit access of an object, revoking it from anyone else currently
-/// editing.
-///
-/// For more info on revisions: https://docs.google.com/document/d/1SGtX_5AiSJmUxXCRk5NzGTzrC_XrxQRsio-KZOec_ng/edit
-/// And grab the baton: https://docs.google.com/document/d/1LgGaz8bB40AONTzC0ZFOw5Kg0SD8_RM10V_nyt3zOvY/edit#heading=h.tcup5oqi82p4
 pub trait CloudObject: Debug {
-    /// Returns the name of this model type (e.g. Workflow, Folder, Notebook)
+    /// Returns the name of this model type (e.g. Folder, Preference)
     fn model_type_name(&self) -> &'static str;
 
     /// Returns the  uid for this object.
@@ -196,39 +185,27 @@ pub trait CloudObject: Debug {
             .into_iter()
             .next_back()
             .expect("Object should have at least one ancestor")
-            .name
     }
 
-    // Returns the path of all the containing "objects" for this object.
-    // This could include folders or spaces.
-    fn containing_objects_path(&self, app: &AppContext) -> Vec<ContainingObject> {
+    fn containing_objects_path(&self, app: &AppContext) -> Vec<String> {
         let space = self.space(app);
-
         match self.metadata().folder_id {
             Some(folder_id) => {
                 let cloud_model = CloudModel::as_ref(app);
                 if let Some(folder) = cloud_model.get_folder_by_uid(&folder_id.uid()) {
-                    let mut path = vec![];
-                    let ancestors = folder.containing_objects_path(app);
-                    path.extend(ancestors);
-                    path.push(folder.into());
+                    let mut path = folder.containing_objects_path(app);
+                    path.push(folder.display_name());
                     path
                 } else {
-                    // if for whatever reason the folder id is messed up,
-                    // just default to showing the top-level space it wound up in
-                    vec![space.into_containing_object(app)]
+                    vec![space.name(app).clone()]
                 }
             }
-            None => vec![space.into_containing_object(app)],
+            None => vec![space.name(app).clone()],
         }
     }
 
     fn breadcrumbs(&self, app: &AppContext) -> String {
-        self.containing_objects_path(app)
-            .into_iter()
-            .map(|object| object.name)
-            .collect::<Vec<String>>()
-            .join(" / ")
+        self.containing_objects_path(app).join(" / ")
     }
 
     /// Returns whether this CloudObject is in the given space
@@ -403,7 +380,7 @@ pub trait CloudObject: Debug {
 
 /// Defines a common trait for cloud models to implement.
 /// The "model" is the domain specific piece of data for a cloud object,
-/// e.g. it contains the notebook, workflow, or folder specific data, but has
+/// e.g. it contains the folder or preference data, but has
 /// no logic around metadata, permissions, or sync status.
 ///
 /// See the comments for CloudObject to understand the relationship between
@@ -414,12 +391,12 @@ pub trait CloudObject: Debug {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait CloudModelType: Debug + Clone + Send + Sync {
-    /// The associated CloudObject type for this model (e.g. CloudNotebook or CloudFolder).
+    /// The associated CloudObject type for this model (e.g. CloudFolder or CloudPreference).
     type CloudObjectType: CloudObject + 'static;
     // TODO: @ianhodge - remove for sync ID refactor.
     type IdType: HashableId + ToServerId + Debug + Into<String> + Clone + 'static;
 
-    /// Returns the name of this model type (e.g. Folder or Notebook).
+    /// Returns the name of this model type (e.g. Folder or Preference).
     fn model_type_name(&self) -> &'static str;
 
     /// Returns the CloudObjectTypeAndId for this object.
@@ -856,9 +833,7 @@ fn get_top_folder_trashed_ts(
 pub use cloud_object_client::{
     ObjectDeleteResult, ObjectMetadataUpdateResult, ObjectPermissionsUpdateData,
 };
-pub use cloud_object_models::{
-    ServerCloudObject, ServerFolder, ServerNotebook, ServerPreference, TryFromGql,
-};
+pub use cloud_object_models::{ServerCloudObject, ServerFolder, ServerPreference, TryFromGql};
 use warp_errors::report_error;
 
 #[derive(Default, Clone, Copy, Debug, Eq, Derivative)]

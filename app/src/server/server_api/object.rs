@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use async_channel::Sender;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -31,20 +31,11 @@ use warp_graphql::mutations::create_generic_string_object::{
     CreateGenericStringObject, CreateGenericStringObjectInput, CreateGenericStringObjectResult,
     CreateGenericStringObjectVariables,
 };
-use warp_graphql::mutations::create_notebook::{
-    CreateNotebook, CreateNotebookInput, CreateNotebookResult, CreateNotebookVariables,
-};
 use warp_graphql::mutations::delete_object::{
     DeleteObject, DeleteObjectInput, DeleteObjectResult, DeleteObjectVariables,
 };
 use warp_graphql::mutations::empty_trash::{
     EmptyTrash, EmptyTrashInput, EmptyTrashResult, EmptyTrashVariables,
-};
-use warp_graphql::mutations::give_up_notebook_edit_access::{
-    GiveUpNotebookEditAccess, GiveUpNotebookEditAccessVariables,
-};
-use warp_graphql::mutations::grab_notebook_edit_access::{
-    GrabNotebookEditAccess, GrabNotebookEditAccessVariables,
 };
 use warp_graphql::mutations::leave_object::{
     LeaveObject, LeaveObjectInput, LeaveObjectResult, LeaveObjectVariables,
@@ -67,10 +58,6 @@ use warp_graphql::mutations::set_object_link_permissions::{
     SetObjectLinkPermissions, SetObjectLinkPermissionsInput, SetObjectLinkPermissionsResult,
     SetObjectLinkPermissionsVariables,
 };
-use warp_graphql::mutations::transfer_notebook_owner::{
-    TransferNotebookOwner, TransferNotebookOwnerInput, TransferNotebookOwnerResult,
-    TransferNotebookOwnerVariables,
-};
 use warp_graphql::mutations::trash_object::{
     TrashObject, TrashObjectInput, TrashObjectResult, TrashObjectVariables,
 };
@@ -83,15 +70,10 @@ use warp_graphql::mutations::update_folder::{
 use warp_graphql::mutations::update_generic_string_object::{
     UpdateGenericStringObject, UpdateGenericStringObjectInput, UpdateGenericStringObjectVariables,
 };
-use warp_graphql::mutations::update_notebook::{
-    NotebookUpdate, UpdateNotebook, UpdateNotebookInput, UpdateNotebookResult,
-    UpdateNotebookVariables,
-};
 use warp_graphql::mutations::update_object_guests::{
     UpdateObjectGuests, UpdateObjectGuestsInput, UpdateObjectGuestsResult,
     UpdateObjectGuestsVariables,
 };
-use warp_graphql::notebook::{UpdateNotebookEditAccessInput, UpdateNotebookEditAccessResult};
 use warp_graphql::object::CloudObjectWithDescendants;
 use warp_graphql::object_permissions::AccessLevel;
 use warp_graphql::queries::get_cloud_object::{
@@ -113,12 +95,10 @@ use crate::cloud_object::{
     CreateObjectRequest, CreatedCloudObject, GenericCloudObject, GenericServerObject,
     GenericStringObjectFormat, GenericStringObjectUniqueKey, JsonObjectType, ObjectIdType,
     ObjectType, ObjectsToUpdate, Owner, Revision, RevisionAndLastEditor, ServerCloudObject,
-    ServerFolder, ServerMetadata, ServerNotebook, ServerObject, ServerPermissions, TryFromGql as _,
-    UpdateCloudObjectResult,
+    ServerFolder, ServerObject, ServerPermissions, TryFromGql as _, UpdateCloudObjectResult,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
-use crate::notebooks::{NotebookId, SerializedNotebook};
 use crate::server::graphql::schema::{
     action_type_to_gql_action_type, object_action_history_from_gql,
     object_update_success_to_update_result, update_generic_string_object_result_to_update_result,
@@ -274,114 +254,6 @@ impl ObjectClient for ServerApi {
         }
     }
 
-    async fn create_notebook(
-        &self,
-        request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult> {
-        let serialized = request
-            .serialized_model
-            .as_ref()
-            .ok_or_else(|| anyhow!("Missing serialized model for notebook"))?;
-
-        let notebook: SerializedNotebook = serde_json::from_str(serialized.model_as_str())
-            .context("Failed to deserialize notebook model")?;
-
-        if notebook.ai_document_id.is_some() || notebook.conversation_id.is_some() {
-            return Ok(CreateCloudObjectResult::UserFacingError(
-                "AI documents are no longer supported".to_owned(),
-            ));
-        }
-
-        let variables = CreateNotebookVariables {
-            input: CreateNotebookInput {
-                data: Some(notebook.data),
-                entrypoint: request.entrypoint.into(),
-                initial_folder_id: request.initial_folder_id.map(|folder_id| folder_id.into()),
-                owner: request.owner.into(),
-                title: request.title,
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = CreateNotebook::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.create_notebook {
-            CreateNotebookResult::CreateNotebookOutput(output) => {
-                let metadata = output.notebook.metadata;
-                let notebook_id: NotebookId = metadata.uid.into_inner().into();
-
-                Ok(CreateCloudObjectResult::Success {
-                    created_cloud_object: CreatedCloudObject {
-                        client_id: request.client_id,
-                        revision_and_editor: RevisionAndLastEditor {
-                            revision: output.revision_ts.into(),
-                            last_editor_uid: metadata.last_editor_uid.map(|uid| uid.into_inner()),
-                        },
-                        metadata_ts: metadata.metadata_last_updated_ts,
-                        server_id_and_type: ServerIdAndType {
-                            id: notebook_id.to_server_id(),
-                            id_type: ObjectIdType::Notebook,
-                        },
-                        creator_uid: metadata.creator_uid.map(|uid| uid.into_inner()),
-                        permissions: output.notebook.permissions.try_into()?,
-                    },
-                })
-            }
-            CreateNotebookResult::UserFacingError(e) => Ok(
-                CreateCloudObjectResult::UserFacingError(get_user_facing_error_message(e)),
-            ),
-            CreateNotebookResult::Unknown => {
-                Err(anyhow!("Failed to create notebook due to unknown variant"))
-            }
-        }
-    }
-
-    async fn update_notebook(
-        &self,
-        notebook_id: NotebookId,
-        title: Option<String>,
-        data: Option<SerializedModel>,
-        revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerNotebook>> {
-        let variables = UpdateNotebookVariables {
-            input: UpdateNotebookInput {
-                data: data.map(|data| data.model_as_str().to_owned()),
-                title,
-                uid: cynic::Id::new(notebook_id),
-                revision_ts: revision.map(|r| r.into()),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = UpdateNotebook::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.update_notebook {
-            UpdateNotebookResult::UpdateNotebookOutput(output) => match output.update {
-                NotebookUpdate::ObjectUpdateSuccess(success) => {
-                    Ok(UpdateCloudObjectResult::Success {
-                        revision_and_editor: RevisionAndLastEditor {
-                            revision: success.revision_ts.into(),
-                            last_editor_uid: Some(success.last_editor_uid.into_inner()),
-                        },
-                    })
-                }
-                NotebookUpdate::NotebookUpdateRejected(rejected) => {
-                    Ok(UpdateCloudObjectResult::Rejected {
-                        object: ServerNotebook::try_from_gql(rejected.conflicting_notebook)?,
-                    })
-                }
-                NotebookUpdate::Unknown => Err(anyhow!("NotebookUpdate has unknown variant")),
-            },
-            UpdateNotebookResult::UserFacingError(e) => {
-                Err(anyhow!(get_user_facing_error_message(e)))
-            }
-            UpdateNotebookResult::Unknown => {
-                Err(anyhow!("Failed to update notebook due to unknown variant"))
-            }
-        }
-    }
-
     async fn create_folder(&self, request: CreateObjectRequest) -> Result<CreateCloudObjectResult> {
         let model = request
             .serialized_model
@@ -478,59 +350,6 @@ impl ObjectClient for ServerApi {
         update_generic_string_object_result_to_update_result(response.update_generic_string_object)
     }
 
-    async fn grab_notebook_edit_access(&self, notebook_id: NotebookId) -> Result<ServerMetadata> {
-        let variables = GrabNotebookEditAccessVariables {
-            input: UpdateNotebookEditAccessInput {
-                uid: cynic::Id::new(notebook_id),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = GrabNotebookEditAccess::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.grab_notebook_edit_access {
-            UpdateNotebookEditAccessResult::UpdateNotebookEditAccessOutput(output) => {
-                // The grabNotebookEditAccess API errors if unable to grab the baton,
-                // so we're always in the success case here.
-                output.metadata.try_into()
-            }
-            UpdateNotebookEditAccessResult::UserFacingError(e) => {
-                Err(anyhow!(get_user_facing_error_message(e)))
-            }
-            UpdateNotebookEditAccessResult::Unknown => Err(anyhow!(
-                "Failed to grab notebook edit access due to unknown variant"
-            )),
-        }
-    }
-
-    async fn give_up_notebook_edit_access(
-        &self,
-        notebook_id: NotebookId,
-    ) -> Result<ServerMetadata> {
-        let variables = GiveUpNotebookEditAccessVariables {
-            input: UpdateNotebookEditAccessInput {
-                uid: cynic::Id::new(notebook_id),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = GiveUpNotebookEditAccess::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-
-        match response.give_up_notebook_edit_access {
-            UpdateNotebookEditAccessResult::UpdateNotebookEditAccessOutput(output) => {
-                output.metadata.try_into()
-            }
-            UpdateNotebookEditAccessResult::UserFacingError(e) => {
-                Err(anyhow!(get_user_facing_error_message(e)))
-            }
-            UpdateNotebookEditAccessResult::Unknown => Err(anyhow!(
-                "Failed to give up notebook edit access due to unknown variant"
-            )),
-        }
-    }
-
     /// Starts a websocket connections against the corresponding GraphQL subscription.
     /// Messages received over the socket are sent over the `message_sender`.
     /// Once the websocket is live, a one-shot message is sent over `stream_ready_sender`
@@ -597,7 +416,6 @@ impl ObjectClient for ServerApi {
                 folders: Some(objects_to_update.folders),
                 force_refresh,
                 generic_string_objects: Some(objects_to_update.generic_string_objects),
-                notebooks: Some(objects_to_update.notebooks),
             },
             request_context: get_request_context(),
         };
@@ -607,16 +425,6 @@ impl ObjectClient for ServerApi {
 
         match response_data.updated_cloud_objects {
             UpdatedCloudObjectsResult::UpdatedCloudObjectsOutput(output) => {
-                let updated_notebooks = output
-                    .notebooks
-                    .map(|notebooks| {
-                        notebooks
-                            .into_iter()
-                            .filter_map(|notebook| ServerNotebook::try_from_gql(notebook).ok())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
                 let updated_folders = output
                     .folders
                     .map(|folders| {
@@ -646,16 +454,6 @@ impl ObjectClient for ServerApi {
                         }
                     }
                 }
-
-                let deleted_notebooks: Vec<NotebookId> = output
-                    .deleted_object_uids
-                    .notebook_uids
-                    .map(|uids| {
-                        uids.into_iter()
-                            .map(|uid| uid.into_inner().into())
-                            .collect()
-                    })
-                    .unwrap_or_default();
 
                 let deleted_folders: Vec<FolderId> = output
                     .deleted_object_uids
@@ -698,8 +496,6 @@ impl ObjectClient for ServerApi {
                     .unwrap_or_default();
 
                 let response = InitialLoadResponse {
-                    updated_notebooks,
-                    deleted_notebooks,
                     updated_folders,
                     deleted_folders,
                     updated_generic_string_objects,
@@ -759,23 +555,6 @@ impl ObjectClient for ServerApi {
             CloudObjectResult::Unknown => Err(anyhow!(
                 "Failed to fetch single cloud object due to unknown variant"
             )),
-        }
-    }
-
-    async fn transfer_notebook_owner(&self, notebook_id: NotebookId, owner: Owner) -> Result<bool> {
-        let variables = TransferNotebookOwnerVariables {
-            input: TransferNotebookOwnerInput {
-                uid: cynic::Id::new(notebook_id),
-                owner: owner.into(),
-            },
-            request_context: get_request_context(),
-        };
-
-        let operation = TransferNotebookOwner::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.transfer_notebook_owner {
-            TransferNotebookOwnerResult::TransferNotebookOwnerOutput(output) => Ok(output.success),
-            _ => Ok(false),
         }
     }
 

@@ -7,7 +7,6 @@ use crate::ids::{HashedSqliteId, ObjectUid, ServerId, SyncId};
 /// need to pass the object id, etc.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CloudObjectTypeAndId {
-    Notebook(SyncId),
     Folder(SyncId),
     GenericStringObject {
         object_type: GenericStringObjectFormat,
@@ -18,7 +17,6 @@ pub enum CloudObjectTypeAndId {
 impl CloudObjectTypeAndId {
     pub fn from_id_and_type(id: SyncId, object_type: ObjectType) -> Self {
         match object_type {
-            ObjectType::Notebook => Self::Notebook(id),
             ObjectType::Folder => Self::Folder(id),
             ObjectType::GenericStringObject(format) => Self::GenericStringObject {
                 object_type: format,
@@ -29,7 +27,6 @@ impl CloudObjectTypeAndId {
 
     pub fn uid(self) -> ObjectUid {
         match self {
-            Self::Notebook(id) => id.uid(),
             Self::Folder(id) => id.uid(),
             Self::GenericStringObject { id, .. } => id.uid(),
         }
@@ -37,13 +34,12 @@ impl CloudObjectTypeAndId {
 
     pub fn sync_id(self) -> SyncId {
         match self {
-            Self::Notebook(id) | Self::Folder(id) | Self::GenericStringObject { id, .. } => id,
+            Self::Folder(id) | Self::GenericStringObject { id, .. } => id,
         }
     }
 
     pub fn sqlite_uid_hash(self) -> HashedSqliteId {
         match self {
-            CloudObjectTypeAndId::Notebook(id) => id.sqlite_uid_hash(ObjectIdType::Notebook),
             CloudObjectTypeAndId::Folder(id) => id.sqlite_uid_hash(ObjectIdType::Folder),
             CloudObjectTypeAndId::GenericStringObject { object_type: _, id } => {
                 id.sqlite_uid_hash(ObjectIdType::GenericStringObject)
@@ -53,7 +49,6 @@ impl CloudObjectTypeAndId {
 
     pub fn object_id_type(&self) -> ObjectIdType {
         match self {
-            CloudObjectTypeAndId::Notebook(_) => ObjectIdType::Notebook,
             CloudObjectTypeAndId::GenericStringObject { .. } => ObjectIdType::GenericStringObject,
             CloudObjectTypeAndId::Folder(_) => ObjectIdType::Folder,
         }
@@ -61,7 +56,6 @@ impl CloudObjectTypeAndId {
 
     pub fn object_type(&self) -> ObjectType {
         match self {
-            CloudObjectTypeAndId::Notebook(_) => ObjectType::Notebook,
             CloudObjectTypeAndId::Folder(_) => ObjectType::Folder,
             CloudObjectTypeAndId::GenericStringObject { object_type, .. } => {
                 ObjectType::GenericStringObject(*object_type)
@@ -71,16 +65,8 @@ impl CloudObjectTypeAndId {
 
     pub fn as_folder_id(self) -> Option<SyncId> {
         match self {
-            CloudObjectTypeAndId::Notebook(_) => None,
             CloudObjectTypeAndId::GenericStringObject { .. } => None,
             CloudObjectTypeAndId::Folder(f) => Some(f),
-        }
-    }
-
-    pub fn as_notebook_id(self) -> Option<SyncId> {
-        match self {
-            CloudObjectTypeAndId::Notebook(id) => Some(id),
-            _ => None,
         }
     }
 
@@ -94,8 +80,7 @@ impl CloudObjectTypeAndId {
     pub fn has_server_id(self) -> bool {
         matches!(
             self,
-            CloudObjectTypeAndId::Notebook(SyncId::ServerId(_))
-                | CloudObjectTypeAndId::Folder(SyncId::ServerId(_))
+            CloudObjectTypeAndId::Folder(SyncId::ServerId(_))
                 | CloudObjectTypeAndId::GenericStringObject {
                     id: SyncId::ServerId(_),
                     ..
@@ -105,7 +90,6 @@ impl CloudObjectTypeAndId {
 
     pub fn server_id(self) -> Option<ServerId> {
         match self {
-            CloudObjectTypeAndId::Notebook(SyncId::ServerId(notebook_id)) => Some(notebook_id),
             CloudObjectTypeAndId::Folder(SyncId::ServerId(folder_id)) => Some(folder_id),
             CloudObjectTypeAndId::GenericStringObject {
                 id: SyncId::ServerId(json_object_id),

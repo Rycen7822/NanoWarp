@@ -17,7 +17,6 @@ pub enum UpdateCloudObjectResult<T> {
 /// Helper struct that contains all the info needed to fetch changed objects from the server.
 #[derive(Default, Clone)]
 pub struct ObjectsToUpdate {
-    pub notebooks: Vec<UpdatedObjectInput>,
     pub folders: Vec<UpdatedObjectInput>,
     pub generic_string_objects: Vec<UpdatedObjectInput>,
 }

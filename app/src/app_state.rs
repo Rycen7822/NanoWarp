@@ -9,7 +9,7 @@ use warpui::{AppContext, SingletonEntity as _};
 
 use crate::code::editor_management::CodeSource;
 use crate::root_view::quake_mode_window_id;
-use crate::server::ids::{ServerId, SyncId};
+use crate::server::ids::ServerId;
 use crate::settings_view::SettingsSection;
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;
@@ -121,7 +121,7 @@ pub struct LeafSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LeafContents {
     Terminal(TerminalPaneSnapshot),
-    Notebook(NotebookPaneSnapshot),
+    File(FilePaneSnapshot),
     Code(CodePaneSnapShot),
     Settings(SettingsPaneSnapshot),
     CodeReview(CodeReviewPaneSnapshot),
@@ -148,7 +148,7 @@ impl LeafContents {
             // an on-disk log via the app-state database.
             LeafContents::NetworkLog => false,
             LeafContents::Terminal(_)
-            | LeafContents::Notebook(_)
+            | LeafContents::File(_)
             | LeafContents::Code(_)
             | LeafContents::Settings(_)
             | LeafContents::CodeReview(_) => true,
@@ -167,22 +167,10 @@ pub struct TerminalPaneSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum NotebookPaneSnapshot {
-    CloudNotebook {
-        /// The ID of the notebook that was open in this pane. There are 3 possibilities:
-        /// 1. The pane contains a newly-created notebook that has not been edited yet. It might not
-        ///    have an ID yet (client or server), so this will be `None`.
-        /// 2. The pane contains a notebook that hasn't been synced to the server yet, so this will
-        ///    contain a client ID that should exist in SQLite.
-        /// 3. The pane contains a notebook that's known to the server, so this will contain the
-        ///    server ID.
-        notebook_id: Option<SyncId>,
-    },
-    LocalFileNotebook {
-        /// The path to the local file that was open in this pane. This may be `None` if
-        /// the pane contained an unreadable file.
-        path: Option<PathBuf>,
-    },
+pub struct FilePaneSnapshot {
+    /// The path to the local file that was open in this pane. This may be `None` if
+    /// the pane contained an unreadable file.
+    pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

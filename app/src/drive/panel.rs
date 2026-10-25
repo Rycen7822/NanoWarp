@@ -10,17 +10,13 @@ use warpui::{
     ViewHandle,
 };
 
-use super::drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit;
+use super::CloudObjectTypeAndId;
 use super::index::{DriveIndex, DriveIndexAction, DriveIndexEvent};
 use super::items::WarpDriveItemId;
-use super::{CloudObjectTypeAndId, DriveObjectType};
 use crate::cloud_object::model::persistence::CloudModel;
-use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{Owner, Space};
-use crate::notebooks::CloudNotebook;
-use crate::notebooks::manager::NotebookSource;
 use crate::server::cloud_objects::update_manager::{InitiatedBy, UpdateManager};
-use crate::server::ids::{ClientId, ServerId, SyncId};
+use crate::server::ids::{ClientId, SyncId};
 use crate::server::telemetry::SharingDialogSource;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
@@ -51,8 +47,6 @@ pub enum DrivePanelAction {
 
 #[derive(Clone, Debug)]
 pub enum DrivePanelEvent {
-    OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
-    OpenNotebook(NotebookSource),
     FocusWarpDrive,
 }
 
@@ -104,25 +98,6 @@ impl DrivePanel {
     fn handle_index_view_event(&mut self, event: &DriveIndexEvent, ctx: &mut ViewContext<Self>) {
         match event {
             DriveIndexEvent::FocusWarpDrive => ctx.emit(DrivePanelEvent::FocusWarpDrive),
-            DriveIndexEvent::CreateNotebook {
-                space,
-                title,
-                initial_folder_id,
-            } => match Self::new_object_owner(*space, initial_folder_id.as_ref(), ctx) {
-                Some(owner) => {
-                    ctx.emit(DrivePanelEvent::OpenNotebook(NotebookSource::New {
-                        title: title.clone(),
-                        owner,
-                        initial_folder_id: *initial_folder_id,
-                    }));
-                }
-                None => {
-                    report_error!(
-                        "Cannot identify a notebook owner",
-                        extra: { "space" => ?space }
-                    );
-                }
-            },
             DriveIndexEvent::CreateFolder {
                 space,
                 title,
@@ -149,72 +124,7 @@ impl DrivePanel {
                     );
                 }
             },
-            DriveIndexEvent::OpenObject(cloud_object_type_and_id) => {
-                let cloud_model = CloudModel::as_ref(ctx);
-                let object = cloud_model.get_by_uid(&cloud_object_type_and_id.uid());
-
-                let notebook_id = object.and_then(|object| {
-                    let notebook: Option<&CloudNotebook> = object.into();
-                    notebook.map(|notebook| notebook.id)
-                });
-
-                if let Some(notebook_id) = notebook_id {
-                    self.open_existing_notebook(notebook_id, ctx);
-                }
-            }
-            DriveIndexEvent::DuplicateObject(cloud_object_type_and_id) => {
-                self.duplicate_object(cloud_object_type_and_id, ctx);
-            }
-            DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(object_type, team_uid) => ctx
-                .emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
-                    *object_type,
-                    *team_uid,
-                )),
         }
-    }
-
-    fn duplicate_object(
-        &mut self,
-        cloud_object_type_and_id: &CloudObjectTypeAndId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Check if object being duplicated is in team space, if it is, then check
-        // corresponding object limits for that team.
-        if let Some(space) =
-            CloudViewModel::as_ref(ctx).object_space(&cloud_object_type_and_id.uid(), ctx)
-        {
-            match space {
-                Space::Team { team_uid } => {
-                    if let CloudObjectTypeAndId::Notebook(_) = cloud_object_type_and_id
-                        && !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
-                    {
-                        // If team has reached the limit for notebooks, show the modal
-                        // and return early.
-                        ctx.emit(DrivePanelEvent::OpenSharedObjectsCreationDeniedModal(
-                            DriveObjectType::Notebook,
-                            team_uid,
-                        ));
-                        return;
-                    }
-                }
-                Space::Personal => {
-                    if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Notebook(_))
-                        && has_feature_gated_anonymous_user_reached_notebook_limit(ctx)
-                    {
-                        return;
-                    }
-                }
-                // We're reliant on server checks here, since the client doesn't know how many
-                // objects are in the owning drive.
-                Space::Shared => (),
-            }
-        }
-
-        // Otherwise allow object duplication to go through.
-        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-            update_manager.duplicate_object(cloud_object_type_and_id, ctx);
-        });
-        ctx.notify();
     }
 
     /// Sets the child view back to a default state
@@ -230,17 +140,6 @@ impl DrivePanel {
         });
     }
 
-    pub fn move_object_to_team_owner(
-        &mut self,
-        cloud_object_type_and_id: CloudObjectTypeAndId,
-        space: Space,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.index_view.update(ctx, |index_view, ctx| {
-            index_view.move_object_to_team_owner(&cloud_object_type_and_id, space, ctx);
-        })
-    }
-
     pub fn set_selected_object(
         &mut self,
         id: Option<WarpDriveItemId>,
@@ -251,16 +150,8 @@ impl DrivePanel {
         });
     }
 
-    pub fn open_existing_notebook(&self, notebook_id: SyncId, ctx: &mut ViewContext<Self>) {
-        ctx.emit(DrivePanelEvent::OpenNotebook(NotebookSource::Existing(
-            notebook_id,
-        )));
-        ctx.notify();
-    }
-
     pub fn open_cloud_object_dialog(
         &mut self,
-        cloud_object_type: DriveObjectType,
         space: Space,
         initial_folder_id: Option<SyncId>,
         ctx: &mut ViewContext<Self>,
@@ -268,7 +159,7 @@ impl DrivePanel {
         self.save_and_clear_child_view(ctx);
         self.index_view.update(ctx, |index_view, ctx| {
             index_view.handle_action(
-                &DriveIndexAction::create_object(cloud_object_type, space, initial_folder_id),
+                &DriveIndexAction::create_object(space, initial_folder_id),
                 ctx,
             )
         });

@@ -5,10 +5,10 @@ use warpui::{AppContext, Element};
 use super::{WarpDriveItem, WarpDriveItemId};
 use crate::appearance::Appearance;
 use crate::cloud_object::CloudObjectMetadata;
+use crate::drive::CloudObjectTypeAndId;
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
 use crate::drive::folders::CloudFolder;
 use crate::drive::index::DriveIndexAction;
-use crate::drive::{CloudObjectTypeAndId, DriveObjectType};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 
@@ -37,17 +37,12 @@ impl WarpDriveItem for WarpDriveFolder {
         Some(&self.folder.metadata)
     }
 
-    fn object_type(&self) -> Option<DriveObjectType> {
-        Some(DriveObjectType::Folder)
-    }
-
     fn icon(&self, appearance: &Appearance, color: Option<Fill>) -> Option<Box<dyn Element>> {
-        let icon_fill =
-            color.unwrap_or(warp_drive_icon_color(appearance, DriveObjectType::Folder).into());
+        let icon_fill = color.unwrap_or(warp_drive_icon_color(appearance).into());
         let icon = if FeatureFlag::WarpPacks.is_enabled() && self.folder.model().is_warp_pack {
             Icon::PackageCheck
         } else {
-            Icon::from(DriveObjectType::Folder)
+            Icon::Folder
         };
 
         Some(icon.to_warpui_icon(icon_fill).finish())

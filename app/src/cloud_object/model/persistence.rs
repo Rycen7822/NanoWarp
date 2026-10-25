@@ -15,14 +15,13 @@ use crate::cloud_object::{
     CloudModelType, CloudObject, CloudObjectLocation, CloudObjectPermissions, GenericCloudObject,
     GenericServerObject, ObjectIdType, ObjectType, ObjectsToUpdate, Owner, Revision,
     RevisionAndLastEditor, ServerCloudObject, ServerCreationInfo, ServerFolder, ServerMetadata,
-    ServerNotebook, ServerPermissions, Space,
+    ServerPermissions, Space,
 };
 use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::drive::{
     CloudObjectTypeAndId, DriveIndexVariant, should_auto_open_welcome_folder,
     write_has_auto_opened_welcome_folder_to_user_defaults,
 };
-use crate::notebooks::CloudNotebook;
 use crate::persistence::ModelEvent;
 use crate::server::ids::{ClientId, HashableId, ObjectUid, ServerId, SyncId, ToServerId};
 use crate::settings::cloud_preferences::{CloudPreference, CloudPreferenceModel};
@@ -61,9 +60,6 @@ pub enum CloudModelEvent {
     ObjectUntrashed {
         type_and_id: CloudObjectTypeAndId,
         source: UpdateSource,
-    },
-    NotebookEditorChangedFromServer {
-        notebook_id: SyncId,
     },
     ObjectCreated {
         type_and_id: CloudObjectTypeAndId,
@@ -470,16 +466,6 @@ impl CloudModel {
         }
     }
 
-    /// Update the in-memory notebook with an update from the server. If the object has not been
-    /// seen before--a new object is created.
-    pub fn upsert_from_server_notebook(
-        &mut self,
-        server_notebook: ServerNotebook,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.upsert_from_server_object(server_notebook, ctx);
-    }
-
     /// Upsert either inserts a new cloud object or updates an existing one. When updating an object,
     /// this overwrites all fields that are protected by the revision. For fields protected by the metadata ts,
     /// see update_object_metadata().
@@ -489,9 +475,6 @@ impl CloudModel {
         ctx: &mut ModelContext<Self>,
     ) {
         match server_cloud_object {
-            ServerCloudObject::Notebook(notebook) => {
-                self.upsert_from_server_notebook(notebook, ctx);
-            }
             ServerCloudObject::Folder(folder) => {
                 self.upsert_from_server_folder(folder, ctx);
             }
@@ -555,7 +538,6 @@ impl CloudModel {
                 if new_metadata.metadata_last_updated_ts > current_ts
                     || (force_refresh && new_metadata.metadata_last_updated_ts == current_ts)
                 {
-                    let old_editor = object.metadata().current_editor_uid.clone();
                     let old_folder_id = object.metadata().folder_id;
                     let old_trashed_ts = object.metadata().trashed_ts;
 
@@ -571,19 +553,10 @@ impl CloudModel {
                         .has_pending_metadata_change = false;
 
                     if emit_events {
-                        let new_editor = object.metadata().current_editor_uid.clone();
                         let new_folder_id = object.metadata().folder_id;
                         let new_trashed_ts = object.metadata().trashed_ts;
                         // Some metadata updates should emit custom events.
-                        // For example, changes to current editor of a notebook or parent folder of an object
-                        let notebook: Option<&mut CloudNotebook> = object.into();
-                        if let Some(notebook) = notebook
-                            && new_editor != old_editor
-                        {
-                            ctx.emit(CloudModelEvent::NotebookEditorChangedFromServer {
-                                notebook_id: notebook.id,
-                            });
-                        }
+                        // For example, changes to the parent folder of an object
                         if new_folder_id != old_folder_id {
                             ctx.emit(CloudModelEvent::ObjectMoved {
                                 type_and_id: object.cloud_object_type_and_id(),
@@ -697,19 +670,6 @@ impl CloudModel {
             object
                 .permissions_mut()
                 .update_from_new_permissions_ts(new_permissions);
-        }
-    }
-
-    pub fn update_notebook_current_editor(
-        &mut self,
-        notebook_id: SyncId,
-        new_editor_uid: Option<String>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let Some(notebook) = self.get_notebook_mut(&notebook_id) {
-            notebook.metadata.set_current_editor(new_editor_uid.clone());
-            ctx.emit(CloudModelEvent::NotebookEditorChangedFromServer { notebook_id });
-            ctx.notify();
         }
     }
 
@@ -926,9 +886,6 @@ impl CloudModel {
         ctx: &mut ModelContext<Self>,
     ) {
         match id {
-            CloudObjectTypeAndId::Notebook(sync_id) => {
-                self.force_expand_object_and_ancestors(sync_id, ctx)
-            }
             CloudObjectTypeAndId::Folder(sync_id) => {
                 self.force_expand_object_and_ancestors(sync_id, ctx)
             }
@@ -1035,26 +992,6 @@ impl CloudModel {
             .filter_map(|object| object.into())
     }
 
-    /// Returns all active (not trashed) notebooks in the space.
-    pub fn active_notebooks_in_space<'a>(
-        &'a self,
-        space: Space,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = &'a CloudNotebook> + 'a {
-        self.active_cloud_objects_in_space(space, app)
-            .filter_map(|object| object.into())
-    }
-
-    /// Returns all active (not trashed) and non-welcome notebooks (ie. non starter notebooks) in the space.
-    pub fn active_non_welcome_notebooks_in_space<'a>(
-        &'a self,
-        space: Space,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = &'a CloudNotebook> + 'a {
-        self.active_non_welcome_cloud_objects_in_space(space, app)
-            .filter_map(|object| object.into())
-    }
-
     /// Returns a map of CloudPreference models keyed by their storage key.
     pub fn get_all_cloud_preferences_by_storage_key(&self) -> HashMap<String, &CloudPreference> {
         let mut keys: HashSet<String> = HashSet::new();
@@ -1118,7 +1055,6 @@ impl CloudModel {
             .filter_map(|object| object.versions(app).zip(Some(object.object_type())))
         {
             match object_type {
-                ObjectType::Notebook => objects_to_update.notebooks.push(versions),
                 ObjectType::Folder => objects_to_update.folders.push(versions),
                 ObjectType::GenericStringObject(_) => {
                     objects_to_update.generic_string_objects.push(versions)
@@ -1128,41 +1064,10 @@ impl CloudModel {
         objects_to_update
     }
 
-    pub fn get_notebook(&self, notebook_id: &SyncId) -> Option<&CloudNotebook> {
-        self.objects_by_id
-            .get(&notebook_id.uid())
-            .and_then(|object| object.into())
-    }
-
-    pub fn get_notebook_by_uid(&self, uid: &str) -> Option<&CloudNotebook> {
-        self.objects_by_id.get(uid).and_then(|object| object.into())
-    }
-
-    pub fn get_notebook_mut(&mut self, notebook_id: &SyncId) -> Option<&mut CloudNotebook> {
-        self.objects_by_id
-            .get_mut(&notebook_id.uid())
-            .and_then(|notebook| notebook.into())
-    }
-
     pub fn current_revision(&self, id: &SyncId) -> Option<&Revision> {
         self.objects_by_id
             .get(&id.uid())
             .and_then(|warp_cloud_object| warp_cloud_object.metadata().revision.as_ref())
-    }
-
-    /// Returns only active (not trashed) notebooks in cloud model.
-    pub fn get_all_active_notebooks(&self) -> impl Iterator<Item = &CloudNotebook> {
-        self.objects_by_id
-            .values()
-            .filter(|object| !object.is_trashed(self))
-            .filter_map(|object| object.into())
-    }
-
-    /// Returns all notebooks (trashed or not) in cloud model.
-    pub fn get_all_active_and_inactive_notebooks(&self) -> impl Iterator<Item = &CloudNotebook> {
-        self.objects_by_id
-            .values()
-            .filter_map(|object| object.into())
     }
 
     #[cfg(test)]

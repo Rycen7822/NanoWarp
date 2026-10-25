@@ -1,7 +1,8 @@
 use cloud_objects::cloud_object::ServerPermissions;
+use settings::{RespectUserSyncSetting, SyncToCloud};
 use warp_core::ui::appearance::Appearance;
 use warpui::platform::WindowStyle;
-use warpui::{AddSingletonModel, App, SingletonEntity, TypedActionView, ViewHandle};
+use warpui::{AddSingletonModel, App, SingletonEntity, ViewHandle};
 
 use super::{DriveIndex, DriveIndexAction};
 use crate::ASSETS;
@@ -11,18 +12,19 @@ use crate::cloud_object::model::actions::ObjectActions;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{
-    CloudObjectSyncStatus, ObjectIdType, ObjectType, Owner, ServerCreationInfo, Space,
+    CloudObjectSyncStatus, GenericStringObjectFormat, JsonObjectType, ObjectIdType, ObjectType,
+    Owner, ServerCreationInfo, Space,
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::items::WarpDriveItemId;
 use crate::menu::MenuItem;
 use crate::network::NetworkStatus;
-use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ClientId, ServerIdAndType, SyncId};
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::{QueueItem, SyncQueue};
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
+use crate::settings::{CloudPreference, CloudPreferenceModel, Preference};
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -56,14 +58,21 @@ fn create_index(app: &mut App) -> ViewHandle<DriveIndex> {
     index
 }
 
-fn create_notebook(app: &mut App) -> SyncId {
+fn create_preference(app: &mut App) -> SyncId {
     CloudModel::handle(app).update(app, |cloud_model, ctx| {
         let client_id = ClientId::new();
         let sync_id = SyncId::ClientId(client_id);
         cloud_model.create_object(
             sync_id,
-            CloudNotebook::new_local(
-                CloudNotebookModel::default(),
+            CloudPreference::new_local(
+                CloudPreferenceModel::new(
+                    Preference::new(
+                        "test_storage_key".to_string(),
+                        "true",
+                        SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                    )
+                    .expect("error creating preference"),
+                ),
                 Owner::mock_current_user(),
                 None,
                 client_id,
@@ -98,25 +107,27 @@ fn test_retry_menu_item_visibility() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let index = create_index(&mut app);
-        let sync_id = create_notebook(&mut app);
-        let cloud_object_type_and_id: CloudObjectTypeAndId =
-            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
+        let sync_id = create_preference(&mut app);
+        let cloud_object_type_and_id: CloudObjectTypeAndId = CloudObjectTypeAndId::from_id_and_type(
+            sync_id,
+            ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                JsonObjectType::Preference,
+            )),
+        );
         let warp_drive_item_id = WarpDriveItemId::Object(cloud_object_type_and_id);
 
         // by default, it doesn't show up
         index.update(&mut app, |index, ctx| {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
-            assert_eq!(menu_items.len(), 2);
-            assert_eq!(label_for_menu_item(&menu_items[0]), "Share");
+            assert_eq!(menu_items.len(), 0);
         });
 
         // when the object is in error, it should show up
         set_object_in_error(&mut app, &cloud_object_type_and_id);
         index.update(&mut app, |index, ctx| {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
-            assert_eq!(menu_items.len(), 3);
+            assert_eq!(menu_items.len(), 1);
             assert_eq!(label_for_menu_item(&menu_items[0]), "Retry");
-            assert_eq!(label_for_menu_item(&menu_items[1]), "Share");
         });
 
         // but if we're offline, it shouldn't show up
@@ -125,8 +136,7 @@ fn test_retry_menu_item_visibility() {
         });
         index.update(&mut app, |index, ctx| {
             let menu_items = index.menu_items(&Space::Personal, &warp_drive_item_id, ctx);
-            assert_eq!(menu_items.len(), 2);
-            assert_eq!(label_for_menu_item(&menu_items[0]), "Share");
+            assert_eq!(menu_items.len(), 0);
         });
     })
 }
@@ -136,9 +146,13 @@ fn test_retry_menu_item_logic() {
     App::test(ASSETS, |mut app| async move {
         initialize_app(&mut app);
         let index = create_index(&mut app);
-        let sync_id = create_notebook(&mut app);
-        let cloud_object_type_and_id: CloudObjectTypeAndId =
-            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
+        let sync_id = create_preference(&mut app);
+        let cloud_object_type_and_id: CloudObjectTypeAndId = CloudObjectTypeAndId::from_id_and_type(
+            sync_id,
+            ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                JsonObjectType::Preference,
+            )),
+        );
 
         SyncQueue::handle(&app).update(&mut app, |sync_queue, _ctx| {
             sync_queue.stop_dequeueing();
@@ -169,14 +183,16 @@ fn test_retry_menu_item_logic() {
 
         // make the object known to the server (by giving it a server id instead)
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            if let CloudObjectTypeAndId::Notebook(SyncId::ClientId(client_id)) =
-                cloud_object_type_and_id
+            if let CloudObjectTypeAndId::GenericStringObject {
+                id: SyncId::ClientId(client_id),
+                ..
+            } = cloud_object_type_and_id
                 && let SyncId::ServerId(server_id) = new_sync_id
             {
                 let server_creation_info = ServerCreationInfo {
                     server_id_and_type: ServerIdAndType {
                         id: server_id,
-                        id_type: ObjectIdType::Notebook,
+                        id_type: ObjectIdType::GenericStringObject,
                     },
                     creator_uid: None,
                     permissions: ServerPermissions::mock_personal(),
@@ -191,16 +207,21 @@ fn test_retry_menu_item_logic() {
 
         index.update(&mut app, |index, ctx| {
             let new_cloud_object_type_and_id: CloudObjectTypeAndId =
-                CloudObjectTypeAndId::from_id_and_type(new_sync_id, ObjectType::Notebook);
+                CloudObjectTypeAndId::from_id_and_type(
+                    new_sync_id,
+                    ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
+                );
             index.retry_failed_object(&new_cloud_object_type_and_id, ctx);
         });
 
-        // with an object known to the server, we enqueue an UpdateNotebook item
+        // with an object known to the server, we enqueue an UpdateCloudPreferences item
         SyncQueue::handle(&app).read(&app, |sync_queue, _ctx| {
             assert_eq!(sync_queue.queue().len(), 2);
             assert!(matches!(
                 sync_queue.queue()[1].1,
-                QueueItem::UpdateNotebook { .. }
+                QueueItem::UpdateCloudPreferences { .. }
             ))
         });
     })
@@ -208,13 +229,16 @@ fn test_retry_menu_item_logic() {
 
 #[test]
 fn test_warp_drive_navigation_states() {
-    use crate::drive::index::DriveIndexAction;
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let index = create_index(&mut app);
-        let sync_id = create_notebook(&mut app);
-        let cloud_object_type_and_id: CloudObjectTypeAndId =
-            CloudObjectTypeAndId::from_id_and_type(sync_id, ObjectType::Notebook);
+        let sync_id = create_preference(&mut app);
+        let cloud_object_type_and_id: CloudObjectTypeAndId = CloudObjectTypeAndId::from_id_and_type(
+            sync_id,
+            ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                JsonObjectType::Preference,
+            )),
+        );
 
         index.read(&app, |index, _| {
             assert_eq!(index.selected, None, "Expect selected to be None");
@@ -226,7 +250,7 @@ fn test_warp_drive_navigation_states() {
         });
 
         index.update(&mut app, |index, ctx| {
-            index.handle_action(&DriveIndexAction::OpenObject(cloud_object_type_and_id), ctx);
+            index.set_selected_object(Some(WarpDriveItemId::Object(cloud_object_type_and_id)), ctx);
         });
 
         index.read(&app, |index, _| {

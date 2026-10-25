@@ -334,7 +334,6 @@ impl SharingDialog {
                 CloudModelEvent::ObjectUpdated { type_and_id, .. } => type_and_id,
                 CloudModelEvent::ObjectTrashed { .. } => return,
                 CloudModelEvent::ObjectUntrashed { .. } => return,
-                CloudModelEvent::NotebookEditorChangedFromServer { .. } => return,
                 CloudModelEvent::ObjectCreated { type_and_id } => type_and_id,
                 CloudModelEvent::ObjectPermissionsUpdated { type_and_id, .. } => type_and_id,
                 CloudModelEvent::ObjectDeleted { .. } => return,

@@ -15,17 +15,15 @@ use crate::auth::user::TEST_USER_UID;
 use crate::auth::{AuthStateProvider, UserUid};
 use crate::cloud_object::model::actions::ObjectActions;
 use crate::cloud_object::model::generic_string_model::GenericStringModel;
-use crate::cloud_object::model::view::{
-    CloudViewModel, EDITOR_TIMEOUT_DURATION_MINUTES, EditorState, UpdateTimestamp,
-};
+use crate::cloud_object::model::view::{CloudViewModel, UpdateTimestamp};
 use crate::cloud_object::{
     CloudObjectMetadata, CloudObjectPermissions, CloudObjectStatuses, CloudObjectSyncStatus,
-    NumInFlightRequests, ObjectIdType, Owner, ServerMetadata, ServerPermissions,
+    GenericStringObjectFormat, JsonObjectType, NumInFlightRequests, ObjectIdType, Owner,
+    ServerMetadata, ServerObject, ServerPermissions, ServerPreference,
 };
 use crate::drive::DriveIndexVariant;
 use crate::drive::folders::{CloudFolderModel, FolderId};
 use crate::features::FeatureFlag;
-use crate::notebooks::{CloudNotebookModel, NotebookId};
 use crate::server::cloud_objects::listener::ObjectUpdateMessage;
 use crate::server::cloud_objects::update_manager::InitialLoadResponse;
 use crate::server::ids::{ServerId, ServerIdAndType};
@@ -149,46 +147,25 @@ fn mock_server_folders(start_id: i64, owner: Owner, number_of_folders: i64) -> V
         .collect()
 }
 
-fn mock_server_notebooks() -> Vec<ServerNotebook> {
+fn mock_server_preferences() -> Vec<ServerPreference> {
     let owner = Owner::mock_current_user();
-    vec![
-        ServerNotebook::new(
-            SyncId::ServerId(1.into()),
-            CloudNotebookModel {
-                title: "t1".to_string(),
-                data: "d1".to_string(),
-            },
-            mock_server_metadata(),
-            mock_server_permissions(owner),
-        ),
-        ServerNotebook::new(
-            SyncId::ServerId(2.into()),
-            CloudNotebookModel {
-                title: "t2".to_string(),
-                data: "d2".to_string(),
-            },
-            mock_server_metadata(),
-            mock_server_permissions(owner),
-        ),
-        ServerNotebook::new(
-            SyncId::ServerId(3.into()),
-            CloudNotebookModel {
-                title: "t3".to_string(),
-                data: "d3".to_string(),
-            },
-            mock_server_metadata(),
-            mock_server_permissions(owner),
-        ),
-        ServerNotebook::new(
-            SyncId::ServerId(4.into()),
-            CloudNotebookModel {
-                title: "t4".to_string(),
-                data: "d4".to_string(),
-            },
-            mock_server_metadata(),
-            mock_server_permissions(owner),
-        ),
-    ]
+    (1_i64..=4)
+        .map(|id| {
+            ServerPreference::new(
+                SyncId::ServerId(id.into()),
+                CloudPreferenceModel::new(
+                    Preference::new(
+                        format!("pref{id}"),
+                        "true",
+                        SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                    )
+                    .expect("error creating preference"),
+                ),
+                mock_server_metadata(),
+                mock_server_permissions(owner),
+            )
+        })
+        .collect()
 }
 
 fn mock_cloud_folder(id: SyncId, name: String, folder_id: Option<SyncId>) -> CloudFolder {
@@ -198,34 +175,6 @@ fn mock_cloud_folder(id: SyncId, name: String, folder_id: Option<SyncId>) -> Clo
             name,
             is_open: true,
             is_warp_pack: false,
-        },
-        CloudObjectMetadata {
-            pending_changes_statuses: CloudObjectStatuses {
-                content_sync_status: CloudObjectSyncStatus::NoLocalChanges,
-                has_pending_metadata_change: false,
-                has_pending_permissions_change: false,
-                pending_untrash: false,
-                pending_delete: false,
-            },
-            folder_id,
-            revision: Default::default(),
-            metadata_last_updated_ts: Default::default(),
-            current_editor_uid: Default::default(),
-            trashed_ts: Default::default(),
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-        },
-        mock_permissions(),
-    )
-}
-
-fn mock_cloud_notebook(id: SyncId, title: String, folder_id: Option<SyncId>) -> CloudNotebook {
-    CloudNotebook::new(
-        id,
-        CloudNotebookModel {
-            title,
-            data: "test".into(),
         },
         CloudObjectMetadata {
             pending_changes_statuses: CloudObjectStatuses {
@@ -306,7 +255,7 @@ fn test_update_with_deleted_objects() {
         },
         3,
     );
-    let notebooks = mock_server_notebooks();
+    let preferences = mock_server_preferences();
 
     App::test((), |mut app| async move {
         let cloud_model = create_cloud_model(
@@ -318,32 +267,38 @@ fn test_update_with_deleted_objects() {
                 .collect(),
         );
         cloud_model.update(&mut app, |model, ctx| {
-            for notebook in notebooks.clone() {
-                model.upsert_from_server_notebook(notebook, ctx);
+            for preference in preferences.clone() {
+                model.upsert_from_server_object(preference, ctx);
             }
         });
 
-        // Validate there's some notebooks and folders in memory
+        // Validate there's some preferences and folders in memory
         cloud_model.read(&app, |cloud_model, _| {
             assert_eq!(3, cloud_model.get_all_active_and_inactive_folders().count());
             assert_eq!(
                 4,
-                cloud_model.get_all_active_and_inactive_notebooks().count()
+                cloud_model
+                    .get_all_objects_of_type::<GenericStringObjectId, CloudPreferenceModel>()
+                    .count()
             );
             assert_eq!(7, cloud_model.as_cloud_objects().count());
         });
 
         // Apply the "update from server"
         cloud_model.update(&mut app, |cloud_model, ctx| {
-            // Set 3rd notebook to have pending changes. This should keep it in memory,
+            // Set 3rd preference to have pending changes. This should keep it in memory,
             // even though it's not returned from the server.
-            let notebook_id: SyncId = SyncId::ServerId(3.into());
-            if let Some(object) = cloud_model.get_notebook_mut(&notebook_id) {
+            let preference_id: SyncId = SyncId::ServerId(3.into());
+            if let Some(object) = cloud_model
+                .get_object_of_type_mut::<GenericStringObjectId, CloudPreferenceModel>(
+                    &preference_id,
+                )
+            {
                 object.set_pending_content_changes_status(CloudObjectSyncStatus::InFlight(
                     NumInFlightRequests(1),
                 ));
             }
-            cloud_model.update_objects(notebooks.into_iter().take(2), ctx);
+            cloud_model.update_objects(preferences.into_iter().take(2), ctx);
             cloud_model.update_objects(folders.into_iter().take(2), ctx);
         });
 
@@ -351,69 +306,15 @@ fn test_update_with_deleted_objects() {
             // expected: 3rd folder was removed on the server, and so we don't want it in
             // memory
             assert_eq!(2, cloud_model.get_all_active_and_inactive_folders().count());
-            // expected: 3rd notebook has local changes, so we want to keep it, but 4th
+            // expected: 3rd preference has local changes, so we want to keep it, but 4th
             // doesn't and also wasn't returned from the server, so we want to remove it.
             assert_eq!(
                 3,
-                cloud_model.get_all_active_and_inactive_notebooks().count()
+                cloud_model
+                    .get_all_objects_of_type::<GenericStringObjectId, CloudPreferenceModel>()
+                    .count()
             );
             assert_eq!(5, cloud_model.as_cloud_objects().count());
-        });
-    })
-}
-
-#[test]
-fn test_update_object_server_id_for_notebook() {
-    let client_id = ClientId::new();
-    let server_id: NotebookId = 1.into();
-    let notebooks: Vec<Box<dyn CloudObject>> = vec![Box::new(CloudNotebook::new(
-        SyncId::ClientId(client_id),
-        CloudNotebookModel {
-            title: "t1".to_string(),
-            data: "d1".to_string(),
-        },
-        CloudObjectMetadata {
-            pending_changes_statuses: CloudObjectStatuses {
-                content_sync_status: CloudObjectSyncStatus::NoLocalChanges,
-                has_pending_metadata_change: false,
-                has_pending_permissions_change: false,
-                pending_untrash: false,
-                pending_delete: false,
-            },
-            folder_id: Default::default(),
-            revision: Default::default(),
-            metadata_last_updated_ts: Default::default(),
-            current_editor_uid: Default::default(),
-            trashed_ts: Default::default(),
-            is_welcome_object: false,
-            creator_uid: None,
-            last_editor_uid: None,
-        },
-        mock_permissions(),
-    ))];
-
-    App::test((), |mut app| async move {
-        let cloud_model = create_cloud_model(&mut app, notebooks);
-        cloud_model.update(&mut app, |model, ctx| {
-            model.update_object_after_server_creation(
-                client_id,
-                ServerCreationInfo {
-                    creator_uid: None,
-                    permissions: ServerPermissions::mock_personal(),
-                    server_id_and_type: ServerIdAndType {
-                        id: server_id.to_server_id(),
-                        id_type: ObjectIdType::Notebook,
-                    },
-                },
-                ctx,
-            )
-        });
-
-        cloud_model.read(&app, |model, _| {
-            let notebook = model
-                .get_notebook(&SyncId::ServerId(server_id.into()))
-                .unwrap();
-            assert_eq!(notebook.id, SyncId::ServerId(server_id.into()));
         });
     })
 }
@@ -470,7 +371,7 @@ fn test_update_object_server_id_for_folder() {
     let client_id = ClientId::new();
     let server_id: FolderId = 1.into();
     let folders: Vec<Box<dyn CloudObject>> = vec![Box::new(CloudFolder::new(
-        SyncId::ServerId(1.into()),
+        SyncId::ClientId(client_id),
         CloudFolderModel::new("test", false),
         CloudObjectMetadata {
             pending_changes_statuses: CloudObjectStatuses {
@@ -533,14 +434,18 @@ fn check_cloud_folders(app: &mut App, number_of_folders: usize) {
     });
 }
 
-fn check_cloud_notebooks(app: &mut App, number_of_notebooks: usize) {
+fn check_cloud_preferences(app: &mut App, number_of_preferences: usize) {
     CloudModel::handle(app).read(app, |model, _| {
         assert_eq!(
-            number_of_notebooks,
-            model.get_all_active_and_inactive_notebooks().count(),
-            "we expected {} notebooks, and received {}",
-            number_of_notebooks,
-            model.get_all_active_and_inactive_notebooks().count()
+            number_of_preferences,
+            model
+                .get_all_objects_of_type::<GenericStringObjectId, CloudPreferenceModel>()
+                .count(),
+            "we expected {} preferences, and received {}",
+            number_of_preferences,
+            model
+                .get_all_objects_of_type::<GenericStringObjectId, CloudPreferenceModel>()
+                .count()
         );
     });
 }
@@ -562,8 +467,8 @@ fn test_load_cloud_objects_on_initial_load_with_empty_cache() {
         },
     );
     let team_folders_len = team_folders.len();
-    let notebooks = mock_server_notebooks();
-    let notebooks_len = notebooks.len();
+    let preferences = mock_server_preferences();
+    let preferences_len = preferences.len();
     let all_folders = [personal_folders, team_folders].concat();
 
     App::test((), |mut app| async move {
@@ -574,24 +479,27 @@ fn test_load_cloud_objects_on_initial_load_with_empty_cache() {
             .times(1)
             // since we don't have anything cached, at startup we just send empty list here
             .withf(|objects_to_update, _| {
-                objects_to_update.notebooks.is_empty()
-                    && objects_to_update.folders.is_empty()
+                objects_to_update.folders.is_empty()
                     && objects_to_update.generic_string_objects.is_empty()
             })
             .return_once(move |_, _| {
                 Ok(InitialLoadResponse {
-                    updated_notebooks: notebooks,
                     updated_folders: all_folders,
-                    deleted_notebooks: vec![],
                     deleted_folders: vec![],
                     user_profiles: vec![],
-                    updated_generic_string_objects: Default::default(),
+                    updated_generic_string_objects: HashMap::from([(
+                        GenericStringObjectFormat::Json(JsonObjectType::Preference),
+                        preferences
+                            .into_iter()
+                            .map(|object| Box::new(object) as Box<dyn ServerObject>)
+                            .collect(),
+                    )]),
                     deleted_generic_string_objects: Default::default(),
                     action_histories: Default::default(),
                 })
             });
 
-        // No folders or notebooks (or other objects) loaded from sqlite passed to CloudModel
+        // No folders or preferences (or other objects) loaded from sqlite passed to CloudModel
         initialize_app(&mut app, Vec::new(), Arc::new(cloud_object_server_api_mock));
 
         // Spend time waiting for the initial load to finish etc.
@@ -600,7 +508,7 @@ fn test_load_cloud_objects_on_initial_load_with_empty_cache() {
         // TODO: @ianhodge - update tests once cloud model APIs are added
         // Now CloudModel should include all objects that were fetched via initial load
         check_cloud_folders(&mut app, personal_folders_len + team_folders_len);
-        check_cloud_notebooks(&mut app, notebooks_len);
+        check_cloud_preferences(&mut app, preferences_len);
     })
 }
 
@@ -617,8 +525,8 @@ fn test_loading_all_cloud_objects_after_switching_from_offline() {
         },
     );
     let team_folders_len = team_folders.len();
-    let notebooks = mock_server_notebooks();
-    let notebooks_len = notebooks.len();
+    let preferences = mock_server_preferences();
+    let preferences_len = preferences.len();
 
     App::test((), |mut app| async move {
         // Sequences used for ordering requests (so first call will return something different than
@@ -636,16 +544,13 @@ fn test_loading_all_cloud_objects_after_switching_from_offline() {
             .times(1)
             // since we don't have anything cached, at startup we just send empty list here
             .withf(|objects_to_update, _| {
-                objects_to_update.notebooks.is_empty()
-                    && objects_to_update.folders.is_empty()
+                objects_to_update.folders.is_empty()
                     && objects_to_update.generic_string_objects.is_empty()
             })
             .in_sequence(&mut cloud_objects_sequence)
             .return_once(move |_, _| {
                 Ok(InitialLoadResponse {
-                    updated_notebooks: vec![],
                     updated_folders: personal_folders,
-                    deleted_notebooks: vec![],
                     deleted_folders: vec![],
                     user_profiles: vec![],
                     updated_generic_string_objects: Default::default(),
@@ -668,20 +573,25 @@ fn test_loading_all_cloud_objects_after_switching_from_offline() {
             .in_sequence(&mut cloud_objects_sequence)
             .returning(move |_, _| {
                 Ok(InitialLoadResponse {
-                    updated_notebooks: notebooks.clone(),
                     updated_folders: team_folders.clone(),
-                    deleted_notebooks: vec![],
                     deleted_folders: vec![],
                     user_profiles: vec![],
-                    updated_generic_string_objects: Default::default(),
+                    updated_generic_string_objects: HashMap::from([(
+                        GenericStringObjectFormat::Json(JsonObjectType::Preference),
+                        preferences
+                            .iter()
+                            .cloned()
+                            .map(|object| Box::new(object) as Box<dyn ServerObject>)
+                            .collect(),
+                    )]),
                     deleted_generic_string_objects: Default::default(),
                     action_histories: Default::default(),
                 })
             });
 
-        // No folders or notebooks (or other objects) loaded from sqlite passed to CloudModel
+        // No folders or preferences (or other objects) loaded from sqlite passed to CloudModel
         initialize_app(&mut app, Vec::new(), Arc::new(cloud_object_server_api_mock));
-        check_cloud_notebooks(&mut app, 0);
+        check_cloud_preferences(&mut app, 0);
         check_cloud_folders(&mut app, 0);
 
         // Spend time waiting for the initial load to finish etc.
@@ -690,7 +600,7 @@ fn test_loading_all_cloud_objects_after_switching_from_offline() {
         // Now CloudModel should include all objects that were fetched via initial load (in this
         // case: personal only)
         check_cloud_folders(&mut app, personal_folders_len);
-        check_cloud_notebooks(&mut app, 0);
+        check_cloud_preferences(&mut app, 0);
 
         // Lets go offline
         NetworkStatus::handle(&app).update(&mut app, |network_status, ctx| {
@@ -707,7 +617,7 @@ fn test_loading_all_cloud_objects_after_switching_from_offline() {
 
         // Now CloudModel should include all objects that were fetched via initial load
         check_cloud_folders(&mut app, personal_folders_len + team_folders_len);
-        check_cloud_notebooks(&mut app, notebooks_len);
+        check_cloud_preferences(&mut app, preferences_len);
     })
 }
 
@@ -724,17 +634,14 @@ fn test_force_refresh_only_happens_once() {
             .expect_fetch_changed_objects()
             .times(1)
             .withf(|objects_to_update, force_refresh| {
-                objects_to_update.notebooks.is_empty()
-                    && objects_to_update.folders.is_empty()
+                objects_to_update.folders.is_empty()
                     && objects_to_update.generic_string_objects.is_empty()
                     && *force_refresh
             })
             .in_sequence(&mut cloud_objects_sequence)
             .return_once(move |_, _| {
                 Ok(InitialLoadResponse {
-                    updated_notebooks: vec![],
                     updated_folders: vec![],
-                    deleted_notebooks: vec![],
                     deleted_folders: vec![],
                     user_profiles: vec![],
                     updated_generic_string_objects: Default::default(),
@@ -769,17 +676,14 @@ fn test_force_refresh_correctly_resets_timestamp() {
             .expect_fetch_changed_objects()
             .times(1)
             .withf(|objects_to_update, force_refresh| {
-                objects_to_update.notebooks.is_empty()
-                    && objects_to_update.folders.is_empty()
+                objects_to_update.folders.is_empty()
                     && objects_to_update.generic_string_objects.is_empty()
                     && *force_refresh
             })
             .in_sequence(&mut cloud_objects_sequence)
             .return_once(move |_, _| {
                 Ok(InitialLoadResponse {
-                    updated_notebooks: vec![],
                     updated_folders: vec![],
-                    deleted_notebooks: vec![],
                     deleted_folders: vec![],
                     user_profiles: vec![],
                     updated_generic_string_objects: Default::default(),
@@ -1001,58 +905,6 @@ fn test_collapse_all_in_trash() {
 }
 
 #[test]
-fn test_object_editor_timeout() {
-    App::test((), |mut app| async move {
-        // Setup the app and APIs
-        let cloud_object_server_api_mock = base_mock_cloud_object_server_api();
-        initialize_app(&mut app, Vec::new(), Arc::new(cloud_object_server_api_mock));
-        let notebook_id: SyncId = SyncId::ServerId(1.into());
-        let cloud_notebook = mock_cloud_notebook(notebook_id, "test1".into(), None);
-
-        CloudModel::handle(&app).update(&mut app, |model, _ctx| {
-            // Add a notebook to CloudModel
-            model.add_object(notebook_id, cloud_notebook.clone());
-
-            let notebook = model
-                .get_notebook_mut(&notebook_id)
-                .expect("notebook should exist");
-
-            // Set the editor to be somebody else.
-            notebook.metadata.current_editor_uid = Some("ian@warp.dev".to_string());
-        });
-
-        let current_editor = CloudViewModel::handle(&app).read(&app, |view_model, ctx| {
-            view_model
-                .object_current_editor(&notebook_id.uid(), ctx)
-                .expect("expect editor to be set")
-        });
-        // Assert that the current editor is an active other user
-        assert_eq!(current_editor.state, EditorState::OtherUserActive);
-
-        CloudModel::handle(&app).update(&mut app, |model, _ctx| {
-            let notebook = model
-                .get_notebook_mut(&notebook_id)
-                .expect("notebook should exist");
-
-            // Set the notebook timesteps to be more than the timeout
-            let timeout_timestamp = Utc::now()
-                - chrono::Duration::minutes(EDITOR_TIMEOUT_DURATION_MINUTES)
-                - chrono::Duration::seconds(1);
-            notebook.metadata.revision = Some(Revision::from(timeout_timestamp));
-            notebook.metadata.metadata_last_updated_ts = Some(timeout_timestamp.into());
-        });
-
-        let current_editor = CloudViewModel::handle(&app).read(&app, |view_model, ctx| {
-            view_model
-                .object_current_editor(&notebook_id.uid(), ctx)
-                .expect("expect editor to be set")
-        });
-        // Assert that the current editor is an idle other user
-        assert_eq!(current_editor.state, EditorState::OtherUserIdle);
-    });
-}
-
-#[test]
 fn test_breadcrumbs() {
     let folder_1_id: SyncId = SyncId::ServerId(1.into());
     let folder_2_id: SyncId = SyncId::ServerId(2.into());
@@ -1115,7 +967,7 @@ fn test_update_folder_timestamp_from_child_update() {
 
         let folder_id: ServerId = 123.into();
         let parent_folder_id: ServerId = 456.into();
-        let notebook_id: ServerId = 789.into();
+        let child_folder_id: ServerId = 789.into();
         let initial_ts = Utc::now();
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, _ctx| {
@@ -1130,35 +982,32 @@ fn test_update_folder_timestamp_from_child_update() {
                 mock_cloud_folder(parent_folder_id.into(), "Parent Folder".to_string(), None);
             parent_folder.metadata.revision = Some(initial_ts.into());
 
-            let mut notebook = mock_cloud_notebook(
-                notebook_id.into(),
-                "Test Notebook".to_string(),
+            let mut child_folder = mock_cloud_folder(
+                child_folder_id.into(),
+                "Test Folder".to_string(),
                 Some(folder_id.into()),
             );
-            notebook.metadata.revision = Some(initial_ts.into());
+            child_folder.metadata.revision = Some(initial_ts.into());
 
             cloud_model.add_object(folder_id.into(), folder);
             cloud_model.add_object(parent_folder_id.into(), parent_folder);
-            cloud_model.add_object(notebook_id.into(), notebook);
+            cloud_model.add_object(child_folder_id.into(), child_folder);
         });
 
         // At first, all 3 objects should have the initial sorting timestamp.
         assert_sorting_timestamp(folder_id, initial_ts, &app);
         assert_sorting_timestamp(parent_folder_id, initial_ts, &app);
-        assert_sorting_timestamp(notebook_id, initial_ts, &app);
+        assert_sorting_timestamp(child_folder_id, initial_ts, &app);
 
-        // After updating the notebook, all 3 timestamps should change.
+        // After updating the child folder, all 3 timestamps should change.
         let new_ts = initial_ts + chrono::Duration::seconds(5);
         receive_rtc_update(
             ObjectUpdateMessage::ObjectContentChanged {
-                server_object: Box::new(ServerCloudObject::Notebook(ServerNotebook::new(
-                    SyncId::ServerId(notebook_id),
-                    CloudNotebookModel {
-                        title: "Test Notebook".to_string(),
-                        data: "test2".into(),
-                    },
+                server_object: Box::new(ServerCloudObject::Folder(ServerFolder::new(
+                    SyncId::ServerId(child_folder_id),
+                    CloudFolderModel::new("Test Folder", false),
                     ServerMetadata {
-                        uid: notebook_id,
+                        uid: child_folder_id,
                         revision: new_ts.into(),
                         metadata_last_updated_ts: new_ts.into(),
                         trashed_ts: None,
@@ -1177,7 +1026,7 @@ fn test_update_folder_timestamp_from_child_update() {
 
         assert_sorting_timestamp(folder_id, new_ts, &app);
         assert_sorting_timestamp(parent_folder_id, new_ts, &app);
-        assert_sorting_timestamp(notebook_id, new_ts, &app);
+        assert_sorting_timestamp(child_folder_id, new_ts, &app);
     });
 }
 
@@ -1196,7 +1045,7 @@ fn test_update_folder_timestamp_from_object_move() {
 
         let folder_a_id: ServerId = 123.into();
         let folder_b_id: ServerId = 456.into();
-        let notebook_id: ServerId = 789.into();
+        let child_folder_id: ServerId = 789.into();
 
         let t1 = Utc::now();
         let t2 = t1 + chrono::Duration::seconds(5);
@@ -1207,33 +1056,33 @@ fn test_update_folder_timestamp_from_object_move() {
             let mut folder_b = mock_cloud_folder(folder_b_id.into(), "Folder B".to_string(), None);
             folder_b.metadata.revision = Some(t1.into());
 
-            let mut notebook = mock_cloud_notebook(
-                notebook_id.into(),
-                "Test Notebook".to_string(),
+            let mut child_folder = mock_cloud_folder(
+                child_folder_id.into(),
+                "Test Folder".to_string(),
                 Some(folder_a_id.into()),
             );
-            notebook.metadata.revision = Some(t2.into());
-            notebook.metadata.metadata_last_updated_ts = Some(t2.into());
+            child_folder.metadata.revision = Some(t2.into());
+            child_folder.metadata.metadata_last_updated_ts = Some(t2.into());
 
             cloud_model.add_object(folder_a_id.into(), folder_a);
             cloud_model.add_object(folder_b_id.into(), folder_b);
-            cloud_model.add_object(notebook_id.into(), notebook);
+            cloud_model.add_object(child_folder_id.into(), child_folder);
         });
 
-        // At first, folder A and the notebook sort by the notebook's timestamp, and folder B sorts
+        // At first, folder A and the child folder sort by the child folder's timestamp, and folder B sorts
         // by its older timestamp.
         assert_sorting_timestamp(folder_a_id, t2, &app);
         assert_sorting_timestamp(folder_b_id, t1, &app);
-        assert_sorting_timestamp(notebook_id, t2, &app);
+        assert_sorting_timestamp(child_folder_id, t2, &app);
 
-        // Move the notebook to folder B, so it now has the newer sort timestamp.
-        move_object(notebook_id, Some(folder_b_id.into()), &mut app);
+        // Move the child folder to folder B, so it now has the newer sort timestamp.
+        move_object(child_folder_id, Some(folder_b_id.into()), &mut app);
 
         assert_sorting_timestamp(folder_a_id, t1, &app);
         assert_sorting_timestamp(folder_b_id, t2, &app);
 
-        // Move the notebook into the root, so both folders have the older sort timestamp.
-        move_object(notebook_id, None, &mut app);
+        // Move the child folder into the root, so both folders have the older sort timestamp.
+        move_object(child_folder_id, None, &mut app);
         assert_sorting_timestamp(folder_a_id, t1, &app);
         assert_sorting_timestamp(folder_b_id, t1, &app);
     });
@@ -1253,7 +1102,7 @@ fn test_update_folder_timestamp_from_new_child() {
 
         let folder_id: ServerId = 123.into();
         let parent_folder_id: ServerId = 456.into();
-        let notebook_id: ServerId = 789.into();
+        let child_folder_id: ServerId = 789.into();
         let t1 = Utc::now();
         let t2 = t1 + chrono::Duration::seconds(5);
 
@@ -1277,17 +1126,14 @@ fn test_update_folder_timestamp_from_new_child() {
         assert_sorting_timestamp(folder_id, t1, &app);
         assert_sorting_timestamp(parent_folder_id, t1, &app);
 
-        // Create a notebook inside the folder.
+        // Create a child folder inside the folder.
         receive_rtc_update(
             ObjectUpdateMessage::ObjectContentChanged {
-                server_object: Box::new(ServerCloudObject::Notebook(ServerNotebook::new(
-                    SyncId::ServerId(notebook_id),
-                    CloudNotebookModel {
-                        title: "Test Notebook".to_string(),
-                        data: "test".to_string(),
-                    },
+                server_object: Box::new(ServerCloudObject::Folder(ServerFolder::new(
+                    SyncId::ServerId(child_folder_id),
+                    CloudFolderModel::new("Test Folder", false),
                     ServerMetadata {
-                        uid: notebook_id,
+                        uid: child_folder_id,
                         revision: t2.into(),
                         metadata_last_updated_ts: t2.into(),
                         trashed_ts: None,
@@ -1304,7 +1150,7 @@ fn test_update_folder_timestamp_from_new_child() {
             &mut app,
         );
 
-        // The notebook timestamp is now the sort timestamp for the folders.
+        // The child folder timestamp is now the sort timestamp for the folders.
         assert_sorting_timestamp(folder_id, t2, &app);
         assert_sorting_timestamp(parent_folder_id, t2, &app);
     });
@@ -1322,7 +1168,7 @@ fn test_update_folder_timestamp_from_child_trash() {
             Arc::new(base_mock_cloud_object_server_api()),
         );
 
-        let notebook_id: ServerId = 123.into();
+        let child_folder_id: ServerId = 123.into();
         let folder_id: ServerId = 456.into();
 
         let t1 = Utc::now();
@@ -1334,25 +1180,25 @@ fn test_update_folder_timestamp_from_child_trash() {
             let mut folder = mock_cloud_folder(folder_id.into(), "Folder".to_string(), None);
             folder.metadata.revision = Some(t1.into());
 
-            let mut notebook = mock_cloud_notebook(
-                notebook_id.into(),
-                "Notebook".to_string(),
+            let mut child_folder = mock_cloud_folder(
+                child_folder_id.into(),
+                "Folder".to_string(),
                 Some(folder_id.into()),
             );
-            notebook.metadata.revision = Some(t2.into());
-            notebook.metadata.metadata_last_updated_ts = Some(t2.into());
+            child_folder.metadata.revision = Some(t2.into());
+            child_folder.metadata.metadata_last_updated_ts = Some(t2.into());
 
             cloud_model.add_object(folder_id.into(), folder);
-            cloud_model.add_object(notebook_id.into(), notebook);
+            cloud_model.add_object(child_folder_id.into(), child_folder);
         });
 
         assert_sorting_timestamp(folder_id, t2, &app);
 
-        // Trash the notebook so that it no longer counts towards the folder's sort timestamp.
+        // Trash the child folder so that it no longer counts towards the folder's sort timestamp.
         receive_rtc_update(
             ObjectUpdateMessage::ObjectMetadataChanged {
                 metadata: ServerMetadata {
-                    uid: notebook_id,
+                    uid: child_folder_id,
                     revision: t2.into(),
                     metadata_last_updated_ts: t3.into(),
                     trashed_ts: Some(t3.into()),
@@ -1368,11 +1214,11 @@ fn test_update_folder_timestamp_from_child_trash() {
 
         assert_sorting_timestamp(folder_id, t1, &app);
 
-        // Untrash the notebook, updating the folder timestamp.
+        // Untrash the child folder, updating the folder timestamp.
         receive_rtc_update(
             ObjectUpdateMessage::ObjectMetadataChanged {
                 metadata: ServerMetadata {
-                    uid: notebook_id,
+                    uid: child_folder_id,
                     revision: t2.into(),
                     metadata_last_updated_ts: t4.into(),
                     trashed_ts: None,
@@ -1401,13 +1247,10 @@ fn test_shared_personal_object() {
         );
 
         let other_user = UserUid::new("other_user");
-        let shared_notebook_id = SyncId::ServerId(123.into());
-        let shared_notebook = CloudNotebook::new(
-            shared_notebook_id,
-            CloudNotebookModel {
-                title: "Shared Notebook".to_string(),
-                data: "Hello".to_string(),
-            },
+        let shared_child_folder_id = SyncId::ServerId(123.into());
+        let shared_child_folder = CloudFolder::new(
+            shared_child_folder_id,
+            CloudFolderModel::new("Shared Folder", false),
             CloudObjectMetadata::new_from_server(mock_server_metadata()),
             CloudObjectPermissions {
                 owner: Owner::User {
@@ -1420,11 +1263,11 @@ fn test_shared_personal_object() {
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            cloud_model.add_object(shared_notebook_id, shared_notebook);
+            cloud_model.add_object(shared_child_folder_id, shared_child_folder);
 
             let space = cloud_model
-                .get_notebook(&shared_notebook_id)
-                .expect("Notebook is in CloudModel")
+                .get_folder(&shared_child_folder_id)
+                .expect("Folder is in CloudModel")
                 .space(ctx);
             assert_eq!(space, Space::Shared);
         });
@@ -1441,13 +1284,10 @@ fn test_unshared_personal_object() {
             Arc::new(base_mock_cloud_object_server_api()),
         );
 
-        let shared_notebook_id = SyncId::ServerId(123.into());
-        let shared_notebook = CloudNotebook::new(
-            shared_notebook_id,
-            CloudNotebookModel {
-                title: "Shared Notebook".to_string(),
-                data: "Hello".to_string(),
-            },
+        let shared_child_folder_id = SyncId::ServerId(123.into());
+        let shared_child_folder = CloudFolder::new(
+            shared_child_folder_id,
+            CloudFolderModel::new("Shared Folder", false),
             CloudObjectMetadata::new_from_server(mock_server_metadata()),
             CloudObjectPermissions {
                 owner: Owner::User {
@@ -1460,11 +1300,11 @@ fn test_unshared_personal_object() {
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            cloud_model.add_object(shared_notebook_id, shared_notebook);
+            cloud_model.add_object(shared_child_folder_id, shared_child_folder);
 
             let space = cloud_model
-                .get_notebook(&shared_notebook_id)
-                .expect("Notebook is in CloudModel")
+                .get_folder(&shared_child_folder_id)
+                .expect("Folder is in CloudModel")
                 .space(ctx);
             assert_eq!(space, Space::Personal);
         });
@@ -1484,13 +1324,10 @@ fn test_shared_team_object() {
         // The user is not on this team.
         let team_uid = ServerId::from(456);
 
-        let shared_notebook_id = SyncId::ServerId(123.into());
-        let shared_notebook = CloudNotebook::new(
-            shared_notebook_id,
-            CloudNotebookModel {
-                title: "Shared Notebook".to_string(),
-                data: "Hello".to_string(),
-            },
+        let shared_child_folder_id = SyncId::ServerId(123.into());
+        let shared_child_folder = CloudFolder::new(
+            shared_child_folder_id,
+            CloudFolderModel::new("Shared Folder", false),
             CloudObjectMetadata::new_from_server(mock_server_metadata()),
             CloudObjectPermissions {
                 owner: Owner::Team { team_uid },
@@ -1501,11 +1338,11 @@ fn test_shared_team_object() {
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            cloud_model.add_object(shared_notebook_id, shared_notebook);
+            cloud_model.add_object(shared_child_folder_id, shared_child_folder);
 
             let space = cloud_model
-                .get_notebook(&shared_notebook_id)
-                .expect("Notebook is in CloudModel")
+                .get_folder(&shared_child_folder_id)
+                .expect("Folder is in CloudModel")
                 .space(ctx);
             assert_eq!(space, Space::Shared);
         });
@@ -1525,13 +1362,10 @@ fn test_unshared_team_object() {
 
         // Use the current user's team.
         let team_uid = TEST_TEAM.uid;
-        let shared_notebook_id = SyncId::ServerId(123.into());
-        let shared_notebook = CloudNotebook::new(
-            shared_notebook_id,
-            CloudNotebookModel {
-                title: "Shared Notebook".to_string(),
-                data: "Hello".to_string(),
-            },
+        let shared_child_folder_id = SyncId::ServerId(123.into());
+        let shared_child_folder = CloudFolder::new(
+            shared_child_folder_id,
+            CloudFolderModel::new("Shared Folder", false),
             CloudObjectMetadata::new_from_server(mock_server_metadata()),
             CloudObjectPermissions {
                 owner: Owner::Team { team_uid },
@@ -1542,11 +1376,11 @@ fn test_unshared_team_object() {
         );
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            cloud_model.add_object(shared_notebook_id, shared_notebook);
+            cloud_model.add_object(shared_child_folder_id, shared_child_folder);
 
             let space = cloud_model
-                .get_notebook(&shared_notebook_id)
-                .expect("Notebook is in CloudModel")
+                .get_folder(&shared_child_folder_id)
+                .expect("Folder is in CloudModel")
                 .space(ctx);
             assert_eq!(space, Space::Team { team_uid });
         });
@@ -1566,13 +1400,10 @@ fn test_shared_object_in_unshared_folder() {
 
         let other_user = UserUid::new("other_user");
         let unshared_folder_id = SyncId::ServerId(567.into());
-        let shared_notebook_id = SyncId::ServerId(123.into());
-        let mut shared_notebook = CloudNotebook::new(
-            shared_notebook_id,
-            CloudNotebookModel {
-                title: "Shared Notebook".to_string(),
-                data: "Hello".to_string(),
-            },
+        let shared_child_folder_id = SyncId::ServerId(123.into());
+        let mut shared_child_folder = CloudFolder::new(
+            shared_child_folder_id,
+            CloudFolderModel::new("Shared Folder", false),
             CloudObjectMetadata::new_from_server(mock_server_metadata()),
             CloudObjectPermissions {
                 owner: Owner::User {
@@ -1583,33 +1414,33 @@ fn test_shared_object_in_unshared_folder() {
                 anyone_with_link: None,
             },
         );
-        shared_notebook.metadata_mut().folder_id = Some(unshared_folder_id);
+        shared_child_folder.metadata_mut().folder_id = Some(unshared_folder_id);
 
         CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
-            cloud_model.add_object(shared_notebook_id, shared_notebook);
-            let notebook = cloud_model
-                .get_notebook(&shared_notebook_id)
-                .expect("Notebook is in CloudModel");
+            cloud_model.add_object(shared_child_folder_id, shared_child_folder);
+            let child_folder = cloud_model
+                .get_folder(&shared_child_folder_id)
+                .expect("Folder is in CloudModel");
 
             // Check space-based APIs.
-            assert_eq!(notebook.space(ctx), Space::Shared);
-            assert!(notebook.is_in_space(Space::Shared, ctx));
+            assert_eq!(child_folder.space(ctx), Space::Shared);
+            assert!(child_folder.is_in_space(Space::Shared, ctx));
 
             // Check location-based APIs.
             assert_eq!(
-                notebook.location(cloud_model, ctx),
+                child_folder.location(cloud_model, ctx),
                 CloudObjectLocation::Space(Space::Shared)
             );
-            assert!(notebook.metadata.folder_id.is_some());
+            assert!(child_folder.metadata.folder_id.is_some());
 
-            // Despite the missing parent folder, the notebook is not trashed.
-            assert!(!notebook.is_trashed(cloud_model));
+            // Despite the missing parent folder, the child folder is not trashed.
+            assert!(!child_folder.is_trashed(cloud_model));
 
-            // Check that iteration APIs include the notebook where it's expected.
+            // Check that iteration APIs include the child folder where it's expected.
             assert!(
                 cloud_model
                     .active_cloud_objects_in_space(Space::Shared, ctx)
-                    .any(|obj| obj.uid() == notebook.uid())
+                    .any(|obj| obj.uid() == child_folder.uid())
             );
             assert!(
                 cloud_model
@@ -1617,7 +1448,7 @@ fn test_shared_object_in_unshared_folder() {
                         CloudObjectLocation::Space(Space::Shared),
                         ctx
                     )
-                    .any(|obj| obj.uid() == notebook.uid())
+                    .any(|obj| obj.uid() == child_folder.uid())
             );
             assert_eq!(
                 cloud_model
@@ -1666,9 +1497,9 @@ fn active_object_uids_matches_naive_with_no_trashed_objects() {
     let folder_id = SyncId::ServerId(1.into());
     let objects: Vec<Box<dyn CloudObject>> = vec![
         Box::new(mock_cloud_folder(folder_id, "Folder".into(), None)),
-        Box::new(mock_cloud_notebook(
+        Box::new(mock_cloud_folder(
             SyncId::ServerId(2.into()),
-            "Notebook".into(),
+            "Folder".into(),
             Some(folder_id),
         )),
     ];
@@ -1685,16 +1516,16 @@ fn active_object_uids_matches_naive_with_no_trashed_objects() {
 #[test]
 fn active_object_uids_matches_naive_with_directly_trashed_object() {
     let trashed_folder_id = SyncId::ServerId(1.into());
-    let active_notebook_id = SyncId::ServerId(2.into());
+    let active_folder_id = SyncId::ServerId(2.into());
     let objects: Vec<Box<dyn CloudObject>> = vec![
         Box::new(mock_trashed_cloud_folder(
             trashed_folder_id,
             "Trashed Folder".into(),
             None,
         )),
-        Box::new(mock_cloud_notebook(
-            active_notebook_id,
-            "Active Notebook".into(),
+        Box::new(mock_cloud_folder(
+            active_folder_id,
+            "Active Folder".into(),
             None,
         )),
     ];
@@ -1705,7 +1536,7 @@ fn active_object_uids_matches_naive_with_directly_trashed_object() {
             let active = model.active_object_uids();
             assert_eq!(active, naive_active_object_uids(model));
             assert_eq!(active.len(), 1);
-            assert!(active.contains(&active_notebook_id.uid()));
+            assert!(active.contains(&active_folder_id.uid()));
             assert!(!active.contains(&trashed_folder_id.uid()));
         });
     });
@@ -1713,25 +1544,25 @@ fn active_object_uids_matches_naive_with_directly_trashed_object() {
 
 #[test]
 fn active_object_uids_matches_naive_with_indirectly_trashed_children() {
-    // A trashed folder with a non-trashed notebook inside it.
-    // The notebook should be considered trashed (indirectly) by both approaches.
+    // A trashed folder with a non-trashed child folder inside it.
+    // The child folder should be considered trashed (indirectly) by both approaches.
     let trashed_folder_id = SyncId::ServerId(1.into());
-    let child_notebook_id = SyncId::ServerId(2.into());
-    let active_notebook_id = SyncId::ServerId(3.into());
+    let child_folder_id = SyncId::ServerId(2.into());
+    let active_folder_id = SyncId::ServerId(3.into());
     let objects: Vec<Box<dyn CloudObject>> = vec![
         Box::new(mock_trashed_cloud_folder(
             trashed_folder_id,
             "Trashed Folder".into(),
             None,
         )),
-        Box::new(mock_cloud_notebook(
-            child_notebook_id,
+        Box::new(mock_cloud_folder(
+            child_folder_id,
             "Child in Trashed Folder".into(),
             Some(trashed_folder_id),
         )),
-        Box::new(mock_cloud_notebook(
-            active_notebook_id,
-            "Top-level Notebook".into(),
+        Box::new(mock_cloud_folder(
+            active_folder_id,
+            "Top-level Folder".into(),
             None,
         )),
     ];
@@ -1742,19 +1573,19 @@ fn active_object_uids_matches_naive_with_indirectly_trashed_children() {
             let active = model.active_object_uids();
             assert_eq!(active, naive_active_object_uids(model));
             assert_eq!(active.len(), 1);
-            assert!(active.contains(&active_notebook_id.uid()));
+            assert!(active.contains(&active_folder_id.uid()));
         });
     });
 }
 
 #[test]
 fn active_object_uids_matches_naive_with_nested_trashed_folder() {
-    // folder_a (trashed) -> folder_b (not trashed) -> notebook (not trashed)
-    // Both folder_b and notebook should be indirectly trashed.
+    // folder_a (trashed) -> folder_b (not trashed) -> child folder (not trashed)
+    // Both folder_b and child folder should be indirectly trashed.
     let folder_a_id = SyncId::ServerId(1.into());
     let folder_b_id = SyncId::ServerId(2.into());
-    let notebook_id = SyncId::ServerId(3.into());
-    let active_notebook_id = SyncId::ServerId(4.into());
+    let child_folder_id = SyncId::ServerId(3.into());
+    let active_folder_id = SyncId::ServerId(4.into());
     let objects: Vec<Box<dyn CloudObject>> = vec![
         Box::new(mock_trashed_cloud_folder(
             folder_a_id,
@@ -1766,16 +1597,12 @@ fn active_object_uids_matches_naive_with_nested_trashed_folder() {
             "Folder B".into(),
             Some(folder_a_id),
         )),
-        Box::new(mock_cloud_notebook(
-            notebook_id,
+        Box::new(mock_cloud_folder(
+            child_folder_id,
             "Deeply nested".into(),
             Some(folder_b_id),
         )),
-        Box::new(mock_cloud_notebook(
-            active_notebook_id,
-            "Active".into(),
-            None,
-        )),
+        Box::new(mock_cloud_folder(active_folder_id, "Active".into(), None)),
     ];
 
     App::test((), |mut app| async move {
@@ -1784,7 +1611,7 @@ fn active_object_uids_matches_naive_with_nested_trashed_folder() {
             let active = model.active_object_uids();
             assert_eq!(active, naive_active_object_uids(model));
             assert_eq!(active.len(), 1);
-            assert!(active.contains(&active_notebook_id.uid()));
+            assert!(active.contains(&active_folder_id.uid()));
         });
     });
 }

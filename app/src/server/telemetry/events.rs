@@ -24,8 +24,8 @@ use crate::code::editor_management::CodeSource;
 use crate::drive::{CloudObjectTypeAndId, DriveSortOrder};
 use crate::features::FeatureFlag;
 use crate::launch_configs::save_modal::SaveState;
+use crate::notebooks::NotebookLocation;
 use crate::notebooks::telemetry::NotebookTelemetryAction;
-use crate::notebooks::{NotebookId, NotebookLocation};
 use crate::pane_group::PaneDragDropLocation;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::server::ids::ServerId;
@@ -105,7 +105,6 @@ pub enum DownloadSource {
 // For use when recording what type of cloud object a particular telemetry is for.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TelemetryCloudObjectType {
-    Notebook,
     Folder,
     GenericStringObject(GenericStringObjectFormat),
 }
@@ -113,7 +112,6 @@ pub enum TelemetryCloudObjectType {
 impl From<&CloudObjectTypeAndId> for TelemetryCloudObjectType {
     fn from(cloud_object_type_and_id: &CloudObjectTypeAndId) -> Self {
         match cloud_object_type_and_id {
-            CloudObjectTypeAndId::Notebook(_) => Self::Notebook,
             CloudObjectTypeAndId::Folder(_) => Self::Folder,
             CloudObjectTypeAndId::GenericStringObject { object_type, .. } => {
                 Self::GenericStringObject(*object_type)
@@ -159,41 +157,18 @@ pub struct CloudObjectTelemetryMetadata {
     pub team_uid: Option<ServerId>,
 }
 
-/// Metadata to include in all notebook telemetry events.
-///
-/// There are 4 expected configurations:
-/// * Personal cloud notebooks: `notebook_id` is `Some`, `team_uid` is `None`, and location is `PersonalCloud`
-/// * Team cloud notebooks: `notebook_id` is `Some`, `team_uid` is `Some`, and location is `Team`
-/// * Local file-based notebooks: `notebook_id` and `team_uid` are `None`, and location is `LocalFile`
-/// * Remote file-based notebooks: `notebook_id` and `team_uid` are `None`, and location is `RemoteFile`
-///
-/// This representation allows for invalid combinations, but makes querying the data easier (for
-/// example, to find all notebook events for a given team).
+/// Metadata for file-backed notebook viewer telemetry.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NotebookTelemetryMetadata {
-    /// The notebook ID, only available for cloud notebooks that have been synced to the server.
-    pub notebook_id: Option<NotebookId>,
-    /// The team UID, only available for cloud notebooks in a shared team.
-    pub team_uid: Option<ServerId>,
-    pub space: Option<TelemetrySpace>,
-    /// Where the notebook is canonically located.
     pub location: NotebookLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub markdown_table_count: Option<usize>,
 }
 
 impl NotebookTelemetryMetadata {
-    pub fn new(
-        notebook_id: impl Into<Option<NotebookId>>,
-        team_uid: impl Into<Option<ServerId>>,
-        location: impl Into<NotebookLocation>,
-        space: Option<TelemetrySpace>,
-    ) -> Self {
+    pub fn new(location: NotebookLocation) -> Self {
         Self {
-            notebook_id: notebook_id.into(),
-            team_uid: team_uid.into(),
-            location: location.into(),
-            space,
+            location,
             markdown_table_count: None,
         }
     }
@@ -348,7 +323,6 @@ pub enum SecretInteraction {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum AnonymousUserSignupEntrypoint {
-    HitDriveObjectLimit,
     LoginGatedFeature,
     SignUpButton,
     RenotificationBlock,
@@ -685,10 +659,6 @@ pub enum TelemetryEvent {
         remote_source_failures: usize,
     },
     OpenNotebook(NotebookTelemetryMetadata),
-    EditNotebook {
-        metadata: NotebookTelemetryMetadata,
-        meaningful_change: bool,
-    },
     NotebookAction(NotebookActionEvent),
     OpenedAltScreenFind,
     UserInitiatedClose {
@@ -809,7 +779,6 @@ pub enum TelemetryEvent {
     AnonymousUserAttemptLoginGatedFeature {
         feature: LoginGatedFeature,
     },
-    AnonymousUserHitCloudObjectLimit,
     NeedsReauth,
     WarpDriveOpened {
         source: WarpDriveSource,
@@ -1317,14 +1286,6 @@ impl TelemetryEvent {
             TelemetryEvent::SaveLaunchConfig { state } => Some(json!({ "state": state })),
             TelemetryEvent::SetLineHeight { new_value } => Some(json!({ "new_value": new_value })),
             TelemetryEvent::OpenNotebook(metadata) => Some(json!(metadata)),
-            TelemetryEvent::EditNotebook {
-                metadata,
-                meaningful_change,
-            } => Some(json!({
-                "notebook_id": metadata.notebook_id,
-                "team_uid": metadata.team_uid,
-                "meaningful_change": meaningful_change,
-            })),
             TelemetryEvent::NotebookAction(event) => Some(json!(event)),
             TelemetryEvent::UserInitiatedClose { initiated_on } => {
                 Some(json!({ "initiated_on": initiated_on }))
@@ -1681,7 +1642,6 @@ impl TelemetryEvent {
             | TelemetryEvent::NeedsReauth
             | TelemetryEvent::AnonymousUserExpirationLockout
             | TelemetryEvent::AnonymousUserLinkedFromBrowser
-            | TelemetryEvent::AnonymousUserHitCloudObjectLimit
             | TelemetryEvent::CustomSecretRegexAdded
             | TelemetryEvent::CopySecret
             | TelemetryEvent::CommandFileRun
@@ -1970,7 +1930,6 @@ impl TelemetryEvent {
             | TelemetryEvent::GlobalSearchQueryStarted
             | TelemetryEvent::GlobalSearchQueryCompleted { .. }
             | TelemetryEvent::OpenNotebook(_)
-            | TelemetryEvent::EditNotebook { .. }
             | TelemetryEvent::NotebookAction(_)
             | TelemetryEvent::OpenedAltScreenFind
             | TelemetryEvent::UserInitiatedClose { .. }
@@ -2023,7 +1982,6 @@ impl TelemetryEvent {
             | TelemetryEvent::AnonymousUserExpirationLockout
             | TelemetryEvent::AnonymousUserLinkedFromBrowser
             | TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { .. }
-            | TelemetryEvent::AnonymousUserHitCloudObjectLimit
             | TelemetryEvent::NeedsReauth
             | TelemetryEvent::WarpDriveOpened { .. }
             | TelemetryEvent::ToggleSecretRedaction { .. }
@@ -2155,16 +2113,13 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             | Self::LoginLaterConfirmationButtonClicked
             | Self::AnonymousUserExpirationLockout
             | Self::AnonymousUserLinkedFromBrowser
-            | Self::AnonymousUserAttemptLoginGatedFeature
-            | Self::AnonymousUserHitCloudObjectLimit => EnablementState::Always,
+            | Self::AnonymousUserAttemptLoginGatedFeature => EnablementState::Always,
 
             Self::StartedSharingCurrentSession | Self::StoppedSharingCurrentSession => {
                 EnablementState::Flag(FeatureFlag::CreatingSharedSessions)
             }
             Self::JoinedSharedSession => EnablementState::Flag(FeatureFlag::ViewingSharedSessions),
-            Self::OpenNotebook | Self::EditNotebook | Self::NotebookAction => {
-                EnablementState::Always
-            }
+            Self::OpenNotebook | Self::NotebookAction => EnablementState::Always,
             Self::ToggleSettingsSync { .. } => EnablementState::Always,
             Self::BlockCompleted => EnablementState::Always,
             Self::BackgroundBlockStarted => EnablementState::Always,
@@ -2417,7 +2372,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::CodePanelsFileOpened { .. } => "CodePanels.FileOpened",
             #[cfg(feature = "local_fs")]
             Self::PreviewPanePromoted => "Preview Pane Promoted",
-            Self::AnonymousUserHitCloudObjectLimit => "Anonymous User Hit Cloud Object Limit",
             Self::BootstrappingSucceeded => "Bootstrapping Succeeded",
             Self::SessionAbandonedBeforeBootstrap => "Session Abandoned Before Bootstrap",
             Self::ConfirmSuggestion => "Confirm Suggestion",
@@ -2496,7 +2450,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::GlobalSearchQueryStarted => "Global Search Query Started",
             Self::GlobalSearchQueryCompleted => "Global Search Query Completed",
             Self::OpenNotebook => "Notebook Opened",
-            Self::EditNotebook => "Notebook Edited",
             Self::NotebookAction => "Notebook Action",
             Self::OpenedAltScreenFind => "Opened alt screen find bar",
             Self::UserInitiatedClose => "User Initiated Closing Something",
@@ -2651,9 +2604,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::AnonymousUserAttemptLoginGatedFeature => {
                 "Anonymous user attempted to access a login-gated feature"
             }
-            Self::AnonymousUserHitCloudObjectLimit => {
-                "Anonymous user attempted to create a cloud object past their personal object limit"
-            }
             Self::BackgroundBlockStarted => {
                 "Warp created a background-output Block (whenever a processes has been backgrounded and yields some output)"
             }
@@ -2803,7 +2753,6 @@ impl TelemetryEventDesc for TelemetryEventDiscriminants {
             Self::ResourceCenterTipsSkipped => "Skipped welcome tips for new users",
             Self::KeybindingsPageOpened => "Opened the keybinding page within the resource center",
             Self::OpenNotebook => "Opened a notebook",
-            Self::EditNotebook => "Edited a notebook",
             Self::NotebookAction => {
                 "Took an action on a notebook: edit, delete, modified font size, etc."
             }

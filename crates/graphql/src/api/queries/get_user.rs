@@ -55,12 +55,6 @@ pub struct FirebaseProfile {
 pub struct AnonymousUserInfo {
     pub anonymous_user_type: AnonymousUserType,
     pub linked_at: Option<Time>,
-    pub personal_object_limits: Option<AnonymousUserPersonalObjectLimits>,
-}
-
-#[derive(cynic::QueryFragment, Debug, Clone)]
-pub struct AnonymousUserPersonalObjectLimits {
-    pub notebook_limit: i32,
 }
 
 #[derive(cynic::InlineFragments, Debug)]

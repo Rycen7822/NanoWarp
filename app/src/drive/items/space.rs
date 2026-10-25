@@ -4,7 +4,6 @@ use warpui::elements::MouseStateHandle;
 use super::{WarpDriveItem, WarpDriveItemId};
 use crate::appearance::Appearance;
 use crate::cloud_object::{CloudObjectMetadata, Space};
-use crate::drive::DriveObjectType;
 use crate::drive::index::DriveIndexAction;
 use crate::themes::theme::Fill;
 
@@ -29,7 +28,7 @@ impl WarpDriveItem for WarpDriveSpace {
         None
     }
 
-    fn object_type(&self) -> Option<DriveObjectType> {
+    fn icon(&self, _appearance: &Appearance, _color: Option<Fill>) -> Option<Box<dyn Element>> {
         None
     }
 

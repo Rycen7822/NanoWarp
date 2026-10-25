@@ -1,6 +1,5 @@
 mod cloud_object_naming_dialog;
 pub mod cloud_object_styling;
-pub mod drive_helpers;
 pub mod empty_trash_confirmation_dialog;
 pub mod folders;
 pub(crate) mod index;
@@ -10,7 +9,6 @@ pub mod settings;
 pub mod sharing;
 
 use std::cmp::Ordering;
-use std::fmt;
 
 pub use cloud_objects::drive::CloudObjectTypeAndId;
 pub use index::DriveIndexVariant;
@@ -21,33 +19,8 @@ use warpui::AppContext;
 
 use crate::cloud_object::model::view::{CloudViewModel, UpdateTimestamp};
 use crate::cloud_object::{CloudObject, ObjectType};
-use crate::ui_components::icons::Icon;
 
 type SortByComparator<'a> = dyn FnMut(&&dyn CloudObject, &&dyn CloudObject) -> Ordering + 'a;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum DriveObjectType {
-    Notebook,
-    Folder,
-}
-
-impl From<DriveObjectType> for Icon {
-    fn from(cloud_object_type: DriveObjectType) -> Icon {
-        match cloud_object_type {
-            DriveObjectType::Notebook => Icon::Notebook,
-            DriveObjectType::Folder => Icon::Folder,
-        }
-    }
-}
-
-impl fmt::Display for DriveObjectType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DriveObjectType::Notebook => write!(f, "notebook"),
-            DriveObjectType::Folder => write!(f, "folder"),
-        }
-    }
-}
 
 pub fn should_auto_open_welcome_folder(app: &mut AppContext) -> bool {
     app.private_user_preferences()
@@ -135,7 +108,6 @@ impl DriveSortOrder {
                     let order = |obj: &&dyn CloudObject| match obj.object_type() {
                         ObjectType::Folder => 0,
                         ObjectType::GenericStringObject(_) => 1,
-                        ObjectType::Notebook => 2,
                     };
 
                     // First compare by object type ordering, then by display name alphabetically if equal

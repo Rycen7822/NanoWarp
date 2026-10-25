@@ -22,7 +22,7 @@ use crate::cloud_object::{
     RevisionAndLastEditor, ServerCreationInfo, UpdateCloudObjectResult,
 };
 use crate::drive::CloudObjectTypeAndId;
-use crate::notebooks::{CloudNotebookModel, NotebookId};
+use crate::drive::folders::CloudFolderModel;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::server::ids::{ClientId, HashableId, ServerId, ServerIdAndType, SyncId};
 use crate::server::server_api::ServerApiProvider;
@@ -92,32 +92,29 @@ fn create_sync_queue(
 }
 
 #[test]
-fn test_create_notebook() {
+fn test_create_folder() {
     App::test((), |mut app| async move {
-        let notebook_id = ClientId::default();
-        let notebook_server_id = ServerId::from(1);
-        let notebook_ts = DateTime::<Utc>::default();
-        let notebook = CloudNotebookModel {
-            title: "Shared Notebook".to_string(),
-            data: "Hello".to_string(),
-        };
+        let folder_id = ClientId::default();
+        let folder_server_id = ServerId::from(1);
+        let folder_ts = DateTime::<Utc>::default();
+        let folder = CloudFolderModel::new("Shared Folder", false);
 
         let mut cloud_objects_client_mock = MockObjectClient::new();
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_folder()
             .times(1)
             .return_once(move |_| {
                 Ok(CreateCloudObjectResult::Success {
                     created_cloud_object: CreatedCloudObject {
-                        client_id: notebook_id,
+                        client_id: folder_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: notebook_ts.into(),
+                            revision: folder_ts.into(),
                             last_editor_uid: None,
                         },
-                        metadata_ts: notebook_ts.into(),
+                        metadata_ts: folder_ts.into(),
                         server_id_and_type: ServerIdAndType {
-                            id: notebook_server_id,
-                            id_type: ObjectIdType::Notebook,
+                            id: folder_server_id,
+                            id_type: ObjectIdType::Folder,
                         },
                         creator_uid: None,
                         permissions: ServerPermissions::mock_personal(),
@@ -139,11 +136,11 @@ fn test_create_notebook() {
             .update(&mut app, |sync_queue, ctx| {
                 sync_queue.enqueue(
                     QueueItem::CreateObject {
-                        object_type: ObjectType::Notebook,
+                        object_type: ObjectType::Folder,
                         owner: Owner::mock_current_user(),
-                        id: notebook_id,
+                        id: folder_id,
                         title: None,
-                        serialized_model: Some(Arc::new(notebook.serialized())),
+                        serialized_model: Some(Arc::new(folder.serialized())),
                         initial_folder_id: None,
                         entrypoint: Default::default(),
                         initiated_by: InitiatedBy::User,
@@ -162,18 +159,18 @@ fn test_create_notebook() {
                 SyncQueueEvent::ObjectCreationSuccessful {
                     server_creation_info: ServerCreationInfo {
                         server_id_and_type: ServerIdAndType {
-                            id: notebook_server_id,
-                            id_type: ObjectIdType::Notebook
+                            id: folder_server_id,
+                            id_type: ObjectIdType::Folder
                         },
                         creator_uid: None,
                         permissions: ServerPermissions::mock_personal(),
                     },
-                    client_id: notebook_id,
+                    client_id: folder_id,
                     revision_and_editor: RevisionAndLastEditor {
-                        revision: notebook_ts.into(),
+                        revision: folder_ts.into(),
                         last_editor_uid: None
                     },
-                    metadata_ts: notebook_ts.into(),
+                    metadata_ts: folder_ts.into(),
                     initiated_by: InitiatedBy::User
                 }
             );
@@ -187,13 +184,10 @@ fn test_generic_string_object_unique_key_failure() {
         let owner = Owner::mock_current_user();
         let gso_id = ClientId::default();
         let gso_json = "{\"storage_key\":\"somepref\",\"value\":true,\"platform\":\"Global\"}";
-        let notebook_id = ClientId::default();
-        let notebook_server_id = ServerId::from(1);
-        let notebook_ts = DateTime::<Utc>::default();
-        let notebook = CloudNotebookModel {
-            title: "Shared Notebook".to_string(),
-            data: "Hello".to_string(),
-        };
+        let folder_id = ClientId::default();
+        let folder_server_id = ServerId::from(1);
+        let folder_ts = DateTime::<Utc>::default();
+        let folder = CloudFolderModel::new("Shared Folder", false);
 
         // This pattern is used in a couple places to control the order of async operations.
         // Basically, we wait to receive a message on a channel before certain mocks can continue,
@@ -210,21 +204,21 @@ fn test_generic_string_object_unique_key_failure() {
                 Ok(CreateCloudObjectResult::GenericStringObjectUniqueKeyConflict)
             });
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_folder()
             .times(1)
             .return_once(move |_| {
                 rx.recv().unwrap();
                 Ok(CreateCloudObjectResult::Success {
                     created_cloud_object: CreatedCloudObject {
-                        client_id: notebook_id,
+                        client_id: folder_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: notebook_ts.into(),
+                            revision: folder_ts.into(),
                             last_editor_uid: None,
                         },
-                        metadata_ts: notebook_ts.into(),
+                        metadata_ts: folder_ts.into(),
                         server_id_and_type: ServerIdAndType {
-                            id: notebook_server_id,
-                            id_type: ObjectIdType::Notebook,
+                            id: folder_server_id,
+                            id_type: ObjectIdType::Folder,
                         },
                         creator_uid: None,
                         permissions: ServerPermissions::mock_personal(),
@@ -248,11 +242,11 @@ fn test_generic_string_object_unique_key_failure() {
                     initiated_by: InitiatedBy::User,
                 },
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::Folder,
                     owner,
-                    id: notebook_id,
+                    id: folder_id,
                     title: None,
-                    serialized_model: Some(Arc::new(notebook.serialized())),
+                    serialized_model: Some(Arc::new(folder.serialized())),
                     initial_folder_id: None,
                     entrypoint: CloudObjectEventEntrypoint::Unknown,
                     initiated_by: InitiatedBy::User,
@@ -292,7 +286,7 @@ fn test_generic_string_object_unique_key_failure() {
             );
         });
 
-        // Allow the notebook to be created.
+        // Allow the folder to be created.
         tx.send(()).unwrap();
         sync_queue
             .update(&mut app, |queue, ctx| {
@@ -319,18 +313,18 @@ fn test_generic_string_object_unique_key_failure() {
                     SyncQueueEvent::ObjectCreationSuccessful {
                         server_creation_info: ServerCreationInfo {
                             server_id_and_type: ServerIdAndType {
-                                id: notebook_server_id,
-                                id_type: ObjectIdType::Notebook
+                                id: folder_server_id,
+                                id_type: ObjectIdType::Folder
                             },
                             creator_uid: None,
                             permissions: ServerPermissions::mock_personal(),
                         },
-                        client_id: notebook_id,
+                        client_id: folder_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: notebook_ts.into(),
+                            revision: folder_ts.into(),
                             last_editor_uid: None
                         },
-                        metadata_ts: notebook_ts.into(),
+                        metadata_ts: folder_ts.into(),
                         initiated_by: InitiatedBy::User
                     }
                 ]
@@ -343,43 +337,37 @@ fn test_generic_string_object_unique_key_failure() {
 fn test_dequeue_after_transient_failure() {
     App::test((), |mut app| async move {
         let owner = Owner::mock_current_user();
-        let success_notebook_id = ClientId::default();
-        let success_notebook_server_id = ServerId::from(1);
-        let success_notebook_ts = DateTime::<Utc>::default();
-        let success_notebook = CloudNotebookModel {
-            title: "Successful Notebook".to_string(),
-            data: "Hello :)".to_string(),
-        };
-        let failure_notebook_id = ClientId::default();
-        let failure_notebook = CloudNotebookModel {
-            title: "Failed Notebook".to_string(),
-            data: "Hello :(".to_string(),
-        };
+        let success_folder_id = ClientId::default();
+        let success_folder_server_id = ServerId::from(1);
+        let success_folder_ts = DateTime::<Utc>::default();
+        let success_folder = CloudFolderModel::new("Successful Folder", false);
+        let failure_folder_id = ClientId::default();
+        let failure_folder = CloudFolderModel::new("Failed Folder", false);
 
         let (tx, rx) = std::sync::mpsc::channel();
 
         let failure_attempts = 1 + super::DEFAULT_RETRY_OPTION.remaining_retries();
         let mut cloud_objects_client_mock = MockObjectClient::new();
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_folder()
             .times(failure_attempts)
             .returning(move |_| Err(anyhow!("Transient network error!!!!")));
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_folder()
             .times(1)
             .return_once(move |_| {
                 rx.recv().unwrap();
                 Ok(CreateCloudObjectResult::Success {
                     created_cloud_object: CreatedCloudObject {
-                        client_id: success_notebook_id,
+                        client_id: success_folder_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: success_notebook_ts.into(),
+                            revision: success_folder_ts.into(),
                             last_editor_uid: None,
                         },
-                        metadata_ts: success_notebook_ts.into(),
+                        metadata_ts: success_folder_ts.into(),
                         server_id_and_type: ServerIdAndType {
-                            id: success_notebook_server_id,
-                            id_type: ObjectIdType::Notebook,
+                            id: success_folder_server_id,
+                            id_type: ObjectIdType::Folder,
                         },
                         creator_uid: None,
                         permissions: ServerPermissions::mock_personal(),
@@ -393,21 +381,21 @@ fn test_dequeue_after_transient_failure() {
             &mut app,
             vec![
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::Folder,
                     owner,
-                    id: failure_notebook_id,
+                    id: failure_folder_id,
                     title: None,
-                    serialized_model: Some(Arc::new(failure_notebook.serialized())),
+                    serialized_model: Some(Arc::new(failure_folder.serialized())),
                     initial_folder_id: None,
                     entrypoint: CloudObjectEventEntrypoint::Unknown,
                     initiated_by: InitiatedBy::User,
                 },
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::Folder,
                     owner,
-                    id: success_notebook_id,
+                    id: success_folder_id,
                     title: None,
-                    serialized_model: Some(Arc::new(success_notebook.serialized())),
+                    serialized_model: Some(Arc::new(success_folder.serialized())),
                     initial_folder_id: None,
                     entrypoint: CloudObjectEventEntrypoint::Unknown,
                     initiated_by: InitiatedBy::User,
@@ -429,7 +417,7 @@ fn test_dequeue_after_transient_failure() {
             })
             .await;
 
-        // Wait for the first notebook's creation to fail.
+        // Wait for the first folder's creation to fail.
         // The failures are retried, but their futures are spawned on background threads,
         // so we can't access them. Instead, we wait for a SyncQueue event to appear in the model.
         assert_eventually!(
@@ -442,14 +430,14 @@ fn test_dequeue_after_transient_failure() {
                 &events.0[0],
                 &SyncQueueEvent::ObjectCreationFailure {
                     reason: CreationFailureReason::Other {
-                        id: failure_notebook_id.to_hash(),
+                        id: failure_folder_id.to_hash(),
                         initiated_by: InitiatedBy::User
                     },
                 }
             );
         });
 
-        // Allow the second notebook to be created.
+        // Allow the second folder to be created.
         tx.send(()).unwrap();
         sync_queue
             .update(&mut app, |queue, ctx| {
@@ -465,25 +453,25 @@ fn test_dequeue_after_transient_failure() {
                 &[
                     SyncQueueEvent::ObjectCreationFailure {
                         reason: CreationFailureReason::Other {
-                            id: failure_notebook_id.to_hash(),
+                            id: failure_folder_id.to_hash(),
                             initiated_by: InitiatedBy::User
                         },
                     },
                     SyncQueueEvent::ObjectCreationSuccessful {
                         server_creation_info: ServerCreationInfo {
                             server_id_and_type: ServerIdAndType {
-                                id: success_notebook_server_id,
-                                id_type: ObjectIdType::Notebook
+                                id: success_folder_server_id,
+                                id_type: ObjectIdType::Folder
                             },
                             creator_uid: None,
                             permissions: ServerPermissions::mock_personal(),
                         },
-                        client_id: success_notebook_id,
+                        client_id: success_folder_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: success_notebook_ts.into(),
+                            revision: success_folder_ts.into(),
                             last_editor_uid: None
                         },
-                        metadata_ts: success_notebook_ts.into(),
+                        metadata_ts: success_folder_ts.into(),
                         initiated_by: InitiatedBy::User
                     }
                 ]
@@ -496,22 +484,16 @@ fn test_dequeue_after_transient_failure() {
 fn test_no_dequeue_after_intransient_failure() {
     App::test((), |mut app| async move {
         let owner = Owner::mock_current_user();
-        let failure_notebook_id = ClientId::default();
-        let failure_notebook = CloudNotebookModel {
-            title: "Failed Notebook".to_string(),
-            data: "Hello :(".to_string(),
-        };
-        let second_notebook = CloudNotebookModel {
-            title: "Second Notebook".to_string(),
-            data: "I'd like to be created! But I won't be :(".to_string(),
-        };
-        let second_notebook_id = ClientId::default();
-        let second_notebook_item = QueueItem::CreateObject {
-            object_type: ObjectType::Notebook,
+        let failure_folder_id = ClientId::default();
+        let failure_folder = CloudFolderModel::new("Failed Folder", false);
+        let second_folder = CloudFolderModel::new("Second Folder", false);
+        let second_folder_id = ClientId::default();
+        let second_folder_item = QueueItem::CreateObject {
+            object_type: ObjectType::Folder,
             owner,
-            id: second_notebook_id,
+            id: second_folder_id,
             title: None,
-            serialized_model: Some(Arc::new(second_notebook.serialized())),
+            serialized_model: Some(Arc::new(second_folder.serialized())),
             initial_folder_id: None,
             entrypoint: CloudObjectEventEntrypoint::Unknown,
             initiated_by: InitiatedBy::User,
@@ -520,7 +502,7 @@ fn test_no_dequeue_after_intransient_failure() {
         let failure_attempts = 1 + super::DEFAULT_RETRY_OPTION.remaining_retries();
         let mut cloud_objects_client_mock = MockObjectClient::new();
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_folder()
             // Note that even though we don't dequeue future items because we know they'll fail,
             // we're still stuck retrying the initial item.
             .times(failure_attempts)
@@ -540,16 +522,16 @@ fn test_no_dequeue_after_intransient_failure() {
             &mut app,
             vec![
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::Folder,
                     owner,
-                    id: failure_notebook_id,
+                    id: failure_folder_id,
                     title: None,
-                    serialized_model: Some(Arc::new(failure_notebook.serialized())),
+                    serialized_model: Some(Arc::new(failure_folder.serialized())),
                     initial_folder_id: None,
                     entrypoint: CloudObjectEventEntrypoint::Unknown,
                     initiated_by: InitiatedBy::User,
                 },
-                second_notebook_item.clone(),
+                second_folder_item.clone(),
             ],
             cloud_objects_client_mock,
             false,
@@ -567,7 +549,7 @@ fn test_no_dequeue_after_intransient_failure() {
             })
             .await;
 
-        // Wait for the first notebook's creation to fail.
+        // Wait for the first folder's creation to fail.
         // The failures are retried, but their futures are spawned on background threads,
         // so we can't access them. Instead, we wait for a SyncQueue event to appear in the model.
         assert_eventually!(
@@ -580,61 +562,63 @@ fn test_no_dequeue_after_intransient_failure() {
                 &events.0[0],
                 &SyncQueueEvent::ObjectCreationFailure {
                     reason: CreationFailureReason::Other {
-                        id: failure_notebook_id.to_hash(),
+                        id: failure_folder_id.to_hash(),
                         initiated_by: InitiatedBy::User
                     },
                 }
             );
         });
 
-        // The second notebook should not be dequeued.
+        // The second folder should not be dequeued.
         sync_queue.read(&app, |queue, _ctx| {
             // The queue will still be in a "dequeueing" state, so it processes new items, but it
             // will not process the existing item.
             assert_eq!(queue.spawned_futures.len(), 1);
             let items = queue.queue().iter().map(|(_, item)| item).collect_vec();
-            assert_eq!(items, &[&second_notebook_item]);
+            assert_eq!(items, &[&second_folder_item]);
         });
     });
 }
 
 #[test]
-fn test_create_and_update_notebook() {
+fn test_create_and_update_cloud_preference() {
     App::test((), |mut app| async move {
         let owner = Owner::mock_current_user();
-        let notebook_id = ClientId::default();
-        let notebook_server_id = ServerId::from(1);
-        let notebook_ts = DateTime::<Utc>::default();
-        let notebook_revision_after_create = Revision::from(notebook_ts);
-        let notebook_revision_after_update =
-            Revision::from(notebook_ts + chrono::Duration::minutes(100));
-        let notebook_title = "My Notebook".to_string();
-        let notebook_data = "Hello".to_string();
-        let notebook = CloudNotebookModel {
-            title: notebook_title.clone(),
-            data: notebook_data.clone(),
-        };
+        let preference_id = ClientId::default();
+        let preference_server_id = ServerId::from(1);
+        let preference_ts = DateTime::<Utc>::default();
+        let preference_revision_after_create = Revision::from(preference_ts);
+        let preference_revision_after_update =
+            Revision::from(preference_ts + chrono::Duration::minutes(100));
+        let preference = CloudPreferenceModel::new(
+            Preference::new(
+                "test_storage_key".to_string(),
+                "true",
+                SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+            )
+            .expect("error creating preference"),
+        );
 
         let (tx, rx) = std::sync::mpsc::channel();
 
         let mut cloud_objects_client_mock = MockObjectClient::new();
-        let notebook_revision_after_create_clone = notebook_revision_after_create;
-        let notebook_revision_after_update_clone = notebook_revision_after_update;
+        let preference_revision_after_create_clone = preference_revision_after_create;
+        let preference_revision_after_update_clone = preference_revision_after_update;
         cloud_objects_client_mock
-            .expect_create_notebook()
+            .expect_create_generic_string_object()
             .times(1)
-            .return_once(move |_| {
+            .return_once(move |_, _, _| {
                 Ok(CreateCloudObjectResult::Success {
                     created_cloud_object: CreatedCloudObject {
-                        client_id: notebook_id,
+                        client_id: preference_id,
                         revision_and_editor: RevisionAndLastEditor {
-                            revision: notebook_revision_after_create_clone,
+                            revision: preference_revision_after_create_clone,
                             last_editor_uid: Some("34jkaosdfj".to_string()),
                         },
-                        metadata_ts: notebook_ts.into(),
+                        metadata_ts: preference_ts.into(),
                         server_id_and_type: ServerIdAndType {
-                            id: notebook_server_id,
-                            id_type: ObjectIdType::Notebook,
+                            id: preference_server_id,
+                            id_type: ObjectIdType::GenericStringObject,
                         },
                         creator_uid: Some("34jkaosdfj".to_string()),
                         permissions: ServerPermissions::mock_personal(),
@@ -642,13 +626,13 @@ fn test_create_and_update_notebook() {
                 })
             });
         cloud_objects_client_mock
-            .expect_update_notebook()
+            .expect_update_generic_string_object()
             .times(1)
-            .return_once(move |_, _, _, _| {
+            .return_once(move |_, _, _| {
                 rx.recv().unwrap();
                 Ok(UpdateCloudObjectResult::Success {
                     revision_and_editor: RevisionAndLastEditor {
-                        revision: notebook_revision_after_update_clone,
+                        revision: preference_revision_after_update_clone,
                         last_editor_uid: Some("34jkaosdfj".to_string()),
                     },
                 })
@@ -660,23 +644,21 @@ fn test_create_and_update_notebook() {
             &mut app,
             vec![
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
                     owner,
-                    id: notebook_id,
+                    id: preference_id,
                     title: None,
-                    serialized_model: Some(Arc::new(notebook.serialized())),
+                    serialized_model: Some(Arc::new(preference.serialized())),
                     initial_folder_id: None,
                     entrypoint: CloudObjectEventEntrypoint::Unknown,
                     initiated_by: InitiatedBy::User,
                 },
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: notebook_title,
-                        data: notebook_data,
-                    }
-                    .into(),
-                    id: SyncId::ClientId(notebook_id),
-                    revision: Some(notebook_revision_after_create),
+                QueueItem::UpdateCloudPreferences {
+                    model: preference.into(),
+                    id: SyncId::ClientId(preference_id),
+                    revision: Some(preference_revision_after_create),
                 },
             ],
             cloud_objects_client_mock,
@@ -695,22 +677,22 @@ fn test_create_and_update_notebook() {
             })
             .await;
 
-        // Assert we have received one event and that it corresponds to a notebook creation.
+        // Assert we have received one event and that it corresponds to a preference creation.
         events.read(&app, |events, _ctx| {
             assert_eq!(events.0.len(), 1);
             assert_eq!(
                 events[0],
                 SyncQueueEvent::ObjectCreationSuccessful {
-                    client_id: notebook_id,
+                    client_id: preference_id,
                     revision_and_editor: RevisionAndLastEditor {
-                        revision: notebook_ts.into(),
+                        revision: preference_ts.into(),
                         last_editor_uid: Some("34jkaosdfj".to_string()),
                     },
-                    metadata_ts: notebook_ts.into(),
+                    metadata_ts: preference_ts.into(),
                     server_creation_info: ServerCreationInfo {
                         server_id_and_type: ServerIdAndType {
-                            id: notebook_server_id,
-                            id_type: ObjectIdType::Notebook,
+                            id: preference_server_id,
+                            id_type: ObjectIdType::GenericStringObject,
                         },
                         creator_uid: Some("34jkaosdfj".to_string()),
                         permissions: ServerPermissions::mock_personal(),
@@ -732,9 +714,9 @@ fn test_create_and_update_notebook() {
             assert_eq!(
                 sync_queue_events[1],
                 SyncQueueEvent::ObjectUpdateSuccessful {
-                    server_id: notebook_server_id,
+                    server_id: preference_server_id,
                     revision_and_editor: RevisionAndLastEditor {
-                        revision: notebook_revision_after_update,
+                        revision: preference_revision_after_update,
                         last_editor_uid: Some("34jkaosdfj".to_string()),
                     },
                 }
@@ -826,10 +808,10 @@ fn test_record_object_action() {
         let timestamp_old = timestamp - Duration::minutes(10);
         let timestamp_older = timestamp - Duration::minutes(20);
         let timestamp_oldest = timestamp - Duration::minutes(30);
-        let notebook_id = "0000watermelonchestnut".to_string();
-        let notebook_id_clone = notebook_id.clone();
-        let hashed_sqlite_id = SyncId::ServerId(ServerId::from_string_lossy(&notebook_id))
-            .sqlite_uid_hash(ObjectIdType::Notebook);
+        let folder_id = "0000watermelonchestnut".to_string();
+        let folder_id_clone = folder_id.clone();
+        let hashed_sqlite_id = SyncId::ServerId(ServerId::from_string_lossy(&folder_id))
+            .sqlite_uid_hash(ObjectIdType::Folder);
         let hashed_sqlite_id_clone = hashed_sqlite_id.clone();
 
         let mut cloud_objects_client_mock = MockObjectClient::new();
@@ -838,14 +820,14 @@ fn test_record_object_action() {
             .times(1)
             .returning(move |_, _, _, _| {
                 Ok(ObjectActionHistory {
-                    uid: notebook_id_clone.clone(),
+                    uid: folder_id_clone.clone(),
                     hashed_sqlite_id: hashed_sqlite_id_clone.clone(),
                     latest_processed_at_timestamp: timestamp,
                     actions: vec![
                         // One action that occurred just now
                         ObjectAction {
                             action_type: ObjectActionType::Execute,
-                            uid: notebook_id_clone.clone(),
+                            uid: folder_id_clone.clone(),
                             hashed_sqlite_id: hashed_sqlite_id_clone.clone(),
                             action_subtype: ObjectActionSubtype::SingleAction {
                                 timestamp,
@@ -857,7 +839,7 @@ fn test_record_object_action() {
                         // One action that occurred a lil bit ago
                         ObjectAction {
                             action_type: ObjectActionType::Execute,
-                            uid: notebook_id_clone.clone(),
+                            uid: folder_id_clone.clone(),
                             hashed_sqlite_id: hashed_sqlite_id_clone.clone(),
                             action_subtype: ObjectActionSubtype::SingleAction {
                                 timestamp: timestamp_old,
@@ -869,7 +851,7 @@ fn test_record_object_action() {
                         // A bundle of 10 actions from a lil while ago
                         ObjectAction {
                             action_type: ObjectActionType::Execute,
-                            uid: notebook_id_clone.clone(),
+                            uid: folder_id_clone.clone(),
                             hashed_sqlite_id: hashed_sqlite_id_clone.clone(),
                             action_subtype: ObjectActionSubtype::BundledActions {
                                 latest_timestamp: timestamp_older,
@@ -895,8 +877,8 @@ fn test_record_object_action() {
             .update(&mut app, |item, ctx| {
                 item.enqueue(
                     QueueItem::RecordObjectAction {
-                        id_and_type: CloudObjectTypeAndId::Notebook(SyncId::ServerId(
-                            ServerId::from_string_lossy(&notebook_id),
+                        id_and_type: CloudObjectTypeAndId::Folder(SyncId::ServerId(
+                            ServerId::from_string_lossy(&folder_id),
                         )),
                         action_type: ObjectActionType::Execute,
                         action_timestamp: timestamp,
@@ -909,7 +891,7 @@ fn test_record_object_action() {
             })
             .await;
 
-        let uid = SyncId::ServerId(ServerId::from_string_lossy(&notebook_id)).uid();
+        let uid = SyncId::ServerId(ServerId::from_string_lossy(&folder_id)).uid();
         sync_queue_events.update(&mut app, |sync_queue_events, _ctx| {
             assert_eq!(sync_queue_events.0.len(), 1);
             assert_eq!(
@@ -965,8 +947,8 @@ fn test_record_object_action() {
 
 #[test]
 fn test_sync_queue_dependency_successes() {
-    // Create a client ID for a notebook
-    let notebook_client_id = ClientId::new();
+    // Create a client ID for a preference
+    let preference_client_id = ClientId::new();
 
     App::test((), |mut app| async move {
         initialize_app(&mut app);
@@ -975,18 +957,24 @@ fn test_sync_queue_dependency_successes() {
         let sync_queue = create_sync_queue(&mut app, vec![], cloud_objects_client_mock, false);
 
         sync_queue.update(&mut app, |sync_queue, ctx| {
-            // Enqueue the notebook create request
+            // Enqueue the preference create request
             let create_id = sync_queue.enqueue(
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
                     owner: Owner::mock_current_user(),
-                    id: notebook_client_id,
+                    id: preference_client_id,
                     title: None,
                     serialized_model: Some(Arc::new(
-                        CloudNotebookModel {
-                            title: "test".to_string(),
-                            data: "no".to_string(),
-                        }
+                        CloudPreferenceModel::new(
+                            Preference::new(
+                                "test_storage_key".to_string(),
+                                "true",
+                                SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                            )
+                            .expect("error creating preference"),
+                        )
                         .serialized(),
                     )),
                     initial_folder_id: None,
@@ -999,7 +987,9 @@ fn test_sync_queue_dependency_successes() {
             // Enqueue an unrelated request
             sync_queue.enqueue(
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
                     owner: Owner::mock_current_user(),
                     id: ClientId::new(),
                     title: None,
@@ -1011,15 +1001,19 @@ fn test_sync_queue_dependency_successes() {
                 ctx,
             );
 
-            // Enqueue an update to the notebook
+            // Enqueue an update to the preference
             let update_id = sync_queue.enqueue(
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: "hi".to_string(),
-                        data: "no".to_string(),
-                    }
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "false",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
-                    id: SyncId::ClientId(notebook_client_id),
+                    id: SyncId::ClientId(preference_client_id),
                     revision: None,
                 },
                 ctx,
@@ -1054,11 +1048,8 @@ fn test_sync_queue_dependency_successes() {
 #[test]
 fn test_sync_queue_dependency_failure() {
     App::test((), |mut app| async move {
-        // have a notebook and make the update requests fail
+        // have a preference and make the update requests fail
         let client_id = ClientId::new();
-        let notebook_data = "new data".to_owned();
-        let notebook_title = "new title".to_owned();
-        let final_notebook_title = "final title".to_string();
 
         let revision_after_create = Revision::from(DateTime::<Utc>::default());
 
@@ -1077,7 +1068,9 @@ fn test_sync_queue_dependency_failure() {
         sync_queue.update(&mut app, |sync_queue, ctx| {
             let create_id = sync_queue.enqueue(
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
                     owner: Owner::mock_current_user(),
                     id: client_id,
                     title: None,
@@ -1090,11 +1083,15 @@ fn test_sync_queue_dependency_failure() {
             );
 
             let update_id = sync_queue.enqueue(
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: notebook_title,
-                        data: notebook_data,
-                    }
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "true",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: SyncId::ClientId(client_id),
                     revision: Some(revision_after_create),
@@ -1103,11 +1100,15 @@ fn test_sync_queue_dependency_failure() {
             );
 
             let update_id_2 = sync_queue.enqueue(
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: final_notebook_title.clone(),
-                        data: String::new(),
-                    }
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "false",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: SyncId::ClientId(client_id),
                     revision: Some(revision_after_create),
@@ -1178,12 +1179,8 @@ fn test_sync_queue_dependency_mixed_ids() {
     // check dependencies across items referencing client + server ID for the same object
 
     let client_id = ClientId::new();
-    let server_id = SyncId::ServerId(NotebookId::from(123).into());
+    let server_id = SyncId::ServerId(GenericStringObjectId::from(123).into());
     let revision_after_create = Revision::from(DateTime::<Utc>::default());
-
-    let notebook_data = "new data".to_owned();
-    let notebook_title = "new title".to_owned();
-    let final_notebook_title = "final title".to_string();
 
     App::test((), |mut app| async move {
         let cloud_objects_client_mock = MockObjectClient::new();
@@ -1198,7 +1195,9 @@ fn test_sync_queue_dependency_mixed_ids() {
         sync_queue.update(&mut app, |sync_queue, ctx| {
             let create_id = sync_queue.enqueue(
                 QueueItem::CreateObject {
-                    object_type: ObjectType::Notebook,
+                    object_type: ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
+                        JsonObjectType::Preference,
+                    )),
                     owner: Owner::mock_current_user(),
                     id: client_id,
                     title: None,
@@ -1211,11 +1210,15 @@ fn test_sync_queue_dependency_mixed_ids() {
             );
 
             let update_id = sync_queue.enqueue(
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: notebook_title,
-                        data: notebook_data,
-                    }
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "true",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: SyncId::ClientId(client_id),
                     revision: Some(revision_after_create),
@@ -1249,7 +1252,7 @@ fn test_sync_queue_dependency_mixed_ids() {
                         server_creation_info: ServerCreationInfo {
                             server_id_and_type: ServerIdAndType {
                                 id: server_id.into_server().expect("Expect server id"),
-                                id_type: ObjectIdType::Notebook,
+                                id_type: ObjectIdType::GenericStringObject,
                             },
                             creator_uid: Default::default(),
                             permissions: ServerPermissions::mock_personal(),
@@ -1267,11 +1270,15 @@ fn test_sync_queue_dependency_mixed_ids() {
             );
 
             let update_id_2 = sync_queue.enqueue(
-                QueueItem::UpdateNotebook {
-                    model: CloudNotebookModel {
-                        title: final_notebook_title.clone(),
-                        data: String::new(),
-                    }
+                QueueItem::UpdateCloudPreferences {
+                    model: CloudPreferenceModel::new(
+                        Preference::new(
+                            "test_storage_key".to_string(),
+                            "false",
+                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        )
+                        .expect("error creating preference"),
+                    )
                     .into(),
                     id: server_id,
                     revision: Some(revision_after_create),

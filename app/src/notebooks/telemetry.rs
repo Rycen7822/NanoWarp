@@ -9,8 +9,6 @@ use super::editor::BlockInsertionSource;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum NotebookTelemetryAction {
-    /// The user manually took edit control.
-    GrabEditingBaton,
     /// A block within the notebook was copied to the clipboard.
     /// Currently, this only applies to command-like blocks.
     CopyBlock {

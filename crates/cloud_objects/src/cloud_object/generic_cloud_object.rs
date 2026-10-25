@@ -21,9 +21,9 @@ pub struct CloudObjectUpsertParams<M> {
 /// For instance, rather than directly implementing the CloudObject trait, CloudObjects can
 /// implement GenericCloudObject<K, M> where K is their id type and M is their model type.
 ///
-/// For example, CloudNotebook becomes:
+/// For example, CloudFolder becomes:
 ///
-///   pub type CloudNotebook = GenericCloudObject<NotebookId, CloudNotebookModel>
+///   pub type CloudFolder = GenericCloudObject<FolderId, CloudFolderModel>
 ///
 /// The advantage of using the generic model is you get common implementations
 /// of CloudObject methods like ```versions``` for free.

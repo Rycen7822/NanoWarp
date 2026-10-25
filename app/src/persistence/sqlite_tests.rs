@@ -23,7 +23,7 @@ use crate::app_state::{
 use crate::auth::UserUid;
 use crate::cloud_object::{CloudObjectPermissions, Owner};
 use crate::code::editor_management::CodeSource;
-use crate::notebooks::{CloudNotebook, CloudNotebookModel};
+use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::persistence::model::ObjectPermissions;
 use crate::persistence::{BlockCompleted, ModelEvent, PersistenceScope};
 use crate::server::ids::{ClientId, ServerId};
@@ -220,11 +220,8 @@ fn sqlite_writer_persists_workspace_metadata_event() {
 }
 #[test]
 fn test_deduplicate_snapshots() {
-    let local_notebook = CloudNotebook::new_local(
-        CloudNotebookModel {
-            title: "Hello".to_string(),
-            data: "World".to_string(),
-        },
+    let local_folder = CloudFolder::new_local(
+        CloudFolderModel::new("Hello", false),
         Owner::mock_current_user(),
         None,
         ClientId::new(),
@@ -256,16 +253,16 @@ fn test_deduplicate_snapshots() {
     };
 
     let original_events = vec![
-        ModelEvent::UpsertNotebook {
-            notebook: local_notebook.clone(),
+        ModelEvent::UpsertFolder {
+            folder: local_folder.clone(),
         },
         ModelEvent::Snapshot(snapshot_1.clone()),
         ModelEvent::SaveBlock(completed_block_1.clone()),
         ModelEvent::Snapshot(snapshot_2.clone()),
         ModelEvent::SaveBlock(completed_block_2.clone()),
         ModelEvent::Snapshot(snapshot_3.clone()),
-        ModelEvent::UpsertNotebook {
-            notebook: local_notebook.clone(),
+        ModelEvent::UpsertFolder {
+            folder: local_folder.clone(),
         },
     ];
 
@@ -274,7 +271,7 @@ fn test_deduplicate_snapshots() {
 
     assert!(matches!(
         &filtered_events[0],
-        &ModelEvent::UpsertNotebook { .. }
+        &ModelEvent::UpsertFolder { .. }
     ));
     // The first snapshot should have been filtered out.
     assert!(matches!(&filtered_events[1], &ModelEvent::SaveBlock(_)));
@@ -287,7 +284,7 @@ fn test_deduplicate_snapshots() {
     }
     assert!(matches!(
         &filtered_events[4],
-        &ModelEvent::UpsertNotebook { .. }
+        &ModelEvent::UpsertFolder { .. }
     ));
 }
 

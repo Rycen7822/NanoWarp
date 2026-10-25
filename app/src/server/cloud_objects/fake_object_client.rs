@@ -31,12 +31,11 @@ use crate::cloud_object::{
     CreateObjectRequest, CreatedCloudObject, GenericStringObjectFormat,
     GenericStringObjectUniqueKey, JsonObjectType, ObjectDeleteResult, ObjectIdType,
     ObjectMetadataUpdateResult, ObjectPermissionsUpdateData, ObjectType, ObjectsToUpdate, Owner,
-    Revision, RevisionAndLastEditor, ServerFolder, ServerMetadata, ServerNotebook, ServerObject,
-    ServerPermissions, ServerPreference, UpdateCloudObjectResult,
+    Revision, RevisionAndLastEditor, ServerFolder, ServerMetadata, ServerObject, ServerPermissions,
+    ServerPreference, UpdateCloudObjectResult,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
-use crate::notebooks::NotebookId;
 use crate::server::cloud_objects::listener::ObjectUpdateMessage;
 use crate::server::cloud_objects::update_manager::{GetCloudObjectResponse, InitialLoadResponse};
 use crate::server::ids::{ServerId, ServerIdAndType, SyncId};
@@ -284,23 +283,6 @@ impl ObjectClient for FakeObjectClient {
         unimplemented!("FakeObjectClient::create_generic_string_object")
     }
 
-    async fn create_notebook(
-        &self,
-        _request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult> {
-        unimplemented!("FakeObjectClient::create_notebook")
-    }
-
-    async fn update_notebook(
-        &self,
-        _notebook_id: NotebookId,
-        _title: Option<String>,
-        _data: Option<SerializedModel>,
-        _revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerNotebook>> {
-        unimplemented!("FakeObjectClient::update_notebook")
-    }
-
     async fn create_folder(
         &self,
         _request: CreateObjectRequest,
@@ -316,17 +298,6 @@ impl ObjectClient for FakeObjectClient {
         unimplemented!("FakeObjectClient::update_folder")
     }
 
-    async fn grab_notebook_edit_access(&self, _notebook_id: NotebookId) -> Result<ServerMetadata> {
-        unimplemented!("FakeObjectClient::grab_notebook_edit_access")
-    }
-
-    async fn give_up_notebook_edit_access(
-        &self,
-        _notebook_id: NotebookId,
-    ) -> Result<ServerMetadata> {
-        unimplemented!("FakeObjectClient::give_up_notebook_edit_access")
-    }
-
     async fn get_warp_drive_updates(
         &self,
         _message_sender: Sender<ObjectUpdateMessage>,
@@ -337,14 +308,6 @@ impl ObjectClient for FakeObjectClient {
 
     async fn fetch_single_cloud_object(&self, _id: ServerId) -> Result<GetCloudObjectResponse> {
         unimplemented!("FakeObjectClient::fetch_single_cloud_object")
-    }
-
-    async fn transfer_notebook_owner(
-        &self,
-        _notebook_id: NotebookId,
-        _owner: Owner,
-    ) -> Result<bool> {
-        unimplemented!("FakeObjectClient::transfer_notebook_owner")
     }
 
     async fn trash_object(&self, _id: ServerId) -> Result<bool> {

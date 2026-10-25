@@ -13,14 +13,12 @@
 
 pub mod folder;
 pub mod json_model;
-pub mod notebook;
 pub mod preference;
 pub mod server_cloud_object;
 pub mod user_profile;
 
 pub use folder::*;
 pub use json_model::*;
-pub use notebook::*;
 pub use preference::*;
 pub use server_cloud_object::*;
 pub use user_profile::*;

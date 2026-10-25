@@ -16,9 +16,7 @@ use super::credentials::Credentials;
 #[cfg(any(not(target_family = "wasm"), test, feature = "test-util"))]
 use super::user::UserMetadata;
 use super::user::persistence::PersistedUser;
-use super::user::{
-    AnonymousUserType, FirebaseAuthTokens, PersonalObjectLimits, PrincipalType, User,
-};
+use super::user::{AnonymousUserType, FirebaseAuthTokens, PrincipalType, User};
 
 const ANONYMOUS_USER_NOTIFICATION_BLOCK_TIMER: Duration = Duration::days(7);
 
@@ -200,7 +198,6 @@ impl AuthState {
             (Some(user), Some(Credentials::Firebase(firebase_tokens))) => {
                 let anonymous_user_type = user.anonymous_user_type();
                 let linked_at = user.linked_at();
-                let personal_object_limits = user.personal_object_limits();
 
                 #[allow(deprecated)]
                 let persisted = PersistedUser {
@@ -212,7 +209,6 @@ impl AuthState {
                     needs_sso_link: user.needs_sso_link,
                     anonymous_user_type,
                     linked_at,
-                    personal_object_limits,
                     is_on_work_domain: user.is_on_work_domain,
                 };
                 PersistAction::Persist(Box::new(persisted))
@@ -241,7 +237,6 @@ impl AuthState {
             anonymous_user_type: persisted.anonymous_user_type,
             is_on_work_domain: persisted.is_on_work_domain,
             linked_at: persisted.linked_at,
-            personal_object_limits: persisted.personal_object_limits,
             principal_type: PrincipalType::default(),
         };
         *self.user.write() = Some(user);
@@ -321,7 +316,6 @@ impl AuthState {
                     anonymous_user_type: None,
                     is_on_work_domain: false,
                     linked_at: None,
-                    personal_object_limits: None,
                     principal_type: PrincipalType::default(),
                 });
             }
@@ -461,15 +455,6 @@ impl AuthState {
             .read()
             .as_ref()
             .and_then(|user| user.anonymous_user_type())
-    }
-
-    /// Returns the personal object limits the user has.
-    /// Currently, only anonymous users have limits.
-    pub fn personal_object_limits(&self) -> Option<PersonalObjectLimits> {
-        self.user
-            .read()
-            .as_ref()
-            .and_then(|user| user.personal_object_limits())
     }
 
     /// Set whether or not the user is onboarded.

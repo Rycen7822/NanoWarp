@@ -55,24 +55,6 @@ impl TryFrom<warp_graphql::mutations::create_anonymous_user::AnonymousUserType>
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct PersonalObjectLimits {
-    pub notebook_limit: usize,
-}
-
-impl TryFrom<warp_graphql::queries::get_user::AnonymousUserPersonalObjectLimits>
-    for PersonalObjectLimits
-{
-    type Error = anyhow::Error;
-    fn try_from(
-        value: warp_graphql::queries::get_user::AnonymousUserPersonalObjectLimits,
-    ) -> Result<Self, Self::Error> {
-        Ok(Self {
-            notebook_limit: value.notebook_limit as usize,
-        })
-    }
-}
-
 /// The in-memory representation of a logged-in User.
 /// This does not include authentication credentials, which are stored separately
 /// in the `Credentials` enum.
@@ -93,7 +75,6 @@ pub struct User {
     /// Calculated on warp-server.
     pub is_on_work_domain: bool,
     pub linked_at: Option<ServerTimestamp>,
-    pub personal_object_limits: Option<PersonalObjectLimits>,
     /// Type of principal (user or service account). Fetched fresh from the server
     /// on each login/refresh.
     pub principal_type: PrincipalType,
@@ -177,7 +158,6 @@ impl User {
             anonymous_user_type: None,
             is_on_work_domain: false,
             linked_at: None,
-            personal_object_limits: None,
             principal_type: PrincipalType::User,
         }
     }
@@ -188,10 +168,6 @@ impl User {
 
     pub fn anonymous_user_type(&self) -> Option<AnonymousUserType> {
         self.anonymous_user_type
-    }
-
-    pub fn personal_object_limits(&self) -> Option<PersonalObjectLimits> {
-        self.personal_object_limits
     }
 
     pub fn linked_at(&self) -> Option<ServerTimestamp> {

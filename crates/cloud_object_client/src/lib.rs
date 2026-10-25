@@ -106,8 +106,6 @@ pub enum ObjectActionSubtype {
 
 #[derive(Default)]
 pub struct InitialLoadResponse {
-    pub updated_notebooks: Vec<ServerNotebook>,
-    pub deleted_notebooks: Vec<cloud_object_models::NotebookId>,
     pub updated_folders: Vec<ServerFolder>,
     pub deleted_folders: Vec<FolderId>,
     pub updated_generic_string_objects:
@@ -206,23 +204,6 @@ pub trait ObjectClient: 'static + Send + Sync {
         request: CreateObjectRequest,
     ) -> Result<CreateCloudObjectResult>;
 
-    /// Creates a notebook on the server, returning the ID and revision of the object after
-    /// creation.
-    async fn create_notebook(
-        &self,
-        request: CreateObjectRequest,
-    ) -> Result<CreateCloudObjectResult>;
-
-    /// Updates a notebook with the new title and data. The update may be rejected if a revision
-    /// is specified _and_ that revision is not the current revision of the object in storage.
-    async fn update_notebook(
-        &self,
-        notebook_id: cloud_object_models::NotebookId,
-        title: Option<String>,
-        data: Option<SerializedModel>,
-        revision: Option<Revision>,
-    ) -> Result<UpdateCloudObjectResult<ServerNotebook>>;
-
     async fn create_folder(&self, request: CreateObjectRequest) -> Result<CreateCloudObjectResult>;
 
     async fn update_folder(
@@ -238,18 +219,6 @@ pub trait ObjectClient: 'static + Send + Sync {
         revision: Option<Revision>,
     ) -> Result<UpdateCloudObjectResult<Box<dyn ServerObject>>>;
 
-    /// Sets the current editor of the notebook to be the logged in user
-    async fn grab_notebook_edit_access(
-        &self,
-        notebook_id: cloud_object_models::NotebookId,
-    ) -> Result<ServerMetadata>;
-
-    /// Sets the current editor of the notebook to be null
-    async fn give_up_notebook_edit_access(
-        &self,
-        notebook_id: cloud_object_models::NotebookId,
-    ) -> Result<ServerMetadata>;
-
     /// Gets updates for all Warp Drive actions.
     async fn get_warp_drive_updates(
         &self,
@@ -264,13 +233,6 @@ pub trait ObjectClient: 'static + Send + Sync {
     ) -> Result<InitialLoadResponse>;
 
     async fn fetch_single_cloud_object(&self, id: ServerId) -> Result<GetCloudObjectResponse>;
-
-    // Transfers a notebook to the given owner
-    async fn transfer_notebook_owner(
-        &self,
-        notebook_id: cloud_object_models::NotebookId,
-        owner: Owner,
-    ) -> Result<bool>;
 
     async fn trash_object(&self, id: ServerId) -> Result<bool>;
 

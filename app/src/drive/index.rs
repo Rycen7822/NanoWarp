@@ -6,17 +6,15 @@ use futures::Future;
 use itertools::Itertools;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
-use url::Url;
-use warp_core::context_flag::ContextFlag;
 use warp_core::settings::Setting;
 use warp_errors::{report_error, report_if_error};
 use warp_util::sync::Condition;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
-    AnchorPair, Border, ChildAnchor, ChildView, ClippedScrollStateHandle, ClippedScrollable,
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dash, DropTarget, DropTargetData,
-    Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
-    OffsetType, ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
+    AnchorPair, ChildAnchor, ChildView, ClippedScrollStateHandle, ClippedScrollable,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropTarget, DropTargetData, Flex,
+    Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, OffsetType,
+    ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
     PositionedElementOffsetBounds, PositioningAxis, Radius, SavePosition, ScrollTarget,
     ScrollToPositionMode, ScrollbarWidth, Shrinkable, Stack, Text, XAxisAnchor, YAxisAnchor,
 };
@@ -32,7 +30,6 @@ use warpui::{
 };
 
 use super::cloud_object_naming_dialog::CloudObjectNamingDialog;
-use super::drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit;
 use super::empty_trash_confirmation_dialog::{
     EmptyTrashConfirmationDialog, EmptyTrashConfirmationEvent,
 };
@@ -42,7 +39,7 @@ use super::items::item::{ItemStates, WarpDriveRow, tools_panel_menu_direction};
 use super::settings::WarpDriveSettings;
 use super::sharing::ShareableObject;
 use super::sharing::dialog::{SharingDialog, SharingDialogEvent};
-use super::{CloudObjectTypeAndId, DriveObjectType, DriveSortOrder};
+use super::{CloudObjectTypeAndId, DriveSortOrder};
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
@@ -64,16 +61,10 @@ use crate::server::cloud_objects::update_manager::{
 use crate::server::ids::{ObjectUid, ServerId, SyncId};
 use crate::server::sync_queue::SyncQueue;
 use crate::server::telemetry::{SharingDialogSource, TelemetryEvent};
-use crate::settings::app_installation_detection::{
-    UserAppInstallDetectionSettings, UserAppInstallStatus,
-};
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::{highlight, icon_button};
 use crate::ui_components::icons::{ICON_DIMENSIONS, Icon};
 use crate::ui_components::menu_button::{MenuDirection, icon_button_with_context_menu};
-#[cfg(target_family = "wasm")]
-use crate::uri::web_intent_parser::open_url_on_desktop;
-use crate::util::color::coloru_with_opacity;
 use crate::view_components::{Dropdown, DropdownItem};
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -81,12 +72,6 @@ use crate::workspaces::workspace::WorkspaceUid;
 use crate::{ObjectActions, send_telemetry_from_ctx};
 
 const WARP_DRIVE_TITLE: &str = "Warp Drive";
-
-// Team zero state consts
-const HINT_HORIZONTAL_PADDING: f32 = 18.;
-const ITEM_INTERNAL_PADDING: f32 = 4.;
-const HINT_VERTICAL_PADDING: f32 = 7.;
-const HINT_TEXT_PADDING: f32 = 12.;
 
 const SCROLLBAR_WIDTH: ScrollbarWidth = ScrollbarWidth::Auto;
 const SECTION_HEADER_FONT_SIZE: f32 = 12.;
@@ -135,9 +120,7 @@ const OFFLINE_BANNER_PADDING_HORIZONTAL: f32 = 16.;
 const OFFLINE_BANNER_PADDING_VERTICAL: f32 = 4.;
 
 const FOLDER_LABEL: &str = "Folder";
-const NOTEBOOK_LABEL: &str = "Notebook";
 const INDEX_FOLDER_LABEL: &str = "New folder";
-const INDEX_NOTEBOOK_LABEL: &str = "New notebook";
 
 const REMOVE_LABEL: &str = "Remove";
 const OFFLINE_BANNER_TEXT: &str = "You are offline. Some files will be read only.";
@@ -148,8 +131,6 @@ pub const DRIVE_INDEX_VIEW_POSITION_ID: &str = "drive_index_view_id";
 pub const AUTOSCROLL_SPEED_MULTIPLIER: f32 = 10.;
 // Sets the distance from a border at which scroll events start to occur.
 pub const AUTOSCROLL_DETECTION_DISTANCE: f32 = 30.0;
-
-const ZERO_STATE_NOTEBOOK_LABEL: &str = "Notebook";
 
 const SORTING_BUTTON_TOOLTIP_LABEL: &str = "Sort by";
 
@@ -182,15 +163,11 @@ struct RenderedWarpDriveItemAndChildren {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriveIndexAction {
-    OpenObject(CloudObjectTypeAndId),
     CreateObject {
-        object_type: DriveObjectType,
         space: Space,
         initial_folder_id: Option<SyncId>,
     },
-    DuplicateObject(CloudObjectTypeAndId),
     CopyObjectLinkToClipboard(String),
-    OpenObjectLinkOnDesktop(Url),
     ToggleNewAssetsMenu(Space),
     ToggleSortingMenu,
     ToggleItemOverflowMenu {
@@ -213,7 +190,6 @@ pub enum DriveIndexAction {
     },
     OpenCloudObjectNamingDialog {
         space: Space,
-        object_type: DriveObjectType,
         // only present when renaming an existing item
         cloud_object_type_and_id: Option<CloudObjectTypeAndId>,
         initial_folder_id: Option<SyncId>,
@@ -274,43 +250,23 @@ pub enum DriveIndexAction {
 }
 
 impl DriveIndexAction {
-    pub fn create_object(
-        object_type: DriveObjectType,
-        space: Space,
-        initial_folder_id: Option<SyncId>,
-    ) -> Self {
-        match (space, object_type) {
-            // creating a folder requires a name, which is entered from the cloud object dialog
-            (_, DriveObjectType::Folder) => DriveIndexAction::OpenCloudObjectNamingDialog {
-                object_type,
-                space,
-                cloud_object_type_and_id: None,
-                initial_folder_id,
-            },
-            (_, DriveObjectType::Notebook) => DriveIndexAction::CreateObject {
-                object_type,
-                space,
-                initial_folder_id,
-            },
+    pub fn create_object(space: Space, initial_folder_id: Option<SyncId>) -> Self {
+        // Creating a folder requires a name, entered in the cloud object dialog.
+        DriveIndexAction::OpenCloudObjectNamingDialog {
+            space,
+            cloud_object_type_and_id: None,
+            initial_folder_id,
         }
     }
 }
 
 pub enum DriveIndexEvent {
-    CreateNotebook {
-        space: Space,
-        title: Option<String>,
-        initial_folder_id: Option<SyncId>,
-    },
     CreateFolder {
         space: Space,
         title: String,
         initial_folder_id: Option<SyncId>,
     },
-    OpenObject(CloudObjectTypeAndId),
-    DuplicateObject(CloudObjectTypeAndId),
     FocusWarpDrive,
-    OpenSharedObjectsCreationDeniedModal(DriveObjectType, ServerId),
 }
 
 #[derive(Clone, Default)]
@@ -342,7 +298,7 @@ struct SpaceMenuState {
 pub struct DriveIndex {
     window_id: WindowId,
     /// Menu view, can be used for any right click / menu operation (doesn't have menu options by
-    /// default, should get the menu fields on open, example: + button to add notebook)
+    /// default, should get the menu fields on open, example: + button to add a folder)
     menu: ViewHandle<Menu<DriveIndexAction>>,
 
     sharing_dialog: ViewHandle<SharingDialog>,
@@ -846,19 +802,6 @@ impl DriveIndex {
         ctx: &mut ViewContext<Self>,
     ) {
         if let Some(id) = self.selected {
-            // Force expand the item's ancestors and re-render WD initial states
-            // Needed for when the selected object is hidden inside collapsed folder(s)
-
-            /* NOTE: Temporary fix for not being able to open folders due to event conflicts.
-             * This fixes the above but re-introduces a bug where we don't auto-expand the
-             * selected notebook folder in the drive.
-             * Follow:
-             * https://linear.app/warpdotdev/issue/CLD-1557/unable-to-open-folder-when-selected-notebook-resides-in-closed-folder
-             * for a proper fix.
-            CloudModel::handle(ctx).update(ctx, |model, ctx| {
-                model.force_expand_object_and_ancestors_cloud_id(id, ctx);
-            });
-            */
             self.initialize_section_states(ctx);
             self.set_focused_item(id, should_scroll, ctx);
         } else {
@@ -989,7 +932,6 @@ impl DriveIndex {
             | CloudModelEvent::ObjectMoved { .. }
             | CloudModelEvent::ObjectDeleted { .. }
             | CloudModelEvent::ObjectPermissionsUpdated { .. }
-            | CloudModelEvent::NotebookEditorChangedFromServer { .. }
             | CloudModelEvent::ObjectSynced { .. }
             | CloudModelEvent::InitialLoadCompleted => {}
         }
@@ -1015,9 +957,6 @@ impl DriveIndex {
     ) {
         if let WarpDriveItemId::Object(object_id) = item_id {
             match object_id {
-                CloudObjectTypeAndId::Notebook(sync_id) => {
-                    self.expand_section_for_object(&sync_id.uid().clone(), ctx);
-                }
                 CloudObjectTypeAndId::Folder(sync_id) => {
                     self.expand_section_for_object(&sync_id.uid().clone(), ctx);
                 }
@@ -1127,8 +1066,7 @@ impl DriveIndex {
         // The "+" icon for adding new objects.
         let space = section;
         let can_create_objects = match space {
-            Space::Personal => true,
-            Space::Team { .. } => self.is_online(app),
+            Space::Personal | Space::Team { .. } => self.is_online(app),
             Space::Shared => false,
         };
         if can_create_objects {
@@ -1622,97 +1560,6 @@ impl DriveIndex {
         items
     }
 
-    fn render_team_zero_state_hint(
-        &self,
-        icon: Icon,
-        label: &'static str,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let rendered_icon = ConstrainedBox::new(
-            icon.to_warpui_icon(appearance.theme().nonactive_ui_text_color())
-                .finish(),
-        )
-        .with_width(ITEM_FONT_SIZE)
-        .with_height(ITEM_FONT_SIZE)
-        .finish();
-        let hint_text = appearance
-            .ui_builder()
-            .wrappable_text(label, true)
-            .with_style(UiComponentStyles {
-                font_family_id: Some(appearance.ui_font_family()),
-                font_size: Some(ITEM_FONT_SIZE),
-                font_weight: Some(Weight::Light),
-                font_color: Some(appearance.theme().disabled_ui_text_color().into()),
-                ..Default::default()
-            })
-            .build()
-            .with_padding_left(ITEM_FONT_SIZE)
-            .finish();
-        Container::new(
-            Flex::row()
-                .with_child(rendered_icon)
-                .with_child(Shrinkable::new(1., hint_text).finish())
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_main_axis_size(MainAxisSize::Max)
-                .finish(),
-        )
-        .with_padding_left(HINT_HORIZONTAL_PADDING)
-        .with_padding_top(ITEM_INTERNAL_PADDING)
-        .with_padding_bottom(ITEM_INTERNAL_PADDING)
-        .with_margin_bottom(2. * ITEM_INTERNAL_PADDING)
-        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-        .with_background_color(coloru_with_opacity(
-            appearance.theme().surface_2().into(),
-            50,
-        ))
-        .finish()
-    }
-
-    fn render_team_space_zero_state(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let hint_text = "Drag or move a personal notebook here to share it with your team.";
-        let zero_state_info = Container::new(
-            appearance
-                .ui_builder()
-                .wrappable_text(hint_text, true)
-                .with_style(UiComponentStyles {
-                    font_family_id: Some(appearance.ui_font_family()),
-                    font_size: Some(ITEM_FONT_SIZE),
-                    font_weight: Some(Weight::ExtraLight),
-                    font_color: Some(appearance.theme().nonactive_ui_text_color().into()),
-                    ..Default::default()
-                })
-                .build()
-                .finish(),
-        )
-        .with_padding_bottom(HINT_TEXT_PADDING)
-        .finish();
-
-        let zero_state_contents = Flex::column().with_children([
-            zero_state_info,
-            self.render_team_zero_state_hint(Icon::Notebook, ZERO_STATE_NOTEBOOK_LABEL, appearance),
-            self.render_team_zero_state_hint(Icon::Notebook, ZERO_STATE_NOTEBOOK_LABEL, appearance),
-        ]);
-
-        Container::new(zero_state_contents.finish())
-            .with_padding_left(HINT_HORIZONTAL_PADDING)
-            .with_padding_bottom(HINT_VERTICAL_PADDING)
-            .with_padding_right(HINT_HORIZONTAL_PADDING)
-            .with_padding_top(16.)
-            .with_margin_top(8.)
-            .with_margin_left(8.)
-            .with_margin_right(8.)
-            .with_border(
-                Border::all(1.)
-                    .with_border_fill(appearance.theme().surface_2())
-                    .with_dashed_border(Dash {
-                        dash_length: 8.,
-                        gap_length: 8.,
-                        ..Default::default()
-                    }),
-            )
-            .finish()
-    }
-
     /// Renders the given space header as well as all the included items
     fn render_section(
         &self,
@@ -1747,24 +1594,14 @@ impl DriveIndex {
                     self.item_mouse_states
                         .get(&space)
                         .map(|item_mouse_states| {
-                            let space_items = self.render_space_items(
+                            self.render_space_items(
                                 space,
                                 cloud_model,
                                 item_mouse_states,
                                 active_hover_preview,
                                 appearance,
                                 app,
-                            );
-
-                            // If we are rendering an empty team state in the base index, render the zero state
-                            if space_items.is_empty()
-                                && matches!(space, Space::Team { .. })
-                                && matches!(self.index_variant, DriveIndexVariant::MainIndex)
-                            {
-                                vec![self.render_team_space_zero_state(appearance)]
-                            } else {
-                                space_items
-                            }
+                            )
                         })
                         .unwrap_or_default(),
                 );
@@ -2569,19 +2406,6 @@ impl DriveIndex {
         }
     }
 
-    pub fn move_object_to_team_owner(
-        &mut self,
-        cloud_object_type_and_id: &CloudObjectTypeAndId,
-        space: Space,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.move_object(
-            cloud_object_type_and_id,
-            CloudObjectLocation::Space(space),
-            ctx,
-        );
-    }
-
     fn move_object(
         &mut self,
         cloud_object_type_and_id: &CloudObjectTypeAndId,
@@ -2609,20 +2433,6 @@ impl DriveIndex {
             .object_location(&cloud_object_type_and_id.uid(), ctx)
             .is_none_or(|location| location == new_location)
         {
-            return;
-        }
-
-        // Check if object is being moved into team space, if it is, then check
-        // corresponding object limits for that team.
-        if let CloudObjectLocation::Space(Space::Team { team_uid }) = new_location
-            && let CloudObjectTypeAndId::Notebook(_) = *cloud_object_type_and_id
-            && !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
-        {
-            // If team has reached the limit for notebooks, show the modal and return early.
-            ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                DriveObjectType::Notebook,
-                team_uid,
-            ));
             return;
         }
 
@@ -2689,59 +2499,20 @@ impl DriveIndex {
 
     fn create_object(
         &mut self,
-        object_type: DriveObjectType,
         space: Space,
         initial_folder_id: Option<SyncId>,
         ctx: &mut ViewContext<Self>,
     ) {
         self.reset_menus(ctx);
-        let title = self.cloud_object_naming_dialog.title(ctx);
-
-        if let Some(title) = title.clone() {
-            // it's not inherently wrong to get into this function with an empty title,
-            // but if we do, we'll bail unless it's a personal notebook being created
-            if title.is_empty()
-                && !(matches!(object_type, DriveObjectType::Notebook)
-                    && matches!(space, Space::Personal))
-            {
+        if let Some(title) = self.cloud_object_naming_dialog.title(ctx) {
+            if title.is_empty() {
                 return;
             }
-        }
-
-        match object_type {
-            DriveObjectType::Notebook => {
-                if has_feature_gated_anonymous_user_reached_notebook_limit(ctx) {
-                    return;
-                }
-
-                // If the new notebook is being created in the team space, check if the team has
-                // reached the limit for notebooks.
-                if let Space::Team { team_uid } = space
-                    && !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
-                {
-                    // If team has reached the limit for notebooks, show the modal
-                    // and return early.
-                    ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                        object_type,
-                        team_uid,
-                    ));
-                    return;
-                }
-                ctx.emit(DriveIndexEvent::CreateNotebook {
-                    space,
-                    title,
-                    initial_folder_id,
-                });
-            }
-            DriveObjectType::Folder => {
-                if let Some(title) = title {
-                    ctx.emit(DriveIndexEvent::CreateFolder {
-                        space,
-                        title,
-                        initial_folder_id,
-                    });
-                }
-            }
+            ctx.emit(DriveIndexEvent::CreateFolder {
+                space,
+                title,
+                initial_folder_id,
+            });
         }
 
         self.cloud_object_naming_dialog.close(ctx);
@@ -2780,75 +2551,6 @@ impl DriveIndex {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Check if object being untrashed is in team space, if it is, then check
-        // corresponding object limits for that team.
-        if let Some(space) =
-            CloudViewModel::as_ref(ctx).object_space(&cloud_object_type_and_id.uid(), ctx)
-        {
-            match space {
-                Space::Team { team_uid } => {
-                    match cloud_object_type_and_id {
-                        CloudObjectTypeAndId::Notebook(_) => {
-                            if !UserWorkspaces::has_capacity_for_shared_notebooks(team_uid, ctx, 1)
-                            {
-                                // If team has reached the limit for notebooks, show the modal
-                                // and return early.
-                                ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Notebook,
-                                    team_uid,
-                                ));
-                                return;
-                            }
-                        }
-                        CloudObjectTypeAndId::Folder(folder_id) => {
-                            let cloud_model = CloudModel::handle(ctx);
-
-                            // When untrashing a folder, check to see if there are any notebooks or workflows
-                            // in the trashed folder and make sure they are within limits.
-                            let trashed_object_types = cloud_model
-                                .as_ref(ctx)
-                                .trashed_cloud_object_types_in_location_with_descendants(
-                                    CloudObjectLocation::Folder(*folder_id),
-                                    ctx,
-                                );
-                            let notebooks_in_trashed_folder = trashed_object_types
-                                .clone()
-                                .into_iter()
-                                .filter(|object_type| *object_type == ObjectType::Notebook)
-                                .count();
-
-                            // Check # of notebooks in the trashed folder and make sure they are within limits
-                            if !UserWorkspaces::has_capacity_for_shared_notebooks(
-                                team_uid,
-                                ctx,
-                                notebooks_in_trashed_folder,
-                            ) {
-                                // If team has reached the limit for notebooks, show the modal
-                                // and return early.
-                                ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                                    DriveObjectType::Notebook,
-                                    team_uid,
-                                ));
-                                return;
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                Space::Personal => {
-                    if matches!(cloud_object_type_and_id, CloudObjectTypeAndId::Notebook(_))
-                        && has_feature_gated_anonymous_user_reached_notebook_limit(ctx)
-                    {
-                        return;
-                    }
-                }
-                // We have to rely on server checks here, since the client doesn't know how many
-                // objects are in the owning drive.
-                Space::Shared => (),
-            }
-        }
-
-        // Otherwise allow object untrash to go through.
         UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
             update_manager.untrash_object(*cloud_object_type_and_id, ctx);
         });
@@ -2891,34 +2593,17 @@ impl DriveIndex {
             return;
         }
 
-        let is_online = self.is_online(ctx);
+        if !self.is_online(ctx) {
+            return;
+        }
         let state = self.section_states.get_mut(&section_key);
         if let Some(state) = state {
-            let mut menu_items = vec![];
-
-            if is_online {
-                menu_items.push(
-                    MenuItemFields::new(FOLDER_LABEL)
-                        .with_on_select_action(DriveIndexAction::create_object(
-                            DriveObjectType::Folder,
-                            *space,
-                            None,
-                        ))
-                        .with_icon(Icon::Folder)
-                        .into_item(),
-                );
-            }
-
-            menu_items.push(
-                MenuItemFields::new(NOTEBOOK_LABEL)
-                    .with_on_select_action(DriveIndexAction::create_object(
-                        DriveObjectType::Notebook,
-                        *space,
-                        None,
-                    ))
-                    .with_icon(Icon::Notebook)
+            let menu_items = vec![
+                MenuItemFields::new(FOLDER_LABEL)
+                    .with_on_select_action(DriveIndexAction::create_object(*space, None))
+                    .with_icon(Icon::Folder)
                     .into_item(),
-            );
+            ];
 
             ctx.update_view(&self.menu, |menu, ctx| {
                 menu.set_items(menu_items, ctx);
@@ -3095,22 +2780,10 @@ impl DriveIndex {
                         menu_items.push(
                             MenuItemFields::new(INDEX_FOLDER_LABEL)
                                 .with_on_select_action(DriveIndexAction::create_object(
-                                    DriveObjectType::Folder,
                                     *space,
                                     Some(*folder_id),
                                 ))
                                 .with_icon(Icon::Folder)
-                                .into_item(),
-                        );
-
-                        menu_items.push(
-                            MenuItemFields::new(INDEX_NOTEBOOK_LABEL)
-                                .with_on_select_action(DriveIndexAction::create_object(
-                                    DriveObjectType::Notebook,
-                                    *space,
-                                    Some(*folder_id),
-                                ))
-                                .with_icon(Icon::Notebook)
                                 .into_item(),
                         );
 
@@ -3122,7 +2795,6 @@ impl DriveIndex {
                                 .with_on_select_action(
                                     DriveIndexAction::OpenCloudObjectNamingDialog {
                                         space: *space,
-                                        object_type: DriveObjectType::Folder,
                                         initial_folder_id: Some(*folder_id),
                                         cloud_object_type_and_id: Some(*cloud_object_type_and_id),
                                     },
@@ -3231,74 +2903,18 @@ impl DriveIndex {
                 Space::Team { .. } => {} // TODO: When we do team -> personal sharing
             }
 
-            if let Some(object) = object {
-                match object.object_type() {
-                    ObjectType::Notebook => {
-                        if let Some(object_link) = object.object_link() {
-                            menu_items.push(
-                                MenuItemFields::new("Copy link")
-                                    .with_on_select_action(
-                                        DriveIndexAction::CopyObjectLinkToClipboard(object_link),
-                                    )
-                                    .with_icon(Icon::Link)
-                                    .into_item(),
-                            );
-                        }
-                        if editability.can_edit() {
-                            menu_items.push(
-                                MenuItemFields::new("Share")
-                                    .with_on_select_action(DriveIndexAction::ToggleShareDialog {
-                                        warp_drive_item_id: *warp_drive_item_id,
-                                    })
-                                    .with_icon(Icon::Share)
-                                    .into_item(),
-                            );
-                        }
-                        if !warpui::platform::is_mobile_device()
-                            && !ContextFlag::HideOpenOnDesktopButton.is_enabled()
-                            && *UserAppInstallDetectionSettings::as_ref(app)
-                                .user_app_installation_detected
-                                .value()
-                                == UserAppInstallStatus::Detected
-                            && let Some(object_link) = object.object_link()
-                            && let Ok(url) = Url::parse(&object_link)
-                        {
-                            menu_items.push(
-                                MenuItemFields::new("Open on Desktop")
-                                    .with_on_select_action(
-                                        DriveIndexAction::OpenObjectLinkOnDesktop(url),
-                                    )
-                                    .with_icon(Icon::Laptop)
-                                    .into_item(),
-                            );
-                        }
-                        // Only allow duplicate if in Personal space, or Team space when online
-                        if matches!(space, Space::Personal)
-                            || (self.is_online(app) && matches!(space, Space::Team { .. }))
-                        {
-                            menu_items.push(
-                                MenuItemFields::new("Duplicate")
-                                    .with_on_select_action(DriveIndexAction::DuplicateObject(
-                                        *cloud_object_type_and_id,
-                                    ))
-                                    .with_icon(Icon::Duplicate)
-                                    .into_item(),
-                            );
-                        }
-                    }
-                    ObjectType::Folder | ObjectType::GenericStringObject(_) => (),
-                }
-
-                if FeatureFlag::SharedWithMe.is_enabled() && object.can_leave(app) {
-                    menu_items.push(
-                        MenuItemFields::new(REMOVE_LABEL)
-                            .with_on_select_action(DriveIndexAction::LeaveSharedObject {
-                                cloud_object_type_and_id: *cloud_object_type_and_id,
-                            })
-                            .with_icon(Icon::Minus)
-                            .into_item(),
-                    )
-                }
+            if let Some(object) = object
+                && FeatureFlag::SharedWithMe.is_enabled()
+                && object.can_leave(app)
+            {
+                menu_items.push(
+                    MenuItemFields::new(REMOVE_LABEL)
+                        .with_on_select_action(DriveIndexAction::LeaveSharedObject {
+                            cloud_object_type_and_id: *cloud_object_type_and_id,
+                        })
+                        .with_icon(Icon::Minus)
+                        .into_item(),
+                )
             }
         }
 
@@ -3493,7 +3109,7 @@ impl DriveIndex {
     }
 
     /// Executes actions on index items based on key presses, such as
-    /// toggling folders, executing workflows, and opening notebooks.
+    /// toggling folders and sections.
     fn execute_index_item_keyboard_action(
         &mut self,
         key: DriveIndexAction,
@@ -3514,11 +3130,6 @@ impl DriveIndex {
             };
             match focused_item_id {
                 WarpDriveItemId::Object(cloud_id) => match cloud_id {
-                    CloudObjectTypeAndId::Notebook(_) => {
-                        if let DriveIndexAction::EnterKey = key {
-                            ctx.emit(DriveIndexEvent::OpenObject(*cloud_id))
-                        }
-                    }
                     CloudObjectTypeAndId::Folder(id) => {
                         CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| match key {
                             DriveIndexAction::EnterKey => {
@@ -3653,33 +3264,15 @@ impl TypedActionView for DriveIndex {
     fn handle_action(&mut self, action: &DriveIndexAction, ctx: &mut ViewContext<Self>) {
         match action {
             DriveIndexAction::CreateObject {
-                object_type,
                 space,
                 initial_folder_id,
             } => {
-                self.create_object(*object_type, *space, *initial_folder_id, ctx);
+                self.create_object(*space, *initial_folder_id, ctx);
             }
             DriveIndexAction::RenameFolder { folder_id } => {
                 self.rename_folder(*folder_id, ctx);
             }
 
-            DriveIndexAction::OpenObject(cloud_object_type_and_id) => {
-                if !matches!(self.index_variant, DriveIndexVariant::Trash) {
-                    self.set_selected_object(
-                        Some(WarpDriveItemId::Object(*cloud_object_type_and_id)),
-                        ctx,
-                    );
-                    ctx.emit(DriveIndexEvent::OpenObject(*cloud_object_type_and_id))
-                }
-            }
-
-            DriveIndexAction::DuplicateObject(cloud_object_type_and_id) => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::DuplicateObject(cloud_object_type_and_id.into()),
-                    ctx
-                );
-                ctx.emit(DriveIndexEvent::DuplicateObject(*cloud_object_type_and_id));
-            }
             DriveIndexAction::ToggleNewAssetsMenu(space) => {
                 self.toggle_new_assets_menu(space, ctx);
             }
@@ -3696,7 +3289,6 @@ impl TypedActionView for DriveIndex {
                 self.toggle_space_menu(space, *offset, ctx);
             }
             DriveIndexAction::OpenCloudObjectNamingDialog {
-                object_type,
                 space,
                 initial_folder_id,
                 cloud_object_type_and_id,
@@ -3710,27 +3302,19 @@ impl TypedActionView for DriveIndex {
                         CloudObjectTypeAndId::Folder(folder_id) => {
                             model.get_folder(&folder_id).map(|f| f.model().name.clone())
                         }
-                        CloudObjectTypeAndId::Notebook(notebook_id) => model
-                            .get_notebook(&notebook_id)
-                            .map(|n| n.model().title.clone()),
                         _ => None,
                     }
                 });
 
                 let is_rename = cloud_object_type_and_id.is_some();
-                match *object_type {
-                    DriveObjectType::Notebook | DriveObjectType::Folder => {
-                        self.cloud_object_naming_dialog.open(
-                            *object_type,
-                            *space,
-                            *initial_folder_id,
-                            is_rename,
-                            existing_name,
-                            ctx,
-                        );
-                        ctx.focus(&self.cloud_object_naming_dialog.title_editor);
-                    }
-                }
+                self.cloud_object_naming_dialog.open(
+                    *space,
+                    *initial_folder_id,
+                    is_rename,
+                    existing_name,
+                    ctx,
+                );
+                ctx.focus(&self.cloud_object_naming_dialog.title_editor);
 
                 ctx.notify();
             }
@@ -3888,14 +3472,6 @@ impl TypedActionView for DriveIndex {
                 );
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(link.to_owned()));
-            }
-            #[cfg(target_family = "wasm")]
-            DriveIndexAction::OpenObjectLinkOnDesktop(url) => {
-                open_url_on_desktop(url);
-            }
-            #[cfg(not(target_family = "wasm"))]
-            DriveIndexAction::OpenObjectLinkOnDesktop(_) => {
-                // No-op when not on wasm
             }
             DriveIndexAction::ToggleShareDialog { warp_drive_item_id } => {
                 self.toggle_share_dialog(

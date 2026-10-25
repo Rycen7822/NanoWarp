@@ -31,7 +31,6 @@ use crate::cloud_object::{
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::folders::CloudFolderModel;
-use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::settings::cloud_preferences::CloudPreferenceModel;
 
@@ -126,15 +125,6 @@ pub enum QueueItem {
     BulkCreateGenericStringObjects {
         owner: Owner,
         objects: Vec<GenericStringObjectToCreate>,
-    },
-    // Note, we continue to do UpdateXXX items per object type here
-    // because it's the most type safe way to handle the different id types
-    // and the different update payloads.  Most of the logic is still shared
-    // via a single update_object method.
-    UpdateNotebook {
-        model: Arc<CloudNotebookModel>,
-        id: SyncId,
-        revision: Option<Revision>,
     },
     UpdateFolder {
         id: SyncId,
@@ -241,15 +231,19 @@ pub enum SyncQueueEvent {
     },
     ObjectUpdateRejected {
         id: String,
-        #[derivative(PartialEq = "ignore")]
-        object: Arc<ServerCloudObject>,
     },
     #[allow(dead_code)]
-    ObjectUpdateFeatureNotAvailable { id: String },
+    ObjectUpdateFeatureNotAvailable {
+        id: String,
+    },
     /// Request to server for creating a queue item has failed.
-    ObjectCreationFailure { reason: CreationFailureReason },
+    ObjectCreationFailure {
+        reason: CreationFailureReason,
+    },
     /// Request to server for updating a queue item has failed.
-    ObjectUpdateFailure { id: SyncId },
+    ObjectUpdateFailure {
+        id: SyncId,
+    },
     ReportObjectActionFailed {
         uid: ObjectUid,
         action_timestamp: DateTime<Utc>,
@@ -349,9 +343,9 @@ impl SyncQueue {
     fn add_inferred_dependencies(&mut self, item: &QueueItem, item_id: &QueueItemId) {
         let mut dependencies = match item {
             // Update requests will depend on any existing create/updates to the same object
-            QueueItem::UpdateNotebook { id, .. }
-            | QueueItem::UpdateFolder { id, .. }
-            | QueueItem::UpdateCloudPreferences { id, .. } => self.get_update_dependencies(id),
+            QueueItem::UpdateFolder { id, .. } | QueueItem::UpdateCloudPreferences { id, .. } => {
+                self.get_update_dependencies(id)
+            }
 
             // These queue item types do not have inferred dependencies.
             QueueItem::CreateObject { .. }
@@ -404,7 +398,6 @@ impl SyncQueue {
                     })
                 }
                 QueueItem::UpdateCloudPreferences { id, .. }
-                | QueueItem::UpdateNotebook { id, .. }
                 | QueueItem::UpdateFolder { id, .. }
                     if id.uid() == item_id =>
                 {
@@ -459,8 +452,7 @@ impl SyncQueue {
     fn update_items_with_new_revision(&mut self, server_id: &str, new_revision: Revision) {
         for (_item_id, item) in &mut self.queue {
             match item {
-                QueueItem::UpdateNotebook { id, revision, .. }
-                | QueueItem::UpdateCloudPreferences { id, revision, .. } => {
+                QueueItem::UpdateCloudPreferences { id, revision, .. } => {
                     Self::maybe_update_queue_item_with_new_revision(
                         &self.client_id_to_server,
                         id,
@@ -512,20 +504,6 @@ impl SyncQueue {
             self.queue_dependencies.remove(&dequeued_item_id);
 
             match dequeued_item {
-                QueueItem::UpdateNotebook {
-                    model,
-                    id,
-                    revision,
-                } => {
-                    self.update_object(
-                        model.clone(),
-                        id,
-                        revision,
-                        object_client,
-                        dequeued_item_id,
-                        ctx,
-                    );
-                }
                 QueueItem::UpdateFolder { id, model } => {
                     self.update_object(
                         model.clone(),
@@ -845,13 +823,6 @@ impl SyncQueue {
                 };
                 async move {
                     match object_type {
-                        ObjectType::Notebook => {
-                            CloudNotebookModel::send_create_request(
-                                object_client_clone,
-                                create_request,
-                            )
-                            .await
-                        }
                         ObjectType::Folder => {
                             CloudFolderModel::send_create_request(
                                 object_client_clone,
@@ -1093,10 +1064,7 @@ impl SyncQueue {
                 update_result: UpdateResponseType::Rejected { object },
             } => {
                 let uid = object.uid();
-                ctx.emit(SyncQueueEvent::ObjectUpdateRejected {
-                    id: uid.clone(),
-                    object: Arc::new(*object),
-                });
+                ctx.emit(SyncQueueEvent::ObjectUpdateRejected { id: uid.clone() });
                 if let Some(dependencies) = self.waiting_response.get_mut(&uid.clone()) {
                     dependencies.remove(&queue_item_id);
                 }
@@ -1378,9 +1346,6 @@ impl SyncQueue {
                             ctx,
                         );
                     }
-                }
-                QueueItem::UpdateNotebook { id, .. } => {
-                    self.handle_update_failure_response(id, item_id, ctx);
                 }
                 QueueItem::UpdateFolder { id, .. } => {
                     self.handle_update_failure_response(id, item_id, ctx);

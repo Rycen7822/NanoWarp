@@ -208,22 +208,6 @@ pub fn icon_button(
     )
 }
 
-pub fn accent_icon_button(
-    appearance: &Appearance,
-    icon: Icon,
-    active: bool,
-    mouse_state_handle: MouseStateHandle,
-) -> Button {
-    icon_button_internal(
-        appearance,
-        icon,
-        active,
-        mouse_state_handle,
-        ButtonMode::Accent,
-        None,
-    )
-}
-
 pub fn close_button(appearance: &Appearance, mouse_state_handle: MouseStateHandle) -> Button {
     icon_button(appearance, Icon::X, false, mouse_state_handle)
 }

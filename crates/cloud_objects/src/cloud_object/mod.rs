@@ -39,7 +39,6 @@ pub use update::*;
 /// The type of object id each ObjectType corresponds to.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ObjectIdType {
-    Notebook,
     Folder,
     GenericStringObject,
 }
@@ -50,7 +49,6 @@ impl ObjectIdType {
     /// APIs are needed.
     pub fn sqlite_prefix(&self) -> &'static str {
         match self {
-            ObjectIdType::Notebook => "Notebook",
             ObjectIdType::Folder => "Folder",
             ObjectIdType::GenericStringObject => "GenericStringObject",
         }
@@ -60,7 +58,6 @@ impl ObjectIdType {
 /// A type for communicating the type of cloud object to/from the server, absent of the object itself.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum ObjectType {
-    Notebook,
     Folder,
     GenericStringObject(GenericStringObjectFormat),
 }
@@ -69,14 +66,12 @@ impl ObjectType {
     /// Returns the serialized string for the object type, to be used for storing object_type in sqlite.
     pub fn sqlite_object_type_as_str(&self) -> Cow<'_, str> {
         match self {
-            ObjectType::Notebook => "NOTEBOOK".into(),
             ObjectType::Folder => "FOLDER".into(),
             ObjectType::GenericStringObject(format) => format.to_string().into(),
         }
     }
 }
 
-const NOTEBOOK_OBJECT_STRING: &str = "notebook";
 const FOLDER_OBJECT_STRING: &str = "folder";
 
 impl FromStr for ObjectType {
@@ -84,7 +79,6 @@ impl FromStr for ObjectType {
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            NOTEBOOK_OBJECT_STRING => Ok(Self::Notebook),
             FOLDER_OBJECT_STRING => Ok(Self::Folder),
             _ => Err(anyhow!("Unexpected object type")),
         }
@@ -94,7 +88,6 @@ impl FromStr for ObjectType {
 impl fmt::Display for ObjectType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ObjectType::Notebook => write!(f, "{NOTEBOOK_OBJECT_STRING}"),
             ObjectType::Folder => write!(f, "{FOLDER_OBJECT_STRING}"),
             ObjectType::GenericStringObject(_) => write!(f, "string_object_placeholder"), // placeholder value
         }
@@ -104,7 +97,6 @@ impl fmt::Display for ObjectType {
 impl From<ObjectType> for ObjectIdType {
     fn from(value: ObjectType) -> Self {
         match value {
-            ObjectType::Notebook => ObjectIdType::Notebook,
             ObjectType::Folder => ObjectIdType::Folder,
             ObjectType::GenericStringObject(_) => ObjectIdType::GenericStringObject,
         }
@@ -186,7 +178,6 @@ impl TryFrom<warp_graphql::object::ObjectType> for ObjectIdType {
     type Error = anyhow::Error;
     fn try_from(object_type: warp_graphql::object::ObjectType) -> Result<Self, Self::Error> {
         match object_type {
-            warp_graphql::object::ObjectType::Notebook => Ok(ObjectIdType::Notebook),
             warp_graphql::object::ObjectType::Folder => Ok(ObjectIdType::Folder),
             warp_graphql::object::ObjectType::GenericStringObject => {
                 Ok(ObjectIdType::GenericStringObject)
@@ -201,7 +192,6 @@ impl TryFrom<warp_graphql::object::ObjectType> for ObjectIdType {
 impl From<ObjectType> for warp_graphql::object::ObjectType {
     fn from(value: ObjectType) -> Self {
         match value {
-            ObjectType::Notebook => warp_graphql::object::ObjectType::Notebook,
             ObjectType::Folder => warp_graphql::object::ObjectType::Folder,
             ObjectType::GenericStringObject(gso) => {
                 todo!("Moving is not implemented for {:?}", gso);

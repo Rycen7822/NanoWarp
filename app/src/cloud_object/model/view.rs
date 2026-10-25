@@ -1,52 +1,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use chrono::{Duration, Utc};
 use warp_graphql::scalars::time::ServerTimestamp;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::persistence::{CloudModel, CloudModelEvent};
-use crate::auth::{AuthStateProvider, UserUid};
+use crate::auth::AuthStateProvider;
 use crate::cloud_object::{CloudObject, CloudObjectLocation, Space};
 use crate::drive::folders::CloudFolder;
 use crate::drive::sharing::{ContentEditability, SharingAccessLevel};
-use crate::safe_info;
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
 };
 use crate::server::ids::{ObjectUid, SyncId};
-use crate::workspaces::user_profiles::UserProfiles;
-
-pub const EDITOR_TIMEOUT_DURATION_MINUTES: i64 = 15;
-
-#[derive(Default, Clone, Debug, PartialEq)]
-pub enum EditorState {
-    #[default]
-    None,
-    CurrentUser,
-    OtherUserActive,
-    OtherUserIdle,
-}
-
-/// Stores information about the current editor of
-/// a particular notebook, for display purposes.
-/// For now, this just includes the state and
-/// an email, but will eventually hold more information
-/// about the user.
-#[derive(Default, Clone, Debug, PartialEq)]
-pub struct Editor {
-    pub state: EditorState,
-    pub email: Option<String>,
-}
-
-impl Editor {
-    pub fn no_editor() -> Self {
-        Self {
-            state: EditorState::None,
-            email: None,
-        }
-    }
-}
 
 /// Singleton model for storing and querying the data and logic logic needed by various view, based on the information
 /// stored in [CloudModel]. As a general, rule, any new API that requires logic beyond just retrieving the raw value
@@ -80,73 +46,6 @@ impl CloudViewModel {
     #[cfg(test)]
     pub fn mock(ctx: &mut ModelContext<Self>) -> Self {
         Self::new(ctx)
-    }
-
-    /// Returns the current editor of the object based on what current exists in CloudModel. If the current editor
-    /// matches the logged in user's email, we assume that that user is the current editor.
-    /// If the current editor hasn't made an edit in the past 15 minutes, they are considered idle and
-    /// we instead just return Editor::OtherUserIdle. This is to prevent introducing friction into the baton grabbing process
-    /// when it's not needed. For more info see:
-    /// https://docs.google.com/document/d/1KgDFLApPg1uDVP-vOwhZzL1kRIviS8mMECIZg2VCKLY/edit
-    pub fn object_current_editor(&self, uid: &ObjectUid, ctx: &AppContext) -> Option<Editor> {
-        let cloud_model = CloudModel::as_ref(ctx);
-        let object = cloud_model.get_by_uid(uid)?;
-
-        match &object.metadata().current_editor_uid {
-            Some(uid) => {
-                let auth_state = AuthStateProvider::as_ref(ctx).get();
-                let user_uid = auth_state.user_id();
-
-                // If the logged in user matches the current UID, then the editor is the current
-                // user.
-                if user_uid.is_some_and(|user_uid| user_uid.as_string() == uid.clone()) {
-                    return Some(Editor {
-                        state: EditorState::CurrentUser,
-                        email: auth_state.user_email().clone(),
-                    });
-                }
-
-                let editor_uid = UserUid::new(uid);
-                let editor_email = UserProfiles::as_ref(ctx)
-                    .profile_for_uid(editor_uid)
-                    .map(|profile| profile.email.clone());
-
-                match &object.metadata().revision {
-                    Some(revision) => {
-                        let time_since_last_edit = Utc::now() - revision.utc();
-                        let time_since_last_metadata_change = Utc::now()
-                            - object
-                                .metadata()
-                                .metadata_last_updated_ts
-                                .unwrap_or(Utc::now().into())
-                                .utc();
-                        if time_since_last_edit > Duration::minutes(EDITOR_TIMEOUT_DURATION_MINUTES)
-                            && time_since_last_metadata_change
-                                > Duration::minutes(EDITOR_TIMEOUT_DURATION_MINUTES)
-                        {
-                            safe_info!(
-                                safe: ("Current editor idle, eagerly grabbing edit access for notebook"),
-                                full: ("Current editor idle, eagerly grabbing edit access for notebook with editor: {}", uid.clone())
-                            );
-                            Some(Editor {
-                                state: EditorState::OtherUserIdle,
-                                email: editor_email,
-                            })
-                        } else {
-                            Some(Editor {
-                                state: EditorState::OtherUserActive,
-                                email: editor_email,
-                            })
-                        }
-                    }
-                    None => Some(Editor {
-                        state: EditorState::OtherUserActive,
-                        email: editor_email,
-                    }),
-                }
-            }
-            _ => Some(Editor::no_editor()),
-        }
     }
 
     /// Get the [`Space`] that contains an object.
@@ -359,8 +258,7 @@ impl CloudViewModel {
                     ctx.emit(CloudViewModelEvent::SortTimestampsChanged);
                 }
             }
-            CloudModelEvent::NotebookEditorChangedFromServer { .. }
-            | CloudModelEvent::ObjectForceExpanded { .. }
+            CloudModelEvent::ObjectForceExpanded { .. }
             | CloudModelEvent::ObjectSynced { .. }
             | CloudModelEvent::InitialLoadCompleted => (),
         }

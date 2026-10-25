@@ -1,6 +1,6 @@
 use warpui::AppContext;
 
-use super::{CloudObject, ObjectType};
+use super::CloudObject;
 use crate::server::cloud_objects::update_manager::{
     InitiatedBy, ObjectOperation, OperationSuccessType,
 };
@@ -17,10 +17,9 @@ impl CloudObjectToastMessage {
         let object_name = object.model_type_name().to_owned();
         let object_name_lowercase = object_name.to_ascii_lowercase();
 
-        match (object.object_type(), operation, success_type) {
+        match (operation, success_type) {
             // We should only show toasts for creates initiated by the user, not by the system
             (
-                _,
                 ObjectOperation::Create {
                     initiated_by: InitiatedBy::User,
                 },
@@ -29,73 +28,62 @@ impl CloudObjectToastMessage {
                 let containing_object_name = object.containing_object_name(app);
                 Some(format!("{object_name} saved to {containing_object_name}"))
             }
-            // notebooks intentionally do not have an update message, as they are updated
-            // as the user types and so toasts would be VERY noisy
-            (ObjectType::Notebook, ObjectOperation::Update, OperationSuccessType::Success) => None,
-            (_, ObjectOperation::Update, OperationSuccessType::Success) => {
+            (ObjectOperation::Update, OperationSuccessType::Success) => {
                 Some(format!("{object_name} updated"))
             }
-            (_, ObjectOperation::MoveToFolder, OperationSuccessType::Success)
-            | (_, ObjectOperation::MoveToDrive, OperationSuccessType::Success) => {
+            (ObjectOperation::MoveToFolder, OperationSuccessType::Success) => {
                 let containing_object_name = object.containing_object_name(app);
                 Some(format!("{object_name} moved to {containing_object_name}"))
             }
-            (_, ObjectOperation::Trash, OperationSuccessType::Success) => {
+            (ObjectOperation::Trash, OperationSuccessType::Success) => {
                 Some(format!("{object_name} trashed"))
             }
-            (_, ObjectOperation::Untrash, OperationSuccessType::Success) => {
+            (ObjectOperation::Untrash, OperationSuccessType::Success) => {
                 Some(format!("{object_name} restored"))
             }
-            (_, ObjectOperation::Leave, OperationSuccessType::Success) => {
+            (ObjectOperation::Leave, OperationSuccessType::Success) => {
                 Some(format!("Left {object_name}"))
             }
             (
-                _,
                 ObjectOperation::Create {
                     initiated_by: InitiatedBy::User,
                 },
                 OperationSuccessType::Failure,
             ) => Some(format!("Failed to create {object_name_lowercase}")),
             (
-                _,
                 ObjectOperation::Create {
                     initiated_by: InitiatedBy::User,
                 },
                 OperationSuccessType::Denied(message),
             ) => Some(message.to_string()),
-            (_, ObjectOperation::Update, OperationSuccessType::Failure) => {
+            (ObjectOperation::Update, OperationSuccessType::Failure) => {
                 Some(format!("Failed to update {object_name_lowercase}"))
             }
-            (_, ObjectOperation::MoveToFolder, OperationSuccessType::Failure)
-            | (_, ObjectOperation::MoveToDrive, OperationSuccessType::Failure) => {
+            (ObjectOperation::MoveToFolder, OperationSuccessType::Failure) => {
                 Some(format!("Failed to move {object_name_lowercase}"))
             }
-            (_, ObjectOperation::Trash, OperationSuccessType::Failure) => {
+            (ObjectOperation::Trash, OperationSuccessType::Failure) => {
                 Some(format!("Failed to trash {object_name_lowercase}"))
             }
-            (_, ObjectOperation::Untrash, OperationSuccessType::Failure) => {
+            (ObjectOperation::Untrash, OperationSuccessType::Failure) => {
                 Some(format!("Failed to restore {object_name_lowercase}"))
             }
             // We should only show deletion failure toasts for user-initiated deletions.
             (
-                _,
                 ObjectOperation::Delete {
                     initiated_by: InitiatedBy::User,
                 },
                 OperationSuccessType::Failure,
             ) => Some(format!("Failed to delete {object_name_lowercase}")),
-            (_, ObjectOperation::Leave, OperationSuccessType::Failure) => {
+            (ObjectOperation::Leave, OperationSuccessType::Failure) => {
                 Some(format!("Failed to leave {object_name}"))
             }
-            (_, ObjectOperation::TakeEditAccess, OperationSuccessType::Failure) => {
-                Some(format!("Failed to start editing {object_name_lowercase}"))
-            }
-            (_, ObjectOperation::UpdatePermissions, OperationSuccessType::Success) => Some(
-                format!("Successfully updated permissions for {object_name_lowercase}"),
-            ),
-            (_, ObjectOperation::UpdatePermissions, OperationSuccessType::Failure) => Some(
-                format!("Failed to update permissions for {object_name_lowercase}"),
-            ),
+            (ObjectOperation::UpdatePermissions, OperationSuccessType::Success) => Some(format!(
+                "Successfully updated permissions for {object_name_lowercase}"
+            )),
+            (ObjectOperation::UpdatePermissions, OperationSuccessType::Failure) => Some(format!(
+                "Failed to update permissions for {object_name_lowercase}"
+            )),
             _ => None,
         }
     }

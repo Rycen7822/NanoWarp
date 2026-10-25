@@ -25,7 +25,6 @@ use warpui::{AppContext, SingletonEntity};
 
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
-use crate::notebooks::manager::NotebookManager;
 use crate::palette::PaletteMode;
 use crate::root_view::RootView;
 use crate::server::cloud_objects::update_manager::UpdateManager;
@@ -243,8 +242,6 @@ pub fn log_out(app: &mut AppContext) {
         manager.stop_polling_for_workspace_metadata_updates();
     });
     remove_cloud_persisted_settings(app);
-
-    NotebookManager::handle(app).update(app, |manager, _| manager.reset());
 
     // Stop and leave all shared sessions
     SharedSessionManager::handle(app).update(app, |manager, ctx| {

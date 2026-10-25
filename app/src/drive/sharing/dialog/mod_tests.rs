@@ -8,8 +8,8 @@ use crate::auth::UserUid;
 use crate::cloud_object::Owner;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
+use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::drive::sharing::{ShareableObject, SharingAccessLevel};
-use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::terminal::TerminalView;
 use crate::terminal::shared_session::SharedSessionStatus;
@@ -264,11 +264,8 @@ fn initialize_app_for_drive_object_dialog(app: &mut App) {
 
 fn add_shareable_object(app: &mut App) -> ServerId {
     let object_uid: ServerId = 789.into();
-    let mut object = CloudNotebook::new_local(
-        CloudNotebookModel {
-            title: "shared notebook".to_string(),
-            data: "echo shared".to_string(),
-        },
+    let mut object = CloudFolder::new_local(
+        CloudFolderModel::new("shared folder", false),
         Owner::User {
             user_uid: UserUid::new("owner"),
         },

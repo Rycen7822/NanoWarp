@@ -8,7 +8,6 @@ mod app_services;
 mod app_state;
 mod auth;
 mod banner;
-mod billing;
 mod chip_configurator;
 mod cloud_object;
 mod code;
@@ -196,7 +195,6 @@ pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHa
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
-use crate::notebooks::manager::NotebookManager;
 use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::persistence::PersistenceWriter;
@@ -1238,7 +1236,6 @@ pub(crate) fn initialize_app(
     crate::view_components::find::init(ctx);
     prompt::editor_modal::init(ctx);
     undo_close::init(ctx);
-    billing::shared_objects_creation_denied_modal::init(ctx);
     tab_configs::new_worktree_modal::init(ctx);
     tab_configs::params_modal::init(ctx);
     drive::index::init(ctx);
@@ -1358,7 +1355,6 @@ pub(crate) fn initialize_app(
     // created on the server.
     ctx.add_singleton_model(CloudViewModel::new);
 
-    ctx.add_singleton_model(NotebookManager::new);
     ctx.add_singleton_model(|_| CodeManager::default());
     ctx.add_singleton_model(|_| OpenedFilesModel::new());
     ctx.add_singleton_model(NotebookKeybindings::new);
@@ -1484,12 +1480,6 @@ pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppC
             );
         })),
         on_will_terminate: Some(Box::new(move |ctx| {
-            NotebookManager::handle(ctx).update(ctx, |manager, ctx| {
-                // Notebooks are only saved periodically, so ensure that any pending changes have
-                // been sent to the writer thread before terminating.
-                manager.close_notebooks(ctx);
-            });
-
             PersistenceWriter::handle(ctx).update(ctx, |writer, _ctx| {
                 writer.terminate();
             });

@@ -9,6 +9,7 @@ use repo_metadata::watcher::DirectoryWatcher;
 use string_offset::CharOffset;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
+use warp_editor::model::CoreEditorModel;
 use warp_editor::render::model::BlockItem;
 #[cfg(feature = "local_fs")]
 use warp_files::FileModel;
@@ -26,6 +27,8 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::notebooks::context_menu::MenuSource;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::file::is_markdown_file;
+use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusState};
+use crate::pane_group::{BackingView as _, PaneId};
 use crate::search::files::model::FileSearchModel;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
@@ -454,7 +457,7 @@ fn test_file_notebook_mermaid_context_menu_does_not_show_copy_image() {
         handle.update(&mut app, |file_notebook, ctx| {
             file_notebook.open_static("Test Title", "```mermaid\ngraph TD\nA --> B\n```", ctx);
 
-            let source = MenuSource::RichTextEditor {
+            let source = MenuSource {
                 parent_offset: vec2f(0., 0.),
                 editor: file_notebook.editor.clone(),
             };
@@ -545,5 +548,204 @@ fn test_markdown_toggle_shortcut_follows_jupyter_notebook_rendering_flag() {
             press_shortcut(&app),
             "a rendered notebook should be toggleable from the keyboard"
         );
+    });
+}
+
+/// Builds a list of the standard notebook context-menu items by appending the set of split-pane
+/// items to the given state-specific ones.
+fn standard_menu_items<'a>(items: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut items: Vec<_> = items.into_iter().collect();
+    items.extend([
+        "----",
+        "Split pane right",
+        "Split pane left",
+        "Split pane down",
+        "Split pane up",
+    ]);
+    items
+}
+
+#[test]
+fn test_rich_text_actions() {
+    App::test((), |mut app| async move {
+        init_app(&mut app);
+        let (_window_id, file_notebook) =
+            app.add_window(WindowStyle::NotStealFocus, FileNotebookView::new);
+
+        // A selection in the read-only file editor makes Copy available.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            file_notebook.editor.update(ctx, |editor, ctx| {
+                editor.reset_with_markdown("Hello, World!", ctx);
+                editor
+                    .model()
+                    .update(ctx, |model, ctx| model.select_all(ctx));
+            });
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                standard_menu_items(["Copy"])
+            );
+        })
+    });
+}
+
+#[test]
+fn test_split_pane_actions() {
+    App::test((), |mut app| async move {
+        init_app(&mut app);
+
+        let (_window_id, file_notebook) =
+            app.add_window(WindowStyle::NotStealFocus, FileNotebookView::new);
+
+        // Set up focus state to simulate being in a split pane.
+        let pane_id = PaneId::dummy_pane_id();
+        let focus_state = app.add_model(|_| {
+            PaneGroupFocusState::new(
+                pane_id, None, // active_session_id
+                true, // in_split_pane
+            )
+        });
+        let focus_handle = PaneFocusHandle::new(pane_id, focus_state.clone());
+
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            file_notebook.set_focus_handle(focus_handle, ctx);
+        });
+
+        // In a split pane, all the management actions are available.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                vec![
+                    "Split pane right",
+                    "Split pane left",
+                    "Split pane down",
+                    "Split pane up",
+                    "Maximize pane",
+                    "Close pane"
+                ]
+            );
+        });
+
+        // Modify the focus state to simulate not being in a split pane.
+        focus_state.update(&mut app, |state, ctx| {
+            state.set_in_split_pane_for_test(false, ctx);
+        });
+
+        // If not in a split pane, maximize and close actions are hidden.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                vec![
+                    "Split pane right",
+                    "Split pane left",
+                    "Split pane down",
+                    "Split pane up",
+                ]
+            );
+        });
+    });
+}
+
+#[test]
+fn test_copy_file_path_action() {
+    App::test((), |mut app| async move {
+        init_app(&mut app);
+
+        let (_window_id, file_notebook) =
+            app.add_window(WindowStyle::NotStealFocus, FileNotebookView::new);
+
+        // When a path is set, "Copy file path" appears as its own section, separated from the
+        // text-action section (here "Copy") and the split-pane section.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            file_notebook.editor.update(ctx, |editor, ctx| {
+                editor.reset_with_markdown("Hello, World!", ctx);
+                editor
+                    .model()
+                    .update(ctx, |model, ctx| model.select_all(ctx));
+            });
+            file_notebook
+                .context_menu
+                .set_copy_file_path(Some("/tmp/notes.md".to_string()));
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                vec![
+                    "Copy",
+                    "----",
+                    "Copy file path",
+                    "----",
+                    "Split pane right",
+                    "Split pane left",
+                    "Split pane down",
+                    "Split pane up",
+                ]
+            );
+        });
+
+        // With an empty text-action section (read-only, no selection), "Copy file path" leads the
+        // menu with no separator before it.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            file_notebook
+                .editor
+                .clone()
+                .update(ctx, |editor, ctx| editor.reset_with_markdown("", ctx));
+            file_notebook
+                .context_menu
+                .set_copy_file_path(Some("/tmp/notes.md".to_string()));
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                vec![
+                    "Copy file path",
+                    "----",
+                    "Split pane right",
+                    "Split pane left",
+                    "Split pane down",
+                    "Split pane up",
+                ]
+            );
+        });
+
+        // When no path is set, the item is absent (the default for file views with no path). The
+        // editor is still read-only from above, so only the split-pane items remain.
+        file_notebook.update(&mut app, |file_notebook, ctx| {
+            file_notebook.context_menu.set_copy_file_path(None);
+            let source = MenuSource {
+                parent_offset: vec2f(0., 0.),
+                editor: file_notebook.editor.clone(),
+            };
+            file_notebook.context_menu.show_context_menu(source, ctx);
+            assert_eq!(
+                file_notebook.context_menu.item_names(ctx),
+                vec![
+                    "Split pane right",
+                    "Split pane left",
+                    "Split pane down",
+                    "Split pane up",
+                ]
+            );
+        });
     });
 }
