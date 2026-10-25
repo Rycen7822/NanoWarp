@@ -24,7 +24,7 @@ use crate::settings::{FontSettings, derived_notebook_font_size};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use crate::workflows::{CloudWorkflow, WorkflowSource, WorkflowType};
+use crate::workflows::{CloudWorkflow, WorkflowType};
 
 mod arguments;
 mod block_insertion_menu;
@@ -338,15 +338,11 @@ impl<'a> From<&'a BufferBlockStyle> for BlockType {
 pub struct NotebookWorkflow {
     /// Definition of the workflow itself.
     pub workflow: UserInput<Arc<WorkflowType>>,
-    /// The source of the workflow, for attribution. If `None`, the workflow should be attributed
-    /// to the parent notebook.
-    pub source: Option<WorkflowSource>,
 }
 
 impl NotebookWorkflow {
     pub fn from_cloud_workflow(cloud_workflow: Box<CloudWorkflow>) -> Self {
         Self {
-            source: Some(cloud_workflow.permissions.owner.into()),
             workflow: UserInput::new(Arc::new(WorkflowType::Cloud(cloud_workflow))),
         }
     }

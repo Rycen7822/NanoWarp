@@ -29,7 +29,7 @@ use crate::server::ids::{HashableId, HashedSqliteId, ObjectUid, ServerId, SyncId
 use crate::server::server_api::object::ObjectClient;
 use crate::server::sync_queue::{QueueItem, SerializedModel};
 use crate::util::time_format::format_approx_duration_from_now_utc;
-use crate::workflows::{CloudWorkflow, WorkflowSource};
+use crate::workflows::CloudWorkflow;
 use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
@@ -906,25 +906,4 @@ pub enum CloudObjectLocation {
     Space(Space),
     Folder(SyncId),
     Trash,
-}
-
-impl From<Space> for WorkflowSource {
-    fn from(space: Space) -> Self {
-        match space {
-            Space::Personal => WorkflowSource::PersonalCloud,
-            Space::Team { team_uid } => WorkflowSource::Team { team_uid },
-            // TODO(ben): Model sharing in workflow telemetry.
-            Space::Shared => WorkflowSource::PersonalCloud,
-        }
-    }
-}
-
-impl From<Owner> for WorkflowSource {
-    fn from(owner: Owner) -> WorkflowSource {
-        match owner {
-            // TODO(ben): Represent shared objects in telemetry.
-            Owner::User { .. } => Self::PersonalCloud,
-            Owner::Team { team_uid } => Self::Team { team_uid },
-        }
-    }
 }

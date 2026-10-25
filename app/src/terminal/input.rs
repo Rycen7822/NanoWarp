@@ -152,6 +152,7 @@ use crate::util::bindings::{self, CustomAction};
 use crate::util::file::external_editor;
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::DismissibleToast;
+use crate::workflows::WorkflowType;
 use crate::workflows::command_parser::{
     WorkflowArgumentIndex, WorkflowDisplayData, compute_workflow_display_data,
     compute_workflow_display_data_with_overrides,
@@ -160,7 +161,6 @@ use crate::workflows::info_box::{
     WORKFLOW_PARAMETER_HIGHLIGHT_COLOR, WorkflowsInfoBoxViewEvent, WorkflowsMoreInfoView,
 };
 use crate::workflows::workflow_enum::EnumVariants;
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, InitContent, ToastStack, WorkspaceAction};
 
@@ -647,9 +647,7 @@ struct SelectedWorkflowState {
     /// Map of arguments with enum variants to those variants, which are used as suggested inputs to the argument.
     argument_index_to_enum_variants: HashMap<WorkflowArgumentIndex, EnumVariants>,
 
-    workflow_source: WorkflowSource,
     workflow_type: WorkflowType,
-    workflow_selection_source: WorkflowSelectionSource,
 
     /// `true` if the WorkflowsMoreInfoView should be shown for the selected workflow. This is true
     /// when the viewer may display workflow details.
@@ -2389,8 +2387,6 @@ impl Input {
     pub fn show_workflows_info_box_on_workflow_selection(
         &mut self,
         workflow_type: WorkflowType,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
         argument_override: Option<HashMap<String, String>>,
         ctx: &mut ViewContext<Input>,
     ) {
@@ -2399,8 +2395,6 @@ impl Input {
         let env_vars = workflow_type.as_workflow().default_env_vars();
         self.insert_workflow_into_input(
             workflow_type,
-            workflow_source,
-            workflow_selection_source,
             argument_override,
             env_vars,
             should_show_more_info_view,
@@ -2413,12 +2407,9 @@ impl Input {
     ///
     /// If `should_show_more_info_view`, the `WorkflowsMoreInfoView` for the selected workflow is
     /// displayed above the input.
-    #[allow(clippy::too_many_arguments)]
     fn insert_workflow_into_input(
         &mut self,
         workflow_type: WorkflowType,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
         argument_overrides: Option<HashMap<String, String>>,
         selected_env_vars: Option<SyncId>,
         should_show_more_info_view: bool,
@@ -2500,9 +2491,7 @@ impl Input {
             more_info_view: self.create_workflows_info_view(workflow_type.clone(), ctx),
             argument_index_to_highlight_index: argument_index_to_highlight_index_map,
             argument_index_to_enum_variants: enum_variants_map,
-            workflow_source,
             workflow_type,
-            workflow_selection_source,
             should_show_more_info_view,
         });
 
@@ -2978,15 +2967,7 @@ impl Input {
         self.clear_selected_env_var_collection();
 
         if let Some(state) = self.workflows_state.selected_workflow_state.take() {
-            self.insert_workflow_into_input(
-                state.workflow_type,
-                state.workflow_source,
-                state.workflow_selection_source,
-                None,
-                env_vars,
-                true,
-                ctx,
-            )
+            self.insert_workflow_into_input(state.workflow_type, None, env_vars, true, ctx)
         }
 
         ctx.notify();

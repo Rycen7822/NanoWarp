@@ -316,7 +316,7 @@ use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink}
 #[cfg(target_family = "wasm")]
 use crate::wasm_nux_dialog::WasmNUXDialog;
 use crate::window_settings::{WindowSettings, WindowSettingsChangedEvent, ZoomLevel};
-use crate::workflows::{CloudWorkflow, WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workflows::{CloudWorkflow, WorkflowType};
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::cross_window_tab_drag::{
     AttachTarget, CrossWindowTabDrag, DragResult, DropResult, GhostState,
@@ -8402,7 +8402,6 @@ impl Workspace {
                     // Proc same behavior as DrivePanelEvent::RunWorkflow
                     self.run_cloud_workflow_in_active_input(
                         workflow.clone(),
-                        WorkflowSelectionSource::WarpDrive,
                         TerminalSessionFallbackBehavior::default(),
                         ctx,
                     );
@@ -10900,14 +10899,10 @@ impl Workspace {
             }
             pane_group::Event::RunWorkflow {
                 workflow,
-                workflow_source,
-                workflow_selection_source,
                 argument_override,
             } => {
                 self.run_workflow_in_active_input(
                     workflow,
-                    *workflow_source,
-                    *workflow_selection_source,
                     argument_override.clone(),
                     TerminalSessionFallbackBehavior::default(),
                     ctx,
@@ -11957,7 +11952,6 @@ impl Workspace {
             DrivePanelEvent::RunWorkflow(workflow) => {
                 self.run_cloud_workflow_in_active_input(
                     workflow.as_ref().clone(),
-                    WorkflowSelectionSource::WarpDrive,
                     TerminalSessionFallbackBehavior::default(),
                     ctx,
                 );
@@ -11989,15 +11983,11 @@ impl Workspace {
     fn run_cloud_workflow_in_active_input(
         &mut self,
         workflow: CloudWorkflow,
-        workflow_selection_source: WorkflowSelectionSource,
         fallback_behavior: TerminalSessionFallbackBehavior,
         ctx: &mut ViewContext<Self>,
     ) {
-        let owner = workflow.clone().permissions.owner.into();
         self.run_workflow_in_active_input(
             &WorkflowType::Cloud(Box::new(workflow.clone())),
-            owner,
-            workflow_selection_source,
             None,
             fallback_behavior,
             ctx,
@@ -12116,8 +12106,6 @@ impl Workspace {
     fn run_workflow_in_active_input(
         &mut self,
         workflow: &WorkflowType,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
         argument_override: Option<HashMap<String, String>>,
         fallback_behavior: TerminalSessionFallbackBehavior,
         ctx: &mut ViewContext<Self>,
@@ -12137,8 +12125,6 @@ impl Workspace {
             terminal_input.update(ctx, |input, ctx| {
                 input.show_workflows_info_box_on_workflow_selection(
                     workflow.clone(),
-                    workflow_source,
-                    workflow_selection_source,
                     argument_override,
                     ctx,
                 );
@@ -17208,13 +17194,9 @@ impl TypedActionView for Workspace {
             OpenNotebook { id } => self.open_notebook(&NotebookSource::Existing(*id), ctx, true),
             RunWorkflow {
                 workflow,
-                workflow_source,
-                workflow_selection_source,
                 argument_override,
             } => self.run_workflow_in_active_input(
                 workflow,
-                *workflow_source,
-                *workflow_selection_source,
                 argument_override.clone(),
                 TerminalSessionFallbackBehavior::default(),
                 ctx,

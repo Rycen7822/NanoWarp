@@ -110,7 +110,7 @@ use crate::util::bindings::{CustomAction, is_binding_pty_compliant};
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
 use crate::view_components::ToastFlavor;
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workflows::WorkflowType;
 use crate::workspace::tab_group::TabGroupId;
 use crate::workspace::{self, CommandSearchOptions, PaneViewLocator, TabBarLocation};
 use crate::{cmd_or_ctrl_shift, send_telemetry_from_ctx};
@@ -463,8 +463,6 @@ pub enum Event {
     /// Tell the workspace to run a workflow in the active tab's active session.
     RunWorkflow {
         workflow: Arc<WorkflowType>,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
         argument_override: Option<HashMap<String, String>>,
     },
     /// Invoke env var from pane

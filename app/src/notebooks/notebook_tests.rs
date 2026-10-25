@@ -31,7 +31,7 @@ use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::editor::notebook_command::NotebookCommand;
 use crate::notebooks::editor::view::EditorViewAction;
 use crate::notebooks::notebook::FocusedComponent;
-use crate::notebooks::{CloudNotebook, CloudNotebookModel, NotebookLocation};
+use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::pane_group::PaneEvent;
 use crate::search::files::model::FileSearchModel;
 use crate::server::cloud_objects::update_manager::{InitialLoadResponse, UpdateManager};
@@ -43,8 +43,8 @@ use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::assert_eventually;
 use crate::test_util::settings::initialize_settings_for_tests;
+use crate::workflows::WorkflowType;
 use crate::workflows::workflow::Workflow;
-use crate::workflows::{WorkflowSource, WorkflowType};
 use crate::workspace::ActiveSession;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
@@ -278,11 +278,6 @@ echo hello
                         "Command from Test Notebook",
                         "echo hello"
                     )))),
-                    source: WorkflowSource::Notebook {
-                        notebook_id: None,
-                        team_uid: None,
-                        location: NotebookLocation::PersonalCloud,
-                    },
                 }),
                 "No RunWorkflow event in {events:#?}"
             );

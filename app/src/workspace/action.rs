@@ -32,7 +32,7 @@ use crate::tab_configs::TabConfig;
 use crate::terminal::available_shells::AvailableShell;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::themes::theme_chooser::ThemeChooserMode;
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workflows::WorkflowType;
 use crate::workspace::PaneViewLocator;
 use crate::workspace::tab_group::TabGroupId;
 
@@ -451,8 +451,6 @@ pub enum WorkspaceAction {
     },
     RunWorkflow {
         workflow: Arc<WorkflowType>,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
         argument_override: Option<HashMap<String, String>>,
     },
     ScrollToSettingsWidget {

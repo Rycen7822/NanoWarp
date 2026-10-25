@@ -14,7 +14,6 @@ use crate::app_state::{LeafContents, NotebookPaneSnapshot};
 use crate::code::editor_management::CodeSource;
 use crate::notebooks::file::{FileNotebookEvent, FileNotebookView};
 use crate::terminal::model::session::Session;
-use crate::workflows::WorkflowSelectionSource;
 
 pub struct FilePane {
     view: ViewHandle<PaneView<FileNotebookView>>,
@@ -84,11 +83,9 @@ impl PaneContent for FilePane {
         ctx.subscribe_to_view(
             &self.file_view(ctx),
             move |pane_group, _, event, ctx| match event {
-                FileNotebookEvent::RunWorkflow { workflow, source } => {
+                FileNotebookEvent::RunWorkflow { workflow } => {
                     ctx.emit(crate::pane_group::Event::RunWorkflow {
                         workflow: workflow.clone(),
-                        workflow_source: *source,
-                        workflow_selection_source: WorkflowSelectionSource::Notebook,
                         argument_override: None,
                     });
                 }

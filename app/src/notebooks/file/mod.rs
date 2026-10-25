@@ -65,7 +65,7 @@ use crate::util::openable_file_type::FileTarget;
 pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
-use crate::workflows::{WorkflowSource, WorkflowType};
+use crate::workflows::WorkflowType;
 use crate::workspace::ActiveSession;
 use crate::{cmd_or_ctrl_shift, safe_warn, send_telemetry_from_ctx};
 
@@ -108,7 +108,6 @@ pub struct FileNotebookView {
 pub enum FileNotebookEvent {
     RunWorkflow {
         workflow: Arc<WorkflowType>,
-        source: WorkflowSource,
     },
     TitleUpdated,
     FileLoaded,
@@ -811,14 +810,8 @@ impl FileNotebookView {
                         .as_ref()
                         .map(|location| format!("Command from {}", location.name))
                 });
-                let source = workflow.source.unwrap_or(WorkflowSource::Notebook {
-                    notebook_id: None,
-                    team_uid: None,
-                    location: NotebookLocation::LocalFile,
-                });
                 ctx.emit(FileNotebookEvent::RunWorkflow {
                     workflow: workflow_type,
-                    source,
                 });
             }
             EditorViewEvent::OpenedBlockInsertionMenu(source) => self.send_telemetry_action(

@@ -85,7 +85,7 @@ use crate::ui_components::icons::{self, Icon};
 use crate::uri::web_intent_parser::open_url_on_desktop;
 use crate::util::bindings::{self, CustomAction};
 use crate::view_components::{DismissibleToast, ToastType};
-use crate::workflows::{WorkflowSource, WorkflowType};
+use crate::workflows::WorkflowType;
 use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{cmd_or_ctrl_shift, safe_info, send_telemetry_from_ctx};
@@ -243,7 +243,6 @@ pub struct NotebookView {
 pub enum NotebookEvent {
     RunWorkflow {
         workflow: Arc<WorkflowType>,
-        source: WorkflowSource,
     },
     ViewInWarpDrive(WarpDriveItemId),
     Pane(PaneEvent),
@@ -1699,25 +1698,8 @@ impl NotebookView {
         let workflow_type =
             workflow.named_workflow(|| Some(format!("Command from {}", self.title(ctx))));
 
-        let notebook_id = self.server_id(ctx);
-        let source = workflow.source.unwrap_or_else(|| {
-            let owner = self.active_notebook_data.as_ref(ctx).owner(ctx);
-            let team_uid = match owner {
-                Some(Owner::Team { team_uid }) => Some(team_uid),
-                _ => None,
-            };
-            WorkflowSource::Notebook {
-                notebook_id,
-                team_uid,
-                location: owner
-                    .map(Into::into)
-                    .unwrap_or(NotebookLocation::PersonalCloud),
-            }
-        });
-
         ctx.emit(NotebookEvent::RunWorkflow {
             workflow: workflow_type,
-            source,
         });
         ctx.notify();
     }

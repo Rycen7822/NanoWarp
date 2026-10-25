@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 pub use cloud_object_models::{CloudWorkflow, CloudWorkflowModel, WorkflowId};
-use serde::{Deserialize, Serialize};
 
 use anyhow::Result;
 use workflow::Workflow;
@@ -22,36 +21,11 @@ use crate::cloud_object::{
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::items::WarpDriveItem;
 use crate::drive::items::workflow::WarpDriveWorkflow;
-use crate::notebooks::{NotebookId, NotebookLocation};
 use crate::persistence::ModelEvent;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use crate::server::ids::{ServerId, SyncId};
 use crate::server::server_api::object::ObjectClient;
 use crate::server::sync_queue::{QueueItem, SerializedModel};
-
-#[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
-pub enum WorkflowSource {
-    Team {
-        team_uid: ServerId,
-    },
-    PersonalCloud,
-    WarpAI,
-    Notebook {
-        notebook_id: Option<NotebookId>,
-        team_uid: Option<ServerId>,
-        location: NotebookLocation,
-    },
-}
-
-#[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash, PartialOrd)]
-pub enum WorkflowSelectionSource {
-    WarpDrive,
-    CommandPalette,
-    WarpAI,
-    Notebook,
-    SlashMenu,
-    Undefined,
-}
 
 /// Workflows used by cloud and notebooks.
 #[derive(Clone, Debug, PartialEq)]
