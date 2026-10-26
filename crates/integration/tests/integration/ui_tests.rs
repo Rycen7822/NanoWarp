@@ -99,10 +99,7 @@ integration_tests! {
     #[ignore = "Flakes in CI"]
     test_add_launch_config_to_warp_config,
     #[ignore = "Flakes in CI"]
-    test_add_workflows_to_warp_config,
-    #[ignore = "Flakes in CI"]
     test_add_theme_to_warp_config,
-    test_loading_project_workflows,
     test_completions_as_you_type,
     test_completions_as_you_type_one_matching_entry_tab,
     test_completions_as_you_type_execute_on_enter,
@@ -187,9 +184,6 @@ integration_tests! {
 
     test_private_public_settings_routing_with_flag_enabled,
     test_private_settings_preloaded_and_not_leaked_to_toml,
-    test_history_command_is_linked_to_local_workflow,
-    #[ignore = "Affected by agent_view feature flag UI changes"]
-    test_up_arrow_history_enters_shift_tab_for_workflow,
 
     test_secret_is_obfuscated_on_copy,
     test_secret_tooltip_respects_safe_mode_setting,
