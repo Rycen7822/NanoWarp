@@ -76,7 +76,6 @@ cfg-if.workspace = true
 channel_versions.workspace = true
 chrono.workspace = true
 clap.workspace = true
-cloud_objects.workspace = true
 command = { workspace = true }
 command-corrections.workspace = true
 crc.workspace = true
@@ -218,9 +217,7 @@ warp_completer.workspace = true
 warp_core.workspace = true
 warp_errors = { workspace = true, features = ["reqwest-errors"] }
 warp_editor.workspace = true
-warp_graphql.workspace = true
 warp_search_core.workspace = true
-warp_server_auth.workspace = true
 warp_util.workspace = true
 warpui = { workspace = true, features = ["schema_gen", "settings_value"] }
 warpui_core.workspace = true
@@ -374,9 +371,7 @@ windows-result = { workspace = true }
 winreg.workspace = true
 
 [dev-dependencies]
-cloud_objects = { workspace = true, features = ["test-util"] }
 async-process.workspace = true
-firebase.workspace = true
 jsonschema = { workspace = true, default-features = false }
 async-executor = "1.5.1"
 command = { workspace = true, features = ["test-util"] }
@@ -467,7 +462,6 @@ default = [
     "tab_configs",
     "grouped_tabs",
     "pinned_tabs",
-    "skip_firebase_anonymous_user",
     "settings_file",
     "directory_tab_colors",
     "remote_code_review",
@@ -556,7 +550,6 @@ sequential_storage = []
 standalone = ["warp_assets/standalone", "warp_core/standalone"]
 tab_close_button_on_left = []
 test-util = [
-    "cloud_objects/test-util",
     "http_client/test-util",
     "warp_core/test-util",
     "warp_terminal/test-util",
@@ -613,7 +606,6 @@ vertical_tabs_summary_mode = []
 tab_configs = []
 grouped_tabs = []
 pinned_tabs = []
-skip_firebase_anonymous_user = []
 configurable_toolbar = []
 warpify_footer = []
 git_operations_in_code_review = []

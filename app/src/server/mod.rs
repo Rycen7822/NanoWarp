@@ -1,5 +1,3 @@
-#[cfg(not(target_family = "wasm"))]
-pub mod ids;
 pub mod network_log_pane_manager;
 pub mod network_log_view;
 pub mod network_logging;

@@ -42,7 +42,7 @@ use crate::settings::FontSettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspace::ActiveSession;
-use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider, UserWorkspaces};
+use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
 /// Container for a [`RichTextEditorView`] in unit tests.
 struct TestView {
@@ -116,7 +116,6 @@ fn setup_editor_window(app: &mut App) -> warpui::WindowId {
 
 fn initialize_deps(app: &mut App) {
     app.add_singleton_model(|_| Appearance::mock());
-    app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
     initialize_settings_for_tests(app);
 }
 

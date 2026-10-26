@@ -6,7 +6,6 @@ mod antivirus;
 mod app_menus;
 mod app_services;
 mod app_state;
-mod auth;
 mod banner;
 mod chip_configurator;
 mod code;
@@ -69,7 +68,6 @@ mod warp_managed_paths_watcher;
 #[cfg(target_family = "wasm")]
 mod wasm_nux_dialog;
 mod window_settings;
-mod workspaces;
 
 // PLEASE DO NOT ADD MORE PUBLIC MODULES!
 //
@@ -197,7 +195,6 @@ use crate::util::bindings::is_binding_cross_platform;
 use crate::vim_registers::VimRegisters;
 use crate::warp_managed_paths_watcher::{WarpManagedPathsWatcher, ensure_warp_watch_roots_exist};
 use crate::workspace::{ActiveSession, PaneViewLocator, ToastStack, Workspace, WorkspaceAction};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 /// Our embedded application assets.
 pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
@@ -814,8 +811,6 @@ pub(crate) fn initialize_app(
     });
 
     let (
-        cached_workspaces,
-        current_workspace_uid,
         app_state,
         command_history,
         persisted_workspaces,
@@ -824,8 +819,6 @@ pub(crate) fn initialize_app(
     ) = sqlite_data
         .map(|sqlite_data| {
             (
-                sqlite_data.workspaces,
-                sqlite_data.current_workspace_uid,
                 sqlite_data.app_state,
                 sqlite_data.command_history,
                 sqlite_data.workspace_metadata,
@@ -834,8 +827,6 @@ pub(crate) fn initialize_app(
             )
         })
         .unwrap_or_default();
-
-    ctx.add_singleton_model(|_| UserWorkspaces::new(cached_workspaces, current_workspace_uid));
 
     ctx.add_singleton_model(AntivirusInfo::new);
 

@@ -44,7 +44,6 @@ use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
 use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::session::SessionId;
-use crate::workspaces::workspace::{Workspace as WorkspaceMetadata, WorkspaceUid};
 
 #[derive(Clone)]
 pub enum PersistenceScope {
@@ -157,18 +156,11 @@ impl Entity for PersistenceWriter {
 
 impl SingletonEntity for PersistenceWriter {}
 
-/// TODO: all of this data should eventually be indexed by user_id so that
-/// the logged in user sees the data for their user (and if another user logs in,
-/// they see their respective data). To do this, we can simply return a mapping
-/// of user ID->SqliteData and get the respective AppState after the user logs in.
-///
-/// For now, to address the global scoping here, we clear all persisted data on logout.
+/// Local session restoration, command history, and code-workspace state.
 pub struct PersistedData {
     /// Session restoration data.
     pub app_state: Option<AppState>,
 
-    pub workspaces: Vec<WorkspaceMetadata>,
-    pub current_workspace_uid: Option<WorkspaceUid>,
     pub command_history: Vec<PersistedCommand>,
     pub workspace_metadata: Vec<CodeWorkspaceMetadata>,
     pub workspace_language_servers: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>,
@@ -208,15 +200,6 @@ pub enum ModelEvent {
     SaveBlock(BlockCompleted),
     DeleteBlocks(Vec<u8>),
     Snapshot(AppState),
-    UpsertWorkspace {
-        workspace: Box<WorkspaceMetadata>,
-    },
-    UpsertWorkspaces {
-        workspaces: Vec<WorkspaceMetadata>,
-    },
-    SetCurrentWorkspace {
-        workspace_uid: WorkspaceUid,
-    },
     InsertCommand {
         metadata: StartedCommandMetadata,
     },

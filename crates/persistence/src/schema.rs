@@ -338,35 +338,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    team_members (id) {
-        id -> Integer,
-        team_id -> Integer,
-        user_uid -> Text,
-        email -> Text,
-        role -> Text,
-        is_disabled -> Bool,
-    }
-}
-
-diesel::table! {
-    team_settings (id) {
-        id -> Integer,
-        team_id -> Integer,
-        settings_json -> Text,
-    }
-}
-
-diesel::table! {
-    teams (id) {
-        id -> Integer,
-        name -> Text,
-        server_uid -> Text,
-        billing_metadata_json -> Nullable<Text>,
-        feature_model_choice_json -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     terminal_panes (id) {
         id -> Integer,
         kind -> Text,
@@ -413,7 +384,6 @@ diesel::table! {
         agent_management_filters -> Nullable<Text>,
         left_panel_open -> Nullable<Bool>,
         vertical_tabs_panel_open -> Nullable<Bool>,
-        team_uid -> Nullable<Text>,
     }
 }
 
@@ -443,24 +413,6 @@ diesel::table! {
     }
 }
 
-diesel::table! {
-    workspace_teams (id) {
-        id -> Integer,
-        workspace_server_uid -> Text,
-        team_server_uid -> Text,
-    }
-}
-
-diesel::table! {
-    workspaces (id) {
-        id -> Integer,
-        name -> Text,
-        server_uid -> Text,
-        is_selected -> Bool,
-        feature_model_choice_json -> Nullable<Text>,
-    }
-}
-
 diesel::joinable!(ambient_agent_panes -> pane_nodes (id));
 diesel::joinable!(app -> windows (active_window_id));
 diesel::joinable!(code_pane_tabs -> code_panes (code_pane_id));
@@ -472,8 +424,6 @@ diesel::joinable!(panels -> tabs (tab_id));
 diesel::joinable!(tab_groups -> windows (window_id));
 diesel::joinable!(tabs -> tab_groups (tab_group_id));
 diesel::joinable!(tabs -> windows (window_id));
-diesel::joinable!(team_members -> teams (team_id));
-diesel::joinable!(team_settings -> teams (team_id));
 diesel::joinable!(workspace_language_server -> workspace_metadata (workspace_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -489,5 +439,4 @@ diesel::allow_tables_to_appear_in_same_query!(
 );
 diesel::allow_tables_to_appear_in_same_query!(code_pane_tabs, code_panes,);
 diesel::allow_tables_to_appear_in_same_query!(object_metadata, object_permissions,);
-diesel::allow_tables_to_appear_in_same_query!(team_members, team_settings, teams,);
 diesel::allow_tables_to_appear_in_same_query!(workspace_language_server, workspace_metadata,);

@@ -18,7 +18,6 @@ use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspace::ToastStack;
 use crate::workspace::sync_inputs::SyncedInputState;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 impl EditorView {
     fn selected_ranges(&self, app: &AppContext) -> Vec<Range<DisplayPoint>> {
@@ -45,8 +44,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_ctx| SyncedInputState::mock());
     app.add_singleton_model(|_ctx| VimRegisters::new());
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
-
-    app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
 }
 
 #[test]

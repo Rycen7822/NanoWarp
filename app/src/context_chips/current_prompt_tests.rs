@@ -254,7 +254,6 @@ fn test_shell_chip_is_disabled_when_required_executable_is_missing() {
 
         app.add_singleton_model(|_| crate::settings::manager::SettingsManager::default());
         crate::settings::InputSettings::register(&mut app);
-        app.add_singleton_model(crate::workspaces::user_workspaces::UserWorkspaces::default_mock);
         #[cfg(windows)]
         app.add_singleton_model(SystemInfo::new);
 
@@ -400,7 +399,6 @@ fn test_disabling_chips() {
         // Register required singleton models to fix the singleton model error
         app.add_singleton_model(|_| crate::settings::manager::SettingsManager::default());
         crate::settings::InputSettings::register(&mut app);
-        app.add_singleton_model(crate::workspaces::user_workspaces::UserWorkspaces::default_mock);
         #[cfg(windows)]
         app.add_singleton_model(SystemInfo::new);
 
@@ -545,7 +543,6 @@ fn test_ps1_without_active_agent_surface_runs_no_footer_generators() {
 
         app.add_singleton_model(|_| crate::settings::manager::SettingsManager::default());
         crate::settings::InputSettings::register(&mut app);
-        app.add_singleton_model(crate::workspaces::user_workspaces::UserWorkspaces::default_mock);
         #[cfg(windows)]
         app.add_singleton_model(SystemInfo::new);
 
