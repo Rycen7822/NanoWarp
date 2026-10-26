@@ -425,7 +425,6 @@ default = [
     "render_continuous_block_selections_with_single_border",
     "shell_selector",
     "minimalist_ui",
-    "avatar_in_tab_bar",
     "full_screen_zen_mode",
     "ligatures",
     "rect_selection",
@@ -581,7 +580,6 @@ rect_selection = []
 alacritty_settings_import = []
 shell_selector = []
 minimalist_ui = []
-avatar_in_tab_bar = []
 ssh_drag_and_drop = []
 multi_workspace = []
 ime_marked_text = []

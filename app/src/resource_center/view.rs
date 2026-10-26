@@ -1,5 +1,4 @@
 use vec1::{Vec1, vec1};
-use warp_core::features::FeatureFlag;
 use warp_core::ui::builder::AnimatedButtonOptions;
 use warpui::elements::{
     Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Icon,
@@ -320,13 +319,7 @@ impl ResourceCenterView {
 
         let header_text = match current_page {
             Some(ResourceCenterPage::Keybindings) => "Keyboard Shortcuts".to_string(),
-            _ => {
-                if FeatureFlag::AvatarInTabBar.is_enabled() {
-                    String::new()
-                } else {
-                    "Warp Essentials".to_string()
-                }
-            }
+            _ => "Warp Essentials".to_string(),
         };
         let title = Shrinkable::new(
             1.0,

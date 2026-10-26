@@ -1138,7 +1138,6 @@ pub(crate) fn initialize_app(
     themes::theme_creator_modal::init(ctx);
     themes::theme_deletion_modal::init(ctx);
     root_view::init(ctx);
-    auth::init(ctx);
     crate::view_components::find::init(ctx);
     prompt::editor_modal::init(ctx);
     undo_close::init(ctx);

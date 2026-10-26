@@ -4,12 +4,8 @@ use warpui::{AppContext, Entity, ModelContext, SingletonEntity, WeakViewHandle, 
 
 use super::team::Team;
 use super::workspace::{Workspace, WorkspaceUid};
-use crate::auth::UserUid;
-use crate::channel::ChannelState;
 use crate::server::ids::ServerId;
 pub(crate) mod team_workspace_settings;
-
-const STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX: &str = "/upgrade";
 
 /// UserWorkspaces is a singleton model that holds workspace metadata (name, members, etc).
 /// It should be used for getting information about the workspaces, teams, current teams,
@@ -44,25 +40,6 @@ impl UserWorkspaces {
             workspaces: cached_workspaces,
             window_team_uids: Default::default(),
         }
-    }
-
-    pub fn upgrade_link(user_id: UserUid) -> String {
-        format!(
-            "{}{}/{}/{}",
-            ChannelState::server_root_url(),
-            STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX,
-            "user",
-            user_id.as_str()
-        )
-    }
-
-    pub fn upgrade_link_for_team(team_uid: ServerId) -> String {
-        format!(
-            "{}{}/{}",
-            ChannelState::server_root_url(),
-            STRIPE_SUBSCRIPTION_INTERVAL_PAGE_PREFIX,
-            team_uid
-        )
     }
 
     pub fn team_from_uid(&self, team_uid: ServerId) -> Option<&Team> {

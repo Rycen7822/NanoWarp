@@ -155,7 +155,6 @@ pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
     LaunchNetworkLogging,
-    SignupAnonymousUser,
     OpenLspLogs { log_path: PathBuf },
 }
 

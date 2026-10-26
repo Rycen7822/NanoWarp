@@ -2,7 +2,6 @@ pub mod feature_section;
 pub use feature_section::FeatureSectionView;
 pub mod content_section;
 pub use content_section::ContentSectionView;
-use warp_core::features::FeatureFlag;
 use warpui::elements::{
     Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Hoverable, Icon,
     MouseStateHandle, ParentElement, ScrollbarWidth, Shrinkable,
@@ -122,9 +121,7 @@ pub trait SectionView {
                     .with_width(CHEVRON_ICON_SIZE)
                     .finish();
 
-            if !FeatureFlag::AvatarInTabBar.is_enabled() {
-                section_header.add_child(dropdown_icon);
-            }
+            section_header.add_child(dropdown_icon);
             section_header.add_child(section_title);
 
             if let Some(progress_indicator) =

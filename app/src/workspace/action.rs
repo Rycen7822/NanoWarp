@@ -255,7 +255,6 @@ pub enum WorkspaceAction {
         mode: PaletteMode,
         source: PaletteSource,
     },
-    ShowUpgrade,
     JoinSlack,
     ViewUserDocs,
     ViewPrivacyPolicy,
@@ -281,7 +280,6 @@ pub enum WorkspaceAction {
     SelectTabConfig(TabConfig),
     DispatchToSettingsTab(SettingsTabAction),
     ToggleResourceCenter,
-    ToggleUserMenu,
     ToggleKeybindingsPage,
     ShowCommandSearch(CommandSearchOptions),
     TriggerExternalCtrlTFileSearch,
@@ -330,9 +328,6 @@ pub enum WorkspaceAction {
     /// if the focused pane is the rendered file viewer (`FilePane`), otherwise the focused
     /// terminal session's working directory. No-op if neither yields a path.
     CopyCurrentPath,
-    /// An action only registered in dev and local builds, which writes the user's current access
-    /// token to the system clipboard to aid debugging and development.
-    CopyAccessTokenToClipboard,
     DismissWorkspaceBanner(WorkspaceBanner),
     /// An action only registered in dev and local builds, which triggers a
     /// panic immediately when called.
@@ -354,9 +349,6 @@ pub enum WorkspaceAction {
     ShowHeaderToolbarContextMenu {
         position: Vector2F,
     },
-    Reauth,
-    SignupAnonymousUser,
-    SignInAnonymousWebUser,
     OpenLink(String),
     /// On WASM, opens a given URL in the desktop Warp app (if installed) or redirects to download page.
     #[cfg(target_family = "wasm")]
@@ -600,7 +592,6 @@ impl WorkspaceAction {
             | ResetZoom
             | OpenPalette { .. }
             | TogglePalette { mode: _, source: _ }
-            | ShowUpgrade
             | JoinSlack
             | ViewUserDocs
             | ViewPrivacyPolicy
@@ -622,7 +613,6 @@ impl WorkspaceAction {
             | ToggleNotifications
             | DispatchToSettingsTab { .. }
             | ToggleResourceCenter
-            | ToggleUserMenu
             | ToggleKeybindingsPage
             | ShowCommandSearch(_)
             | TriggerExternalCtrlTFileSearch
@@ -651,7 +641,6 @@ impl WorkspaceAction {
             | ToggleWelcomeTips
             | CopyTextToClipboard(_)
             | CopyCurrentPath
-            | CopyAccessTokenToClipboard
             | OpenTabConfigRepoPicker { .. }
             | OpenNewWorktreeModal
             | OpenNewWorktreeRepoPicker
@@ -667,8 +656,6 @@ impl WorkspaceAction {
             | OpenPromptEditor
             | OpenHeaderToolbarEditor
             | ShowHeaderToolbarContextMenu { .. }
-            | Reauth
-            | SignupAnonymousUser
             | OpenLink(_)
             | ReopenClosedSession
             | FocusLeftPanel
@@ -681,7 +668,6 @@ impl WorkspaceAction {
             | RunCommand { .. }
             | OpenFilePath { .. }
             | TerminateApp
-            | SignInAnonymousWebUser
             | TabHoverWidthStart { .. }
             | TabHoverWidthEnd
             | FocusTerminalViewInWorkspace { .. }

@@ -19,6 +19,7 @@ use warpui::{AddSingletonModel, App, ViewHandle};
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
+use crate::auth::AuthStateProvider;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::editor::Event;
@@ -27,6 +28,7 @@ use crate::menu::MenuAction;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::pane_group::{Direction, PaneGroupAction, PaneId};
+use crate::server::ids::ServerId;
 use crate::server::server_api::ServerApiProvider;
 use crate::settings::PrivacySettings;
 use crate::settings_view::DisplayCount;
@@ -52,7 +54,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_ctx| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
-    app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(|_ctx| PtySpawner::new_for_test());
     app.add_singleton_model(|_| Prompt::mock());
     app.add_singleton_model(|_| NetworkStatus::new());

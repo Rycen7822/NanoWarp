@@ -33,7 +33,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) settings_icon: MouseStateHandle,
     pub(super) dismiss_banner_button: MouseStateHandle,
     pub(super) offline_icon: MouseStateHandle,
-    pub(super) avatar_icon: MouseStateHandle,
     pub(super) header_dimming: MouseStateHandle,
     pub(super) right_panel_icon: MouseStateHandle,
     pub(super) tools_panel_icon: MouseStateHandle,
@@ -85,8 +84,6 @@ pub struct WorkspaceState {
     pub is_launch_config_save_modal_open: bool,
     pub is_resource_center_open: bool,
     pub is_command_search_open: bool,
-    pub is_auth_override_modal_open: bool,
-    pub is_require_login_modal_open: bool,
     pub is_prompt_editor_open: bool,
     pub is_header_toolbar_editor_open: bool,
     pub is_native_quit_modal_open: bool,
@@ -140,8 +137,6 @@ impl WorkspaceState {
         self.is_command_search_open = false;
         self.is_prompt_editor_open = false;
         self.is_header_toolbar_editor_open = false;
-        self.is_auth_override_modal_open = false;
-        self.is_require_login_modal_open = false;
         self.is_tab_config_params_modal_open = false;
         self.is_session_config_modal_open = false;
         self.is_new_worktree_modal_open = false;

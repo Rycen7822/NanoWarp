@@ -22,7 +22,6 @@ use super::{
 };
 use crate::appearance::Appearance;
 use crate::channel::ChannelState;
-use crate::features::FeatureFlag;
 use crate::resource_center::skip_tips_and_write_to_user_defaults;
 
 use crate::workspace::WorkspaceAction;
@@ -377,9 +376,7 @@ impl View for ResourceCenterMainView {
 
         let mut main_page = Flex::column();
 
-        if !self.tips_completed.as_ref(app).skipped_or_completed
-            && !FeatureFlag::AvatarInTabBar.is_enabled()
-        {
+        if !self.tips_completed.as_ref(app).skipped_or_completed {
             main_page.add_child(skip_tips);
         }
 

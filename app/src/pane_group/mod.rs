@@ -472,7 +472,6 @@ pub enum Event {
     },
     /// Clears the hovered tab index so it no longer appears as highlighted drop target
     ClearHoveredTabIndex,
-    AnonymousUserSignup,
     /// Request that the workspace open the command palette.
     OpenPalette {
         mode: PaletteMode,

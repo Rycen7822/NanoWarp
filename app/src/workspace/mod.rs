@@ -859,16 +859,14 @@ pub fn init(app: &mut AppContext) {
         .with_enabled(|| ContextFlag::LaunchConfigurations.is_enabled()),
     ]);
 
-    if !FeatureFlag::AvatarInTabBar.is_enabled() {
-        app.register_editable_bindings([EditableBinding::new(
-            "workspace:toggle_resource_center",
-            "Toggle resource center",
-            WorkspaceAction::ToggleResourceCenter,
-        )
-        .with_group(bindings::BindingGroup::Navigation.as_str())
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::ToggleResourceCenter)]);
-    }
+    app.register_editable_bindings([EditableBinding::new(
+        "workspace:toggle_resource_center",
+        "Toggle resource center",
+        WorkspaceAction::ToggleResourceCenter,
+    )
+    .with_group(bindings::BindingGroup::Navigation.as_str())
+    .with_context_predicate(id!("Workspace"))
+    .with_custom_action(CustomAction::ToggleResourceCenter)]);
 
     app.register_editable_bindings([
         EditableBinding::new(
@@ -886,18 +884,6 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!("Workspace"))
         .with_key_binding("cmdorctrl-shift-)"),
     ]);
-
-    // Register a debug-only action for writing the user's access token to the system clipboard
-    // to aid debugging and development.
-    #[cfg(not(feature = "skip_login"))]
-    if ChannelState::enable_debug_features() {
-        app.register_editable_bindings([EditableBinding::new(
-            "workspace:copy_access_token_to_clipboard",
-            "Copy access token to clipboard",
-            WorkspaceAction::CopyAccessTokenToClipboard,
-        )
-        .with_context_predicate(id!("Workspace"))]);
-    }
 
     app.register_editable_bindings([
         EditableBinding::new(

@@ -46,8 +46,6 @@ use repo_metadata::RemoteRepositoryIdentifier;
 #[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
 use serde_json;
-#[cfg(target_family = "wasm")]
-use url::Url;
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::semantic_selection::SemanticSelection;
@@ -57,7 +55,6 @@ use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::theme::{AnsiColors, Fill};
 use warp_editor::editor::NavigationKey;
 use warp_errors::{report_error, report_if_error};
-use warp_server_client::auth::AuthEvent;
 use warp_util::path::{LineAndColumnArg, user_friendly_path};
 use warpui::accessibility::{
     AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, WarpA11yRole,
@@ -121,13 +118,6 @@ use crate::app_state::{
     TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::appearance::{Appearance, AppearanceManager};
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
-use crate::auth::auth_override_warning_modal::{
-    AuthOverrideWarningModal, AuthOverrideWarningModalEvent,
-};
-use crate::auth::auth_state::AuthState;
-use crate::auth::auth_view_modal::{AuthRedirectPayload, AuthView, AuthViewEvent};
 use crate::banner::BannerState;
 use crate::channel::ChannelState;
 use crate::code::buffer_location::LocalOrRemotePath;
@@ -180,7 +170,6 @@ use crate::search::command_palette::view::{
 use crate::search::command_search::searcher::CommandSearchItemAction;
 use crate::search::command_search::view::{CommandSearchEvent, CommandSearchView};
 use crate::search::{self, QueryFilter};
-use crate::server::ids::ServerId;
 use crate::server::network_log_pane_manager::NetworkLogPaneManager;
 use crate::server::server_api::{ServerApi, ServerApiProvider};
 use crate::session_management::{SessionNavigationData, SessionSource, TabNavigationData};
@@ -243,13 +232,10 @@ use crate::themes::theme_chooser::{ThemeChooser, ThemeChooserEvent, ThemeChooser
 use crate::themes::theme_creator_modal::{ThemeCreatorModal, ThemeCreatorModalEvent};
 use crate::themes::theme_deletion_modal::{ThemeDeletionModal, ThemeDeletionModalEvent};
 use crate::tips::{TipsEvent, TipsView};
-use crate::ui_components::avatar::{Avatar, AvatarContent};
 use crate::ui_components::buttons::{combo_inner_button, icon_button_with_color};
 use crate::ui_components::icons;
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 use crate::undo_close::UndoCloseStack;
-#[cfg(target_family = "wasm")]
-use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 #[cfg(feature = "local_fs")]
 use crate::user_config::{
@@ -393,8 +379,6 @@ const NEW_SESSION_SIDECAR_FOOTER_VERTICAL_PADDING: f32 = 8.;
 const SHOW_SETTINGS_KEYBINDING_NAME: &str = "workspace:show_settings";
 pub const TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME: &str = "workspace:toggle_command_palette";
 
-const USER_AVATAR_BUTTON_POSITION_ID: &str = "workspace:user_avatar_button";
-
 // these won't have to be public after we deprecate the code mode v1 project explorer which is defined in terminal
 pub(crate) const TOGGLE_PROJECT_EXPLORER_BINDING_NAME: &str = "workspace:toggle_project_explorer";
 pub(crate) const TOGGLE_RIGHT_PANEL_BINDING_NAME: &str = "workspace:toggle_right_panel";
@@ -429,9 +413,6 @@ pub const NEW_SESSION_MENU_BUTTON_POSITION_ID: &str = "new_session_menu_button";
 // The max length of the window title.
 const MAX_WINDOW_TITLE_LENGTH: usize = 80;
 
-/// The default display name used for the user if they have no associated display name.
-pub const DEFAULT_USER_DISPLAY_NAME: &str = "User";
-
 lazy_static! {
     static ref OPENING_WARP_DRIVE_ON_START_UP: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     static ref PANEL_CORNER_RADIUS: CornerRadius = CornerRadius::with_all(Radius::Pixels(8.));
@@ -448,29 +429,12 @@ enum TabConfigsMenuOpenSource {
 /// This enumerates the different kinds of banners we show to the user.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WorkspaceBanner {
-    /// to display when the user needs to reauthenticate
-    Reauth,
-    // to display an anonymous user has X days left to sign in
-    AnonymousUserAuth,
     /// to display when recovering from a crash that may have been due to use
     /// of Wayland
     #[cfg(target_os = "linux")]
     WaylandCrashRecovery,
     /// to display when settings.toml has errors (parse failure or invalid values)
     InvalidSettings,
-}
-
-impl WorkspaceBanner {
-    /// Some warnings remain visible until their underlying condition is resolved.
-    fn is_dismissible(&self) -> bool {
-        match self {
-            Self::AnonymousUserAuth => false,
-            Self::Reauth => true,
-            #[cfg(target_os = "linux")]
-            Self::WaylandCrashRecovery => true,
-            Self::InvalidSettings => true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -652,7 +616,6 @@ pub struct Workspace {
     tips_completed: ModelHandle<TipsCompleted>,
     user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
     server_api: Arc<ServerApi>,
-    auth_state: Arc<AuthState>,
     tab_right_click_menu: ViewHandle<Menu<WorkspaceAction>>,
     show_tab_right_click_menu: Option<(usize, TabContextMenuAnchor)>,
     /// Open tab group more-options menu; reuses the `tab_right_click_menu` view.
@@ -689,11 +652,8 @@ pub struct Workspace {
     new_worktree_modal: ModalViewState<Modal<NewWorktreeModal>>,
     resource_center_view: ViewHandle<ResourceCenterView>,
     command_search_view: ViewHandle<CommandSearchView>,
-    reauth_banner_dismissed: bool,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
-    auth_override_warning_modal: ViewHandle<AuthOverrideWarningModal>,
-    require_login_modal: ViewHandle<AuthView>,
     prompt_editor_modal: ViewHandle<PromptEditorModal>,
     header_toolbar_editor_modal: ViewHandle<HeaderToolbarEditorModal>,
     header_toolbar_context_menu: ViewHandle<Menu<WorkspaceAction>>,
@@ -708,11 +668,8 @@ pub struct Workspace {
     /// render method, so look them up when the view is constructed and cache them here. Note that they
     /// need to be kept in sync as the keybindings change.
     cached_keybindings: HashMap<String, Option<String>>,
-    is_user_menu_open: bool,
     tab_bar_pinned_by_popup: bool,
-    user_menu: ViewHandle<Menu<WorkspaceAction>>,
     native_modal: ViewHandle<NativeModal>,
-    shown_staging_banner_count: u32,
 
     // When user's open WEB for the first time, we ask them to select a preference of
     // always opening in web or opening in native app.
@@ -1215,41 +1172,6 @@ impl Workspace {
         (settings_pane, theme_chooser_view)
     }
 
-    fn build_require_login_modal(ctx: &mut ViewContext<Self>) -> ViewHandle<AuthView> {
-        let require_login_modal = ctx.add_typed_action_view(|ctx| AuthView::new(ctx));
-        ctx.subscribe_to_view(&require_login_modal, move |me, _, event, ctx| {
-            me.handle_require_login_modal_event(event, ctx);
-        });
-
-        require_login_modal
-    }
-
-    fn build_auth_override_warning_modal(
-        ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<AuthOverrideWarningModal> {
-        let auth_override_warning_modal =
-            ctx.add_typed_action_view(|ctx| AuthOverrideWarningModal::new(ctx));
-
-        ctx.subscribe_to_view(&auth_override_warning_modal, |me, _, event, ctx| {
-            me.handle_auth_override_warning_modal_event(event, ctx);
-        });
-
-        auth_override_warning_modal
-    }
-
-    fn handle_auth_override_warning_modal_event(
-        &mut self,
-        event: &AuthOverrideWarningModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AuthOverrideWarningModalEvent::Close => {
-                self.current_workspace_state.is_auth_override_modal_open = false;
-                ctx.notify();
-            }
-        }
-    }
-
     fn build_theme_creator_modal(ctx: &mut ViewContext<Self>) -> ViewHandle<ThemeCreatorModal> {
         let theme_creator_modal = ctx.add_typed_action_view(ThemeCreatorModal::new);
         ctx.subscribe_to_view(&theme_creator_modal, move |me, _, event, ctx| {
@@ -1624,26 +1546,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    /// Subscribe to the [`ServerApiProvider`] model to report status changes.
-    fn observe_server_api(ctx: &mut ViewContext<Self>) {
-        let server_api_events = ServerApiProvider::handle(ctx);
-        ctx.subscribe_to_model(&server_api_events, |me, _, event, ctx| {
-            if let AuthEvent::StagingAccessBlocked = event
-                && ChannelState::uses_staging_server()
-                && me.shown_staging_banner_count < 5
-            {
-                me.shown_staging_banner_count += 1;
-                me.toast_stack.update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::error(
-                        "Staging API call failed. Did your IP address change?".to_string(),
-                    )
-                    .with_object_id("staging_access_blocked_toast".to_string());
-                    toast_stack.add_ephemeral_toast(toast, ctx);
-                });
-            }
-        });
-    }
-
     fn subscribe_to_workspace_toast_stack(
         toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
         ctx: &mut ViewContext<Self>,
@@ -1862,9 +1764,6 @@ impl Workspace {
             me.handle_palette_event(event, ctx);
         });
 
-        let auth_manager = AuthManager::handle(ctx);
-        ctx.subscribe_to_model(&auth_manager, Self::handle_auth_manager_event);
-
         // Handle theme setting updates while the picker is open.
         ctx.subscribe_to_model(&ThemeSettings::handle(ctx), |me, _, _, ctx| {
             if me.is_theme_chooser_open() {
@@ -1893,10 +1792,6 @@ impl Workspace {
             Self::build_settings_views(tips_completed.clone(), ctx);
 
         let resource_center_view = Self::build_resource_center_view(ctx, tips_completed.clone());
-
-        let require_login_modal = Self::build_require_login_modal(ctx);
-
-        let auth_override_warning_modal = Self::build_auth_override_warning_modal(ctx);
 
         let theme_creator_modal = Self::build_theme_creator_modal(ctx);
 
@@ -1983,23 +1878,9 @@ impl Workspace {
 
         let prompt_editor_modal = Self::build_prompt_editor_modal(ctx);
 
-        Self::observe_server_api(ctx);
-
         Self::subscribe_to_workspace_toast_stack(toast_stack.clone(), ctx);
         Self::subscribe_to_tab_config_errors(toast_stack.clone(), ctx);
         Self::subscribe_to_settings_errors(ctx);
-
-        let user_menu = ctx.add_typed_action_view(|_| {
-            Menu::new()
-                .with_drop_shadow()
-                .prevent_interaction_with_other_elements()
-        });
-        ctx.subscribe_to_view(&user_menu, |me, _, event, ctx| {
-            if let MenuEvent::Close { .. } = event {
-                me.is_user_menu_open = false;
-                ctx.notify();
-            }
-        });
 
         let native_modal = Self::build_native_modal_view(ctx);
 
@@ -2019,7 +1900,6 @@ impl Workspace {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             server_api,
-            auth_state: AuthStateProvider::as_ref(ctx).get().clone(),
             tab_right_click_menu,
             show_tab_right_click_menu: None,
             show_tab_group_right_click_menu: None,
@@ -2045,11 +1925,8 @@ impl Workspace {
             new_worktree_modal,
             resource_center_view,
             command_search_view,
-            reauth_banner_dismissed: false,
             settings_file_error,
             settings_error_banner_dismissed: false,
-            auth_override_warning_modal,
-            require_login_modal,
             theme_creator_modal,
             theme_deletion_modal,
             window_id: ctx.window_id(),
@@ -2061,9 +1938,7 @@ impl Workspace {
             show_header_toolbar_context_menu: None,
             team_switcher_menu: Self::build_team_switcher_menu(ctx),
             show_team_switcher_menu: false,
-            is_user_menu_open: false,
             tab_bar_pinned_by_popup: false,
-            user_menu,
             native_modal,
             file_upload_sessions: Default::default(),
             left_panel_open: false,
@@ -2073,7 +1948,6 @@ impl Workspace {
             left_panel_views,
             right_panel_view,
             working_directories_model,
-            shown_staging_banner_count: 0,
 
             #[cfg(target_family = "wasm")]
             show_wasm_nux_dialog: WasmNUXDialog::should_display(ctx),
@@ -6208,68 +6082,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn user_menu_items(&self, app: &AppContext) -> Vec<MenuItem<WorkspaceAction>> {
-        let mut items = Vec::new();
-        if !self.auth_state.is_anonymous_or_logged_out() {
-            let name = self.auth_state.username_for_display().unwrap_or_default();
-            items.push(MenuItemFields::new(name).with_disabled(true).into_item())
-        }
-
-        items.extend([
-            MenuItemFields::new("Settings")
-                .with_on_select_action(WorkspaceAction::ShowSettings)
-                .into_item(),
-            MenuItemFields::new("Keyboard shortcuts")
-                .with_on_select_action(WorkspaceAction::ToggleKeybindingsPage)
-                .into_item(),
-            MenuItem::Separator,
-            MenuItemFields::new("Documentation")
-                .with_on_select_action(WorkspaceAction::ViewUserDocs)
-                .into_item(),
-            MenuItemFields::new("Feedback")
-                .with_on_select_action(WorkspaceAction::SendFeedback)
-                .into_item(),
-        ]);
-
-        #[cfg(not(target_family = "wasm"))]
-        items.push(
-            MenuItemFields::new("View Warp logs")
-                .with_on_select_action(WorkspaceAction::ViewLogs)
-                .into_item(),
-        );
-
-        items.extend([
-            MenuItemFields::new("Join our Slack community")
-                .with_on_select_action(WorkspaceAction::JoinSlack)
-                .into_item(),
-            MenuItem::Separator,
-        ]);
-
-        if self.auth_state.is_anonymous_or_logged_out() {
-            items.push(
-                MenuItemFields::new("Sign up")
-                    .with_on_select_action(WorkspaceAction::SignupAnonymousUser)
-                    .into_item(),
-            );
-        }
-
-        // Offer upgrades to users who are not on a paid plan.
-        let is_on_paid_plan = UserWorkspaces::as_ref(app)
-            .current_workspace()
-            .map(|workspace| workspace.billing_metadata.is_user_on_paid_plan())
-            .unwrap_or(false);
-
-        if !is_on_paid_plan {
-            items.push(
-                MenuItemFields::new("Upgrade")
-                    .with_on_select_action(WorkspaceAction::ShowUpgrade)
-                    .into_item(),
-            );
-        }
-
-        items
-    }
-
     fn selected_new_session_sidecar_selection(
         &self,
         ctx: &AppContext,
@@ -6292,18 +6104,6 @@ impl Workspace {
                 self.open_worktree_in_repo(repo_path, ctx);
             }
         }
-    }
-
-    fn toggle_user_menu(&mut self, ctx: &mut ViewContext<Self>) {
-        self.is_user_menu_open = !self.is_user_menu_open;
-        if self.is_user_menu_open {
-            let items = self.user_menu_items(ctx);
-            self.user_menu.update(ctx, |menu, ctx| {
-                menu.set_items(items, ctx);
-            });
-        }
-        ctx.focus(&self.user_menu);
-        ctx.notify();
     }
 
     pub fn toggle_keybindings_page(&mut self, ctx: &mut ViewContext<Self>) {
@@ -7521,19 +7321,6 @@ impl Workspace {
         }
     }
 
-    fn handle_require_login_modal_event(
-        &mut self,
-        event: &AuthViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AuthViewEvent::Close => {
-                self.current_workspace_state.is_require_login_modal_open = false;
-                ctx.notify();
-            }
-        }
-    }
-
     fn handle_theme_creator_modal_event(
         &mut self,
         event: &ThemeCreatorModalEvent,
@@ -7597,32 +7384,6 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         ctx.notify();
-    }
-
-    fn handle_auth_manager_event(
-        &mut self,
-        _handle: ModelHandle<AuthManager>,
-        event: &AuthManagerEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            AuthManagerEvent::LoginOverrideDetected(interrupted_auth_payload) => {
-                self.open_auth_override_warning_modal(interrupted_auth_payload.clone(), ctx);
-            }
-            AuthManagerEvent::AuthComplete => {
-                // This workspace can survive an anonymous user signing up from
-                // inside the app. Refresh the cached auth state and recompute
-                // effective toolbelt availability so onboarding preferences
-                // (for example, Warp Drive) take
-                // effect without requiring an off/on toggle.
-                self.auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-                self.update_left_panel_available_views(ctx);
-                ctx.notify();
-            }
-            _ => {
-                ctx.notify();
-            }
-        }
     }
 
     pub fn toggle_block_snackbar(&mut self, ctx: &mut ViewContext<Self>) {
@@ -8880,7 +8641,6 @@ impl Workspace {
         let is_tab_menu_open = (self.show_tab_right_click_menu.is_some()
             || self.show_new_session_dropdown_menu.is_some())
             && !is_vertical_tabs_active
-            || self.is_user_menu_open
             || self.tab_bar_pinned_by_popup;
 
         // Check if any panes are being dragged (potentially into a new tab).
@@ -9222,27 +8982,6 @@ impl Workspace {
         }
     }
 
-    fn open_require_login_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.close_all_overlays(ctx);
-        self.current_workspace_state.is_require_login_modal_open = true;
-        ctx.focus(&self.require_login_modal);
-        ctx.notify();
-    }
-
-    fn open_auth_override_warning_modal(
-        &mut self,
-        auth_payload: AuthRedirectPayload,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.close_all_overlays(ctx);
-        self.auth_override_warning_modal.update(ctx, |modal, _| {
-            modal.set_interrupted_auth_payload(auth_payload);
-        });
-        self.current_workspace_state.is_auth_override_modal_open = true;
-        ctx.focus(&self.auth_override_warning_modal);
-        ctx.notify();
-    }
-
     fn open_palette(
         &mut self,
         mode: PaletteMode,
@@ -9419,9 +9158,6 @@ impl Workspace {
         match event {
             SettingsViewEvent::LaunchNetworkLogging => {
                 self.open_network_log_pane(ctx);
-            }
-            SettingsViewEvent::SignupAnonymousUser => {
-                self.initiate_user_signup(ctx);
             }
             SettingsViewEvent::Pane(_) | SettingsViewEvent::StartResize => {}
             SettingsViewEvent::OpenLspLogs { log_path } => {
@@ -10011,9 +9747,6 @@ impl Workspace {
                 ctx.notify();
             }
             pane_group::Event::ClearHoveredTabIndex => self.hovered_tab_index = None,
-            pane_group::Event::AnonymousUserSignup => {
-                self.initiate_user_signup(ctx);
-            }
             pane_group::Event::OpenPalette {
                 mode,
                 source,
@@ -12441,7 +12174,7 @@ impl Workspace {
     }
 
     /// Adds the configurable right-side toolbar items plus the fixed controls
-    /// (update pill, offline indicator, avatar, etc.) that are not configurable.
+    /// (update pill, offline indicator, etc.) that are not configurable.
     fn add_configurable_right_side_tab_bar_controls(
         &self,
         target: &mut Flex,
@@ -12469,28 +12202,20 @@ impl Workspace {
             target.add_child(pill);
         }
 
-        if FeatureFlag::AvatarInTabBar.is_enabled() {
+        let resource_center_closed = !self.current_workspace_state.is_resource_center_open;
+        if resource_center_closed && ContextFlag::WarpEssentials.is_enabled() {
             target.add_child(
-                Container::new(self.render_avatar_button(appearance))
-                    .with_margin_left(TAB_BAR_PADDING_LEFT)
-                    .finish(),
-            );
-        } else {
-            let resource_center_closed = !self.current_workspace_state.is_resource_center_open;
-            if resource_center_closed && ContextFlag::WarpEssentials.is_enabled() {
-                target.add_child(
-                    Container::new(self.render_resource_center_button(appearance, ctx))
-                        .with_margin_left(TAB_BAR_PADDING_LEFT)
-                        .finish(),
-                );
-            }
-
-            target.add_child(
-                Container::new(self.render_settings_button(appearance))
+                Container::new(self.render_resource_center_button(appearance, ctx))
                     .with_margin_left(TAB_BAR_PADDING_LEFT)
                     .finish(),
             );
         }
+
+        target.add_child(
+            Container::new(self.render_settings_button(appearance))
+                .with_margin_left(TAB_BAR_PADDING_LEFT)
+                .finish(),
+        );
 
         let zoom_factor = WindowSettings::as_ref(ctx).zoom_level.as_zoom_factor();
         let traffic_light_data = traffic_light_data(ctx, self.window_id);
@@ -12747,84 +12472,6 @@ impl Workspace {
             ret.finish()
         })
         .finish()
-    }
-
-    fn render_avatar_button(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let is_anonymous = self.auth_state.is_anonymous_or_logged_out();
-        let display_name = self
-            .auth_state
-            .username_for_display()
-            .unwrap_or(DEFAULT_USER_DISPLAY_NAME.to_owned());
-
-        let avatar_content = if self.auth_state.is_anonymous_or_logged_out() {
-            AvatarContent::Icon(icons::Icon::Gear)
-        } else {
-            self.auth_state
-                .user_photo_url()
-                .map(|url| AvatarContent::Image {
-                    url,
-                    display_name: display_name.clone(),
-                })
-                .unwrap_or(AvatarContent::DisplayName(display_name.clone()))
-        };
-
-        let avatar = Avatar::new(
-            avatar_content,
-            UiComponentStyles {
-                width: Some(20.),
-                height: Some(20.),
-                border_radius: Some(CornerRadius::with_all(Radius::Percentage(50.))),
-                font_family_id: Some(appearance.ui_font_family()),
-                font_weight: Some(Weight::Bold),
-                background: Some(appearance.theme().accent().into()),
-                font_size: Some(12.),
-                font_color: Some(ColorU::black()),
-                ..Default::default()
-            },
-        );
-
-        let button = Hoverable::new(self.mouse_states.avatar_icon.clone(), |state| {
-            let mut stack = Stack::new();
-            let mut container = Container::new(avatar.build().finish())
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-                .with_uniform_padding(2.);
-
-            if state.is_mouse_over_element() {
-                if !state.is_clicked() {
-                    container = container.with_background(appearance.theme().surface_2());
-                }
-                // On hover, show tooltip of user's display name (if it exists)
-                if !self.is_user_menu_open && !is_anonymous {
-                    stack.add_positioned_overlay_child(
-                        appearance
-                            .ui_builder()
-                            .tool_tip(display_name.clone())
-                            .with_style(UiComponentStyles {
-                                background: Some(appearance.theme().tooltip_background().into()),
-                                font_color: Some(appearance.theme().background().into_solid()),
-                                ..Default::default()
-                            })
-                            .build()
-                            .finish(),
-                        OffsetPositioning::offset_from_parent(
-                            vec2f(0., 4.),
-                            ParentOffsetBounds::WindowByPosition,
-                            ParentAnchor::BottomMiddle,
-                            ChildAnchor::TopMiddle,
-                        ),
-                    );
-                }
-            }
-            stack.add_child(container.finish());
-            stack.finish()
-        })
-        .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(WorkspaceAction::ToggleUserMenu);
-        })
-        .with_cursor(Cursor::PointingHand)
-        .finish();
-
-        SavePosition::new(Align::new(button).finish(), USER_AVATAR_BUTTON_POSITION_ID).finish()
     }
 
     fn render_resource_center_button(
@@ -13131,12 +12778,8 @@ impl Workspace {
     // warning on mac)
     #[allow(clippy::let_and_return)]
     fn banner_fields(&self, app: &AppContext) -> Option<WorkspaceBannerFields> {
-        // The settings error banner sits just below reauth in priority — it's
-        // more important that users are notified their settings file is broken
-        // than that they continue to see the crash recovery banner.
-        let banner_fields = self
-            .render_reauth_banner_element()
-            .or_else(|| self.render_settings_error_banner());
+        // Settings errors take priority over the crash recovery banner.
+        let banner_fields = self.render_settings_error_banner();
 
         #[cfg(enable_crash_recovery)]
         let banner_fields = banner_fields.or_else(|| crash_recovery::banner_metadata(app));
@@ -13172,26 +12815,6 @@ impl Workspace {
     ) -> Option<Box<dyn Element>> {
         self.banner_fields(app)
             .map(|fields| self.render_workspace_banner(fields, appearance))
-    }
-
-    fn render_reauth_banner_element(&self) -> Option<WorkspaceBannerFields> {
-        if self.reauth_banner_dismissed || !self.auth_state.needs_reauth() {
-            return None;
-        }
-
-        Some(WorkspaceBannerFields {
-            banner_type: WorkspaceBanner::Reauth,
-            severity: BannerSeverity::Warning,
-            heading: Some("Your login has expired.".into()),
-            description: "Please sign in again to restore access to cloud-based features.".into(),
-            secondary_button: None,
-            button: Some(WorkspaceBannerButtonDetails {
-                text: "Sign in".into(),
-                action: WorkspaceAction::Reauth,
-                icon: None,
-                more_info_button_action: None,
-            }),
-        })
     }
 
     fn render_workspace_banner(
@@ -13295,46 +12918,44 @@ impl Workspace {
             }
         }
 
-        if fields.banner_type.is_dismissible() {
-            let dismiss_target = fields.banner_type;
-            banner.add_child(
-                Container::new(
-                    Hoverable::new(
-                        self.mouse_states.dismiss_banner_button.clone(),
-                        move |state| {
-                            let mut container = Container::new(
-                                ConstrainedBox::new(
-                                    // Plain x-close glyph (`Icon::X` →
-                                    // `x-close.svg`), matching the Figma
-                                    // design. `Icon::XCircle` wraps the x in
-                                    // a circle which is not what we want.
-                                    Icon::X.to_warpui_icon(text_color.into()).finish(),
-                                )
-                                .with_width(16.)
-                                .with_height(16.)
-                                .finish(),
+        let dismiss_target = fields.banner_type;
+        banner.add_child(
+            Container::new(
+                Hoverable::new(
+                    self.mouse_states.dismiss_banner_button.clone(),
+                    move |state| {
+                        let mut container = Container::new(
+                            ConstrainedBox::new(
+                                // Plain x-close glyph (`Icon::X` →
+                                // `x-close.svg`), matching the Figma
+                                // design. `Icon::XCircle` wraps the x in
+                                // a circle which is not what we want.
+                                Icon::X.to_warpui_icon(text_color.into()).finish(),
                             )
-                            .with_uniform_padding(2.)
-                            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
-                            if state.is_hovered() {
-                                container = container
-                                    .with_background_color(coloru_with_opacity(text_color, 20));
-                            }
-                            container.finish()
-                        },
-                    )
-                    .with_cursor(Cursor::PointingHand)
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(WorkspaceAction::DismissWorkspaceBanner(
-                            dismiss_target,
-                        ));
-                    })
-                    .finish(),
+                            .with_width(16.)
+                            .with_height(16.)
+                            .finish(),
+                        )
+                        .with_uniform_padding(2.)
+                        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
+                        if state.is_hovered() {
+                            container = container
+                                .with_background_color(coloru_with_opacity(text_color, 20));
+                        }
+                        container.finish()
+                    },
                 )
-                .with_margin_left(4.)
+                .with_cursor(Cursor::PointingHand)
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(WorkspaceAction::DismissWorkspaceBanner(
+                        dismiss_target,
+                    ));
+                })
                 .finish(),
-            );
-        }
+            )
+            .with_margin_left(4.)
+            .finish(),
+        );
 
         ConstrainedBox::new(
             Container::new(banner.finish())
@@ -13407,10 +13028,6 @@ impl Workspace {
         banner_type: &WorkspaceBanner,
     ) {
         match banner_type {
-            WorkspaceBanner::AnonymousUserAuth => {}
-            WorkspaceBanner::Reauth => {
-                self.reauth_banner_dismissed = true;
-            }
             #[cfg(all(enable_crash_recovery, target_os = "linux"))]
             WorkspaceBanner::WaylandCrashRecovery => {
                 crash_recovery::dismiss_workspace_banner(ctx);
@@ -14083,51 +13700,6 @@ impl Workspace {
         self.tab_views().map(|tab| tab.id())
     }
 
-    fn team_uid(&self, app: &AppContext) -> Option<ServerId> {
-        UserWorkspaces::as_ref(app)
-            .team_for_window(self.window_id)
-            .map(|team| team.uid)
-    }
-
-    fn initiate_user_signup(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.auth_state.is_user_anonymous().unwrap_or_default() {
-            // User has a Firebase anonymous account — use the linking flow.
-            AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                auth_manager.initiate_anonymous_user_linking(ctx);
-            });
-        } else {
-            // User is fully logged out (no Firebase user) — open the regular sign-up page.
-            AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                let sign_up_url = auth_manager.sign_up_url();
-                ctx.open_url(&sign_up_url);
-            });
-        }
-        self.require_login_modal.update(ctx, |auth_modal, ctx| {
-            auth_modal.skip_to_browser_open_step(ctx);
-        });
-        self.open_require_login_modal(ctx);
-    }
-
-    fn redirect_to_sign_in(&mut self) {
-        #[cfg(target_family = "wasm")]
-        if let Some(current_url) = parse_current_url() {
-            update_browser_url(
-                Url::parse(&format!(
-                    "{}/login?redirect_to={}",
-                    ChannelState::server_root_url(),
-                    current_url.path()
-                ))
-                .ok(),
-                true,
-            );
-        } else {
-            update_browser_url(
-                Url::parse(&format!("{}/login", ChannelState::server_root_url())).ok(),
-                true,
-            );
-        }
-    }
-
     fn open_left_panel_view(&mut self, action: &LeftPanelAction, ctx: &mut ViewContext<Self>) {
         if !self.active_tab_pane_group().as_ref(ctx).left_panel_open {
             self.toggle_left_panel(ctx);
@@ -14620,17 +14192,6 @@ impl TypedActionView for Workspace {
                 mode: palette_mode,
                 source,
             } => self.toggle_palette(*palette_mode, *source, ctx),
-            ShowUpgrade => {
-                let auth_state = AuthStateProvider::as_ref(ctx).get();
-                let upgrade_url = if let Some(team_uid) = self.team_uid(ctx) {
-                    UserWorkspaces::upgrade_link_for_team(team_uid)
-                } else {
-                    let user_id = auth_state.user_id().unwrap_or_default();
-                    UserWorkspaces::upgrade_link(user_id)
-                };
-
-                ctx.open_url(&upgrade_url);
-            }
             JoinSlack => self.join_slack(ctx),
             ViewUserDocs => self.view_user_docs(ctx),
             ViewPrivacyPolicy => self.view_privacy_policy(ctx),
@@ -14662,7 +14223,6 @@ impl TypedActionView for Workspace {
             ToggleDebugNetworkStatus => self.toggle_debug_network_status(ctx),
             ToggleShowMemoryStats => self.toggle_show_memory_stats(ctx),
             ToggleResourceCenter => self.toggle_resource_center(ctx),
-            ToggleUserMenu => self.toggle_user_menu(ctx),
             ToggleKeybindingsPage => self.toggle_keybindings_page(ctx),
             ShowCommandSearch(CommandSearchOptions {
                 filter,
@@ -14902,17 +14462,6 @@ impl TypedActionView for Workspace {
                     // `CrossWindowTabDrag::pending_source_window_closes`.
                 }
             }
-            CopyAccessTokenToClipboard => {
-                // Blocking is ok here only because this action is only registered in dev and local
-                // builds to aid in debugging and development.
-                let access_token =
-                    warpui::r#async::block_on(self.server_api.get_or_refresh_access_token());
-                if let Ok(token) = access_token
-                    && let Some(bearer) = token.bearer_token()
-                {
-                    ctx.clipboard().write(ClipboardContent::plain_text(bearer));
-                }
-            }
             CopyTextToClipboard(text) => {
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(text.to_string()));
@@ -15003,18 +14552,6 @@ impl TypedActionView for Workspace {
                         DismissibleToast::success("Disabled all synchronized inputs.".to_string());
                     view.add_ephemeral_toast(new_toast, ctx);
                 });
-            }
-            Reauth => {
-                AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                    let sign_in_url = auth_manager.sign_in_url();
-                    ctx.open_url(&sign_in_url);
-                });
-            }
-            SignupAnonymousUser => {
-                self.initiate_user_signup(ctx);
-            }
-            SignInAnonymousWebUser => {
-                self.redirect_to_sign_in();
             }
             OpenPromptEditor => {
                 self.open_prompt_editor(ctx);
@@ -15447,10 +14984,6 @@ impl View for Workspace {
         }
         if *CodeSettings::as_ref(app).show_hidden_files {
             context.set.insert(flags::SHOW_HIDDEN_FILES);
-        }
-
-        if self.auth_state.is_anonymous_or_logged_out() {
-            context.set.insert("IsAnonymousUser");
         }
 
         self.add_toggle_setting_context_flags(app, &mut context);
@@ -16057,14 +15590,6 @@ impl View for Workspace {
             stack.add_child(ChildView::new(&self.ctrl_tab_palette).finish());
         }
 
-        if self.current_workspace_state.is_require_login_modal_open {
-            stack.add_child(ChildView::new(&self.require_login_modal).finish());
-        }
-
-        if self.current_workspace_state.is_auth_override_modal_open {
-            stack.add_child(ChildView::new(&self.auth_override_warning_modal).finish());
-        }
-
         if self.current_workspace_state.is_theme_creator_modal_open {
             stack.add_child(ChildView::new(&self.theme_creator_modal).finish());
         }
@@ -16124,19 +15649,6 @@ impl View for Workspace {
                     ParentOffsetBounds::WindowByPosition,
                     ParentAnchor::Center,
                     ChildAnchor::Center,
-                ),
-            );
-        }
-
-        if FeatureFlag::AvatarInTabBar.is_enabled() && self.is_user_menu_open {
-            stack.add_positioned_overlay_child(
-                ChildView::new(&self.user_menu).finish(),
-                OffsetPositioning::offset_from_save_position_element(
-                    USER_AVATAR_BUTTON_POSITION_ID,
-                    Vector2F::zero(),
-                    PositionedElementOffsetBounds::WindowByPosition,
-                    PositionedElementAnchor::BottomRight,
-                    ChildAnchor::TopRight,
                 ),
             );
         }

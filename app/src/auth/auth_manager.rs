@@ -2,48 +2,21 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use settings::Setting as _;
-#[cfg(target_family = "wasm")]
-use url::Url;
-use uuid::Uuid;
-use warp_core::channel::ChannelState;
 use warp_errors::{report_error, report_if_error};
 use warp_server_auth::API_KEY_PREFIX;
 use warp_server_auth::user::persistence::PersistedUser;
-use warpui::clipboard::ClipboardContent;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
+use super::AuthStateProvider;
 use super::auth_state::{AuthState, PersistAction};
-use super::auth_view_modal::AuthRedirectPayload;
-use super::credentials::{Credentials, FirebaseToken, LoginToken};
+use super::credentials::{Credentials, LoginToken};
 use super::user::User;
-use super::{AuthStateProvider, UserUid};
 use crate::persistence::ModelEvent;
 use crate::server::server_api::ServerApi;
-use crate::server::server_api::auth::{
-    AuthClient, FetchUserResult, MintCustomTokenError, UserAuthenticationError,
-};
+use crate::server::server_api::auth::{AuthClient, FetchUserResult, UserAuthenticationError};
 
 use crate::GlobalResourceHandlesProvider;
 use crate::terminal::general_settings::GeneralSettings;
-#[cfg(target_family = "wasm")]
-use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
-
-#[derive(Debug)]
-pub enum AuthManagerEvent {
-    /// Successfully authenticated a user with no errors.
-    AuthComplete,
-    /// Failed to authenticate a user, due to a particular `UserAuthenticationError`.
-    AuthFailed(UserAuthenticationError),
-    /// The user now needs to reauthenticate. If the user needs to reauth, an `AuthFailed`
-    /// event might be triggered instead, but there are some code paths where we don't
-    /// refresh the entire user, only their token, which is when this event might be emitted.
-    NeedsReauth,
-    // The current user is anonymous and the client has received a browser intent to sign in with a different Warp account.
-    // Holds an auth payload from the received browser intent.
-    LoginOverrideDetected(AuthRedirectPayload),
-    /// Failed to mint a new custom token for an anonymous user.
-    MintCustomTokenFailed(MintCustomTokenError),
-}
 
 /// AuthManager is a singleton model which manages the currently logged-in user's state.
 /// If you need to access the state, use `AuthStateProvider`.
@@ -51,8 +24,6 @@ pub struct AuthManager {
     auth_state: Arc<AuthState>,
     server_api: Arc<ServerApi>,
     auth_client: Arc<dyn AuthClient>,
-    /// A generated state token that the web app must provide back to the client.
-    pending_auth_state: Option<String>,
 }
 
 impl AuthManager {
@@ -69,7 +40,6 @@ impl AuthManager {
             auth_state,
             server_api,
             auth_client,
-            pending_auth_state: None,
         }
     }
 
@@ -86,108 +56,7 @@ impl AuthManager {
             auth_state,
             server_api,
             auth_client,
-            pending_auth_state: None,
         }
-    }
-
-    /// Fetches and ultimately sets the user's auth state from an auth payload.
-    /// Typically, this function is triggered when a user clicks the intent link from their browser
-    /// back to Warp after login (or pastes the URL in the app).
-    pub fn initialize_user_from_auth_payload(
-        &mut self,
-        auth_payload: AuthRedirectPayload,
-        enforce_state_validation: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let AuthRedirectPayload {
-            refresh_token,
-            user_uid,
-            deleted_anonymous_user,
-            state,
-        } = auth_payload.clone();
-
-        if let Some(received_state) = &state {
-            if !self.consume_auth_state(received_state) {
-                if self.should_silently_ignore_stale_redirect(&user_uid) {
-                    log::info!(
-                        "Dropping auth redirect with stale state for already-logged-in user"
-                    );
-                    return;
-                }
-                ctx.emit(AuthManagerEvent::AuthFailed(
-                    UserAuthenticationError::InvalidStateParameter,
-                ));
-                return;
-            }
-        } else if enforce_state_validation {
-            if self.should_silently_ignore_stale_redirect(&user_uid) {
-                log::info!("Dropping auth redirect without state for already-logged-in user");
-                return;
-            }
-            ctx.emit(AuthManagerEvent::AuthFailed(
-                UserAuthenticationError::MissingStateParameter,
-            ));
-            return;
-        }
-
-        let auth_client = self.auth_client.clone();
-
-        if self.auth_state.is_user_anonymous().unwrap_or_default() {
-            let incoming_user_matches_current_user = match user_uid {
-                None => false,
-                Some(incoming_user_uid) => self
-                    .auth_state
-                    .user_id()
-                    .map(|current_user_uid| current_user_uid == incoming_user_uid)
-                    .unwrap_or_default(),
-            };
-            if !incoming_user_matches_current_user && !deleted_anonymous_user.unwrap_or_default() {
-                ctx.emit(AuthManagerEvent::LoginOverrideDetected(auth_payload));
-                return;
-            }
-        }
-
-        let _ = ctx.spawn(
-            async move {
-                auth_client
-                    .fetch_user(LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)))
-                    .await
-            },
-            Self::on_user_fetched,
-        );
-    }
-
-    pub fn resume_interrupted_auth_payload(
-        &mut self,
-        auth_payload: AuthRedirectPayload,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let AuthRedirectPayload {
-            refresh_token,
-            user_uid: _,
-            deleted_anonymous_user: _,
-            state: _,
-        } = auth_payload;
-
-        let auth_client = self.auth_client.clone();
-
-        let _ = ctx.spawn(
-            async move {
-                auth_client
-                    .fetch_user(LoginToken::Firebase(FirebaseToken::Refresh(refresh_token)))
-                    .await
-            },
-            Self::on_user_fetched,
-        );
-    }
-
-    #[cfg(target_family = "wasm")]
-    pub fn initialize_user_from_session_cookie(&self, ctx: &mut ModelContext<Self>) {
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.fetch_user(LoginToken::SessionCookie).await },
-            Self::on_user_fetched,
-        );
     }
 
     /// Refreshes the user's auth state using their existing credentials.
@@ -246,7 +115,7 @@ impl AuthManager {
 
                 self.complete_authentication(user.clone(), credentials, ctx);
 
-                self.set_needs_reauth(false, ctx);
+                self.set_needs_reauth(false);
 
                 if !user.is_user_anonymous() {
                     GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -275,22 +144,16 @@ impl AuthManager {
 
                 let server_api = self.server_api.clone();
                 let _ = ctx.spawn(async move { server_api.notify_login().await }, |_, _, _| {});
-
-                ctx.emit(AuthManagerEvent::AuthComplete);
             }
-            Err(error) => {
-                match error {
-                    UserAuthenticationError::DeniedAccessToken(_) => {
-                        self.set_needs_reauth(true, ctx);
-                    }
-                    UserAuthenticationError::UserAccountDisabled(_) => {}
-                    UserAuthenticationError::Unexpected(_) => {}
-                    UserAuthenticationError::InvalidStateParameter => {}
-                    UserAuthenticationError::MissingStateParameter => {}
+            Err(error) => match error {
+                UserAuthenticationError::DeniedAccessToken(_) => {
+                    self.set_needs_reauth(true);
                 }
-
-                ctx.emit(AuthManagerEvent::AuthFailed(error));
-            }
+                UserAuthenticationError::UserAccountDisabled(_) => {}
+                UserAuthenticationError::Unexpected(_) => {}
+                UserAuthenticationError::InvalidStateParameter => {}
+                UserAuthenticationError::MissingStateParameter => {}
+            },
         }
     }
 
@@ -340,149 +203,12 @@ impl AuthManager {
 
     /// Clears the cloud account without changing local terminal sessions or persistence.
     pub(crate) fn log_out(&mut self, ctx: &mut ModelContext<Self>) {
-        // Clear any dangling CSRF token from an auth flow that was started but never
-        // completed before this logout, so it can't be replayed against the next session
-        // in the same process.
-        self.pending_auth_state = None;
         self.set_and_persist(None, None, ctx);
     }
 
     /// Sets whether or not this user's Firebase credentials are invalid and thus needs to reauth.
-    pub fn set_needs_reauth(&self, needs_reauth: bool, ctx: &mut ModelContext<Self>) {
-        let became_true = self.auth_state.set_needs_reauth(needs_reauth);
-
-        if became_true {
-            ctx.emit(AuthManagerEvent::NeedsReauth);
-        }
-    }
-
-    pub fn initiate_anonymous_user_linking(&self, ctx: &mut ModelContext<Self>) {
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.fetch_new_custom_token().await },
-            move |me, response, ctx| {
-                let custom_token = me.auth_client.on_custom_token_fetched(response);
-
-                match custom_token {
-                    Ok(custom_token) => {
-                        let login_options_url = me.login_options_url(&custom_token);
-                        if cfg!(target_family = "wasm") {
-                            #[cfg(target_family = "wasm")]
-                            if let Some(current_url) = parse_current_url() {
-                                update_browser_url(
-                                    Url::parse(&format!(
-                                        "{}?redirect_to={}",
-                                        login_options_url,
-                                        current_url.path()
-                                    ))
-                                    .ok(),
-                                    true,
-                                );
-                            } else {
-                                update_browser_url(Url::parse(&login_options_url).ok(), true);
-                            }
-                        } else {
-                            ctx.open_url(&login_options_url);
-                        }
-                    }
-                    Err(e) => {
-                        ctx.emit(AuthManagerEvent::MintCustomTokenFailed(e));
-                    }
-                }
-            },
-        );
-    }
-
-    pub fn copy_anonymous_user_linking_url_to_clipboard(&self, ctx: &mut ModelContext<Self>) {
-        if !self.auth_state.is_user_anonymous().unwrap_or_default() {
-            return;
-        }
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.fetch_new_custom_token().await },
-            move |me, response, ctx| {
-                let custom_token = me.auth_client.on_custom_token_fetched(response);
-
-                match custom_token {
-                    Ok(custom_token) => {
-                        let login_options_url = me.login_options_url(&custom_token);
-                        ctx.clipboard().write(ClipboardContent {
-                            plain_text: login_options_url,
-                            paths: None,
-                            ..Default::default()
-                        });
-                    }
-                    Err(e) => {
-                        ctx.emit(AuthManagerEvent::MintCustomTokenFailed(e));
-                    }
-                };
-            },
-        );
-    }
-
-    /// Generates a unique state parameter for the authentication flow.
-    fn generate_auth_state(&mut self) -> String {
-        let state = Uuid::new_v4().to_string();
-        self.pending_auth_state = Some(state.clone());
-        state
-    }
-
-    pub fn sign_up_url(&mut self) -> String {
-        let state = self.generate_auth_state();
-        format!(
-            // TODO: we should probably be able to remove the public_beta flag
-            "{}/signup/remote?scheme={}&state={}&public_beta=true",
-            ChannelState::server_root_url(),
-            ChannelState::url_scheme(),
-            state,
-        )
-    }
-
-    pub fn sign_in_url(&mut self) -> String {
-        let state = self.generate_auth_state();
-        format!(
-            "{}/login/remote?scheme={}&state={}",
-            ChannelState::server_root_url(),
-            ChannelState::url_scheme(),
-            state,
-        )
-    }
-
-    pub fn login_options_url(&mut self, custom_token: &str) -> String {
-        let state = self.generate_auth_state();
-        format!(
-            "{}/login_options/{}?state={}",
-            ChannelState::server_root_url(),
-            custom_token,
-            state,
-        )
-    }
-
-    /// Validates and consumes the pending auth state token. Returns `true` if the
-    /// provided state matches; in that case the pending state is cleared so the
-    /// CSRF token is single-use. A subsequent call with the same value will fail.
-    fn consume_auth_state(&mut self, received_state: &str) -> bool {
-        if self.pending_auth_state.as_deref() == Some(received_state) {
-            self.pending_auth_state = None;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns whether an auth redirect that failed state validation should be
-    /// silently dropped rather than surfaced as an error. This covers the
-    /// "user clicks the browser's 'Take me to Warp' button twice" case: once
-    /// they're fully logged in, a second redirect targeting the same user is
-    /// redundant and should not produce a user-visible error.
-    fn should_silently_ignore_stale_redirect(&self, incoming_user_uid: &Option<UserUid>) -> bool {
-        if self.auth_state.is_anonymous_or_logged_out() {
-            return false;
-        }
-        match (self.auth_state.user_id(), incoming_user_uid) {
-            (Some(current_uid), Some(incoming_uid)) => current_uid == *incoming_uid,
-            _ => false,
-        }
+    pub fn set_needs_reauth(&self, needs_reauth: bool) {
+        self.auth_state.set_needs_reauth(needs_reauth);
     }
 }
 
@@ -492,7 +218,7 @@ pub struct PersistedCurrentUserInformation {
 }
 
 impl Entity for AuthManager {
-    type Event = AuthManagerEvent;
+    type Event = ();
 }
 
 impl SingletonEntity for AuthManager {}

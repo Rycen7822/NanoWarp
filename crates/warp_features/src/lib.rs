@@ -103,9 +103,6 @@ pub enum FeatureFlag {
     /// completion specs.
     NativeShellCompletions,
 
-    /// Adds avatar to the tab bar.
-    AvatarInTabBar,
-
     SshDragAndDrop,
     DragTabsToWindows,
 
@@ -138,9 +135,6 @@ pub enum FeatureFlag {
 
     /// Enables support for Warp Packs.
     WarpPacks,
-
-    /// Forces users to login.
-    ForceLogin,
 
     /// If enabled, command palette searches will use Tantivy search instead of the default fuzzy search.
     UseTantivySearch,
@@ -257,11 +251,6 @@ pub enum FeatureFlag {
 
     /// Enables vertical tab layout as an alternative to the horizontal tab bar.
     VerticalTabs,
-
-    /// When enabled, the "Skip for now" login flow does not create a Firebase
-    /// anonymous user. The user remains fully logged out (no credentials) and
-    /// login-gated features are disabled until they sign in.
-    SkipFirebaseAnonymousUser,
 
     /// Enables tab configs — user-definable TOML templates for launching custom tab layouts.
     TabConfigs,
