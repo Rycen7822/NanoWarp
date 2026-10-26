@@ -237,21 +237,7 @@ fn project_dirs_for_app_id(
     app_id: AppId,
     data_profile: Option<&str>,
 ) -> Option<directories::ProjectDirs> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            // Adjust the base application name so that we end up with
-            // directories like "warp-terminal" and "warp-terminal-dev", to
-            // match our Linux package name.
-            let base_app_name = match app_id.application_name() {
-                "Warp" => "Warp-Terminal".to_owned(),
-                "WarpOss" => "Warp-Oss".to_owned(),
-                other if other.starts_with("Warp") => other.replace("Warp", "Warp-Terminal-"),
-                _ => app_id.application_name().to_owned(),
-            };
-        } else {
-            let base_app_name = app_id.application_name().to_owned();
-        }
-    }
+    let base_app_name = app_id.application_name().to_owned();
     let app_name = if let Some(data_profile) = data_profile {
         format!("{base_app_name}-{data_profile}")
     } else {
