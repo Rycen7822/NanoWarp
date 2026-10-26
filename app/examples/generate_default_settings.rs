@@ -8,16 +8,18 @@
 //! per-generator registration list to keep in sync.
 //!
 //! Usage:
-//!   cargo run --example generate_default_settings -- [--channel dev|preview|stable] <output_path>
+//!   cargo run --locked -j2 -p warp --example generate_default_settings -- <output_path>
 //!
 //! Example:
-//!   cargo run --example generate_default_settings -- ./default_settings.toml
+//!   cargo run --locked -j2 -p warp --example generate_default_settings -- .work/default_settings.toml
+//!
+//! Defaults follow the Cargo features and debug/release configuration of the compiled OSS build.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use settings::schema::SettingSchemaEntry;
-use warp_core::features::{DEBUG_FLAGS, DOGFOOD_FLAGS, FeatureFlag, PREVIEW_FLAGS, RELEASE_FLAGS};
+use warp_core::channel::ChannelState;
+use warp_core::features::DEBUG_FLAGS;
 use warpui_extras::user_preferences::UserPreferences as _;
 use warpui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
 
@@ -32,66 +34,26 @@ fn ensure_settings_linked() {
     let _ = std::hint::black_box(warp::settings::RESTORE_SESSION);
 }
 
-fn active_flags_for_channel(channel: &str) -> HashSet<FeatureFlag> {
-    let mut flags = HashSet::new();
-
-    let flag_lists: &[&[FeatureFlag]] = match channel {
-        "stable" => &[RELEASE_FLAGS],
-        "preview" => &[RELEASE_FLAGS, PREVIEW_FLAGS],
-        "dev" => &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS],
-        other => {
-            eprintln!("Unknown channel '{other}', defaulting to dev");
-            &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS]
+fn main() {
+    let mut args = std::env::args_os().skip(1);
+    let output_path = match (args.next(), args.next()) {
+        (Some(path), None) if !path.to_string_lossy().starts_with('-') => PathBuf::from(path),
+        _ => {
+            eprintln!("Usage: generate_default_settings <output_path>");
+            std::process::exit(1);
         }
     };
 
-    for list in flag_lists {
-        for flag in *list {
-            flags.insert(*flag);
-        }
+    let mut state = ChannelState::init();
+    if cfg!(debug_assertions) {
+        state = state.with_additional_features(DEBUG_FLAGS);
     }
-
-    flags
-}
-
-fn main() {
+    ChannelState::set(state);
+    warp::features::init_feature_flags();
     ensure_settings_linked();
 
-    let args: Vec<String> = std::env::args().collect();
-
-    let mut channel = "dev";
-    let mut output_path: Option<PathBuf> = None;
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--channel" => {
-                i += 1;
-                if i < args.len() {
-                    channel = &args[i];
-                }
-            }
-            arg if !arg.starts_with('-') => {
-                output_path = Some(PathBuf::from(arg));
-            }
-            other => {
-                eprintln!("Unknown argument: {other}");
-                std::process::exit(1);
-            }
-        }
-        i += 1;
-    }
-
-    let Some(output_path) = output_path else {
-        eprintln!("Usage: generate_default_settings [--channel dev|preview|stable] <output_path>");
-        std::process::exit(1);
-    };
-
-    let active_flags = active_flags_for_channel(channel);
-
-    // Generate a fresh document at `output_path`. If the file already exists
-    // and contains invalid TOML, `TomlBackedUserPreferences::new` falls back
-    // to an empty document and hands back the parse error; we ignore it here
-    // because any subsequent writes will overwrite the file anyway.
+    // Use a new output path for a clean document. Keep the backend's existing
+    // handling of pre-existing or invalid files.
     let (toml_prefs, _) = TomlBackedUserPreferences::new(output_path.clone());
 
     let mut written = 0usize;
@@ -104,9 +66,9 @@ fn main() {
             continue;
         }
 
-        // Skip settings whose feature flag is not active for this channel.
+        // Skip settings whose feature flag is not enabled in this build.
         if let Some(flag) = entry.feature_flag
-            && !active_flags.contains(&flag)
+            && !flag.is_enabled()
         {
             continue;
         }
