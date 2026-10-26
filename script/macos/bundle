@@ -348,7 +348,7 @@ fi
 WARP_BIN="warp-oss"
 BUNDLE_ID="dev.nanowarp.NanoWarp"
 WARP_APP_NAME="NanoWarp"
-WARP_SCHEME_NAME="warposs"
+WARP_SCHEME_NAME="nanowarp"
 
 OUT_DIR="$CARGO_TARGET_DIR/$TARGET_PROFILE_DIR/bundle/osx"
 
