@@ -394,7 +394,6 @@ default = [
     "full_screen_zen_mode",
     "ligatures",
     "rect_selection",
-    "warp_packs",
     "default_waterfall_mode",
     "command_correction_key",
     "kitty_images",
@@ -449,7 +448,6 @@ default = [
 # substantially slow down program execution.
 dhat_heap_profiling = ["dep:dhat"]
 editable_markdown_mermaid = []
-default_adeberry_theme = []
 drag_tabs_to_windows = []
 embedded_code_review_comments = []
 default_waterfall_mode = []
@@ -515,7 +513,6 @@ recording_mode = []
 release_bundle = ["rust-embed/debug-embed", "warp_core/release_bundle"]
 render_continuous_block_selections_with_single_border = []
 richtext_multiselect = []
-runtime_feature_flags = []
 selectable_prompt = []
 settings_file = []
 sequential_storage = []
@@ -546,7 +543,6 @@ multi_workspace = []
 ime_marked_text = []
 iterm_images = []
 validate_autosuggestions = []
-warp_packs = []
 command_correction_key = []
 use_tantivy_search = []
 code_find_replace = []

@@ -1,153 +1,18 @@
 ---
 name: remove-feature-flag
-description: Remove a feature flag after it has been rolled out and stabilized in the Warp codebase.
+description: Retire unused NanoWarp flags or simplify a feature whose final behavior is settled.
 ---
 
-# remove-feature-flag
+# Remove a Feature Flag
 
-Remove a feature flag after it has been rolled out and stabilized in the Warp codebase.
+Determine the accepted behavior before editing. An unused definition, a permanently enabled feature, and a removed capability require different consumer changes.
 
-## Overview
+1. Read the variant, producers and real consumers. Search `app/`, `crates/`, macros, scripts and development guides; use structural search where syntax matters and verify bindings. A name match alone is insufficient.
+2. Preserve the accepted branch for continuing functionality, or remove the complete retired capability. Fold conditions structurally instead of leaving literal-true/false gates, empty providers or compatibility copies.
+3. Remove the variant from `crates/warp_features/src/lib.rs`, its Cargo bridge in `app/src/features.rs`, the declaration/default entry in `app/Cargo.toml`, and any actual `RELEASE_FLAGS`/`DEBUG_FLAGS` entry. Do not enable another dormant flag as compensation.
+4. Preserve persisted settings, shortcuts, shell/SSH/WSL behavior and platform guards that still have consumers. FeatureFlag indices are process-local implementation details; settings keep their own storage keys.
+5. Inspect directly affected tests: keep or migrate protection for continuing behavior and retire tests owned solely by the deleted contract. Prefer existing tests; add nothing without a current coverage gap.
 
-After a feature flag has been enabled for all users and has stabilized in production, the flag should be removed to reduce technical debt and simplify the codebase. This involves removing the flag definition and all conditional checks.
+Run checks for affected packages with the repository environment, `--locked` and the configured job limit. Format only edited files. Temporary scripts, logs and comparisons belong in `.work/`; archive obsolete material there according to root instructions.
 
-## When to Remove
-
-Remove a feature flag when:
-- The feature has been enabled in `default` features in `app/Cargo.toml`
-- The feature has been stable in production for a reasonable period
-- There are no plans to disable the feature or provide configuration options
-- The team agrees the feature is permanent
-
-## Steps
-
-### 1. Remove from app/Cargo.toml
-Remove the feature from both the `[features]` section and the `default` array:
-
-```toml
-[features]
-default = [
-    # Remove "your_feature_name" from here
-]
-
-# Remove this line:
-# your_feature_name = []
-```
-
-### 2. Remove from FeatureFlag enum
-Remove the variant from the `FeatureFlag` enum in `warp_core/src/features.rs`:
-
-```rust
-#[derive(Sequence)]
-pub enum FeatureFlag {
-    // Remove YourFeatureName,
-}
-```
-
-### 3. Remove from app/src/lib.rs
-Remove the conditional compilation directive:
-
-```rust
-// Remove these lines:
-// #[cfg(feature = "your_feature_name")]
-// YourFeatureName,
-```
-
-### 4. Remove from DOGFOOD_FLAGS/PREVIEW_FLAGS/RELEASE_FLAGS
-If the flag was listed in any of these arrays in `features.rs`, remove it:
-
-```rust
-pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
-    // Remove FeatureFlag::YourFeatureName,
-];
-```
-
-### 5. Remove all runtime checks and dead code
-Find and remove all `FeatureFlag::YourFeatureName.is_enabled()` checks throughout the codebase:
-
-**Before:**
-```rust
-if FeatureFlag::YourFeatureName.is_enabled() {
-    // new behavior
-} else {
-    // old behavior (dead code)
-}
-```
-
-**After:**
-```rust
-// new behavior (unconditionally enabled)
-```
-
-Use ripgrep to find all occurrences. The shared `FeatureFlag` may be used from the headless TUI, so search `crates/warp_tui/` (and other non-`app/` crates), not just `app/` and `warp_core/`:
-```bash
-rg "YourFeatureName" app/ warp_core/ crates/warp_tui/
-```
-
-### 6. Remove keybinding predicates
-If the feature flag was used in keybinding enabled predicates, remove the predicate:
-
-**Before:**
-```rust
-EditableBinding::new(
-    "action:name",
-    "Action description",
-    YourAction::Variant
-)
-.with_enabled(|| FeatureFlag::YourFeatureName.is_enabled())
-.with_key_binding("cmdorctrl-key")
-```
-
-**After:**
-```rust
-EditableBinding::new(
-    "action:name",
-    "Action description",
-    YourAction::Variant
-)
-.with_key_binding("cmdorctrl-key")
-```
-
-### 7. Clean up dead code branches
-Remove any code paths that were only executed when the feature was disabled (the `else` branches in feature checks). These are now dead code.
-
-### 8. Run tests and validation
-After removing the flag:
-
-```bash
-# Run affected tests first
-cargo nextest run -p <affected-package>
-
-# Then run the applicable Clippy check
-cargo clippy -p <affected-package> --all-targets --tests -- -D warnings
-
-# Format once after the code is settled
-./script/format
-```
-
-Add affected packages or test filters when the flag crosses package boundaries.
-
-Do not run the full workspace suite, launch the GUI or TUI, rerun earlier checks after formatting, or add `./script/presubmit` unless the user, task, or approved spec explicitly requires it.
-
-CI owns broader platform and workspace coverage.
-
-## Best Practices
-
-- Remove feature flags promptly after they're no longer needed to reduce technical debt
-- When removing a flag, remove ALL related code (checks, dead branches, keybinding predicates)
-- Use grep/ripgrep to ensure you've found all occurrences
-- Test the affected behavior after removal to ensure no regressions
-- Consider doing flag removal in a separate PR for easier review
-
-## Example Search Commands
-
-```bash
-# Find all occurrences of the flag name (include the TUI and other non-app crates)
-rg "YourFeatureName" app/ warp_core/ crates/warp_tui/
-
-# Find feature flag checks
-rg "FeatureFlag::YourFeatureName" app/ crates/warp_tui/
-
-# Find cfg attributes
-rg 'cfg\(feature = "your_feature_name"\)' app/
-```
+Finish with a scoped diff, actual verification results and current note. Do not run full workspace/presubmit, invent release infrastructure, or change unrelated feature defaults.
