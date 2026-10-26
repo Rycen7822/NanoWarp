@@ -157,13 +157,11 @@ if [[ $RELEASE_CHANNEL = "local" ]]; then
   WARP_BIN="warp"
   BINARY_NAME="warp-local"
   APP_NAME="WarpLocal"
-  FEATURES="$FEATURES,agent_mode_debug"
   export HANDLE_MARKDOWN=1
 elif [[ $RELEASE_CHANNEL = "dev" ]]; then
   WARP_BIN="dev"
   BINARY_NAME="warp-dev"
   APP_NAME="WarpDev"
-  FEATURES="$FEATURES,agent_mode_debug"
   # Enable heap usage tracking & profiling using jemalloc through pprof.
   FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
   export HANDLE_MARKDOWN=1

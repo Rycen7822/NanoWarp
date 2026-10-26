@@ -614,7 +614,6 @@ impl RemoteServerClient {
                     delta,
                 })
             }
-            server_message::Message::RemoteAgentContextSnapshot(_) => None,
             server_message::Message::GitStatusPush(push) => {
                 let Some(repo_path) = StandardizedPath::try_new(&push.repo_path).ok() else {
                     log::warn!("GitStatusPush: invalid repo_path: {}", push.repo_path);

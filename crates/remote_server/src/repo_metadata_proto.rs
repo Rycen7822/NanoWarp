@@ -28,7 +28,6 @@ impl From<&RepoMetadataUpdate> for proto::RepoMetadataUpdatePush {
                 .iter()
                 .map(proto::RepoMetadataEntryUpdate::from)
                 .collect(),
-            standing_results_delta: None,
         }
     }
 }

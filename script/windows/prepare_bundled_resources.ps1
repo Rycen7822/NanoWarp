@@ -1,7 +1,7 @@
 #
 # Prepares bundled resources for distribution on Windows.
 #
-# This script copies resources that should be bundled with Warp into a
+# This script prepares generated resources bundled with the application in a
 # destination directory. It is used by the Windows build script.
 #
 # Usage:
@@ -9,45 +9,26 @@
 #
 # Arguments:
 #   destination_directory: The directory where resources should be installed.
-#                          Resources will be copied to subdirectories within
-#                          this path (e.g., $DEST_DIR\skills).
 
 Param(
     [Parameter(Mandatory = $true)]
-    [String]$DestinationDir,
-
-    [Parameter(Mandatory = $false)]
-    [String]$Channel = ''
+    [String]$DestinationDir
 )
 
 $ErrorActionPreference = 'Stop'
 
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 $RepoRoot = (Get-Item "$ScriptDir\..\.." | Select-Object -ExpandProperty FullName)
-$ResourcesSource = Join-Path $RepoRoot 'resources'
-
-# Validate that the source resources directory exists
-if (-Not (Test-Path $ResourcesSource -PathType Container)) {
-    Write-Error "Resources directory not found at $ResourcesSource"
-    exit 1
-}
 
 # Create the destination directory if it doesn't exist
 if (-Not (Test-Path $DestinationDir)) {
     New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
 }
 
-# Copy bundled resources
-$BundledSource = Join-Path $ResourcesSource 'bundled'
-if (Test-Path $BundledSource -PathType Container) {
-    $BundledDestination = Join-Path $DestinationDir 'bundled'
-    Write-Output "Copying bundled resources to $BundledDestination"
-    if (Test-Path $BundledDestination -PathType Container) {
-        Remove-Item -Path $BundledDestination -Recurse -Force
-    }
-    Copy-Item -Path $BundledSource -Destination $BundledDestination -Recurse -Force
-} else {
-    Write-Warning "No bundled directory found at $BundledSource"
+# Refresh the generated bundle owned by this preparation step.
+$BundledDestination = Join-Path $DestinationDir 'bundled'
+if (Test-Path -LiteralPath $BundledDestination -PathType Container) {
+    Remove-Item -LiteralPath $BundledDestination -Recurse -Force
 }
 
 if ($env:GIT_RELEASE_TAG) {
@@ -63,55 +44,6 @@ if ($env:GIT_RELEASE_TAG) {
         Set-Content -Path $VersionMetadataPath -Encoding utf8
 }
 
-# Copy channel-gated skills matching the current release channel.
-$GatedSource = Join-Path (Join-Path $RepoRoot 'resources') 'channel-gated-skills'
-$DestSkills = Join-Path (Join-Path $DestinationDir 'bundled') 'skills'
-
-if ($Channel -and (Test-Path $GatedSource -PathType Container)) {
-    Write-Output "Copying channel-gated skills for channel '$Channel'..."
-
-    # Error out if a stable/ gate directory exists.
-    $StableDir = Join-Path $GatedSource 'stable'
-    if (Test-Path $StableDir -PathType Container) {
-        Write-Error "Found a 'stable/' directory in $GatedSource. The stable channel does not use gated skills. Move stable-ready skills to resources/skills/ instead."
-        exit 1
-    }
-
-    # Gate labels ordered from most-inclusive to least-inclusive.
-    $GateOrder = @('dogfood', 'preview')
-
-    # Map the release channel to its gate label.
-    switch ($Channel) {
-        'local' { $Gate = 'dogfood' }
-        'dev' { $Gate = 'dogfood' }
-        'preview' { $Gate = 'preview' }
-        default {
-            Write-Output "  Channel '$Channel' has no gated skills, skipping"
-            $Gate = $null
-        }
-    }
-
-    if ($Gate) {
-        # Build the set of included gates (progressive: this gate and all after it).
-        $GateIndex = [array]::IndexOf($GateOrder, $Gate)
-        $IncludedGates = $GateOrder[$GateIndex..($GateOrder.Length - 1)]
-
-        foreach ($GateDir in Get-ChildItem -Path $GatedSource -Directory | Sort-Object Name) {
-            if ($GateDir.Name -notin $IncludedGates) {
-                $Skills = (Get-ChildItem -Path $GateDir.FullName -Directory | Sort-Object Name | ForEach-Object { $_.Name }) -join ', '
-                Write-Output "  Skipping gate '$($GateDir.Name)' (channel '$Channel') - would include: $Skills"
-                continue
-            }
-
-            foreach ($SkillDir in Get-ChildItem -Path $GateDir.FullName -Directory | Sort-Object Name) {
-                $Dest = Join-Path $DestSkills $SkillDir.Name
-                Write-Output "  Copying gated skill: $($SkillDir.Name) (gate: $($GateDir.Name))"
-                Copy-Item -Path $SkillDir.FullName -Destination $Dest -Recurse -Force
-            }
-        }
-    }
-}
-
 # Generate third-party license attribution.
 #
 # Additional (non-Cargo) third-party license files to include in the output.
@@ -123,7 +55,6 @@ $AdditionalLicenses = @(
     @{ Name = 'Hack Font'; License = 'MIT'; Path = 'app\assets\bundled\fonts\hack\LICENSE.md' },
     @{ Name = 'Roboto Font'; License = 'SIL Open Font License'; Path = 'app\assets\bundled\fonts\roboto\LICENSE.txt' },
     @{ Name = 'bash-preexec'; License = 'MIT'; Path = 'app\assets\bundled\bootstrap\bash-preexec-LICENSE.md' },
-    @{ Name = 'Claude API Skill'; License = 'Apache-2.0'; Path = 'resources\bundled\skills\claude-api\LICENSE.txt' },
     @{ Name = 'Windows Terminal'; License = 'MIT'; Path = 'app\assets\windows\LICENSE-WINDOWS-TERMINAL' },
     @{ Name = 'GitHub Desktop'; License = 'MIT'; Path = 'app\src\code_review\GITHUB-DESKTOP-LICENSE' }
 )
@@ -135,7 +66,7 @@ $AdditionalLicenses += @(
 
 $LicensesOutput = Join-Path $DestinationDir 'THIRD_PARTY_LICENSES.txt'
 Write-Output "Generating third-party licenses at $LicensesOutput"
-cargo about generate --workspace --manifest-path "$RepoRoot\Cargo.toml" -c "$RepoRoot\about.toml" -o "$LicensesOutput" "$RepoRoot\about.hbs"
+cargo about generate --workspace --locked --manifest-path "$RepoRoot\Cargo.toml" -c "$RepoRoot\about.toml" -o "$LicensesOutput" "$RepoRoot\about.hbs"
 if (-Not $?) {
     Write-Error 'Failed to generate third-party licenses'
     exit 1

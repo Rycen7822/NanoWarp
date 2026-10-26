@@ -355,7 +355,6 @@ impl ServerModel {
                                     repo_path: path.to_string(),
                                     entries,
                                     sync_complete: true,
-                                    standing_results: None,
                                 },
                             ),
                         );
@@ -1325,7 +1324,6 @@ impl ServerModel {
                                     repo_path: indexed_path,
                                     entries,
                                     sync_complete: true,
-                                    standing_results: None,
                                 },
                             ),
                         );
