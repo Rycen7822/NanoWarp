@@ -3137,14 +3137,6 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 
 [[package]]
 name = "email_address"
-version = "0.2.3"
-source = "git+https://github.com/warpdotdev/rust-email_address?branch=main#b3e5205b4efdc83832f230d8eb6894fd00a9ec32"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "email_address"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
@@ -3440,17 +3432,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
-]
-
-[[package]]
-name = "field_mask"
-version = "0.0.0"
-dependencies = [
- "itertools 0.14.0",
- "prost",
- "prost-reflect",
- "prost-types",
- "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -5531,7 +5512,7 @@ dependencies = [
  "ahash 0.8.11",
  "bytecount",
  "data-encoding",
- "email_address 0.2.9",
+ "email_address",
  "fancy-regex 0.17.0",
  "fraction",
  "getrandom 0.3.4",
@@ -5933,15 +5914,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
-]
-
-[[package]]
-name = "lz4_flex"
-version = "0.11.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
-dependencies = [
- "twox-hash",
 ]
 
 [[package]]
@@ -7468,7 +7440,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
 dependencies = [
- "siphasher 1.0.1",
+ "siphasher",
 ]
 
 [[package]]
@@ -7867,16 +7839,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost-reflect"
-version = "0.16.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b89455ef41ed200cafc47c76c552ee7792370ac420497e551f16123a9135f76e"
-dependencies = [
- "prost",
- "prost-types",
-]
-
-[[package]]
 name = "prost-types"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7976,12 +7938,6 @@ name = "pxfm"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
-
-[[package]]
-name = "qrcode"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"
@@ -9588,12 +9544,6 @@ dependencies = [
 
 [[package]]
 name = "siphasher"
-version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
-
-[[package]]
-name = "siphasher"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
@@ -9847,7 +9797,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
 dependencies = [
  "kurbo",
- "siphasher 1.0.1",
+ "siphasher",
 ]
 
 [[package]]
@@ -10036,15 +9986,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tabwriter"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fce91f2f0ec87dff7e6bcbbeb267439aa1188703003c6055193c821487400432"
-dependencies = [
- "unicode-width 0.2.1",
-]
-
-[[package]]
 name = "takecell"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10075,7 +10016,7 @@ dependencies = [
  "levenshtein_automata",
  "log",
  "lru",
- "lz4_flex 0.13.0",
+ "lz4_flex",
  "measure_time",
  "memmap2 0.9.7",
  "once_cell",
@@ -10901,12 +10842,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "twox-hash"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
-
-[[package]]
 name = "typed-arena"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11132,7 +11067,7 @@ dependencies = [
  "roxmltree 0.21.1",
  "rustybuzz",
  "simplecss",
- "siphasher 1.0.1",
+ "siphasher",
  "strict-num",
  "svgtypes",
  "tiny-skia-path 0.12.0",
@@ -11439,14 +11374,12 @@ dependencies = [
  "directories",
  "dirs 6.0.0",
  "dunce",
- "email_address 0.2.3",
  "embed-resource",
  "embed_plist",
  "enclose",
  "enum-iterator",
  "env_logger",
  "event-listener",
- "field_mask",
  "float-cmp",
  "freedesktop-desktop-entry",
  "futures",
@@ -11490,7 +11423,6 @@ dependencies = [
  "log-panics",
  "lsp",
  "lsp-types",
- "lz4_flex 0.11.6",
  "mach2",
  "markdown_parser",
  "memchr",
@@ -11522,8 +11454,6 @@ dependencies = [
  "plist",
  "pprof",
  "prost",
- "prost-build",
- "qrcode",
  "rand 0.8.6",
  "rangemap",
  "rayon",
@@ -11558,7 +11488,6 @@ dependencies = [
  "signal-hook-tokio",
  "similar",
  "simple_logger",
- "siphasher 0.3.11",
  "smallvec",
  "smol_str",
  "static_assertions",
@@ -11569,10 +11498,8 @@ dependencies = [
  "syntax_tree",
  "syntect",
  "sysinfo",
- "tabwriter",
  "tempfile",
  "thiserror 2.0.17",
- "thousands",
  "tikv-jemallocator",
  "tokio",
  "tokio-util",
