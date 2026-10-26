@@ -13,9 +13,9 @@ Param (
     [String]$RELEASE_TAG = '',
     [String]$FEATURES = 'release_bundle,gui',
 
-    # Builds only the Warp binary, skips the installer.
+    # Builds only the NanoWarp binary, skips the installer.
     [Switch]$SKIP_BUILD_INSTALLER = $False,
-    # Builds only the installer, skips the Warp binary. Use this if the Warp
+    # Builds only the installer, skips the NanoWarp binary. Use this if the NanoWarp
     # binary has already been built.
     [Switch]$SKIP_BUILD_BINARY = $False,
 
@@ -49,7 +49,7 @@ if ($ARCH -eq 'arm64') {
     $FILE_ENDING = 'Setup-arm64'
     $PLATFORM_TARGET = 'aarch64-pc-windows-msvc'
 } else {
-    # If x64, then we just use the filename "WarpSetup.exe" for example
+    # If x64, then we just use the filename "NanoWarpSetup.exe" for example
     $FILE_ENDING = 'Setup'
     $PLATFORM_TARGET = 'x86_64-pc-windows-msvc'
 }
@@ -109,12 +109,12 @@ if ($CARGO_PROFILE -eq 'dev') {
 # Update parameters based on the target release channel.
 #
 # APP_NAME here must match the value used in Rust as the
-# application name; see app/src/channel.rs.
+# application name; see crates/warp_core/src/channel/state.rs.
 #
 # WARP_BIN is the name of the binary produced by cargo;
 # BINARY_NAME is the desired name of the binary in the final package.
 $WARP_BIN = 'warp-oss'
-$BINARY_NAME = 'warp-oss.exe'
+$BINARY_NAME = 'nanowarp.exe'
 $APP_NAME = 'NanoWarp'
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
@@ -156,11 +156,11 @@ if (-Not $SKIP_BUILD_BINARY) {
         exit 1
     }
 
-    # If we desire an executable name different from the cargo bin, rename it.
+    # Keep the Cargo artifact available for incremental builds while staging the package name.
     if ("$WARP_BIN.exe" -ne $BINARY_NAME) {
         $binarySource = "$CARGO_TARGET_OUTPUT_DIR\$WARP_BIN.exe"
-        Write-Output "Renaming executable $WARP_BIN.exe to $BINARY_NAME"
-        Move-Item -Path "$binarySource" -Destination "$BINARY_PATH" -Force
+        Write-Output "Copying executable $WARP_BIN.exe to $BINARY_NAME"
+        Copy-Item -LiteralPath "$binarySource" -Destination "$BINARY_PATH" -Force
     }
 }
 
@@ -197,7 +197,7 @@ if (-Not $?) {
     Write-Error 'Failed to prepare bundled resources'
     exit 1
 }
-Write-Output 'Building Warp installer'
+Write-Output 'Building NanoWarp installer'
 $ISCC_ARGS = @(
     "$INSTALLER_SCRIPT",
     "/O$INSTALLER_OUTPUT_DIR",

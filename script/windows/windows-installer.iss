@@ -10,7 +10,7 @@
   #define MyAppVersion "0.1.0"
 #endif
 #ifndef MyAppExeName
-  #define MyAppExeName "warp-oss.exe"
+  #define MyAppExeName "nanowarp.exe"
 #endif
 #ifndef ReleaseChannel
   #define ReleaseChannel "oss"
@@ -22,13 +22,8 @@
 
 // The mutex name must match what the Rust app creates in single_instance_manager.rs:
 #define ChannelPascalCase \
-  (ReleaseChannel == "stable") ? "Stable" : \
-  ((ReleaseChannel == "dev") ? "Dev" : \
-  ((ReleaseChannel == "preview") ? "Preview" : \
-  ((ReleaseChannel == "local") ? "Local" : \
-  ((ReleaseChannel == "integration") ? "Integration" : \
-  ((ReleaseChannel == "oss") ? "Oss" : \
-  "Unknown")))))
+  (ReleaseChannel == "integration") ? "Integration" : \
+  ((ReleaseChannel == "oss") ? "Oss" : "Unknown")
 #define AppMutexName "Local\NanoWarp" + ChannelPascalCase + "_SingleInstance"
 
 
@@ -60,16 +55,9 @@ WizardSmallImageFile="installer-images\warp-logo.bmp"
 WizardImageFile="installer-images\warp-banner.bmp"
 SetupIconFile="..\..\app\channels\{#ReleaseChannel}\icon\no-padding\icon.ico"
 UninstallDisplayIcon="{app}\icon.ico"
-; Force close previous Warp if it hasn't shut down yet.
-; In the update flow we already warn the user if they have something running and make them confirm
-; before running this installer. Therefore, we are good to force close Warp without fear of losing
-; unsaved work.
-; VSCode does something similar:
-; https://github.com/microsoft/vscode/blob/aac9914f93551f894b8df1e4680bd847e7636be3/build/win32/code.iss#L41
-CloseApplications=force
-; For manual installs: if Warp is running, show a dialog prompting the user to close it
-; before Setup proceeds. Returned empty for background updates so the check is skipped.
-AppMutex={code:GetAppMutex}
+; Ask before replacing files used by a running NanoWarp instance.
+CloseApplications=yes
+AppMutex={#AppMutexName}
 SetupMutex={#AppMutexName}Setup
 ; Version 1809 / Build 18362 is required for ConPTY. See https://github.com/microsoft/vscode-docs/blob/9d736b662fdde3fed17d8bc2ed70bfea4ae20636/docs/supporting/troubleshoot-terminal-launch.md?plain=1#L66/
 MinVersion=10.0.18362
@@ -110,22 +98,22 @@ Source: "{#TargetProfileDir}\resources\*"; DestDir: "{app}\resources"; Flags: ig
 Root: HKCU; Subkey: "SOFTWARE\NanoWarp\{#MyAppName}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "SOFTWARE\NanoWarp\{#MyAppName}"; ValueType: string; ValueName: "InstallationPath"; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppExeName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
-; cleanup "Open Warp Here" registry entries
+; Remove obsolete NanoWarp context menu entries
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}"; Flags: deletekey
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}"; Flags: deletekey
-; Add "Open Warp in new tab" to directory context menu
+; Add "Open NanoWarp in new tab" to directory context menu
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Tab"; ValueType: string; ValueName: ""; ValueData: "Open {#MyAppName} in new tab"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Tab"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\icon.ico"
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Tab\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""{#MyAppName}://action/new_tab?path=%1"""
-; Add "Open Warp in new tab" to directory background context menu
+; Add "Open NanoWarp in new tab" to directory background context menu
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Tab"; ValueType: string; ValueName: ""; ValueData: "Open {#MyAppName} in new tab"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Tab"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\icon.ico"
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Tab\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""{#MyAppName}://action/new_tab?path=%V"""
-; Add "Open Warp in new window" to directory context menu
+; Add "Open NanoWarp in new window" to directory context menu
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Window"; ValueType: string; ValueName: ""; ValueData: "Open {#MyAppName} in new window"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Window"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\icon.ico"
 Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MyAppName}Window\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""{#MyAppName}://action/new_window?path=%1"""
-; Add "Open Warp in new window" to directory background context menu
+; Add "Open NanoWarp in new window" to directory background context menu
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Window"; ValueType: string; ValueName: ""; ValueData: "Open {#MyAppName} in new window"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Window"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\icon.ico"
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Window\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""{#MyAppName}://action/new_window?path=%V"""
@@ -140,74 +128,3 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall runhidden nowait
-
-[Code]
-function IsNotStable(): Boolean;
-begin
-#if ReleaseChannel == "stable"
-  Result := False;
-#else
-  Result := True;
-#endif
-end;
-
-{ Returns true when the installer was launched by Warp's auto-update code.
-  The auto-update path passes /update=1 on the command line and /NOCLOSEAPPLICATIONS
-  so that the installer does not forcibly kill the running Warp process. Instead we
-  wait for Warp to exit naturally by polling the app mutex below. }
-function IsBackgroundUpdate(): Boolean;
-begin
-  Result := ExpandConstant('{param:update|false}') <> 'false';
-end;
-
-{ For background updates, return an empty mutex name so that Inno Setup skips its
-  built-in "application is running" dialog - we handle the wait ourselves. For manual
-  installs, return the real mutex name so the user is prompted to close Warp first. }
-function GetAppMutex(Value: string): string;
-begin
-  if IsBackgroundUpdate() then
-    Result := ''
-  else
-    Result := '{#AppMutexName}';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  WaitCounter: Integer;
-  ResultCode: Integer;
-begin
-  { Background update: the installer was launched while Warp was still running.
-    We passed /NOCLOSEAPPLICATIONS so Inno won't kill it. Wait here - before any
-    files are touched - for Warp to release its single-instance mutex, which
-    happens as part of normal process exit. }
-  if CurStep = ssInstall then
-  begin
-    if IsBackgroundUpdate() then
-    begin
-      Log('Background update: waiting for Warp to exit (mutex: {#AppMutexName})...');
-      WaitCounter := 0;
-      while CheckForMutexes('{#AppMutexName}') and (WaitCounter < 30) do
-      begin
-        Sleep(500);
-        WaitCounter := WaitCounter + 1;
-      end;
-      if CheckForMutexes('{#AppMutexName}') then
-      begin
-        Log('Warp mutex still held after timeout; force-killing remaining processes.');
-        { Kill by image name. {#MyAppExeName} (e.g. warp.exe, dev.exe) is unique
-          enough that collateral damage is not a concern. OpenConsole.exe is NOT
-          killed by name because it is shared with Windows Terminal; instead we
-          rely on Warp's Job Object (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE) to
-          cascade-kill any child OpenConsole.exe processes when warp.exe dies. }
-        Exec('taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        if ResultCode <> 0 then
-          Log('force-kill failed for {#MyAppExeName} (exit code: ' + IntToStr(ResultCode) + ')');
-        Sleep(1000);
-      end
-      else
-      begin
-        Log('Warp has exited; proceeding with file installation.');
-      end;
-    end;
-  end;
-end;
