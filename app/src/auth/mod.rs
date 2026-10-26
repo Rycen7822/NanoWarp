@@ -27,7 +27,6 @@ use crate::palette::PaletteMode;
 use crate::root_view::RootView;
 
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
-use crate::settings::PrivacySettings;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::workspace::{Workspace, WorkspaceAction};
 use crate::{
@@ -176,7 +175,6 @@ pub fn log_out(app: &mut AppContext) {
     AuthManager::handle(app).update(app, |auth_manager, ctx| {
         auth_manager.log_out(ctx);
     });
-    remove_cloud_persisted_settings(app);
 
     // Dispatch the GUI root-view action on every open GUI window so its state can be updated
     // correctly. Other front-ends, such as the TUI, manage their logout transition separately.
@@ -198,17 +196,6 @@ pub fn log_out(app: &mut AppContext) {
 
     #[cfg(target_family = "wasm")]
     crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::LoggedOut);
-}
-
-// Remove the cloud persisted settings from user defaults.
-// When a user signs out, we remove cloud persisted settings of their account.
-// This is so they do not experience the old settings when they log in with a different account.
-// Partial deletion of user defaults is a stopgap for Logout v0. The correct solution is:
-fn remove_cloud_persisted_settings(app: &mut AppContext) {
-    // Reset the Privacy Settings in the login screen to default values.
-    PrivacySettings::handle(app).update(app, |privacy_settings, _| {
-        privacy_settings.refresh_to_default();
-    });
 }
 
 #[cfg(test)]

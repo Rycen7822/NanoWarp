@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, WeakViewHandle, WindowId};
 
 use super::team::Team;
-use super::workspace::{EnterpriseSecretRegex, Workspace, WorkspaceUid};
+use super::workspace::{Workspace, WorkspaceUid};
 use crate::auth::UserUid;
 use crate::channel::ChannelState;
 use crate::server::ids::ServerId;
@@ -157,18 +157,6 @@ impl UserWorkspaces {
     pub fn current_workspace(&self) -> Option<&Workspace> {
         self.current_workspace_uid
             .and_then(|workspace_uid| self.workspace_from_uid(workspace_uid))
-    }
-
-    pub fn is_enterprise_secret_redaction_enabled(&self) -> bool {
-        self.current_workspace()
-            .map(|workspace| workspace.settings.secret_redaction_settings.enabled)
-            .unwrap_or(false)
-    }
-
-    pub fn get_enterprise_secret_redaction_regex_list(&self) -> Vec<EnterpriseSecretRegex> {
-        self.current_workspace()
-            .map(|workspace| workspace.settings.secret_redaction_settings.regexes.clone())
-            .unwrap_or_default()
     }
 }
 

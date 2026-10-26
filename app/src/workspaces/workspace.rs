@@ -383,25 +383,11 @@ pub struct LinkSharingSettings {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct EnterpriseSecretRegex {
-    pub pattern: String,
-    #[serde(default)]
-    pub name: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SecretRedactionSettings {
-    pub enabled: bool,
-    pub regexes: Vec<EnterpriseSecretRegex>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WorkspaceSettings {
     #[serde(default, with = "serde_regex")]
     pub remote_session_regex_list: Vec<Regex>,
     pub telemetry_settings: TelemetrySettings,
     pub link_sharing_settings: LinkSharingSettings,
-    pub secret_redaction_settings: SecretRedactionSettings,
     pub is_invite_link_enabled: bool,
     pub is_discoverable: bool,
 }
@@ -417,47 +403,17 @@ pub struct EnforceableSetting<T> {
     pub is_enforced_by_workspace: bool,
 }
 
-/// A list setting split by the layer that contributed each entry (mirrors the
-/// server's `StringListSettingInfo` / `SecretRedactionRegexListInfo`). `values`
-/// is the authoritative merged result; `workspace_entries` / `team_entries` are
-/// preserved so future admin UI can present the layers separately.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SplitListSetting<T> {
-    pub values: Vec<T>,
-    #[serde(default)]
-    pub workspace_entries: Vec<T>,
-    #[serde(default)]
-    pub team_entries: Vec<T>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct TeamSecretRedactionSettings {
-    pub enabled: EnforceableSetting<bool>,
-    pub regexes: SplitListSetting<EnterpriseSecretRegex>,
-}
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TeamLinkSharingSettings {
     pub anyone_with_link_sharing_enabled: EnforceableSetting<bool>,
     pub direct_link_sharing_enabled: EnforceableSetting<bool>,
 }
 
-/// The effective settings that apply to a team, combining the workspace layer
-/// with the team's own configuration.
-///
-/// This is intentionally a distinct type from [`WorkspaceSettings`] rather than
-/// an alias: it is sourced from the server's effective `Team.settings`. Each
-/// workspace-governable group keeps both its effective value **and** the
-/// `is_enforced_by_workspace` / workspace-vs-team split metadata (via
-/// [`EnforceableSetting`] / [`SplitListSetting`]) so future admin UI can recover
-/// those details. Unlike `WorkspaceSettings`, it does not carry the
-/// workspace-scoped `is_invite_link_enabled` / `is_discoverable` flags (those
-/// remain on [`WorkspaceSettings`] and are read from the current workspace).
+/// The effective settings stored with cached team metadata.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TeamSettings {
     #[serde(default, with = "serde_regex")]
     pub remote_session_regex_list: Vec<Regex>,
-    pub secret_redaction: TeamSecretRedactionSettings,
     pub link_sharing: TeamLinkSharingSettings,
     pub telemetry_settings: TelemetrySettings,
 }

@@ -8,8 +8,6 @@ use warp_errors::report_error;
 pub use warp_terminal::model::secrets::RegexDisplayInfo;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
 
-use crate::workspaces::workspace::EnterpriseSecretRegex;
-
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(description = "A custom regex pattern for detecting and redacting secrets.")]
 pub struct CustomSecretRegex {
@@ -30,16 +28,6 @@ impl CustomSecretRegex {
 impl RegexDisplayInfo for CustomSecretRegex {
     fn pattern(&self) -> &str {
         self.pattern.as_str()
-    }
-
-    fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-}
-
-impl RegexDisplayInfo for EnterpriseSecretRegex {
-    fn pattern(&self) -> &str {
-        &self.pattern
     }
 
     fn name(&self) -> Option<&str> {
@@ -76,16 +64,8 @@ maybe_define_setting!(CustomSecretRegexList, group: PrivacySettings, {
 /// Singleton model for managing the user's privacy settings.
 pub struct PrivacySettings {
     /// List of user defined secret regexes.
-    /// Enterprise-level secret regexes will always take precedence over user-level secrets,
-    /// but they both used to support additive behavior.
     /// It's a [Vec<CustomSecretRegex>], but also a user setting.
     pub user_secret_regex_list: CustomSecretRegexList,
-    /// List of enterprise-level secret regexes provided by the organization.
-    /// These are kept separate from user-level secrets to support additive behavior.
-    pub enterprise_secret_regex_list: Vec<CustomSecretRegex>,
-    /// Whether or not the user's organization has enabled enterprise secret redaction.
-    /// This is populated by the server when teams data is fetched.
-    pub is_enterprise_secret_redaction_enabled: bool,
 }
 
 impl PrivacySettings {
@@ -113,18 +93,7 @@ impl PrivacySettings {
 
         Self {
             user_secret_regex_list,
-            is_enterprise_secret_redaction_enabled: false,
-            enterprise_secret_regex_list: Vec::new(),
         }
-    }
-
-    pub fn is_enterprise_secret_redaction_enabled(&self) -> bool {
-        self.is_enterprise_secret_redaction_enabled
-    }
-
-    pub fn refresh_to_default(&mut self) {
-        // TODO(zach): this seems incorrect - should we also update the values on disk?
-        self.is_enterprise_secret_redaction_enabled = false;
     }
 
     /// Constructor for tests only.
@@ -132,8 +101,6 @@ impl PrivacySettings {
     pub fn mock(_ctx: &mut ModelContext<Self>) -> Self {
         Self {
             user_secret_regex_list: CustomSecretRegexList::new(None),
-            is_enterprise_secret_redaction_enabled: false,
-            enterprise_secret_regex_list: Vec::new(),
         }
     }
 

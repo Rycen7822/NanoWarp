@@ -3,6 +3,22 @@ use regex::Regex;
 use super::*;
 
 #[test]
+fn user_rules_keep_unicode_ranges_and_redaction() {
+    let pattern = Regex::new("TOK|EN").unwrap();
+    set_secret_regexes([&pattern]);
+
+    let text = "💣 TOKEN!";
+    let ranges = find_secrets_in_text(text);
+    assert_eq!(ranges.len(), 1);
+    assert_eq!(ranges[0].char_range, 2..7);
+    assert_eq!(ranges[0].byte_range, 5..10);
+
+    let mut redacted = text.to_owned();
+    redact_secrets(&mut redacted);
+    assert_eq!(redacted, "💣 *****!");
+}
+
+#[test]
 fn test_firebase_domain() {
     let firebase_domain = "warp-server-staging.firebaseapp.com";
     assert_regex_match_found(regexes::FIREBASE_AUTH_DOMAIN, firebase_domain);
