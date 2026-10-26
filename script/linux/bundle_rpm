@@ -7,16 +7,14 @@
 #   - DIST_DIR: A temporary directory we can use for staging files as we build the package.
 #   - OUT_DIR: The directory into which we should place the final package.
 #   - CARGO_TARGET_OUTPUT_DIR: The cargo target directory containing build output.
-#   - RELEASE_CHANNEL: The release channel we're bundling (e.g.: "dev").
-#   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.warp.WarpDev").
+#   - RELEASE_CHANNEL: The release channel we're bundling (e.g.: "oss").
+#   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.nanowarp.NanoWarp").
 #   - EXECUTABLE_PATH: The path to the compiled executable we want to install.
 #   - BINARY_NAME: The name that the compiled executable should have on the target machine.
 
 set -e
 
-# Extract channel suffix from BINARY_NAME
-CHANNEL_SUFFIX="${BINARY_NAME#warp}"
-PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
+PACKAGE_NAME="nanowarp"
 
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 if [ "$BUILD_ARCH" = "aarch64" ]; then
@@ -42,14 +40,13 @@ trap cleanup EXIT
 
 # Construct a directory that contains the build tree.
 rm -rf "$RPMBUILD_DIR"
-mkdir -p "$RPMBUILD_DIR"/{SPEC,RPMS}
+mkdir -p "$RPMBUILD_DIR"/{SPEC,RPMS,tmp}
 
 # Move the RPM-specific package metadata into the package directory.
 VERSION="$GIT_RELEASE_TAG"
 RELEASE="1"
 sed \
-    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; \
-     s#@@BINARY_NAME@@#$BINARY_NAME#g; \
+    "s#@@BINARY_NAME@@#$BINARY_NAME#g; \
      s#@@VERSION@@#$VERSION#g; \
      s#@@RELEASE@@#$RELEASE#g; \
      s#@@ARCH@@#$ARCH#g; \
@@ -59,7 +56,7 @@ sed \
     > "$RPMBUILD_DIR/SPEC/warp.spec"
 
 # Build the actual package.
-fakeroot rpmbuild -v -bb "$RPMBUILD_DIR/SPEC/warp.spec" --target="$ARCH" --define "_topdir $RPMBUILD_DIR"
+fakeroot rpmbuild -v -bb "$RPMBUILD_DIR/SPEC/warp.spec" --target="$ARCH" --define "_topdir $RPMBUILD_DIR" --define "_tmppath $RPMBUILD_DIR/tmp"
 
 # Copy the package to the output directory.
 RPM_NAME="$PACKAGE_NAME-$VERSION-$RELEASE.$ARCH.rpm"

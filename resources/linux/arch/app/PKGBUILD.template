@@ -1,10 +1,10 @@
-pkgname=warp-terminal@@CHANNEL_SUFFIX@@
+pkgname=nanowarp
 pkgver=@@VERSION@@
 pkgrel=@@RELEASE@@
-pkgdesc="Warp, the Rust-based terminal for developers and teams"
+pkgdesc="NanoWarp, a local terminal emulator"
 arch=('@@ARCH@@')
-url="https://warp.dev"
-license=('custom')
+url="https://github.com/Rycen7822/NanoWarp"
+license=('AGPL-3.0-only')
 depends=(
 	'curl'
 	'default-cursors'
