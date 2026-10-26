@@ -17,15 +17,10 @@ use super::{TEST_ONLY_ASSETS, new_builder};
 use crate::Builder;
 use crate::util::{get_local_user, write_histfiles_for_test};
 
-/// The `history_with_metadata.sqlite` table looks like the following:
-///
-/// |id|command                 |exit_code|start_ts                  |completed_ts              |pwd        |shell|username      |hostname      |session_id     |git_branch|cloud_workflow_id|workflow_command   |
-/// |1 |echo "foo"              |0        |2023-07-11 16:29:32.092176|2023-07-11 16:29:33.124078|/Users/user|zsh  |local:user    |local:host    |168911816423351|NULL      |NULL             |NULL               |
-/// |2 |[[ -n "foo" ]]          |0        |2023-07-11 16:29:34.837961|2023-07-11 16:29:33.124078|/Users/user|zsh  |local:user    |local:host    |168911816423351|NULL      |NULL             |[[ -n {{string}} ]]|
-/// |3 |echo "bar"              |0        |2023-07-11 16:29:42.000000|2023-07-11 16:29:43.000000|/Users/user|zsh  |local:user    |local:host    |168911816423351|NULL      |NULL             |NULL               |
-/// |10|sed -i '' '/hello/d' foo|0        |2023-07-12 16:29:42.000000|2023-07-12 16:29:43.000000|/Users/user|zsh  |local:user    |local:host    |168911816423351|NULL      |NULL             |sed -i '' '/{{string}}/d' {{file}}|
-///
-/// These three rows are duplicated in the table for each `shell` type so history tests can run on all shells with the same data.
+/// `history_with_metadata.sqlite` uses the current NanoWarp storage baseline.
+/// It contains four commands for each of bash, fish, pwsh, and zsh, preserving
+/// their exit status, timestamps, directory, shell, user/host, session, and Git metadata.
+/// No saved window state is needed: these tests start a fresh terminal.
 ///
 /// Note that the user and host columns are updated at runtime in test setup to the actual local
 /// user and host values for the machine on which this test is running -- this is necessary because
