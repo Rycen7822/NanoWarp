@@ -7,7 +7,7 @@ description: GUI desktop app only. Repo-specific bug reproduction guidance for W
 
 # Repo-specific bug reproduction guidance for `warp`
 
-**Scope — GUI desktop app only.** This skill applies to Warp's **GUI** desktop front-end (the `app/` crate on the WarpUI pixel/GPU framework). It does **not** apply to the headless **TUI** front-end (`crates/warp_tui`; cell-grid `TuiElement` library under `crates/warpui_core/src/elements/tui`), which has its own components, tests, and change-verification workflow. For TUI work, see the `tui-ui-guidelines`, `tui-testing`, and `tui-verify-change` skills instead.
+**Scope — NanoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
 
 ## Prerequisite: install the parent skill
 

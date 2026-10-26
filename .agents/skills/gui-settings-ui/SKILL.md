@@ -5,7 +5,7 @@ description: GUI desktop app only. How to build a Settings page in the Warp clie
 
 # gui-settings-ui
 
-**Scope — GUI desktop app only.** This skill covers the settings modal in `app/src/settings_view/`, part of Warp's **GUI** desktop front-end. It does not apply to the headless TUI (`crates/warp_tui`). For general UI conventions see `gui-ui-guidelines`.
+**Scope — NanoWarp desktop GUI.** This guide covers the settings modal in `app/src/settings_view/`. For general UI conventions see `gui-ui-guidelines`.
 
 Settings pages look simple, so they get written by pattern-matching the nearest neighbor — and the nearest neighbor is often wrong. The same two mistakes have produced five Linear tickets (APP-5060, APP-5058, APP-4910, APP-4922, APP-5059, one of which turned out to be a false positive). Read this before writing a settings page so the sixth doesn't happen.
 

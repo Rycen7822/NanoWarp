@@ -39,7 +39,7 @@ failure.
 
 Inspect the available skill descriptions and read every skill that materially
 defines how to verify the affected surface. Examples include GUI computer-use
-verification, TUI live verification, integration testing, unit testing, CI
+verification, integration testing, unit testing, CI
 diagnosis, packaging, or repository-specific validation.
 
 Extract from those skills:

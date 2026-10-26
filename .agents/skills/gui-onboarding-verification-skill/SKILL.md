@@ -5,7 +5,7 @@ description: GUI desktop app only. Launch two parallel Oz cloud agents with comp
 
 # Onboarding verification skill
 
-**Scope — GUI desktop app only.** This skill applies to Warp's **GUI** desktop front-end (the `app/` crate on the WarpUI pixel/GPU framework). It does **not** apply to the headless **TUI** front-end (`crates/warp_tui`; cell-grid `TuiElement` library under `crates/warpui_core/src/elements/tui`), which has its own components, tests, and change-verification workflow. For TUI work, see the `tui-ui-guidelines`, `tui-testing`, and `tui-verify-change` skills instead.
+**Scope — NanoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
 
 Use this skill to verify the first-time Warp install and onboarding flow on Linux with broader branch coverage than a single linear walkthrough.
 
