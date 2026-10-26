@@ -16,15 +16,7 @@ pub fn main() -> Result<()> {
     ChannelState::set(ChannelState::new(
         Channel::Integration,
         ChannelConfig {
-            app_id: AppId::new(
-                "dev",
-                "warp",
-                if cfg!(target_os = "macos") {
-                    "Warp-Integration"
-                } else {
-                    "WarpIntegration"
-                },
-            ),
+            app_id: AppId::new("dev", "nanowarp", "NanoWarpIntegration"),
             logfile_name: "warp_integration.log".into(),
             server_config: WarpServerConfig {
                 // Use an IP in the IANA testing range, with the TCP discard port, to
