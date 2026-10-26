@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use chrono::Utc;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use warp_graphql::billing::{ServiceAgreement, ServiceAgreementType};
 
@@ -384,8 +383,6 @@ pub struct LinkSharingSettings {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WorkspaceSettings {
-    #[serde(default, with = "serde_regex")]
-    pub remote_session_regex_list: Vec<Regex>,
     pub telemetry_settings: TelemetrySettings,
     pub link_sharing_settings: LinkSharingSettings,
     pub is_invite_link_enabled: bool,
@@ -412,8 +409,6 @@ pub struct TeamLinkSharingSettings {
 /// The effective settings stored with cached team metadata.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TeamSettings {
-    #[serde(default, with = "serde_regex")]
-    pub remote_session_regex_list: Vec<Regex>,
     pub link_sharing: TeamLinkSharingSettings,
     pub telemetry_settings: TelemetrySettings,
 }

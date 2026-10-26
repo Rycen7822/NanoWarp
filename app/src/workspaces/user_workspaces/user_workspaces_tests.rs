@@ -1,11 +1,6 @@
-use super::team_workspace_settings::TeamScope;
-use regex::Regex;
 use std::cell::Cell;
-use std::collections::HashSet;
 use std::rc::Rc;
-use warpui::elements::Empty;
-use warpui::platform::WindowStyle;
-use warpui::{AddSingletonModel, App, Element, TypedActionView, View, ViewHandle, WindowId};
+use warpui::{AddSingletonModel, App, WindowId};
 
 use super::*;
 use crate::settings::PrivacySettings;
@@ -136,121 +131,6 @@ fn test_window_team_assignment_inherits_from_source_or_default_team() {
     })
 }
 
-#[derive(Default)]
-struct TeamContextTestView;
-
-impl Entity for TeamContextTestView {
-    type Event = ();
-}
-
-impl View for TeamContextTestView {
-    fn ui_name() -> &'static str {
-        "TeamContextTestView"
-    }
-
-    fn render(&self, _: &AppContext) -> Box<dyn Element> {
-        Empty::new().finish()
-    }
-}
-
-impl TypedActionView for TeamContextTestView {
-    type Action = ();
-}
-
-fn create_test_window(app: &mut App) -> (WindowId, ViewHandle<TeamContextTestView>) {
-    app.add_window(WindowStyle::NotStealFocus, |_| TeamContextTestView)
-}
-
-fn two_teams() -> (Team, Team) {
-    let team_a = team_for_test();
-    let mut team_b = team_for_test();
-    team_b.uid = 456.into();
-    team_b.name = "team-b".to_string();
-    (team_a, team_b)
-}
-
-fn set_team_remote_session_policy(team: &mut Team, patterns: &[&str]) {
-    team.settings.remote_session_regex_list = patterns
-        .iter()
-        .map(|pattern| Regex::new(pattern).expect("test pattern should compile"))
-        .collect();
-}
-
-fn set_workspace_remote_session_policy(workspace: &mut Workspace, patterns: &[&str]) {
-    workspace.settings.remote_session_regex_list = patterns
-        .iter()
-        .map(|pattern| Regex::new(pattern).expect("test pattern should compile"))
-        .collect();
-}
-
-fn remote_session_patterns_for_surface(
-    view: &ViewHandle<TeamContextTestView>,
-    app: &AppContext,
-) -> HashSet<String> {
-    let user_workspaces = UserWorkspaces::as_ref(app);
-    let scope = user_workspaces.team_context(&view.downgrade(), app);
-    user_workspaces
-        .get_remote_session_regex_list(&scope)
-        .iter()
-        .map(|regex| regex.as_str().to_string())
-        .collect()
-}
-
-#[test]
-fn remote_session_policy_follows_each_surfaces_own_team() {
-    let (mut team_a, mut team_b) = two_teams();
-    set_team_remote_session_policy(&mut team_a, &["^kubectl"]);
-    set_team_remote_session_policy(&mut team_b, &["^ssh"]);
-    let mut workspace = workspace_for_test(&team_a);
-    workspace.teams = vec![team_a.clone(), team_b.clone()];
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_a, view_a) = create_test_window(&mut app);
-        let (window_b, view_b) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.set_team_for_window(window_a, team_a.uid, ctx);
-            user_workspaces.set_team_for_window(window_b, team_b.uid, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                remote_session_patterns_for_surface(&view_a, ctx),
-                HashSet::from(["^kubectl".to_string()])
-            );
-            assert_eq!(
-                remote_session_patterns_for_surface(&view_b, ctx),
-                HashSet::from(["^ssh".to_string()])
-            );
-        });
-    })
-}
-
-#[test]
-fn remote_session_policy_falls_back_to_the_workspace_for_a_user_with_no_teams() {
-    let team = team_for_test();
-    let mut workspace = workspace_for_test(&team);
-    workspace.teams.clear();
-    set_workspace_remote_session_policy(&mut workspace, &["^workspace-only"]);
-
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![workspace]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        app.read(|ctx| {
-            assert_eq!(
-                remote_session_patterns_for_surface(&view, ctx),
-                HashSet::from(["^workspace-only".to_string()])
-            );
-        });
-    })
-}
-
 fn team_named(uid: i64, name: &str) -> Team {
     let mut team = team_for_test();
     team.uid = uid.into();
@@ -333,24 +213,6 @@ fn switching_a_window_to_its_current_team_announces_nothing() {
         });
 
         assert_eq!(changes.get(), 0);
-    })
-}
-
-#[test]
-fn test_team_contexts_represent_a_registered_teamless_window() {
-    App::test((), |mut app| async move {
-        initialize_window_team_test_app(&mut app, vec![]);
-
-        let (window_id, view) = create_test_window(&mut app);
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            user_workspaces.register_window(window_id, None, ctx);
-        });
-
-        let weak_view = view.downgrade();
-        app.read(|ctx| {
-            let context = UserWorkspaces::as_ref(ctx).team_context(&weak_view, ctx);
-            assert_eq!(context.team_uid(), None);
-        });
     })
 }
 

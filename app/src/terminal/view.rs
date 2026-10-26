@@ -302,7 +302,6 @@ use crate::view_components::find::{Event as FindEvent, Find, FindDirection, Find
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction, WorkspaceRegistry};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{ActiveSession as WindowActiveSession, safe_warn};
 
 lazy_static! {
@@ -4456,20 +4455,9 @@ impl TerminalView {
         self.model.lock().end_notify_on_ssh_login_complete();
     }
 
-    /// Returns true if the block is considered remote.
-    ///
-    /// Note that we don't know for sure if a block is remote, because we can only detect
-    /// warpified remote blocks.
-    ///
-    /// For some organizations, we accept a regex list that we run against commands to
-    /// further make the determination.
-    fn is_block_considered_remote(
-        &self,
-        session_id: Option<SessionId>,
-        command: Option<&str>,
-        app: &AppContext,
-    ) -> bool {
-        let is_warpified_remote = session_id
+    /// Returns whether the block belongs to a remote shell session.
+    fn is_block_considered_remote(&self, session_id: Option<SessionId>, app: &AppContext) -> bool {
+        session_id
             .map(|id| {
                 self.sessions
                     .as_ref(app)
@@ -4477,60 +4465,7 @@ impl TerminalView {
                     .map(|session| !session.is_local())
                     .unwrap_or_default()
             })
-            .unwrap_or_default();
-
-        if is_warpified_remote {
-            return true;
-        }
-
-        // If there's a command present, check it against the remote-session command patterns
-        // configured by the user's organization.
-        let Some(command) = command else {
-            return false;
-        };
-
-        let user_workspaces = UserWorkspaces::as_ref(app);
-        let scope = user_workspaces.team_context(&self.view_handle, app);
-        let remote_session_regex_list = user_workspaces.get_remote_session_regex_list(&scope);
-
-        // Almost nobody has org patterns at all, so there is nothing further to check.
-        if remote_session_regex_list.is_empty() {
-            return false;
-        }
-
-        // First check if the command matches any of the regexes in the list.
-        if remote_session_regex_list
-            .iter()
-            .any(|regex| regex.is_match(command))
-        {
-            return true;
-        }
-
-        // Then check if there's an alias for the top level command that matches the regex.
-        let Some(session_id) = session_id else {
-            return false;
-        };
-        let Some(session) = self.sessions.as_ref(app).get(session_id) else {
-            return false;
-        };
-        let escape_char = session.shell_family().escape_char();
-        let Some(top_level_command) =
-            warp_completer::parsers::simple::top_level_command(command, escape_char)
-        else {
-            return false;
-        };
-        let Some(alias) = session.alias_value(top_level_command.as_str()) else {
-            return false;
-        };
-
-        if remote_session_regex_list
-            .iter()
-            .any(|regex| regex.is_match(alias))
-        {
-            return true;
-        }
-
-        false
+            .unwrap_or_default()
     }
 
     /// Replaces an idle local shell and completes after the new shell bootstraps.
@@ -5384,36 +5319,24 @@ impl TerminalView {
                     // session restoration is enabled.
                     ctx.emit(Event::BlockCompleted {
                         block: serialized_block.clone(),
-                        is_local: !self.is_block_considered_remote(
-                            serialized_block.session_id,
-                            Some(block_completed.command.get_with(|compute| {
-                                let model = self.model.lock();
-                                compute(model.block_list())
-                            })),
-                            ctx,
-                        ),
+                        is_local: !self
+                            .is_block_considered_remote(serialized_block.session_id, ctx),
                     });
                 } else if let BlockType::Background(serialized_block) = block_type {
                     // Because background output blocks are before the active block, they need to be saved
                     // via a BlockCompleted event but don't affect focus or input.
                     ctx.emit(Event::BlockCompleted {
                         block: serialized_block.clone(),
-                        is_local: !self.is_block_considered_remote(
-                            serialized_block.session_id,
-                            None,
-                            ctx,
-                        ),
+                        is_local: !self
+                            .is_block_considered_remote(serialized_block.session_id, ctx),
                     });
                 } else if let BlockType::BootstrapVisible(serialized_block) = block_type {
                     // Re-compute the focus after the visible bootstrap block has completed.
                     self.redetermine_terminal_focus(ctx);
                     ctx.emit(Event::BlockCompleted {
                         block: serialized_block.clone(),
-                        is_local: !self.is_block_considered_remote(
-                            serialized_block.session_id,
-                            None,
-                            ctx,
-                        ),
+                        is_local: !self
+                            .is_block_considered_remote(serialized_block.session_id, ctx),
                     });
                 }
 

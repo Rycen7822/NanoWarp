@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use warpui::{AppContext, Entity, ModelContext, SingletonEntity, WeakViewHandle, WindowId};
+use warpui::{Entity, ModelContext, SingletonEntity, WindowId};
 
 use super::team::Team;
 use super::workspace::{Workspace, WorkspaceUid};
 use crate::server::ids::ServerId;
-pub(crate) mod team_workspace_settings;
 
 /// UserWorkspaces is a singleton model that holds workspace metadata (name, members, etc).
 /// It should be used for getting information about the workspaces, teams, current teams,
@@ -114,16 +113,6 @@ impl UserWorkspaces {
     pub fn team_for_window(&self, window_id: WindowId) -> Option<&Team> {
         self.team_uid_for_window(window_id)
             .and_then(|team_uid| self.team_from_uid(team_uid))
-    }
-
-    pub fn team_for_view_handle<T: Entity>(
-        &self,
-        view_handle: &WeakViewHandle<T>,
-        ctx: &AppContext,
-    ) -> Option<&Team> {
-        view_handle
-            .window_id(ctx)
-            .and_then(|window_id| self.team_for_window(window_id))
     }
 
     pub fn workspace_from_uid(&self, workspace_uid: WorkspaceUid) -> Option<&Workspace> {

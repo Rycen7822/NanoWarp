@@ -669,11 +669,7 @@ fn test_create_new_block_with_local_status() {
             terminal.read(&app, |view, ctx| {
                 let model = view.model.lock();
                 let block = model.block_list().active_block();
-                !view.is_block_considered_remote(
-                    block.session_id(),
-                    Some(&block.command_to_string()),
-                    ctx,
-                )
+                !view.is_block_considered_remote(block.session_id(), ctx)
             }),
             "Block should be local"
         );
@@ -704,11 +700,7 @@ fn test_create_new_block_with_local_status() {
             terminal.read(&app, |view, ctx| {
                 let model = view.model.lock();
                 let block = model.block_list().active_block();
-                view.is_block_considered_remote(
-                    block.session_id(),
-                    Some(&block.command_to_string()),
-                    ctx,
-                )
+                view.is_block_considered_remote(block.session_id(), ctx)
             }),
             "Block should be non-local (remote)"
         );
@@ -776,39 +768,6 @@ fn test_restored_remote_block_before_clear() {
 
             // Now clear the terminal
             view.clear_buffer_for_testing(ctx);
-        });
-    })
-}
-
-/// The team's command patterns classify remote blocks.
-#[test]
-fn org_command_patterns_classify_a_block_remote() {
-    use crate::server::ids::ServerId;
-    use crate::workspaces::team::Team;
-    use crate::workspaces::workspace::Workspace as TeamWorkspace;
-
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let (window_id, terminal) = add_window_with_id_and_terminal(&mut app, None);
-
-        let team_uid = ServerId::from(2);
-        let workspace_uid = ServerId::from(1).into();
-        let mut team = Team::from_local_cache(team_uid, "Test Team".into(), None, None, None);
-        team.settings.remote_session_regex_list =
-            vec![Regex::new("^kubectl").expect("test pattern should compile")];
-        let workspace = TeamWorkspace::from_local_cache(
-            workspace_uid,
-            "Test Workspace".into(),
-            Some(vec![team]),
-        );
-        UserWorkspaces::handle(&app).update(&mut app, |user_workspaces, ctx| {
-            *user_workspaces = UserWorkspaces::new(vec![workspace], Some(workspace_uid));
-            user_workspaces.set_team_for_window(window_id, team_uid, ctx);
-        });
-
-        terminal.read(&app, |view, ctx| {
-            assert!(view.is_block_considered_remote(None, Some("kubectl get pods"), ctx));
-            assert!(!view.is_block_considered_remote(None, Some("ls -la"), ctx));
         });
     })
 }
