@@ -166,8 +166,8 @@ pub fn base_config_dir() -> PathBuf {
 /// should be stored.
 ///
 /// This is the appropriate home for files like our sqlite database, which
-/// contains durable but non-critical and non-portable data like what windows
-/// the user had open and cached state of known Warp Drive objects.
+/// contains durable but non-critical and non-portable data such as window,
+/// tab, and terminal state.
 pub fn state_dir() -> PathBuf {
     if let Some(root) = runtime_root() {
         return root.join("state");
@@ -181,34 +181,6 @@ pub fn state_dir() -> PathBuf {
         .state_dir()
         .unwrap_or_else(|| project_dirs.data_local_dir())
         .to_owned()
-}
-
-/// Returns the path to the secure directory for non-portable application state data.
-///
-/// Prefer this over [`state_dir`] where possible.
-///
-/// On macOS, this will use the App Group container directory if available.
-pub fn secure_state_dir() -> Option<PathBuf> {
-    if runtime_root().is_some() || ChannelState::channel() == Channel::Oss {
-        return None;
-    }
-    // Do not use the secure state directory in integration tests, which have a temporary home directory instead.
-    if ChannelState::channel() == Channel::Integration {
-        return None;
-    }
-
-    #[cfg(target_os = "macos")]
-    if let Some(app_group_root) = app_group_container_path() {
-        // The macOS project_path is the bundle ID (i.e. `dev.warp.Warp-Stable`).
-        let project_dirs = project_dirs()?;
-        return Some(
-            app_group_root
-                .join("Library/Application Support")
-                .join(project_dirs.project_path()),
-        );
-    }
-
-    None
 }
 
 /// Returns the path to the directory containing the user's custom themes.
@@ -293,42 +265,6 @@ fn project_dirs_for_app_id(
         base_app_name
     };
     directories::ProjectDirs::from(app_id.qualifier(), app_id.organization(), &app_name)
-}
-
-/// Returns the path to the app's secure group container on macOS.
-///
-/// Returns `None` if the container URL cannot be resolved or converted.
-///
-/// See:
-/// * [Configuring app groups](https://developer.apple.com/documentation/Xcode/configuring-app-groups)
-/// * The [App Groups entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.application-groups?language=objc)
-/// * [`containerURLForSecurityApplicationGroupIdentifier`](https://developer.apple.com/documentation/foundation/filemanager/containerurl(forsecurityapplicationgroupidentifier:)?language=objc)
-#[cfg(target_os = "macos")]
-pub fn app_group_container_path() -> Option<PathBuf> {
-    use std::sync::LazyLock;
-    static CONTAINER_PATH: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-        use objc2_foundation::{NSFileManager, NSString};
-
-        let fm = NSFileManager::defaultManager();
-        // Keep in sync with Entitlements.plist
-        let group_id = format!("{}.dev.warp", crate::macos::APPLE_TEAM_ID);
-        let group_id = NSString::from_str(&group_id);
-        // containerURLForSecurityApplicationGroupIdentifier always returns a value on macOS (unlike iOS).
-        // We have to double-check that the path points to a directory we can actually use. In addition to
-        // macOS returning a path that may not exist, processes may list the container directory without
-        // having permissions to read to or write from it.
-        if let Some(url) = fm.containerURLForSecurityApplicationGroupIdentifier(&group_id)
-            && let Some(ns_path) = url.path()
-        {
-            let path = PathBuf::from(ns_path.to_string());
-            if tempfile::tempfile_in(&path).is_ok() {
-                return Some(path);
-            }
-        }
-
-        None
-    });
-    LazyLock::force(&CONTAINER_PATH).clone()
 }
 
 /// Returns the path to resources included in the Warp distribution.

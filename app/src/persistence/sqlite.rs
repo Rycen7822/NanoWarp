@@ -227,68 +227,11 @@ pub(super) fn init_db(scope: &PersistenceScope) -> Result<SqliteConnection> {
         ensure_owner_only_dir(db_parent)?;
     }
 
-    if matches!(scope, PersistenceScope::App)
-        && warp_core::channel::ChannelState::channel() != warp_core::channel::Channel::Oss
-        && warp_core::paths::runtime_root().is_none()
-    {
-        migrate_old_sqlite_into_secure_container_if_needed(&db_path);
-    }
-
     let conn = setup_database(&db_path)?;
     if matches!(scope, PersistenceScope::RemoteServerDaemon { .. }) {
         ensure_owner_only_file(&db_path)?;
     }
     Ok(conn)
-}
-
-fn migrate_old_sqlite_into_secure_container_if_needed(db_path: &Path) {
-    let old_db_path = warp_core::paths::state_dir().join(WARP_SQLITE_FILE_NAME);
-    if old_db_path == db_path || !old_db_path.exists() || db_path.exists() {
-        return;
-    }
-
-    match std::fs::rename(&old_db_path, db_path) {
-        Ok(_) => {
-            safe_info!(
-                safe: ("Migrated SQLite database into application container"),
-                full: ("Migrated SQLite database from `{}` to `{}`", old_db_path.display(), db_path.display())
-            );
-
-            // Also migrate the associated WAL and SHM files.
-            let old_wal = old_db_path.with_extension("sqlite-wal");
-            let old_shm = old_db_path.with_extension("sqlite-shm");
-            let new_wal = db_path.with_extension("sqlite-wal");
-            let new_shm = db_path.with_extension("sqlite-shm");
-
-            if let Err(err) = std::fs::rename(&old_wal, &new_wal) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    report_error!(
-                        anyhow::Error::new(err)
-                            .context("Failed to migrate SQLite WAL into application container")
-                    );
-                }
-            } else {
-                log::info!("Migrated SQLite WAL into application container");
-            }
-
-            if let Err(err) = std::fs::rename(&old_shm, &new_shm) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    report_error!(
-                        anyhow::Error::new(err)
-                            .context("Failed to migrate SQLite SHM into application container")
-                    );
-                }
-            } else {
-                log::info!("Migrated SQLite shared memory file into application container");
-            }
-        }
-        Err(err) => {
-            report_error!(
-                anyhow::Error::new(err)
-                    .context("Failed to migrate SQLite database into application container")
-            );
-        }
-    }
 }
 
 /// Creates or connects to the database at `database_path` and runs any migrations.
@@ -332,9 +275,7 @@ pub fn database_file_path_for_current_scope() -> PathBuf {
 }
 
 fn app_database_file_path() -> PathBuf {
-    warp_core::paths::secure_state_dir()
-        .unwrap_or_else(warp_core::paths::state_dir)
-        .join(WARP_SQLITE_FILE_NAME)
+    warp_core::paths::state_dir().join(WARP_SQLITE_FILE_NAME)
 }
 
 fn remote_server_daemon_database_file_path(identity_key: &str) -> PathBuf {

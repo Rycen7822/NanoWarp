@@ -15,7 +15,7 @@ pub fn relative_log_path(server_type: LSPServerType, workspace_path: &Path) -> P
 
 /// Returns the path to the log file for an LSP server.
 ///
-/// Format: `{secure_state_dir}/lsp/{server_type}/{workspace_hash}.log`
+/// Format: `{state_dir}/lsp/{server_type}/{workspace_hash}.log`
 ///
 /// The workspace path is hashed to avoid filesystem issues with long or special character paths.
 pub fn log_file_path(server_type: LSPServerType, workspace_path: &Path) -> PathBuf {

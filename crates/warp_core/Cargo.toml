@@ -66,11 +66,8 @@ tokio.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { workspace = true, features = [
     "NSString",
-    "NSURL",
-    "NSFileManager",
     "NSBundle",
 ] }
-tempfile.workspace = true
 
 [dev-dependencies]
 rand.workspace = true

@@ -11,7 +11,6 @@ fn test_data_dir_path() {
         assert_eq!(config_local_dir(), root.join("config"));
         assert_eq!(cache_dir(), root.join("cache"));
         assert_eq!(warp_home_config_dir(), Some(root.join("config")));
-        assert_eq!(secure_state_dir(), None);
         return;
     }
     let home_dir = home_dir().expect("Should be able to compute home directory");
