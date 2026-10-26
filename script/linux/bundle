@@ -140,9 +140,6 @@ if [[ "$CARGO_PROFILE" == "dev" ]]; then
 else
   CARGO_TARGET_OUTPUT_DIR="$CARGO_TARGET_OUTPUT_ROOT/$CARGO_PROFILE"
 fi
-# NOTE: if you change this path, update the "Clean stale bundle output"
-# steps in .github/workflows/create_release.yml so they continue to wipe
-# stale packages left in the shared Namespace runner cache.
 OUT_DIR="$CARGO_TARGET_OUTPUT_DIR/bundle/linux"
 mkdir -p "$OUT_DIR"
 
