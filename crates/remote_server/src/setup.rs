@@ -334,18 +334,11 @@ pub fn parse_uname_output(
 
 /// Returns the remote directory where the binary is installed, keyed by channel.
 ///
-/// - stable:      `~/.nanowarp/remote-server`
-/// - preview:     `~/.nanowarp-preview/remote-server`
-/// - dev:         `~/.nanowarp-dev/remote-server`
-/// - local:       `~/.nanowarp-local/remote-server`
 /// - integration: `~/.nanowarp-dev/remote-server`
 /// - oss:         `~/.nanowarp-oss/remote-server`
 pub fn remote_server_dir() -> String {
     let nanowarp_dir = match ChannelState::channel() {
-        Channel::Stable => ".nanowarp",
-        Channel::Preview => ".nanowarp-preview",
-        Channel::Dev | Channel::Integration => ".nanowarp-dev",
-        Channel::Local => ".nanowarp-local",
+        Channel::Integration => ".nanowarp-dev",
         Channel::Oss => ".nanowarp-oss",
     };
     format!("~/{nanowarp_dir}/remote-server")
@@ -462,13 +455,13 @@ pub fn binary_name() -> &'static str {
 }
 
 /// Returns the remote binary path for the current channel and client version.
-/// Local/Oss use the bare name; other channels retain a version suffix.
+/// OSS uses the bare name; integration retains its pinned-version suffix.
 pub fn remote_server_binary() -> String {
     let dir = remote_server_dir();
     let name = binary_name();
     match ChannelState::channel() {
-        Channel::Local | Channel::Oss => format!("{dir}/{name}"),
-        Channel::Stable | Channel::Preview | Channel::Dev | Channel::Integration => {
+        Channel::Oss => format!("{dir}/{name}"),
+        Channel::Integration => {
             format!("{dir}/{name}-{}", pinned_version())
         }
     }

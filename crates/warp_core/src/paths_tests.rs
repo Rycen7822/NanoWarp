@@ -49,23 +49,23 @@ fn test_config_local_dir_path() {
 #[test]
 fn test_macos_config_dir_name_scopes_to_data_profile() {
     assert_eq!(
-        macos_config_dir_name_for(Channel::Stable, None),
-        ".nanowarp"
+        macos_config_dir_name_for(Channel::Oss, None),
+        ".nanowarp-oss"
     );
     assert_eq!(
-        macos_config_dir_name_for(Channel::Local, None),
-        ".nanowarp-local"
+        macos_config_dir_name_for(Channel::Integration, None),
+        ".nanowarp-integration"
     );
 
     // Each development profile must get its own directory so shared config
     // (notably settings.toml) cannot leak between profiles.
     assert_eq!(
-        macos_config_dir_name_for(Channel::Local, Some("myprofile")),
-        ".nanowarp-local-myprofile"
+        macos_config_dir_name_for(Channel::Integration, Some("myprofile")),
+        ".nanowarp-integration-myprofile"
     );
     assert_eq!(
-        macos_config_dir_name_for(Channel::Stable, Some("myprofile")),
-        ".nanowarp-myprofile"
+        macos_config_dir_name_for(Channel::Oss, Some("myprofile")),
+        ".nanowarp-oss-myprofile"
     );
 }
 

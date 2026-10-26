@@ -120,20 +120,6 @@ fn set_context_flags_from_url(url: Url) {
         Ok(WebIntent::Action(_)) => {} // No special context flag for actions
         _ => {}
     }
-
-    // Allow directly setting flags through query params in dogfood.
-    if ChannelState::channel().is_dogfood() {
-        for (param, value) in url.query_pairs() {
-            let Ok(flag) = param.parse::<ContextFlag>() else {
-                continue;
-            };
-            let Ok(bool_value) = value.parse::<bool>() else {
-                continue;
-            };
-
-            flag.set(bool_value);
-        }
-    }
 }
 
 /// Looks at the current URL and converts it into an app intent.

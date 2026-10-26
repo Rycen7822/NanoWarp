@@ -77,7 +77,7 @@ impl ChannelState {
     }
 
     pub fn enable_debug_features() -> bool {
-        cfg!(debug_assertions) || matches!(Self::channel(), Channel::Local | Channel::Dev)
+        cfg!(debug_assertions)
     }
 
     /// Returns the canonical identifier for the application.
@@ -168,12 +168,8 @@ impl ChannelState {
 
     pub fn url_scheme() -> &'static str {
         match Self::channel() {
-            Channel::Stable => "nanowarp-stable",
-            Channel::Preview => "nanowarp-preview",
-            Channel::Dev => "nanowarp-dev",
             // Dummy value--integration tests shouldn't support URL schemes.
             Channel::Integration => "nanowarp-integration",
-            Channel::Local => "nanowarp-local",
             Channel::Oss => "nanowarp",
         }
     }

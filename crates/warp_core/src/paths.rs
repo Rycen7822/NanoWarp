@@ -44,11 +44,8 @@ pub fn runtime_root() -> Option<PathBuf> {
 
 fn base_warp_config_dir_name() -> String {
     match ChannelState::channel() {
-        Channel::Stable | Channel::Preview => WARP_CONFIG_DIR.to_owned(),
         Channel::Oss => format!("{WARP_CONFIG_DIR}-oss"),
-        Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
-        Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
     }
 }
 
@@ -84,7 +81,7 @@ pub fn warp_home_skills_dir() -> Option<PathBuf> {
 /// Returns the macOS config directory name for the current channel and data
 /// profile.
 ///
-/// Stable uses `.nanowarp`, while other channels include a channel suffix.
+/// OSS and integration retain their existing channel-specific directory suffixes.
 ///
 /// Development data profiles append a further `-{profile}` suffix. Without it,
 /// every profile of a channel would share this directory — and with it the
@@ -103,12 +100,8 @@ fn macos_config_dir_name() -> String {
 #[cfg(target_os = "macos")]
 fn macos_config_dir_name_for(channel: Channel, data_profile: Option<&str>) -> String {
     let base_dir_name = match channel {
-        Channel::Stable => WARP_CONFIG_DIR.to_owned(),
-        Channel::Preview => format!("{WARP_CONFIG_DIR}-preview"),
         Channel::Oss => format!("{WARP_CONFIG_DIR}-oss"),
-        Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
-        Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
     };
     match data_profile {
         Some(profile) => format!("{base_dir_name}-{profile}"),
