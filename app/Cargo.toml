@@ -577,7 +577,6 @@ category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
 identifier = "dev.nanowarp.NanoWarp"
 name = "NanoWarp"
-resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]
 short_description = "A local desktop terminal."
 

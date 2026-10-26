@@ -1,43 +1,9 @@
 #!/bin/bash
 #
-# Bundle the application for distribution.
-#
-# See the parameter parsing section below for available options.
-#
-# Note that there are several steps to complete before the app is ready to
-# be distributed, one of which is asynchronous and requires apple to process
-# our binary.
-#
-# The steps are:
-#
-# 1) Create the binary or mac bundle by running `cargo`.
-# 2) Create a keychain based on our distribution cert.
-# 3) Codesign the built artifact using the keychain.
-#
-# Create a dmg:
-# 4) Create the dmg using `hdiutil create`.
-# 5) Codesign our dmg using the keychain.
-# 6) Upload the app to Apple for it to be notarized - this is async, and we
-#    poll until it is done.
-# 7) "Staple" the notarization to the dmg.
-#
-# Once the stapling is done, the app can be shared.
-#
-# Signing passwords are read from the environment when --read-passwords-from-env is set.
-# 1) WARP_NOTARIZATION_PASSWORD:  This is an "app-specific password" that
-#    is tied to the zach@warp.dev account.  See https://support.apple.com/en-us/HT204397
-# 2) WARP_DEVELOPER_ID_CERT_PASSWORD: This is a password tied to the private key
-#    of our cert - it is needed to use the cert to sign our binary.
-# 3) WARP_CODESIGN_KEYCHAIN_PASSWORD: This is an arbitrary password only used
-#    in the lifetime of this app for creating the keychain used to sign.  Can
-#    be anything.
-#
-# See
-# https://github.com/burtonageo/cargo-bundle
-# https://wiki.lazarus.freepascal.org/Code_Signing_for_macOS
-# https://wiki.lazarus.freepascal.org/Notarization_for_macOS_10.14.5%2B
-# https://developer.apple.com/developer-id/
-# https://github.com/atom/atom/blob/976cb9ef3a611163052f9d31c6c3685dc1e6c5b4/script/lib/code-sign-on-mac.js
+# Build NanoWarp.app and a local DMG. Signing is ad-hoc by default;
+# --selfsign uses an existing Apple Development identity when available,
+# and --nosign skips signing. No credentials are imported or notarization run.
+# See the parameter parsing section below for other available options.
 
 set -e
 
@@ -67,144 +33,15 @@ cleanup_dmg_files() {
     if [ -d "$target_dir" ]; then
         echo "Cleaning up temporary DMG files in $target_dir"
         find "$target_dir" -name "*.dmg" -type f -delete
-        find "$target_dir" -name "rw.*.dmg" -type f -delete
-    fi
-    # Also check if any volumes are mounted and unmount them
-    hdiutil info | grep "/Volumes/Warp.*" | awk '{print $1}' | while read -r disk; do
-        echo "Unmounting disk image: $disk"
-        hdiutil detach "$disk" -force || true
-    done
-}
-
-# Clean up the temporary codesigning keychain.
-cleanup_codesign_keychain() {
-    if [[ "${CODESIGN:-false}" = true && -n "${CODESIGN_KEYCHAIN_NAME:-}" ]]; then
-        echo "Cleaning up by deleting $CODESIGN_KEYCHAIN_NAME keychain."
-        security delete-keychain "$CODESIGN_KEYCHAIN_NAME" || echo "No keychain to delete or already deleted."
     fi
 }
 
-# Set up cleanup trap
-trap 'cleanup_dmg_files "$DMG_DIR"; cleanup_codesign_keychain' EXIT
+# Only clean this build's temporary DMG files.
+trap 'cleanup_dmg_files "${DMG_DIR:-}"' EXIT
 
 # Define a helper function that uses Python to compute a relative path.
 function relpath() {
   python -c "import os,sys;print(os.path.relpath(*(sys.argv[1:])))" "$@";
-}
-
-# Retry timestamped signing because Apple's timestamp service can fail
-# transiently. All call sites use force signing so retries are idempotent.
-function codesign_with_retry() {
-  local max_attempts="${CODESIGN_MAX_ATTEMPTS:-4}"
-  local initial_retry_delay_seconds="${CODESIGN_INITIAL_RETRY_DELAY_SECONDS:-5}"
-  local retry_delay_seconds="$initial_retry_delay_seconds"
-  local attempt
-  local status
-
-  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
-    if codesign "$@"; then
-      return 0
-    else
-      status=$?
-    fi
-
-    if (( attempt == max_attempts )); then
-      echo "Codesigning failed after $attempt attempts."
-      return "$status"
-    fi
-
-    echo "Codesigning failed; retrying in $retry_delay_seconds seconds ($attempt/$max_attempts)."
-    sleep "$retry_delay_seconds"
-    retry_delay_seconds=$((retry_delay_seconds * 2))
-  done
-}
-
-# Submit once so a transient polling failure can resume the same notarization
-# instead of uploading a duplicate artifact.
-function notarize_artifact() {
-  local artifact="$1"
-  local auth_args=(
-    --apple-id "$WARP_NOTARIZATION_APPLE_ID"
-    --password "$WARP_NOTARIZATION_PASSWORD"
-    --team-id "$APPLE_TEAM_ID"
-  )
-
-  local submission_output
-  if ! submission_output="$(
-    xcrun notarytool submit "$artifact" "${auth_args[@]}" --no-wait --output-format json
-  )"; then
-    echo "Failed to submit $artifact for notarization."
-    return 1
-  fi
-
-  local submission_id
-  if ! submission_id="$(printf '%s' "$submission_output" | plutil -extract id raw -o - -)"; then
-    echo "Failed to read the notarization submission ID."
-    return 1
-  fi
-  if [[ -z "$submission_id" ]]; then
-    echo "Apple did not return a notarization submission ID."
-    return 1
-  fi
-
-  echo "Notarization submission ID: $submission_id"
-
-  local poll_interval_seconds="${NOTARIZATION_POLL_INTERVAL_SECONDS:-15}"
-  local max_poll_failures="${NOTARIZATION_MAX_POLL_FAILURES:-5}"
-  local initial_retry_delay_seconds="${NOTARIZATION_INITIAL_RETRY_DELAY_SECONDS:-5}"
-  local timeout_seconds="${NOTARIZATION_TIMEOUT_SECONDS:-900}"
-  local retry_delay_seconds="$initial_retry_delay_seconds"
-  local consecutive_poll_failures=0
-  local polling_started_at="$SECONDS"
-
-  while true; do
-    if (( SECONDS - polling_started_at >= timeout_seconds )); then
-      echo "Timed out waiting for notarization submission $submission_id after $timeout_seconds seconds."
-      return 1
-    fi
-    local info_output
-    if info_output="$(
-      xcrun notarytool info "$submission_id" "${auth_args[@]}" --output-format json
-    )"; then
-      consecutive_poll_failures=0
-      retry_delay_seconds="$initial_retry_delay_seconds"
-
-      local status
-      if ! status="$(printf '%s' "$info_output" | plutil -extract status raw -o - -)"; then
-        echo "Failed to read the status of notarization submission $submission_id."
-        return 1
-      fi
-
-      echo "Current notarization status: $status"
-      case "$status" in
-        Accepted)
-          return 0
-          ;;
-        Invalid|Rejected)
-          echo "Notarization submission $submission_id was rejected by Apple."
-          xcrun notarytool log "$submission_id" "${auth_args[@]}" || true
-          return 1
-          ;;
-        "In Progress")
-          sleep "$poll_interval_seconds"
-          ;;
-        *)
-          echo "Unexpected notarization status for submission $submission_id: $status"
-          return 1
-          ;;
-      esac
-    else
-      consecutive_poll_failures=$((consecutive_poll_failures + 1))
-      if (( consecutive_poll_failures >= max_poll_failures )); then
-        echo "Failed to poll notarization submission $submission_id after $consecutive_poll_failures consecutive attempts."
-        return 1
-      fi
-
-      echo "Failed to poll notarization submission $submission_id; retrying in $retry_delay_seconds seconds ($consecutive_poll_failures/$max_poll_failures)."
-      sleep "$retry_delay_seconds"
-      retry_delay_seconds=$((retry_delay_seconds * 2))
-    fi
-  done
 }
 
 # Defaults for command-line flags.
@@ -219,7 +56,6 @@ DEBUG=false
 CODESIGN=true
 SELFSIGN=false
 OPEN_AFTER_BUNDLE=false
-READ_PASSWORDS_FROM_ENV=false
 
 PARAMS=""
 while (( "$#" )); do
@@ -249,12 +85,10 @@ while (( "$#" )); do
       SELFSIGN=false
       shift
       ;;
-    # Sign with a local Apple Development cert instead of the official Warp cert.
-    # Useful for local debug builds when you don't have access to the company signing key.
-    # Falls back to ad-hoc signing if no Apple Development cert is found.
+    # Use an existing local Apple Development cert, with ad-hoc fallback.
     --selfsign)
       echo "Self-signing enabled."
-      CODESIGN=false
+      CODESIGN=true
       SELFSIGN=true
       shift
       ;;
@@ -308,12 +142,6 @@ while (( "$#" )); do
         exit 1
       fi
       ;;
-    # Read codesigning passwords from environment variables instead of GCP secret manager
-    --read-passwords-from-env)
-        echo "Reading codesigning passwords from env."
-        READ_PASSWORDS_FROM_ENV=true
-        shift
-        ;;
     --features)
       if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
         echo "Adding Cargo features: $2"
@@ -346,7 +174,6 @@ if [[ "$CARGO_PROFILE" == "dev" ]]; then
 fi
 
 WARP_BIN="warp-oss"
-BUNDLE_ID="dev.nanowarp.NanoWarp"
 WARP_APP_NAME="NanoWarp"
 WARP_SCHEME_NAME="nanowarp"
 
@@ -445,7 +272,7 @@ rm -R "$OUT_DIR/$FINAL_DMG_NAME" || echo "No old dmg to remove"
 ## Step 1: Build the app ##
 ###########################
 
-echo "Building and bundling $DEFAULT_TARGET for channel $RELEASE_CHANNEL and bundle id $BUNDLE_ID with profile $CARGO_PROFILE"
+echo "Building and bundling $DEFAULT_TARGET for channel $RELEASE_CHANNEL with profile $CARGO_PROFILE"
 if [[ $BUILD_BINARY = true ]]; then
   cargo build --locked -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --target "$DEFAULT_TARGET" --features "$FEATURES"
 else
@@ -458,6 +285,7 @@ CARGO_BUNDLE_SKIP_BUILD=1 cargo bundle --package warp --profile "$CARGO_PROFILE"
 export WARP_SCHEME_NAME
 export WARP_PLIST_PATH="$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
 ./script/update_plist
+BUNDLE_ID="$(plutil -extract CFBundleIdentifier raw -o - "$WARP_PLIST_PATH")"
 
 if [[ $REGISTER_SERVICES = true ]]; then
   plutil -insert NSServices -xml "
@@ -503,15 +331,9 @@ if [[ $REGISTER_SERVICES = true ]]; then
     </array>" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
 fi
 
-# Temporary key that ChatGPT Desktop can use to determine if the latest version of Warp supports the ChatGPT integration.
-# Once support has been rolled out for a sufficient amount of time we (and ChatGPT) can remove this.
-plutil -insert SUPPORTS_CHAT_GPT_WORK_WITH_APPS -bool true "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
-
 # Add LSBackgroundOnly key and set it to false since we need a UI app
 plutil -insert LSBackgroundOnly -bool false "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
 
-# Add SMAuthorizedClients for macOS 13+ (Ventura) to support login item functionality
-plutil -insert SMAuthorizedClients -xml "<array><string>$BUNDLE_ID</string></array>" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
 
 if [[ $UNIVERSAL_BINARY = true ]]; then
     if [[ $BUILD_BINARY = true ]]; then
@@ -522,7 +344,8 @@ if [[ $UNIVERSAL_BINARY = true ]]; then
         echo "Skipping build of $ADDITIONAL_TARGET due to --skip-build flag"
     fi
 
-    tmp_bundle_dir=$(mktemp -d -t ci-XXXXXXXXXX)
+    mkdir -p "$WORKSPACE_ROOT_DIR/.work/tmp"
+    tmp_bundle_dir=$(mktemp -d "$WORKSPACE_ROOT_DIR/.work/tmp/macos-bundle.XXXXXXXXXX")
 
     echo "Adding rpath to both binaries for universal executable"
     "$WORKSPACE_ROOT_DIR/script/macos/add_framework_rpath" \
@@ -554,6 +377,7 @@ if [[ $UNIVERSAL_BINARY = true ]]; then
 
     echo "Storing result in $BUNDLE_DIR, replacing $DEFAULT_TARGET binary with fat binary."
     mv "$tmp_bundle_dir/$WARP_BIN" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/MacOS"
+    rmdir "$tmp_bundle_dir"
 elif [[ -n "$TARGET_ARCH" && -e "$CARGO_TARGET_DIR/$DEFAULT_TARGET/$TARGET_PROFILE_DIR/$WARP_BIN.dSYM" ]]; then
   echo "Copying .dSYM into $OUT_DIR/$WARP_BIN.dSYM"
   cp -HR "$CARGO_TARGET_DIR/$DEFAULT_TARGET/$TARGET_PROFILE_DIR/$WARP_BIN.dSYM" "$OUT_DIR/"
@@ -596,74 +420,27 @@ fi
 BINARY_PATH="$CARGO_TARGET_DIR/$DEFAULT_TARGET/$TARGET_PROFILE_DIR/$WARP_BIN"
 DMG_PATH="$OUT_DIR/$FINAL_DMG_NAME"
 
-##########################################
-## Step 2: Create code-signing keychain ##
-##########################################
-
-if [[ $READ_PASSWORDS_FROM_ENV != true ]]; then
-  echo "Skipping code-signing because passwords are not available in environment."
-  CODESIGN=false
-fi
+###################################
+## Step 2: Locally sign the app ##
+###################################
 
 if [[ $CODESIGN = true ]]; then
-  # TODO - does this need to change per user?  Seems like it's tied to the WARP_NOTARIZATION_PASSWORD password.
-  APPLE_TEAM_ID="2BBY89MBSN"
-  CODESIGN_KEYCHAIN_NAME="warp-codesign-keychain"
-
-  echo "Starting codesigning..."
-
-  if [[ $READ_PASSWORDS_FROM_ENV = true ]]; then
-    if [ -z "$WARP_NOTARIZATION_PASSWORD" ] ; then
-      echo "WARP_NOTARIZATION_PASSWORD must be set for code signing"
-      exit 1
-    fi
-
-    if [ -z "$WARP_DEVELOPER_ID_CERT_PASSWORD" ] ; then
-      echo "WARP_DEVELOPER_ID_CERT_PASSWORD must be set for code signing"
-      exit 1
-    fi
-
-    if [ -z "$WARP_CODESIGN_KEYCHAIN_PASSWORD" ] ; then
-      echo "WARP_CODESIGN_KEYCHAIN_PASSWORD must be set for code signing"
-      exit 1
-    fi
+  SIGNING_CERT="-"
+  if [[ $SELFSIGN = true ]]; then
+    SIGNING_CERT="$(security find-identity -p codesigning -v | grep "Apple Development" | awk '{print $2}' | head -1)"
+    SIGNING_CERT="${SIGNING_CERT:--}"
   fi
-
-  security delete-keychain $CODESIGN_KEYCHAIN_NAME || echo "No existing keychain to clean up".
-
-  echo "Creating $CODESIGN_KEYCHAIN_NAME keychain."
-  security create-keychain -p "$WARP_CODESIGN_KEYCHAIN_PASSWORD" $CODESIGN_KEYCHAIN_NAME
-  security list-keychains -s $CODESIGN_KEYCHAIN_NAME
-  security set-keychain-settings -t 3600 -u $CODESIGN_KEYCHAIN_NAME
-
-  echo "Unlocking keychain and setting cert."
-  security unlock-keychain -p "$WARP_CODESIGN_KEYCHAIN_PASSWORD" $CODESIGN_KEYCHAIN_NAME
-  security import <(echo "$WARP_DEVELOPER_ID_CERT" | base64 -d) -f pkcs12 -P "$WARP_DEVELOPER_ID_CERT_PASSWORD" -k $CODESIGN_KEYCHAIN_NAME -T /usr/bin/codesign
-  security set-key-partition-list -S "apple-tool:,apple:" -s -k "$WARP_CODESIGN_KEYCHAIN_PASSWORD" $CODESIGN_KEYCHAIN_NAME
-fi
-
-##############################
-## Step 3: Codesign the app ##
-##############################
-
-if [[ $SELFSIGN = true ]]; then
-  SIGNING_CERT="$(security find-identity -p codesigning -v | grep "Apple Development" | awk '{print $2}' | head -1)"
-  if [[ -z "$SIGNING_CERT" ]]; then
-    echo "No Apple Development cert found, falling back to ad-hoc signing."
-    SIGNING_CERT="-"
-  else
-    echo "Found Apple Development certificate"
+  ENTITLEMENTS="script/Entitlements.plist"
+  if [[ $DEBUG = true || $SELFSIGN = true ]]; then
+    ENTITLEMENTS="script/Debug-Entitlements.plist"
   fi
-  echo "Self-signing $BUNDLE_DIR/$WARP_APP_NAME.app with ${SIGNING_CERT}..."
-  codesign --force --deep --options runtime --sign "$SIGNING_CERT" "$BUNDLE_DIR/$WARP_APP_NAME.app" --entitlements script/Debug-Entitlements.plist
-elif [[ $CODESIGN = true ]]; then
-  echo "Codesigning $BUNDLE_DIR/$WARP_APP_NAME.app..."
-  # Use --deep so we sign bundled frameworks as well
-  codesign_with_retry --deep -f -o runtime --timestamp -s "$APPLE_TEAM_ID" "$BUNDLE_DIR/$WARP_APP_NAME.app" --entitlements script/Entitlements.plist
+  echo "Locally signing $BUNDLE_DIR/$WARP_APP_NAME.app..."
+  codesign --force --deep --options runtime --timestamp=none --sign "$SIGNING_CERT" \
+    "$BUNDLE_DIR/$WARP_APP_NAME.app" --entitlements "$ENTITLEMENTS"
 fi
 
 ########################
-## Step 4: Create DMG ##
+## Step 3: Create DMG ##
 ########################
 
 function create_warp_dmg() {
@@ -672,7 +449,7 @@ function create_warp_dmg() {
   local source_folder="$1"
 
   local args=(
-    --volname Warp
+    --volname "$WARP_APP_NAME"
     # For --no-internet-enable, see https://github.com/create-dmg/create-dmg/issues/179
     --no-internet-enable
     --background app/assets/resources/mac/warp_install_image.png
@@ -700,52 +477,17 @@ function create_warp_dmg() {
   create-dmg "${args[@]}"
 }
 
-# If we're codesigning, stage the signed app and use that to create the DMG.
-# Otherwise, create a DMG from the bundle dir directly.
-if [[ $CODESIGN = true ]]; then
-  if test -d "$DMG_DIR"; then
-    echo "Clearing old dmg directory $DMG_DIR"
-    rm -r "$DMG_DIR"
-  fi
-  echo "Creating $DMG_DIR"
-  mkdir -p "$DMG_DIR"
-  cp -R "$BUNDLE_DIR/$WARP_APP_NAME.app" "$DMG_DIR"
-
-  create_warp_dmg "$DMG_DIR"
-
-  echo "Codesigning $DMG_DIR/$DMG_NAME..."
-  codesign_with_retry -f -s "$APPLE_TEAM_ID" --timestamp "$DMG_DIR/$DMG_NAME"
-
-  NOTARIZATION_ARTIFACT="$DMG_DIR/$DMG_NAME"
-else
-  echo "Creating $DMG_DIR"
-  mkdir -p "$DMG_DIR"
-
-  echo "Cleaning up any existing DMG files before creating new ones..."
-  cleanup_dmg_files "$DMG_DIR"
-
-  create_warp_dmg "$BUNDLE_DIR"
+# Stage only the app, keeping the DMG output outside its source folder.
+if test -d "$DMG_DIR"; then
+  echo "Clearing old dmg directory $DMG_DIR"
+  rm -r "$DMG_DIR"
 fi
-
-##############################
-## Step 5: Notarize the app ##
-##############################
-
-if [[ $CODESIGN = true ]]; then
-  echo "Uploading $NOTARIZATION_ARTIFACT to Apple for notarization..."
-  notarize_artifact "$NOTARIZATION_ARTIFACT"
-
-  echo "Attempting to staple the notarization ticket to $NOTARIZATION_ARTIFACT..."
-  xcrun stapler staple "$NOTARIZATION_ARTIFACT"
-
-  # Verify the notarization results (this is format-dependent)
-  echo "Verifying notarization ticket..."
-  xcrun stapler validate "$DMG_DIR/$DMG_NAME"
-fi
-
+mkdir -p "$DMG_DIR/source"
+cp -R "$BUNDLE_DIR/$WARP_APP_NAME.app" "$DMG_DIR/source"
+create_warp_dmg "$DMG_DIR/source"
 
 #######################################
-## Step 6: Copy and output artifacts ##
+## Step 4: Copy and output artifacts ##
 #######################################
 
 echo "Copying dmg and app to $OUT_DIR"
