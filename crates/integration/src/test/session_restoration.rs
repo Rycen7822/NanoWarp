@@ -7,7 +7,7 @@ use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
 use warp::integration_testing::{self};
 use warp::settings_view::{SettingsSection, SettingsView};
-use warp::sqlite_testing::set_user_and_hostname_for_blocks;
+use warp::sqlite_testing::{set_path_for_restored_file_pane, set_user_and_hostname_for_blocks};
 use warp::terminal::model::session::get_local_hostname;
 use warp::terminal::model::terminal_model::BlockIndex;
 use warp::terminal::shell::ShellType;
@@ -346,6 +346,7 @@ pub fn test_restore_snapshot_with_markdown_file() -> Builder {
                 "test.md",
                 &utils.test_dir().join("docs/test.md"),
             );
+            set_path_for_restored_file_pane("./docs/test.md".into());
         })
         // Wait for the terminal pane to bootstrap first - we need an active session to resolve the
         // home directory and context for the notebook pane.
@@ -388,6 +389,7 @@ pub fn test_restore_snapshot_with_code_file() -> Builder {
                 "test.rs",
                 &utils.test_dir().join("docs/test.rs"),
             );
+            set_path_for_restored_file_pane("./docs/test.rs".into());
         })
         // Wait for the terminal pane to bootstrap first - we need an active session to resolve the
         // home directory and context for the notebook pane.

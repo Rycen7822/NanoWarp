@@ -916,7 +916,7 @@ fn save_pane_state(
 }
 
 /// Encode a path into a platform-specific byte representation for persistence.
-fn encode_path(path: PathBuf) -> Vec<u8> {
+pub(super) fn encode_path(path: PathBuf) -> Vec<u8> {
     if path == PathBuf::new() {
         // bytemuck will throw a TargetAlignmentGreaterAndInputNotAligned error
         // if we don't special-case the empty path.
