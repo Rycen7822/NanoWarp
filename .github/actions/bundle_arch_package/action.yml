@@ -2,11 +2,8 @@
 # packages up an already-built binary.
 
 name: Bundle Arch Linux package
-description: Bundles an Arch Linux package for the given release channel.
+description: Bundles an Arch Linux package for NanoWarp.
 inputs:
-  channel:
-    description: The channel for which we want to build an Arch package.
-    requred: true
   release-tag:
     description: The git release tag.
     required: true
@@ -42,4 +39,4 @@ runs:
           -e GITHUB_OUTPUT="/dev/null" \
           -e SETTINGS_SCHEMA_SOURCE="/tmp/settings_schema.json" \
           arch-bundle-builder \
-          ${{ inputs.channel }} ${{ inputs.release-tag }} ${{ inputs.arch }}
+          ${{ inputs.release-tag }} ${{ inputs.arch }}

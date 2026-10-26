@@ -37,8 +37,6 @@ mod palette;
 mod persistence;
 mod platform;
 mod prefix;
-#[cfg(target_os = "macos")]
-mod preview_config_migration;
 mod profiling;
 mod prompt;
 mod quit_warning;
@@ -747,12 +745,6 @@ pub(crate) fn initialize_app(
     startup_toml_parse_error: Option<warpui_extras::user_preferences::Error>,
     ctx: &mut warpui::AppContext,
 ) -> Option<AppState> {
-    // One-time migration: give Preview its own config directory by
-    // symlinking contents from the shared ~/.nanowarp location. Must run
-    // before ensure_warp_watch_roots_exist() creates the new directory.
-    #[cfg(target_os = "macos")]
-    preview_config_migration::migrate_preview_config_dir_if_needed();
-
     ensure_warp_watch_roots_exist();
     ctx.add_singleton_model(WarpManagedPathsWatcher::new);
 

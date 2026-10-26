@@ -9,9 +9,6 @@ Param (
     [Alias('check-only')]
     [Switch]$CHECK_ONLY,
 
-    [ValidateSet('local', 'dev', 'preview', 'stable', 'oss')]
-    [String]$CHANNEL = 'oss',
-
     [Alias('release-tag')]
     [String]$RELEASE_TAG = '',
     [String]$FEATURES = 'release_bundle,gui',
@@ -83,6 +80,7 @@ $HOST_ARCH = if ($NATIVE_PROCESSOR_ARCHITECTURE -eq 'AMD64') {
 $CAN_EXECUTE_ARCH = -not ($ARCH -eq 'arm64' -and $HOST_ARCH -eq 'x64')
 
 $ErrorActionPreference = 'Stop'
+$CHANNEL = 'oss'
 
 $WORKSPACE_ROOT_DIR = (Resolve-Path "$PSScriptRoot\..\..").Path
 if ($PWD.Path -ne $WORKSPACE_ROOT_DIR) {
@@ -98,11 +96,6 @@ $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
 
 if ($DEBUG_BUILD) {
     $CARGO_PROFILE = 'dev'
-} elseif (("$CHANNEL" -eq 'local') -or ("$CHANNEL" -eq 'dev')) {
-    # For dev bundles, we want to enable debug assertions to
-    # catch violations that would otherwise silently pass in
-    # a normal release build (e.g. in stable).
-    $CARGO_PROFILE = 'rltoda'
 } else {
     $CARGO_PROFILE = 'rlto'
 }
@@ -112,7 +105,6 @@ if ($CARGO_PROFILE -eq 'dev') {
 } else {
     $CARGO_TARGET_OUTPUT_DIR = "$CARGO_TARGET_DIR" + '\' + $PLATFORM_TARGET + '\' + "$CARGO_PROFILE"
 }
-$BUNDLE_ID = "dev.warp.$app_name"
 
 # Update parameters based on the target release channel.
 #
@@ -121,32 +113,9 @@ $BUNDLE_ID = "dev.warp.$app_name"
 #
 # WARP_BIN is the name of the binary produced by cargo;
 # BINARY_NAME is the desired name of the binary in the final package.
-if ("$CHANNEL" -eq 'local') {
-    $WARP_BIN = 'warp'
-    $BINARY_NAME = 'warp.exe'
-    $APP_NAME = 'WarpLocal'
-} elseif ("$CHANNEL" -eq 'dev') {
-    $WARP_BIN = 'dev'
-    $BINARY_NAME = 'dev.exe'
-    $APP_NAME = 'WarpDev'
-} elseif ("$CHANNEL" -eq 'preview') {
-    $WARP_BIN = 'preview'
-    $BINARY_NAME = 'preview.exe'
-    $APP_NAME = 'WarpPreview'
-    $FEATURES = "$FEATURES,preview_channel"
-} elseif ("$CHANNEL" -eq 'stable') {
-    $WARP_BIN = 'stable'
-    $BINARY_NAME = 'warp.exe'
-    $APP_NAME = 'Warp'
-} elseif ("$CHANNEL" -eq 'oss') {
-    $WARP_BIN = 'warp-oss'
-    $BINARY_NAME = 'warp-oss.exe'
-    $APP_NAME = 'NanoWarp'
-    $FEATURES = 'release_bundle,gui'
-}
-
-# All app channels ship the v3 classifier and v2 heuristic.
-$FEATURES = "$FEATURES,nld_classifier_v3,nld_heuristic_v2"
+$WARP_BIN = 'warp-oss'
+$BINARY_NAME = 'warp-oss.exe'
+$APP_NAME = 'NanoWarp'
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
 $BUNDLE_ID = "dev.nanowarp.$APP_NAME"
@@ -169,7 +138,7 @@ if ($DEBUG_BUILD) {
 # then exit.  We use this script to invoke `cargo check` to ensure that we are
 # using the same feature flags and profile that we would be using in production.
 if ($CHECK_ONLY) {
-    cargo +1.92.0 check --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 4
+    cargo +1.92.0 check --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 2
     if (-Not $?) {
         Write-Error "Failed to verify Warp $WARP_BIN compilation with profile $CARGO_PROFILE"
         exit 1
@@ -181,7 +150,7 @@ if (-Not $SKIP_BUILD_BINARY) {
     Write-Output "Building Warp for channel $CHANNEL and bundle id $BUNDLE_ID"
     $env:CARGO_BIN_NAME = $CHANNEL
     $env:WARP_APP_NAME = $APP_NAME
-    cargo +1.92.0 build --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 4
+    cargo +1.92.0 build --manifest-path "$WORKSPACE_ROOT_DIR\Cargo.toml" -p $CARGO_PACKAGE --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET --locked -j 2
     if (-Not $?) {
         Write-Error "Failed to build Warp $WARP_BIN binary with profile $CARGO_PROFILE"
         exit 1

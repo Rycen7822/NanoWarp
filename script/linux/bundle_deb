@@ -21,15 +21,6 @@ PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
 
 TEMPLATE_DIR="$WORKSPACE_ROOT_DIR/resources/linux/debian/app"
 
-# Add a simple test to make sure we're generating the appropriate repository
-# name for the stable channel.
-if [ "$RELEASE_CHANNEL" = "stable" ]; then
-  if [ "$REPO_NAME" != "warpdotdev" ]; then
-    echo "::error ::Unexpected repo name for $RELEASE_CHANNEL channel: $REPO_NAME (expected \"warpdotdev\")"
-    exit 1
-  fi
-fi
-
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 if [ "$BUILD_ARCH" = "aarch64" ]; then
   ARCH="arm64"

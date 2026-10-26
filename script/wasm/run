@@ -8,7 +8,7 @@ WASM_BINDGEN_VERSION="$(cargo metadata --format-version 1 | jq -rc '.packages[] 
 cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION"
 
 # We source the bundle script so we can access it's calculated $OUT_DIR.
-source ./script/wasm/bundle --debug --no-split --channel local "$@"
+source ./script/wasm/bundle --debug --no-split "$@"
 
 BUNDLE_DIR="$(dirname "$OUT_DIR")"
 
