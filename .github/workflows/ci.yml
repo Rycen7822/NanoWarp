@@ -1,27 +1,30 @@
 on:
   pull_request:
     branches:
-      - 'master'
-      - '*_release/*'
+      - 'main'
     types:
       - opened
       - reopened
       - synchronize
       - ready_for_review
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      runner_type:
-        required: true
-        type: choice
-        options:
-          - self_hosted
-          - github_hosted
   workflow_call:
 
-name: Warp CI
+name: NanoWarp CI
+
+permissions:
+  contents: read
+  pull-requests: read
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: '2'
+  CARGO_INCREMENTAL: '0'
+  RUST_TEST_THREADS: '1'
+  NEXTEST_TEST_THREADS: '1'
   NEXTEST_PROFILE: ci
   WORKSPACE_TEST_ARGS: --workspace --locked
   # Include only as much debug info as is necessary to see backtraces
@@ -43,22 +46,12 @@ jobs:
     name: Compute workflow parameters
     timeout-minutes: 3
     runs-on: ubuntu-latest
-    # Don't automatically run CI for draft PRs, to reduce GitHub Actions costs.
-    #
-    # Also, don't run CI for repo-sync PRs _unless_ there is a merge conflict - for those,
-    # we'll want to make sure that the conflict resolution doesn't introduce any issues.
-    if: >-
-      github.event.pull_request.draft == false &&
-      (!startsWith(github.event.pull_request.head.ref, 'repo-sync/') || contains(github.event.pull_request.labels.*.name, 'repo-sync:conflict')) &&
-      github.repository_owner == 'warpdotdev'
+    # Keep draft PRs out of expensive jobs; the result job must still reject skips.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     outputs:
-      affects-database-schema: ${{ github.ref == 'master' || steps.filter.outputs.affects-database-schema }}
-      affects-rust-sources: ${{ github.ref == 'master' || steps.filter.outputs.affects-rust-sources }}
-      macos-runner-lints: ${{ steps.mac_runner_type.outputs.lints }}
-      macos-runner-release-check: ${{ steps.mac_runner_type.outputs.release-check }}
-      macos-runner-tests: ${{ steps.mac_runner_type.outputs.tests }}
+      affects-database-schema: ${{ github.event_name != 'pull_request' || steps.filter.outputs.affects-database-schema }}
+      affects-rust-sources: ${{ github.event_name != 'pull_request' || steps.filter.outputs.affects-rust-sources }}
       needs-build: ${{ github.event_name != 'pull_request' || steps.build_filter.outputs.needs-build }}
-      wasm-runner: ${{ steps.wasm_runner_type.outputs.value }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -93,90 +86,41 @@ jobs:
               - '!.github/**/*.md'
               - '!specs/**'
 
-      - name: Determine macOS runner types
-        id: mac_runner_type
-        run: |
-          # Give each macOS job its own Namespace cache volume. When the tests, lints and
-          # release-check jobs share one volume, each job overwrites the others' build
-          # artifacts (last writer wins) and the volume keeps growing until Namespace resets
-          # it, which forces the next job to rebuild everything from scratch.
-          #
-          # Custom cache tags are scoped to the Namespace workspace rather than the
-          # repository, so the tag embeds the repository name to keep repositories isolated.
-          # Tags may only contain [a-z0-9.-].
-          # https://namespace.so/docs/solutions/github-actions/caching#custom-cache-identity
-          PROFILE='namespace-profile-mac-ci'
-          TAG_PREFIX="$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.\n' '-')-mac"
-          for JOB in tests lints release-check; do
-            echo "$JOB=[\"$PROFILE;overrides.cache-tag=$TAG_PREFIX-$JOB\"]" >> $GITHUB_OUTPUT
-          done
-
-      - name: Determine wasm runner type
-        id: wasm_runner_type
-        run: |
-          # Use a larger (16 core, 64GB ram) runner on Linux to speed up execution time.
-          # https://github.com/warpdotdev/warp-internal/settings/actions/runners
-          RUNNER_TYPE='["ubuntu-latest-large"]'
-          echo "value=$RUNNER_TYPE" >> $GITHUB_OUTPUT
-
   tests:
     name: Run ${{ matrix.name }} tests
     timeout-minutes: 35
     env:
-      # When CI runs on a PR from a fork, the GCP OIDC auth used by
-      # `google-github-actions/auth` fails because our Workload Identity
-      # Federation provider is configured to only trust the base repository.
-      # We skip the auth + gcloud install steps in those runs and exclude SSH
-      # integration tests (which require gcloud to tunnel into a GCP test VM)
-      # via the filter suffix below. Tests that need gcloud either have
-      # `_ssh_` in their name or exercise the remote-server SSH path. Fork PRs
-      # lose SSH integration test coverage; those tests still run post-merge
-      # against `master`.
-      HAS_GCP_AUTH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-      EXCLUDE_SSH_TESTS_FILTER: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && ' and not test(/(_ssh_|remote_server)/)' || '' }}
-      EXCLUDE_REMOTE_SERVER_TESTS_FILTER: " and not test(/remote_server/)"
+      # These GUI integration fixtures require the former Warp GCP test VM.
+      # They remain unverified here; local SSH/daemon unit tests still run.
+      PRIVATE_VM_TESTS_FILTER: " and not test(/(_ssh_|remote_server)/)"
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: "macos"
             name: "MacOS"
-            runner: ${{ fromJSON(needs.params.outputs.macos-runner-tests) }}
-            is_self_hosted: ${{ contains(fromJSON(needs.params.outputs.macos-runner-tests), 'self-hosted') }}
+            runner: macos-15-intel
 
           - os: "linux"
             name: "Linux"
-            # Use a larger (16 core, 64GB ram) runner on Linux to speed up execution time.
-            # https://github.com/warpdotdev/warp-internal/settings/actions/runners
-            runner: ubuntu-latest-large
-            # We don't (yet) have any self-hosted Linux runners.
-            is_self_hosted: false
+            runner: ubuntu-latest
 
           - os: "windows"
             name: "Windows"
-            runner: windows-latest-large
-            # We don't (yet) have any self-hosted Windows runners.
-            is_self_hosted: false
+            runner: windows-latest
     runs-on: ${{ matrix.runner }}
     needs: params
     if: ${{ needs.params.outputs.needs-build == 'true' }}
-    # Make sure an ID token is created with the necessary permissions to use
-    # GCP's Workload Identity Federation (for service account authentication).
-    permissions:
-      contents: 'read'
-      id-token: 'write'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/prepare_environment
         with:
           target_os: ${{ matrix.os }}
-          is_self_hosted: ${{ matrix.is_self_hosted }}
           install_test_deps: true
 
       - name: Install Shells
         uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
-        if: ${{ matrix.is_self_hosted == false }}
         with:
           apt: zsh fish
           brew: fish bash
@@ -238,7 +182,6 @@ jobs:
           echo "default_shell_path=$DEFAULT_SHELL" >> $GITHUB_OUTPUT
 
       - name: Install cargo nextest
-        if: ${{ matrix.is_self_hosted == false }}
         uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
           tool: nextest
@@ -256,59 +199,18 @@ jobs:
           echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
 
-      - name: Set up gcloud authentication for SSH tests
-        # Skipped for fork PRs - see HAS_GCP_AUTH definition above.
-        if: env.HAS_GCP_AUTH == 'true'
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          workload_identity_provider: projects/63595664881/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-ci-workflow@warp-ssh-integration-testing.iam.gserviceaccount.com
-
-      - name: Install gcloud CLI tool
-        # Skipped for fork PRs - see HAS_GCP_AUTH definition above.
-        if: env.HAS_GCP_AUTH == 'true'
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
-        with:
-          version: '>= 397.0.0'
-
       - name: Install vim for richer alt-screen tests
-        if: ${{ matrix.is_self_hosted == false }}
         uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
         with:
           brew: vim
           apt: vim
 
-      # The cache-stats and timings steps below are temporary diagnostics for slow
-      # macOS test compiles. Remove them once the cause has been pinned down.
-      - name: Report macOS cache volume and machine stats before compiling
-        if: ${{ matrix.os == 'macos' }}
-        continue-on-error: true
-        run: ./script/macos/report_ci_cache_stats
-
       - name: Compile tests
-        # `--timings` makes cargo write a per-crate build timeline to
-        # target/cargo-timings/cargo-timing.html without changing the build.
-        run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} --no-run --timings
+        run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} --no-run
         env:
           # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited during compilation (e.g.: retrieving
-          # Sentry SDK binary releases).
+          # don't get rate limited while fetching native build dependencies.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Report macOS cache volume and machine stats after compiling
-        if: ${{ matrix.os == 'macos' && !cancelled() }}
-        continue-on-error: true
-        run: ./script/macos/report_ci_cache_stats
-
-      - name: Upload macOS compile timings
-        if: ${{ matrix.os == 'macos' && !cancelled() }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cargo-timings-macos
-          path: target/cargo-timings/cargo-timing.html
-          if-no-files-found: ignore
-          overwrite: true
 
       - name: Run unit tests
         # Unlike later test steps, only run this if previous steps succeed (so
@@ -322,67 +224,25 @@ jobs:
           # and tends to be the most reliable.
           WARP_SHELL_PATH: ${{ steps.echo_default_shell.outputs.default_shell_path }}
 
-      - name: Upload results of unit tests to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=unit
-          variant: ${{ matrix.os }}
-          use-cache: true
-
       - name: Run shell-agnostic integration tests
         # Run this step even if a previous test step fails
         if: matrix.os != 'windows' && (success() || failure())
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and not test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and not test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           # We run shell-agnostic tests against zsh, as it has the shortest
           # bootstrap times and tends to be the most reliable.
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
-
-      - name: Upload results of shell-agnostic integration tests to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=shell-agnostic
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       - name: Run shell integration tests against default version of bash
         # Run this step even if a previous test step fails
         if: matrix.os != 'windows' && (success() || failure())
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.default_bash_path }}
-
-      - name: Upload results of shell integration tests against default version of bash to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=bash-default
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       - name: Run shell integration tests against latest version of bash
         # Run this step even if a previous test step fails.
@@ -392,92 +252,36 @@ jobs:
         if: (success() || failure()) && runner.os == 'macos'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.latest_bash_path }}
-
-      - name: Upload results of shell integration tests against latest version of bash to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=bash-latest
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       - name: Run shell integration tests against fish
         # Run this step even if a previous test step fails
         if: matrix.os != 'windows' && (success() || failure())
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.fish_path }}
-
-      - name: Upload results of shell integration tests against fish to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=fish
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       - name: Run shell integration tests against zsh
         # Run this step even if a previous test step fails
         if: matrix.os != 'windows' && (success() || failure())
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
-
-      - name: Upload results of shell integration tests against zsh to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=zsh
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       - name: Run shell integration tests against powershell
         # Run this step even if a previous test step fails
         if: matrix.os != 'windows' && (success() || failure())
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.EXCLUDE_SSH_TESTS_FILTER }}${{ env.EXCLUDE_REMOTE_SERVER_TESTS_FILTER }}"
+          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
         env:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.powershell_path }}
-
-      - name: Upload results of shell integration tests against powershell to trunk.io
-        # Run this step even when the tests fail. Skip if the workflow is cancelled.
-        if: ${{ matrix.os != 'windows' && !cancelled() }}
-        continue-on-error: true
-        uses: trunk-io/analytics-uploader@14c0f18990953eecd01c9c5afe3cc63a73b6c371 # v2.1.5
-        with:
-          junit-paths: target/nextest/ci/junit.xml
-          cli-version: 0.12.5
-          org-slug: warp
-          token: ${{ secrets.TRUNK_API_TOKEN }}
-          tags: type=integration,category=powershell
-          variant: ${{ matrix.os }}
-          use-cache: true
 
       # Run doctests explicitly, as nextest doesn't yet support running them.
       # See: https://github.com/nextest-rs/nextest/issues/16
@@ -485,7 +289,6 @@ jobs:
         # Run this step even if a previous test step fails
         if: success() || failure()
         run: cargo test ${{ env.WORKSPACE_TEST_ARGS }} --doc
-
 
     # This is longer than we like and temporary until we speed up integration tests
     # The maximum timeout for the entire job is 6 hours:
@@ -510,13 +313,14 @@ jobs:
 
       - name: Run all migrations on empty file
         run: |
-          cp crates/persistence/src/schema.rs old-schema.rs
-          diesel migration run --database-url="test.sqlite" --migration-dir="crates/persistence/migrations"
+          mkdir -p .work/ci
+          cp crates/persistence/src/schema.rs .work/ci/schema-before.rs
+          diesel migration run --database-url=".work/ci/migrations.sqlite" --migration-dir="crates/persistence/migrations"
 
       - name: Regenerate schema and check if it is consistent with the schema at HEAD
         shell: bash
         run: |
-          diff -u old-schema.rs <(diesel print-schema --database-url="test.sqlite")
+          diff -u .work/ci/schema-before.rs <(diesel print-schema --database-url=".work/ci/migrations.sqlite")
 
   lints:
     name: Formatting + Clippy (${{ matrix.name }})
@@ -527,24 +331,17 @@ jobs:
         include:
           - os: "macos"
             name: "MacOS"
-            runner: ${{ fromJSON(needs.params.outputs.macos-runner-lints) }}
-            is_self_hosted: ${{ contains(fromJSON(needs.params.outputs.macos-runner-lints), 'self-hosted') }}
+            runner: macos-15-intel
             null_device: "/dev/null"
 
           - os: "linux"
             name: "Linux"
-            # Use a larger (16 core, 64GB ram) runner on Linux to speed up execution time.
-            # https://github.com/warpdotdev/warp-internal/settings/actions/runners
-            runner: ubuntu-latest-large
-            # We don't (yet) have any self-hosted Linux runners.
-            is_self_hosted: false
+            runner: ubuntu-latest
             null_device: "/dev/null"
 
           - os: "windows"
             name: "Windows"
-            runner: windows-latest-large
-            # We don't (yet) have any self-hosted Windows runners.
-            is_self_hosted: false
+            runner: windows-latest
             null_device: "NUL"
     runs-on: ${{ matrix.runner }}
     needs: params
@@ -555,7 +352,6 @@ jobs:
       - uses: ./.github/actions/prepare_environment
         with:
           target_os: ${{ matrix.os }}
-          is_self_hosted: ${{ matrix.is_self_hosted }}
 
       - name: Ensure cargo.lock is up-to-date
         run:
@@ -578,8 +374,7 @@ jobs:
           fi
         env:
           # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited during compilation (e.g.: retrieving
-          # Sentry SDK binary releases).
+          # don't get rate limited while fetching native build dependencies.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run clang-format
@@ -604,9 +399,10 @@ jobs:
       
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
-          # Only cache runs on the master branch (caches on feature branches
+          workspaces: . -> .work/target
+          # Only cache runs on the main branch (caches on feature branches
           # are not reusable).
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install cargo-binstall
         run: ./script/install_cargo_binstall
@@ -626,7 +422,7 @@ jobs:
           # note: this matches the version used in script/install_cargo_test_deps...
           # if changing here, probably a good idea to change there too to keep dev tools on local ~= CI
           cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag "2025-06-28" wgslfmt && \
-          find . -name "*.wgsl" -exec wgslfmt --check {} +
+          git ls-files -z '*.wgsl' | xargs -0 wgslfmt --check
 
       - name: Install ShellCheck
         uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
@@ -643,7 +439,7 @@ jobs:
       - name: Check for incorrectly named test files
         run: |
           # Test files should end in _tests.rs, not _test.rs.
-          bad_files=$(find . -name '*_test.rs')
+          bad_files=$(git ls-files '*_test.rs')
           if [ -n "$bad_files" ]; then
             while IFS= read -r f; do
               echo "::error file=$f::Test file should be named ${f/_test.rs/_tests.rs} (use _tests.rs, not _test.rs)"
@@ -659,22 +455,15 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-    runs-on: ${{ fromJSON(needs.params.outputs.wasm-runner) }}
+    runs-on: ubuntu-latest
     needs: params
     if: ${{ needs.params.outputs.needs-build == 'true' }}
     steps:
-      - name: Compute IS_SELF_HOSTED
-        id: is_self_hosted
-        run: |
-          IS_SELF_HOSTED="${{ contains(fromJSON(needs.params.outputs.wasm-runner), 'self-hosted') }}"
-          echo "value=$IS_SELF_HOSTED" >> $GITHUB_OUTPUT
-
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/prepare_environment
         with:
           target_os: wasm
-          is_self_hosted: ${{ steps.is_self_hosted.outputs.value }}
 
       - name: Ensure cargo.lock is up-to-date
         run:
@@ -703,30 +492,22 @@ jobs:
         include:
           - os: "macos"
             name: "MacOS"
-            runner: ${{ fromJSON(needs.params.outputs.macos-runner-release-check) }}
-            is_self_hosted: ${{ contains(fromJSON(needs.params.outputs.macos-runner-release-check), 'self-hosted') }}
+            runner: macos-15-intel
             null_device: "/dev/null"
 
           - os: "linux"
             name: "Linux"
-            # Use a larger (16 core, 64GB ram) runner on Linux to speed up execution time.
-            # https://github.com/warpdotdev/warp-internal/settings/actions/runners
-            runner: ubuntu-latest-large
-            # We don't (yet) have any self-hosted Linux runners.
-            is_self_hosted: false
+            runner: ubuntu-latest
             null_device: "/dev/null"
 
           - os: "windows"
             name: "Windows"
-            runner: windows-latest-large
-            # We don't (yet) have any self-hosted Windows runners.
-            is_self_hosted: false
+            runner: windows-latest
             null_device: "NUL"
 
           - os: "wasm"
             name: "wasm"
-            runner: ${{ fromJSON(needs.params.outputs.wasm-runner) }}
-            is_self_hosted: ${{ contains(fromJSON(needs.params.outputs.wasm-runner), 'self-hosted') }}
+            runner: ubuntu-latest
             null_device: "/dev/null"
     runs-on: ${{ matrix.runner }}
     needs: params
@@ -737,7 +518,6 @@ jobs:
       - uses: ./.github/actions/prepare_environment
         with:
           target_os: ${{ matrix.os }}
-          is_self_hosted: ${{ matrix.is_self_hosted }}
 
       - name: Verify compilation with release flags
         shell: bash
@@ -749,8 +529,7 @@ jobs:
           fi
         env:
           # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited during compilation (e.g.: retrieving
-          # Sentry SDK binary releases).
+          # don't get rate limited while fetching native build dependencies.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # A final job that collects the results of all of the parallel CI jobs and
@@ -763,11 +542,8 @@ jobs:
     name: Check CI results
     timeout-minutes: 3
     runs-on: ubuntu-slim
-    # This must run unconditionally on drafts so a draft PR is never treated as passing CI; the
-    # repo-sync/* and non-warpdotdev-owner skips above remain a deliberate exception to that.
-    if: >-
-      !cancelled() &&
-      (needs.params.result != 'skipped' || github.event.pull_request.draft == true)
+    # A skipped required job (including a draft's params) is never a passing CI run.
+    if: ${{ !cancelled() }}
     needs:
       - params
       - database-migration
@@ -778,6 +554,7 @@ jobs:
       - check-release-compilation
     steps:
       - name: Check CI results
+        shell: bash
         run: |
           needs_build="${{ needs.params.outputs.needs-build }}"
 
