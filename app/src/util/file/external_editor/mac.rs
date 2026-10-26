@@ -6,8 +6,6 @@ use instant::Instant;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSBundle, NSString, NSURL};
-use warp_core::AppId;
-use warp_core::channel::ChannelState;
 use warp_errors::report_error;
 use warpui::ApplicationBundleInfo;
 
@@ -344,39 +342,8 @@ pub fn open_file_path_with_line_and_col(
         {
             return;
         }
-
-        // NSWorkspace's default-app routing can hand files to a sibling
-        // Warp channel (e.g. Stable handling files while Preview is running).
-        // When the resolved default is a different Warp, open with the
-        // running channel's bundle directly.
-        let bundle_id = default_app_to_open_path(full_path);
-        if let Some(bundle_id) = bundle_id.as_deref() {
-            let current = ChannelState::app_id().to_string();
-            if bundle_id != current
-                && is_warp_bundle(bundle_id)
-                && open_with_bundle(&current, full_path)
-            {
-                return;
-            }
-        }
     }
     ctx.open_file_path(full_path);
-}
-
-fn is_warp_bundle(bundle_id: &str) -> bool {
-    AppId::parse(bundle_id)
-        .map(|id| id.qualifier() == "dev" && id.organization() == "warp")
-        .unwrap_or(false)
-}
-
-fn open_with_bundle(bundle_id: &str, path: &Path) -> bool {
-    // Wait for `open` to exit; a non-zero status needs to bubble up so
-    // the caller's ctx.open_file_path fallback still runs.
-    command::blocking::Command::new("/usr/bin/open")
-        .args(["-b", bundle_id])
-        .arg(path)
-        .status()
-        .is_ok_and(|s| s.success())
 }
 
 // Get the Mac default app for opening the file path.
@@ -400,7 +367,3 @@ fn get_default_app_bundle_for_file(file_path: &NSString) -> Option<Retained<NSSt
     let app_bundle = NSBundle::bundleWithURL(&app_url)?;
     app_bundle.bundleIdentifier()
 }
-
-#[cfg(test)]
-#[path = "mac_tests.rs"]
-mod tests;
