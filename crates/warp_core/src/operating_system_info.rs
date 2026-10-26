@@ -119,7 +119,7 @@ impl OperatingSystemInfo {
     }
 }
 
-#[derive(SerializeDisplay, PartialEq)]
+#[derive(SerializeDisplay, Debug, Clone, PartialEq)]
 pub enum OperatingSystemCategory {
     Linux,
     Mac,

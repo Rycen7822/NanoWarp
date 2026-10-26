@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use channel_versions::overrides::TargetOS;
 use parking_lot::RwLock;
+use warp_core::operating_system_info::OperatingSystemCategory;
 use warp_core::semantic_selection::SemanticSelection;
 use warp_core::ui::theme::WarpTheme;
 use warpui::elements::{
@@ -74,7 +74,7 @@ impl WarpifySuccessBlock {
 
         // Mac + Linux have the same behavior. We'd need to handle
         // getting the OS to write to the correct RC file.
-        let remote_os = TargetOS::Linux;
+        let remote_os = OperatingSystemCategory::Linux;
 
         let is_auto_warpify_configured = subshell_info
             .as_ref()

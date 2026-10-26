@@ -3,7 +3,7 @@ pub mod settings;
 pub mod success_block;
 pub mod trigger_state;
 
-use channel_versions::overrides::TargetOS;
+use warp_core::operating_system_info::OperatingSystemCategory;
 use warpui::AssetProvider;
 
 use crate::ASSETS;
@@ -34,7 +34,7 @@ fn get_subshell_bootstrap_success_block_path(shell_type: ShellType) -> Option<&'
 /// addition to the given `shell_type`.
 pub fn subshell_bootstrap_success_block_bytes(
     shell_type: ShellType,
-    os: TargetOS,
+    os: OperatingSystemCategory,
 ) -> (Vec<u8>, bool) {
     let Some(subshell_bootstrap_success_block_path) =
         get_subshell_bootstrap_success_block_path(shell_type)

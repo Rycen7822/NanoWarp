@@ -283,7 +283,7 @@ fn test_should_add_command_to_history() {
 /// separator is enforced by the encoding rather than the host.
 #[test]
 fn test_rc_file_paths_use_target_os_separator() {
-    for os in [TargetOS::Linux, TargetOS::MacOS] {
+    for os in [OperatingSystemCategory::Linux, OperatingSystemCategory::Mac] {
         assert_eq!(
             ShellType::Zsh.rc_file_paths(os.clone()),
             vec![TypedPathBuf::from_unix("~/.zshrc")],
@@ -313,14 +313,26 @@ fn test_rc_file_paths_use_target_os_separator() {
     // The leading separator follows target OS; the literal interior slashes
     // are left as-is (PowerShell accepts forward slashes on Windows).
     assert_eq!(
-        ShellType::PowerShell.rc_file_paths(TargetOS::Windows),
+        ShellType::PowerShell.rc_file_paths(OperatingSystemCategory::Windows),
         vec![TypedPathBuf::from_windows(
             "$HOME\\.config/powershell/Microsoft.PowerShell_profile.ps1"
         )],
     );
-    assert!(ShellType::Zsh.rc_file_paths(TargetOS::Windows).is_empty());
-    assert!(ShellType::Bash.rc_file_paths(TargetOS::Windows).is_empty());
-    assert!(ShellType::Fish.rc_file_paths(TargetOS::Windows).is_empty());
+    assert!(
+        ShellType::Zsh
+            .rc_file_paths(OperatingSystemCategory::Windows)
+            .is_empty()
+    );
+    assert!(
+        ShellType::Bash
+            .rc_file_paths(OperatingSystemCategory::Windows)
+            .is_empty()
+    );
+    assert!(
+        ShellType::Fish
+            .rc_file_paths(OperatingSystemCategory::Windows)
+            .is_empty()
+    );
 }
 
 #[test]

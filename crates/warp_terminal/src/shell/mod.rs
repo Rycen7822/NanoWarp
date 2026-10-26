@@ -5,7 +5,6 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use channel_versions::overrides::TargetOS;
 use enum_iterator::Sequence;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -14,6 +13,7 @@ use smol_str::SmolStr;
 use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
 use version_compare::{Cmp, Version};
 use warp_completer::completer::{CommandExitStatus, CommandOutput};
+use warp_core::operating_system_info::OperatingSystemCategory;
 #[cfg(windows)]
 use warp_core::paths::base_config_dir;
 use warp_core::platform::SessionPlatform;
@@ -339,11 +339,11 @@ impl ShellType {
     /// host's separator and produce strings like `~\.zshrc` on a Windows host when
     /// targeting a Unix shell, which the remote shell cannot resolve. Encoding for
     /// the target OS lets `TypedPathBuf` enforce the correct separator.
-    pub fn rc_file_paths(&self, os: TargetOS) -> Vec<TypedPathBuf> {
-        let is_windows = matches!(os, TargetOS::Windows);
+    pub fn rc_file_paths(&self, os: OperatingSystemCategory) -> Vec<TypedPathBuf> {
+        let is_windows = matches!(os, OperatingSystemCategory::Windows);
         let home_dir = if is_windows { "$HOME" } else { "~" };
         let relative_paths: Vec<&str> = match (self, os) {
-            (ShellType::PowerShell, TargetOS::Windows) => {
+            (ShellType::PowerShell, OperatingSystemCategory::Windows) => {
                 vec![".config/powershell/Microsoft.PowerShell_profile.ps1"]
             }
             // We need to make sure this works for either editor of PowerShell (PowerShell Core or
@@ -352,7 +352,7 @@ impl ShellType {
                 "Documents/PowerShell/Microsoft.PowerShell_profile.ps1",
                 "Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1",
             ],
-            (_, TargetOS::Windows) => vec![],
+            (_, OperatingSystemCategory::Windows) => vec![],
             (ShellType::Bash, _) => vec![".bashrc"],
             (ShellType::Zsh, _) => vec![".zshrc"],
             (ShellType::Fish, _) => vec![".config/fish/config.fish"],

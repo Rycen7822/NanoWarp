@@ -17,7 +17,6 @@ bitflags-serde-legacy.workspace = true
 bounded-vec-deque.workspace = true
 byte-unit = "5.1.4"
 cfg-if.workspace = true
-channel_versions.workspace = true
 command.workspace = true
 command-corrections.workspace = true
 enum-iterator.workspace = true
