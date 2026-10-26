@@ -150,12 +150,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    current_user_information (email) {
-        email -> Text,
-    }
-}
-
-diesel::table! {
     env_var_collection_panes (id) {
         id -> Integer,
         kind -> Text,

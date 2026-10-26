@@ -13,7 +13,6 @@ use warpui::platform::WindowStyle;
 use warpui::{App, ModelHandle, SingletonEntity};
 
 use super::FileTreeView;
-use crate::auth::AuthStateProvider;
 use crate::settings::CodeSettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -39,7 +38,6 @@ fn initialize_app(
     app.add_singleton_model(|_| SyncedInputState::mock());
     app.add_singleton_model(|_| VimRegisters::new());
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
     app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
 

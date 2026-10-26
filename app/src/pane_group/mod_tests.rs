@@ -1,4 +1,3 @@
-use crate::auth::AuthStateProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,14 +14,12 @@ use warpui::{App, ModelHandle};
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
-use crate::auth::auth_manager::AuthManager;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::resource_center::TipsCompleted;
 use crate::search::files::model::FileSearchModel;
-use crate::server::server_api::ServerApiProvider;
 
 use crate::settings::PrivacySettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -39,15 +36,11 @@ use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{ActiveSession, WorkspaceRegistry};
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider, experiments};
+use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
 fn initialize_app(app: &mut App) {
     initialize_settings_for_tests(app);
 
-    app.add_singleton_model(|_ctx| ServerApiProvider::new_for_test());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-
-    app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(|_ctx| PtySpawner::new_for_test());
     app.add_singleton_model(|_| NetworkStatus::new());
     app.add_singleton_model(|_| SystemStats::new());
@@ -74,9 +67,8 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| crate::code_review::git_repo_model::GitRepoModels::new());
     crate::terminal::available_shells::register(app);
-    app.update(experiments::init);
     AltScreenReporting::register(app);
-    app.add_singleton_model(|_| warp_server_client::network_logging::NetworkLogModel::default());
+    app.add_singleton_model(|_| crate::server::network_logging::NetworkLogModel::default());
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
@@ -112,7 +104,6 @@ fn mock_pane_group(app: &mut App, options: MockOptions) -> ViewHandle<PaneGroup>
             PaneGroup::new_with_panes_layout(
                 tips_model,
                 user_default_shell_changed_banner_dismissal_model_handle,
-                ServerApiProvider::as_ref(ctx).get(),
                 options.layout,
                 block_lists,
                 None,
@@ -1024,7 +1015,6 @@ fn test_focused_pane_is_synchronized_with_application_focus() {
                     PaneGroup::new_with_panes_layout(
                         tips_model,
                         user_default_shell_changed_banner_dismissal_model_handle,
-                        ServerApiProvider::as_ref(ctx).get(),
                         panes_layout,
                         block_lists,
                         None,

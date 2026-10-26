@@ -21,15 +21,12 @@ use super::{
     FileNotebookAction, FileNotebookView, FileState, MarkdownDisplayMode, SourceFile,
     TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING,
 };
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_manager::AuthManager;
 use crate::notebooks::context_menu::MenuSource;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::file::is_markdown_file;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusState};
 use crate::pane_group::{BackingView as _, PaneId};
 use crate::search::files::model::FileSearchModel;
-use crate::server::server_api::ServerApiProvider;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::model::session::Session;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -52,10 +49,7 @@ fn init_app(app: &mut App) {
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(FileModel::new);
     app.add_singleton_model(NotebookKeybindings::new);
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
-    app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(|ctx| UserWorkspaces::mock(vec![], ctx));
 }
 

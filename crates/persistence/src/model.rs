@@ -5,10 +5,10 @@ use diesel::prelude::*;
 
 use super::schema::{
     app, blocks, cloud_objects_refreshes, code_pane_tabs, code_panes, code_review_panes, commands,
-    current_user_information, folders, generic_string_objects, ignored_suggestions, notebook_panes,
-    object_actions, object_metadata, object_permissions, pane_branches, pane_leaves, pane_nodes,
-    panels, server_experiments, settings_panes, tab_groups, tabs, team_members, team_settings,
-    teams, terminal_panes, user_profiles, windows, workspace_language_server, workspace_metadata,
+    folders, generic_string_objects, ignored_suggestions, notebook_panes, object_actions,
+    object_metadata, object_permissions, pane_branches, pane_leaves, pane_nodes, panels,
+    server_experiments, settings_panes, tab_groups, tabs, team_members, team_settings, teams,
+    terminal_panes, user_profiles, windows, workspace_language_server, workspace_metadata,
     workspace_teams, workspaces,
 };
 
@@ -694,12 +694,6 @@ pub struct ServerExperiment {
 #[diesel(table_name = server_experiments)]
 pub struct NewServerExperiment {
     pub experiment: String,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = current_user_information)]
-pub struct CurrentUserInformation {
-    pub email: String,
 }
 
 #[derive(Debug, Insertable)]

@@ -221,7 +221,6 @@ warp_editor.workspace = true
 warp_graphql.workspace = true
 warp_search_core.workspace = true
 warp_server_auth.workspace = true
-warp_server_client.workspace = true
 warp_util.workspace = true
 warpui = { workspace = true, features = ["schema_gen", "settings_value"] }
 warpui_core.workspace = true
@@ -375,6 +374,7 @@ windows-result = { workspace = true }
 winreg.workspace = true
 
 [dev-dependencies]
+cloud_objects = { workspace = true, features = ["test-util"] }
 async-process.workspace = true
 firebase.workspace = true
 jsonschema = { workspace = true, default-features = false }
@@ -390,8 +390,6 @@ virtual-fs.workspace = true
 warp_completer = { workspace = true, features = ["test-util"] }
 warp_core = { workspace = true, features = ["test-util"] }
 warp_editor = { workspace = true, features = ["test-util"] }
-warp_server_client = { workspace = true, features = ["test-util"] }
-warp_server_auth = { workspace = true, features = ["test-util"] }
 warp_terminal = { workspace = true, features = ["test-util"] }
 warpui = { workspace = true, features = ["test-util"] }
 warpui_core = { workspace = true, features = ["test-util"] }
@@ -489,7 +487,7 @@ drag_tabs_to_windows = []
 embedded_code_review_comments = []
 default_waterfall_mode = []
 extern_plist = []
-fast_dev = ["skip_login"]
+fast_dev = []
 full_screen_zen_mode = []
 # This feature is enabled in graphical builds of Warp, and groups together other features
 # that are not needed in headless builds. Because Cargo features are additive, the default
@@ -554,16 +552,14 @@ runtime_feature_flags = []
 selectable_prompt = []
 settings_file = []
 sequential_storage = []
-skip_login = ["warp_server_client/skip_login"]
 # This feature should only be enabled when building a self-contained binary with the bundle script.
 standalone = ["warp_assets/standalone", "warp_core/standalone"]
 tab_close_button_on_left = []
 test-util = [
-    "warp_server_auth/test-util",
+    "cloud_objects/test-util",
     "http_client/test-util",
     "warp_core/test-util",
     "warp_terminal/test-util",
-    "warp_server_client/test-util",
 ]
 terminal_lifecycle_recovery = []
 # Feature enabled only when app is compiled for integration tests.
@@ -573,7 +569,6 @@ integration_tests = [
     "warpui/test-util",
     "warp_core/integration_tests",
     "warp_terminal/integration_tests",
-    "warp_server_client/integration_tests",
 ]
 traces = []
 rect_selection = []

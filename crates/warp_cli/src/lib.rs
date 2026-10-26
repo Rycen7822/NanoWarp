@@ -10,10 +10,6 @@ use warp_core::channel::ChannelState;
 #[cfg(windows)]
 mod process_handle;
 
-pub const SERVER_ROOT_URL_OVERRIDE_ENV: &str = "WARP_SERVER_ROOT_URL";
-pub const WS_SERVER_URL_OVERRIDE_ENV: &str = "WARP_WS_SERVER_URL";
-pub const SESSION_SHARING_SERVER_URL_OVERRIDE_ENV: &str = "WARP_SESSION_SHARING_SERVER_URL";
-
 /// Options related to the parent process that spawned this Warp instance.
 #[derive(Debug, Default, Clone, clap::Args)]
 pub struct ParentOpts {
@@ -64,42 +60,6 @@ pub struct RemoteServerIdentityArgs {
 )]
 #[clap(subcommand_precedence_over_arg = true)]
 pub struct Args {
-    /// API key for server authentication.
-    #[arg(
-        long = "api-key",
-        global = true,
-        env = "WARP_API_KEY",
-        hide_env_values = true
-    )]
-    api_key: Option<String>,
-
-    /// Override the server root URL.
-    #[arg(
-        long = "server-root-url",
-        global = true,
-        hide = true,
-        env = "WARP_SERVER_ROOT_URL"
-    )]
-    server_root_url: Option<String>,
-
-    /// Override the websocket server URL.
-    #[arg(
-        long = "ws-server-url",
-        global = true,
-        hide = true,
-        env = "WARP_WS_SERVER_URL"
-    )]
-    ws_server_url: Option<String>,
-
-    /// Override the session sharing server URL.
-    #[arg(
-        long = "session-sharing-server-url",
-        global = true,
-        hide = true,
-        env = "WARP_SESSION_SHARING_SERVER_URL"
-    )]
-    session_sharing_server_url: Option<String>,
-
     #[command(subcommand)]
     command: Option<Command>,
 
@@ -158,22 +118,6 @@ impl Args {
 
     pub fn into_app_args(self) -> AppArgs {
         self.args
-    }
-
-    pub fn api_key(&self) -> Option<&String> {
-        self.api_key.as_ref()
-    }
-
-    pub fn server_root_url(&self) -> Option<&str> {
-        self.server_root_url.as_deref()
-    }
-
-    pub fn ws_server_url(&self) -> Option<&str> {
-        self.ws_server_url.as_deref()
-    }
-
-    pub fn session_sharing_server_url(&self) -> Option<&str> {
-        self.session_sharing_server_url.as_deref()
     }
 }
 

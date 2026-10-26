@@ -52,10 +52,6 @@ pub fn initialize_settings_for_tests_with_mode(
     app.update(init_and_register_user_preferences);
     app.add_singleton_model(|_ctx| SettingsManager::default());
     app.add_singleton_model(WarpConfig::mock);
-    app.update(|ctx| {
-        // Register a no-op secure storage provider for testing.
-        warpui_extras::secure_storage::register_noop("test", ctx);
-    });
 
     AccessibilitySettings::register(app);
     AliasExpansionSettings::register(app);

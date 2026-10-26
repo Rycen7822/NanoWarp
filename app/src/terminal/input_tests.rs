@@ -25,15 +25,12 @@ use warpui::{App, UpdateView, WindowId};
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_manager::AuthManager;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::editor::{DisplayPoint, EditorAction, Point};
 use crate::input_suggestions::Item;
 use crate::network::NetworkStatus;
 use crate::search::files::model::FileSearchModel;
-use crate::server::server_api::ServerApiProvider;
 
 use crate::settings::import::model::ImportedConfigModel;
 use crate::settings::{AliasExpansionSettings, AppEditorSettings, PrivacySettings};
@@ -69,7 +66,7 @@ use crate::test_util::settings::initialize_settings_for_tests;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::workspace::{ActiveSession, ToastStack, WorkspaceRegistry};
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider, experiments};
+use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
 fn pending_ctrl_r_handoff() -> PendingShellWidgetHandoff {
     PendingShellWidgetHandoff {
@@ -216,7 +213,6 @@ pub fn initialize_app(app: &mut App) {
     app.update(init);
 
     // Initialize any global models required by the Input view.
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| NetworkStatus::new());
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(|_| Prompt::mock());
@@ -229,9 +225,7 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| History::default());
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(|_| ActiveSession::default());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
-    app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(crate::remote_server::manager::RemoteServerManager::new);
@@ -260,7 +254,6 @@ pub fn initialize_app(app: &mut App) {
         app.add_singleton_model(SystemInfo::new);
     }
 
-    app.update(experiments::init);
     AltScreenReporting::register(app);
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(|_| ToastStack);

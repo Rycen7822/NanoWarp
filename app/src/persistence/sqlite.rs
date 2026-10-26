@@ -27,7 +27,7 @@ use warpui::windowing::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
 use super::block_list::{delete_blocks, save_block};
 use super::model::{
-    self, AI_DOCUMENT_PANE_KIND, AI_FACT_PANE_KIND, CODE_PANE_KIND, CurrentUserInformation,
+    self, AI_DOCUMENT_PANE_KIND, AI_FACT_PANE_KIND, CODE_PANE_KIND,
     EXECUTION_PROFILE_EDITOR_PANE_KIND, NOTEBOOK_PANE_KIND, NewApp, NewCommand, NewTab,
     NewTabGroup, NewTeam, NewWindow, NewWorkspace, NewWorkspaceMetadata, NewWorkspaceTeam,
     SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, Tab, TabGroup, Window,
@@ -44,7 +44,6 @@ use crate::app_state::{
     TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::auth::UserUid;
-use crate::auth::auth_manager::PersistedCurrentUserInformation;
 use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::EnablementState;
 use crate::persistence::block_list::get_all_restored_blocks;
@@ -464,10 +463,6 @@ fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> a
         }
         ModelEvent::UpdateFinishedCommand { metadata } => {
             update_finished_command(connection, metadata).context("error updating finished command")
-        }
-        ModelEvent::UpsertCurrentUserInformation { user_information } => {
-            upsert_current_user_information(connection, user_information)
-                .context("error upserting user information")
         }
         ModelEvent::AddIgnoredSuggestion {
             suggestion,
@@ -1964,23 +1959,6 @@ fn update_finished_command(
                 exit_code.eq(completed_command.exit_code.value()),
                 completed_ts.eq(completed_command.completed_ts.naive_utc()),
             ))
-            .execute(conn)?;
-        Ok(())
-    })
-}
-
-fn upsert_current_user_information(
-    conn: &mut SqliteConnection,
-    user_information: PersistedCurrentUserInformation,
-) -> Result<(), Error> {
-    conn.transaction::<(), Error, _>(|conn| {
-        diesel::delete(schema::current_user_information::dsl::current_user_information)
-            .execute(conn)?;
-
-        diesel::insert_into(schema::current_user_information::dsl::current_user_information)
-            .values(CurrentUserInformation {
-                email: user_information.email,
-            })
             .execute(conn)?;
         Ok(())
     })

@@ -8,15 +8,11 @@ use warpui::{App, ViewHandle, WindowId};
 use watcher::HomeDirectoryWatcher;
 
 use super::settings::initialize_history_persistence_for_tests;
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_manager::AuthManager;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::code_review::git_repo_model::GitRepoModels;
 use crate::context_chips::prompt::Prompt;
-use crate::experiments;
 use crate::network::NetworkStatus;
 use crate::search::files::model::FileSearchModel;
-use crate::server::server_api::ServerApiProvider;
 
 use crate::settings::PrivacySettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -36,7 +32,6 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 pub fn initialize_app_for_terminal_view(app: &mut App) {
     initialize_history_persistence_for_tests(app);
 
-    app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| NetworkStatus::new());
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(|_| Prompt::mock());
@@ -50,9 +45,7 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
 
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(|_| ActiveSession::default());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 
-    app.add_singleton_model(AuthManager::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(|_| DetectedRepositories::default());
     #[cfg(feature = "local_fs")]
@@ -69,7 +62,6 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
     app.add_singleton_model(PersistedWorkspace::new_for_test);
 
-    app.update(experiments::init);
     AltScreenReporting::register(app);
 }
 

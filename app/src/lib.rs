@@ -22,7 +22,6 @@ mod debug_dump;
 mod default_terminal;
 #[cfg(windows)]
 mod dynamic_libraries;
-mod experiments;
 #[cfg(target_family = "wasm")]
 mod font_fallback;
 mod global_resource_handles;
@@ -102,8 +101,6 @@ pub mod settings_view;
 pub mod tab_configs;
 pub mod terminal;
 pub mod themes;
-use auth::auth_manager::AuthManager;
-use auth::auth_state::{AuthState, AuthStateProvider};
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
 use code::persisted_workspace::PersistedWorkspace;
@@ -115,6 +112,7 @@ use repo_metadata::{
     RepoMetadataModel, repositories::DetectedRepositories, watcher::DirectoryWatcher,
 };
 use server::network_log_pane_manager::NetworkLogPaneManager;
+use server::network_logging::NetworkLogModel;
 #[cfg(feature = "local_fs")]
 use settings::import::model::ImportedConfigModel;
 use settings_view::pane_manager::SettingsPaneManager;
@@ -132,8 +130,6 @@ pub mod workspace;
 
 use std::borrow::Cow;
 use std::ops::Deref;
-#[cfg(feature = "local_fs")]
-use std::sync::Arc;
 
 use ::settings::{Setting, ToggleableSetting};
 #[cfg(feature = "local_tty")]
@@ -145,7 +141,6 @@ use interval_timer::IntervalTimer;
 use itertools::Itertools;
 #[cfg(feature = "integration_tests")]
 pub use persistence::testing as sqlite_testing;
-use server::server_api::ServerApiProvider;
 use settings::{ExtraMetaKeys, PrivacySettings};
 #[cfg(feature = "local_fs")]
 use terminal::input;
@@ -160,7 +155,6 @@ use warp_errors::{report_error, report_if_error};
 #[cfg(feature = "local_fs")]
 use warp_files::FileModel;
 use warp_logging::{LogDestination, LogFrontend};
-use warp_server_client::network_logging::NetworkLogModel;
 use warpui::integration::TestDriver;
 use warpui::platform::TerminationMode;
 use warpui::platform::app::{ApproveTerminateResult, TerminationRequestSource};
@@ -177,7 +171,6 @@ use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
 use crate::context_chips::prompt::Prompt;
 use crate::default_terminal::DefaultTerminal;
-use crate::experiments::ImprovedPaletteSearch;
 pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
@@ -212,11 +205,7 @@ pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
 /// Launch mode for how to start up Warp.
 pub(crate) enum LaunchMode {
     /// Run the regular GUI application.
-    App {
-        args: warp_cli::AppArgs,
-        /// API key for server authentication, if provided via `--api-key` or `WARP_API_KEY`.
-        api_key: Option<String>,
-    },
+    App { args: warp_cli::AppArgs },
 
     /// Run a test - this may be an integration test or an eval.
     Test {
@@ -239,11 +228,6 @@ pub(crate) enum LaunchMode {
     },
 }
 
-enum AuthInitialization {
-    Persisted,
-    PendingApiKey(String),
-}
-
 impl LaunchMode {
     fn args(&self) -> Cow<'_, warp_cli::AppArgs> {
         match self {
@@ -251,20 +235,6 @@ impl LaunchMode {
             Self::Test { .. } | Self::RemoteServerProxy | Self::RemoteServerDaemon { .. } => {
                 Cow::Owned(warp_cli::AppArgs::default())
             }
-        }
-    }
-
-    fn api_key(&self) -> Option<String> {
-        match self {
-            Self::App { api_key, .. } => api_key.clone(),
-            Self::Test { .. } | Self::RemoteServerProxy | Self::RemoteServerDaemon { .. } => None,
-        }
-    }
-
-    fn auth_initialization(&self) -> AuthInitialization {
-        match self.api_key() {
-            Some(api_key) => AuthInitialization::PendingApiKey(api_key),
-            None => AuthInitialization::Persisted,
         }
     }
 
@@ -393,30 +363,6 @@ pub fn run() -> Result<()> {
     // Parse command-line arguments.
     let args = warp_cli::Args::from_env();
 
-    // Server URL overrides are only honored on internal dev channels. Release channels silently
-    // ignore `--server-root-url` / `--ws-server-url` / `--session-sharing-server-url` (and their
-    // `WARP_*` env-var equivalents) so shipped builds can't be redirected away from their
-    // baked-in server URLs. See `Channel::allows_server_url_overrides`.
-    if ChannelState::channel().allows_server_url_overrides() {
-        if let Some(url) = args.server_root_url()
-            && let Err(e) = ChannelState::override_server_root_url(url.to_owned())
-        {
-            eprintln!("Error: Invalid server root URL: {e:#}");
-        }
-
-        if let Some(url) = args.ws_server_url()
-            && let Err(e) = ChannelState::override_ws_server_url(url.to_owned())
-        {
-            eprintln!("Error: Invalid websocket server URL: {e:#}");
-        }
-
-        if let Some(url) = args.session_sharing_server_url()
-            && let Err(e) = ChannelState::override_session_sharing_server_url(url.to_owned())
-        {
-            eprintln!("Error: Invalid session sharing server URL: {e:#}");
-        }
-    }
-
     if let Some(command) = args.command() {
         #[cfg(windows)]
         if command.prints_to_stdout() {
@@ -435,10 +381,8 @@ pub fn run() -> Result<()> {
         }
     }
 
-    let api_key = args.api_key().cloned();
     run_internal(LaunchMode::App {
         args: args.into_app_args(),
-        api_key,
     })
 }
 
@@ -783,8 +727,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
         ctx.add_singleton_model(move |_ctx| pty_spawner);
 
         // Register user preferences.  This must be done before initializing
-        // feature flags or experiments, both of which check user preferences for
-        // overrides.
+        // feature flags, which check user preferences for overrides.
         ctx.add_singleton_model(move |_ctx| ::settings::PublicPreferences::new(public_preferences));
         ctx.add_singleton_model(move |_ctx| private_preferences);
         let startup_toml_parse_error = startup_toml_parse_error;
@@ -794,9 +737,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
 
         let app_state = initialize_app(&launch_mode, timer, startup_toml_parse_error, ctx);
 
-        if ImprovedPaletteSearch::improved_search_enabled(ctx) {
-            FeatureFlag::UseTantivySearch.set_enabled(true);
-        }
+        FeatureFlag::UseTantivySearch.set_enabled(true);
 
         launch(ctx, app_state, launch_mode)
     })
@@ -806,20 +747,6 @@ pub struct UpdateQuakeModeEventArg {
     active_window_id: Option<WindowId>,
 }
 
-enum StartupUserAuthentication {
-    RefreshUser,
-    ApiKey(String),
-}
-
-impl StartupUserAuthentication {
-    fn start(self, ctx: &mut AppContext) {
-        AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| match self {
-            Self::RefreshUser => auth_manager.refresh_user(ctx),
-            Self::ApiKey(api_key) => auth_manager.authenticate_api_key(api_key, ctx),
-        });
-    }
-}
-
 #[::tracing::instrument(skip_all)]
 pub(crate) fn initialize_app(
     launch_mode: &LaunchMode,
@@ -827,30 +754,8 @@ pub(crate) fn initialize_app(
     startup_toml_parse_error: Option<warpui_extras::user_preferences::Error>,
     ctx: &mut warpui::AppContext,
 ) -> Option<AppState> {
-    let data_domain = ChannelState::data_domain();
-
-    // Daemon auth arrives through the client handshake, so avoid platform keychains that may
-    // require an interactive unlock prompt. Other headless modes still use secure storage for
-    // persisted login credentials.
-    if matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. }) {
-        warpui_extras::secure_storage::register_unavailable(ctx);
-    } else {
-        // Register an implementation of the secure storage service.
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "integration_tests")] {
-                warpui_extras::secure_storage::register_noop(&data_domain, ctx);
-            } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-                warpui_extras::secure_storage::register_with_fallback(&data_domain, warp_core::paths::state_dir(), ctx)
-            } else if #[cfg(target_os = "windows")] {
-                warpui_extras::secure_storage::register_with_dir(&data_domain, warp_core::paths::state_dir(), ctx)
-            } else {
-                warpui_extras::secure_storage::register(&data_domain, ctx);
-            }
-        }
-    }
-
     // One-time migration: give Preview its own config directory by
-    // symlinking contents from the shared ~/.warp location. Must run
+    // symlinking contents from the shared ~/.nanowarp location. Must run
     // before ensure_warp_watch_roots_exist() creates the new directory.
     #[cfg(target_os = "macos")]
     preview_config_migration::migrate_preview_config_dir_if_needed();
@@ -869,37 +774,8 @@ pub(crate) fn initialize_app(
         ctx.set_zoom_factor(WindowSettings::as_ref(ctx).zoom_level.as_zoom_factor());
     }
 
-    let (auth_state, pending_api_key) = match launch_mode.auth_initialization() {
-        AuthInitialization::Persisted => (AuthState::initialize(ctx), None),
-        AuthInitialization::PendingApiKey(api_key) => (
-            AuthState::initialize_for_credential_validation(ctx),
-            Some(api_key),
-        ),
-    };
-    let auth_state = Arc::new(auth_state);
-    timer.mark_interval_end("AUTH_MANAGER_SET_USER");
-
-    // NetworkLogModel must be registered before ServerApiProvider so that
-    // `NetworkLogModel::install_on_clients` can reach it when forwarding items
-    // captured by the HTTP client hooks.
+    // Register before local HTTP clients install their network logging hooks.
     ctx.add_singleton_model(|_ctx| NetworkLogModel::default());
-
-    let server_api_provider = ctx.add_singleton_model({
-        let auth_state = auth_state.clone();
-        move |ctx| ServerApiProvider::new(auth_state, ctx)
-    });
-
-    let server_api = server_api_provider.as_ref(ctx).get();
-
-    ctx.add_singleton_model(|_ctx| AuthStateProvider::new(auth_state.clone()));
-
-    ctx.add_singleton_model(|ctx| {
-        AuthManager::new(
-            server_api.clone(),
-            server_api_provider.as_ref(ctx).get_auth_client(),
-            ctx,
-        )
-    });
 
     ctx.add_singleton_model(|_ctx| GPUState::new());
 
@@ -967,8 +843,6 @@ pub(crate) fn initialize_app(
 
     ctx.set_default_binding_validator(is_binding_cross_platform);
 
-    experiments::init(ctx);
-
     // Initialize timestamp for session id and last active event
 
     ctx.add_singleton_model(|_| SettingsPaneManager::new());
@@ -1029,8 +903,6 @@ pub(crate) fn initialize_app(
             crash_recovery.on_draw_frame_error(window_id);
         });
     });
-
-    let user_is_logged_in = auth_state.is_logged_in();
 
     ctx.on_first_frame_drawn(move |ctx| {
         GPUState::handle(ctx).update(ctx, |gpu_state, ctx| {
@@ -1184,13 +1056,6 @@ pub(crate) fn initialize_app(
     {
         ctx.add_singleton_model(LocalShellState::new);
         ctx.add_singleton_model(system::SystemInfo::new);
-    }
-
-    let startup_authentication = pending_api_key
-        .map(StartupUserAuthentication::ApiKey)
-        .or_else(|| user_is_logged_in.then_some(StartupUserAuthentication::RefreshUser));
-    if let Some(authentication) = startup_authentication {
-        authentication.start(ctx);
     }
 
     // Add a singleton model that holds the current prompt configuration.

@@ -39,7 +39,6 @@ use warp_errors::report_error;
 use warpui::{Entity, SingletonEntity};
 
 use crate::app_state::AppState;
-use crate::auth::auth_manager::PersistedCurrentUserInformation;
 use crate::code::persisted_workspace::EnablementState;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
@@ -226,9 +225,6 @@ pub enum ModelEvent {
     },
     /// Close the SQLite writer thread when the app is about to quit.
     Terminate,
-    UpsertCurrentUserInformation {
-        user_information: PersistedCurrentUserInformation,
-    },
     UpsertWorkspaceMetadata {
         metadata: Box<CodeWorkspaceMetadata>,
     },

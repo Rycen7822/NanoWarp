@@ -12366,7 +12366,6 @@ dependencies = [
  "warp_ripgrep",
  "warp_search_core",
  "warp_server_auth",
- "warp_server_client",
  "warp_terminal",
  "warp_util",
  "warp_web_event_bus",
@@ -12443,7 +12442,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases 0.2.1",
  "clap",
- "serial_test",
  "url",
  "warp_core",
  "warp_util",
@@ -12770,39 +12768,6 @@ dependencies = [
  "warp_managed_secrets",
  "warpui_core",
  "warpui_extras",
-]
-
-[[package]]
-name = "warp_server_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-trait",
- "bounded-vec-deque",
- "cfg-if",
- "chrono",
- "cloud_objects",
- "cynic",
- "firebase",
- "futures",
- "http",
- "http_client",
- "instant",
- "log",
- "mockall",
- "mockito",
- "parking_lot",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "url",
- "warp_core",
- "warp_errors",
- "warp_graphql",
- "warp_server_auth",
- "warpui_core",
 ]
 
 [[package]]

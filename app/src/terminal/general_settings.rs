@@ -148,12 +148,6 @@ define_settings_group!(GeneralSettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         private: true,
     },
-    did_non_anonymous_user_log_in: DidNonAnonymousUserLogIn {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: true,
-    },
 ]);
 
 impl GeneralSettings {

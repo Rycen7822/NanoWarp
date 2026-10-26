@@ -4,7 +4,6 @@ use warpui::platform::WindowStyle;
 use warpui::{App, AppContext, Element, Entity, TypedActionView, View, ViewContext};
 
 use super::{Event, OpenOverlay};
-use crate::auth::AuthStateProvider;
 use crate::menu::MenuItemFields;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::{BackingView, PaneConfiguration, PaneId, PaneView};
@@ -108,7 +107,6 @@ fn initialize_app(app: &mut App) {
 
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
 }
 
 #[test]

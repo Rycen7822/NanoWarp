@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
+#[cfg(feature = "local_fs")]
+use crate::server::network_logging::NetworkLogModel;
 use anyhow::Context;
 use chrono::{DateTime, Days, Utc};
 use itertools::Itertools;
@@ -21,8 +23,6 @@ use warp_core::channel::ChannelState;
 #[cfg(feature = "local_fs")]
 use warp_core::context_flag::ContextFlag;
 use warp_errors::report_if_error;
-#[cfg(feature = "local_fs")]
-use warp_server_client::network_logging::NetworkLogModel;
 #[cfg(feature = "local_fs")]
 use warp_util::standardized_path::StandardizedPath;
 #[cfg(feature = "local_fs")]
