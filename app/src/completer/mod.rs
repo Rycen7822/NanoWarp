@@ -34,7 +34,6 @@ use warp_util::path::{EscapeChar, ShellFamily};
 #[cfg(feature = "local_fs")]
 use warpui::r#async::FutureExt;
 
-use crate::safe_warn;
 use crate::terminal::model::session::{ExecuteCommandOptions, Session, SessionType};
 use crate::util::AsciiDebug;
 
@@ -165,9 +164,8 @@ impl SessionContext {
                             })
                         }
                         CommandExitStatus::Failure => {
-                            safe_warn!(
-                                safe: ("Executing `ls` on remote box failed with non-zero status code."),
-                                full: ("Executing `ls` on remote box failed with error: {}", &String::from_utf8_lossy(command_output.output()))
+                            log::warn!(
+                                "Executing `ls` on remote box failed with non-zero status code."
                             );
                             vec![]
                         }

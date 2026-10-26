@@ -1,6 +1,6 @@
 ---
 name: logging-and-error-reporting
-description: How and when to log (log::* levels, safe_* macros) and report errors to Sentry (report_error!) in the Warp codebase. Use when adding or reviewing any logging or error reporting — picking a log level, deciding log vs. report_error!, keeping sensitive data out of logs, or surfacing an error to Sentry.
+description: How and when to log (log::* levels, redacted diagnostics) and report errors to Sentry (report_error!) in the Warp codebase. Use when adding or reviewing any logging or error reporting — picking a log level, deciding log vs. report_error!, keeping sensitive data out of logs, or surfacing an error to Sentry.
 ---
 
 # logging-and-error-reporting
@@ -19,7 +19,7 @@ On crash-reporting builds a `SentryLogger` wraps the logger (`warp_logging`). Th
 
 Consequences:
 - **`log::error!` does NOT create a Sentry issue** — it's only a breadcrumb. If a failure should be tracked in Sentry, use `report_error!`. Only `report_error!` and panics create Sentry events.
-- Breadcrumbs (Info and above) are uploaded, so they must never contain secrets or PII — see "Sensitive data: safe_* macros" below.
+- Breadcrumbs (Info and above) are uploaded, so they must never contain secrets or PII — see "Sensitive diagnostics" below.
 
 ## Choosing: `report_error!` vs. `log::error!` vs. `log::warn!`
 
@@ -47,20 +47,15 @@ Guidance:
 - Prefer static, greppable message prefixes with structured `key=value` detail (e.g. `"[Remote codebase indexing] … repo_path={} state={:?}"`), matching the surrounding module.
 - Use inline format args (`log::warn!("… {err:#}")`) per the workspace clippy config; format an error chain with `{err:#}`.
 
-## Sensitive data: `safe_*` macros
+## Sensitive diagnostics
 
-Never log secrets, tokens, or credentials at any level. For messages whose *useful* detail is sensitive-ish — file paths, response payloads, user-generated content — that you want locally but must NOT ship in release-channel logs (which get bundled and become breadcrumbs), use the `safe_*` macros instead of `log::*`.
+Never log secrets, tokens, credentials, response payloads, file contents, or command text at any level. Log only diagnostic context that is safe in every build, including local debug builds. NanoWarp has no private channel with a separate full-detail logging policy.
 
-`safe_error!`, `safe_warn!`, `safe_info!`, `safe_debug!` (plus `safe_anyhow!` to build an `anyhow::Error`, and `safe_eprintln!`) each take a `safe:` and a `full:` arm. Dogfood builds log `full:`; release channels log `safe:`:
+Use the appropriate `log::*` level directly with a self-contained, redacted message:
+
 ```rust
-use warp_core::safe_error;
-
-safe_error!(
-    safe: ("Remote server unexpected response for Initialize"),
-    full: ("Remote server unexpected response for Initialize: response={other:?}")
-);
+log::error!("Remote server unexpected response for Initialize");
 ```
-- The `safe:` arm must stand on its own and contain no sensitive/verbose detail; put those bits only in `full:`.
 
 ---
 
@@ -198,7 +193,7 @@ report_error!(
 
 ## No secrets or PII
 
-This applies to `report_error!` messages/`extra:` AND to `log::*` at Info and above (both are uploaded to Sentry — the report as an event, the log as a breadcrumb). Never place secrets, tokens, credentials, or user-generated content (file contents, prompts, command text, personal data) in any of them — Sentry retains everything sent. Limit reported/logged data to non-sensitive diagnostics: ids, paths, counts, durations, and error types. When the useful detail is sensitive but helpful locally, use the `safe_*` macros (see "Sensitive data" above) so it only appears in dogfood logs.
+Keep both `report_error!` diagnostics and `log::*` free of secrets, tokens, credentials, response payloads, and user-generated content. Use non-sensitive counts, durations, and error types when they help explain a failure. Do not include a sensitive value merely because it is available in a debug build.
 
 ## Best practices
 
@@ -233,8 +228,7 @@ report_error!(anyhow::Error::new(some_call().unwrap_err()).context("msg"));
 // issue. Use report_error! if it should be tracked in Sentry.
 log::error!("Failed to sync: {e:#}");
 
-// Sensitive detail logged unconditionally — ships to release-channel logs and
-// breadcrumbs. Use safe_error!(safe: (..), full: (..)) instead.
+// Sensitive response bodies must not appear in logs. Use a redacted diagnostic.
 log::warn!("Bad response body={body:?}");
 
 // info! (or higher) in a hot/per-frame path — floods logs and breadcrumbs.

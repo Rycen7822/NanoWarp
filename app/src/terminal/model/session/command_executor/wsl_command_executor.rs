@@ -9,7 +9,6 @@ use itertools::Itertools as _;
 
 use super::shared::serialize_environment_variables;
 use super::{CommandExecutor, CommandOutput, ExecuteCommandOptions};
-use crate::safe_warn;
 use crate::terminal::shell::{Shell, ShellType};
 
 /// `CommandExecutor` implementation that executes the given `command` in a WSL instance via the
@@ -100,10 +99,7 @@ impl WslCommandExecutor {
             .await
             .map(|output| output.into())
             .map_err(|e| {
-                safe_warn!(
-                    safe: ("error executing local command"),
-                    full: ("error executing command {:?} with error {:?}", command, e)
-                );
+                log::warn!("error executing local command");
                 anyhow!(e)
             })
     }

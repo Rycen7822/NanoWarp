@@ -18,7 +18,7 @@ use vec1::Vec1;
 use warp_core::channel::{Channel, ChannelState};
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
-use warp_core::{SessionId, safe_error, safe_info};
+use warp_core::SessionId;
 use warp_editor::content::buffer::{AutoScrollBehavior, InitialBufferState, SelectionOffsets};
 use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
@@ -2230,14 +2230,7 @@ impl CodeReviewView {
             DiffStateModelEvent::BranchesReceived(branches) => {
                 if let Some(repo) = self.active_repo.as_mut() {
                     let branch_count = branches.len();
-                    safe_info!(
-                        safe: ("Code Review: Set available_branches with {} branches", branch_count),
-                        full: (
-                            "Code Review: Set available_branches for repo {:?} with {} branches",
-                            &repo.repo_path,
-                            branch_count
-                        )
-                    );
+                    log::info!("Code Review: Set available_branches with {} branches", branch_count);
                     repo.available_branches = branches.clone();
                 }
                 self.update_diff_selector_selection(ctx);
@@ -5243,10 +5236,7 @@ impl CodeReviewView {
             && let Some(editor) = file_state.editor_state.as_ref().map(|state| state.editor())
             && let Err(err) = editor.update(ctx, |local_editor, ctx| local_editor.save_local(ctx))
         {
-            safe_error!(
-                safe: ("Failed to save file: {err}"),
-                full: ("Failed to save file {}: {err:?}", repo_relative_path)
-            );
+            log::error!("Failed to save file: {err}");
         }
     }
 

@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use futures::channel::oneshot;
 use futures::future::{self, BoxFuture, FutureExt as _};
-use warp_core::safe_warn;
 use warp_util::sync::Condition;
 use warpui_core::ModelHandle;
 use warpui_core::r#async::{FutureId, SpawnedFutureHandle};
@@ -1728,9 +1727,8 @@ impl LocalRepoMetadataModel {
                             // On failure, mark the repository as failed so waiters are notified.
                             model.mark_repository_failed(std_repo_path, e, ctx);
                         } else if indexed_with_limit {
-                            safe_warn!(
-                                safe: ("Repository exceeded max file budget; indexed with partial coverage"),
-                                full: ("Repository {repo_path_str} exceeded the max file budget ({MAX_FILES_PER_REPO}); indexed breadth-first up to the budget — remaining directories load on expand")
+                            log::warn!(
+                                "Repository exceeded max file budget; indexed with partial coverage"
                             );
                         } else {
                             log::info!(
@@ -1741,10 +1739,7 @@ impl LocalRepoMetadataModel {
                         }
                     }
                     Err(e) => {
-                        safe_warn!(
-                            safe: ("Failed to build file tree for repository: {e:?}"),
-                            full: ("Failed to build file tree for repository {repo_path_str}: {e:?}")
-                        );
+                        log::warn!("Failed to build file tree for repository: {e:?}");
                         model.mark_repository_failed(
                             std_repo_path,
                             RepoMetadataError::BuildTree(e),

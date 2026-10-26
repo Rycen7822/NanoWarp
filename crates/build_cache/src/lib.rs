@@ -34,7 +34,6 @@ use futures_lite::future;
 use is_executable::IsExecutable as _;
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
-use warp_core::safe_info;
 use warp_errors::{ErrorExt, register_error};
 
 mod discovery;
@@ -720,9 +719,8 @@ where
                 Duration::ZERO,
             )
         } else {
-            safe_info!(
-                safe: ("Mounting cache modes {:?} for scope kind '{}'", configuration.modes, configuration.scope.kind()),
-                full: ("Mounting cache modes {:?} for {:?}", configuration.modes, configuration.scope)
+            log::info!(
+                "Mounting cache modes {:?} for scope kind '{}'", configuration.modes, configuration.scope.kind()
             );
             run_spacectl_mount(
                 configuration.scope.clone(),

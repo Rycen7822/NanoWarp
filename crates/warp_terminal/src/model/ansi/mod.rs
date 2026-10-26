@@ -30,7 +30,6 @@ use lazy_static::lazy_static;
 use log::debug;
 use vte::{Params, Parser as VteParser, Perform as VtePerform};
 use warp_core::features::FeatureFlag;
-use warp_core::{safe_debug, safe_error, safe_warn};
 use warp_errors::report_error;
 use warpui_core::color::ColorU;
 
@@ -618,10 +617,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
             }
             Ok(DProtoHook::ExitShell { value }) => self.handler.exit_shell(value),
 
-            Err(e) => safe_error!(
-                safe: ("Error when deserializing escape sequence data"),
-                full: ("Error when deserializing escape sequence data: {:?}", e)
-            ),
+            Err(_) => log::error!("Error when deserializing escape sequence data"),
         }
     }
 
@@ -660,10 +656,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
     fn handle_decoded_data(&mut self, decoded_data: Result<Vec<u8>, hex::FromHexError>) {
         match decoded_data {
             Ok(decoded_data) => {
-                safe_debug!(
-                    safe: ("Decoded payload"),
-                    full: ("Decoded payload string: {:?}", std::str::from_utf8(&decoded_data))
-                );
+                log::debug!("Decoded payload");
 
                 let hook = serde_json::from_slice::<DProtoHook>(&decoded_data);
                 if let Ok(hook) = &hook {
@@ -671,10 +664,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
                 }
                 self.handle_decoded_hook(hook);
             }
-            Err(e) => safe_error!(
-                safe: ("Error when decoding payload"),
-                full: ("Error when decoding payload: {:?}", e)
-            ),
+            Err(_) => log::error!("Error when decoding payload"),
         }
     }
 
@@ -698,10 +688,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
                         return;
                     }
                 };
-                safe_debug!(
-                    safe: ("Decoded payload"),
-                    full: ("Decoded payload string: {:?}", serde_json::to_string(&hook))
-                );
+                log::debug!("Decoded payload");
                 self.handle_decoded_hook(Ok(hook));
             }
             Some(&WARP_KV_ENTRY_BYTE) => {
@@ -719,11 +706,8 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
                     .join(";");
                 self.handler.update_hook(key.to_string(), value);
             }
-            invalid_marker => {
-                safe_warn!(
-                    safe: ("Invalid marker received for pending shell hook OSC"),
-                    full: ("Invalid marker received for pending shell hook OSC: marker={:?}", invalid_marker)
-                );
+            _ => {
+                log::warn!("Invalid marker received for pending shell hook OSC");
             }
         }
     }
@@ -772,10 +756,7 @@ where
         match self.state.dcs_data.final_char {
             HEX_ENCODED_JSON_MARKER => {
                 let dcs_data_str = String::from_utf8_lossy(&self.state.dcs_data.data);
-                safe_debug!(
-                    safe: ("Received DCS string"),
-                    full: ("Received DCS string with JSON payload: {:?}", dcs_data_str)
-                );
+                log::debug!("Received DCS string");
                 let decoded_data = hex::decode(&*dcs_data_str);
                 self.handle_decoded_data(decoded_data);
             }
@@ -1133,10 +1114,7 @@ where
                             log::warn!("Warp OSC marker did not contain payload");
                             return;
                         };
-                        safe_debug!(
-                            safe: ("Received Warp OSC string for shell hook"),
-                            full: ("Received Warp OSC string for shell hook with JSON payload: {:?}", data_str)
-                        );
+                        log::debug!("Received Warp OSC string for shell hook");
                         let decoded_data = hex::decode(&*data_str);
                         self.handle_decoded_data(decoded_data);
                     }
@@ -1149,19 +1127,13 @@ where
                             log::warn!("Warp OSC marker did not contain payload");
                             return;
                         };
-                        safe_debug!(
-                            safe: ("Received Warp OSC string for shell hook"),
-                            full: ("Received Warp OSC string for shell hook with JSON payload: {:?}", data_str)
-                        );
+                        log::debug!("Received Warp OSC string for shell hook");
                         let hook = serde_json::from_str::<DProtoHook>(&data_str);
                         self.handle_unencoded_hook(hook)
                     }
                     UNENCODED_KV_MARKER => self.handle_kv_marker(params),
                     _ => {
-                        safe_warn!(
-                            safe: ("Invalid OSC JSON marker found"),
-                            full: ("Invalid OSC JSON marker found: marker={}", json_marker_char)
-                        );
+                        log::warn!("Invalid OSC JSON marker found");
                     }
                 }
             }
@@ -1204,31 +1176,15 @@ where
                         return;
                     };
                     let Some((start_str, length_str)) = data_str.split_once(',') else {
-                        safe_warn!(
-                            safe: (
-                                "Warp completions replacement span OSC marker payload was not a \
-                                 comma-separated pair"
-                            ),
-                            full: (
-                                "Warp completions replacement span OSC marker payload was not a \
-                                 comma-separated pair: {data_str:?}"
-                            )
-                        );
+                        log::warn!("Warp completions replacement span OSC marker payload was not a \
+                                 comma-separated pair");
                         return;
                     };
                     let (Ok(start), Ok(length)) =
                         (start_str.parse::<usize>(), length_str.parse::<usize>())
                     else {
-                        safe_warn!(
-                            safe: (
-                                "Warp completions replacement span OSC marker payload was not a \
-                                 pair of non-negative integers"
-                            ),
-                            full: (
-                                "Warp completions replacement span OSC marker payload was not a \
-                                 pair of non-negative integers: {data_str:?}"
-                            )
-                        );
+                        log::warn!("Warp completions replacement span OSC marker payload was not a \
+                                 pair of non-negative integers");
                         return;
                     };
                     self.handler
@@ -1252,16 +1208,8 @@ where
                             );
                         }
                         _ => {
-                            safe_warn!(
-                                safe: (
-                                    "Invalid Warp OSC marker parameter for completions match \
-                                     metadata"
-                                ),
-                                full: (
-                                    "Invalid Warp OSC marker parameter for completions match \
-                                     metadata: {parameter}"
-                                )
-                            );
+                            log::warn!("Invalid Warp OSC marker parameter for completions match \
+                                     metadata");
                         }
                     }
                 }

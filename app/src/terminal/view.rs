@@ -302,7 +302,7 @@ use crate::view_components::find::{Event as FindEvent, Find, FindDirection, Find
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction, WorkspaceRegistry};
-use crate::{ActiveSession as WindowActiveSession, safe_warn};
+use crate::ActiveSession as WindowActiveSession;
 
 lazy_static! {
     // A set of commands that perform minimal work that we use as a baseline to measure the latency of blocks.
@@ -3370,10 +3370,7 @@ impl TerminalView {
         if self.is_long_running() {
             self.write_user_bytes_to_pty(bytes.to_owned(), ctx);
         } else {
-            safe_warn!(
-                safe: ("command not long-running. ignoring control seq on terminal."),
-                full: ("command not long-running. ignoring control seq on terminal: {:?}", bytes)
-            )
+            log::warn!("command not long-running. ignoring control seq on terminal.")
         }
     }
 

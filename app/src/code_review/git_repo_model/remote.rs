@@ -71,11 +71,8 @@ impl RemoteGitRepoStatusModel {
                 self.metadata = Some(status);
                 ctx.emit(GitRepoStatusEvent::MetadataChanged);
             }
-            Err(error) => {
-                warp_core::safe_error!(
-                    safe: ("RemoteGitRepoStatusModel: failed to decode git status push"),
-                    full: ("RemoteGitRepoStatusModel: failed to decode git status push: {error}")
-                );
+            Err(_) => {
+                log::error!("RemoteGitRepoStatusModel: failed to decode git status push");
             }
         }
     }

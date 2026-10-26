@@ -21,7 +21,6 @@ use nix::sys::termios::{self, InputFlags, SetArg};
 use serde::{Deserialize, Serialize};
 use signal_hook_mio::v1_0::Signals;
 use warp_core::channel::ChannelState;
-use warp_core::safe_error;
 use warp_errors::report_if_error;
 use warpui_core::{AppContext, SingletonEntity};
 
@@ -97,10 +96,7 @@ fn current_user_via_getpwuid(uid: nix::unistd::Uid) -> Option<CurrentUser> {
         // host-delegated lookups.
         Ok(None) => None,
         Err(err) => {
-            safe_error!(
-                safe: ("passwd entry lookup failed for uid {uid}: {err}"),
-                full: ("passwd entry lookup failed")
-            );
+            log::error!("passwd entry lookup failed for uid {uid}: {err}");
             None
         }
     }

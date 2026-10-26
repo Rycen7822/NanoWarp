@@ -64,7 +64,7 @@ pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
 use crate::workspace::ActiveSession;
-use crate::{cmd_or_ctrl_shift, safe_warn};
+use crate::cmd_or_ctrl_shift;
 
 /// Display mode for markdown files shown via the header segmented control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -502,11 +502,8 @@ impl FileNotebookView {
                             // Trigger to save the open file path for session restoration.
                             ctx.emit(FileNotebookEvent::FileLoaded);
                         }
-                        FileModelEvent::FailedToLoad { error, .. } => {
-                            safe_warn!(
-                                safe: ("Unable to read local notebook file"),
-                                full: ("Unable to read local notebook file: {error}")
-                            );
+                        FileModelEvent::FailedToLoad { .. } => {
+                            log::warn!("Unable to read local notebook file");
                             me.file_state =
                                 match mem::replace(&mut me.file_state, FileState::NoFile) {
                                     FileState::NoFile => FileState::NoFile,
@@ -528,10 +525,7 @@ impl FileNotebookView {
         #[cfg(not(feature = "local_fs"))]
         {
             // WASM builds should never call `open_local`, so we should never get here!
-            safe_warn!(
-                safe: ("Local filesystem access is not available in this build"),
-                full: ("Local filesystem access is not available in this build (feature \"local_fs\" disabled)")
-            );
+            log::warn!("Local filesystem access is not available in this build");
             self.file_state = FileState::Error(SourceFile::FileBased {
                 path: LocalOrRemotePath::Local(local_path),
                 session,
@@ -664,16 +658,8 @@ impl FileNotebookView {
                         });
                         ctx.notify();
                         ctx.emit(FileNotebookEvent::FileLoaded);
-                    } else if let Some(failed) = response.failed_files.first() {
-                        let error_msg = failed
-                            .error
-                            .as_ref()
-                            .map(|e| e.message.as_str())
-                            .unwrap_or("unknown error");
-                        safe_warn!(
-                            safe: ("Failed to read remote markdown file"),
-                            full: ("Failed to read remote markdown file: {error_msg}")
-                        );
+                    } else if !response.failed_files.is_empty() {
+                        log::warn!("Failed to read remote markdown file");
                         me.file_state = match mem::replace(&mut me.file_state, FileState::NoFile) {
                             FileState::Loading(source) => FileState::Error(source),
                             other => other,
@@ -681,11 +667,8 @@ impl FileNotebookView {
                         ctx.notify();
                     }
                 }
-                Err(err) => {
-                    safe_warn!(
-                        safe: ("Remote server error reading markdown file"),
-                        full: ("Remote server error reading markdown file: {err}")
-                    );
+                Err(_) => {
+                    log::warn!("Remote server error reading markdown file");
                     me.file_state = match mem::replace(&mut me.file_state, FileState::NoFile) {
                         FileState::Loading(source) => FileState::Error(source),
                         other => other,

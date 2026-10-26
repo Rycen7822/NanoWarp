@@ -258,11 +258,8 @@ impl RemoteDiffStateModel {
     ) {
         match try_decode_snapshot(snapshot) {
             Ok((metadata, state, diffs)) => self.apply_snapshot(metadata, state, diffs, ctx),
-            Err(error) => {
-                warp_core::safe_error!(
-                    safe: ("RemoteDiffStateModel: failed to decode diff state snapshot"),
-                    full: ("RemoteDiffStateModel: failed to decode diff state snapshot: {error}")
-                );
+            Err(_) => {
+                log::error!("RemoteDiffStateModel: failed to decode diff state snapshot");
             }
         }
     }
@@ -280,11 +277,8 @@ impl RemoteDiffStateModel {
         {
             Ok(Some(metadata)) => self.apply_metadata_update(&metadata, ctx),
             Ok(None) => {}
-            Err(error) => {
-                warp_core::safe_error!(
-                    safe: ("RemoteDiffStateModel: failed to decode diff state metadata update"),
-                    full: ("RemoteDiffStateModel: failed to decode diff state metadata update: {error}")
-                );
+            Err(_) => {
+                log::error!("RemoteDiffStateModel: failed to decode diff state metadata update");
             }
         }
     }
@@ -298,11 +292,8 @@ impl RemoteDiffStateModel {
             Ok((file_path, diff, metadata)) => {
                 self.apply_file_delta(file_path, diff, metadata, ctx)
             }
-            Err(error) => {
-                warp_core::safe_error!(
-                    safe: ("RemoteDiffStateModel: failed to decode diff state file delta"),
-                    full: ("RemoteDiffStateModel: failed to decode diff state file delta: {error}")
-                );
+            Err(_) => {
+                log::error!("RemoteDiffStateModel: failed to decode diff state file delta");
             }
         }
     }

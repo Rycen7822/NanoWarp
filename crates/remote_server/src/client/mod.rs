@@ -23,7 +23,7 @@ use crate::repo_metadata_proto::{proto_snapshot_to_update, proto_to_repo_metadat
 mod remote_server_log;
 #[cfg(not(target_family = "wasm"))]
 pub use remote_server_log::RemoteServerLog;
-use warp_core::{SessionId, safe_error, safe_warn};
+use warp_core::SessionId;
 use warp_errors::report_error;
 use warp_util::standardized_path::StandardizedPath;
 use warpui_core::r#async::TransportStream;
@@ -342,11 +342,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::InitializeResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for Initialize"),
-                    full: ("Remote server unexpected response for Initialize: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for Initialize");
                 Err(ClientError::UnexpectedResponse)
             }
         }
@@ -393,11 +390,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::NavigatedToDirectoryResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for NavigatedToDirectory"),
-                    full: ("Remote server unexpected response for NavigatedToDirectory: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for NavigatedToDirectory");
                 Err(ClientError::UnexpectedResponse)
             }
         }
@@ -430,11 +424,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::LoadRepoMetadataDirectoryResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for LoadRepoMetadataDirectory"),
-                    full: ("Remote server unexpected response for LoadRepoMetadataDirectory: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for LoadRepoMetadataDirectory");
                 Err(ClientError::UnexpectedResponse)
             }
         }
@@ -465,11 +456,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::GetDiffStateResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for GetDiffState"),
-                    full: ("Remote server unexpected response for GetDiffState: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for GetDiffState");
                 Err(ClientError::UnexpectedResponse)
             }
         }
@@ -500,11 +488,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::OpenBufferResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for OpenBuffer"),
-                    full: ("Remote server unexpected response for OpenBuffer: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for OpenBuffer");
                 Err(ClientError::UnexpectedResponse)
             }
         }
@@ -654,11 +639,8 @@ impl RemoteServerClient {
                     repository_info: push.repository_info,
                 })
             }
-            other => {
-                safe_warn!(
-                    safe: ("Unhandled push message variant"),
-                    full: ("Unhandled push message variant: {other:?}")
-                );
+            _ => {
+                log::warn!("Unhandled push message variant");
                 None
             }
         }
@@ -736,11 +718,8 @@ impl RemoteServerClient {
 
         match response.message {
             Some(server_message::Message::RunCommandResponse(resp)) => Ok(resp),
-            other => {
-                safe_error!(
-                    safe: ("Remote server unexpected response for RunCommand"),
-                    full: ("Remote server unexpected response for RunCommand: response={other:?}")
-                );
+            _ => {
+                log::error!("Remote server unexpected response for RunCommand");
                 Err(ClientError::UnexpectedResponse)
             }
         }

@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
-use warp_core::safe_warn;
 use warp_util::git::run_git_command;
 #[cfg(feature = "local_fs")]
 use warp_util::git::run_git_command_with_env;
@@ -887,10 +886,7 @@ async fn fetch_branch_list_with_main(
     branches.retain(|entry| seen.insert(entry.name.clone()));
 
     if branches.is_empty() {
-        safe_warn!(
-            safe: ("Code Review: get_all_branches returned empty list"),
-            full: ("Code Review: get_all_branches returned empty list for repo: {:?}", repo_path)
-        );
+        log::warn!("Code Review: get_all_branches returned empty list");
     }
 
     Ok(branches)

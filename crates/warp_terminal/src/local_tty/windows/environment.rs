@@ -3,7 +3,6 @@ use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
 use warp_core::channel::ChannelState;
-use warp_core::safe_info;
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::core::{HSTRING, PCWSTR};
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RegType};
@@ -232,10 +231,7 @@ fn add_local_machine_env(env: &mut BTreeMap<OsString, EnvEntry>) {
         .filter(|(name, _)| !name.eq_ignore_ascii_case("username"))
     {
         let Ok(value) = reg_value_to_string(&value, &name) else {
-            safe_info!(
-                safe: ("Unable to convert value for key {name:?}"),
-                full: ("Unable to convert value for key {name:?}: {:?}", value.bytes)
-            );
+            log::info!("Unable to convert value for key {name:?}");
             continue;
         };
         log::trace!("adding SYS env: {name:?} = {value:?}");
@@ -257,10 +253,7 @@ fn add_user_env(env: &mut BTreeMap<OsString, EnvEntry>) {
 
     for (name, value) in sys_env.enum_values().filter_map(Result::ok) {
         let Ok(value) = reg_value_to_string(&value, &name) else {
-            safe_info!(
-                safe: ("Unable to convert value for key {name:?}"),
-                full: ("Unable to convert value for key {name:?}: {:?}", value.bytes)
-            );
+            log::info!("Unable to convert value for key {name:?}");
             continue;
         };
         // Merge the user path into system instead of overwriting it.

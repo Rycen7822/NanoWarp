@@ -7,7 +7,7 @@ use remote_server::proto::OpenBufferSuccess;
 use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
 use warp_core::channel::ChannelState;
-use warp_core::{SessionId, safe_error};
+use warp_core::SessionId;
 use warp_files::{FileModel, FileModelEvent};
 use warp_util::content_version::ContentVersion;
 use warp_util::file::FileId;
@@ -1051,9 +1051,8 @@ impl ServerModel {
         );
 
         let Some(shell_type) = ShellType::from_name(&msg.shell_type) else {
-            safe_error!(
-                safe: ("Received unknown shell_type in SessionBootstrapped: shell_type={:?}", msg.shell_type),
-                full: ("Received unknown shell_type in SessionBootstrapped: shell_type={:?} session={session_id:?}", msg.shell_type)
+            log::error!(
+                "Received unknown shell_type in SessionBootstrapped: shell_type={:?}", msg.shell_type
             );
             return;
         };
@@ -1104,10 +1103,7 @@ impl ServerModel {
         };
 
         let Some(executor) = self.executors.get(&session_id).cloned() else {
-            safe_error!(
-                safe: ("No executor for RunCommand, session was never initialized"),
-                full: ("No executor for RunCommand, session was never initialized: session={session_id:?}")
-            );
+            log::error!("No executor for RunCommand, session was never initialized");
             return HandlerOutcome::Sync(server_message::Message::RunCommandResponse(
                 RunCommandResponse {
                     result: Some(run_command_response::Result::Error(RunCommandError {

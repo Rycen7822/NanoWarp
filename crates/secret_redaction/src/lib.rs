@@ -8,7 +8,6 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use regex_dfas::RegexDFAs;
 use string_offset::StringRange;
-use warp_core::safe_warn;
 
 /// The character used to replace each redacted character of a detected secret.
 pub const SECRET_REDACTION_REPLACEMENT_CHARACTER: &str = "*";
@@ -60,21 +59,15 @@ pub fn set_secret_regexes<'a>(user_secrets: impl IntoIterator<Item = &'a regex::
     // ones.
     let dfas = match RegexDFAs::new_many(&all_secrets, false, true) {
         Ok(dfas) => dfas,
-        Err(err) => {
-            safe_warn!(
-                safe: ("Failed to construct new RegexDFA with combined secrets"),
-                full: ("Failed to construct new RegexDFA with combined secrets: {err:#}")
-            );
+        Err(_) => {
+            log::warn!("Failed to construct new RegexDFA with combined secrets");
             return;
         }
     };
     let secrets_regex = match regex_automata::meta::Regex::new_many(&all_secrets) {
         Ok(regex) => SecretsRegex { regex, dfas },
-        Err(err) => {
-            safe_warn!(
-                safe: ("Failed to construct new Regex with combined secrets"),
-                full: ("Failed to construct new Regex with combined secrets: {err:#}")
-            );
+        Err(_) => {
+            log::warn!("Failed to construct new Regex with combined secrets");
             return;
         }
     };

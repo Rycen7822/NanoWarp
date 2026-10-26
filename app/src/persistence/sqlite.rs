@@ -44,7 +44,6 @@ use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::EnablementState;
 use crate::persistence::block_list::get_all_restored_blocks;
 use crate::persistence::model::CODE_REVIEW_PANE_KIND;
-use crate::safe_info;
 
 use crate::settings_view::SettingsSection;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
@@ -241,10 +240,7 @@ fn setup_database(database_path: &Path) -> Result<SqliteConnection> {
         .ok_or_else(|| anyhow!("Failed to convert db path to a string"))?;
     let mut conn = establish_connection(db_url, false)?;
 
-    safe_info!(
-        safe: ("Connecting to SQLite database"),
-        full: ("Connecting to SQLite database at {db_url}")
-    );
+    log::info!("Connecting to SQLite database");
     conn.run_pending_migrations(persistence::MIGRATIONS)
         .map_err(|e| anyhow!(e))
         .context("Failed to perform migrations")?;
@@ -420,25 +416,16 @@ fn report_db_error(err_kind: &str, err: anyhow::Error, database_path: &Path) {
                         // Windows does not have the same notion of permissions as Unix-based file systems.
                         // See more about what File Attributes contain [here](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants).
                         let attributes = metadata.file_attributes();
-                        safe_info!(
-                            safe: ("{prefix} attributes: {attributes}"),
-                            full: ("{prefix} {} attributes: {attributes}", path.display())
-                        );
+                        log::info!("{prefix} attributes: {attributes}");
                     } else {
                         use async_fs::unix::PermissionsExt;
                         let mode = metadata.permissions().mode();
-                        safe_info!(
-                            safe: ("{prefix} permissions: {mode:o}"),
-                            full: ("{prefix} {} permissions: {mode:o}", path.display())
-                        );
+                        log::info!("{prefix} permissions: {mode:o}");
                     }
                 }
             }
             Err(err) => {
-                safe_info!(
-                    safe: ("{prefix} is inaccessible: {err}"),
-                    full: ("{prefix} {} is inaccessible: {err}", path.display())
-                );
+                log::info!("{prefix} is inaccessible: {err}");
             }
         }
     }

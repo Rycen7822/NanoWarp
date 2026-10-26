@@ -13,7 +13,6 @@ use remote_server::manager::RemoteServerManager;
 use string_offset::{ByteOffset, CharOffset};
 use vec1::vec1;
 use warp_core::features::FeatureFlag;
-use warp_core::safe_error;
 use warp_editor::content::buffer::{Buffer, ToBufferCharOffset};
 use warp_editor::content::diff::{TextDiff, text_diff};
 use warp_editor::content::edit::PreciseDelta;
@@ -826,10 +825,7 @@ impl GlobalBufferModel {
             // content before persisting to disk.
             if let Some(batch) = pending_batch.take() {
                 let Some(client) = manager.as_ref(ctx).client_for_host(&host_id) else {
-                    safe_error!(
-                        safe: ("[remote-buffer] No remote server client at buffer save time"),
-                        full: ("[remote-buffer] No remote server client for save: host={host_id:?}")
-                    );
+                    log::error!("[remote-buffer] No remote server client at buffer save time");
                     return Err(FileSaveError::RemoteError(
                         "No remote server client available".to_string(),
                     ));
@@ -1778,10 +1774,7 @@ impl GlobalBufferModel {
     ) {
         let res = result.and_then(|res| {
             res.result.ok_or_else(|| {
-                safe_error!(
-                    safe: ("[remote-buffer] No result in OpenBuffer response"),
-                    full: ("[remote-buffer] No result in OpenBuffer response for file_id={file_id:?}")
-                );
+                log::error!("[remote-buffer] No result in OpenBuffer response");
                 "No result in OpenBuffer response".to_string()
             })
         });
@@ -1798,10 +1791,7 @@ impl GlobalBufferModel {
                     server_version,
                 );
                 let Some(state) = self.buffers.get_mut(&file_id) else {
-                    safe_error!(
-                        safe: ("[remote-buffer] Buffer state missing after OpenBuffer response"),
-                        full: ("[remote-buffer] Buffer state missing for file_id={file_id:?}")
-                    );
+                    log::error!("[remote-buffer] Buffer state missing after OpenBuffer response");
                     return;
                 };
                 if let BufferSource::Remote {
@@ -1818,9 +1808,8 @@ impl GlobalBufferModel {
                     }
                 }
                 let Some(buffer) = state.buffer.upgrade(ctx) else {
-                    safe_error!(
-                        safe: ("[remote-buffer] Buffer handle deallocated before OpenBuffer response"),
-                        full: ("[remote-buffer] Buffer handle deallocated for file_id={file_id:?}")
+                    log::error!(
+                        "[remote-buffer] Buffer handle deallocated before OpenBuffer response"
                     );
                     return;
                 };
@@ -2201,10 +2190,7 @@ impl GlobalBufferModel {
         log::debug!("[remote-buffer] BufferConflictDetected: host={host_id} path={path}");
 
         let Some(file_id) = self.find_remote_file_id(host_id, path) else {
-            safe_error!(
-                safe: ("[remote-buffer] BufferConflictDetected for unknown buffer"),
-                full: ("[remote-buffer] BufferConflictDetected for unknown buffer: {path}")
-            );
+            log::error!("[remote-buffer] BufferConflictDetected for unknown buffer");
             return;
         };
 
@@ -2241,10 +2227,7 @@ impl GlobalBufferModel {
         );
 
         let Some(file_id) = self.find_remote_file_id(host_id, path) else {
-            safe_error!(
-                safe: ("[remote-buffer] BufferUpdatedPush for unknown remote buffer"),
-                full: ("[remote-buffer] BufferUpdatedPush for unknown remote buffer: {path}")
-            );
+            log::error!("[remote-buffer] BufferUpdatedPush for unknown remote buffer");
             return;
         };
 
