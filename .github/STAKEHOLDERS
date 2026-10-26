@@ -21,7 +21,6 @@
 /app/src/drive/ @seemeroland
 /app/src/cloud_object/ @seemeroland
 /app/src/workflows/ @seemeroland
-/app/src/server/cloud_objects/ @seemeroland
 /app/src/terminal/find/ @seemeroland
 /app/src/uri/ @seemeroland
 
@@ -172,7 +171,6 @@
 
 # REST API and SDKs
 /app/src/server/server_api/ @ianhodge
-/crates/graphql/ @ianhodge
 /crates/http_client/ @ianhodge
 /crates/http_server/ @ianhodge
 /crates/warp_server_client/ @ianhodge
@@ -222,7 +220,6 @@
 # Agent SDK and platform crates
 /app/src/ai/agent_sdk/ @bnavetta @ianhodge
 /crates/isolation_platform/ @bnavetta @ianhodge
-/crates/managed_secrets/ @bnavetta @ianhodge
 /crates/warp_web_event_bus/ @bnavetta @ianhodge
 
 
