@@ -181,7 +181,6 @@ nix = { version = "0.26.4", default-features = false, features = ["signal"] }
 notify-debouncer-full = { git = "https://github.com/warpdotdev/notify", rev = "91b719849bc04ef251bcb2cc61076b099204e970" }
 nom = "7.1.1"
 num-traits = "0.2"
-oauth2 = { version = "5.0.0", default-features = false }
 openh264 = "0.8"
 static_assertions = "1.1.0"
 url = "2.5.4"

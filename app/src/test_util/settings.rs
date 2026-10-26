@@ -2,12 +2,6 @@
 use warpui::App;
 
 #[cfg(test)]
-pub fn initialize_settings_for_tests(app: &mut App) {
-    use warp_core::execution_mode::ExecutionMode;
-    initialize_settings_for_tests_with_mode(app, ExecutionMode::App, false);
-}
-
-#[cfg(test)]
 pub fn initialize_history_persistence_for_tests(app: &mut App) {
     use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
@@ -18,12 +12,8 @@ pub fn initialize_history_persistence_for_tests(app: &mut App) {
 }
 
 #[cfg(test)]
-pub fn initialize_settings_for_tests_with_mode(
-    app: &mut App,
-    mode: warp_core::execution_mode::ExecutionMode,
-    is_sandboxed: bool,
-) {
-    use warp_core::execution_mode::AppExecutionMode;
+pub fn initialize_settings_for_tests(app: &mut App) {
+    use warp_core::execution_mode::{AppExecutionMode, ExecutionMode};
     use warp_core::semantic_selection::SemanticSelection;
 
     use crate::settings::app_icon::AppIconSettings;
@@ -47,7 +37,7 @@ pub fn initialize_settings_for_tests_with_mode(
     use crate::user_config::WarpConfig;
     use crate::window_settings::WindowSettings;
     use crate::workspace::tab_settings::TabSettings;
-    app.add_singleton_model(|ctx| AppExecutionMode::new(mode, is_sandboxed, ctx));
+    app.add_singleton_model(|ctx| AppExecutionMode::new(ExecutionMode::App, ctx));
 
     app.update(init_and_register_user_preferences);
     app.add_singleton_model(|_ctx| SettingsManager::default());
