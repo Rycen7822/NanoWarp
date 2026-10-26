@@ -39,7 +39,6 @@ use warpui::{
     AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, WindowId,
 };
 
-use super::NotebookWorkflow;
 use super::interaction_state_model::InteractionStateModel;
 use super::notebook_command::NotebookCommand;
 use crate::editor::InteractionState;
@@ -1348,7 +1347,7 @@ impl NotebooksEditorModel {
 
         if let Some(command) = child_model.as_ref(ctx).command(ctx) {
             ctx.emit_a11y_content(AccessibilityContent::new_without_help(
-                format!("Selected workflow: {command}"),
+                format!("Selected command: {command}"),
                 WarpA11yRole::TextareaRole,
             ));
         }
@@ -1500,15 +1499,6 @@ impl NotebooksEditorModel {
                 _ => None,
             }
         })
-    }
-
-    /// The currently-selected command block, as a [`NotebookWorkflow`]
-    pub fn selected_command_workflow(&self, app: &AppContext) -> Option<NotebookWorkflow> {
-        // TODO(ben): Support executing multiple commands. It's TBD how we'll queue them up.
-        self.selected_commands(app)
-            .exactly_one()
-            .ok()
-            .and_then(|(_, command)| command.as_ref(app).to_workflow(app))
     }
 
     /// The range of the currently-selected command.

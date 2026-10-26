@@ -63,7 +63,6 @@ use crate::util::openable_file_type::FileTarget;
 pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
-use crate::workflows::Workflow;
 use crate::workspace::ActiveSession;
 use crate::{cmd_or_ctrl_shift, safe_warn};
 
@@ -104,9 +103,6 @@ pub struct FileNotebookView {
 
 #[derive(Debug, Clone)]
 pub enum FileNotebookEvent {
-    RunWorkflow {
-        workflow: Arc<Workflow>,
-    },
     TitleUpdated,
     FileLoaded,
     Pane(PaneEvent),
@@ -771,16 +767,6 @@ impl FileNotebookView {
     ) {
         match event {
             EditorViewEvent::Focused => ctx.emit(FileNotebookEvent::Pane(PaneEvent::FocusSelf)),
-            EditorViewEvent::RunWorkflow(workflow) => {
-                let workflow_type = workflow.named_workflow(|| {
-                    self.location
-                        .as_ref()
-                        .map(|location| format!("Command from {}", location.name))
-                });
-                ctx.emit(FileNotebookEvent::RunWorkflow {
-                    workflow: workflow_type,
-                });
-            }
             EditorViewEvent::Navigate(_)
             | EditorViewEvent::Edited
             | EditorViewEvent::CmdEnter

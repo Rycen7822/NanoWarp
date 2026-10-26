@@ -107,8 +107,7 @@ use super::tab_settings::{
     VerticalTabsDisplayGranularity, WorkspaceDecorationVisibility,
 };
 use super::util::{
-    PaneViewLocator, TabMovement, TerminalSessionFallbackBehavior, WelcomeTipsViewState,
-    WorkspaceMouseStates, WorkspaceState,
+    PaneViewLocator, TabMovement, WelcomeTipsViewState, WorkspaceMouseStates, WorkspaceState,
 };
 use super::{ActiveSession, TabBarDropTargetData, TabBarLocation, WorkspaceRegistry, util};
 use crate::GlobalResourceHandles;
@@ -260,7 +259,6 @@ use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink}
 #[cfg(target_family = "wasm")]
 use crate::wasm_nux_dialog::WasmNUXDialog;
 use crate::window_settings::{WindowSettings, WindowSettingsChangedEvent, ZoomLevel};
-use crate::workflows::Workflow;
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::cross_window_tab_drag::{
     AttachTarget, CrossWindowTabDrag, DragResult, DropResult, GhostState,
@@ -7153,20 +7151,6 @@ impl Workspace {
         }
     }
 
-    fn is_input_box_visible(&self, app: &AppContext) -> bool {
-        match (
-            self.get_active_session_terminal_model(app),
-            self.active_tab_pane_group()
-                .as_ref(app)
-                .active_session_view(app),
-        ) {
-            (Some(terminal_model), Some(terminal_view)) => terminal_view.read(app, |view, ctx| {
-                view.is_input_box_visible(&terminal_model.lock(), ctx)
-            }),
-            _ => false,
-        }
-    }
-
     fn handle_theme_creator_modal_event(
         &mut self,
         event: &ThemeCreatorModalEvent,
@@ -9240,17 +9224,6 @@ impl Workspace {
             pane_group::Event::ToggleCodeReviewPane(_) => {
                 self.toggle_right_panel(&pane_group, ctx);
             }
-            pane_group::Event::RunWorkflow {
-                workflow,
-                argument_override,
-            } => {
-                self.run_workflow_in_active_input(
-                    workflow,
-                    argument_override.clone(),
-                    TerminalSessionFallbackBehavior::default(),
-                    ctx,
-                );
-            }
             pane_group::Event::MaximizePaneToggled => {
                 ctx.notify();
             }
@@ -10144,69 +10117,6 @@ impl Workspace {
         }
     }
 
-    /// Focus and return the active terminal input. If there is no active terminal input (either
-    /// because a command is running or because there are no terminal panes), this may create a new
-    /// terminal pane according to the [`UnavailableTerminalBehavior`].
-    fn focus_terminal_input(
-        &mut self,
-        fallback_behavior: TerminalSessionFallbackBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<ViewHandle<TerminalView>> {
-        let active_pane_group = self.active_tab_pane_group();
-
-        // If there's an active terminal session and it's not busy, return it.
-        // If there is no terminal session open, add a terminal pane to the right and return the new terminal view handle.
-        let terminal_view_handle = active_pane_group
-            .as_ref(ctx)
-            .active_session_view(ctx)
-            .unwrap_or_else(|| {
-                let active_pane_group = self.active_tab_pane_group();
-                active_pane_group.update(ctx, |pane_group, ctx| {
-                    pane_group.add_terminal_pane(Direction::Right, None /*chosen_shell*/, ctx);
-                });
-                active_pane_group
-                    .as_ref(ctx)
-                    .active_session_view(ctx)
-                    .unwrap()
-            });
-
-        if self.is_input_box_visible(ctx) {
-            active_pane_group.update(ctx, |pane_group, ctx| pane_group.focus_active_session(ctx));
-            return Some(terminal_view_handle);
-        } else if fallback_behavior != TerminalSessionFallbackBehavior::OpenIfNeeded {
-            // The active terminal exists but is busy, and the fallback behavior is
-            // RequireExisting or OpenIfNone. In those cases, show a toast and no-op.
-            self.toast_stack.update(ctx, |toast_stack, ctx| {
-                let toast = DismissibleToast::error(
-                    "A command in this session is still running.".to_string(),
-                );
-                toast_stack.add_ephemeral_toast(toast, ctx);
-            });
-            return None;
-        }
-
-        // There's no available session and we were asked not to create one.
-        if fallback_behavior == TerminalSessionFallbackBehavior::RequireExisting {
-            return None;
-        }
-
-        // Either:
-        // * There's no active session
-        // * The active session is busy but the fallback behavior is OpenIfNeeded
-        // In this case, open a new terminal pane to the right.
-
-        if !ContextFlag::CreateNewSession.is_enabled() {
-            self.toast_stack.update(ctx, |toast_stack, ctx| {
-                let toast =
-                    DismissibleToast::error("Cannot open a new terminal session".to_string());
-                toast_stack.add_ephemeral_toast(toast, ctx);
-            });
-            return None;
-        }
-
-        active_pane_group.as_ref(ctx).active_session_view(ctx)
-    }
-
     /// Opens the LSP log file in a new terminal pane using `tail -f`.
     fn open_lsp_logs(&mut self, log_path: &PathBuf, ctx: &mut ViewContext<Self>) {
         use warp_util::path::tail_command_for_shell;
@@ -10229,29 +10139,6 @@ impl Workspace {
             let tail_command = tail_command_for_shell(shell_family, log_path);
             terminal.set_pending_command(&tail_command, ctx);
         });
-    }
-
-    /// Runs a workflow in whichever terminal input is currently active.
-    /// No-ops if the active session is long-running.
-    fn run_workflow_in_active_input(
-        &mut self,
-        workflow: &Workflow,
-        argument_override: Option<HashMap<String, String>>,
-        fallback_behavior: TerminalSessionFallbackBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Some(terminal_view_handle) = self.focus_terminal_input(fallback_behavior, ctx) {
-            let terminal_input =
-                terminal_view_handle.read(ctx, |terminal_view, _| terminal_view.input().clone());
-            terminal_input.update(ctx, |input, ctx| {
-                input.show_workflows_info_box_on_workflow_selection(
-                    workflow.clone(),
-                    argument_override,
-                    ctx,
-                );
-                ctx.notify();
-            });
-        }
     }
 
     /// Inserts given command into active Input Editor, optionally replacing the current buffer. No-ops if
@@ -14482,15 +14369,6 @@ impl TypedActionView for Workspace {
             NewCodeFile => {
                 self.add_tab_for_new_code_file(ctx);
             }
-            RunWorkflow {
-                workflow,
-                argument_override,
-            } => self.run_workflow_in_active_input(
-                workflow,
-                argument_override.clone(),
-                TerminalSessionFallbackBehavior::default(),
-                ctx,
-            ),
             #[cfg(feature = "local_fs")]
             FileRenamed { old_path, new_path } => {
                 self.rename_tabs_with_file_path(old_path, new_path, ctx);

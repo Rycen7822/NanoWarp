@@ -220,20 +220,6 @@ pub enum TabMovement {
     Right,
 }
 
-/// Fallback behavior for when a terminal input is needed, but none are available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TerminalSessionFallbackBehavior {
-    /// Never open a new terminal session; fail if there is not an active session with no running
-    /// command.
-    RequireExisting,
-    /// Open a new terminal session if and only if there is no active session. If the active
-    /// session is busy, fail.
-    #[default]
-    OpenIfNone,
-    /// Open a new terminal session if there is active session OR if the active session is busy.
-    OpenIfNeeded,
-}
-
 /// Given a [`WindowId`], see if its [`Workspace`] contains an active [`TerminalView`] and return
 /// that.
 ///

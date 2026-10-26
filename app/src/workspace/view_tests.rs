@@ -25,7 +25,6 @@ use crate::editor::Event;
 use crate::gpu_state::GPUState;
 use crate::menu::MenuAction;
 use crate::network::NetworkStatus;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::pane_group::{Direction, PaneGroupAction, PaneId};
 use crate::settings::PrivacySettings;
 use crate::settings_view::DisplayCount;
@@ -63,7 +62,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| ActiveSession::default());
     app.add_singleton_model(|_| WorkspaceToastStack);
-    app.add_singleton_model(NotebookKeybindings::new);
     app.add_singleton_model(|_| SettingsPaneManager::new());
 
     app.add_singleton_model(|_| DetectedRepositories::default());

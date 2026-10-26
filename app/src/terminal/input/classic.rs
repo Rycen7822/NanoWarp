@@ -12,7 +12,7 @@ use crate::settings::InputModeSettings;
 use crate::terminal::block_list_settings::BlockListSettings;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::input::common::{
-    add_command_xray_overlay, add_input_suggestions_overlays, add_workflow_info_overlay,
+    add_command_xray_overlay, add_input_suggestions_overlays,
     wrap_input_with_terminal_padding_and_focus_handler,
 };
 use crate::terminal::input::{InputDropTargetData, get_input_box_top_border_width};
@@ -135,17 +135,6 @@ impl Input {
             column.finish(),
             false, // legacy uses full padding
         ));
-
-        if let Some(selected_workflow_state) = self.workflows_state.selected_workflow_state.as_ref()
-            && selected_workflow_state.should_show_more_info_view
-        {
-            add_workflow_info_overlay(
-                &mut stack,
-                selected_workflow_state,
-                self.size_info(app).pane_height_px().as_f32(),
-                menu_positioning,
-            );
-        }
 
         if self.is_pane_focused(app) {
             add_input_suggestions_overlays(self, &mut stack, appearance, menu_positioning, app);

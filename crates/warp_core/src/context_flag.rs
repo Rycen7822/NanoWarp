@@ -20,7 +20,6 @@ pub enum ContextFlag {
     ForceSidePanelOpen,
     HideOpenOnDesktopButton,
     NetworkLogConsole,
-    RunWorkflow,
     LaunchConfigurations,
     WarpEssentials,
     AllowSettingsModalToClose,
@@ -57,7 +56,6 @@ impl ContextFlag {
     pub fn set_warp_home_link_only() {
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::RunWorkflow);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::WarpEssentials);
@@ -67,7 +65,6 @@ impl ContextFlag {
     pub fn set_settings_link_only() {
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::RunWorkflow);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::WarpEssentials);
@@ -88,7 +85,6 @@ impl FromStr for ContextFlag {
             "ForceSidePanelOpen" => Ok(Self::ForceSidePanelOpen),
             "HideOpenOnDesktopButton" => Ok(Self::HideOpenOnDesktopButton),
             "NetworkLogConsole" => Ok(Self::NetworkLogConsole),
-            "RunWorkflow" => Ok(Self::RunWorkflow),
             "LaunchConfigurations" => Ok(Self::LaunchConfigurations),
             "WarpEssentials" => Ok(Self::WarpEssentials),
             _ => Err(()),

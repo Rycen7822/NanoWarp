@@ -17,7 +17,6 @@ use super::*;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::network::NetworkStatus;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::resource_center::TipsCompleted;
 use crate::search::files::model::FileSearchModel;
 
@@ -58,7 +57,6 @@ fn initialize_app(app: &mut App) {
     let global_resources = GlobalResourceHandles::mock(app);
     app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resources.clone()));
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
-    app.add_singleton_model(NotebookKeybindings::new);
 
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);

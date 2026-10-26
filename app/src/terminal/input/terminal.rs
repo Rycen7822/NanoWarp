@@ -5,7 +5,7 @@ use warpui::elements::{
 use warpui::{AppContext, SingletonEntity};
 
 use super::common::{
-    add_command_xray_overlay, add_input_suggestions_overlays, add_workflow_info_overlay,
+    add_command_xray_overlay, add_input_suggestions_overlays,
     wrap_input_with_terminal_padding_and_focus_handler,
 };
 use super::{Input, InputDropTargetData};
@@ -59,17 +59,6 @@ impl Input {
             column.finish(),
             false,
         ));
-
-        if let Some(selected_workflow_state) = self.workflows_state.selected_workflow_state.as_ref()
-            && selected_workflow_state.should_show_more_info_view
-        {
-            add_workflow_info_overlay(
-                &mut stack,
-                selected_workflow_state,
-                self.size_info(app).pane_height_px().as_f32(),
-                menu_positioning,
-            );
-        }
 
         let is_focused = self.focus_handle.as_ref().is_none_or(|h| h.is_focused(app));
 

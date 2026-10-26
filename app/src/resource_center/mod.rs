@@ -89,11 +89,6 @@ pub enum TipAction {
     // This toggles Warp Drive rather than opening it. This enum can't directly be
     // renamed because we serialize it into the welcome tips.
     OpenWarpDrive,
-    // Note that this item has been deprecated from the UI and is not in any section.
-    // We are leaving it in this enum to ensure that we don't re-use `Workflows` as a
-    // value. Since old clients will have this value in their user defaults, we want
-    // to prevent future usage of this enum value.
-    Workflows,
 }
 
 impl TipAction {
@@ -106,7 +101,6 @@ impl TipAction {
             TipAction::ThemePicker => "workspace:show_theme_chooser",
             TipAction::SaveNewLaunchConfig => "workspace:open_launch_config_save_modal",
             TipAction::OpenWarpDrive => "workspace:toggle_left_panel",
-            TipAction::Workflows => "input:toggle_workflows",
         }
     }
 

@@ -25,7 +25,6 @@ use super::{EditorViewAction, LayoutAffectingAssetLoad, RichTextEditorConfig, Ri
 use crate::appearance::Appearance;
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::editor::link_editor::LinkEditorAction;
 use crate::notebooks::editor::model::NotebooksEditorModel;
 use crate::notebooks::editor::rich_text_styles;
@@ -82,7 +81,6 @@ fn initialize_editor(
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(repo_metadata::RepoMetadataModel::new);
     app.add_singleton_model(FileSearchModel::new);
-    app.add_singleton_model(NotebookKeybindings::new);
 
     let (window, test_view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
         let window_id = ctx.window_id();
@@ -761,63 +759,6 @@ fn test_cmd_click_missing_markdown_anchor_falls_back_to_link_resolution() {
             events.lock().clone()
         );
     });
-}
-#[test]
-fn test_run_command_from_text_selection() {
-    // This tests that, starting from a text selection, we can still run a command.
-    App::test((), |mut app| async move {
-        let (_, editor_view, _) = initialize_editor(&mut app);
-        let (tx, has_layout) = futures::channel::oneshot::channel();
-        app.update(|ctx| {
-            let mut tx = Some(tx);
-            let render_state = editor_view
-                .as_ref(ctx)
-                .model
-                .as_ref(ctx)
-                .render_state()
-                .clone();
-            ctx.subscribe_to_model(&render_state, move |_, event, _ctx| {
-                if let RenderEvent::LayoutUpdated = event
-                    && let Some(tx) = tx.take()
-                {
-                    tx.send(()).unwrap();
-                }
-            });
-        });
-
-        editor_view.update(&mut app, |editor, ctx| {
-            editor.reset_with_markdown("Text\n```\necho hi\n```\n```\necho hello\n```", ctx);
-        });
-        has_layout.await.expect("Model was not laid out");
-
-        editor_view.update(&mut app, |editor, ctx| {
-            // Simulate cmd-enter in a non-text block, which should be a no-op.
-            editor.selection_start(3.into(), false, ctx);
-            editor.run_selected_commands(ctx);
-            assert!(!editor.model.as_ref(ctx).has_command_selection(ctx));
-
-            // If the cursor is in a command block, cmd-enter should auto-select it.
-            editor.selection_start(8.into(), false, ctx);
-            editor.run_selected_commands(ctx);
-            let selected_command = editor
-                .model
-                .as_ref(ctx)
-                .selected_command_workflow(ctx)
-                .unwrap();
-            assert_eq!(selected_command.workflow.command(), "echo hi");
-
-            // If the text cursor was in one command block, but another is selected, cmd-enter
-            // should run the selected command.
-            editor.command_down(ctx);
-            editor.run_selected_commands(ctx);
-            let selected_command = editor
-                .model
-                .as_ref(ctx)
-                .selected_command_workflow(ctx)
-                .unwrap();
-            assert_eq!(selected_command.workflow.command(), "echo hello");
-        });
-    })
 }
 
 #[test]

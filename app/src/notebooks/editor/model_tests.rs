@@ -31,7 +31,6 @@ use super::super::rich_text_styles;
 use super::NotebooksEditorModel;
 use crate::appearance::Appearance;
 use crate::editor::InteractionState;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::editor::model::DEBOUNCED_RESIZE_PERIOD;
 use crate::notebooks::editor::notebook_command::NotebookCommand;
 use crate::notebooks::editor::view::{RichTextEditorConfig, RichTextEditorView};
@@ -91,7 +90,6 @@ fn setup_editor_window(app: &mut App) -> warpui::WindowId {
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(repo_metadata::RepoMetadataModel::new);
     app.add_singleton_model(FileSearchModel::new);
-    app.add_singleton_model(NotebookKeybindings::new);
 
     let (window, _) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
         let window_id = ctx.window_id();

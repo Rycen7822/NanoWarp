@@ -123,7 +123,6 @@ pub use util::bindings::cmd_or_ctrl_shift;
 use watcher::HomeDirectoryWatcher;
 
 use crate::uri::web_intent_parser::maybe_rewrite_web_url_to_intent;
-pub mod workflows;
 pub mod workspace;
 
 use std::borrow::Cow;
@@ -172,7 +171,6 @@ use crate::default_terminal::DefaultTerminal;
 pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::palette::PaletteSource;
@@ -1040,7 +1038,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(|_| CodeManager::default());
     ctx.add_singleton_model(|_| OpenedFilesModel::new());
-    ctx.add_singleton_model(NotebookKeybindings::new);
     ctx.add_singleton_model(|_| ActiveSession::default());
 
     #[cfg(all(not(target_family = "wasm"), feature = "local_tty"))]

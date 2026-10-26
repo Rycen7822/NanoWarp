@@ -81,12 +81,6 @@ impl PaneContent for FilePane {
         ctx.subscribe_to_view(
             &self.file_view(ctx),
             move |pane_group, _, event, ctx| match event {
-                FileNotebookEvent::RunWorkflow { workflow } => {
-                    ctx.emit(crate::pane_group::Event::RunWorkflow {
-                        workflow: workflow.clone(),
-                        argument_override: None,
-                    });
-                }
                 FileNotebookEvent::TitleUpdated => {
                     ctx.emit(crate::pane_group::Event::PaneTitleUpdated)
                 }

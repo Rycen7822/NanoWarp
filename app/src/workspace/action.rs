@@ -1,7 +1,5 @@
 use crate::palette::PaletteSource;
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use ui_components::lightbox;
 use warp_util::path::LineAndColumnArg;
@@ -25,7 +23,6 @@ use crate::tab_configs::TabConfig;
 use crate::terminal::available_shells::AvailableShell;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::themes::theme_chooser::ThemeChooserMode;
-use crate::workflows::Workflow;
 use crate::workspace::PaneViewLocator;
 use crate::workspace::tab_group::TabGroupId;
 
@@ -393,10 +390,6 @@ pub enum WorkspaceAction {
         full_path: PathBuf,
         line_and_column: Option<LineAndColumnArg>,
     },
-    RunWorkflow {
-        workflow: Arc<Workflow>,
-        argument_override: Option<HashMap<String, String>>,
-    },
     ScrollToSettingsWidget {
         page: SettingsSection,
         widget_id: &'static str,
@@ -561,7 +554,6 @@ impl WorkspaceAction {
             | AddWindowWithShell { .. }
             | CloseWindow
             | ScrollToSettingsWidget { .. }
-            | RunWorkflow { .. }
             | OpenFileInNewTab { .. }
             | NewCodeFile
             | OpenRepository { .. }

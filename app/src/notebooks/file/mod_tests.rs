@@ -22,7 +22,6 @@ use super::{
     TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING,
 };
 use crate::notebooks::context_menu::MenuSource;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::file::is_markdown_file;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusState};
 use crate::pane_group::{BackingView as _, PaneId};
@@ -47,7 +46,6 @@ fn init_app(app: &mut App) {
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(FileModel::new);
-    app.add_singleton_model(NotebookKeybindings::new);
 }
 
 #[test]

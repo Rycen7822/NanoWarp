@@ -1,7 +1,5 @@
 //! Rich-text notebooks editor.
 
-use std::sync::Arc;
-
 use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
 use pathfinder_color::ColorU;
 use warp_core::ui::builder::CHECK_SVG_PATH;
@@ -13,7 +11,6 @@ use warp_editor::render::model::{
     BrokenLinkStyle, CheckBoxStyle, HorizontalRuleStyle, InlineCodeStyle, ParagraphStyles,
     RichTextStyles, TableStyle,
 };
-use warp_util::user_input::UserInput;
 use warpui::elements::{Border, ListIndentLevel};
 use warpui::fonts::FamilyId;
 use warpui::ui_components::checkbox::HOVER_BACKGROUND_COLOR;
@@ -23,9 +20,7 @@ use crate::settings::{FontSettings, derived_notebook_font_size};
 use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use crate::workflows::Workflow;
 
-mod arguments;
 mod block_insertion_menu;
 mod find_bar;
 mod interaction_state_model;
@@ -311,31 +306,6 @@ impl<'a> From<&'a BufferBlockStyle> for BlockType {
             BufferBlockStyle::OrderedList { .. } => BlockType::OrderedList,
             BufferBlockStyle::TaskList { .. } => BlockType::TaskList,
             BufferBlockStyle::Table { .. } => BlockType::Text,
-        }
-    }
-}
-
-/// Wrapper around the shared [`Workflow`] type with additional context for workflows contained
-/// within a notebook.
-///
-/// A command block that's part of the notebook text.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NotebookWorkflow {
-    /// Definition of the workflow itself.
-    pub workflow: UserInput<Arc<Workflow>>,
-}
-
-impl NotebookWorkflow {
-    /// Assign the containing notebook's name to an anonymous command.
-    pub fn named_workflow<F: FnOnce() -> Option<String>>(&self, name: F) -> Arc<Workflow> {
-        if self.workflow.name().is_empty()
-            && let Some(name) = name()
-        {
-            let mut workflow = (**self.workflow).clone();
-            workflow.set_name(&name);
-            Arc::new(workflow)
-        } else {
-            (*self.workflow).clone()
         }
     }
 }

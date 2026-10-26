@@ -49,11 +49,10 @@ use warpui::{
 
 use super::block_insertion_menu::{BlockInsertionMenuState, BlockInsertionSource};
 use super::find_bar::{FindBar, FindBarEvent, FindBarState};
-use super::keys::NotebookKeybindings;
 use super::link_editor::{LinkEditor, LinkEditorEvent};
 use super::model::{NotebooksEditorModel, RichTextEditorModelEvent};
 use super::omnibar::{Omnibar, OmnibarEvent};
-use super::{BlockType, NotebookWorkflow, rich_text_styles};
+use super::{BlockType, rich_text_styles};
 use crate::appearance::Appearance;
 use crate::cmd_or_ctrl_shift;
 use crate::editor::InteractionState;
@@ -306,9 +305,7 @@ pub fn init(app: &mut AppContext) {
             EditorViewAction::SelectCommandAtCursor,
         )
         .with_context_predicate(
-            id!("RichTextEditorView")
-                & !id!("HasCommandSelection")
-                & id!("CanExecuteShellCommands"),
+            id!("RichTextEditorView") & !id!("HasCommandSelection") & !id!("CommentEditorMode"),
         )
         .with_key_binding("escape"),
         EditableBinding::new(
@@ -325,29 +322,20 @@ pub fn init(app: &mut AppContext) {
         )
         .with_context_predicate(id!("RichTextEditorView"))
         .with_key_binding("cmdorctrl-down"),
-        EditableBinding::new(
-            "editor_view:run_commands",
-            "Run selected commands",
-            EditorViewAction::RunSelectedCommands,
-        )
-        .with_context_predicate(id!("RichTextEditorView") & id!("CanExecuteShellCommands"))
-        .with_key_binding("cmdorctrl-enter"),
     ]);
 
-    // When shell command execution is disabled (e.g., comment editors),
-    // Cmd/Ctrl+Enter emits CmdEnter instead of running commands.
+    // Let comment editors submit their content with Cmd/Ctrl+Enter.
     app.register_fixed_bindings([FixedBinding::new(
         "cmdorctrl-enter",
         EditorViewAction::CmdEnter,
-        id!("RichTextEditorView") & !id!("CanExecuteShellCommands"),
+        id!("RichTextEditorView") & id!("CommentEditorMode"),
     )]);
 
-    // When shell command execution is disabled (e.g., comment editors),
-    // ExitCommandSelection emits EscapePressed so parent views can dismiss.
+    // Let parent comment views dismiss the editor when no command is selected.
     app.register_fixed_bindings([FixedBinding::new(
         "escape",
         EditorViewAction::ExitCommandSelection,
-        id!("RichTextEditorView") & !id!("CanExecuteShellCommands") & !id!("HasCommandSelection"),
+        id!("RichTextEditorView") & id!("CommentEditorMode") & !id!("HasCommandSelection"),
     )]);
 
     app.register_fixed_bindings([FixedBinding::new(
@@ -835,15 +823,10 @@ pub enum EditorViewAction {
     ShiftTab,
     CommandUp,
     CommandDown,
-    /// Run the selected command blocks in the attached terminal session.
-    RunSelectedCommands,
     /// Exits command selection and switches back to text selection.
     ExitCommandSelection,
     /// Selects the command at the text cursor.
     SelectCommandAtCursor,
-    /// Signal from a [`NotebookCommand`] to run a command.
-    RunWorkflow(NotebookWorkflow),
-    /// Signal from [`NotebookCommand`] to open a workflow.
     /// Signal from [`NotebookCommand`] that a new code block type has been selected.
     CodeBlockTypeSelectedAtOffset {
         start_anchor: Anchor,
@@ -934,13 +917,9 @@ pub enum EditorViewEvent {
         line_and_column_num: Option<LineAndColumnArg>,
         force_open_in_warp: bool,
     },
-    /// Emitted when the user runs a notebook workflow. The parent `NotebookView` is responsible
-    /// for sending it to the active terminal.
-    RunWorkflow(NotebookWorkflow),
     /// The text selection changed (cursor moved, selection extended, etc.).
     TextSelectionChanged,
-    /// Escape was pressed (emitted when shell command execution is disabled,
-    /// e.g. in comment editors).
+    /// Escape was pressed in a comment editor with no command selected.
     EscapePressed,
 }
 
@@ -1030,9 +1009,8 @@ pub struct RichTextEditorView {
     gutter_width: f32,
     vertical_expansion_behavior: VerticalExpansionBehavior,
 
-    /// When true, Cmd/Ctrl+Enter runs selected shell commands.
-    /// When false, Cmd/Ctrl+Enter emits a CmdEnter event instead (used by comment editors to submit).
-    can_execute_shell_commands: bool,
+    /// Comment editors use Cmd/Ctrl+Enter to submit and Escape to dismiss.
+    is_comment_editor: bool,
 
     /// When true, the editor content is not wrapped in a Scrollable, allowing scroll events
     /// to propagate to the parent. Used for embedded editors like comment chips.
@@ -1048,10 +1026,8 @@ pub struct RichTextEditorConfig {
     pub gutter_width: Option<f32>,
     pub vertical_expansion_behavior: Option<VerticalExpansionBehavior>,
 
-    /// Configure whether this editor can execute shell commands via Cmd/Ctrl+Enter.
-    /// When disabled, Cmd/Ctrl+Enter emits a CmdEnter event instead, allowing parent views
-    /// (like comment editors) to handle it for submitting comments.
-    pub can_execute_shell_commands: Option<bool>,
+    /// Use comment submission and dismissal keybindings in an embedded editor.
+    pub is_comment_editor: Option<bool>,
 
     /// When true, the editor content is not wrapped in a Scrollable, allowing scroll events
     /// to propagate to the parent. Used for embedded editors like comment chips.
@@ -1084,9 +1060,6 @@ impl RichTextEditorView {
             &FallbackFontModel::handle(ctx),
             Self::handle_fallback_font_event,
         );
-
-        // Re-render tooltips that include notebook-specific keybindings.
-        ctx.observe(&NotebookKeybindings::handle(ctx), |_, _, ctx| ctx.notify());
 
         ctx.subscribe_to_model(
             &WindowManager::handle(ctx),
@@ -1140,7 +1113,7 @@ impl RichTextEditorView {
             has_focus_within: false,
             gutter_width: config.gutter_width.unwrap_or(GUTTER_WIDTH),
             vertical_expansion_behavior: config.vertical_expansion_behavior.unwrap_or_default(),
-            can_execute_shell_commands: config.can_execute_shell_commands.unwrap_or(true),
+            is_comment_editor: config.is_comment_editor.unwrap_or(false),
             disable_scrolling: config.disable_scrolling,
             disable_block_insertion_menu: config.disable_block_insertion_menu,
         }
@@ -1838,7 +1811,7 @@ impl RichTextEditorView {
     }
 
     /// Select a block by its starting offset. Currently, block-level selection only applies to
-    /// workflow/command blocks.
+    /// code blocks.
     fn select_block(&mut self, block_start: CharOffset, ctx: &mut ViewContext<Self>) {
         self.focus(ctx);
         self.model
@@ -2210,23 +2183,6 @@ impl RichTextEditorView {
         }
 
         ctx.notify();
-    }
-
-    /// Run the currently-selected command blocks.
-    ///
-    /// If there is no selected command, but the text cursor is inside a command block, that
-    /// command will be selected first.
-    fn run_selected_commands(&self, ctx: &mut ViewContext<Self>) {
-        let workflow = self.model.update(ctx, |model, ctx| {
-            if !model.has_command_selection(ctx) {
-                model.select_command_at_cursor(ctx);
-            }
-            model.selected_command_workflow(ctx)
-        });
-
-        if let Some(workflow) = workflow {
-            ctx.emit(EditorViewEvent::RunWorkflow(workflow))
-        }
     }
 
     /// Render tooltip shown when user clicks on a link in the notebook.
@@ -2702,8 +2658,8 @@ impl View for RichTextEditorView {
             context.set.insert("HasCommandSelection");
         }
 
-        if self.can_execute_shell_commands {
-            context.set.insert("CanExecuteShellCommands");
+        if self.is_comment_editor {
+            context.set.insert("CommentEditorMode");
         }
 
         context
@@ -2965,7 +2921,6 @@ impl TypedActionView for RichTextEditorView {
             InsertBlock(block_type) => self.insert_block(block_type.clone(), ctx),
             CommandUp => self.command_up(ctx),
             CommandDown => self.command_down(ctx),
-            RunSelectedCommands => self.run_selected_commands(ctx),
             ExitCommandSelection => {
                 self.close_overlays(ctx);
                 if !self.model.as_ref(ctx).has_command_selection(ctx) {
@@ -2981,7 +2936,6 @@ impl TypedActionView for RichTextEditorView {
                 self.model
                     .update(ctx, |model, ctx| model.select_command_at_cursor(ctx))
             }
-            RunWorkflow(workflow) => ctx.emit(EditorViewEvent::RunWorkflow(workflow.clone())),
             CodeBlockTypeSelectedAtOffset {
                 start_anchor,
                 code_block_type,
@@ -3235,9 +3189,7 @@ impl TypedActionView for RichTextEditorView {
             | EditorViewAction::InsertPlaceholder
             | EditorViewAction::DismissOpenLink
             | EditorViewAction::MaybeOpenFileOrUrl { .. }
-            | EditorViewAction::RunSelectedCommands
             | EditorViewAction::CmdEnter
-            | EditorViewAction::RunWorkflow(_)
             | EditorViewAction::OpenFile { .. }
             | EditorViewAction::MermaidDisplayModeSelected { .. }
             | EditorViewAction::OpenMermaidDiagramLightbox { .. }

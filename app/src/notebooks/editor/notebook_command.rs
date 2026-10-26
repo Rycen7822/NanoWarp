@@ -1,5 +1,4 @@
 use std::ops::Range;
-use std::sync::Arc;
 
 use async_channel::Sender;
 use itertools::Itertools;
@@ -38,11 +37,10 @@ use warpui::{
     SingletonEntity, ViewHandle, WeakModelHandle, WindowId,
 };
 
-use super::arguments::ArgumentsState;
 use super::interaction_state_model::InteractionStateModel;
-use super::keys::{NotebookKeybindings, custom_action_to_display};
+use super::keys::custom_action_to_display;
+use super::rich_text_styles;
 use super::view::EditorViewAction;
-use super::{NotebookWorkflow, rich_text_styles};
 use crate::ASSETS;
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;
@@ -63,7 +61,6 @@ use crate::util::bindings::CustomAction;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 use crate::view_components::Dropdown;
 use crate::view_components::dropdown::DropdownAction;
-use crate::workflows::workflow::Workflow;
 use crate::workspace::WorkspaceAction;
 
 lazy_static! {
@@ -85,7 +82,6 @@ lazy_static! {
 
 #[derive(Default)]
 struct MouseStateHandles {
-    insert_button_state: MouseStateHandle,
     copy_button_state: MouseStateHandle,
     mermaid_raw_button_state: MouseStateHandle,
     mermaid_rendered_button_state: MouseStateHandle,
@@ -595,18 +591,6 @@ impl NotebookCommand {
     pub fn set_selected(&mut self, selected: bool) {
         self.is_selected = selected;
     }
-
-    /// Promotes this notebook command into a [`Workflow`]. If the workflow is anonymous, the
-    /// containing `NotebookView` fills in its title.
-    pub fn to_workflow(&self, ctx: &AppContext) -> Option<NotebookWorkflow> {
-        let command = self.command(ctx)?;
-        let args_state = ArgumentsState::for_command_workflow(&Default::default(), command.clone());
-        // TODO: Once notebook workflows have their own metadata, we can populate the title here.
-        let workflow = Workflow::new(String::new(), command).with_arguments(args_state.arguments);
-        Some(NotebookWorkflow {
-            workflow: UserInput::new(Arc::new(workflow)),
-        })
-    }
 }
 
 impl Entity for NotebookCommand {
@@ -616,7 +600,7 @@ impl Entity for NotebookCommand {
 impl RunnableCommandModel for NotebookCommand {
     fn render_block_footer(&self, editor_is_focused: bool, ctx: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(ctx);
-        let mut model = self.handle.clone();
+        let model = self.handle.clone();
 
         // Get the CodeBlockType at the end offset for the NotebookCommand
         // We would expect the BlockStyle at the offset to be a CodeBlock
@@ -791,30 +775,6 @@ impl RunnableCommandModel for NotebookCommand {
             .right()
             .finish(),
         );
-        if matches!(block_style, CodeBlockType::Shell) {
-            model = self.handle.clone();
-            footer.add_child(
-                Align::new(
-                    block_footer_action_button(
-                        appearance,
-                        Icon::TerminalInput,
-                        self.mouse_state_handles.insert_button_state.clone(),
-                        "Run in terminal",
-                        NotebookKeybindings::as_ref(ctx).run_commands_keybinding(),
-                    )
-                    .on_click(move |ctx, app, _| {
-                        if let Some(command_model) = model.upgrade(app)
-                            && let Some(workflow) = command_model.as_ref(app).to_workflow(app)
-                        {
-                            ctx.dispatch_typed_action(EditorViewAction::RunWorkflow(workflow));
-                        }
-                    })
-                    .finish(),
-                )
-                .right()
-                .finish(),
-            );
-        }
         footer.finish()
     }
 

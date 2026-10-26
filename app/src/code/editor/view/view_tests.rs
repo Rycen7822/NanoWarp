@@ -8,7 +8,6 @@ use warpui::{App, TypedActionView, ViewHandle, WindowId};
 
 use super::{CodeEditorRenderOptions, CodeEditorView, CodeEditorViewAction};
 use crate::editor::InteractionState;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::vim_registers::VimRegisters;
@@ -25,7 +24,6 @@ fn initialize_editor(app: &mut App) -> (WindowId, ViewHandle<CodeEditorView>) {
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
 
     app.add_singleton_model(|_| ActiveSession::default());
-    app.add_singleton_model(NotebookKeybindings::new);
 
     let (window, editor_view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
         CodeEditorView::new(
