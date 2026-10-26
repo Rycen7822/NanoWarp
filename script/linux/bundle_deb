@@ -16,7 +16,6 @@ set -e
 
 # Extract channel suffix from BINARY_NAME
 CHANNEL_SUFFIX="${BINARY_NAME#warp}"
-REPO_NAME="warpdotdev$CHANNEL_SUFFIX"
 PACKAGE_NAME="warp-terminal$CHANNEL_SUFFIX"
 
 TEMPLATE_DIR="$WORKSPACE_ROOT_DIR/resources/linux/debian/app"
@@ -60,21 +59,13 @@ sed \
     < "$TEMPLATE_DIR/control.template" \
     > "$DEBIAN_DIR/control"
 sed \
-    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@BINARY_NAME@@#$BINARY_NAME#g; s#@@OPTDIR@@#$OPT_DIR#g; s#@@REPO_NAME@@#$REPO_NAME#g; s#@@CHANNEL@@#$RELEASE_CHANNEL#g; s#@@ARCH@@#$ARCH#g" \
+    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@BINARY_NAME@@#$BINARY_NAME#g; s#@@OPTDIR@@#$OPT_DIR#g" \
     < "$TEMPLATE_DIR/postinst.template" \
     > "$DEBIAN_DIR/postinst"
 sed \
-    "s#@@REPO_NAME@@#$REPO_NAME#g; s#@@CHANNEL@@#$RELEASE_CHANNEL#g; s#@@ARCH@@#$ARCH#g" \
-    < "$WORKSPACE_ROOT_DIR/resources/linux/debian/common/postinst.repo.template" \
-    >> "$DEBIAN_DIR/postinst"
-sed \
-    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g; s#@@OPTDIR@@#$OPT_DIR#g; s#@@REPO_NAME@@#$REPO_NAME#g" \
+    "s#@@CHANNEL_SUFFIX@@#$CHANNEL_SUFFIX#g" \
     < "$TEMPLATE_DIR/postrm.template" \
     > "$DEBIAN_DIR/postrm"
-sed \
-    "s#@@REPO_NAME@@#$REPO_NAME#g" \
-    < "$WORKSPACE_ROOT_DIR/resources/linux/debian/common/postrm.repo.template" \
-    >> "$DEBIAN_DIR/postrm"
 
 # Make the package scripts executable.
 chmod 755 \
