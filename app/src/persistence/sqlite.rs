@@ -20,17 +20,15 @@ use lsp::supported_servers::LSPServerType;
 use num_traits::FromPrimitive;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
-use persistence::model::AMBIENT_AGENT_PANE_KIND;
 use warp_errors::report_error;
 use warpui::platform::FullscreenState;
 use warpui::windowing::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
 use super::block_list::{delete_blocks, save_block};
 use super::model::{
-    self, AI_DOCUMENT_PANE_KIND, AI_FACT_PANE_KIND, CODE_PANE_KIND,
-    EXECUTION_PROFILE_EDITOR_PANE_KIND, NOTEBOOK_PANE_KIND, NewApp, NewCommand, NewTab,
-    NewTabGroup, NewWindow, NewWorkspaceMetadata, SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, Tab,
-    TabGroup, Window, WorkspaceMetadata as WorkspaceMetadataModel,
+    self, CODE_PANE_KIND, NOTEBOOK_PANE_KIND, NewApp, NewCommand, NewTab, NewTabGroup, NewWindow,
+    NewWorkspaceMetadata, SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, Tab, TabGroup, Window,
+    WorkspaceMetadata as WorkspaceMetadataModel,
 };
 use super::{
     BlockCompleted, FinishedCommandMetadata, ModelEvent, PersistedData, PersistenceScope,
@@ -549,11 +547,7 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
         diesel::delete(schema::notebook_panes::dsl::notebook_panes).execute(conn)?;
         diesel::delete(schema::code_panes::dsl::code_panes).execute(conn)?;
         diesel::delete(schema::settings_panes::dsl::settings_panes).execute(conn)?;
-        diesel::delete(schema::ai_memory_panes::dsl::ai_memory_panes).execute(conn)?;
         diesel::delete(schema::code_review_panes::dsl::code_review_panes).execute(conn)?;
-        // Clear retired document rows before their pane leaves to satisfy the historical FK.
-        diesel::delete(schema::ai_document_panes::dsl::ai_document_panes).execute(conn)?;
-        diesel::delete(schema::ambient_agent_panes::dsl::ambient_agent_panes).execute(conn)?;
         diesel::delete(schema::pane_leaves::dsl::pane_leaves).execute(conn)?;
         diesel::delete(schema::pane_branches::dsl::pane_branches).execute(conn)?;
         diesel::delete(schema::pane_nodes::dsl::pane_nodes).execute(conn)?;
@@ -597,7 +591,6 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                 origin_y,
                 quake_mode: window.quake_mode,
                 universal_search_width: window.universal_search_width,
-                warp_drive_index_width: None,
                 left_panel_open: Some(window.left_panel_open),
                 vertical_tabs_panel_open: Some(window.vertical_tabs_panel_open),
                 fullscreen_state: window.fullscreen_state as i32,
@@ -1223,12 +1216,6 @@ fn read_node(
                         .select(model::SettingsPane::as_select())
                         .first(conn)?;
 
-                    if matches!(
-                        settings_pane.current_page.as_str(),
-                        "Warp Agent" | "Oz" | "AI" | "Profiles" | "AgentProfiles" | "Knowledge"
-                    ) {
-                        return Ok(None);
-                    }
                     let current_page =
                         SettingsSection::from_slug(&settings_pane.current_page).unwrap_or_default();
                     LeafContents::Settings(SettingsPaneSnapshot::Local {
@@ -1236,7 +1223,6 @@ fn read_node(
                         search_query: None,
                     })
                 }
-                AI_FACT_PANE_KIND | EXECUTION_PROFILE_EDITOR_PANE_KIND => return Ok(None),
                 CODE_REVIEW_PANE_KIND => {
                     let code_review_pane = schema::code_review_panes::dsl::code_review_panes
                         .find(node.id)
@@ -1258,8 +1244,6 @@ fn read_node(
                         }
                     }
                 }
-                AI_DOCUMENT_PANE_KIND => return Ok(None),
-                AMBIENT_AGENT_PANE_KIND => return Ok(None),
                 other => bail!("Unrecognized pane kind: {other}"),
             };
 

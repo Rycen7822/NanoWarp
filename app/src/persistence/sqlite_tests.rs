@@ -112,6 +112,17 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
     let database_path = tempdir.path().join("warp.sqlite");
     let mut conn = setup_database(&database_path).expect("database should initialize");
 
+    use diesel::RunQueryDsl;
+    let retired_tables = diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>(
+        "(SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('agent_conversations', 'object_metadata'))",
+    ))
+    .get_result::<i64>(&mut conn)
+    .expect("new database catalog should be readable");
+    assert_eq!(
+        retired_tables, 0,
+        "new local databases must not create AI or cloud state"
+    );
+
     let mut window = test_terminal_window_snapshot(false);
     let first = window.tabs[0].root.clone();
     let second = PaneNodeSnapshot::Leaf(LeafSnapshot {
@@ -147,40 +158,6 @@ fn sqlite_read_restores_app_state_and_workspace_metadata() {
         restored_app_state.windows[0].tabs[0].root,
         app_state.windows[0].tabs[0].root
     );
-
-    // A retired cloud leaf must not discard the ordinary terminal beside it.
-    conn.batch_execute(&format!(
-        "DELETE FROM terminal_panes WHERE id = (SELECT MAX(pane_node_id) FROM pane_leaves);
-         UPDATE pane_leaves SET kind = '{}' WHERE pane_node_id = (SELECT MAX(pane_node_id) FROM pane_leaves);
-         INSERT INTO ambient_agent_panes (id, uuid, task_id)
-         SELECT MAX(pane_node_id), X'02', NULL FROM pane_leaves;",
-        crate::persistence::model::AMBIENT_AGENT_PANE_KIND,
-    ))
-    .expect("legacy task kind should replace the retired pane");
-    let restored = read_sqlite_data(&mut conn).expect("supported sibling should restore");
-    let state = restored.app_state.expect("ordinary tab should remain");
-    assert!(matches!(
-        &state.windows[0].tabs[0].root,
-        PaneNodeSnapshot::Leaf(LeafSnapshot { contents: LeafContents::Terminal(pane), .. })
-            if pane.uuid == vec![1]
-    ));
-
-    conn.batch_execute(&format!(
-        "DELETE FROM ambient_agent_panes;
-         UPDATE pane_leaves SET kind = '{}' WHERE pane_node_id = (SELECT MAX(pane_node_id) FROM pane_leaves);
-         INSERT INTO ai_document_panes (id, document_id, version)
-         SELECT MAX(pane_node_id), 'retired-document', 1 FROM pane_leaves;",
-        crate::persistence::model::AI_DOCUMENT_PANE_KIND,
-    ))
-    .expect("legacy AI document kind should replace the retired pane");
-    let restored = read_sqlite_data(&mut conn).expect("supported sibling should restore");
-    let state = restored.app_state.expect("ordinary tab should remain");
-    assert!(matches!(
-        &state.windows[0].tabs[0].root,
-        PaneNodeSnapshot::Leaf(LeafSnapshot { contents: LeafContents::Terminal(pane), .. })
-            if pane.uuid == vec![1]
-    ));
-    save_app_state(&mut conn, &state).expect("retired document rows should not block saving");
 }
 
 #[test]
