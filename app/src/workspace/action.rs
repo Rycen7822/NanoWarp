@@ -223,7 +223,6 @@ pub enum WorkspaceAction {
         anchor: NewSessionMenuAnchor,
     },
     SelectNewSessionMenuItem(NewSessionMenuItem),
-    LogOut,
     CopyVersion(&'static str),
     ConfigureKeybindingSettings {
         keybinding_name: Option<String>,
@@ -670,7 +669,6 @@ impl WorkspaceAction {
             | ShowHeaderToolbarContextMenu { .. }
             | Reauth
             | SignupAnonymousUser
-            | LogOut
             | OpenLink(_)
             | ReopenClosedSession
             | FocusLeftPanel

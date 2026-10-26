@@ -1,14 +1,11 @@
-use anyhow::anyhow;
 use lazy_static::lazy_static;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::DEFAULT_COMMAND_PALETTE_FONT_SIZE;
 use warp_core::ui::builder::UiBuilder;
-use warp_errors::report_error;
 use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
 use warpui::clipboard::ClipboardContent;
 use warpui::color::ColorU;
 use warpui::elements::{
-    Border, Container, CornerRadius, CrossAxisAlignment, Dismiss, Fill, Flex, MainAxisAlignment,
+    Border, Container, CornerRadius, CrossAxisAlignment, Fill, Flex, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, ParentElement, Radius, Stack,
 };
 use warpui::fonts::Weight;
@@ -21,24 +18,16 @@ use warpui::{
 
 use super::AuthStateProvider;
 use super::auth_manager::AuthManager;
-use super::auth_view_modal::AuthViewVariant;
-use super::auth_view_shared_helpers::{
-    action_button_color_and_variant, render_offline_info_overlay_body, render_overlay,
-    render_square_logo,
-};
+use super::auth_view_shared_helpers::{action_button_color_and_variant, render_square_logo};
 use crate::appearance::Appearance;
-use crate::auth::auth_view_shared_helpers::render_offline_contents;
 use crate::editor::{
     EditorView, InteractionState, SingleLineEditorOptions, TextColors, TextOptions,
 };
 use crate::experiments::{AuthFlowInstructions, Experiment};
 use crate::modal::MODAL_CORNER_RADIUS;
-use crate::network::NetworkStatus;
 
 use crate::themes::theme::Fill as ThemeFill;
 use crate::util::color::{darken, lighten};
-
-const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 
 const COMMON_BODY_UI_FONT_SIZE: f32 = 12.;
 const AUTH_MODAL_GAP: f32 = 16.;
@@ -49,8 +38,6 @@ const AUTH_TOKEN_INPUT_PLACEHOLDER_TEXT_EXPERIMENTAL: &str = "Browser auth token
 const AUTH_TOKEN_INPUT_BORDER_RADIUS: Radius = Radius::Pixels(4.);
 
 lazy_static! {
-    static ref BODY_TEXT_COLOR: ColorU = ColorU::new(157, 157, 157, 255);
-    static ref HOVERED_BODY_TEXT_COLOR: ColorU = lighten(*BODY_TEXT_COLOR);
     static ref AUTH_TOKEN_INPUT_BACKGROUND: Fill = ColorU::white().into();
     static ref AUTH_TOKEN_INPUT_TEXT_COLOR: ThemeFill = ThemeFill::Solid(ColorU::black());
     static ref AUTH_TOKEN_INPUT_TEXT_DISABLED: ThemeFill =
@@ -75,36 +62,17 @@ pub fn init(app: &mut AppContext) {
 
 #[derive(Default)]
 struct MouseStateHandles {
-    login_link_mouse_state_handle: MouseStateHandle,
-    enter_login_later_mouse_state_handle: MouseStateHandle,
-    confirm_login_later_mouse_state_handle: MouseStateHandle,
     show_auth_token_input_mouse_state_handle: MouseStateHandle,
     copy_browser_url_mouse_state_handle: MouseStateHandle,
-    tos_mouse_state_handle: MouseStateHandle,
     sign_up_mouse_state_handle: MouseStateHandle,
-    learn_more_mouse_state_handle: MouseStateHandle,
-    offline_info_close_button_mouse_state_handle: MouseStateHandle,
     close_button_mouse_state_handle: MouseStateHandle,
 }
 
 pub struct AuthViewBody {
-    variant: AuthViewVariant,
     mouse_state_handles: MouseStateHandles,
-    show_offline_info: bool,
     auth_token_input: ViewHandle<EditorView>,
     show_auth_token_input: bool,
     auth_step: AuthStep,
-    loginless_step: LoginlessStep,
-    copy_url_click_count: u8,
-    allow_loginless: bool,
-}
-
-/// State for two-step loginless flow for anonymous users
-enum LoginlessStep {
-    /// Initial state: user has not yet clicked "sign up later" entrypoint
-    Start,
-    /// Confirmation state: user has clicked "sign up later" and is now in confirmation view
-    Initiated,
 }
 
 pub enum AuthStep {
@@ -114,20 +82,15 @@ pub enum AuthStep {
 
 #[derive(Clone, Copy, Debug)]
 pub enum AuthViewBodyAction {
-    Login,
-    InitiateLoginLater,
-    LoginLater,
     EnterToken,
     CopyLoginUrl,
     Signup,
     SignupAnonymousUser,
-    ShowOfflineInfo,
-    HideOverlay,
     Close,
 }
 
 impl AuthViewBody {
-    pub fn new(variant: AuthViewVariant, ctx: &mut ViewContext<Self>) -> Self {
+    pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let experiment_group = AuthFlowInstructions::get_group(ctx);
         let auth_token_input = ctx.add_typed_action_view(|ctx| {
             let appearance = Appearance::as_ref(ctx);
@@ -169,23 +132,11 @@ impl AuthViewBody {
             ctx.notify();
         });
 
-        let allow_loginless = !FeatureFlag::ForceLogin.is_enabled();
-
-        let network_status = NetworkStatus::handle(ctx);
-        ctx.subscribe_to_model(&network_status, |_, _, _, ctx| {
-            ctx.notify();
-        });
-
         AuthViewBody {
-            variant,
             mouse_state_handles: Default::default(),
-            show_offline_info: false,
             auth_token_input,
             show_auth_token_input: false,
             auth_step: AuthStep::SelectAuthPathway,
-            loginless_step: LoginlessStep::Start,
-            copy_url_click_count: 0,
-            allow_loginless,
         }
     }
 
@@ -198,8 +149,6 @@ impl AuthViewBody {
     pub fn reset_login_screen(&mut self, ctx: &mut ViewContext<Self>) {
         self.reset_auth_token_input(ctx);
         self.auth_step = AuthStep::SelectAuthPathway;
-        self.loginless_step = LoginlessStep::Start;
-        self.copy_url_click_count = 0;
     }
 
     fn reset_auth_token_input(&mut self, ctx: &mut ViewContext<Self>) {
@@ -217,10 +166,6 @@ impl AuthViewBody {
         self.auth_token_input.update(ctx, |editor, ctx| {
             editor.set_interaction_state(interaction_state, ctx)
         });
-    }
-
-    pub fn set_variant(&mut self, variant: AuthViewVariant) {
-        self.variant = variant;
     }
 
     fn emit_token_entered(&self, ctx: &mut ViewContext<Self>) {
@@ -281,58 +226,6 @@ impl AuthViewBody {
         )
     }
 
-    fn render_privacy_information(
-        &self,
-        appearance: &Appearance,
-        ui_builder: &UiBuilder,
-    ) -> Vec<Box<dyn Element>> {
-        let disclaimer_color = appearance
-            .theme()
-            .sub_text_color(appearance.theme().background())
-            .into();
-
-        let disclaimer_styles = UiComponentStyles {
-            font_color: Some(disclaimer_color),
-            ..Default::default()
-        };
-
-        let link_styles = UiComponentStyles {
-            font_color: Some(disclaimer_color),
-            border_color: Some(Fill::Solid(disclaimer_color)),
-            ..Default::default()
-        };
-
-        let disclaimer_line_1 = Container::new(
-            Flex::row()
-                .with_child(
-                    ui_builder
-                        .span("By continuing, you agree to Warp's ")
-                        .with_style(disclaimer_styles)
-                        .build()
-                        .finish(),
-                )
-                .with_child(
-                    ui_builder
-                        .link(
-                            "Terms of Service".into(),
-                            Some(TOS_URL.into()),
-                            None,
-                            self.mouse_state_handles.tos_mouse_state_handle.clone(),
-                        )
-                        .soft_wrap(false)
-                        .with_style(link_styles)
-                        .build()
-                        .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_top(AUTH_MODAL_GAP)
-        .with_margin_bottom(8.)
-        .finish();
-
-        vec![disclaimer_line_1]
-    }
-
     fn render_sign_up_button(
         &self,
         is_anonymous: bool,
@@ -368,12 +261,11 @@ impl AuthViewBody {
             ..hover_button_style
         };
 
-        let on_click_action =
-            if is_anonymous && matches!(self.variant, AuthViewVariant::RequireLoginCloseable) {
-                AuthViewBodyAction::SignupAnonymousUser
-            } else {
-                AuthViewBodyAction::Signup
-            };
+        let on_click_action = if is_anonymous {
+            AuthViewBodyAction::SignupAnonymousUser
+        } else {
+            AuthViewBodyAction::Signup
+        };
 
         ui_builder
             .button_with_custom_styles(
@@ -392,111 +284,6 @@ impl AuthViewBody {
             .finish()
     }
 
-    fn render_sign_in_row(&self, ui_builder: &UiBuilder) -> Box<dyn Element> {
-        Flex::row()
-            .with_child(
-                ui_builder
-                    .span("Already have an account? ")
-                    .build()
-                    .finish(),
-            )
-            .with_child(
-                ui_builder
-                    .link(
-                        "Sign in".into(),
-                        None,
-                        Some(Box::new(|ctx| {
-                            ctx.dispatch_typed_action(AuthViewBodyAction::Login);
-                        })),
-                        self.mouse_state_handles
-                            .login_link_mouse_state_handle
-                            .clone(),
-                    )
-                    .soft_wrap(false)
-                    .build()
-                    .finish(),
-            )
-            .finish()
-    }
-
-    fn render_sign_up_later_row(&self, ui_builder: &UiBuilder) -> Box<dyn Element> {
-        Container::new(
-            Flex::row()
-                .with_child(
-                    ui_builder
-                        .span("Don't want to sign in right now? ")
-                        .build()
-                        .finish(),
-                )
-                .with_child(
-                    ui_builder
-                        .link(
-                            "Skip for now".into(),
-                            None,
-                            Some(Box::new(|ctx| {
-                                ctx.dispatch_typed_action(AuthViewBodyAction::InitiateLoginLater);
-                            })),
-                            self.mouse_state_handles
-                                .enter_login_later_mouse_state_handle
-                                .clone(),
-                        )
-                        .soft_wrap(false)
-                        .build()
-                        .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_top(8.)
-        .finish()
-    }
-
-    fn render_sign_in_later_confirm_row(&self, ui_builder: &UiBuilder) -> Box<dyn Element> {
-        Container::new(
-            Flex::column()
-                .with_child(
-                    ui_builder
-                        .paragraph("Are you sure you want to skip login?")
-                        .build()
-                        .finish(),
-                )
-                .with_child(
-                    ui_builder
-                        .paragraph("You can sign up later, but collaboration features")
-                        .build()
-                        .finish(),
-                )
-                .with_child(
-                    Flex::row()
-                        .with_child(
-                            ui_builder
-                                .span("are only available to logged-in users. ")
-                                .build()
-                                .finish(),
-                        )
-                        .with_child(
-                            ui_builder
-                                .link(
-                                    "Yes, skip login".into(),
-                                    None,
-                                    Some(Box::new(|ctx| {
-                                        ctx.dispatch_typed_action(AuthViewBodyAction::LoginLater);
-                                    })),
-                                    self.mouse_state_handles
-                                        .confirm_login_later_mouse_state_handle
-                                        .clone(),
-                                )
-                                .soft_wrap(false)
-                                .build()
-                                .finish(),
-                        )
-                        .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_top(8.)
-        .finish()
-    }
-
     fn render_force_login_disclaimer(
         &self,
         appearance: &Appearance,
@@ -512,12 +299,7 @@ impl AuthViewBody {
             ..Default::default()
         };
 
-        let text = match self.variant {
-            AuthViewVariant::RequireLoginCloseable => {
-                "To collaborate with others, please create an account."
-            }
-            _ => "",
-        };
+        let text = "To collaborate with others, please create an account.";
 
         Container::new(
             ui_builder
@@ -539,10 +321,7 @@ impl AuthViewBody {
             ..Default::default()
         };
 
-        let text = match self.variant {
-            AuthViewVariant::Initial => "Welcome to Warp!",
-            AuthViewVariant::RequireLoginCloseable => "Sign up for Warp",
-        };
+        let text = "Sign up for Warp";
 
         ui_builder
             .span(text)
@@ -558,19 +337,17 @@ impl AuthViewBody {
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_child(logo);
 
-        if matches!(self.variant, AuthViewVariant::RequireLoginCloseable) {
-            let close_button = ui_builder
-                .close_button(
-                    24.,
-                    self.mouse_state_handles
-                        .close_button_mouse_state_handle
-                        .clone(),
-                )
-                .build()
-                .on_click(|ctx, _, _| ctx.dispatch_typed_action(AuthViewBodyAction::Close))
-                .finish();
-            row = row.with_child(close_button)
-        };
+        let close_button = ui_builder
+            .close_button(
+                24.,
+                self.mouse_state_handles
+                    .close_button_mouse_state_handle
+                    .clone(),
+            )
+            .build()
+            .on_click(|ctx, _, _| ctx.dispatch_typed_action(AuthViewBodyAction::Close))
+            .finish();
+        row = row.with_child(close_button);
 
         row.finish()
     }
@@ -580,7 +357,6 @@ impl AuthViewBody {
         is_anonymous: bool,
         appearance: &Appearance,
         ui_builder: &UiBuilder,
-        app: &AppContext,
     ) -> Vec<Box<dyn Element>> {
         let logo = Container::new(self.render_logo_row(appearance, ui_builder))
             .with_margin_bottom(AUTH_MODAL_GAP)
@@ -589,46 +365,8 @@ impl AuthViewBody {
             .with_margin_bottom(AUTH_MODAL_GAP)
             .finish();
         let sign_up_button = self.render_sign_up_button(is_anonymous, appearance, ui_builder);
-        let sign_in_row = Container::new(self.render_sign_in_row(ui_builder))
-            .with_margin_top(AUTH_MODAL_GAP)
-            .finish();
         let force_login_disclaimer = self.render_force_login_disclaimer(appearance, ui_builder);
-
-        match self.variant {
-            AuthViewVariant::Initial => {
-                if !NetworkStatus::as_ref(app).is_online() {
-                    let offline_contents = render_offline_contents(
-                        appearance,
-                        ui_builder,
-                        self.mouse_state_handles
-                            .learn_more_mouse_state_handle
-                            .clone(),
-                        AuthViewBodyAction::ShowOfflineInfo,
-                    );
-                    vec![logo, header, offline_contents]
-                } else if !self.show_offline_info {
-                    let mut contents = if self.allow_loginless {
-                        let sign_up_later_row = match self.loginless_step {
-                            LoginlessStep::Start => self.render_sign_up_later_row(ui_builder),
-                            LoginlessStep::Initiated => {
-                                self.render_sign_in_later_confirm_row(ui_builder)
-                            }
-                        };
-                        vec![logo, header, sign_up_button, sign_in_row, sign_up_later_row]
-                    } else {
-                        vec![logo, header, sign_up_button, sign_in_row]
-                    };
-
-                    contents.append(&mut self.render_privacy_information(appearance, ui_builder));
-                    contents
-                } else {
-                    vec![]
-                }
-            }
-            AuthViewVariant::RequireLoginCloseable => {
-                vec![logo, header, force_login_disclaimer, sign_up_button]
-            }
-        }
+        vec![logo, header, force_login_disclaimer, sign_up_button]
     }
 
     fn render_browser_open_content(
@@ -719,7 +457,6 @@ impl AuthViewBody {
 pub enum AuthViewBodyEvent {
     SignUpButtonClicked,
     AuthTokenEntered(String),
-    LoginLaterClicked,
     Close,
 }
 
@@ -732,20 +469,6 @@ impl TypedActionView for AuthViewBody {
 
     fn handle_action(&mut self, action: &AuthViewBodyAction, ctx: &mut ViewContext<Self>) {
         match action {
-            AuthViewBodyAction::Login => {
-                self.auth_step = AuthStep::BrowserOpen;
-
-                AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                    let sign_in_url = auth_manager.sign_in_url();
-                    ctx.open_url(&sign_in_url);
-                });
-            }
-            AuthViewBodyAction::InitiateLoginLater => {
-                self.loginless_step = LoginlessStep::Initiated;
-            }
-            AuthViewBodyAction::LoginLater => {
-                ctx.emit(AuthViewBodyEvent::LoginLaterClicked);
-            }
             AuthViewBodyAction::EnterToken => {
                 self.auth_token_input
                     .update(ctx, |editor, ctx| editor.paste(ctx));
@@ -754,7 +477,6 @@ impl TypedActionView for AuthViewBody {
                 ctx.notify();
             }
             AuthViewBodyAction::CopyLoginUrl => {
-                self.copy_url_click_count += 1;
                 if AuthStateProvider::as_ref(ctx)
                     .get()
                     .is_user_anonymous()
@@ -783,25 +505,11 @@ impl TypedActionView for AuthViewBody {
                 });
             }
             AuthViewBodyAction::SignupAnonymousUser => {
-                if matches!(self.variant, AuthViewVariant::Initial) {
-                    report_error!(anyhow!(
-                        "Anonymous user initiated sign-up from unexpected AuthView variant"
-                    ));
-                }
-
                 AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
                     auth_manager.initiate_anonymous_user_linking(ctx);
                 });
                 self.auth_step = AuthStep::BrowserOpen;
                 ctx.emit(AuthViewBodyEvent::SignUpButtonClicked);
-            }
-            AuthViewBodyAction::ShowOfflineInfo => {
-                self.show_offline_info = true;
-                ctx.notify();
-            }
-            AuthViewBodyAction::HideOverlay => {
-                self.show_offline_info = false;
-                ctx.notify();
             }
             AuthViewBodyAction::Close => {
                 ctx.emit(AuthViewBodyEvent::Close);
@@ -847,7 +555,7 @@ impl View for AuthViewBody {
         let mut content = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
         content = content.with_children(match self.auth_step {
             AuthStep::SelectAuthPathway => {
-                self.render_select_auth_pathway_content(is_anonymous, appearance, &ui_builder, app)
+                self.render_select_auth_pathway_content(is_anonymous, appearance, &ui_builder)
             }
             AuthStep::BrowserOpen => self.render_browser_open_content(appearance, &ui_builder),
         });
@@ -863,23 +571,6 @@ impl View for AuthViewBody {
                 .with_uniform_padding(32.)
                 .finish(),
         );
-
-        if self.show_offline_info {
-            stack.add_child(
-                Dismiss::new(render_overlay(
-                    render_offline_info_overlay_body(
-                        appearance,
-                        self.mouse_state_handles
-                            .offline_info_close_button_mouse_state_handle
-                            .clone(),
-                        AuthViewBodyAction::HideOverlay,
-                    ),
-                    appearance,
-                ))
-                .on_dismiss(|ctx, _app| ctx.dispatch_typed_action(AuthViewBodyAction::HideOverlay))
-                .finish(),
-            );
-        }
 
         stack.finish()
     }

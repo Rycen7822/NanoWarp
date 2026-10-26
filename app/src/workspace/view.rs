@@ -124,10 +124,10 @@ use crate::appearance::{Appearance, AppearanceManager};
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::auth_override_warning_modal::{
-    AuthOverrideWarningModal, AuthOverrideWarningModalEvent, AuthOverrideWarningModalVariant,
+    AuthOverrideWarningModal, AuthOverrideWarningModalEvent,
 };
 use crate::auth::auth_state::AuthState;
-use crate::auth::auth_view_modal::{AuthRedirectPayload, AuthView, AuthViewEvent, AuthViewVariant};
+use crate::auth::auth_view_modal::{AuthRedirectPayload, AuthView, AuthViewEvent};
 use crate::banner::BannerState;
 use crate::channel::ChannelState;
 use crate::code::buffer_location::LocalOrRemotePath;
@@ -1216,9 +1216,7 @@ impl Workspace {
     }
 
     fn build_require_login_modal(ctx: &mut ViewContext<Self>) -> ViewHandle<AuthView> {
-        let require_login_modal = ctx.add_typed_action_view(|ctx| {
-            AuthView::new(AuthViewVariant::RequireLoginCloseable, ctx)
-        });
+        let require_login_modal = ctx.add_typed_action_view(|ctx| AuthView::new(ctx));
         ctx.subscribe_to_view(&require_login_modal, move |me, _, event, ctx| {
             me.handle_require_login_modal_event(event, ctx);
         });
@@ -1229,9 +1227,8 @@ impl Workspace {
     fn build_auth_override_warning_modal(
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<AuthOverrideWarningModal> {
-        let auth_override_warning_modal = ctx.add_typed_action_view(|ctx| {
-            AuthOverrideWarningModal::new(ctx, AuthOverrideWarningModalVariant::WorkspaceModal)
-        });
+        let auth_override_warning_modal =
+            ctx.add_typed_action_view(|ctx| AuthOverrideWarningModal::new(ctx));
 
         ctx.subscribe_to_view(&auth_override_warning_modal, |me, _, event, ctx| {
             me.handle_auth_override_warning_modal_event(event, ctx);
@@ -6270,13 +6267,6 @@ impl Workspace {
             );
         }
 
-        if !self.auth_state.is_anonymous_or_logged_out() {
-            items.push(
-                MenuItemFields::new("Log out")
-                    .with_on_select_action(WorkspaceAction::LogOut)
-                    .into_item(),
-            );
-        }
         items
     }
 
@@ -9232,11 +9222,7 @@ impl Workspace {
         }
     }
 
-    fn open_require_login_modal(&mut self, variant: AuthViewVariant, ctx: &mut ViewContext<Self>) {
-        self.require_login_modal.update(ctx, |modal, ctx| {
-            modal.set_variant(ctx, variant);
-        });
-
+    fn open_require_login_modal(&mut self, ctx: &mut ViewContext<Self>) {
         self.close_all_overlays(ctx);
         self.current_workspace_state.is_require_login_modal_open = true;
         ctx.focus(&self.require_login_modal);
@@ -14119,7 +14105,7 @@ impl Workspace {
         self.require_login_modal.update(ctx, |auth_modal, ctx| {
             auth_modal.skip_to_browser_open_step(ctx);
         });
-        self.open_require_login_modal(AuthViewVariant::RequireLoginCloseable, ctx);
+        self.open_require_login_modal(ctx);
     }
 
     fn redirect_to_sign_in(&mut self) {
@@ -14140,13 +14126,6 @@ impl Workspace {
                 true,
             );
         }
-    }
-
-    /// Triggers the necessary cleanup for when a user logs out.
-    pub fn on_log_out(&mut self, ctx: &mut ViewContext<Self>) {
-        // Logging out should mimic the same behaviour as closing a window.
-        // This gives views a chance to clean up any state through on_view_detached before being dropped.
-        self.on_window_closed(ctx);
     }
 
     fn open_left_panel_view(&mut self, action: &LeftPanelAction, ctx: &mut ViewContext<Self>) {
@@ -14613,11 +14592,6 @@ impl TypedActionView for Workspace {
             OpenWorktreeAddRepoPicker => {
                 self.close_new_session_dropdown_menu(ctx);
                 self.open_folder_picker_for_worktree_submenu(ctx);
-            }
-            LogOut => {
-                // Need to dispatch global action, or else we will not be able to retrieve
-                // the currently active session in the log out modal.
-                ctx.dispatch_global_action("app:maybe_log_out", ());
             }
             CopyVersion(version) => self.copy_version(version, ctx),
             ConfigureKeybindingSettings { keybinding_name } => {

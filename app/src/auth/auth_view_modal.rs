@@ -4,7 +4,6 @@ use anyhow::{Result, anyhow};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use url::Url;
-use warp_core::features::FeatureFlag;
 use warp_core::{safe_anyhow, safe_error};
 use warp_errors::{ErrorExt, report_error};
 use warpui::actions::StandardAction;
@@ -24,10 +23,9 @@ use super::auth_manager::{AuthManager, AuthManagerEvent};
 use super::auth_view_body::{AuthStep, AuthViewBodyEvent};
 use super::credentials::RefreshToken;
 use super::login_failure_notification::{self, LoginFailureReason};
-use crate::appearance::Appearance;
 use crate::auth::auth_view_body::AuthViewBody;
+use crate::auth::unthemed_window_border;
 use crate::modal::Modal;
-use crate::root_view::unthemed_window_border;
 use crate::server::server_api::auth::UserAuthenticationError;
 use crate::util::bindings::CustomAction;
 
@@ -78,7 +76,6 @@ pub struct AuthView {
     pub last_login_failure_reason: Option<LoginFailureReason>,
     close_login_notification_mouse_state: MouseStateHandle,
     highlighted_hyperlink_state: HighlightedHyperlink,
-    auth_view_variant: AuthViewVariant,
 }
 
 const AUTH_URL_HOST: &str = "auth";
@@ -139,15 +136,9 @@ impl AuthRedirectPayload {
 
 const MODAL_WIDTH: f32 = 352.;
 
-#[derive(Clone, Copy, Debug)]
-pub enum AuthViewVariant {
-    Initial,
-    RequireLoginCloseable,
-}
-
 impl AuthView {
-    pub fn new(variant: AuthViewVariant, ctx: &mut ViewContext<Self>) -> Self {
-        let auth_screen_view = ctx.add_typed_action_view(|ctx| AuthViewBody::new(variant, ctx));
+    pub fn new(ctx: &mut ViewContext<Self>) -> Self {
+        let auth_screen_view = ctx.add_typed_action_view(|ctx| AuthViewBody::new(ctx));
         ctx.subscribe_to_view(&auth_screen_view, |me, _, event, ctx| match event {
             AuthViewBodyEvent::Close => me.close(ctx),
             AuthViewBodyEvent::SignUpButtonClicked => {
@@ -157,9 +148,6 @@ impl AuthView {
                 me.last_login_failure_reason = None;
                 me.handle_pasted_auth_url(token.clone(), ctx);
                 ctx.notify();
-            }
-            AuthViewBodyEvent::LoginLaterClicked => {
-                me.handle_login_later(ctx);
             }
         });
 
@@ -186,18 +174,7 @@ impl AuthView {
             last_login_failure_reason: None,
             close_login_notification_mouse_state: Default::default(),
             highlighted_hyperlink_state: Default::default(),
-            auth_view_variant: variant,
         }
-    }
-
-    pub fn set_variant(&mut self, ctx: &mut ViewContext<Self>, variant: AuthViewVariant) {
-        self.auth_view_variant = variant;
-        self.update_auth_body(
-            ctx,
-            |body: &mut AuthViewBody, _: &mut ViewContext<'_, AuthViewBody>| {
-                body.set_variant(variant)
-            },
-        );
     }
 
     fn set_auth_step(&mut self, ctx: &mut ViewContext<Self>, step: AuthStep) {
@@ -268,21 +245,9 @@ impl AuthView {
             .update(ctx, |modal, ctx| modal.body().update(ctx, cb))
     }
 
-    pub fn handle_login_later(&mut self, ctx: &mut ViewContext<Self>) {
-        if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
-            AuthManager::handle(ctx).update(ctx, |_, ctx| {
-                ctx.emit(AuthManagerEvent::SkippedLogin);
-            });
-        } else {
-            AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                auth_manager.create_anonymous_user(ctx)
-            });
-        }
-    }
-
     fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            AuthManagerEvent::AuthComplete | AuthManagerEvent::SkippedLogin => {
+            AuthManagerEvent::AuthComplete => {
                 self.close(ctx);
             }
             AuthManagerEvent::AuthFailed(err) => {
@@ -301,10 +266,6 @@ impl AuthView {
                         Some(LoginFailureReason::FailedUserAuthentication);
                 }
 
-                self.set_auth_token_input_editable(true, ctx);
-            }
-            AuthManagerEvent::CreateAnonymousUserFailed => {
-                self.last_login_failure_reason = Some(LoginFailureReason::FailedUserAuthentication);
                 self.set_auth_token_input_editable(true, ctx);
             }
             AuthManagerEvent::MintCustomTokenFailed(_err) => {
@@ -337,7 +298,6 @@ impl View for AuthView {
     }
 
     fn render(&self, ctx: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(ctx);
         let mut stack = Stack::new();
         stack.add_child(ChildView::new(&self.auth_screen_modal).finish());
 
@@ -360,14 +320,9 @@ impl View for AuthView {
             );
         }
 
-        let background_color = match self.auth_view_variant {
-            AuthViewVariant::Initial => appearance.theme().background().into(),
-            AuthViewVariant::RequireLoginCloseable => ColorU::transparent_black(),
-        };
-
         // TODO(liam): use theme colors for background and window border
         Container::new(stack.finish())
-            .with_background_color(background_color)
+            .with_background_color(ColorU::transparent_black())
             .with_corner_radius(ctx.windows().window_corner_radius())
             .with_border(unthemed_window_border())
             .finish()

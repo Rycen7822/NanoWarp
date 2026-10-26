@@ -1,16 +1,12 @@
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
 use settings::Setting as _;
 #[cfg(target_family = "wasm")]
 use url::Url;
 use uuid::Uuid;
 use warp_core::channel::ChannelState;
 use warp_errors::{report_error, report_if_error};
-use warp_graphql::mutations::create_anonymous_user::{
-    AnonymousUserType, CreateAnonymousUserResult,
-};
 use warp_server_auth::API_KEY_PREFIX;
 use warp_server_auth::user::persistence::PersistedUser;
 use warpui::clipboard::ClipboardContent;
@@ -22,17 +18,15 @@ use super::credentials::{Credentials, FirebaseToken, LoginToken};
 use super::user::User;
 use super::{AuthStateProvider, UserUid};
 use crate::persistence::ModelEvent;
-use crate::server::graphql::get_user_facing_error_message;
 use crate::server::server_api::ServerApi;
 use crate::server::server_api::auth::{
-    AnonymousUserCreationError, AuthClient, FetchUserResult, MintCustomTokenError,
-    UserAuthenticationError,
+    AuthClient, FetchUserResult, MintCustomTokenError, UserAuthenticationError,
 };
 
+use crate::GlobalResourceHandlesProvider;
 use crate::terminal::general_settings::GeneralSettings;
 #[cfg(target_family = "wasm")]
 use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
-use crate::{GlobalResourceHandlesProvider, persistence};
 
 #[derive(Debug)]
 pub enum AuthManagerEvent {
@@ -40,10 +34,6 @@ pub enum AuthManagerEvent {
     AuthComplete,
     /// Failed to authenticate a user, due to a particular `UserAuthenticationError`.
     AuthFailed(UserAuthenticationError),
-    /// Failed to create an anonymous user.
-    CreateAnonymousUserFailed,
-    /// The user chose to skip login entirely (no Firebase user created).
-    SkippedLogin,
     /// The user now needs to reauthenticate. If the user needs to reauth, an `AuthFailed`
     /// event might be triggered instead, but there are some code paths where we don't
     /// refresh the entire user, only their token, which is when this event might be emitted.
@@ -269,10 +259,6 @@ impl AuthManager {
                 let global_resource_handles =
                     GlobalResourceHandlesProvider::as_ref(ctx).get().clone();
 
-                // As part of Logout v0:
-                // Reconstruct the database if it was removed.
-                // Do nothing if the database was not removed.
-                persistence::reconstruct(&global_resource_handles.model_event_sender);
                 if let Some(model_event_sender) = &global_resource_handles.model_event_sender
                     && let Err(e) =
                         model_event_sender.send(ModelEvent::UpsertCurrentUserInformation {
@@ -352,11 +338,8 @@ impl AuthManager {
         }
     }
 
-    /// Helper function for logging out the user.
-    /// NOTE: You probably want to call auth::log_out instead; this only manages the auth state,
-    /// it doesn't shut down any other user-dependent parts of the app.
-    /// TODO(jeff): Can we move those pieces in here?
-    pub(super) fn log_out(&mut self, ctx: &mut ModelContext<Self>) {
+    /// Clears the cloud account without changing local terminal sessions or persistence.
+    pub(crate) fn log_out(&mut self, ctx: &mut ModelContext<Self>) {
         // Clear any dangling CSRF token from an auth flow that was started but never
         // completed before this logout, so it can't be replayed against the next session
         // in the same process.
@@ -370,57 +353,6 @@ impl AuthManager {
 
         if became_true {
             ctx.emit(AuthManagerEvent::NeedsReauth);
-        }
-    }
-
-    pub fn create_anonymous_user(&self, ctx: &mut ModelContext<Self>) {
-        let anonymous_user_type = AnonymousUserType::NativeClientAnonymousUserFeatureGated;
-
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.create_anonymous_user(anonymous_user_type).await },
-            Self::on_create_anonymous_user,
-        );
-    }
-
-    fn on_create_anonymous_user(
-        &mut self,
-        response: Result<CreateAnonymousUserResult>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let custom_token = match response {
-            Ok(response_data) => match response_data {
-                CreateAnonymousUserResult::CreateAnonymousUserOutput(output) => Ok(output.id_token),
-                CreateAnonymousUserResult::UserFacingError(user_facing_error) => {
-                    Err(AnonymousUserCreationError::UserFacingError(
-                        get_user_facing_error_message(user_facing_error),
-                    ))
-                }
-                CreateAnonymousUserResult::Unknown => Err(AnonymousUserCreationError::Unknown),
-            },
-            Err(_) => Err(AnonymousUserCreationError::CreationFailed),
-        };
-
-        match custom_token {
-            Ok(custom_token) => {
-                // Exchange the custom token for an ID token.
-                let auth_client = self.auth_client.clone();
-                let _ = ctx.spawn(
-                    async move {
-                        auth_client
-                            .fetch_user(LoginToken::Firebase(FirebaseToken::Custom(custom_token)))
-                            .await
-                    },
-                    Self::on_user_fetched,
-                );
-            }
-
-            Err(err) => {
-                report_error!(
-                    anyhow!(err).context("Encountered an error trying to create anonymous users")
-                );
-                ctx.emit(AuthManagerEvent::CreateAnonymousUserFailed);
-            }
         }
     }
 
@@ -522,16 +454,6 @@ impl AuthManager {
             "{}/login_options/{}?state={}",
             ChannelState::server_root_url(),
             custom_token,
-            state,
-        )
-    }
-
-    pub fn link_sso_url(&mut self, email: &str) -> String {
-        let state = self.generate_auth_state();
-        format!(
-            "{}/link_sso?email={}&state={}",
-            ChannelState::server_root_url(),
-            email,
             state,
         )
     }

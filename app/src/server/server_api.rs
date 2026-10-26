@@ -168,12 +168,9 @@ impl ServerApiProvider {
             move |_, event, ctx| {
                 match event {
                     AuthEvent::UserAccountDisabled => {
-                        // We dispatch a global action here because the log out code requires
-                        // `server_api`, causing a circular model reference panic when it calls
-                        // `ServerApiProvider` to get access.
-                        // TODO: We should remove this pattern where `ServerApiProvider` responds
-                        // to events; it's prone to these sorts of circular reference issues.
-                        ctx.dispatch_global_action("app:log_out", ());
+                        AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
+                            auth_manager.log_out(ctx);
+                        });
                     }
                     AuthEvent::NeedsReauth => {
                         // AuthManager depends on a reference to ServerApi, so ServerApi can't easily

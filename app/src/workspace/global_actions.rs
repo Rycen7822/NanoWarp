@@ -7,6 +7,7 @@ use warp_graphql::mutations::create_anonymous_user::AnonymousUserType;
 use warpui::windowing::WindowManager;
 use warpui::{AppContext, SingletonEntity, TypedActionView};
 
+use crate::GlobalResourceHandlesProvider;
 use crate::app_state::get_app_state;
 use crate::network::NetworkStatus;
 use crate::persistence::ModelEvent;
@@ -17,7 +18,6 @@ use crate::terminal::general_settings::GeneralSettings;
 use crate::undo_close::UndoCloseStack;
 use crate::workspace::cross_window_tab_drag::CrossWindowTabDrag;
 use crate::workspace::{Workspace, WorkspaceAction};
-use crate::{GlobalResourceHandlesProvider, auth};
 
 /// DEPRECATED. Global actions are being phased out.
 /// Do not add any more global actions; use typed actions instead.
@@ -36,8 +36,6 @@ pub fn init_global_actions(app: &mut AppContext) {
     );
     app.add_global_action("workspace:open_repository", open_repository);
     app.add_global_action("app:undo_close", undo_close);
-    app.add_global_action("app:maybe_log_out", trigger_maybe_log_out);
-    app.add_global_action("app:log_out", trigger_log_out);
 }
 
 fn toggle_mouse_reporting(_: &(), ctx: &mut AppContext) {
@@ -137,10 +135,6 @@ fn undo_close(_: &(), ctx: &mut AppContext) {
     });
 }
 
-fn trigger_maybe_log_out(_: &(), ctx: &mut AppContext) {
-    auth::maybe_log_out(ctx)
-}
-
 /// Dispatches an action to the active workspace, if one exists.
 fn dispatch_to_active_workspace(ctx: &mut AppContext, action: WorkspaceAction) {
     if let Some(window_id) = WindowManager::as_ref(ctx).active_window()
@@ -167,8 +161,4 @@ fn open_repository(path: &String, ctx: &mut AppContext) {
         let path_buf = PathBuf::from(path);
         ctx.dispatch_global_action("root_view:open_new_from_path", &OpenPath { path: path_buf });
     }
-}
-
-fn trigger_log_out(_: &(), ctx: &mut AppContext) {
-    auth::log_out(ctx)
 }
