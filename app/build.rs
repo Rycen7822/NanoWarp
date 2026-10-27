@@ -167,33 +167,33 @@ fn copy_windows_assets(target_dir: &Path) {
         .join(WINDOWS_ASSETS_DIR)
         .join(target_arch);
 
-    // Copy conpty.dll into target directory.
-    fs::copy(
-        windows_asset_dir.join(CONPTY_DLL_FILE),
-        target_dir.join(CONPTY_DLL_FILE),
-    )
-    .unwrap_or_else(|err| {
-        panic!("Could not copy conpty.dll from {windows_asset_dir:?} to {target_dir:?}: {err:#}")
-    });
+    let new_platform_dir = target_dir.join(target_arch);
+    fs::create_dir_all(&new_platform_dir).expect("Could not create new platform directory");
 
-    // Copy the DXC DLLs into the target directory.
-    for dxc_file in [DXCOMPILER_DLL_FILE, DXIL_DLL_FILE] {
-        fs::copy(
-            windows_asset_dir.join(dxc_file),
-            target_dir.join(dxc_file),
-        )
-        .unwrap_or_else(|err| {
-            panic!("Could not copy {dxc_file} from {windows_asset_dir:?} to {target_dir:?}: {err:#}")
+    for asset in [
+        CONPTY_DLL_FILE,
+        DXCOMPILER_DLL_FILE,
+        DXIL_DLL_FILE,
+        OPEN_CONSOLE_EXE_FILE,
+    ] {
+        let source = windows_asset_dir.join(asset);
+        let destination = if asset == OPEN_CONSOLE_EXE_FILE {
+            new_platform_dir.join(asset)
+        } else {
+            target_dir.join(asset)
+        };
+
+        // Loaded Windows assets cannot be overwritten, and identical bytes need no update.
+        if let (Ok(source_bytes), Ok(existing_bytes)) = (fs::read(&source), fs::read(&destination))
+            && source_bytes == existing_bytes
+        {
+            continue;
+        }
+
+        fs::copy(&source, &destination).unwrap_or_else(|err| {
+            panic!("Could not copy {asset} from {windows_asset_dir:?} to {destination:?}: {err:#}")
         });
     }
-
-    // Copy OpenConsole.exe into {target_directory}/{arch}.
-    let old_open_console_exe = windows_asset_dir.join(OPEN_CONSOLE_EXE_FILE);
-    let new_platform_dir = target_dir.join(target_arch);
-    let new_open_console_exe = new_platform_dir.join(OPEN_CONSOLE_EXE_FILE);
-    fs::create_dir_all(&new_platform_dir).expect("Could not create new platform directory");
-    fs::copy(old_open_console_exe, new_open_console_exe)
-        .expect("Could not copy platform OpenConsole.exe");
 }
 
 #[cfg(windows)]
