@@ -223,10 +223,19 @@ jobs:
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
 
       - name: Install vim for richer alt-screen tests
+        if: ${{ matrix.os != 'macos' }}
         uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
         with:
-          brew: vim
           apt: vim
+
+      - name: Ensure Vim for MacOS alt-screen tests
+        if: ${{ matrix.os == 'macos' }}
+        shell: bash
+        run: |
+          if ! vim --version >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install vim
+          fi
+          vim --version
 
       - name: Compile tests
         run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} --no-run
