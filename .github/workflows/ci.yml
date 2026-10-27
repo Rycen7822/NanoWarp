@@ -356,7 +356,7 @@ jobs:
 
   lints:
     name: Formatting + Clippy (${{ matrix.name }})
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.os == 'macos' && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:

@@ -89,6 +89,8 @@ runs:
 
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
+        # Retire the existing empty caches so completed builds can populate them.
+        prefix-key: v1-nanowarp
         workspaces: . -> .work/target
         # Make sure x86_64-unknown-linux-gnu and wasm32-unknown-unknown builds
         # don't share a cache, despite running on the same _host_ architecture.
@@ -111,6 +113,14 @@ runs:
       if: ${{ inputs.target_os == 'macos' }}
       with:
         xcode-version: '26'
+
+    - name: Use the Ubuntu archive mirror
+      if: ${{ inputs.target_os == 'linux' || inputs.target_os == 'wasm' }}
+      shell: bash
+      run: |
+        if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+        fi
 
     - name: Install dependencies
       shell: bash
