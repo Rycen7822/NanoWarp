@@ -30,9 +30,6 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ::settings::{Setting, ToggleableSetting};
-#[cfg(not(target_family = "wasm"))]
-#[cfg(target_os = "macos")]
-use anyhow::Result;
 #[cfg(target_os = "macos")]
 use command::blocking::Command;
 use instant::Instant;

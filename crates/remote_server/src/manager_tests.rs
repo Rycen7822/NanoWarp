@@ -3,10 +3,7 @@ use warp_core::SessionId;
 use warp_util::standardized_path::StandardizedPath;
 use warpui_core::App;
 
-use super::{
-    HostRequestError, PendingHostRequest, RemoteServerManager, RemoteServerManagerEvent,
-    RipgrepSearchParams,
-};
+use super::{HostRequestError, PendingHostRequest, RemoteServerManager, RipgrepSearchParams};
 use crate::HostId;
 use crate::proto::{ClientMessage, WriteFile, host_scoped_request};
 use crate::protocol::RequestId;
