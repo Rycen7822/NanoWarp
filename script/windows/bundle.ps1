@@ -205,10 +205,12 @@ $ISCC_ARGS = @(
     "/DMyAppExeName=$BINARY_NAME",
     "/DTargetProfileDir=$CARGO_TARGET_OUTPUT_DIR",
     "/DMyAppName=$APP_NAME",
-    "/DMyAppVersion=$env:GIT_RELEASE_TAG",
     "/DArch=$ARCH",
     "/DOutputName=$INSTALLER_NAME"
 )
+if ($env:GIT_RELEASE_TAG) {
+    $ISCC_ARGS += "/DMyAppVersion=$env:GIT_RELEASE_TAG"
+}
 # Also accept the sign tool command via env var
 if (-not $SIGN_TOOL_CMD -and $env:SIGN_TOOL_CMD) {
     $SIGN_TOOL_CMD = $env:SIGN_TOOL_CMD
