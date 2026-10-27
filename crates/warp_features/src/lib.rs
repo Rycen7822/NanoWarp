@@ -193,9 +193,6 @@ pub enum FeatureFlag {
     /// Warp's notebook viewer instead of showing the raw JSON in the code editor.
     JupyterNotebookRendering,
 
-    /// Enables global search
-    GlobalSearch,
-
     /// Enables embedded code review comments.
     EmbeddedCodeReviewComments,
 

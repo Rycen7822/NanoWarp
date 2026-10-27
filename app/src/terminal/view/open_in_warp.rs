@@ -14,7 +14,9 @@ use warp_util::path::EscapeChar;
 use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
 use warpui::{SingletonEntity, ViewContext};
 
-use super::{Event, InlineBannerItem, InlineBannerType, TerminalView};
+#[cfg(feature = "local_fs")]
+use super::Event;
+use super::{InlineBannerItem, InlineBannerType, TerminalView};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 use crate::terminal::event::UserBlockCompleted;

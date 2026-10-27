@@ -104,7 +104,6 @@ pub enum CustomAction {
     OpenRepository,
     NewTerminalTab,
     GoToLine,
-    ToggleGlobalSearch,
 }
 
 lazy_static! {
@@ -383,13 +382,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
         CustomAction::GoToLine => Keystroke::parse("ctrl-g").ok(),
-        CustomAction::ToggleGlobalSearch => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-3").ok()
-            } else {
-                Keystroke::parse("alt-3").ok()
-            }
-        }
         CustomAction::NewTerminalTab
         | CustomAction::NewFile
         | CustomAction::ShowAboutWarp

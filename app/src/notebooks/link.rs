@@ -254,11 +254,8 @@ impl NotebookLinks {
 
     /// Perform the secondary action for this link.
     pub fn secondary_action(&self, link: &LinkTarget, ctx: &mut ModelContext<Self>) {
-        match link {
-            LinkTarget::LocalDirectory { path } => {
-                ctx.emit(LinkEvent::StartLocalSession { path: path.clone() })
-            }
-            _ => (),
+        if let LinkTarget::LocalDirectory { path } = link {
+            ctx.emit(LinkEvent::StartLocalSession { path: path.clone() });
         }
     }
 

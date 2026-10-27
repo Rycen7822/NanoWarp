@@ -1523,40 +1523,6 @@ impl PaneGroup {
                 .unwrap_or(false)
     }
 
-    /// Returns the selected text from the focused pane, or `None` if there is no selection or the selection is empty.
-    pub fn selected_text_from_focused_pane(&self, ctx: &AppContext) -> Option<String> {
-        let focused_pane_id = self.focused_pane_id(ctx);
-
-        #[cfg(feature = "local_fs")]
-        {
-            // If the focused pane is a code pane, return the selected text from the code view.
-            if focused_pane_id.is_code_pane() {
-                let text = self
-                    .downcast_pane_by_id::<CodePane>(focused_pane_id)
-                    .and_then(|pane| pane.file_view(ctx).as_ref(ctx).selected_text(ctx));
-                // If the text is not empty and does not contain a newline, return early.
-                if text.as_ref().is_some_and(|t| !t.is_empty()) {
-                    return text;
-                }
-            }
-        }
-
-        let text = match self.terminal_view_from_pane_id(focused_pane_id, ctx) {
-            Some(terminal_view) => {
-                // NOTE: We currently don't have a way to track recency of selection events.
-                // In lieu of this, we prefer selections to the input editor over the terminal view.
-                // TODO(vkodithala): Once we have a way to track recency of selection events, we should use that instead.
-                terminal_view
-                    .as_ref(ctx)
-                    .selected_text_from_input(ctx)
-                    .or_else(|| terminal_view.as_ref(ctx).selected_text(ctx))
-            }
-            _ => None,
-        };
-
-        text.filter(|text: &String| !text.is_empty())
-    }
-
     /// Returns the path to copy for the currently focused pane: the open file's display path
     /// if the focused pane is the rendered file viewer (`FilePane`) or code editor
     /// (`CodePane`), otherwise the focused terminal session's working directory (raw pwd,
@@ -3927,7 +3893,7 @@ impl PaneGroup {
     ) {
         self.detach_panes(ctx);
 
-        // Clean up any state associated with this pane group (global search views, etc.)
+        // Clean up any state associated with this pane group (file tree and code review views)
         let pane_group_id = ctx.view_id();
         working_directories_model.update(ctx, |model, ctx| {
             model.remove_pane_group(pane_group_id, ctx);

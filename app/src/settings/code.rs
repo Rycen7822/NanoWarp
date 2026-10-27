@@ -26,15 +26,6 @@ define_settings_group!(CodeSettings, settings: [
         toml_path: "code.editor.show_project_explorer",
         description: "Whether the project explorer is shown in the tools panel.",
     },
-    // Controls whether global file search appears in the tools panel.
-    show_global_search: ShowGlobalSearch {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: false,
-        toml_path: "code.editor.show_global_search",
-        description: "Whether global file search is shown in the tools panel.",
-    },
     // Controls whether hidden files (dotfiles) are shown in the project explorer.
     show_hidden_files: ShowHiddenFiles {
         type: bool,

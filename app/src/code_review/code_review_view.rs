@@ -60,7 +60,6 @@ use super::git_dialog::{GitDialog, GitDialogEvent, GitDialogKind};
 use super::{GlobalCodeReviewEvent, GlobalCodeReviewModel};
 use crate::appearance::Appearance;
 use crate::code::ShowCommentEditorProvider;
-#[cfg(not(target_family = "wasm"))]
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::editor::comment_editor::DEFAULT_COMMENT_MAX_WIDTH;
 use crate::code::editor::line::EditorLineLocation;

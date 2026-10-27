@@ -461,7 +461,6 @@ pub enum AppearancePageAction {
     SetWindowBackdrop(WindowBackdrop),
     ToggleLeftPanelVisibility,
     ToggleToolsPanelProjectExplorer,
-    ToggleToolsPanelGlobalSearch,
     SetEnforceMinimumContrast(EnforceMinimumContrast),
     ToggleFocusPaneOnHover,
     ToggleInputMode,
@@ -580,12 +579,6 @@ impl TypedActionView for AppearanceSettingsPageView {
                 });
                 // The Appearance page does not subscribe to these settings
                 // groups, so notify explicitly to refresh the switch state.
-                ctx.notify();
-            }
-            ToggleToolsPanelGlobalSearch => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_global_search.toggle_and_save_value(ctx));
-                });
                 ctx.notify();
             }
             SetInputMode {
@@ -1311,9 +1304,6 @@ impl AppearanceSettingsPageView {
         let mut tools_panel_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![];
         if cfg!(feature = "local_fs") {
             tools_panel_widgets.push(Box::new(ToolsPanelProjectExplorerWidget::default()));
-        }
-        if cfg!(feature = "local_fs") && FeatureFlag::GlobalSearch.is_enabled() {
-            tools_panel_widgets.push(Box::new(ToolsPanelGlobalSearchWidget::default()));
         }
         if !tools_panel_widgets.is_empty() {
             categories.push(Category::new("Tools panel", tools_panel_widgets));
@@ -3074,7 +3064,7 @@ impl SettingsWidget for ToolsPanelStateScopeWidget {
     type View = AppearanceSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "left tools panel open closed across tabs file tree project explorer global search warp drive conversation list"
+        "left tools panel open closed across tabs file tree project explorer"
     }
 
     fn render(
@@ -3144,44 +3134,6 @@ impl SettingsWidget for ToolsPanelProjectExplorerWidget {
                 })
                 .finish(),
             Some("Show the project explorer / file tree tab in the tools panel.".to_string()),
-        )
-    }
-}
-
-#[derive(Default)]
-struct ToolsPanelGlobalSearchWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ToolsPanelGlobalSearchWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "tools panel tabs global file search left panel visibility"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        render_body_item::<AppearancePageAction>(
-            "Global search".to_string(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*CodeSettings::as_ref(app).show_global_search)
-                .build()
-                .on_click(|evt_ctx, _app, _v2f| {
-                    evt_ctx
-                        .dispatch_typed_action(AppearancePageAction::ToggleToolsPanelGlobalSearch);
-                })
-                .finish(),
-            Some("Show the global file search tab in the tools panel.".to_string()),
         )
     }
 }

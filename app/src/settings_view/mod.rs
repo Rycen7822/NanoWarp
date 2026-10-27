@@ -352,7 +352,6 @@ pub mod flags {
         "TerminalInputPageKeysHandledByInput";
     // Tools panel settings
     pub const SHOW_PROJECT_EXPLORER: &str = "ShowProjectExplorer";
-    pub const SHOW_GLOBAL_SEARCH: &str = "ShowGlobalSearch";
     pub const SHOW_HIDDEN_FILES: &str = "ShowHiddenFiles";
 }
 

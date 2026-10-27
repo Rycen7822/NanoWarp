@@ -127,8 +127,6 @@ use ::settings::{Setting, ToggleableSetting};
 #[cfg(feature = "local_tty")]
 use anyhow::Context;
 use anyhow::Result;
-#[cfg(not(target_family = "wasm"))]
-use anyhow::anyhow;
 use appearance::{Appearance, AppearanceManager};
 use channel::ChannelState;
 use interval_timer::IntervalTimer;
@@ -400,24 +398,6 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             // Daemon handles its own full initialization (including
             // initialize_app and crash reporting) inside run_daemon_app.
             crate::remote_server::run_daemon(args.identity_key.clone())
-        }
-        #[cfg(not(target_family = "wasm"))]
-        warp_cli::WorkerCommand::RipgrepSearch {
-            parent,
-            ignore_case,
-            multiline,
-            pattern,
-            paths,
-        } => {
-            warp_ripgrep::search::run_search_subprocess(
-                std::slice::from_ref(pattern),
-                paths.clone(),
-                *ignore_case,
-                *multiline,
-                parent.pid,
-            )
-            .map_err(|err| anyhow!(err.to_string()))?;
-            Ok(())
         }
         #[cfg(all(target_family = "wasm", not(feature = "local_tty")))]
         worker => {

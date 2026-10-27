@@ -201,7 +201,6 @@ mime_guess = "2.0"
 remote_server.workspace = true
 repo_metadata.workspace = true
 vim.workspace = true
-warp_ripgrep.workspace = true
 hashbrown.workspace = true
 rustc-hash.workspace = true
 
@@ -407,7 +406,6 @@ default = [
     "classic_completions",
     "force_classic_completions",
     "pluggable_notifications",
-    "global_search",
     "new_tab_styling",
     "richtext_multiselect",
     "incremental_auto_reload",
@@ -547,7 +545,6 @@ discard_per_file_and_all_changes = []
 ui_zoom = []
 code_review_find = []
 inline_code_review = []
-global_search = []
 file_and_diff_set_comments = []
 classic_completions = []
 native_shell_completions = []

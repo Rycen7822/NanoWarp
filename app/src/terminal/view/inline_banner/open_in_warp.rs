@@ -36,12 +36,12 @@ impl OpenInWarpBannerState {
 }
 
 /// Given an openable file, format a file-specific title for the Open in Warp banner.
-fn file_title_text(openable_path: &OpenablePath) -> String {
+fn file_title_text(_openable_path: &OpenablePath) -> String {
     cfg_if::cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {
             // Language is a temporary variable to ensure our copy of the Arc<Language>
             // lives long enough to borrow the display name for the duration of the function.
-            let language = languages::language_by_local_filename(&openable_path.path);
+            let language = languages::language_by_local_filename(&_openable_path.path);
 
             match language.as_ref().map(|language| language.display_name()) {
                 Some(display_name) => {

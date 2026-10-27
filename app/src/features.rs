@@ -117,8 +117,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::UIZoom,
         #[cfg(feature = "inline_code_review")]
         FeatureFlag::InlineCodeReview,
-        #[cfg(feature = "global_search")]
-        FeatureFlag::GlobalSearch,
         #[cfg(feature = "embedded_code_review_comments")]
         FeatureFlag::EmbeddedCodeReviewComments,
         #[cfg(feature = "file_and_diff_set_comments")]

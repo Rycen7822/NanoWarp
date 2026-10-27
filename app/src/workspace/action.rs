@@ -418,9 +418,7 @@ pub enum WorkspaceAction {
     NavigateNextPaneOrPanel,
     ToggleProjectExplorer,
     OpenProjectExplorer,
-    ToggleGlobalSearch,
     ToggleHiddenFiles,
-    OpenGlobalSearch,
     /// Take a process sample of the app (equivalent to Activity Monitor > Sample Process).
     #[cfg(target_os = "macos")]
     SampleProcess,
@@ -653,9 +651,7 @@ impl WorkspaceAction {
             | NavigateNextPaneOrPanel
             | ToggleProjectExplorer
             | OpenProjectExplorer
-            | ToggleGlobalSearch
             | ToggleHiddenFiles
-            | OpenGlobalSearch
             | OpenLightbox { .. }
             | UpdateLightboxImage { .. }
             | ShowSessionConfigModal

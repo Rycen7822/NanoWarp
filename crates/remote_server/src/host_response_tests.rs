@@ -175,7 +175,6 @@ fn every_host_scoped_request_has_a_response_disposition() {
             M::GitPush(_) => "manager::push",
             M::GitCreatePr(_) => "manager::create_pr",
             M::GitGetCommittedBranchFiles(_) => "manager::get_committed_branch_files",
-            M::RipgrepSearch(_) => "manager::start_ripgrep_search",
         }
     }
 

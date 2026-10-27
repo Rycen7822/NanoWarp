@@ -79,7 +79,6 @@ impl EditorAndCodeReviewPageView {
                 as Box<dyn SettingsWidget<View = Self>>,
             Box::new(CodeReviewDiffStatsToggleWidget::default()),
             Box::new(ProjectExplorerToggleWidget::default()),
-            Box::new(GlobalSearchToggleWidget::default()),
             Box::new(ShowHiddenFilesToggleWidget::default()),
             Box::new(AutoSaveToggleWidget::default()),
         ]);
@@ -143,7 +142,6 @@ pub enum EditorAndCodeReviewPageAction {
     ToggleCodeReviewPanel,
     ToggleShowCodeReviewDiffStats,
     ToggleProjectExplorer,
-    ToggleGlobalSearch,
     ToggleShowHiddenFiles,
     ToggleAutoSave,
     SetCodeEditorLineNumberMode(CodeEditorLineNumberMode),
@@ -173,12 +171,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
             EditorAndCodeReviewPageAction::ToggleProjectExplorer => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.show_project_explorer.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            EditorAndCodeReviewPageAction::ToggleGlobalSearch => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_global_search.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -266,14 +258,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 )),
                 context,
                 flags::SHOW_PROJECT_EXPLORER,
-            ),
-            ToggleSettingActionPair::new(
-                "global file search",
-                builder(SettingsAction::EditorAndCodeReview(
-                    EditorAndCodeReviewPageAction::ToggleGlobalSearch,
-                )),
-                context,
-                flags::SHOW_GLOBAL_SEARCH,
             ),
             ToggleSettingActionPair::new(
                 "show hidden files in project explorer",
@@ -434,45 +418,6 @@ impl SettingsWidget for ProjectExplorerToggleWidget {
                 "Adds an IDE-style project explorer / file tree to the left side tools panel."
                     .into(),
             ),
-        )
-    }
-}
-
-#[derive(Default)]
-struct GlobalSearchToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for GlobalSearchToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "global search file search left panel tools"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let code_settings = CodeSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Global file search".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*code_settings.show_global_search)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAndCodeReviewPageAction::ToggleGlobalSearch);
-                })
-                .finish(),
-            Some("Adds global file search to the left side tools panel.".into()),
         )
     }
 }

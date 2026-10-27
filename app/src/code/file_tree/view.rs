@@ -1005,8 +1005,7 @@ impl FileTreeView {
             .cloned()
             .collect();
 
-        // Ancestor-dedup only local inputs. Shared with `GlobalSearchView`
-        // via `warp_util::path::group_roots_by_common_ancestor`.
+        // Ancestor-dedup only local inputs.
         let grouping = warp_util::path::group_roots_by_common_ancestor(&local_inputs);
 
         // Final displayed order: local surviving roots (in input order),

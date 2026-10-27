@@ -8,8 +8,7 @@ use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 
-/// Shared item highlight state for left-panel style lists (file tree, global search results,
-/// warp drive rows, etc.).
+/// Shared item highlight state for lists such as the file tree.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ItemHighlightState {
     None,

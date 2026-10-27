@@ -1825,9 +1825,7 @@ fn find_non_following_tab_index(workspace: &Workspace, ctx: &AppContext) -> usiz
         .tabs
         .iter()
         .position(|tab| {
-            !Workspace::should_enable_file_tree_and_global_search_for_pane_group(
-                tab.pane_group.as_ref(ctx),
-            )
+            !Workspace::should_enable_file_tree_for_pane_group(tab.pane_group.as_ref(ctx))
         })
         .expect("Expected a non-following tab")
 }

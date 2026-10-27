@@ -35,30 +35,20 @@ use crate::terminal::resizable_data::{ModalType, ResizableData};
 use crate::ui_components::buttons::{icon_button, icon_button_with_color};
 use crate::ui_components::icons;
 use crate::util::bindings::keybinding_name_to_display_string;
-#[cfg(feature = "local_fs")]
-use crate::util::file::external_editor::EditorSettings;
 use crate::util::openable_file_type::FileTarget;
-#[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{EditorLayout, resolve_file_target_with_editor_choice};
 use crate::workspace::WorkspaceAction;
-use crate::workspace::view::global_search::view::{
-    Event as GlobalSearchViewEvent, GlobalSearchEntryFocus, GlobalSearchView,
-};
 use crate::workspace::view::{
-    LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME, LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME,
-    OPEN_GLOBAL_SEARCH_BINDING_NAME, TOGGLE_PROJECT_EXPLORER_BINDING_NAME,
+    LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME, TOGGLE_PROJECT_EXPLORER_BINDING_NAME,
 };
 
 #[derive(Default)]
 struct MouseStateHandles {
     project_explorer_button: MouseStateHandle,
-    global_search_button: MouseStateHandle,
 }
 
 #[derive(Clone, Debug)]
 pub enum LeftPanelAction {
     ProjectExplorer,
-    GlobalSearch { entry_focus: GlobalSearchEntryFocus },
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -76,7 +66,6 @@ pub enum LeftPanelEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolPanelView {
     ProjectExplorer,
-    GlobalSearch { entry_focus: GlobalSearchEntryFocus },
 }
 
 /// Encapsulates the active view state to enforce that all mutations go through
@@ -233,15 +222,6 @@ impl LeftPanelView {
                     })
                     .collect();
 
-                // Update GlobalSearchView root directories (local + remote).
-                let all_directories: Vec<LocalOrRemotePath> =
-                    directories.iter().map(|d| d.path.clone()).collect();
-                let global_search_view =
-                    me.get_or_create_global_search_view_for_pane_group(active_pane_group.id(), ctx);
-                global_search_view.update(ctx, |view, view_ctx| {
-                    view.set_root_directories(all_directories, view_ctx);
-                });
-
                 // Directories are already in display order (most recent first) from the model
                 let local_directories = deduplicate_by_directory_name(local_paths);
                 let file_tree_view =
@@ -297,13 +277,7 @@ impl LeftPanelView {
     ) {
         // Check if the current active view is still available
         let current_view = self.active_view.get();
-        let is_current_view_available = views.iter().any(|v| {
-            // Use discriminant comparison for GlobalSearch since it has inner data
-            match (v, &current_view) {
-                (ToolPanelView::GlobalSearch { .. }, ToolPanelView::GlobalSearch { .. }) => true,
-                _ => std::mem::discriminant(v) == std::mem::discriminant(&current_view),
-            }
-        });
+        let is_current_view_available = views.contains(&current_view);
 
         // Rebuild toolbelt buttons
         self.toolbelt_buttons = views
@@ -343,51 +317,7 @@ impl LeftPanelView {
                     tooltip_keybinding_names,
                 }
             }
-            ToolPanelView::GlobalSearch { .. } => {
-                let tooltip_keybinding_names = vec![
-                    LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME,
-                    OPEN_GLOBAL_SEARCH_BINDING_NAME,
-                ];
-
-                ToolbeltButtonConfig {
-                    icon: Icon::Search,
-                    active_icon: None,
-                    tooltip_text: "Global search".to_string(),
-                    action: LeftPanelAction::GlobalSearch {
-                        entry_focus: GlobalSearchEntryFocus::QueryEditor,
-                    },
-                    render_with_active_state: false,
-                    tooltip_keybinding: toolbelt_tooltip_keybinding(&tooltip_keybinding_names, ctx),
-                    tooltip_keybinding_names,
-                }
-            }
         }
-    }
-
-    fn get_or_create_global_search_view_for_pane_group(
-        &mut self,
-        pane_group_id: warpui::EntityId,
-        ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<GlobalSearchView> {
-        if let Some(view) = self
-            .working_directories_model
-            .as_ref(ctx)
-            .get_global_search_view(pane_group_id)
-        {
-            return view;
-        }
-
-        let global_search_view = ctx.add_typed_action_view(GlobalSearchView::new);
-
-        ctx.subscribe_to_view(&global_search_view, |me, _, event, ctx| {
-            me.handle_global_search_event(event, ctx);
-        });
-
-        self.working_directories_model.update(ctx, |model, _ctx| {
-            model.store_global_search_view(pane_group_id, global_search_view.clone());
-        });
-
-        global_search_view
     }
 
     fn get_or_create_file_tree_view_for_pane_group(
@@ -415,20 +345,6 @@ impl LeftPanelView {
         });
 
         file_tree_view
-    }
-
-    pub fn active_global_search_view(
-        &self,
-        app: &AppContext,
-    ) -> Option<ViewHandle<GlobalSearchView>> {
-        let pane_group_id = self
-            .active_pane_group
-            .as_ref()
-            .and_then(|pane_group| pane_group.upgrade(app))
-            .map(|pane_group| pane_group.id())?;
-        self.working_directories_model
-            .as_ref(app)
-            .get_global_search_view(pane_group_id)
     }
 
     fn active_file_tree_view(&self, app: &AppContext) -> Option<ViewHandle<FileTreeView>> {
@@ -523,15 +439,6 @@ impl LeftPanelView {
             })
             .collect();
 
-        // Update GlobalSearchView root directories (local + remote).
-        let all_directories: Vec<LocalOrRemotePath> =
-            active_directories.iter().map(|d| d.path.clone()).collect();
-        let global_search_view =
-            self.get_or_create_global_search_view_for_pane_group(pane_group_id, ctx);
-        global_search_view.update(ctx, |view, view_ctx| {
-            view.set_root_directories(all_directories, view_ctx);
-        });
-
         let local_directories = deduplicate_by_directory_name(local_paths);
         let active_file_model = pane_group.as_ref(ctx).active_file_model().clone();
 
@@ -558,22 +465,16 @@ impl LeftPanelView {
 
     pub fn update_coding_panel_enablement(
         &mut self,
-        enablement: CodingPanelEnablementState,
-        ctx: &mut ViewContext<Self>,
+        _enablement: CodingPanelEnablementState,
+        _ctx: &mut ViewContext<Self>,
     ) {
         #[cfg(feature = "local_fs")]
         {
-            if let Some(file_tree_view) = self.active_file_tree_view(ctx) {
-                file_tree_view.update(ctx, |view, ctx| {
-                    view.set_enablement_state(enablement, ctx);
+            if let Some(file_tree_view) = self.active_file_tree_view(_ctx) {
+                file_tree_view.update(_ctx, |view, ctx| {
+                    view.set_enablement_state(_enablement, ctx);
                 });
             }
-        }
-
-        if let Some(global_search_view) = self.active_global_search_view(ctx) {
-            global_search_view.update(ctx, |view, view_ctx| {
-                view.set_enablement_state(enablement, view_ctx);
-            });
         }
     }
 
@@ -586,67 +487,6 @@ impl LeftPanelView {
                     });
                     ctx.focus(&file_tree_view);
                 }
-            }
-            ToolPanelView::GlobalSearch { entry_focus } => {
-                if let Some(global_search_view) = self.active_global_search_view(ctx) {
-                    global_search_view.update(ctx, |view, ctx| {
-                        view.on_left_panel_focused(entry_focus, ctx);
-                    });
-                }
-
-                active_view_state::set(
-                    self,
-                    ToolPanelView::GlobalSearch {
-                        entry_focus: GlobalSearchEntryFocus::Results,
-                    },
-                    ctx,
-                );
-            }
-        }
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn handle_global_search_event(
-        &mut self,
-        _event: &GlobalSearchViewEvent,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn handle_global_search_event(
-        &mut self,
-        event: &GlobalSearchViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            GlobalSearchViewEvent::OpenMatch {
-                location,
-                line_number,
-                column_num,
-            } => {
-                let line_col = LineAndColumnArg {
-                    line_num: *line_number as usize,
-                    column_num: *column_num,
-                };
-
-                let settings = EditorSettings::as_ref(ctx);
-                let target = match location {
-                    LocalOrRemotePath::Local(path) => resolve_file_target_with_editor_choice(
-                        path,
-                        *settings.open_code_panels_file_editor,
-                        *settings.open_file_layout,
-                        None,
-                    ),
-                    // Remote files use the existing basic editor.
-                    LocalOrRemotePath::Remote(_) => FileTarget::CodeEditor(EditorLayout::SplitPane),
-                };
-
-                ctx.emit(LeftPanelEvent::OpenFileWithTarget {
-                    location: location.clone(),
-                    target,
-                    line_col: Some(line_col),
-                });
             }
         }
     }
@@ -736,9 +576,6 @@ impl LeftPanelView {
             button.render_with_active_state = match &button.action {
                 LeftPanelAction::ProjectExplorer => {
                     self.active_view.get() == ToolPanelView::ProjectExplorer
-                }
-                LeftPanelAction::GlobalSearch { .. } => {
-                    matches!(self.active_view.get(), ToolPanelView::GlobalSearch { .. })
                 }
             };
         }
@@ -864,15 +701,6 @@ impl TypedActionView for LeftPanelView {
             LeftPanelAction::ProjectExplorer => {
                 active_view_state::set(self, ToolPanelView::ProjectExplorer, ctx);
             }
-            LeftPanelAction::GlobalSearch { entry_focus } => {
-                active_view_state::set(
-                    self,
-                    ToolPanelView::GlobalSearch {
-                        entry_focus: *entry_focus,
-                    },
-                    ctx,
-                );
-            }
         }
     }
 }
@@ -891,11 +719,6 @@ impl View for LeftPanelView {
                         ctx.focus(&view);
                     }
                 }
-                ToolPanelView::GlobalSearch { .. } => {
-                    if let Some(view) = self.active_global_search_view(ctx) {
-                        ctx.focus(&view);
-                    }
-                }
             }
         }
     }
@@ -903,10 +726,7 @@ impl View for LeftPanelView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
 
-        let mouse_state_handles = vec![
-            self.mouse_state_handles.project_explorer_button.clone(),
-            self.mouse_state_handles.global_search_button.clone(),
-        ];
+        let mouse_state_handles = vec![self.mouse_state_handles.project_explorer_button.clone()];
 
         // If there is only one button in the toolbelt row,
         // there is no need to show it as it's a bit redundant.
@@ -936,14 +756,6 @@ impl View for LeftPanelView {
                         .with_padding_left(2.)
                         .with_padding_right(2.)
                         .finish(),
-                )
-                .finish(),
-                _ => Shrinkable::new(1.0, Container::new(Empty::new().finish()).finish()).finish(),
-            },
-            ToolPanelView::GlobalSearch { .. } => match self.active_global_search_view(app) {
-                Some(global_search_view) => Shrinkable::new(
-                    1.0,
-                    Container::new(ChildView::new(&global_search_view).finish()).finish(),
                 )
                 .finish(),
                 _ => Shrinkable::new(1.0, Container::new(Empty::new().finish()).finish()).finish(),

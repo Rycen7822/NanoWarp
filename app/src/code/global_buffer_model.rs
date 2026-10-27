@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "local_fs")]
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;

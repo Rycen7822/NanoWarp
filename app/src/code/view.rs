@@ -454,14 +454,6 @@ impl CodeView {
         &self.source
     }
 
-    /// Gets the selected text from the active tab's editor, if any.
-    pub fn selected_text(&self, ctx: &AppContext) -> Option<String> {
-        self.tab_at(self.active_tab_index).and_then(|tab| {
-            let editor = tab.editor_view.as_ref(ctx).editor();
-            editor.as_ref(ctx).selected_text(ctx)
-        })
-    }
-
     pub fn local_path(&self, ctx: &AppContext) -> Option<PathBuf> {
         self.tab_at(self.active_tab_index).and_then(|t| {
             t.editor_view.as_ref(ctx).file_id().and_then(|file_id| {

@@ -1,7 +1,6 @@
 use crate::palette::PaletteSource;
 #[cfg(enable_crash_recovery)]
 mod crash_recovery;
-pub mod global_search;
 pub(crate) mod left_panel;
 pub(crate) mod right_panel;
 mod startup_directory;
@@ -263,7 +262,6 @@ use crate::workspace::tab_settings::TabCloseButtonPosition;
 use crate::workspace::toast_stack::{
     ToastStack, ToastStack as WorkspaceToastStack, ToastStackEvent as WorkspaceToastStackEvent,
 };
-use crate::workspace::view::global_search::view::GlobalSearchEntryFocus;
 use crate::workspace::view::left_panel::{
     LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
 };
@@ -357,7 +355,6 @@ pub(crate) const TOGGLE_PROJECT_EXPLORER_BINDING_NAME: &str = "workspace:toggle_
 pub(crate) const TOGGLE_RIGHT_PANEL_BINDING_NAME: &str = "workspace:toggle_right_panel";
 pub(crate) const TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME: &str =
     "workspace:toggle_vertical_tabs_panel";
-pub(crate) const OPEN_GLOBAL_SEARCH_BINDING_NAME: &str = "workspace:open_global_search";
 pub(crate) const NEW_TAB_BINDING_NAME: &str = "workspace:new_tab";
 pub(crate) const NEW_TERMINAL_TAB_BINDING_NAME: &str = "workspace:new_terminal_tab";
 pub(crate) const NEW_FILE_BINDING_NAME: &str = "workspace:new_file";
@@ -367,7 +364,6 @@ pub(crate) const TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME: &str = "workspace:toggle_
 // Editable left panel toolbelt keybindings.
 pub(crate) const LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME: &str =
     "workspace:left_panel_project_explorer";
-pub(crate) const LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME: &str = "workspace:left_panel_global_search";
 
 const KEYBINDINGS_TO_CACHE: [&str; 3] = [
     TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME,
@@ -1814,11 +1810,7 @@ impl Workspace {
         });
 
         ctx.subscribe_to_model(&CodeSettings::handle(ctx), |me, _, event, ctx| {
-            if matches!(
-                event,
-                CodeSettingsChangedEvent::ShowProjectExplorer { .. }
-                    | CodeSettingsChangedEvent::ShowGlobalSearch { .. }
-            ) {
+            if matches!(event, CodeSettingsChangedEvent::ShowProjectExplorer { .. }) {
                 me.update_left_panel_available_views(ctx);
                 ctx.notify();
             }
@@ -2460,9 +2452,6 @@ impl Workspace {
             // Restore which panel tab was active
             let active_view = match left_panel_snapshot.left_panel_displayed_tab {
                 LeftPanelDisplayedTab::FileTree => ToolPanelView::ProjectExplorer,
-                LeftPanelDisplayedTab::GlobalSearch => ToolPanelView::GlobalSearch {
-                    entry_focus: GlobalSearchEntryFocus::Results,
-                },
             };
             lp.restore_active_view_from_snapshot(active_view, ctx);
             lp.set_active_pane_group(pane_group.clone(), &self.working_directories_model, ctx);
@@ -2888,15 +2877,6 @@ impl Workspace {
             .expect("Active tab index entry should exist")
     }
 
-    /// Attempts to get selected text from the focused pane.
-    /// Returns None if there is no selection, multiple selections, or an empty selection.
-    /// Supports code, notebook, and terminal panes.
-    fn get_selected_text_from_focused_view(&self, ctx: &AppContext) -> Option<String> {
-        self.active_tab_pane_group()
-            .as_ref(ctx)
-            .selected_text_from_focused_pane(ctx)
-    }
-
     /// This is meant to be dispatched directly by actions.
     pub fn activate_tab(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         self.activate_tab_internal(index, ctx);
@@ -2931,7 +2911,7 @@ impl Workspace {
     fn reconcile_left_panel_open_for_active_tab(&mut self, ctx: &mut ViewContext<Self>) {
         let pane_group = self.active_tab_pane_group().clone();
         let pane_group_supports_tools_panel = pane_group.read(ctx, |pane_group, _| {
-            Self::should_enable_file_tree_and_global_search_for_pane_group(pane_group)
+            Self::should_enable_file_tree_for_pane_group(pane_group)
         });
 
         if !pane_group_supports_tools_panel {
@@ -9808,10 +9788,10 @@ impl Workspace {
     /// Update the active session model state.
     fn update_active_session(&mut self, ctx: &mut ViewContext<Self>) {
         let pane_group_handle = self.active_tab_pane_group();
-        let file_tree_and_global_search_are_enabled = {
+        let file_tree_is_enabled = {
             #[cfg(feature = "local_fs")]
             {
-                Self::should_enable_file_tree_and_global_search_for_pane_group(
+                Self::should_enable_file_tree_for_pane_group(
                     self.active_tab_pane_group().as_ref(ctx),
                 )
             }
@@ -9873,7 +9853,7 @@ impl Workspace {
                     });
 
                 let enablement = CodingPanelEnablementState::from_session_env(
-                    file_tree_and_global_search_are_enabled,
+                    file_tree_is_enabled,
                     is_remote,
                     is_unsupported_session,
                     has_remote_server,
@@ -9910,7 +9890,7 @@ impl Workspace {
             }
             _ => {
                 let enablement = CodingPanelEnablementState::from_session_env(
-                    file_tree_and_global_search_are_enabled,
+                    file_tree_is_enabled,
                     false,
                     false,
                     false,
@@ -11082,7 +11062,6 @@ impl Workspace {
                 let tooltip = if self.left_panel_views.len() <= 1 {
                     match self.left_panel_views.first() {
                         Some(ToolPanelView::ProjectExplorer) => "Project explorer",
-                        Some(ToolPanelView::GlobalSearch { .. }) => "Global search",
                         None => "Tools panel",
                     }
                 } else {
@@ -11130,7 +11109,6 @@ impl Workspace {
         let tooltip_text = if self.left_panel_views.len() <= 1 {
             match self.left_panel_views.first() {
                 Some(ToolPanelView::ProjectExplorer) => "Project explorer",
-                Some(ToolPanelView::GlobalSearch { .. }) => "Global search",
                 None => "Tools panel",
             }
         } else {
@@ -11160,7 +11138,7 @@ impl Workspace {
         .finish()
     }
 
-    fn should_enable_file_tree_and_global_search_for_pane_group(pane_group: &PaneGroup) -> bool {
+    fn should_enable_file_tree_for_pane_group(pane_group: &PaneGroup) -> bool {
         pane_group
             .pane_ids()
             .filter(|id| !pane_group.is_pane_hidden_for_close(*id))
@@ -11173,9 +11151,8 @@ impl Workspace {
         ctx: &AppContext,
     ) -> Box<dyn Element> {
         let is_active = self.active_tab_pane_group().as_ref(ctx).right_panel_open;
-        let is_enabled = Self::should_enable_file_tree_and_global_search_for_pane_group(
-            self.active_tab_pane_group().as_ref(ctx),
-        );
+        let is_enabled =
+            Self::should_enable_file_tree_for_pane_group(self.active_tab_pane_group().as_ref(ctx));
         let disable = !is_enabled;
 
         let theme = appearance.theme();
@@ -13251,14 +13228,6 @@ impl Workspace {
         if cfg!(feature = "local_fs") && *CodeSettings::as_ref(ctx).show_project_explorer.value() {
             views.push(ToolPanelView::ProjectExplorer);
         }
-        if cfg!(feature = "local_fs")
-            && FeatureFlag::GlobalSearch.is_enabled()
-            && *CodeSettings::as_ref(ctx).show_global_search.value()
-        {
-            views.push(ToolPanelView::GlobalSearch {
-                entry_focus: GlobalSearchEntryFocus::Results,
-            });
-        }
         views
     }
 
@@ -14244,51 +14213,10 @@ impl TypedActionView for Workspace {
                     self.open_left_panel_view(&LeftPanelAction::ProjectExplorer, ctx);
                 }
             }
-            ToggleGlobalSearch => {
-                if FeatureFlag::GlobalSearch.is_enabled()
-                    && *CodeSettings::as_ref(ctx).show_global_search
-                {
-                    let is_showing = matches!(
-                        self.left_panel_view.as_ref(ctx).active_view(),
-                        ToolPanelView::GlobalSearch { .. }
-                    );
-                    self.toggle_left_panel_view(
-                        &LeftPanelAction::GlobalSearch {
-                            entry_focus: GlobalSearchEntryFocus::QueryEditor,
-                        },
-                        is_showing,
-                        ctx,
-                    );
-                }
-            }
             ToggleHiddenFiles => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.show_hidden_files.toggle_and_save_value(ctx));
                 });
-            }
-            OpenGlobalSearch => {
-                if FeatureFlag::GlobalSearch.is_enabled()
-                    && *CodeSettings::as_ref(ctx).show_global_search
-                {
-                    if let Some(selected_text) = self.get_selected_text_from_focused_view(ctx)
-                        && let Some(global_search_view) = self
-                            .left_panel_view
-                            .as_ref(ctx)
-                            .active_global_search_view(ctx)
-                    {
-                        // If we detect selected text in the active pane, pre-populate the global search input
-                        global_search_view.update(ctx, |view, ctx| {
-                            view.set_initial_query(selected_text, ctx);
-                        });
-                    }
-
-                    self.open_left_panel_view(
-                        &LeftPanelAction::GlobalSearch {
-                            entry_focus: GlobalSearchEntryFocus::QueryEditor,
-                        },
-                        ctx,
-                    );
-                }
             }
             OpenLightbox {
                 images,
@@ -14439,9 +14367,6 @@ impl View for Workspace {
 
         if *CodeSettings::as_ref(app).show_project_explorer {
             context.set.insert(flags::SHOW_PROJECT_EXPLORER);
-        }
-        if *CodeSettings::as_ref(app).show_global_search {
-            context.set.insert(flags::SHOW_GLOBAL_SEARCH);
         }
         if *CodeSettings::as_ref(app).show_hidden_files {
             context.set.insert(flags::SHOW_HIDDEN_FILES);

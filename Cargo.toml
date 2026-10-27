@@ -66,7 +66,6 @@ warp_errors = { path = "crates/warp_errors" }
 warp_features = { path = "crates/warp_features" }
 warp_files = { path = "crates/warp_files" }
 warp_logging = { path = "crates/warp_logging" }
-warp_ripgrep = { path = "crates/warp_ripgrep" }
 warp_search_core = { path = "crates/warp_search_core" }
 warp_terminal = { path = "crates/warp_terminal" }
 warp_util = { path = "crates/warp_util" }

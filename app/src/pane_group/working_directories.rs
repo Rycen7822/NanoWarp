@@ -25,7 +25,6 @@ use crate::code::file_tree::FileTreeView;
 use crate::code_review::code_review_view::CodeReviewView;
 use crate::code_review::comments::ReviewCommentBatch;
 use crate::code_review::diff_state::DiffStateModel;
-use crate::workspace::view::global_search::view::GlobalSearchView;
 
 /// Type-safe wrapper around the map of `LocalOrRemotePath` → `DiffStateModel`.
 ///
@@ -259,7 +258,7 @@ pub struct WorkingDirectoriesModel {
     /// Per-pane-group tracking of active directories (both local and remote) as a
     /// deduplicated, ordered set.
     ///
-    /// This stores the *display roots* for the left panel (file tree / global search),
+    /// This stores the *display roots* for the left panel file tree,
     /// not the raw working directories reported by each pane.
     ///
     /// Concretely, for each pane group's active paths we store:
@@ -294,7 +293,6 @@ pub struct WorkingDirectoriesModel {
     /// leaves the pane group's session and returns to it later, even if the auto-selection
     /// logic would otherwise pick a different default.
     selected_review_repo: HashMap<EntityId, LocalOrRemotePath>,
-    global_search_views: HashMap<EntityId, ViewHandle<GlobalSearchView>>,
     file_tree_views: HashMap<EntityId, ViewHandle<FileTreeView>>,
 }
 
@@ -515,21 +513,6 @@ impl WorkingDirectoriesModel {
         self.selected_review_repo.remove(&pane_group_id);
     }
 
-    pub fn store_global_search_view(
-        &mut self,
-        pane_group_id: EntityId,
-        view: ViewHandle<GlobalSearchView>,
-    ) {
-        self.global_search_views.insert(pane_group_id, view);
-    }
-
-    pub fn get_global_search_view(
-        &self,
-        pane_group_id: EntityId,
-    ) -> Option<ViewHandle<GlobalSearchView>> {
-        self.global_search_views.get(&pane_group_id).cloned()
-    }
-
     pub fn store_file_tree_view(
         &mut self,
         pane_group_id: EntityId,
@@ -552,7 +535,6 @@ impl WorkingDirectoriesModel {
 
         // Clean up views that should persist in handle_empty_pane_group e.g. there's only a settings pane in the pane group
         // but need to be removed when the pane group is destroyed
-        self.global_search_views.remove(&pane_group_id);
         self.file_tree_views.remove(&pane_group_id);
         self.code_review_views.remove(&pane_group_id);
         self.focused_repo.remove(&pane_group_id);
@@ -1019,20 +1001,6 @@ impl WorkingDirectoriesModel {
     }
 
     pub fn clear_selected_review_repo(&mut self, _pane_group_id: EntityId) {}
-
-    pub fn store_global_search_view(
-        &mut self,
-        _pane_group_id: EntityId,
-        _view: ViewHandle<GlobalSearchView>,
-    ) {
-    }
-
-    pub fn get_global_search_view(
-        &self,
-        _pane_group_id: EntityId,
-    ) -> Option<ViewHandle<GlobalSearchView>> {
-        None
-    }
 
     pub fn store_file_tree_view(
         &mut self,
