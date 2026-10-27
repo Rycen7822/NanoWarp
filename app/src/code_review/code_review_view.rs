@@ -61,7 +61,6 @@ use super::{GlobalCodeReviewEvent, GlobalCodeReviewModel};
 use crate::appearance::Appearance;
 use crate::code::ShowCommentEditorProvider;
 #[cfg(not(target_family = "wasm"))]
-use crate::code::ShowFindReferencesCard;
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::editor::comment_editor::DEFAULT_COMMENT_MAX_WIDTH;
 use crate::code::editor::line::EditorLineLocation;
@@ -2598,12 +2597,6 @@ impl CodeReviewView {
                                         .code_review_list_position_id
                                         .clone(),
                                     window_id: ctx.window_id(),
-                                })
-                                .with_show_find_references_provider(ShowFindReferencesCard {
-                                    editor_window_id: ctx.window_id(),
-                                    parent_scrollable_position_id: Some(
-                                        self.code_review_list_position_id.clone(),
-                                    ),
                                 }),
                                 ctx,
                             )
@@ -2820,31 +2813,6 @@ impl CodeReviewView {
                         .invalidate_height_for_index(index);
                     ctx.notify();
                 }
-            }
-            #[cfg(not(target_family = "wasm"))]
-            LocalCodeEditorEvent::GotoDefinition {
-                path,
-                line,
-                column,
-                source_server_id,
-            } => {
-                // Register the external file so it can use LSP features.
-                // The manager will skip registration if the path is under an existing workspace.
-                let lsp_manager = lsp::LspManagerModel::handle(ctx);
-                lsp_manager.update(ctx, |mgr, _| {
-                    mgr.maybe_register_external_file(path, *source_server_id);
-                });
-
-                // LSP go-to-definition produces an absolute local filesystem path.
-                self.open_file_in_tab(
-                    LocalOrRemotePath::Local(path.clone()),
-                    Some(LineAndColumnArg {
-                        // LSP uses 0-indexed lines, but we display 1-indexed
-                        line_num: *line + 1,
-                        column_num: Some(*column),
-                    }),
-                    ctx,
-                );
             }
             _ => (),
         }

@@ -1,4 +1,3 @@
-use lsp::LspManagerModel;
 use remote_server::proto::TextEdit;
 use repo_metadata::RepoMetadataModel;
 use repo_metadata::repositories::DetectedRepositories;
@@ -17,7 +16,6 @@ use crate::test_util::settings::initialize_settings_for_tests;
 /// Minimum singletons required by `GlobalBufferModel::new`.
 fn init_app(app: &mut App) {
     initialize_settings_for_tests(app);
-    app.add_singleton_model(|_| LspManagerModel::new());
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(RepoMetadataModel::new);

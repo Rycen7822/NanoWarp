@@ -10,14 +10,10 @@ use num_traits::SaturatingSub;
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting as _;
 use string_offset::CharOffset;
-use vec1::{Vec1, vec1};
+use vec1::vec1;
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
-use warp_editor::content::buffer::{
-    Buffer, BufferEditAction, EditOrigin, InitialBufferState, ToBufferCharOffset as _,
-    ToBufferPoint,
-};
-use warp_editor::content::text::IndentUnit;
+use warp_editor::content::buffer::{Buffer, EditOrigin, InitialBufferState, ToBufferPoint};
 use warp_editor::content::version::BufferVersion;
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
 use warp_editor::multiline::AnyMultilineString;
@@ -42,9 +38,6 @@ use warpui::elements::{
 };
 use warpui::event::ModifiersState;
 use warpui::keymap::Keystroke;
-use warpui::platform::Cursor;
-use warpui::prelude::RectF;
-use warpui::text::point::Point;
 use warpui::units::Pixels;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
@@ -63,15 +56,12 @@ use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewE
 use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
 use crate::code::editor::line::EditorLineLocation;
 use crate::code::editor::model::{
-    CodeEditorModel, CodeEditorModelEvent, HoverableLink, LineBound, StableEditorLine,
+    CodeEditorModel, CodeEditorModelEvent, LineBound, StableEditorLine,
 };
 use crate::code::editor::nav_bar::{NavBar, NavBarEvent};
 use crate::code::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
 use crate::code::editor::{DiffDelta, EditorReviewComment};
-use crate::code::{
-    NoopCommentEditorProvider, NoopFindReferencesCardProvider, ShowCommentEditorProvider,
-    ShowFindReferencesCardProvider,
-};
+use crate::code::{NoopCommentEditorProvider, ShowCommentEditorProvider};
 use crate::code_review::comments::{CommentId, CommentOrigin};
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
@@ -125,19 +115,9 @@ pub enum CodeEditorEvent {
     DelayedRenderingFlushed,
     /// Emitted when the render state layout has been updated.
     LayoutInvalidated,
-    MouseHovered {
-        offset: CharOffset,
-        cmd: bool,
-        clamped: bool,
-        /// Whether the mouse move event was covered by an element above the editor.
-        is_covered: bool,
-    },
     DeleteComment {
         id: CommentId,
     },
-    VimGotoDefinition,
-    VimFindReferences,
-    VimShowHover,
 }
 
 /// Store all states related to displaying the editor content.
@@ -200,7 +180,6 @@ pub struct CodeEditorRenderOptions {
     line_height_override: Option<f32>,
     lazy_layout: bool,
     show_comment_editor_provider: Box<dyn ShowCommentEditorProvider>,
-    show_find_references_provider: Box<dyn ShowFindReferencesCardProvider>,
 }
 
 impl CodeEditorRenderOptions {
@@ -210,7 +189,6 @@ impl CodeEditorRenderOptions {
             line_height_override: None,
             lazy_layout: false,
             show_comment_editor_provider: Box::new(NoopCommentEditorProvider),
-            show_find_references_provider: Box::new(NoopFindReferencesCardProvider),
         }
     }
 
@@ -229,14 +207,6 @@ impl CodeEditorRenderOptions {
         comment_editor_provider: impl ShowCommentEditorProvider,
     ) -> Self {
         self.show_comment_editor_provider = Box::new(comment_editor_provider);
-        self
-    }
-
-    pub fn with_show_find_references_provider(
-        mut self,
-        find_references_provider: impl ShowFindReferencesCardProvider,
-    ) -> Self {
-        self.show_find_references_provider = Box::new(find_references_provider);
         self
     }
 }
@@ -262,11 +232,6 @@ pub struct CodeEditorView {
     /// Save position of the comment button rendered within this code editor view.
     comment_save_position_id: String,
     show_comment_editor_provider: Box<dyn ShowCommentEditorProvider>,
-    /// Save position of the anchor point for find references card.
-    find_references_save_position_id: String,
-    show_find_references_provider: Box<dyn ShowFindReferencesCardProvider>,
-    /// The offset where find references card is anchored (if showing).
-    find_references_anchor_offset: Option<CharOffset>,
     window_id: WindowId,
 }
 
@@ -407,30 +372,8 @@ impl CodeEditorView {
             active_comment_editor: comment_editor,
             comment_save_position_id: format!("code_editor_comment_{}", ctx.view_id()),
             show_comment_editor_provider: render_options.show_comment_editor_provider,
-            find_references_save_position_id: format!(
-                "code_editor_find_references_{}",
-                ctx.view_id()
-            ),
-            show_find_references_provider: render_options.show_find_references_provider,
-            find_references_anchor_offset: None,
             window_id: ctx.window_id(),
         }
-    }
-
-    pub fn set_find_references_anchor_offset(&mut self, offset: Option<CharOffset>) {
-        self.find_references_anchor_offset = offset;
-    }
-
-    pub fn find_references_save_position_id(&self) -> &str {
-        &self.find_references_save_position_id
-    }
-
-    pub fn show_find_references_provider(&self) -> &dyn ShowFindReferencesCardProvider {
-        self.show_find_references_provider.as_ref()
-    }
-
-    pub fn window_id(&self) -> WindowId {
-        self.window_id
     }
 
     /// Enables the "revert" button on diff hunks. Only enable this for code review views.
@@ -585,7 +528,6 @@ impl CodeEditorView {
             false,
             self.display_options.gutter_hover_target,
             self.comment_save_position_id.clone(),
-            self.find_references_save_position_id.clone(),
         )
         .finish()
     }
@@ -726,17 +668,6 @@ impl CodeEditorView {
         })
     }
 
-    pub fn set_vertical_scrollbar_appearance(&mut self, appearance: ScrollableAppearance) {
-        self.display_options.vertical_scrollbar_appearance = appearance;
-    }
-
-    pub fn set_show_find_references_provider(
-        &mut self,
-        provider: impl ShowFindReferencesCardProvider,
-    ) {
-        self.show_find_references_provider = Box::new(provider);
-    }
-
     pub fn set_find_highlights(
         &self,
         ranges: Vec<Range<CharOffset>>,
@@ -761,56 +692,6 @@ impl CodeEditorView {
                 render.set_text_decorations(decorations, ctx);
             });
         });
-    }
-
-    /// Set diagnostic decorations (e.g., error/warning underlines) on the editor.
-    pub fn set_diagnostic_decorations(
-        &self,
-        decorations: Vec<Decoration>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.model.update(ctx, |model, ctx| {
-            model.render_state().update(ctx, |render, ctx| {
-                render.set_text_decorations(decorations, ctx);
-            });
-        });
-    }
-
-    pub fn character_bounds_in_viewport(
-        &self,
-        offset: CharOffset,
-        app: &AppContext,
-    ) -> Option<RectF> {
-        let render_state = self.model.as_ref(app).render_state().as_ref(app);
-
-        // Get the bounds of the character in viewport coordinates.
-        let bounds = render_state.character_bounds_in_viewport(offset)?;
-
-        // The render_state bounds are relative to the editor content area, but the
-        // CodeEditorView also includes a gutter (line numbers). We need to offset
-        // the bounds by the gutter width when line numbers are shown.
-        let gutter_offset = if self.display_options.show_line_numbers {
-            super::element::GUTTER_WIDTH
-        } else {
-            0.0
-        };
-
-        Some(RectF::new(
-            bounds.origin() + vec2f(gutter_offset, 0.0),
-            bounds.size(),
-        ))
-    }
-
-    /// Returns the current viewport height in pixels, or None if not yet laid out.
-    pub fn viewport_height(&self, app: &AppContext) -> Option<f32> {
-        let render_state = self.model.as_ref(app).render_state().as_ref(app);
-        let height = render_state.viewport().height();
-        // Return None if the viewport hasn't been laid out yet (height is zero)
-        if height.as_f32() > 0.0 {
-            Some(height.as_f32())
-        } else {
-            None
-        }
     }
 
     #[allow(clippy::single_range_in_vec_init)]
@@ -912,10 +793,6 @@ impl CodeEditorView {
                 });
             });
         }
-    }
-
-    pub fn selection_position_anchor(&self, app: &AppContext) -> OffsetPositioning {
-        self.model.as_ref(app).positioning(app)
     }
 
     fn handle_find_event(&mut self, event: &FindViewEvent, ctx: &mut ViewContext<Self>) {
@@ -1333,15 +1210,6 @@ impl CodeEditorView {
         ctx.emit(CodeEditorEvent::Focused);
     }
 
-    pub fn indent_unit(&self, ctx: &AppContext) -> IndentUnit {
-        self.model
-            .as_ref(ctx)
-            .buffer()
-            .as_ref(ctx)
-            .indent_unit_at_plain_text()
-            .unwrap_or_default()
-    }
-
     fn selection_start(
         &mut self,
         offset: CharOffset,
@@ -1350,14 +1218,6 @@ impl CodeEditorView {
     ) {
         // Clicking into the editor should restore focus.
         self.focus(ctx);
-
-        // If there is a hovered symbol range, don't handle the cmd-click.
-        if modifiers.cmd
-            && let Some(range) = self.model.as_ref(ctx).hovered_symbol_range()
-            && range.range().contains(&offset)
-        {
-            return;
-        }
 
         let multiselect = modifiers.alt && FeatureFlag::RichTextMultiselect.is_enabled();
         self.model.update(ctx, |model, ctx| {
@@ -1404,12 +1264,6 @@ impl CodeEditorView {
         });
     }
 
-    pub fn set_language_with_name(&mut self, name: &str, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.set_language_with_name(name, ctx);
-        });
-    }
-
     fn jump_to_line_column(&self, line: usize, column: Option<usize>, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             model.jump_to_line_column(line, column, ctx)
@@ -1436,19 +1290,6 @@ impl CodeEditorView {
 
     pub fn text(&self, ctx: &AppContext) -> AnyMultilineString {
         self.model.as_ref(ctx).content_string(ctx)
-    }
-
-    pub fn word_range_at_offset(
-        &self,
-        offset: CharOffset,
-        app: &AppContext,
-    ) -> Option<Range<CharOffset>> {
-        self.model.as_ref(app).word_range_at_offset(offset, app)
-    }
-
-    /// Returns the character at the given offset in the buffer, if it exists.
-    pub fn char_at(&self, offset: CharOffset, ctx: &AppContext) -> Option<char> {
-        self.model.as_ref(ctx).char_at(offset, ctx)
     }
 
     /// Check whether the given version matches the version of the underlying buffer.
@@ -1554,110 +1395,6 @@ impl CodeEditorView {
         };
 
         render_state_ref.line_number_to_offset_range(line_number)
-    }
-
-    pub fn offset_to_lsp_position(
-        &self,
-        offset: CharOffset,
-        ctx: &AppContext,
-    ) -> lsp::types::Location {
-        let buffer = self.model.as_ref(ctx).content().as_ref(ctx);
-
-        let point = offset.to_buffer_point(buffer);
-        let line = point.row.saturating_sub(1);
-
-        lsp::types::Location {
-            line: line as usize,
-            column: point.column as usize,
-        }
-    }
-
-    pub fn lsp_location_to_offset(
-        &self,
-        location: &lsp::types::Location,
-        ctx: &AppContext,
-    ) -> CharOffset {
-        let buffer = self.model.as_ref(ctx).content().as_ref(ctx);
-
-        let line = location.line + 1;
-        let column = location.column;
-        let point = Point::new(line as u32, column as u32);
-        point.to_buffer_char_offset(buffer)
-    }
-
-    /// Returns the current cursor position as an LSP location.
-    pub fn cursor_lsp_position(&self, ctx: &AppContext) -> lsp::types::Location {
-        let selection = *self.model.as_ref(ctx).selections(ctx).first();
-        self.offset_to_lsp_position(selection.head, ctx)
-    }
-
-    /// Returns the buffer offset at the current cursor head.
-    pub fn cursor_head_offset(&self, ctx: &AppContext) -> CharOffset {
-        self.model.as_ref(ctx).selections(ctx).first().head
-    }
-
-    pub fn hovered_symbol_range<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> Option<&'a Range<CharOffset>> {
-        self.model
-            .as_ref(ctx)
-            .hovered_symbol_range()
-            .map(|link| link.range())
-    }
-
-    pub fn cursor_at(&self, point: Point, ctx: &mut ViewContext<Self>) {
-        let offset = point.to_buffer_char_offset(self.model.as_ref(ctx).content().as_ref(ctx));
-        self.model.update(ctx, |model, ctx| {
-            model.cursor_at(offset, ctx);
-        });
-    }
-
-    pub fn clear_hovered_symbol_range(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        self.set_hovered_symbol_range(None, ctx)
-    }
-
-    pub fn set_hovered_symbol_range(
-        &mut self,
-        range: Option<HoverableLink>,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let cursor_shape = if range.is_some() {
-            Cursor::PointingHand
-        } else {
-            Cursor::IBeam
-        };
-
-        let updated = self
-            .model
-            .update(ctx, |model, _ctx| model.set_hovered_symbol_range(range));
-
-        if updated {
-            ctx.set_cursor_shape(cursor_shape);
-        }
-
-        updated
-    }
-
-    pub fn apply_edits(
-        &mut self,
-        edits: Vec1<(String, Range<CharOffset>)>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.model.update(ctx, |model, ctx| {
-            let selection_model = model.buffer_selection_model().clone();
-            model.update_content(
-                |mut content, ctx| {
-                    content.apply_edit(
-                        BufferEditAction::InsertAtCharOffsetRanges { edits: &edits },
-                        EditOrigin::UserInitiated,
-                        selection_model,
-                        ctx,
-                    );
-                },
-                ctx,
-            );
-        });
     }
 
     /// Splits text based on pascal case, camel case, hyphens, or underscores.
@@ -2119,7 +1856,6 @@ impl View for CodeEditorView {
             self.display_options.expand_diff_indicator_width_on_hover,
             self.display_options.gutter_hover_target,
             self.comment_save_position_id.clone(),
-            self.find_references_save_position_id.clone(),
         );
 
         let pending_comment = &self
@@ -2131,20 +1867,6 @@ impl View for CodeEditorView {
         // Check if there's an open comment in the model and set the comment box
         if let PendingComment::Open { line, .. } = pending_comment {
             code_editor.set_comment_box(line.clone(), app);
-        }
-
-        // Set find references anchor if there's an active request
-        if let Some(offset) = &self.find_references_anchor_offset {
-            let render_state_ref = render_state.as_ref(app);
-            let softwrap_point = render_state_ref.offset_to_softwrap_point(*offset);
-            let line_number = LineCount::from(softwrap_point.row() as usize + 1); // Convert 0-indexed to 1-indexed
-            // Create a simple EditorLineLocation::Current with the line number
-            // We don't have hunk range info here, so use a single-line range
-            let anchor_line = EditorLineLocation::Current {
-                line_number,
-                line_range: line_number..line_number + LineCount::from(1),
-            };
-            code_editor.set_find_references_anchor(Some(anchor_line));
         }
 
         let config = DualAxisConfig::Manual {

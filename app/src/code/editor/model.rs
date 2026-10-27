@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::{cmp, mem};
 
 use itertools::Itertools;
-use languages::{Language, language_by_filename, language_by_local_filename, language_by_name};
+use languages::{Language, language_by_filename, language_by_local_filename};
 use num_traits::SaturatingSub;
-use rangemap::{RangeMap, RangeSet};
+use rangemap::RangeSet;
 use string_offset::CharOffset;
 use syntax_tree::{ColorMap, DecorationStateEvent, SyntaxTreeState};
 use vec1::{Vec1, vec1};
@@ -159,37 +159,6 @@ impl CaseTransform {
     }
 }
 
-/// A hoverable link with an optional on-click handler.
-pub struct HoverableLink {
-    range: Range<CharOffset>,
-    #[allow(clippy::type_complexity)]
-    on_click: Option<Box<dyn Fn(&mut AppContext)>>,
-}
-
-impl HoverableLink {
-    pub fn new(range: Range<CharOffset>) -> Self {
-        Self {
-            range,
-            on_click: None,
-        }
-    }
-
-    pub fn with_on_click(mut self, on_click: Box<dyn Fn(&mut AppContext)>) -> Self {
-        self.on_click = Some(on_click);
-        self
-    }
-
-    pub fn range(&self) -> &Range<CharOffset> {
-        &self.range
-    }
-
-    pub fn trigger_on_click(&self, ctx: &mut AppContext) {
-        if let Some(on_click) = &self.on_click {
-            on_click(ctx);
-        }
-    }
-}
-
 pub enum CodeEditorModelEvent {
     /// Emitted when diff decorations are updated (line highlights, removed lines, etc.)
     DiffUpdated,
@@ -293,7 +262,6 @@ pub struct CodeEditorModel {
     /// Stores the selection "tails" when entering Vim visual mode so we can derive
     /// visual selections that may differ from the cursor positions.
     vim_visual_tails: Vec<CharOffset>,
-    hovered_symbol_range: Option<HoverableLink>,
     /// Automatically hide lines outside of the active diff with X context lines.
     hide_lines_outside_of_active_diff: Option<usize>,
     /// Recalculate hidden lines after a diff for this buffer version or later completes.
@@ -386,7 +354,6 @@ impl CodeEditorModel {
             show_current_line_highlights: true,
             delay_rendering: None,
             vim_visual_tails: vec![],
-            hovered_symbol_range: None,
             hide_lines_outside_of_active_diff: None,
             recalculate_hidden_lines_after_diff: None,
             lazy_layout_enabled: lazy_layout,
@@ -516,26 +483,6 @@ impl CodeEditorModel {
 
     pub fn diff(&self) -> &ModelHandle<DiffModel> {
         &self.diff
-    }
-
-    pub fn hovered_symbol_range(&self) -> Option<&HoverableLink> {
-        self.hovered_symbol_range.as_ref()
-    }
-
-    pub fn set_hovered_symbol_range(&mut self, range: Option<HoverableLink>) -> bool {
-        if self.hovered_symbol_range.is_none() && range.is_none() {
-            return false;
-        }
-        self.hovered_symbol_range = range;
-        true
-    }
-
-    pub fn maybe_click_on_hovered_link(&self, offset: &CharOffset, ctx: &mut ModelContext<Self>) {
-        if let Some(link) = self.hovered_symbol_range()
-            && link.range().contains(offset)
-        {
-            link.trigger_on_click(ctx);
-        }
     }
 
     pub fn max_character_offset(&self, ctx: &AppContext) -> CharOffset {
@@ -906,11 +853,6 @@ impl CodeEditorModel {
         &self.content
     }
 
-    /// Returns the character at the given offset in the buffer, if it exists.
-    pub fn char_at(&self, offset: CharOffset, ctx: &AppContext) -> Option<char> {
-        self.content.as_ref(ctx).char_at(offset)
-    }
-
     pub fn buffer_selection_model(&self) -> &ModelHandle<BufferSelectionModel> {
         &self.selection_model
     }
@@ -1174,13 +1116,6 @@ impl CodeEditorModel {
         }
     }
 
-    pub fn set_language_with_name(&mut self, name: &str, ctx: &mut ModelContext<Self>) {
-        let language = language_by_name(name);
-        if let Some(language) = language {
-            self.set_language(language, ctx);
-        }
-    }
-
     fn set_language(&mut self, language: Arc<Language>, ctx: &mut ModelContext<Self>) {
         let unit = language.indent_unit;
         self.content.update(ctx, |buffer, _ctx| {
@@ -1282,23 +1217,15 @@ impl CodeEditorModel {
         render_buffer_version: Option<BufferVersion>,
         ctx: &'a AppContext,
     ) -> TextDecoration<'a> {
-        let theme = Appearance::as_ref(ctx).theme();
-        let underline_color = theme.accent().into_solid();
-
         let base_color_map =
             self.syntax_tree
                 .as_ref(ctx)
                 .highlights_in_ranges(ranges, render_buffer_version, ctx);
 
-        let underline_range = self
-            .hovered_symbol_range
-            .as_ref()
-            .map(|link| RangeMap::from_iter([(link.range.clone(), underline_color)]));
-
         TextDecoration {
             base_color_map,
-            override_color_map: underline_range.clone(),
-            underline_range,
+            override_color_map: None,
+            underline_range: None,
         }
     }
 
@@ -1701,14 +1628,6 @@ impl CodeEditorModel {
 
         get_word_range_at_offset(buffer, cursor_offset, None)
             .map(|range| buffer.text_in_range(range).into_string())
-    }
-
-    pub fn word_range_at_offset(
-        &self,
-        offset: CharOffset,
-        app: &AppContext,
-    ) -> Option<Range<CharOffset>> {
-        get_word_range_at_offset(self.content().as_ref(app), offset, None)
     }
 
     pub fn run_search(

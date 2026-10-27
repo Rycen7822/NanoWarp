@@ -224,8 +224,6 @@ pub enum TerminalAction {
         source: PaletteSource,
     },
     DismissCodeToolbeltTooltip,
-    /// Start a Language Server for the current working directory (if supported)
-    StartLspServer,
     /// Toggle PTY recording for this session.
     ToggleSessionRecording,
     /// Allow the blocked clipboard operation by adjusting the OSC 52 clipboard access setting.
@@ -394,7 +392,6 @@ impl fmt::Debug for TerminalAction {
             PickRepoToOpen => write!(f, "PickRepoToOpen"),
             OpenFilesPalette { .. } => write!(f, "OpenFilesPalette"),
             DismissCodeToolbeltTooltip => write!(f, "DismissCodeToolbeltTooltip"),
-            StartLspServer => write!(f, "StartLspServer"),
 
             ToggleSessionRecording => write!(f, "ToggleSessionRecording"),
             Osc52AllowBlockedClipboardOperation => {

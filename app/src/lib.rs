@@ -162,8 +162,6 @@ use self::features::FeatureFlag;
 use crate::antivirus::AntivirusInfo;
 use crate::app_state::AppState;
 use crate::code::global_buffer_model::GlobalBufferModel;
-#[cfg(feature = "local_fs")]
-use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
 use crate::context_chips::prompt::Prompt;
 use crate::default_terminal::DefaultTerminal;
 pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHandlesProvider};
@@ -797,23 +795,17 @@ pub(crate) fn initialize_app(
         })
     });
 
-    let (
-        app_state,
-        command_history,
-        persisted_workspaces,
-        workspace_language_servers,
-        persisted_ignored_suggestions,
-    ) = sqlite_data
-        .map(|sqlite_data| {
-            (
-                sqlite_data.app_state,
-                sqlite_data.command_history,
-                sqlite_data.workspace_metadata,
-                sqlite_data.workspace_language_servers,
-                sqlite_data.ignored_suggestions,
-            )
-        })
-        .unwrap_or_default();
+    let (app_state, command_history, persisted_workspaces, persisted_ignored_suggestions) =
+        sqlite_data
+            .map(|sqlite_data| {
+                (
+                    sqlite_data.app_state,
+                    sqlite_data.command_history,
+                    sqlite_data.workspace_metadata,
+                    sqlite_data.ignored_suggestions,
+                )
+            })
+            .unwrap_or_default();
 
     ctx.add_singleton_model(AntivirusInfo::new);
 
@@ -1017,12 +1009,10 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(GlobalBufferModel::new);
     #[cfg(windows)]
     ctx.add_singleton_model(util::traffic_lights::windows::RendererState::new);
-    #[cfg(feature = "local_fs")]
-    ctx.add_singleton_model(|_| LanguageServerShutdownManager::new());
 
     ctx.add_singleton_model(|_| AudibleBell::new());
 
-    // LogManager must be registered before any subsystem (e.g. LSP) that creates file-based loggers.
+    // LogManager must be registered before any subsystem that creates file-based loggers.
     ctx.add_singleton_model(|_| simple_logger::manager::LogManager::new());
 
     ctx.add_singleton_model(|_| CodeManager::default());
@@ -1047,13 +1037,8 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(DefaultTerminal::new);
 
-    ctx.add_singleton_model(|ctx| {
-        PersistedWorkspace::new(
-            persisted_workspaces,
-            workspace_language_servers,
-            persistence_writer.sender(),
-            ctx,
-        )
+    ctx.add_singleton_model(|_| {
+        PersistedWorkspace::new(persisted_workspaces, persistence_writer.sender())
     });
     ctx.add_singleton_model(move |_| persistence_writer);
 
@@ -1119,11 +1104,6 @@ pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppC
         on_will_terminate: Some(Box::new(move |ctx| {
             PersistenceWriter::handle(ctx).update(ctx, |writer, _ctx| {
                 writer.terminate();
-            });
-
-            // Shutdown all LSP servers gracefully before app termination
-            lsp::LspManagerModel::handle(ctx).update(ctx, |manager, ctx| {
-                manager.terminate(ctx);
             });
 
             // Preserve session state before terminating the shell sessions.

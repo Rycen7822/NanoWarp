@@ -81,7 +81,6 @@ impl EditorAndCodeReviewPageView {
             Box::new(ProjectExplorerToggleWidget::default()),
             Box::new(GlobalSearchToggleWidget::default()),
             Box::new(ShowHiddenFilesToggleWidget::default()),
-            Box::new(FormatOnSaveToggleWidget::default()),
             Box::new(AutoSaveToggleWidget::default()),
         ]);
 
@@ -146,7 +145,6 @@ pub enum EditorAndCodeReviewPageAction {
     ToggleProjectExplorer,
     ToggleGlobalSearch,
     ToggleShowHiddenFiles,
-    ToggleFormatOnSave,
     ToggleAutoSave,
     SetCodeEditorLineNumberMode(CodeEditorLineNumberMode),
 }
@@ -187,12 +185,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
             EditorAndCodeReviewPageAction::ToggleShowHiddenFiles => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.show_hidden_files.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            EditorAndCodeReviewPageAction::ToggleFormatOnSave => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.format_on_save.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -521,48 +513,6 @@ impl SettingsWidget for ShowHiddenFilesToggleWidget {
                 .finish(),
             Some(
                 "Show dotfiles and hidden files (starting with .) in the project explorer.".into(),
-            ),
-        )
-    }
-}
-
-#[derive(Default)]
-struct FormatOnSaveToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for FormatOnSaveToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "format on save lsp language server formatting reformat editor"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let code_settings = CodeSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Format on save (requires an active language server)".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*code_settings.format_on_save)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAndCodeReviewPageAction::ToggleFormatOnSave);
-                })
-                .finish(),
-            Some(
-                "Only applies when a language server is active for the file. Automatically formats the file with the language server on save; other LSP features (hover, go-to-definition, references, diagnostics) are unaffected."
-                    .into(),
             ),
         )
     }

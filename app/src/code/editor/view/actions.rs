@@ -685,14 +685,6 @@ pub enum CodeEditorViewAction {
     },
     SelectionUpdate(CharOffset),
     SelectionEnd,
-    MaybeClickOnHoveredLink(CharOffset),
-    MouseHovered {
-        offset: CharOffset,
-        cmd: bool,
-        clamped: bool,
-        /// Whether the mouse move event was covered by an element above the editor.
-        is_covered: bool,
-    },
     RightMouseDown {
         offset: CharOffset,
     },
@@ -796,8 +788,6 @@ impl CodeEditorViewAction {
             | Self::RevertDiffHunk { .. }
             | Self::NewCommentOnLine { .. }
             | Self::RequestOpenSavedComment { .. }
-            | Self::MouseHovered { .. }
-            | Self::MaybeClickOnHoveredLink(_)
             | Self::RightMouseDown { .. } => true,
         }
     }
@@ -1071,28 +1061,10 @@ impl TypedActionView for CodeEditorView {
                     ctx.emit(CodeEditorEvent::RequestOpenComment(*uuid))
                 }
             }
-            MouseHovered {
-                offset,
-                cmd,
-                clamped,
-                is_covered,
-            } => {
-                ctx.emit(CodeEditorEvent::MouseHovered {
-                    offset: *offset,
-                    cmd: *cmd,
-                    clamped: *clamped,
-                    is_covered: *is_covered,
-                });
-            }
             RightMouseDown { offset } => {
                 // Right mouse down should set the cursor at the offset location. This matches the behavior with other editors.
                 self.model.update(ctx, |model, ctx| {
                     model.cursor_at(*offset, ctx);
-                });
-            }
-            MaybeClickOnHoveredLink(offset) => {
-                self.model.update(ctx, |model, ctx| {
-                    model.maybe_click_on_hovered_link(offset, ctx)
                 });
             }
         }
@@ -1223,8 +1195,8 @@ impl RichTextAction<CodeEditorView> for CodeEditorViewAction {
     }
 
     fn left_mouse_up(
-        location: Location,
-        cmd: bool,
+        _location: Location,
+        _cmd: bool,
         _shift: bool,
         view: &WeakViewHandle<CodeEditorView>,
         ctx: &AppContext,
@@ -1236,39 +1208,18 @@ impl RichTextAction<CodeEditorView> for CodeEditorViewAction {
 
         if view.as_ref(ctx).is_selecting {
             actions_to_dispatch.push(CodeEditorViewAction::SelectionEnd);
-        } else if cmd && let Location::Text { char_offset, .. } = location {
-            actions_to_dispatch.push(CodeEditorViewAction::MaybeClickOnHoveredLink(char_offset));
         }
         actions_to_dispatch
     }
 
     fn mouse_hovered(
-        location: Option<Location>,
+        _location: Option<Location>,
         _parent_view: &WeakViewHandle<CodeEditorView>,
-        cmd: bool,
-        is_covered: bool,
+        _cmd: bool,
+        _is_covered: bool,
         _ctx: &AppContext,
     ) -> Option<Self> {
-        match location {
-            Some(Location::Text {
-                char_offset,
-                clamped,
-                ..
-            }) => Some(CodeEditorViewAction::MouseHovered {
-                offset: char_offset,
-                clamped,
-                cmd,
-                is_covered,
-            }),
-            // When the mouse moves outside the editor bounds (location is None),
-            // emit a clamped hover event to clear any active hover state.
-            _ => Some(CodeEditorViewAction::MouseHovered {
-                offset: CharOffset::default(),
-                clamped: true,
-                cmd,
-                is_covered,
-            }),
-        }
+        None
     }
 
     fn task_list_clicked(

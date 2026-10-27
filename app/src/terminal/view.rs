@@ -4714,8 +4714,6 @@ impl TerminalView {
                                         me.input.update(ctx, |input, ctx| {
                                             input.update_repo_path(Some(repo_path.clone()), ctx);
                                         });
-
-                                        me.start_lsp_server_in_active_pwd(ctx);
                                     }
                                     #[cfg(not(feature = "local_fs"))]
                                     let _ = repo_path;
@@ -11945,25 +11943,6 @@ impl TerminalView {
             .block_list_mut()
             .set_show_bootstrap_block(true);
     }
-
-    /// Starts all enabled LSP servers for the current working directory.
-    #[cfg(feature = "local_fs")]
-    fn start_lsp_server_in_active_pwd(&self, ctx: &mut ViewContext<Self>) {
-        use crate::code::persisted_workspace::LspTask;
-
-        let Some(cwd) = self.canonical_session_pwd_if_local(ctx) else {
-            return;
-        };
-
-        PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
-            workspace.execute_lsp_task(
-                LspTask::Spawn {
-                    file_path: cwd.into(),
-                },
-                ctx,
-            );
-        });
-    }
 }
 
 impl Entity for TerminalView {
@@ -12334,8 +12313,7 @@ impl TypedActionView for TerminalView {
             | DragAndDropFiles(_)
             | ToggleBlockFilterOnSelectedOrLastBlock
             | SetMarkedText { .. }
-            | ClearMarkedText
-            | StartLspServer => ActionAccessibilityContent::from_debug(),
+            | ClearMarkedText => ActionAccessibilityContent::from_debug(),
             #[cfg(feature = "local_fs")]
             OpenCodeInWarp { .. } => ActionAccessibilityContent::from_debug(),
             OpenInWarpBanner(action) => self.open_in_warp_banner_accessibility_content(*action),
@@ -12679,10 +12657,6 @@ impl TypedActionView for TerminalView {
                     }
                 });
                 ctx.notify();
-            }
-            StartLspServer => {
-                #[cfg(feature = "local_fs")]
-                self.start_lsp_server_in_active_pwd(ctx);
             }
             ToggleSessionRecording => {
                 self.pty_recorder.update(ctx, |recorder, ctx| {

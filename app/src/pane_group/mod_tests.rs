@@ -64,7 +64,7 @@ fn initialize_app(app: &mut App) {
     crate::terminal::available_shells::register(app);
     AltScreenReporting::register(app);
     app.add_singleton_model(|_| crate::server::network_logging::NetworkLogModel::default());
-    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
+    app.add_singleton_model(|_| PersistedWorkspace::new(vec![], None));
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));

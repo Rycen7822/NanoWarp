@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::Local;
-use lsp::LspManagerModel;
 use repo_metadata::repositories::DetectedRepositories;
 use warp_core::ui::appearance::Appearance;
 use warp_editor::content::buffer::InitialBufferState;
@@ -63,7 +62,6 @@ fn initialize_test_app(app: &mut App) {
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(|_| GitRepoModels::new());
-    app.add_singleton_model(|_| LspManagerModel::new());
     app.add_singleton_model(|_| LocalShellState::NotLoaded);
     app.add_singleton_model(PersistedWorkspace::new_for_test);
     app.add_singleton_model(|_| GlobalCodeReviewModel);

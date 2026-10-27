@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lsp::LspManagerModel;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::vec2f;
@@ -21,7 +20,6 @@ use warpui::elements::{
 };
 use warpui::fonts::{Properties, Style, Weight};
 use warpui::keymap::EditableBinding;
-use warpui::text::point::Point;
 use warpui::text_layout::ClipConfig;
 use warpui::ui_components::components::UiComponent;
 use warpui::{
@@ -37,7 +35,6 @@ use crate::code::editor::scroll::ScrollPosition;
 use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::code::editor_management::CodeEditorStatus;
 use crate::code::global_buffer_model::GlobalBufferModel;
-use crate::code::local_code_editor::ShowFindReferencesCard;
 use crate::code::{EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus};
 use crate::input::Vector2F;
 use crate::menu::{MenuItem, MenuItemFields};
@@ -298,16 +295,14 @@ impl CodeView {
 
     /// Construct an editor backed by the global shared buffer for the given location.
     ///
-    /// For local files, find-references and the footer are wired up. Remote files skip these because LSP and
-    /// related tooling run on the local machine.
+    /// Uses the same basic editor for local and remote file buffers.
     fn construct_editor_for_location(
         &mut self,
         location: LocalOrRemotePath,
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<LocalCodeEditorView> {
-        let is_local = matches!(location, LocalOrRemotePath::Local(_));
         ctx.add_typed_action_view(|ctx| {
-            let editor = LocalCodeEditorView::new_with_global_buffer(
+            LocalCodeEditorView::new_with_global_buffer(
                 location,
                 |buffer_state, ctx| {
                     ctx.add_typed_action_view(|ctx| {
@@ -326,18 +321,7 @@ impl CodeView {
                     })
                 },
                 ctx,
-            );
-            if is_local {
-                editor.with_find_references_provider(
-                    ShowFindReferencesCard {
-                        editor_window_id: ctx.window_id(),
-                        parent_scrollable_position_id: None,
-                    },
-                    ctx,
-                )
-            } else {
-                editor
-            }
+            )
         })
     }
 
@@ -361,16 +345,7 @@ impl CodeView {
             )
         });
 
-        ctx.add_typed_action_view(|ctx| {
-            let local_editor = LocalCodeEditorView::new(editor, ctx);
-            local_editor.with_find_references_provider(
-                ShowFindReferencesCard {
-                    editor_window_id: ctx.window_id(),
-                    parent_scrollable_position_id: None,
-                },
-                ctx,
-            )
-        })
+        ctx.add_typed_action_view(|ctx| LocalCodeEditorView::new(editor, ctx))
     }
 
     fn build_tab_data(
@@ -446,38 +421,6 @@ impl CodeView {
                 GlobalBufferModel::handle(ctx).update(ctx, |global_buffer, ctx| {
                     global_buffer.discard_unsaved_changes(path, ctx);
                 });
-            }
-            LocalCodeEditorEvent::GotoDefinition {
-                path,
-                line,
-                column,
-                source_server_id,
-            } => {
-                // Register the external file so it can use LSP features.
-                // The manager will skip registration if the path is under an existing workspace.
-                let lsp_manager = LspManagerModel::handle(ctx);
-                lsp_manager.update(ctx, |mgr, _| {
-                    mgr.maybe_register_external_file(path, *source_server_id);
-                });
-
-                // LSP uses 0-based line numbers, convert to 1-based for LineAndColumnArg
-                let line_1based = *line + 1;
-                let line_col = LineAndColumnArg {
-                    line_num: line_1based,
-                    column_num: Some(*column),
-                };
-
-                me.open_or_focus_existing(
-                    Some(LocalOrRemotePath::Local(path.to_path_buf())),
-                    Some(line_col),
-                    ctx,
-                );
-                if let Some(editor) = me.tab_at(me.active_tab_index()).map(|tab| &tab.editor_view) {
-                    editor.update(ctx, |editor, ctx| {
-                        editor.cursor_at(Point::new(line_1based as u32, *column as u32), ctx);
-                    });
-                }
-                me.focus_contents(ctx);
             }
             LocalCodeEditorEvent::CommentSaved { .. }
             | LocalCodeEditorEvent::RequestOpenComment(_)

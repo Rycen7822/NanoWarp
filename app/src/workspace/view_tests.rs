@@ -98,7 +98,7 @@ pub(crate) fn initialize_app(app: &mut App) {
     crate::crash_recovery::CrashRecovery::register_for_test(app);
 
     app.add_singleton_model(|_| crate::server::network_logging::NetworkLogModel::default());
-    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
+    app.add_singleton_model(|_| PersistedWorkspace::new(vec![], None));
     app.add_singleton_model(|_| History::new(vec![]));
 
     // Make sure to initialize the keybindings so that they are available for subviews

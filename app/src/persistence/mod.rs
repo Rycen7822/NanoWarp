@@ -15,15 +15,12 @@ pub use persistence::schema;
 #[cfg(feature = "integration_tests")]
 pub mod testing;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 
 use chrono::{DateTime, Local};
 use instant::Instant;
-use lsp::supported_servers::LSPServerType;
 #[cfg(any(feature = "local_fs", feature = "integration_tests"))]
 pub use sqlite::database_file_path_for_current_scope;
 // Only re-exported for integration tests (via `integration_testing::persistence`);
@@ -38,9 +35,7 @@ use warp_errors::report_error;
 use warpui::{Entity, SingletonEntity};
 
 use crate::app_state::AppState;
-use crate::code::persisted_workspace::{
-    EnablementState, WorkspaceMetadata as CodeWorkspaceMetadata,
-};
+use crate::code::persisted_workspace::WorkspaceMetadata as CodeWorkspaceMetadata;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
 use crate::terminal::model::block::SerializedBlock;
@@ -164,7 +159,6 @@ pub struct PersistedData {
 
     pub command_history: Vec<PersistedCommand>,
     pub workspace_metadata: Vec<CodeWorkspaceMetadata>,
-    pub workspace_language_servers: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>,
     pub ignored_suggestions: Vec<(String, SuggestionType)>,
 }
 

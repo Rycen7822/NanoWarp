@@ -16,7 +16,6 @@ use diesel::{
 use diesel_migrations::MigrationHarness;
 use itertools::Itertools;
 use libsqlite3_sys as sqlite3;
-use lsp::supported_servers::LSPServerType;
 use num_traits::FromPrimitive;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
@@ -41,7 +40,6 @@ use crate::app_state::{
     TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::code::editor_management::CodeSource;
-use crate::code::persisted_workspace::EnablementState;
 use crate::persistence::block_list::get_all_restored_blocks;
 use crate::persistence::model::CODE_REVIEW_PANE_KIND;
 use crate::settings_view::SettingsSection;
@@ -911,37 +909,6 @@ fn get_all_workspace_metadata(
         .collect_vec())
 }
 
-fn get_all_workspace_language_servers_by_workspace(
-    conn: &mut SqliteConnection,
-) -> Result<HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>, diesel::result::Error> {
-    use schema::workspace_language_server::dsl::*;
-    use schema::workspace_metadata;
-
-    let results = workspace_language_server
-        .inner_join(workspace_metadata::table)
-        .select((workspace_metadata::repo_path, language_server_name, enabled))
-        .load::<(String, String, String)>(conn)?;
-
-    let mut grouped: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>> = HashMap::new();
-    for (path_str, server_name, enablement_str) in results {
-        let path = PathBuf::from(path_str);
-        let Some(server_type) = serde_json::from_str(&server_name).ok() else {
-            continue;
-        };
-
-        let Some(enablement) = serde_json::from_str(&enablement_str).ok() else {
-            continue;
-        };
-
-        grouped
-            .entry(path)
-            .or_default()
-            .insert(server_type, enablement);
-    }
-
-    Ok(grouped)
-}
-
 fn get_all_ignored_suggestions(
     conn: &mut SqliteConnection,
 ) -> Result<Vec<(String, SuggestionType)>, diesel::result::Error> {
@@ -1376,14 +1343,12 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
         .collect();
 
     let workspace_metadata = get_all_workspace_metadata(conn)?;
-    let workspace_language_servers = get_all_workspace_language_servers_by_workspace(conn)?;
     let ignored_suggestions = get_all_ignored_suggestions(conn)?;
 
     Ok(PersistedData {
         app_state,
         command_history: commands,
         workspace_metadata,
-        workspace_language_servers,
         ignored_suggestions,
     })
 }
