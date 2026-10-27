@@ -222,7 +222,7 @@ use crate::terminal::session_settings::{
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::ssh_file_upload::FileUploadId;
-use crate::terminal::view::{NOTIFICATIONS_TROUBLESHOOT_URL, SyncEvent, SyncInputType};
+use crate::terminal::view::{SyncEvent, SyncInputType};
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::terminal::{self, BlockListSettings, SizeInfo, TerminalModel, TerminalView};
 use crate::themes::theme::{AnsiColorIdentifier, RespectSystemTheme, ThemeKind};
@@ -8525,15 +8525,10 @@ impl Workspace {
                     RequestPermissionsOutcome::Accepted => (),
                     RequestPermissionsOutcome::PermissionsDenied => {
                         // Show a helpful toast if the user denied permissions.
-                        let url = NOTIFICATIONS_TROUBLESHOOT_URL.to_string();
                         view.toast_stack.update(ctx, |toast_stack, ctx| {
                             let toast = DismissibleToast::error(
                                 "Warp doesn't have permission to send desktop notifications."
                                     .to_string(),
-                            )
-                            .with_link(
-                                ToastLink::new("Troubleshoot notifications".to_string())
-                                    .with_href(url),
                             );
                             toast_stack.add_persistent_toast(toast, ctx);
                         });

@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
 
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::builder::UiBuilder;
@@ -14,28 +13,20 @@ use warpui::{Entity, SingletonEntity as _, TypedActionView, View, ViewContext};
 
 use crate::ui_components;
 
-const FILE_ISSUE_TEXT: &str = "File issue";
-const MORE_INFO_TEXT: &str = "More info";
-
 /// A banner to display when the shell process terminates.
 ///
 /// This can be a simple informational banner or one giving information about
 /// an unexpected error.
 pub struct ShellTerminatedBanner {
     termination_type: TerminationType,
-    handles: RefCell<Vec<MouseStateHandle>>,
+    copy_error_button: MouseStateHandle,
 }
 
 impl ShellTerminatedBanner {
-    pub fn new(termination_type: TerminationType, ctx: &mut ViewContext<Self>) -> Self {
-        let appearance = Appearance::as_ref(ctx);
-
-        let mut handles = vec![];
-        let _ = termination_type.buttons(appearance, &mut handles);
-
+    pub fn new(termination_type: TerminationType) -> Self {
         Self {
             termination_type,
-            handles: RefCell::new(handles),
+            copy_error_button: Default::default(),
         }
     }
 }
@@ -74,10 +65,9 @@ impl View for ShellTerminatedBanner {
             .with_child(Shrinkable::new(1., text_column).finish())
             .finish();
 
-        let mut handles = self.handles.borrow_mut();
         let buttons = self
             .termination_type
-            .buttons(appearance, &mut handles)
+            .buttons(appearance, &self.copy_error_button)
             .into_iter()
             .map(|button| Container::new(button).with_margin_left(8.).finish());
 
@@ -100,7 +90,6 @@ impl View for ShellTerminatedBanner {
 
 #[derive(Debug)]
 pub enum Action {
-    OpenUrl(String),
     CopyPtySpawnError(String),
 }
 
@@ -109,9 +98,6 @@ impl TypedActionView for ShellTerminatedBanner {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            Action::OpenUrl(url) => {
-                ctx.open_url(url);
-            }
             Action::CopyPtySpawnError(error_str) => {
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(error_str.to_owned()));
@@ -197,70 +183,22 @@ impl TerminationType {
     fn buttons(
         &self,
         appearance: &Appearance,
-        handles: &mut Vec<MouseStateHandle>,
+        copy_error_button: &MouseStateHandle,
     ) -> Vec<Box<dyn Element>> {
         match self {
-            TerminationType::Normal => vec![],
-            TerminationType::Premature { .. } => {
-                let ui_builder = inverted_color_ui_builder(appearance);
-
-                handles.resize_with(2, MouseStateHandle::default);
-                vec![
-                    ui_builder
-                        .button(ButtonVariant::Text, handles[0].clone())
-                        .with_text_label(FILE_ISSUE_TEXT.to_string())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(Action::OpenUrl(
-                                "https://github.com/warpdotdev/Warp/issues/new/choose".to_string(),
-                            ));
-                        })
-                        .finish(),
-                    ui_builder
-                        .button(ButtonVariant::Outlined, handles[1].clone())
-                        .with_text_label(MORE_INFO_TEXT.to_string())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(Action::OpenUrl(
-                                "https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues#debugging".to_string(),
-                            ));
-                        })
-                        .finish(),
-                ]
-            }
+            TerminationType::Normal | TerminationType::Premature { .. } => vec![],
             TerminationType::PtySpawnFailure { pty_spawn_error } => {
                 let ui_builder = inverted_color_ui_builder(appearance);
 
-                handles.resize_with(3, MouseStateHandle::default);
                 let error_str = format!("{pty_spawn_error:#}");
                 vec![
                     ui_builder
-                        .button(ButtonVariant::Text, handles[0].clone())
+                        .button(ButtonVariant::Text, copy_error_button.clone())
                         .with_text_label("Copy error".to_string())
                         .build()
                         .on_click(move |evt_ctx, _ctx, _position| {
                             evt_ctx.dispatch_typed_action(Action::CopyPtySpawnError(
                                 error_str.clone(),
-                            ));
-                        })
-                        .finish(),
-                    ui_builder
-                        .button(ButtonVariant::Text, handles[1].clone())
-                        .with_text_label(FILE_ISSUE_TEXT.to_string())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(Action::OpenUrl(
-                                "https://github.com/warpdotdev/Warp/issues/new/choose".to_string(),
-                            ));
-                        })
-                        .finish(),
-                    ui_builder
-                        .button(ButtonVariant::Outlined, handles[2].clone())
-                        .with_text_label(MORE_INFO_TEXT.to_string())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(Action::OpenUrl(
-                                "https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues#debugging".to_string(),
                             ));
                         })
                         .finish(),

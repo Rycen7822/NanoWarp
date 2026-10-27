@@ -9,12 +9,6 @@ use warpui::AssetProvider;
 use crate::ASSETS;
 use crate::terminal::shell::ShellType;
 
-#[derive(Debug)]
-pub enum WarpificationSource {
-    Ssh,
-    Subshell,
-}
-
 /// This template is for the snippet that appears in the output grid for the success block if the
 /// subshell is local.
 fn get_subshell_bootstrap_success_block_path(shell_type: ShellType) -> Option<&'static str> {

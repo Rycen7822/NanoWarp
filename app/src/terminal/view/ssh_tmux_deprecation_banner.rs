@@ -1,6 +1,6 @@
 //! One-time inline banner shown to users who had previously opted into the now-deprecated
 //! tmux-based SSH warpification flow. It explains that tmux SSH warpification has been turned
-//! off in favor of Warp's SSH extension (remote server) and links to the docs.
+//! off in favor of the SSH extension (remote server).
 //!
 //! The banner is shown at most once per affected user: it is gated on the
 //! `ssh_tmux_deprecation_notice_pending` setting, which is set by a one-time migration and
@@ -8,16 +8,14 @@
 
 use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
-    Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
+    ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, ParentElement, Shrinkable, Text,
 };
 use warpui::platform::Cursor;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::Appearance;
 use crate::terminal::model::session::SessionId;
-use crate::terminal::warpify::render::SSH_DOCS_URL;
 use crate::ui_components::icons::Icon;
 
 const BANNER_TITLE: &str = "Tmux SSH warpification has been deprecated";
@@ -25,12 +23,9 @@ const BANNER_TITLE: &str = "Tmux SSH warpification has been deprecated";
 const BANNER_BODY: &str = "Warp now connects to remote sessions using the SSH extension, which is \
     more robust than the tmux-based flow. The tmux option has been removed.";
 
-const LEARN_MORE_LABEL: &str = "Learn more";
-
 #[derive(Clone, Debug)]
 pub enum SshTmuxDeprecationBannerAction {
     Dismiss,
-    LearnMore,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +35,6 @@ pub enum SshTmuxDeprecationBannerEvent {
 
 pub struct SshTmuxDeprecationBanner {
     session_id: SessionId,
-    learn_more_mouse_state: MouseStateHandle,
     close_mouse_state: MouseStateHandle,
 }
 
@@ -48,7 +42,6 @@ impl SshTmuxDeprecationBanner {
     pub fn new(session_id: SessionId) -> Self {
         Self {
             session_id,
-            learn_more_mouse_state: MouseStateHandle::default(),
             close_mouse_state: MouseStateHandle::default(),
         }
     }
@@ -72,7 +65,6 @@ impl View for SshTmuxDeprecationBanner {
         let theme = appearance.theme();
         let fg_color = theme.foreground().into_solid();
         let muted_color = internal_colors::neutral_5(theme);
-        let accent_color = theme.accent().into_solid();
         let font_size = appearance.monospace_font_size();
         let small_font_size = font_size - 2.;
 
@@ -102,26 +94,6 @@ impl View for SshTmuxDeprecationBanner {
         .soft_wrap(true)
         .with_color(muted_color)
         .finish();
-
-        let learn_more = appearance
-            .ui_builder()
-            .link(
-                LEARN_MORE_LABEL.into(),
-                None,
-                Some(Box::new(|ctx| {
-                    ctx.dispatch_typed_action(SshTmuxDeprecationBannerAction::LearnMore);
-                })),
-                self.learn_more_mouse_state.clone(),
-            )
-            .soft_wrap(false)
-            .with_style(UiComponentStyles {
-                font_size: Some(small_font_size),
-                font_family_id: Some(appearance.ui_font_family()),
-                font_color: Some(accent_color),
-                ..Default::default()
-            })
-            .build()
-            .finish();
 
         // Close (X) button
         let close_icon_color = muted_color;
@@ -158,17 +130,9 @@ impl View for SshTmuxDeprecationBanner {
             .with_child(close_container)
             .finish();
 
-        // Body text + learn more link, indented past the icon to align with the title.
+        // Indent the body past the icon to align with the title.
         let body_container = Container::new(body)
             .with_margin_top(2.)
-            .with_margin_left(24.)
-            .finish();
-
-        // Wrap the link in a left-aligned `Align` so its hover/underline region hugs the
-        // link text instead of stretching to the full banner width (the parent column uses
-        // `CrossAxisAlignment::Stretch`).
-        let learn_more_container = Container::new(Align::new(learn_more).left().finish())
-            .with_margin_top(4.)
             .with_margin_left(24.)
             .finish();
 
@@ -177,7 +141,6 @@ impl View for SshTmuxDeprecationBanner {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(header_row)
             .with_child(body_container)
-            .with_child(learn_more_container)
             .finish();
 
         Container::new(content)
@@ -193,10 +156,6 @@ impl TypedActionView for SshTmuxDeprecationBanner {
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
             SshTmuxDeprecationBannerAction::Dismiss => {
-                ctx.emit(SshTmuxDeprecationBannerEvent::Dismissed);
-            }
-            SshTmuxDeprecationBannerAction::LearnMore => {
-                ctx.open_url(SSH_DOCS_URL);
                 ctx.emit(SshTmuxDeprecationBannerEvent::Dismissed);
             }
         }
