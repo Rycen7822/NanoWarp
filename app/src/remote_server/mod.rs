@@ -7,7 +7,6 @@ pub mod diff_state_proto;
 pub mod diff_state_tracker;
 pub mod git_status_proto;
 #[cfg(not(target_family = "wasm"))]
-#[cfg(not(target_family = "wasm"))]
 mod ripgrep_search;
 #[cfg(not(target_family = "wasm"))]
 pub mod server_buffer_tracker;
