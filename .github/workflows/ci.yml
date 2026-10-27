@@ -62,6 +62,7 @@ jobs:
         with:
           filters: |
             affects-database-schema:
+              - 'diesel.toml'
               - 'crates/persistence/src/schema.rs'
               - 'crates/persistence/migrations/**'
             affects-rust-sources:
@@ -240,6 +241,7 @@ jobs:
           vim --version
 
       - name: Compile tests
+        id: compile_tests
         run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} --no-run
         env:
           # Attach the GitHub auth token so that requests to the GitHub API
@@ -259,8 +261,8 @@ jobs:
           WARP_SHELL_PATH: ${{ steps.echo_default_shell.outputs.default_shell_path }}
 
       - name: Run shell-agnostic integration tests
-        # Run this step even if a previous test step fails
-        if: matrix.os != 'windows' && (success() || failure())
+        # Continue after test failures, but do not retry a failed compilation.
+        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and not test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -270,8 +272,7 @@ jobs:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
 
       - name: Run shell integration tests against default version of bash
-        # Run this step even if a previous test step fails
-        if: matrix.os != 'windows' && (success() || failure())
+        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -283,7 +284,7 @@ jobs:
         # We only run this on MacOS since the default Bash version on Mac
         # was released in 2007. Most Linux distros ship with a relatively
         # new (version 5.0+) version of Bash.
-        if: (success() || failure()) && runner.os == 'macos'
+        if: (success() || failure()) && runner.os == 'macos' && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -291,8 +292,7 @@ jobs:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.latest_bash_path }}
 
       - name: Run shell integration tests against fish
-        # Run this step even if a previous test step fails
-        if: matrix.os != 'windows' && (success() || failure())
+        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -300,8 +300,7 @@ jobs:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.fish_path }}
 
       - name: Run shell integration tests against zsh
-        # Run this step even if a previous test step fails
-        if: matrix.os != 'windows' && (success() || failure())
+        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -309,8 +308,7 @@ jobs:
           WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
 
       - name: Run shell integration tests against powershell
-        # Run this step even if a previous test step fails
-        if: matrix.os != 'windows' && (success() || failure())
+        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
         uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
         with:
           run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
@@ -320,7 +318,7 @@ jobs:
       # Run doctests explicitly, as nextest doesn't yet support running them.
       # See: https://github.com/nextest-rs/nextest/issues/16
       - name: Run doc tests
-        # Run this step even if a previous test step fails
+        # Doc tests compile independently; keep their diagnostics after earlier failures.
         if: success() || failure()
         run: cargo test ${{ env.WORKSPACE_TEST_ARGS }} --doc
 
