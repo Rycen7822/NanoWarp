@@ -136,12 +136,6 @@ define_settings_group!(GeneralSettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         private: true,
     },
-    open_in_warp_banner_dismissed_for_markdown: OpenInWarpBannerDismissedMarkdown {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: true,
-    },
     open_in_warp_banner_dismissed_for_code_and_text: OpenInWarpBannerDismissedCode {
         type: bool,
         default: false,

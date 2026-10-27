@@ -20,7 +20,6 @@ pub enum ExternalEditorAction {
     SetEditor(EditorChoice),
     SetCodePanelsEditor(EditorChoice),
     SetLayout(EditorLayout),
-    TogglePreferMarkdownViewer,
     ToggleTabbedEditorView,
 }
 
@@ -29,7 +28,6 @@ pub struct ExternalEditorView {
     code_panels_editor_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     layout_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     tabbed_editor_view_mouse_state: SwitchStateHandle,
-    prefer_markdown_viewer_switch: SwitchStateHandle,
 }
 
 impl ExternalEditorView {
@@ -94,7 +92,6 @@ impl ExternalEditorView {
             code_panels_editor_dropdown,
             layout_dropdown,
             tabbed_editor_view_mouse_state: Default::default(),
-            prefer_markdown_viewer_switch: Default::default(),
         }
     }
 
@@ -188,14 +185,6 @@ impl ExternalEditorView {
         });
     }
 
-    /// Handles [`ExternalEditorAction::TogglePreferMarkdownViewer`]
-    /// preference.
-    fn toggle_prefer_markdown_viewer(&mut self, ctx: &mut ViewContext<Self>) {
-        EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
-            report_if_error!(settings.prefer_markdown_viewer.toggle_and_save_value(ctx));
-        });
-    }
-
     /// Handles [`ExternalEditorAction::TogglePreferTabbedEditorView`] by updating the tabbed file viewer preference.
     fn toggle_prefer_tabbed_editor_view(&mut self, ctx: &mut ViewContext<Self>) {
         EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -275,23 +264,6 @@ impl View for ExternalEditorView {
             ));
         }
 
-        column.add_child(render_body_item::<ExternalEditorAction>(
-            "Open Markdown files in Warp's Markdown Viewer by default".to_string(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.prefer_markdown_viewer_switch.clone())
-                .check(*EditorSettings::as_ref(app).prefer_markdown_viewer.value())
-                .build()
-                .on_click(|ctx, _, _| {
-                    ctx.dispatch_typed_action(ExternalEditorAction::TogglePreferMarkdownViewer);
-                })
-                .finish(),
-            None,
-        ));
-
         column.finish()
     }
 }
@@ -306,9 +278,6 @@ impl TypedActionView for ExternalEditorView {
                 self.set_code_panels_editor(editor, ctx)
             }
             ExternalEditorAction::SetLayout(layout) => self.set_layout(layout, ctx),
-            ExternalEditorAction::TogglePreferMarkdownViewer => {
-                self.toggle_prefer_markdown_viewer(ctx)
-            }
             ExternalEditorAction::ToggleTabbedEditorView => {
                 self.toggle_prefer_tabbed_editor_view(ctx);
             }

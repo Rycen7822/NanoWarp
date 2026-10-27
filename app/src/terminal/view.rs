@@ -295,9 +295,7 @@ use crate::util::color::darken;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::{EditorSettings, settings::EditorLayout};
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{
-    FileTarget, renders_in_warp_notebook_viewer, resolve_file_target,
-};
+use crate::util::openable_file_type::{FileTarget, resolve_file_target};
 use crate::util::repo_detection::{RepoDetectionSessionType, detect_possible_git_repo};
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
@@ -1058,12 +1056,6 @@ pub enum Event {
     ReplaceShell(ShellReplacementRequest),
     BlockStarted {
         is_for_in_band_command: bool,
-    },
-    /// Tell the pane group to open a file within Warp.
-    OpenFileInWarp {
-        path: PathBuf,
-        /// The session that the file belongs to.
-        session: Arc<Session>,
     },
     #[cfg(feature = "local_fs")]
     OpenCodeInWarp {
@@ -7047,22 +7039,13 @@ impl TerminalView {
                                     .into_item(),
                             ];
 
-                            if renders_in_warp_notebook_viewer(&path) {
-                                items.push(
-                                    MenuItemFields::new("Open in Warp")
-                                        .with_on_select_action(TerminalAction::OpenFileInWarp(path))
-                                        .into_item(),
-                                );
-                                // Because the default for cmd-click is to open in Warp, we also
-                                // have an open-in-editor option.
-                                items.push(
-                                    MenuItemFields::new("Open in editor")
-                                        .with_on_select_action(TerminalAction::OpenGridLink(
-                                            highlighted_link.clone(),
-                                        ))
-                                        .into_item(),
-                                );
-                            }
+                            items.push(
+                                MenuItemFields::new("Open file")
+                                    .with_on_select_action(TerminalAction::OpenGridLink(
+                                        highlighted_link.clone(),
+                                    ))
+                                    .into_item(),
+                            );
 
                             items
                         })
@@ -8234,16 +8217,6 @@ impl TerminalView {
     fn middle_click_on_input(&mut self, ctx: &mut ViewContext<Self>) {
         self.focus_input_and_clear_selections(ctx);
         self.paste(true, ctx);
-    }
-
-    /// Tell the pane group to open a file within Warp.
-    fn open_file_in_warp(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        if let Some(session) = self
-            .active_block_session_id()
-            .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id))
-        {
-            ctx.emit(Event::OpenFileInWarp { path, session })
-        }
     }
 
     fn toggle_grid_secret(
@@ -12343,7 +12316,6 @@ impl TypedActionView for TerminalView {
             | ToggleGridSecret { .. }
             | CopyGridSecret(_)
             | ShowInFileExplorer(_)
-            | OpenFileInWarp(_)
             | CtrlD
             | CtrlC
             | ClearSelectionsWhenShellMode
@@ -12590,9 +12562,6 @@ impl TypedActionView for TerminalView {
             }
             ShowInFileExplorer(path) => {
                 ctx.open_file_path_in_explorer(path);
-            }
-            OpenFileInWarp(path) => {
-                self.open_file_in_warp(path.clone(), ctx);
             }
             #[cfg(feature = "local_fs")]
             OpenCodeInWarp {

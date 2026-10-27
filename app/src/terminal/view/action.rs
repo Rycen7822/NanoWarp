@@ -186,7 +186,6 @@ pub enum TerminalAction {
     },
     CopyGridSecret(WithinModel<SecretHandle>),
     ShowInFileExplorer(PathBuf),
-    OpenFileInWarp(PathBuf),
     #[cfg(feature = "local_fs")]
     OpenCodeInWarp {
         path: PathBuf,
@@ -355,7 +354,6 @@ impl fmt::Debug for TerminalAction {
             ToggleGridSecret { show_secret, .. } => write!(f, "ToggleGridSecret {show_secret:?}"),
             CopyGridSecret(_) => f.write_str("CopyGridSecret"),
             ShowInFileExplorer(_) => f.write_str("ShowInFileExplorer"),
-            OpenFileInWarp(_) => f.write_str("OpenFileInWarp"),
             #[cfg(feature = "local_fs")]
             OpenCodeInWarp { .. } => f.write_str("OpenCodeInWarp"),
             OpenBlockListContextMenu => f.write_str("OpenBlockListContextMenu"),

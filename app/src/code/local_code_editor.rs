@@ -1722,11 +1722,6 @@ impl LocalCodeEditorView {
         &self.editor
     }
 
-    /// The current vertical scroll position as a fraction of the scrollable range, in `0..=1`.
-    pub fn scroll_fraction(&self, ctx: &AppContext) -> f32 {
-        self.editor.as_ref(ctx).scroll_fraction(ctx)
-    }
-
     pub fn close_find_bar(&mut self, should_focus_editor: bool, ctx: &mut ViewContext<Self>) {
         self.editor.update(ctx, |editor, ctx| {
             editor.close_find_bar(should_focus_editor, ctx);

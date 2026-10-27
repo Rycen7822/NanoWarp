@@ -24,8 +24,8 @@ use crate::settings_view::{SettingsSection, settings_widget_deeplink_target};
 use crate::tab_configs::TabConfig;
 use crate::user_config::{load_launch_configs, load_tab_configs, tab_configs_dir};
 use crate::util::openable_file_type::{
-    is_file_openable_in_warp, is_markdown_file, is_runnable_shell_script,
-    renders_in_warp_notebook_viewer, starts_with_shebang,
+    is_file_openable_in_warp, is_jupyter_notebook_file, is_markdown_file, is_runnable_shell_script,
+    starts_with_shebang,
 };
 use crate::view_components::DismissibleToast;
 use crate::workspace::util::PaneViewLocator;
@@ -737,8 +737,8 @@ fn get_primary_window(
 /// What `open_file` should do with an incoming `file://` URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OpenFileAction {
-    /// Open in the notebook viewer pane (Markdown, or Jupyter when enabled).
-    Notebook,
+    /// Open a document in the configured external application or system default.
+    ExternalDocument,
     /// Open in Warp's code/text editor pane.
     Editor,
     /// Open a session at the parent directory and queue the file as the pending command,
@@ -746,19 +746,10 @@ enum OpenFileAction {
     ExecuteInSession,
 }
 
-/// Pure routing decision for `open_file`. Extracted so it can be unit-tested without
-/// standing up a full `AppContext`.
-///
-/// The Markdown Viewer preference is passed in because macOS can hand Markdown
-/// file URLs to Warp via the file type registration in `Info.plist`. Since Warp
-/// cannot easily update that registration when the user toggles the viewer
-/// preference, the URI handler must check the preference before routing a
-/// Markdown file to the in-Warp notebook viewer. Other notebook viewer formats,
-/// such as Jupyter notebooks, are controlled by their own routing checks.
-fn classify_open_file_action(path: &Path, prefer_markdown_viewer: bool) -> OpenFileAction {
-    if renders_in_warp_notebook_viewer(path) && (!is_markdown_file(path) || prefer_markdown_viewer)
-    {
-        OpenFileAction::Notebook
+/// Route documents externally while retaining ordinary file editing and shell execution.
+fn classify_open_file_action(path: &Path) -> OpenFileAction {
+    if is_markdown_file(path) || is_jupyter_notebook_file(path) {
+        OpenFileAction::ExternalDocument
     } else if is_runnable_shell_script(path) {
         OpenFileAction::ExecuteInSession
     } else if path.is_file()
@@ -776,8 +767,7 @@ fn can_open_file_editor_path(path: &Path) -> bool {
 }
 
 /// Handle an incoming `file://` URL.
-/// * Markdown files are opened as notebook panes when the viewer preference is enabled.
-/// * Jupyter notebook files are opened as notebook panes when their feature flag is enabled.
+/// * Markdown and Notebook documents use the external application or system default.
 /// * For directories, open a new session at the directory path.
 /// * For other files, open a new session at the parent directory path, then possibly execute the
 ///   file.
@@ -787,28 +777,13 @@ fn open_file(window_id: Option<WindowId>, path: PathBuf, ctx: &mut AppContext) {
             .map(|view_id| (window_id, view_id))
     });
 
-    #[cfg(feature = "local_fs")]
-    let prefer_markdown_viewer = {
-        use crate::util::file::external_editor::EditorSettings;
-        *EditorSettings::as_ref(ctx).prefer_markdown_viewer
-    };
-    #[cfg(not(feature = "local_fs"))]
-    let prefer_markdown_viewer = true;
+    let action = classify_open_file_action(&path);
 
-    let action = classify_open_file_action(&path, prefer_markdown_viewer);
-
-    if action == OpenFileAction::Notebook {
-        if let Some((primary_window_id, root_view_id)) = primary_window_and_view {
-            ctx.dispatch_action(
-                primary_window_id,
-                &[root_view_id],
-                "root_view:add_file_pane",
-                &path,
-                log::Level::Info,
-            );
-        } else {
-            ctx.dispatch_global_action("root_view:open_new_with_file_notebook", &path);
-        }
+    if action == OpenFileAction::ExternalDocument {
+        #[cfg(feature = "local_fs")]
+        crate::util::file::open_file_path_in_external_editor(None, path, ctx);
+        #[cfg(not(feature = "local_fs"))]
+        ctx.open_file_path(&path);
     } else if action == OpenFileAction::Editor {
         #[cfg(feature = "local_fs")]
         {

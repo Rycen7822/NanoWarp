@@ -2,7 +2,6 @@ use std::path::Path;
 
 #[cfg(feature = "local_fs")]
 use settings::Setting as _;
-use warp_core::features::FeatureFlag;
 
 use super::*;
 
@@ -57,8 +56,7 @@ fn test_resolve_file_target_warp_uses_default_layout() {
 #[cfg(feature = "local_fs")]
 fn test_basic_editor_routes_documents_externally() {
     use crate::util::file::external_editor::settings::{
-        OpenCodePanelsFileEditor, OpenConversationLayoutPreference, OpenFileEditor, OpenFileLayout,
-        PreferMarkdownViewer, PreferTabbedEditorView,
+        OpenCodePanelsFileEditor, OpenFileEditor, OpenFileLayout, PreferTabbedEditorView,
     };
 
     let settings = EditorSettings {
@@ -67,9 +65,7 @@ fn test_basic_editor_routes_documents_externally() {
             EditorChoice::ExternalEditor(Editor::VSCode),
         )),
         open_file_layout: OpenFileLayout::new(None),
-        prefer_markdown_viewer: PreferMarkdownViewer::new(Some(false)),
         prefer_tabbed_editor_view: PreferTabbedEditorView::new(None),
-        open_conversation_layout_preference: OpenConversationLayoutPreference::new(None),
     };
     assert_eq!(
         resolve_file_target_to_open_in_warp(Path::new("README.md"), &settings, None),
@@ -78,10 +74,7 @@ fn test_basic_editor_routes_documents_externally() {
     for path in ["data.txt", "main.rs", "image.png", "script.sh"] {
         let target = resolve_file_target_to_open_in_warp(Path::new(path), &settings, None);
         assert!(
-            matches!(
-                target,
-                FileTarget::CodeEditor(_) | FileTarget::MarkdownViewer(_)
-            ),
+            matches!(target, FileTarget::CodeEditor(_)),
             "{path} must resolve to the basic editor, got {target:?}"
         );
     }
@@ -110,24 +103,6 @@ fn test_resolve_file_target_binary_uses_env_editor() {
         None,
     );
     assert_eq!(target, FileTarget::EnvEditor);
-}
-
-#[test]
-fn test_renders_in_warp_notebook_viewer() {
-    // Markdown always renders in the notebook viewer, independent of the flag.
-    let off = FeatureFlag::JupyterNotebookRendering.override_enabled(false);
-    assert!(renders_in_warp_notebook_viewer(Path::new("README.md")));
-    assert!(!renders_in_warp_notebook_viewer(Path::new(
-        "notebook.ipynb"
-    )));
-    assert!(!renders_in_warp_notebook_viewer(Path::new("main.rs")));
-    drop(off);
-
-    // With the flag on, Jupyter notebooks also render in the notebook viewer.
-    let _on = FeatureFlag::JupyterNotebookRendering.override_enabled(true);
-    assert!(renders_in_warp_notebook_viewer(Path::new("notebook.ipynb")));
-    assert!(renders_in_warp_notebook_viewer(Path::new("README.md")));
-    assert!(!renders_in_warp_notebook_viewer(Path::new("main.rs")));
 }
 
 #[test]

@@ -141,8 +141,6 @@ use crate::modal::{Modal, ModalEvent, ModalViewState};
 use crate::network::{NetworkStatus, NetworkStatusEvent};
 use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
-#[cfg(feature = "local_fs")]
-use crate::pane_group::FilePane;
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{
     self, AnyPaneContent, CodePane, CodeReviewPanelArg, Direction as PaneGroupDirection, Direction,
@@ -3632,17 +3630,6 @@ impl Workspace {
         }
 
         match target {
-            FileTarget::MarkdownViewer(layout) => {
-                let session = self.get_active_session(ctx);
-
-                self.open_file_notebook(
-                    LocalOrRemotePath::Local(path.clone()),
-                    session,
-                    layout,
-                    Some(code_source),
-                    ctx,
-                );
-            }
             FileTarget::EnvEditor => {
                 let editor_value: Option<String> = self
                     .get_active_session(ctx)
@@ -3746,27 +3733,14 @@ impl Workspace {
                     LocalOrRemotePath::Remote(_) => {
                         #[cfg(feature = "local_fs")]
                         {
-                            // Honor a notebook-viewer target (e.g. a remote
-                            // Jupyter notebook) instead of always opening remote
-                            // files as raw code in the editor.
-                            if let FileTarget::MarkdownViewer(layout) = target {
-                                self.open_file_notebook(
-                                    location.clone(),
-                                    None,
-                                    *layout,
-                                    Some(code_source),
-                                    ctx,
-                                );
-                            } else {
-                                self.open_code(
-                                    code_source,
-                                    crate::util::openable_file_type::EditorLayout::SplitPane,
-                                    *line_col,
-                                    false,
-                                    &[],
-                                    ctx,
-                                );
-                            }
+                            self.open_code(
+                                code_source,
+                                crate::util::openable_file_type::EditorLayout::SplitPane,
+                                *line_col,
+                                false,
+                                &[],
+                                ctx,
+                            );
                         }
                     }
                 }
@@ -5166,65 +5140,6 @@ impl Workspace {
             Some("Settings".to_owned()),
             ctx,
         );
-    }
-
-    /// Open a file from the given session as a notebook pane.
-    #[cfg(feature = "local_fs")]
-    fn open_file_notebook(
-        &mut self,
-        path: LocalOrRemotePath,
-        session: Option<Arc<Session>>,
-        layout: EditorLayout,
-        code_source: Option<CodeSource>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let existing_file_pane = {
-            let pane_group = self.active_tab_pane_group();
-            pane_group
-                .as_ref(ctx)
-                .file_notebook_panes(ctx)
-                .find(|(pane_id, file_view)| {
-                    !pane_group.as_ref(ctx).is_pane_hidden_for_close(*pane_id)
-                        && file_view.as_ref(ctx).path() == Some(&path)
-                })
-                .map(|(pane_id, _)| pane_id)
-        };
-
-        if let Some(pane_id) = existing_file_pane {
-            self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                pane_group.focus_pane_by_id(pane_id, ctx);
-            });
-            return;
-        }
-        // The notebook viewer renders markdown rather than raw lines, but it
-        // hands this source back when the user toggles to the raw code view, so
-        // keeping it preserves the requested line for that view.
-        let pane = FilePane::new(
-            Some(path),
-            session,
-            #[cfg(feature = "local_fs")]
-            code_source,
-            ctx,
-        );
-
-        match layout {
-            EditorLayout::NewTab => {
-                // File notebooks join the active tab's group (if any)
-                // and stay contiguous instead of splitting it.
-                let (new_idx, group_id) = self.new_tab_index_and_group(ctx);
-                self.add_tab_from_existing_pane(Box::new(pane), new_idx, group_id, ctx);
-            }
-            EditorLayout::SplitPane => {
-                self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.add_pane_with_direction(
-                        Direction::Right,
-                        pane,
-                        true, /* focus_new_pane */
-                        ctx,
-                    );
-                });
-            }
-        }
     }
 
     fn cd_to_directory(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
@@ -9158,14 +9073,6 @@ impl Workspace {
             }
             pane_group::Event::OpenPromptEditor => {
                 self.open_prompt_editor(ctx);
-            }
-            #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-            pane_group::Event::OpenFileInWarp { path, session } => {
-                #[cfg(feature = "local_fs")]
-                {
-                    let layout = *EditorSettings::as_ref(ctx).open_file_layout.value();
-                    self.open_file_notebook(path.clone(), Some(session.clone()), layout, None, ctx);
-                }
             }
             #[cfg(feature = "local_fs")]
             pane_group::Event::OpenCodeInWarp {

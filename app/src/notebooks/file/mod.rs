@@ -56,12 +56,6 @@ use crate::terminal::model::session::Session;
 use crate::ui_components::icons::Icon;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-// `renders_in_warp_notebook_viewer` is only consumed by non-wasm views
-// (`code::view` resolves to `view.rs` off-wasm and to `wasm.rs` on-wasm, and the
-// tooltips helper is `local_fs`-gated). Gate the re-export to match, otherwise it
-// is flagged as an unused import on the wasm build where those consumers are absent.
-#[cfg(not(target_family = "wasm"))]
-pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
 use crate::workspace::ActiveSession;
@@ -321,13 +315,6 @@ impl FileNotebookView {
     #[cfg(feature = "local_fs")]
     pub fn code_source(&self) -> Option<&CodeSource> {
         self.code_source.as_ref()
-    }
-
-    /// Set the scroll fraction to restore once the file content is first loaded. Used to preserve
-    /// scroll position when toggling markdown from raw to rendered.
-    #[cfg_attr(not(feature = "local_fs"), expect(dead_code))]
-    pub(crate) fn set_pending_scroll_fraction(&mut self, scroll_fraction: Option<f32>) {
-        self.pending_scroll_fraction = scroll_fraction;
     }
 
     /// The current vertical scroll fraction of the rendered editor, in `0..=1`.

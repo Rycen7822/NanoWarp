@@ -12,7 +12,6 @@ use super::{
     DetachType, PaneConfiguration, PaneContent, PaneId, PaneStackEvent, PaneView, TerminalPaneId,
 };
 use crate::app_state::{LeafContents, TerminalPaneSnapshot};
-use crate::code::buffer_location::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use crate::pane_group::CodeSource;
 use crate::pane_group::{self, Direction, PaneGroup};
@@ -434,12 +433,6 @@ fn handle_terminal_view_event(
             }
             Event::OpenPromptEditor => {
                 ctx.emit(pane_group::Event::OpenPromptEditor);
-            }
-            Event::OpenFileInWarp { path, session } => {
-                ctx.emit(pane_group::Event::OpenFileInWarp {
-                    path: LocalOrRemotePath::Local(path.clone()),
-                    session: session.clone(),
-                });
             }
             #[cfg(feature = "local_fs")]
             Event::PreviewCodeInWarp { source } => {

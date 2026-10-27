@@ -72,7 +72,6 @@ use crate::terminal::local_tty::TerminalManager as LocalTtyTerminalManager;
 #[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
 use crate::terminal::local_tty::{TerminalViewSurfaceConfig, create_terminal_view_surface};
 use crate::terminal::model::block::SerializedBlock;
-use crate::terminal::model::session::Session;
 #[cfg(feature = "remote_tty")]
 use crate::terminal::remote_tty::TerminalManager as RemoteTtyTerminalManager;
 use crate::terminal::session_settings::{NewSessionSource, SessionSettings};
@@ -404,13 +403,6 @@ pub enum Event {
     /// inside this pane group.
     TerminalViewStateChanged,
     OpenPromptEditor,
-    /// tell the workspace to open a file within Warp.
-    OpenFileInWarp {
-        /// The file path to open.
-        path: LocalOrRemotePath,
-        /// The session that the path was opened from.
-        session: Arc<Session>,
-    },
     #[cfg(feature = "local_fs")]
     OpenCodeInWarp {
         source: CodeSource,
@@ -2493,46 +2485,6 @@ impl PaneGroup {
         }
     }
 
-    #[cfg(feature = "local_fs")]
-    fn replace_code_pane_with_file_pane(
-        &mut self,
-        code_pane_id: PaneId,
-        path: LocalOrRemotePath,
-        source: Option<crate::code::editor_management::CodeSource>,
-        scroll_fraction: Option<f32>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Get the active session to pass to the FilePane, if any
-        let session = self.active_session_view(ctx).and_then(|view| {
-            // Use the active session if it's local
-            let view_ref = view.as_ref(ctx);
-            if view_ref.active_session_is_local(ctx) == Some(true) {
-                view_ref
-                    .active_block_session_id()
-                    .and_then(|session_id| view_ref.sessions_model().as_ref(ctx).get(session_id))
-            } else {
-                None
-            }
-        });
-
-        // Construct the pane empty, seed the restored scroll, THEN open the path — so the content
-        // load that triggers `set_content` -> scroll apply can never run before the pending
-        // fraction is set, even if a load were to deliver synchronously.
-        let file_pane = FilePane::new(None, None, source, ctx);
-        file_pane.file_view(ctx).update(ctx, |view, ctx| {
-            view.set_pending_scroll_fraction(scroll_fraction);
-            view.open(path, session, ctx);
-        });
-        let success = self.replace_pane(code_pane_id, file_pane, false, ctx);
-
-        if !success {
-            report_error!(
-                "Failed to replace code pane with file pane",
-                extra: { "code_pane_id" => ?code_pane_id }
-            );
-        }
-    }
-
     /// Handle a common pane event, such as splitting off another pane.
     fn handle_pane_event(
         &mut self,
@@ -2578,20 +2530,6 @@ impl PaneGroup {
                 scroll_fraction,
             } => {
                 self.replace_file_pane_with_code_pane(
-                    pane_id,
-                    path.clone(),
-                    source.clone(),
-                    (*scroll_fraction).map(|f| f.into_inner()),
-                    ctx,
-                );
-            }
-            #[cfg(feature = "local_fs")]
-            PaneEvent::ReplaceWithFilePane {
-                path,
-                source,
-                scroll_fraction,
-            } => {
-                self.replace_code_pane_with_file_pane(
                     pane_id,
                     path.clone(),
                     source.clone(),

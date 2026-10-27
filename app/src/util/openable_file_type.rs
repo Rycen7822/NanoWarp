@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use warp_core::features::FeatureFlag;
 pub use warp_util::file_type::{
     is_binary_file, is_file_content_binary, is_jupyter_notebook_file, is_markdown_file,
 };
@@ -35,7 +34,7 @@ pub enum EditorLayout {
 /// depends on its type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenableFileType {
-    /// A Markdown file, which should be opened in a Markdown viewer pane.
+    /// A Markdown document opened in an external application.
     Markdown,
     /// A code file, which should be opened in a code editor pane.
     Code,
@@ -46,8 +45,6 @@ pub enum OpenableFileType {
 /// The target application or viewer to use when opening a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileTarget {
-    /// Open in Warp's Markdown viewer.
-    MarkdownViewer(EditorLayout),
     /// Open in Warp's Code Editor.
     CodeEditor(EditorLayout),
     /// Open in an external editor (e.g. VS Code, Emacs).
@@ -70,15 +67,6 @@ pub fn is_supported_code_file(path: impl AsRef<Path>) -> bool {
 #[cfg(not(feature = "local_fs"))]
 pub fn is_supported_code_file(_path: impl AsRef<Path>) -> bool {
     false
-}
-
-/// Whether `path` renders in Warp's notebook viewer (with a Rendered/Raw
-/// toggle): Markdown files always, Jupyter notebooks when the feature flag is
-/// enabled.
-pub fn renders_in_warp_notebook_viewer(path: impl AsRef<Path>) -> bool {
-    let path = path.as_ref();
-    is_markdown_file(path)
-        || (FeatureFlag::JupyterNotebookRendering.is_enabled() && is_jupyter_notebook_file(path))
 }
 
 pub fn is_supported_image_file(path: impl AsRef<Path>) -> bool {

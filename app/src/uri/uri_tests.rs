@@ -569,7 +569,7 @@ fn test_open_file_executable_sh_routes_to_execute() {
     let p = dir.path().join("run.sh");
     std::fs::write(&p, b"#!/bin/sh\n:\n").unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let action = classify_open_file_action(&p, true);
+    let action = classify_open_file_action(&p);
     assert_eq!(action, OpenFileAction::ExecuteInSession);
 }
 
@@ -581,7 +581,7 @@ fn test_open_file_non_executable_sh_routes_to_editor() {
     let p = dir.path().join("view.sh");
     std::fs::write(&p, b"#!/bin/sh\n:\n").unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(classify_open_file_action(&p, true), OpenFileAction::Editor);
+    assert_eq!(classify_open_file_action(&p), OpenFileAction::Editor);
 }
 
 #[test]
@@ -594,7 +594,7 @@ fn test_open_file_executable_bash_zsh_fish_route_to_execute() {
         std::fs::write(&p, b"#!/bin/sh\n:\n").unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(
-            classify_open_file_action(&p, true),
+            classify_open_file_action(&p),
             OpenFileAction::ExecuteInSession,
             "{name} should route to ExecuteInSession",
         );
@@ -602,47 +602,26 @@ fn test_open_file_executable_bash_zsh_fish_route_to_execute() {
 }
 
 #[test]
-fn test_open_file_markdown_routes_to_notebook_when_viewer_enabled() {
+fn test_open_file_markdown_routes_to_external_application() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("README.md");
     std::fs::write(&p, b"# hi\n").unwrap();
     assert_eq!(
-        classify_open_file_action(&p, true),
-        OpenFileAction::Notebook
+        classify_open_file_action(&p),
+        OpenFileAction::ExternalDocument
     );
 }
 
 #[test]
-fn test_open_file_markdown_routes_to_editor_when_viewer_disabled() {
-    let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("README.md");
-    std::fs::write(&p, b"# hi\n").unwrap();
-    assert_eq!(classify_open_file_action(&p, false), OpenFileAction::Editor);
-}
-
-#[test]
-fn test_open_file_ipynb_routes_to_notebook_when_enabled() {
-    // A `.ipynb` opened via `file://` (e.g. "Open with Warp" from Finder) opens
-    // in the notebook viewer, not the raw-JSON code editor.
-    let _flag = crate::features::FeatureFlag::JupyterNotebookRendering.override_enabled(true);
+fn test_open_file_ipynb_routes_to_external_application() {
+    // A document received through a file URL opens in an external application.
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("analysis.ipynb");
     std::fs::write(&p, b"{\"nbformat\": 4, \"cells\": []}\n").unwrap();
     assert_eq!(
-        classify_open_file_action(&p, false),
-        OpenFileAction::Notebook
+        classify_open_file_action(&p),
+        OpenFileAction::ExternalDocument
     );
-}
-
-#[test]
-fn test_open_file_ipynb_opens_in_editor_when_disabled() {
-    // Without the feature flag, `.ipynb` is not rendered in the notebook viewer
-    // and falls through to the code editor.
-    let _flag = crate::features::FeatureFlag::JupyterNotebookRendering.override_enabled(false);
-    let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("analysis.ipynb");
-    std::fs::write(&p, b"{\"nbformat\": 4, \"cells\": []}\n").unwrap();
-    assert_eq!(classify_open_file_action(&p, true), OpenFileAction::Editor);
 }
 
 #[test]
@@ -651,7 +630,7 @@ fn test_open_file_rust_source_still_opens_in_editor() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("main.rs");
     std::fs::write(&p, b"fn main() {}\n").unwrap();
-    assert_eq!(classify_open_file_action(&p, true), OpenFileAction::Editor);
+    assert_eq!(classify_open_file_action(&p), OpenFileAction::Editor);
 }
 
 #[test]
@@ -687,7 +666,7 @@ fn test_open_file_editor_binary_file_is_rejected() {
 fn test_open_file_directory_routes_to_session() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(
-        classify_open_file_action(dir.path(), true),
+        classify_open_file_action(dir.path()),
         OpenFileAction::ExecuteInSession
     );
 }
@@ -703,7 +682,7 @@ fn test_open_file_non_runnable_shebang_routes_to_editor() {
     let p = dir.path().join("noext");
     std::fs::write(&p, b"#!/bin/sh\necho hi\n").unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(classify_open_file_action(&p, true), OpenFileAction::Editor);
+    assert_eq!(classify_open_file_action(&p), OpenFileAction::Editor);
 }
 
 #[test]

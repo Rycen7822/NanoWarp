@@ -126,16 +126,15 @@ where
 /// This checks:
 /// - Whether Warp is already the default editor (skip if so)
 /// - Whether this file is openable in Warp (skips binary files and directories)
-/// - Whether the file renders in Warp's notebook viewer, which is reached via a
-///   different affordance (skips Markdown and, when enabled, Jupyter notebooks)
+/// - Whether this is a document that must open in an external application
 #[cfg(feature = "local_fs")]
 pub fn should_show_open_in_warp_link(path: &Path, app: &AppContext) -> bool {
     use warpui::SingletonEntity;
 
     use crate::code::view::is_binary_file;
-    use crate::notebooks::file::renders_in_warp_notebook_viewer;
     use crate::util::file::external_editor::EditorSettings;
     use crate::util::file::external_editor::settings::EditorChoice;
+    use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 
     let settings = EditorSettings::as_ref(app);
 
@@ -143,7 +142,10 @@ pub fn should_show_open_in_warp_link(path: &Path, app: &AppContext) -> bool {
         return false;
     }
 
-    !renders_in_warp_notebook_viewer(path) && !is_binary_file(path) && !path.is_dir()
+    !is_markdown_file(path)
+        && !is_jupyter_notebook_file(path)
+        && !is_binary_file(path)
+        && !path.is_dir()
 }
 
 #[cfg(not(feature = "local_fs"))]

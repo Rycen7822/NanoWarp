@@ -39,9 +39,7 @@ use crate::util::bindings::keybinding_name_to_display_string;
 use crate::util::file::external_editor::EditorSettings;
 use crate::util::openable_file_type::FileTarget;
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{
-    EditorLayout, is_markdown_file, resolve_file_target_with_editor_choice,
-};
+use crate::util::openable_file_type::{EditorLayout, resolve_file_target_with_editor_choice};
 use crate::workspace::WorkspaceAction;
 use crate::workspace::view::global_search::view::{
     Event as GlobalSearchViewEvent, GlobalSearchEntryFocus, GlobalSearchView,
@@ -640,18 +638,8 @@ impl LeftPanelView {
                         *settings.open_file_layout,
                         None,
                     ),
-                    // Local-fs-based target resolution can't inspect remote
-                    // files; mirror the file tree's remote handling (code
-                    // editor, or markdown viewer by extension + preference).
-                    LocalOrRemotePath::Remote(remote) => {
-                        let is_markdown =
-                            is_markdown_file(std::path::Path::new(remote.path.as_str()));
-                        if is_markdown && *settings.prefer_markdown_viewer {
-                            FileTarget::MarkdownViewer(EditorLayout::SplitPane)
-                        } else {
-                            FileTarget::CodeEditor(EditorLayout::SplitPane)
-                        }
-                    }
+                    // Remote files use the existing basic editor.
+                    LocalOrRemotePath::Remote(_) => FileTarget::CodeEditor(EditorLayout::SplitPane),
                 };
 
                 ctx.emit(LeftPanelEvent::OpenFileWithTarget {

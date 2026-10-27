@@ -1492,15 +1492,6 @@ impl CodeEditorView {
         self.model.as_ref(ctx).render_state().as_ref(ctx).height()
     }
 
-    /// The current vertical scroll position as a fraction of the scrollable range, in `0..=1`.
-    pub fn scroll_fraction(&self, ctx: &AppContext) -> f32 {
-        self.model
-            .as_ref(ctx)
-            .render_state()
-            .as_ref(ctx)
-            .scroll_fraction()
-    }
-
     fn scroll_to_fraction(&self, fraction: f32, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             // Content is already rendered here (this runs from `ViewportUpdated`), so the current
