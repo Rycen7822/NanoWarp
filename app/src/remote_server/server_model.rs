@@ -6,8 +6,8 @@ use std::sync::Arc;
 use remote_server::proto::OpenBufferSuccess;
 use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
-use warp_core::channel::ChannelState;
 use warp_core::SessionId;
+use warp_core::channel::ChannelState;
 use warp_files::{FileModel, FileModelEvent};
 use warp_util::content_version::ContentVersion;
 use warp_util::file::FileId;
@@ -67,8 +67,7 @@ use crate::code_review::git_actions;
 use crate::terminal::model::session::command_executor::{
     ExecuteCommandOptions, LocalCommandExecutor,
 };
-use crate::util::file::FileLocations;
-use crate::util::file::{ReadFileContextResult, read_local_file_context};
+use crate::util::file::{FileLocations, ReadFileContextResult, read_local_file_context};
 use crate::util::git;
 
 /// Outcome of dispatching a request-style `ClientMessage`.
@@ -1052,7 +1051,8 @@ impl ServerModel {
 
         let Some(shell_type) = ShellType::from_name(&msg.shell_type) else {
             log::error!(
-                "Received unknown shell_type in SessionBootstrapped: shell_type={:?}", msg.shell_type
+                "Received unknown shell_type in SessionBootstrapped: shell_type={:?}",
+                msg.shell_type
             );
             return;
         };

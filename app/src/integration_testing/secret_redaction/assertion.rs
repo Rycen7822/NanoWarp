@@ -1,9 +1,9 @@
+use secret_redaction::{find_secrets_in_text, redact_secrets};
 use warpui::async_assert_eq;
 use warpui::integration::{AssertionCallback, AssertionOutcome};
 
 use crate::integration_testing::view_getters::single_terminal_view;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
-use secret_redaction::{find_secrets_in_text, redact_secrets};
 
 pub fn assert_secret_tooltip_open(open: bool) -> AssertionCallback {
     Box::new(move |app, window_id| {

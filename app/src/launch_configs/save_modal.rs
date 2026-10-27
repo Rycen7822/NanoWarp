@@ -25,7 +25,6 @@ use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
 };
 use crate::launch_configs::launch_config::LaunchConfig;
-
 use crate::user_config::launch_configs_dir;
 #[cfg(feature = "local_fs")]
 use crate::user_config::{WarpConfig, util::file_name_to_human_readable_name};

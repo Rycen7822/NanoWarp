@@ -19,7 +19,6 @@ use super::settings_page::{
     render_body_item, render_dropdown_item,
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, ToggleState, flags};
-
 use crate::appearance::Appearance;
 use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings};
 use crate::view_components::{Dropdown, DropdownItem};

@@ -1,10 +1,4 @@
 #[cfg(feature = "local_fs")]
-use crate::util::image::{ProcessImageResult, is_supported_image_mime_type, process_image};
-#[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::is_binary_file;
-#[cfg(feature = "local_fs")]
-use crate::util::path::host_native_absolute_path;
-#[cfg(feature = "local_fs")]
 use futures::AsyncReadExt;
 #[cfg(feature = "local_fs")]
 use mime_guess::from_path;
@@ -15,6 +9,13 @@ use warp_files::{FileModel, TextFileReadResult};
 use warp_util::file::FileLoadError;
 #[cfg(feature = "local_fs")]
 use warp_util::file_type::is_buffer_binary;
+
+#[cfg(feature = "local_fs")]
+use crate::util::image::{ProcessImageResult, is_supported_image_mime_type, process_image};
+#[cfg(feature = "local_fs")]
+use crate::util::openable_file_type::is_binary_file;
+#[cfg(feature = "local_fs")]
+use crate::util::path::host_native_absolute_path;
 
 pub mod external_editor;
 

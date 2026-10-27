@@ -8,7 +8,6 @@
 //! so the user can pick up items captured since the pane was opened. The
 //! pane header also exposes a refresh icon that reloads the snapshot in
 //! place.
-use crate::server::network_logging::NetworkLogModel;
 use warp_editor::content::buffer::InitialBufferState;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warp_util::path::LineAndColumnArg;
@@ -27,6 +26,7 @@ use crate::editor::InteractionState;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view::{self, HeaderContent, StandardHeader, StandardHeaderOptions};
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent, PaneHeaderAction};
+use crate::server::network_logging::NetworkLogModel;
 use crate::ui_components::buttons::icon_button_with_color;
 use crate::ui_components::{blended_colors, icons};
 

@@ -31,7 +31,6 @@ use crate::editor::{DisplayPoint, EditorAction, Point};
 use crate::input_suggestions::Item;
 use crate::network::NetworkStatus;
 use crate::search::files::model::FileSearchModel;
-
 use crate::settings::import::model::ImportedConfigModel;
 use crate::settings::{AliasExpansionSettings, AppEditorSettings, PrivacySettings};
 use crate::settings_view::keybindings::KeybindingChangedNotifier;

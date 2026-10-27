@@ -37,6 +37,7 @@ use super::editor::view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorV
 use super::link::{NotebookLinks, SessionSource};
 use super::styles;
 use crate::appearance::Appearance;
+use crate::cmd_or_ctrl_shift;
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 use crate::editor::InteractionState;
@@ -64,7 +65,6 @@ pub use crate::util::openable_file_type::renders_in_warp_notebook_viewer;
 pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
 use crate::workspace::ActiveSession;
-use crate::cmd_or_ctrl_shift;
 
 /// Display mode for markdown files shown via the header segmented control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

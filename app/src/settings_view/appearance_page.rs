@@ -51,7 +51,6 @@ use crate::editor::{
 };
 use crate::features::FeatureFlag;
 use crate::gpu_state::{GPUState, GPUStateEvent};
-
 use crate::settings::app_icon::{AppIcon, AppIconSettings};
 use crate::settings::{
     AppEditorSettings, CodeSettings, CursorBlink, CursorDisplayType, DEFAULT_MONOSPACE_FONT_NAME,

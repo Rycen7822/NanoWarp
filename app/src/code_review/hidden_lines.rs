@@ -1,9 +1,10 @@
 use std::ops::Range;
 
-use crate::code::editor::DiffDelta;
 use rangemap::RangeSet;
 use warp_editor::content::text::LineCount;
 use warp_editor::render::model::LineCount as RenderLineCount;
+
+use crate::code::editor::DiffDelta;
 
 /// The number of context lines to show before and after each change
 const CONTEXT_LINES: usize = 4;

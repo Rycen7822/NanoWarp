@@ -23,7 +23,6 @@ use crate::context_chips::renderer::Renderer as ContextChipRenderer;
 use crate::context_chips::{
     ChipAvailability, ChipRuntimeCapabilities, ContextChipKind, available_chips,
 };
-
 use crate::settings::{FontSettings, WarpPromptSeparator};
 use crate::terminal::SizeInfo;
 use crate::terminal::blockgrid_element::BlockGridElement;

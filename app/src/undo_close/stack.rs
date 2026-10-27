@@ -9,7 +9,6 @@ use warpui::{
 use super::UndoCloseSettings;
 use super::settings::UndoCloseSettingsChangedEvent;
 use crate::pane_group::{PaneGroup, PaneId};
-
 use crate::tab::TabData;
 use crate::window_settings::WindowSettings;
 use crate::workspace::Workspace;

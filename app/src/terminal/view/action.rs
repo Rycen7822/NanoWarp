@@ -1,4 +1,3 @@
-use crate::palette::PaletteSource;
 use std::fmt;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -15,6 +14,7 @@ use super::{
     AliasExpansionBannerAction, ContextMenuAction, GridHighlightedLink, InputContextMenuAction,
     NotificationsDiscoveryBannerAction, NotificationsErrorBannerAction, TerminalEditor,
 };
+use crate::palette::PaletteSource;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::block_list_element::{
     BlockHoverAction, BlockListMenuSource, BlockSelectAction, BlockTextSelectAction,

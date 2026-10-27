@@ -23,7 +23,6 @@ use super::settings_page::{
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, flags};
 use crate::appearance::Appearance;
-
 use crate::settings::SshSettings;
 use crate::terminal::warpify::settings::{
     SshExtensionInstallMode, WarpifySettings, WarpifySettingsChangedEvent,

@@ -19,7 +19,6 @@ use crate::context_chips::prompt::Prompt;
 use crate::network::NetworkStatus;
 use crate::resource_center::TipsCompleted;
 use crate::search::files::model::FileSearchModel;
-
 use crate::settings::PrivacySettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;

@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
-#[cfg(feature = "local_fs")]
-use crate::server::network_logging::NetworkLogModel;
 use anyhow::Context;
 use chrono::{DateTime, Days, Utc};
 use itertools::Itertools;
@@ -31,8 +29,9 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 #[cfg(feature = "local_fs")]
 use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
-
 use crate::persistence::ModelEvent;
+#[cfg(feature = "local_fs")]
+use crate::server::network_logging::NetworkLogModel;
 #[cfg(feature = "local_fs")]
 use crate::terminal::local_shell::LocalShellState;
 #[cfg(feature = "local_fs")]

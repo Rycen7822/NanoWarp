@@ -85,8 +85,7 @@ use super::{History, HistoryEntry, SizeInfo, TerminalModel, prompt, should_right
 use crate::appearance::{Appearance, AppearanceEvent};
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
-use crate::completer::SessionContext;
-use crate::completer::is_command_valid;
+use crate::completer::{SessionContext, is_command_valid};
 use crate::context_chips::display::{PromptDisplay, PromptDisplayEvent};
 use crate::context_chips::display_chip::PromptChipShellCommand;
 use crate::context_chips::prompt_type::PromptType;
@@ -111,7 +110,6 @@ use crate::resource_center::{
     Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
 };
 use crate::search::QueryFilter;
-
 use crate::session_management::SessionNavigationPromptElements;
 use crate::settings::{
     AliasExpansionSettings, AppEditorSettings, AppEditorSettingsChangedEvent, InputModeSettings,

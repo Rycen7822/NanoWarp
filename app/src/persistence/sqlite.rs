@@ -44,7 +44,6 @@ use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::EnablementState;
 use crate::persistence::block_list::get_all_restored_blocks;
 use crate::persistence::model::CODE_REVIEW_PANE_KIND;
-
 use crate::settings_view::SettingsSection;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::tab::SelectedTabColor;

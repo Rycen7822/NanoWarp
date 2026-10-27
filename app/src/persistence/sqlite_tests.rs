@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::code::persisted_workspace::WorkspaceMetadata;
 use chrono::Utc;
 use diesel::connection::SimpleConnection;
 use pathfinder_geometry::rect::RectF;
@@ -18,6 +17,7 @@ use crate::app_state::{
     TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::code::editor_management::CodeSource;
+use crate::code::persisted_workspace::WorkspaceMetadata;
 use crate::persistence::{BlockCompleted, ModelEvent, PersistenceScope};
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;

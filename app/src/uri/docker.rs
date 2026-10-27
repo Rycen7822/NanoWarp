@@ -8,7 +8,6 @@ use warp_util::path::{ShellFamily, is_posix_portable_pathname};
 use warpui::AppContext;
 
 use crate::root_view::SubshellCommandArg;
-
 use crate::terminal::shell::ShellType;
 
 /// String of hex digits meant to represent a Docker container ID.

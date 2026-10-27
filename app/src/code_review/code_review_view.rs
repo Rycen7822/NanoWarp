@@ -1,4 +1,3 @@
-use crate::code_review::{CurrentHead, DiffBase};
 use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
@@ -15,10 +14,10 @@ use rand::Rng;
 use rand::distributions::Alphanumeric;
 use string_offset::CharOffset;
 use vec1::Vec1;
+use warp_core::SessionId;
 use warp_core::channel::{Channel, ChannelState};
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
-use warp_core::SessionId;
 use warp_editor::content::buffer::{AutoScrollBehavior, InitialBufferState, SelectionOffsets};
 use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
@@ -91,6 +90,7 @@ use crate::code_review::find_model::CodeReviewFindModel;
 use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusEvent, GitRepoStatusModel};
 use crate::code_review::github_repo_model::{GitHubRepoEvent, GitHubRepoModel};
 use crate::code_review::hidden_lines::calculate_hidden_lines;
+use crate::code_review::{CurrentHead, DiffBase};
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::editor::InteractionState;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
@@ -98,7 +98,6 @@ use crate::pane_group::PaneId;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::{BackingView, PaneEvent, view};
 use crate::quit_warning::UnsavedStateSummary;
-
 use crate::settings::CodeSettings;
 use crate::settings_view::SettingsSection;
 use crate::terminal::input::MenuPositioning;
@@ -2230,7 +2229,10 @@ impl CodeReviewView {
             DiffStateModelEvent::BranchesReceived(branches) => {
                 if let Some(repo) = self.active_repo.as_mut() {
                     let branch_count = branches.len();
-                    log::info!("Code Review: Set available_branches with {} branches", branch_count);
+                    log::info!(
+                        "Code Review: Set available_branches with {} branches",
+                        branch_count
+                    );
                     repo.available_branches = branches.clone();
                 }
                 self.update_diff_selector_selection(ctx);

@@ -12,7 +12,6 @@ use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View
 
 use crate::appearance::Appearance;
 use crate::context_chips::prompt::Prompt;
-
 use crate::settings::EnforceMinimumContrast;
 use crate::terminal::SizeInfo;
 use crate::terminal::blockgrid_element::BlockGridElement;

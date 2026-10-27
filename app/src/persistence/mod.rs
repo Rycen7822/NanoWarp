@@ -21,7 +21,6 @@ use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 
-use crate::code::persisted_workspace::WorkspaceMetadata as CodeWorkspaceMetadata;
 use chrono::{DateTime, Local};
 use instant::Instant;
 use lsp::supported_servers::LSPServerType;
@@ -39,7 +38,9 @@ use warp_errors::report_error;
 use warpui::{Entity, SingletonEntity};
 
 use crate::app_state::AppState;
-use crate::code::persisted_workspace::EnablementState;
+use crate::code::persisted_workspace::{
+    EnablementState, WorkspaceMetadata as CodeWorkspaceMetadata,
+};
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
 use crate::terminal::model::block::SerializedBlock;

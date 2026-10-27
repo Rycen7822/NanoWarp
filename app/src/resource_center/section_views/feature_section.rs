@@ -20,7 +20,6 @@ use crate::resource_center::{
     FeatureItem, FeatureSectionData, Tip, TipsCompleted, complete_tips_and_write_to_user_defaults,
     skip_tips_and_write_to_user_defaults,
 };
-
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::themes::theme::Fill;
 

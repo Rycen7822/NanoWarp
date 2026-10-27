@@ -19,7 +19,6 @@ use super::sections::sections;
 use super::{FeatureSection, FeatureSectionData, FeatureSectionView, TipsCompleted};
 use crate::appearance::Appearance;
 use crate::resource_center::skip_tips_and_write_to_user_defaults;
-
 use crate::workspace::WorkspaceAction;
 
 #[derive(Default)]

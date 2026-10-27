@@ -169,8 +169,7 @@ pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHa
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
 use crate::notification::NotificationContext;
-use crate::palette::PaletteMode;
-use crate::palette::PaletteSource;
+use crate::palette::{PaletteMode, PaletteSource};
 use crate::persistence::PersistenceWriter;
 use crate::root_view::{
     OpenFromRestoredArg, OpenPath, quake_mode_window_id, quake_mode_window_is_open,

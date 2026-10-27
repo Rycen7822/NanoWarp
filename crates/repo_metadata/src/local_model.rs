@@ -1694,14 +1694,22 @@ impl LocalRepoMetadataModel {
             },
             move |model: &mut LocalRepoMetadataModel,
                   (
-                      build_result,
-                      files,
-                      gitignores_for_build,
-                      repo_path_str,
-                      std_repo_path,
-                      repository_handle,
-                      indexed_with_limit,
-                    ): (Result<Entry, _>, Vec<crate::entry::FileMetadata>, _, String, StandardizedPath, ModelHandle<Repository>, bool),
+                build_result,
+                files,
+                gitignores_for_build,
+                repo_path_str,
+                std_repo_path,
+                repository_handle,
+                indexed_with_limit,
+            ): (
+                Result<Entry, _>,
+                Vec<crate::entry::FileMetadata>,
+                _,
+                String,
+                StandardizedPath,
+                ModelHandle<Repository>,
+                bool,
+            ),
                   ctx| {
                 if model
                     .finish_build_task(
@@ -1714,8 +1722,11 @@ impl LocalRepoMetadataModel {
                 }
                 match build_result {
                     Ok(root_entry) => {
-                        let state =
-                            FileTreeState::new(root_entry, gitignores_for_build, Some(repository_handle));
+                        let state = FileTreeState::new(
+                            root_entry,
+                            gitignores_for_build,
+                            Some(repository_handle),
+                        );
 
                         if let Err(e) = model.add_repository_internal(
                             std_repo_path.clone(),

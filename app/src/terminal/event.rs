@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use instant::Instant;
 pub use remote_server::setup::RemoteServerSetupState;
+use warp_terminal::ImageProtocol;
 pub use warp_terminal::event::{
     ExecutedExecutorCommandEvent, ObservedExitStatus, ParseGeneratorOutputError,
 };
@@ -20,7 +21,6 @@ use crate::terminal::model::blocks::BlockList;
 use crate::terminal::model::completions::ShellCompletion;
 use crate::terminal::model::terminal_model::HandlerEvent;
 use crate::terminal::shell::ShellType;
-use warp_terminal::ImageProtocol;
 
 #[derive(Clone)]
 /// Events sent to the main thread by the terminal model & event loop.

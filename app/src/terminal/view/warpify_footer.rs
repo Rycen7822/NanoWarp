@@ -1,11 +1,18 @@
 use std::sync::Arc;
 
 use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use warp_core::ui::appearance::Appearance;
+use warp_core::ui::theme::Fill as ThemeFill;
+use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
     ChildView, Container, CrossAxisAlignment, Expanded, Flex, MainAxisSize, ParentElement,
 };
 use warpui::prelude::Empty;
-use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use warpui::{
+    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
 
 use super::{RichContentInsertionPosition, TerminalAction, TerminalView};
 use crate::settings::InputModeSettings;
@@ -15,12 +22,6 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource, TooltipAlignment,
 };
-use pathfinder_color::ColorU;
-
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::Fill as ThemeFill;
-use warp_core::ui::theme::color::internal_colors;
-use warpui::{ModelHandle, SingletonEntity};
 
 /// Footer view offering shell integration for detected subshell commands.
 pub(super) struct WarpifyFooterView {

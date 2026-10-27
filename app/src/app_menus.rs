@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::path::PathBuf;
 
-use crate::code::persisted_workspace::WorkspaceMetadata;
 use csv::Writer;
 use enclose::enclose;
 use itertools::Itertools;
@@ -17,11 +16,10 @@ use warpui::platform::menu::{
 use warpui::windowing::WindowManager;
 use warpui::{AppContext, SingletonEntity};
 
-use crate::code::persisted_workspace::PersistedWorkspace;
+use crate::code::persisted_workspace::{PersistedWorkspace, WorkspaceMetadata};
 use crate::default_terminal::DefaultTerminal;
 use crate::features::FeatureFlag;
 use crate::root_view::OpenLaunchConfigArg;
-
 use crate::settings::{BlockVisibilitySettings, DebugSettings, SelectionSettings};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::session_settings::SessionSettings;

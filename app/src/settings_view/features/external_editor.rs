@@ -7,7 +7,6 @@ use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
 
 use crate::appearance::Appearance;
-
 use crate::settings_view::settings_page::{ToggleState, render_body_item, render_dropdown_item};
 use crate::util::file::external_editor::settings::{EditorChoice, EditorLayout};
 use crate::util::file::external_editor::{EditorSettings, SUPPORTED_EDITORS};

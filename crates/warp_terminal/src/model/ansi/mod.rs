@@ -1176,15 +1176,19 @@ where
                         return;
                     };
                     let Some((start_str, length_str)) = data_str.split_once(',') else {
-                        log::warn!("Warp completions replacement span OSC marker payload was not a \
-                                 comma-separated pair");
+                        log::warn!(
+                            "Warp completions replacement span OSC marker payload was not a \
+                                 comma-separated pair"
+                        );
                         return;
                     };
                     let (Ok(start), Ok(length)) =
                         (start_str.parse::<usize>(), length_str.parse::<usize>())
                     else {
-                        log::warn!("Warp completions replacement span OSC marker payload was not a \
-                                 pair of non-negative integers");
+                        log::warn!(
+                            "Warp completions replacement span OSC marker payload was not a \
+                                 pair of non-negative integers"
+                        );
                         return;
                     };
                     self.handler
@@ -1208,8 +1212,10 @@ where
                             );
                         }
                         _ => {
-                            log::warn!("Invalid Warp OSC marker parameter for completions match \
-                                     metadata");
+                            log::warn!(
+                                "Invalid Warp OSC marker parameter for completions match \
+                                     metadata"
+                            );
                         }
                     }
                 }
