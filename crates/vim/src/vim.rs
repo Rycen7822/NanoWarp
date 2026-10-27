@@ -639,9 +639,6 @@ pub enum VimEventType {
         write_register_name: char,
     },
     VisualTextObject(VimTextObject),
-    GotoDefinition,
-    FindReferences,
-    ShowHover,
     /// Center the current line vertically in the viewport. Triggered by `zz`.
     CenterCursorVertically,
     /// Move cursor and scroll viewport down by half a page. Triggered by `<C-d>`.
@@ -703,9 +700,6 @@ impl VimEventType {
             | VimEventType::VisualTextObject(_)
             | VimEventType::Backspace
             | VimEventType::Escape
-            | VimEventType::GotoDefinition
-            | VimEventType::FindReferences
-            | VimEventType::ShowHover
             | VimEventType::CenterCursorVertically
             | VimEventType::ScrollHalfPageDown
             | VimEventType::ScrollHalfPageUp => None,
@@ -1207,9 +1201,6 @@ impl VimFSA {
                     Some(line_number) => VimEventType::Navigate(VimMotion::JumpToLine(line_number)),
                     None => VimEventType::Navigate(VimMotion::JumpToFirstLine),
                 },
-                'd' => VimEventType::GotoDefinition,
-                'h' => VimEventType::ShowHover,
-                'r' => VimEventType::FindReferences,
                 // For two-character operations (g~, gu, gU, gc),
                 // replace the existing pending action, the generic G,
                 // with a more specific pending action.
@@ -2106,9 +2097,6 @@ where
             VimEventType::ChangeMode { new, old } => self.change_mode(old, new, ctx),
             VimEventType::Backspace => self.backspace(ctx),
             VimEventType::DeleteForward => self.delete_forward(ctx),
-            VimEventType::GotoDefinition => self.goto_definition(ctx),
-            VimEventType::FindReferences => self.find_references(ctx),
-            VimEventType::ShowHover => self.show_hover(ctx),
             VimEventType::CenterCursorVertically => self.center_cursor_vertically(ctx),
             VimEventType::ScrollHalfPageDown => self.scroll_half_page_down(event.count, ctx),
             VimEventType::ScrollHalfPageUp => self.scroll_half_page_up(event.count, ctx),
@@ -2239,12 +2227,6 @@ pub trait VimHandler {
     fn backspace(&mut self, ctx: &mut ViewContext<Self>);
     fn delete_forward(&mut self, ctx: &mut ViewContext<Self>);
     fn escape(&mut self, ctx: &mut ViewContext<Self>);
-    /// Go to the definition of the symbol under cursor (gd).
-    fn goto_definition(&mut self, _ctx: &mut ViewContext<Self>) {}
-    /// Find references of the symbol under cursor (gr).
-    fn find_references(&mut self, _ctx: &mut ViewContext<Self>) {}
-    /// Show hover information for the symbol under cursor (gh).
-    fn show_hover(&mut self, _ctx: &mut ViewContext<Self>) {}
     /// Center the current line vertically in the viewport (zz).
     fn center_cursor_vertically(&mut self, _ctx: &mut ViewContext<Self>) {}
     /// Move the cursor down `count` half-pages and scroll the viewport (`<C-d>`).
