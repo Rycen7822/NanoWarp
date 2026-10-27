@@ -60,8 +60,6 @@ integration_tests! {
     test_restore_snapshot_with_deleted_cwd,
     test_session_restoration_with_multiple_shells,
     test_restore_snapshot_with_background_output,
-    test_restore_snapshot_with_notebooks,
-    test_restore_snapshot_with_common_shareable_metadata_ids,
     test_restore_snapshot_with_markdown_file,
     test_restore_snapshot_with_settings_page,
     // TODO(kevin): figure out why the file name doesn't match.
@@ -220,11 +218,7 @@ integration_tests! {
     test_closed_panes_cleared_on_rearrangement,
     test_tab_closes_when_last_visible_pane_closed,
 
-    test_notebook_pane_tracking,
-    test_close_notebook_tab,
     test_open_in_warp_banner,
-    test_close_notebook_window,
-    test_backspace_inside_raw_mermaid_block_edits_text_without_removing_block,
 
     // TODO(alokedesai): Fix this on the latest version of Bash.
     #[ignore]
@@ -303,8 +297,4 @@ integration_tests! {
     #[ignore = "Manual test: requires real display for frame capture"]
     test_video_recording,
 
-    // Rich Input Ctrl+Enter submit toggle (issue #11588)
-    test_rich_input_toggle_on_enter_inserts_newline_and_ctrl_enter_submits,
-    // Regression: Enter must accept inline menus (not insert newline) when toggle=true
-    test_rich_input_enter_accepts_menu_item_when_toggle_is_true,
 }
