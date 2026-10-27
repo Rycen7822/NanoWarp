@@ -12,6 +12,11 @@ set -e
 # Make sure the wasm Rust toolchain target is available.
 rustup target add wasm32-unknown-unknown
 
+# Checks do not run the packaging tools below.
+if [[ "${1:-}" == "--check-only" ]]; then
+  exit 0
+fi
+
 "$PWD"/script/install_cargo_binstall
 
 # Install cargo-managed dependencies required to build for wasm.

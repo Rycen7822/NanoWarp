@@ -142,7 +142,8 @@ runs:
           sudo apt-get update -y
 
           if ${{ inputs.install_test_deps == 'true' }}; then
-            ./script/linux/install_test_deps
+            # The CI workflow owns shell, Vim and nextest setup; omit developer tools.
+            ./script/linux/install_runtime_deps
           elif ${{ inputs.install_release_deps == 'true' }}; then
             ./script/linux/install_build_deps
             ./script/install_cargo_release_deps
@@ -158,7 +159,7 @@ runs:
           # Update the apt cache before installing dependencies - it can be slow, so the install scripts
           # don't do it (to avoid doing it more than once).
           sudo apt update -y
-          ./script/wasm/install_build_deps
+          ./script/wasm/install_build_deps --check-only
         else
           echo "::error::Missing logic to install build dependencies for OS \"${{ inputs.target_os }}\""
           exit 1

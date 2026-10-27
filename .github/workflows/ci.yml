@@ -205,9 +205,11 @@ jobs:
           echo "default_shell_path=$DEFAULT_SHELL" >> $GITHUB_OUTPUT
 
       - name: Install cargo nextest
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
-        with:
-          tool: nextest
+        shell: bash
+        run: |
+          cargo binstall --secure --no-confirm --no-discover-github-token cargo-nextest --version 0.9.150
+          command -v cargo-nextest
+          cargo nextest --version
 
       - name: Run ssh-agent for SSH tests
         if: ${{ matrix.os == 'linux' }}
