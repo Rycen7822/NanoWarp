@@ -251,10 +251,6 @@ pub enum WorkspaceAction {
         mode: PaletteMode,
         source: PaletteSource,
     },
-    JoinSlack,
-    ViewUserDocs,
-    ViewPrivacyPolicy,
-    SendFeedback,
     /// Open the log directory in the system file explorer with the current log file selected.
     #[cfg(not(target_family = "wasm"))]
     ViewLogs,
@@ -577,10 +573,6 @@ impl WorkspaceAction {
             | ResetZoom
             | OpenPalette { .. }
             | TogglePalette { mode: _, source: _ }
-            | JoinSlack
-            | ViewUserDocs
-            | ViewPrivacyPolicy
-            | SendFeedback
             | ChangeCursor(_)
             | ToggleBlockSnackbar
             | ToggleErrorUnderlining

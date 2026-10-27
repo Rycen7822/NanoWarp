@@ -905,7 +905,8 @@ pub fn init(app: &mut AppContext) {
     ]);
 
     add_open_setting_pages_as_editable_binding(app);
-    add_overflow_menu_items_as_editable_binding(app);
+    #[cfg(not(target_family = "wasm"))]
+    add_log_directory_binding(app);
 }
 
 fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
@@ -991,43 +992,16 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
     ]);
 }
 
-fn add_overflow_menu_items_as_editable_binding(app: &mut AppContext) {
+#[cfg(not(target_family = "wasm"))]
+fn add_log_directory_binding(app: &mut AppContext) {
     use warpui::keymap::macros::*;
 
-    // Add the ability to open all overflow menu items to the command palette.
-    app.register_editable_bindings([
-        EditableBinding::new(
-            "workspace:link_to_slack",
-            "Join our Slack community (opens external link)",
-            WorkspaceAction::JoinSlack,
-        )
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
-            "workspace:link_to_user_docs",
-            "View user docs (opens external link)",
-            WorkspaceAction::ViewUserDocs,
-        )
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
-            "workspace:send_feedback",
-            BindingDescription::new("Send feedback (opens external link)"),
-            WorkspaceAction::SendFeedback,
-        )
-        .with_context_predicate(id!("Workspace")),
-        #[cfg(not(target_family = "wasm"))]
-        EditableBinding::new(
-            "workspace:view_logs",
-            "View Warp logs",
-            WorkspaceAction::ViewLogs,
-        )
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
-            "workspace:link_to_privacy_policy",
-            "View privacy policy (opens external link)",
-            WorkspaceAction::ViewPrivacyPolicy,
-        )
-        .with_context_predicate(id!("Workspace")),
-    ]);
+    app.register_editable_bindings([EditableBinding::new(
+        "workspace:view_logs",
+        "View NanoWarp logs",
+        WorkspaceAction::ViewLogs,
+    )
+    .with_context_predicate(id!("Workspace"))]);
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
