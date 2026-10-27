@@ -116,9 +116,6 @@ enum BufferSource {
     /// Backed by the local filesystem (existing behavior).
     Local {
         base_content_version: Option<ContentVersion>,
-        /// The first ever content version when the file was loaded.
-        /// Used to avoid sending a spurious didChange to LSP on initial load.
-        initial_content_version: Option<ContentVersion>,
     },
     /// Backed by a remote filesystem over the remote server protocol.
     Remote {
@@ -135,7 +132,6 @@ enum BufferSource {
     ServerLocal {
         sync_clock: SyncClock,
         base_content_version: Option<ContentVersion>,
-        initial_content_version: Option<ContentVersion>,
     },
 }
 
@@ -178,44 +174,6 @@ impl InternalBufferState {
                 ..
             } => {
                 *base_content_version = Some(version);
-            }
-            BufferSource::Remote { .. } => {}
-        }
-    }
-
-    /// Returns the initial content version for local/server-local buffers,
-    /// `None` for remote.
-    ///
-    /// Remote buffers return `None` because the initial-version guard is only
-    /// needed to avoid a spurious LSP `didChange` on first load. Remote
-    /// buffers don't interact with the local LSP (it runs on the server side),
-    /// so no guard is necessary.
-    fn initial_content_version(&self) -> Option<ContentVersion> {
-        match &self.source {
-            BufferSource::Local {
-                initial_content_version,
-                ..
-            }
-            | BufferSource::ServerLocal {
-                initial_content_version,
-                ..
-            } => *initial_content_version,
-            BufferSource::Remote { .. } => None,
-        }
-    }
-
-    /// Sets the initial content version. Applicable to Local and ServerLocal buffers.
-    fn set_initial_content_version(&mut self, version: ContentVersion) {
-        match &mut self.source {
-            BufferSource::Local {
-                initial_content_version,
-                ..
-            }
-            | BufferSource::ServerLocal {
-                initial_content_version,
-                ..
-            } => {
-                *initial_content_version = Some(version);
             }
             BufferSource::Remote { .. } => {}
         }
@@ -654,11 +612,6 @@ impl GlobalBufferModel {
                 id,
                 version,
             } => {
-                // Only set the initial_content_version on first file load.
-                if let Some(state) = self.buffers.get_mut(id) {
-                    state.set_initial_content_version(*version);
-                }
-
                 // For initial load, base_version and new_version are the same
                 self.populate_buffer_with_read_content(*id, content, *version, *version, true, ctx);
             }
@@ -918,13 +871,7 @@ impl GlobalBufferModel {
             file_model.unsubscribe(old_file_id, ctx);
         });
 
-        Some(self.register_buffer_for_path(
-            new_path,
-            buffer,
-            old_state.base_content_version(),
-            old_state.initial_content_version(),
-            ctx,
-        ))
+        Some(self.register_buffer_for_path(new_path, buffer, old_state.base_content_version(), ctx))
     }
 
     /// Adopt an existing buffer under a new path without reading from disk.
@@ -937,13 +884,7 @@ impl GlobalBufferModel {
         ctx: &mut ModelContext<Self>,
     ) -> BufferState {
         let buffer_version = buffer.as_ref(ctx).version();
-        self.register_buffer_for_path(
-            path,
-            buffer,
-            Some(buffer_version),
-            Some(buffer_version),
-            ctx,
-        )
+        self.register_buffer_for_path(path, buffer, Some(buffer_version), ctx)
     }
 
     /// Register `buffer` under `path` with FileModel and store its internal state.
@@ -953,7 +894,6 @@ impl GlobalBufferModel {
         path: PathBuf,
         buffer: ModelHandle<Buffer>,
         base_content_version: Option<ContentVersion>,
-        initial_content_version: Option<ContentVersion>,
         ctx: &mut ModelContext<Self>,
     ) -> BufferState {
         // If a buffer is already registered for this path, clean up the old entry
@@ -982,7 +922,6 @@ impl GlobalBufferModel {
                 pending_diff_parse: None,
                 source: BufferSource::Local {
                     base_content_version,
-                    initial_content_version,
                 },
             },
         );
@@ -1076,12 +1015,10 @@ impl GlobalBufferModel {
             BufferSource::ServerLocal {
                 sync_clock: SyncClock::new(),
                 base_content_version: None,
-                initial_content_version: None,
             }
         } else {
             BufferSource::Local {
                 base_content_version: None,
-                initial_content_version: None,
             }
         };
         self.buffers.insert(

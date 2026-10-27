@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use super::schema::{
     app, blocks, code_pane_tabs, code_panes, code_review_panes, commands, ignored_suggestions,
     notebook_panes, pane_branches, pane_leaves, pane_nodes, panels, settings_panes, tab_groups,
-    tabs, terminal_panes, windows, workspace_language_server, workspace_metadata,
+    tabs, terminal_panes, windows, workspace_metadata,
 };
 
 #[derive(Insertable)]
@@ -47,23 +47,6 @@ pub struct NewWorkspaceMetadata {
     pub navigated_ts: Option<NaiveDateTime>,
     pub modified_ts: Option<NaiveDateTime>,
     pub queried_ts: Option<NaiveDateTime>,
-}
-
-#[derive(Clone, Identifiable, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = workspace_language_server)]
-pub struct WorkspaceLanguageServer {
-    pub id: i32,
-    pub workspace_id: i32,
-    pub language_server_name: String,
-    pub enabled: String,
-}
-
-#[derive(Clone, Insertable, AsChangeset)]
-#[diesel(table_name = workspace_language_server)]
-pub struct NewWorkspaceLanguageServer {
-    pub workspace_id: i32,
-    pub language_server_name: String,
-    pub enabled: String,
 }
 
 #[derive(Insertable)]

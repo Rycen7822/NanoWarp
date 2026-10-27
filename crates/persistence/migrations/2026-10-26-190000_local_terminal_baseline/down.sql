@@ -15,5 +15,4 @@ DROP TABLE commands;
 DROP TABLE tabs;
 DROP TABLE tab_groups;
 DROP TABLE windows;
-DROP TABLE workspace_language_server;
 DROP TABLE workspace_metadata;

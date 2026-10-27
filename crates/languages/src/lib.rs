@@ -201,7 +201,7 @@ fn language_by_filename_parts(
 }
 
 /// Captures the language-specific parser grammar and queries for syntax features like highlighting and
-/// bracket pairing. In the future, this will also be the entry point for LSP.
+/// bracket pairing.
 pub struct Language {
     /// Tree-sitter parser grammar.
     pub grammar: ParserGrammar,

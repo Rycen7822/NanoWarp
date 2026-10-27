@@ -27,7 +27,7 @@ pub enum LocalShellState {
 }
 
 /// State of the interactive shell environment capture.
-/// This is used for LSP operations that need the full interactive PATH.
+/// Used by local Git commands and remote-server setup.
 #[cfg(feature = "local_tty")]
 #[derive(Debug, Default)]
 pub enum InteractiveEnvState {
@@ -50,7 +50,7 @@ pub struct LocalShell {
     shell_path: PathBuf,
     /// The PATH sourced from the user's shell (non-interactive, fast)
     path_env_var: Option<String>,
-    /// The PATH sourced from an interactive login shell (lazy, for LSP)
+    /// The PATH sourced lazily from an interactive login shell.
     #[cfg(feature = "local_tty")]
     interactive_env_state: InteractiveEnvState,
 }
@@ -137,7 +137,7 @@ impl LocalShellState {
 
     /// Returns a future that will yield the PATH from an interactive login shell.
     /// This lazily triggers the capture on first call and caches the result.
-    /// Use this for LSP operations that need the full interactive environment.
+    /// Use this when a local command needs the full interactive environment.
     pub fn get_interactive_path_env_var(
         &mut self,
         ctx: &mut ModelContext<Self>,
@@ -321,7 +321,7 @@ async fn capture_interactive_shell_env(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         log::warn!(
-            "[LSP PATH] Interactive shell capture had non-zero exit: {}",
+            "[SHELL PATH] Interactive shell capture had non-zero exit: {}",
             stderr
         );
         // Still try to use stdout even if exit was non-zero
@@ -331,7 +331,7 @@ async fn capture_interactive_shell_env(
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     let Some(path) = extract_captured_path(&stdout) else {
-        log::warn!("[LSP PATH] capture output missing PATH sentinels; ignoring");
+        log::warn!("[SHELL PATH] capture output missing PATH sentinels; ignoring");
         return Err(anyhow!("missing PATH capture markers"));
     };
 

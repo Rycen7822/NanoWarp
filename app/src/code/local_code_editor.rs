@@ -228,10 +228,8 @@ impl LocalCodeEditorView {
 
     /// Auto-save triggered by the debounce timer after the user pauses typing.
     ///
-    /// Mirrors VS Code's `files.autoSave: afterDelay`: the file is written
-    /// *without* running the language-server formatter, so formatting never
-    /// disrupts the user mid-edit. New/untitled files (no `file_id`) and
-    /// disconnected remotes are intentionally skipped.
+    /// Saves an existing changed file after a brief pause. New/untitled
+    /// files (no `file_id`) and disconnected remotes are skipped.
     fn auto_save_after_delay(&mut self, ctx: &mut ViewContext<Self>) {
         if !*CodeSettings::as_ref(ctx).auto_save {
             return;

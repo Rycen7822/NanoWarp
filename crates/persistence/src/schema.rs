@@ -187,15 +187,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    workspace_language_server (id) {
-        id -> Integer,
-        workspace_id -> Integer,
-        language_server_name -> Text,
-        enabled -> Text,
-    }
-}
-
-diesel::table! {
     workspace_metadata (id) {
         id -> Integer,
         repo_path -> Text,
@@ -214,7 +205,6 @@ diesel::joinable!(panels -> tabs (tab_id));
 diesel::joinable!(tab_groups -> windows (window_id));
 diesel::joinable!(tabs -> tab_groups (tab_group_id));
 diesel::joinable!(tabs -> windows (window_id));
-diesel::joinable!(workspace_language_server -> workspace_metadata (workspace_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     app,
@@ -227,4 +217,3 @@ diesel::allow_tables_to_appear_in_same_query!(
     windows,
 );
 diesel::allow_tables_to_appear_in_same_query!(code_pane_tabs, code_panes,);
-diesel::allow_tables_to_appear_in_same_query!(workspace_language_server, workspace_metadata,);

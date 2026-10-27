@@ -172,14 +172,6 @@ CREATE TABLE workspace_metadata (
     queried_ts DATETIME
 );
 
-CREATE TABLE workspace_language_server (
-    id INTEGER NOT NULL PRIMARY KEY,
-    workspace_id INTEGER NOT NULL,
-    language_server_name TEXT NOT NULL,
-    enabled TEXT NOT NULL,
-    FOREIGN KEY (workspace_id) REFERENCES workspace_metadata(id)
-);
-
 CREATE TABLE ignored_suggestions (
     id INTEGER NOT NULL PRIMARY KEY,
     suggestion TEXT NOT NULL,
