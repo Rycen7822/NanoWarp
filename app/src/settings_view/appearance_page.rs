@@ -464,7 +464,6 @@ pub enum AppearancePageAction {
     ToggleToolsPanelProjectExplorer,
     ToggleToolsPanelGlobalSearch,
     SetEnforceMinimumContrast(EnforceMinimumContrast),
-    OpenUrl(String),
     ToggleFocusPaneOnHover,
     ToggleInputMode,
     ToggleAltScreenPadding,
@@ -600,9 +599,6 @@ impl TypedActionView for AppearanceSettingsPageView {
             SetCursorType(cursor_display_type) => self.set_cursor_type(*cursor_display_type, ctx),
             OpacitySliderDragged(val) => self.set_opacity(*val, ctx),
             BlurSliderDragged(val) => self.set_blur(*val, ctx),
-            OpenUrl(url) => {
-                ctx.open_url(url);
-            }
             ToggleTabIndicators => self.toggle_tab_indicators(ctx),
             ToggleShowCodeReviewButton => self.toggle_show_code_review_button(ctx),
             TogglePreserveActiveTabColor => self.toggle_preserve_active_tab_color(ctx),
@@ -1252,10 +1248,7 @@ impl AppearanceSettingsPageView {
     fn build_page(ctx: &mut ViewContext<Self>) -> PageType<Self> {
         let mut categories = vec![Category::new(
             "Themes",
-            vec![
-                Box::new(CreateCustomThemeWidget::default()),
-                Box::new(ThemeSelectWidget::default()),
-            ],
+            vec![Box::new(ThemeSelectWidget::default())],
         )];
 
         if AppIconSettings::as_ref(ctx).is_supported_on_current_platform() {
@@ -2457,43 +2450,6 @@ fn render_group(
 }
 
 #[derive(Default)]
-struct CreateCustomThemeWidget {
-    mouse_state: MouseStateHandle,
-}
-
-impl SettingsWidget for CreateCustomThemeWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "create theme create custom theme"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        _app: &AppContext,
-    ) -> Box<dyn Element> {
-        Align::new(
-            appearance
-                .ui_builder()
-                .link(
-                    "Create your own custom theme".to_string(),
-                    Some("https://docs.warp.dev/terminal/appearance/custom-themes".to_string()),
-                    None,
-                    self.mouse_state.clone(),
-                )
-                .soft_wrap(false)
-                .build()
-                .with_margin_bottom(10.)
-                .finish(),
-        )
-        .left()
-        .finish()
-    }
-}
-
-#[derive(Default)]
 struct ThemeSelectWidget {
     sync_os_switch_state: SwitchStateHandle,
     open_theme_chooser_button_mouse_state: MouseStateHandle,
@@ -3015,7 +2971,6 @@ impl SettingsWidget for WindowOpacityWidget {
 #[derive(Default)]
 struct WindowBlurWidget {
     slider_state: SliderStateHandle,
-    info_button: MouseStateHandle,
 }
 
 impl SettingsWidget for WindowBlurWidget {
@@ -3033,19 +2988,10 @@ impl SettingsWidget for WindowBlurWidget {
     ) -> Box<dyn Element> {
         let window_settings = WindowSettings::as_ref(app);
         let blur_value = *window_settings.background_blur_radius;
-        let label_info = AdditionalInfo {
-            mouse_state: self.info_button.clone(),
-            on_click_action: Some(AppearancePageAction::OpenUrl(
-                "https://docs.warp.dev/terminal/appearance/size-opacity-blurring".into(),
-            )),
-            secondary_text: None,
-            tooltip_override_text: None,
-        };
-
         Flex::column()
             .with_child(render_body_item::<AppearancePageAction>(
                 format!("Window Blur Radius: {blur_value}"),
-                Some(label_info),
+                None,
                 ToggleState::Enabled,
                 appearance,
                 appearance
@@ -4691,7 +4637,6 @@ impl SettingsWidget for ZenModeWidget {
 #[derive(Default)]
 struct AltScreenPaddingWidget {
     switch_state: SwitchStateHandle,
-    additional_info_mouse_state: MouseStateHandle,
 }
 
 impl SettingsWidget for AltScreenPaddingWidget {
@@ -4711,14 +4656,7 @@ impl SettingsWidget for AltScreenPaddingWidget {
         let theme = appearance.theme();
         let mut column = Flex::column().with_child(render_body_item::<AppearancePageAction>(
             "Use custom padding in alt-screen".into(),
-            Some(AdditionalInfo {
-                mouse_state: self.additional_info_mouse_state.clone(),
-                on_click_action: Some(AppearancePageAction::OpenUrl(
-                    "https://docs.warp.dev/terminal/more-features/full-screen-apps#padding".into(),
-                )),
-                secondary_text: None,
-                tooltip_override_text: None,
-            }),
+            None,
             ToggleState::Enabled,
             appearance,
             appearance

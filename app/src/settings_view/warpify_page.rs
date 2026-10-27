@@ -1,14 +1,11 @@
 use std::fmt::Display;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use regex::Regex;
 use settings::{Setting as _, ToggleableSetting};
 use strum::IntoEnumIterator;
 use warp_core::features::FeatureFlag;
 use warp_errors::report_if_error;
-use warpui::elements::{
-    Container, Flex, FormattedTextElement, HighlightedHyperlink, MouseStateHandle, ParentElement,
-};
+use warpui::elements::{Container, Flex, FormattedTextElement, MouseStateHandle, ParentElement};
 use warpui::keymap::ContextPredicate;
 use warpui::presenter::ChildView;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -365,7 +362,6 @@ pub enum WarpifyPageAction {
     ToggleReuseSshControlMaster,
     /// Set the SSH extension installation mode (always ask / always install / always skip).
     SetSshExtensionInstallMode(SshExtensionInstallMode),
-    OpenUrl(String),
 }
 
 impl TypedActionView for WarpifyPageView {
@@ -414,9 +410,6 @@ impl TypedActionView for WarpifyPageView {
                     );
                 });
             }
-            OpenUrl(url) => {
-                ctx.open_url(url.as_str());
-            }
         }
     }
 }
@@ -450,35 +443,19 @@ impl From<ViewHandle<WarpifyPageView>> for SettingsPageViewHandle {
 }
 
 #[derive(Default)]
-struct TitleWidget {
-    learn_more_highlight_index: HighlightedHyperlink,
-}
+struct TitleWidget {}
 
 impl TitleWidget {
     fn render_top_of_page(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
-        let warpify_description = vec![
-            FormattedTextFragment::plain_text(
-                "Configure whether Warp attempts to “Warpify” (add support for blocks, \
-                    input modes, etc) certain shells. ",
-            ),
-            FormattedTextFragment::hyperlink(
-                "Learn more",
-                "https://docs.warp.dev/terminal/warpify/subshells",
-            ),
-        ];
-
-        let warpify_description = FormattedTextElement::new(
-            FormattedText::new([FormattedTextLine::Line(warpify_description)]),
+        let warpify_description = FormattedTextElement::from_str(
+            "Configure whether NanoWarp adds support for blocks and input modes to shells.",
+            appearance.ui_font_family(),
             CONTENT_FONT_SIZE,
-            appearance.ui_font_family(),
-            appearance.ui_font_family(),
-            blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-            self.learn_more_highlight_index.clone(),
         )
-        .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-        .register_default_click_handlers(|url, _, ctx| {
-            ctx.open_url(&url.url);
-        })
+        .with_color(blended_colors::text_sub(
+            appearance.theme(),
+            appearance.theme().surface_1(),
+        ))
         .finish();
 
         Flex::column()

@@ -1,16 +1,14 @@
 use settings::{Setting, ToggleableSetting};
 use warp_core::features::FeatureFlag;
 use warp_errors::report_if_error;
-use warpui::elements::{Flex, MouseStateHandle, ParentElement};
+use warpui::elements::{Flex, ParentElement};
 use warpui::ui_components::components::UiComponent;
 use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
 
 use crate::appearance::Appearance;
 
-use crate::settings_view::settings_page::{
-    AdditionalInfo, ToggleState, render_body_item, render_dropdown_item,
-};
+use crate::settings_view::settings_page::{ToggleState, render_body_item, render_dropdown_item};
 use crate::util::file::external_editor::settings::{EditorChoice, EditorLayout};
 use crate::util::file::external_editor::{EditorSettings, SUPPORTED_EDITORS};
 use crate::view_components::{Dropdown, DropdownItem};
@@ -25,7 +23,6 @@ pub enum ExternalEditorAction {
     SetLayout(EditorLayout),
     TogglePreferMarkdownViewer,
     ToggleTabbedEditorView,
-    OpenUrl(String),
 }
 
 pub struct ExternalEditorView {
@@ -34,7 +31,6 @@ pub struct ExternalEditorView {
     layout_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     tabbed_editor_view_mouse_state: SwitchStateHandle,
     prefer_markdown_viewer_switch: SwitchStateHandle,
-    markdown_viewer_mouse_state: MouseStateHandle,
 }
 
 impl ExternalEditorView {
@@ -100,7 +96,6 @@ impl ExternalEditorView {
             layout_dropdown,
             tabbed_editor_view_mouse_state: Default::default(),
             prefer_markdown_viewer_switch: Default::default(),
-            markdown_viewer_mouse_state: Default::default(),
         }
     }
 
@@ -283,14 +278,7 @@ impl View for ExternalEditorView {
 
         column.add_child(render_body_item::<ExternalEditorAction>(
             "Open Markdown files in Warp's Markdown Viewer by default".to_string(),
-            Some(AdditionalInfo {
-                mouse_state: self.markdown_viewer_mouse_state.clone(),
-                on_click_action: Some(ExternalEditorAction::OpenUrl(
-                    "https://docs.warp.dev/terminal/more-features/markdown-viewer".to_string(),
-                )),
-                secondary_text: None,
-                tooltip_override_text: None,
-            }),
+            None,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -324,9 +312,6 @@ impl TypedActionView for ExternalEditorView {
             }
             ExternalEditorAction::ToggleTabbedEditorView => {
                 self.toggle_prefer_tabbed_editor_view(ctx);
-            }
-            ExternalEditorAction::OpenUrl(url) => {
-                ctx.open_url(url.as_str());
             }
         }
     }
