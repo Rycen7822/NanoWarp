@@ -91,11 +91,8 @@ pub fn test_file_tree_open_in_new_pane() -> Builder {
                 .expect("Should be able to convert test dir to str");
             write_all_rc_files_for_test(&test_dir, format!("cd {dir_string}"));
 
-            std::fs::write(
-                test_dir.join("sample.md"),
-                "# Sample Markdown\n\nThis is a test.",
-            )
-            .expect("Failed to create sample file");
+            std::fs::write(test_dir.join("sample.rs"), "fn main() {}\n")
+                .expect("Failed to create sample file");
         })
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(
@@ -104,14 +101,14 @@ pub fn test_file_tree_open_in_new_pane() -> Builder {
         )
         .with_step(
             new_step_with_default_assertions(
-                "Right-click on sample.md and select 'Open in new pane'",
+                "Right-click on sample.rs and select 'Open in new pane'",
             )
-            .with_right_click_on_saved_position("file_tree_item:sample.md")
+            .with_right_click_on_saved_position("file_tree_item:sample.rs")
             .with_click_on_saved_position("Open in new pane"),
         )
         .with_step(
             new_step_with_default_assertions("Verify file opened in new pane")
-                .add_assertion(assert_pane_title(0, 1, Regex::new(r"sample\.md$").unwrap()))
+                .add_assertion(assert_pane_title(0, 1, Regex::new(r"sample\.rs$").unwrap()))
                 .add_assertion(|app, window_id| {
                     let pane_group = pane_group_view(app, window_id, 0);
                     pane_group.read(app, |pane_group, _ctx| {

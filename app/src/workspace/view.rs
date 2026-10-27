@@ -143,9 +143,8 @@ use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{
-    self, AnyPaneContent, CodePane, CodeReviewPanelArg, Direction as PaneGroupDirection, Direction,
-    NetworkLogPane, NewTerminalOptions, PaneGroup, PaneId, PanesLayout, TabBarHoverIndex,
-    TerminalPaneId,
+    self, AnyPaneContent, CodePane, CodeReviewPanelArg, Direction, NetworkLogPane,
+    NewTerminalOptions, PaneGroup, PaneId, PanesLayout, TabBarHoverIndex, TerminalPaneId,
 };
 use crate::persistence::ModelEvent;
 use crate::prompt::editor_modal::{
@@ -3798,10 +3797,6 @@ impl Workspace {
                     );
                 }
             },
-            #[cfg(not(target_family = "wasm"))]
-            RightPanelEvent::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(&log_path, ctx);
-            }
         }
         #[cfg(not(feature = "local_fs"))]
         let _ = (event, ctx);
@@ -8875,9 +8870,6 @@ impl Workspace {
                 self.open_network_log_pane(ctx);
             }
             SettingsViewEvent::Pane(_) | SettingsViewEvent::StartResize => {}
-            SettingsViewEvent::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(log_path, ctx);
-            }
         }
     }
 
@@ -9650,9 +9642,6 @@ impl Workspace {
             pane_group::Event::FileDeleted { path } => {
                 self.close_tabs_with_file_path(path, ctx);
             }
-            pane_group::Event::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(log_path, ctx);
-            }
             pane_group::Event::LeftPanelToggled { is_open } => {
                 // Only handle visibility changes from the active pane group.
                 if pane_group.id() == self.active_tab_pane_group().id() {
@@ -9996,30 +9985,6 @@ impl Workspace {
                 }
             }
         }
-    }
-
-    /// Opens the LSP log file in a new terminal pane using `tail -f`.
-    fn open_lsp_logs(&mut self, log_path: &PathBuf, ctx: &mut ViewContext<Self>) {
-        use warp_util::path::tail_command_for_shell;
-
-        let active_pane_group = self.active_tab_pane_group();
-
-        // Add a terminal pane to the right
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.add_terminal_pane(PaneGroupDirection::Right, None, ctx);
-        });
-
-        let Some(terminal_view_handle) = active_pane_group.as_ref(ctx).active_session_view(ctx)
-        else {
-            report_error!("Could not get terminal view handle when attempting to open LSP logs.");
-            return;
-        };
-
-        terminal_view_handle.update(ctx, |terminal, ctx| {
-            let shell_family = terminal.shell_family(ctx);
-            let tail_command = tail_command_for_shell(shell_family, log_path);
-            terminal.set_pending_command(&tail_command, ctx);
-        });
     }
 
     /// Inserts given command into active Input Editor, optionally replacing the current buffer. No-ops if

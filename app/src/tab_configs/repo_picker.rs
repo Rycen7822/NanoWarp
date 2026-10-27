@@ -61,10 +61,9 @@ impl RepoPicker {
         // Subscribe to PersistedWorkspace so the list refreshes when the user
         // adds a repo via the folder picker.
         ctx.subscribe_to_model(&PersistedWorkspace::handle(ctx), |me, _, event, ctx| {
-            if let PersistedWorkspaceEvent::WorkspaceAdded { path } = event {
-                let path_str = path.to_string_lossy().to_string();
-                me.refresh_items(Some(&path_str), ctx);
-            }
+            let PersistedWorkspaceEvent::WorkspaceAdded { path } = event;
+            let path_str = path.to_string_lossy().to_string();
+            me.refresh_items(Some(&path_str), ctx);
         });
 
         let width = style.as_ref().map_or(DEFAULT_DROPDOWN_WIDTH, |s| s.width);

@@ -143,14 +143,6 @@ impl PaneContent for CodePane {
                         }
                     }
                 }
-                #[cfg(not(target_family = "wasm"))]
-                CodeViewEvent::OpenLspLogs { log_path } => {
-                    ctx.emit(crate::pane_group::Event::OpenLspLogs {
-                        log_path: log_path.clone(),
-                    });
-                }
-                #[cfg(target_family = "wasm")]
-                CodeViewEvent::OpenLspLogs { .. } => {}
             },
         );
 

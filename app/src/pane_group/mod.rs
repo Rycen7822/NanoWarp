@@ -522,10 +522,6 @@ pub enum Event {
     OpenDirectoryInNewTab {
         path: PathBuf,
     },
-    /// Request to open LSP logs in a terminal pane
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

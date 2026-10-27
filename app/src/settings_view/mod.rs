@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use about_page::AboutPageView;
 use appearance_page::{AppearancePageAction, AppearanceSettingsPageView};
 use code_editor_review_page::{EditorAndCodeReviewPageAction, EditorAndCodeReviewPageView};
@@ -9,7 +7,6 @@ use keybindings::KeybindingsView;
 use nav::{SettingsNavItem, SettingsUmbrella};
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
-use projects_page::{ProjectsPageAction, ProjectsPageEvent};
 use settings_file_footer::{SettingsFooterKind, SettingsFooterMouseStates, render_footer};
 use settings_page::{
     HEADER_PADDING, MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta,
@@ -64,14 +61,12 @@ mod nav;
 pub mod pane_manager;
 mod privacy;
 mod privacy_page;
-mod projects_page;
 mod settings_file_footer;
 pub(crate) mod settings_page;
 mod warpify_page;
 
 pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
-pub use projects_page::ProjectsPageView;
 pub use settings_page::{
     AdditionalInfo, InputListItem, ToggleState, render_body_item_label, render_info_icon,
     render_input_list, render_separator,
@@ -155,7 +150,6 @@ pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
     LaunchNetworkLogging,
-    OpenLspLogs { log_path: PathBuf },
 }
 
 /// Different navigation sections within the settings view
@@ -169,7 +163,6 @@ pub enum SettingsSection {
     Privacy,
     Warpify,
     // ── Code umbrella subpages ──
-    Projects,
     EditorAndCodeReview,
 }
 
@@ -181,7 +174,6 @@ impl Display for SettingsSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
-            SettingsSection::Projects => write!(f, "Projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             _ => write!(f, "{self:?}"),
         }
@@ -208,7 +200,6 @@ impl SettingsSection {
             Self::Keybindings => "Keyboard shortcuts",
             Self::Privacy => "Privacy",
             Self::Warpify => "Warpify",
-            Self::Projects => "Projects",
             Self::EditorAndCodeReview => "Editor and Code Review",
         }
     }
@@ -228,7 +219,6 @@ impl SettingsSection {
             "Keyboard shortcuts" => Self::Keybindings,
             "Privacy" => Self::Privacy,
             "Warpify" => Self::Warpify,
-            "Projects" => Self::Projects,
             "Editor and Code Review" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
             _ => return None,
         };
@@ -677,7 +667,6 @@ pub enum SettingsAction {
     AppearancePageToggle(AppearancePageAction),
     FeaturesPageToggle(FeaturesPageAction),
     PrivacyPageToggle(PrivacyPageAction),
-    Projects(ProjectsPageAction),
     EditorAndCodeReview(EditorAndCodeReviewPageAction),
     WarpifyPageToggle(WarpifyPageAction),
     Tab,
@@ -826,7 +815,6 @@ macro_rules! update_page {
             SettingsPageViewHandle::Privacy(handle) => $ctx.update_view(handle, $update),
 
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::Projects(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::EditorAndCodeReview(handle) => {
                 $ctx.update_view(handle, $update)
             }
@@ -887,10 +875,6 @@ impl SettingsView {
         let keybindings_handle = ctx.add_typed_action_view(KeybindingsView::new);
 
         // Code umbrella pages
-        let projects_page_handle = ctx.add_typed_action_view(ProjectsPageView::new);
-        ctx.subscribe_to_view(&projects_page_handle, |me, _, event, ctx| {
-            me.handle_projects_page_event(event, ctx);
-        });
         let editor_review_page_handle = ctx.add_typed_action_view(EditorAndCodeReviewPageView::new);
 
         let warpify_page_handle = ctx.add_typed_action_view(WarpifyPageView::new);
@@ -933,7 +917,6 @@ impl SettingsView {
         });
 
         let mut settings_pages = vec![
-            SettingsPage::new(projects_page_handle),
             SettingsPage::new(editor_review_page_handle),
             SettingsPage::new(appearance_page_handle),
             SettingsPage::new(features_page_handle),
@@ -952,10 +935,7 @@ impl SettingsView {
             SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Code",
-                vec![
-                    SettingsSection::Projects,
-                    SettingsSection::EditorAndCodeReview,
-                ],
+                vec![SettingsSection::EditorAndCodeReview],
             )),
             SettingsNavItem::Page(SettingsSection::Features),
             SettingsNavItem::Page(SettingsSection::Keybindings),
@@ -1300,20 +1280,6 @@ impl SettingsView {
         }
     }
 
-    fn handle_projects_page_event(
-        &mut self,
-        event: &ProjectsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            ProjectsPageEvent::OpenLspLogs { log_path } => {
-                ctx.emit(SettingsViewEvent::OpenLspLogs {
-                    log_path: log_path.clone(),
-                });
-            }
-        }
-    }
-
     pub fn current_settings_section(&self) -> SettingsSection {
         self.current_settings_page
     }
@@ -1410,7 +1376,6 @@ impl SettingsView {
             SettingsPageViewHandle::Privacy(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Warpify(v) => v.as_ref(app).should_render(app),
 
-            SettingsPageViewHandle::Projects(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::EditorAndCodeReview(v) => v.as_ref(app).should_render(app),
         }
     }
@@ -1938,15 +1903,6 @@ impl TypedActionView for SettingsView {
                 {
                     view.update(ctx, |view, ctx| {
                         view.handle_action(privacy_action, ctx);
-                    })
-                }
-            }
-            SettingsAction::Projects(code_action) => {
-                if let Some(page) = self.settings_page(SettingsSection::Projects)
-                    && let SettingsPageViewHandle::Projects(view) = &page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(code_action, ctx);
                     })
                 }
             }

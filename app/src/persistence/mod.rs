@@ -220,9 +220,4 @@ pub enum ModelEvent {
         suggestion: String,
         suggestion_type: SuggestionType,
     },
-    UpsertWorkspaceLanguageServer {
-        workspace_path: PathBuf,
-        lsp_type: LSPServerType,
-        enabled: EnablementState,
-    },
 }

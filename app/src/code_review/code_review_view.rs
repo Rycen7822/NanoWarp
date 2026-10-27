@@ -71,7 +71,6 @@ use crate::code::editor::{
     add_color, remove_color,
 };
 use crate::code::editor_management::CodeEditorStatus;
-use crate::code::footer::{CodeFooterView, CodeFooterViewEvent};
 use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::local_code_editor::{
     LocalCodeEditorEvent, LocalCodeEditorView, render_unsaved_circle_with_tooltip,
@@ -99,7 +98,6 @@ use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::{BackingView, PaneEvent, view};
 use crate::quit_warning::UnsavedStateSummary;
 use crate::settings::CodeSettings;
-use crate::settings_view::SettingsSection;
 use crate::terminal::input::MenuPositioning;
 use crate::terminal::view::{TerminalAction, TerminalView};
 use crate::themes::theme::WarpTheme;
@@ -407,11 +405,6 @@ pub enum CodeReviewViewEvent {
         path: LocalOrRemotePath,
         line_and_column: Option<LineAndColumnArg>,
     },
-    /// Request to open LSP logs for the given log file path.
-    #[cfg(not(target_family = "wasm"))]
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -604,8 +597,6 @@ pub struct CodeReviewView {
     position_id_prefix: String,
     /// Whether the view is currently open (subscribed to diff state model).
     is_open: bool,
-    /// Global LSP footer for the code review panel (workspace mode).
-    code_review_footer: Option<ViewHandle<CodeFooterView>>,
     /// Active git-operation dialog overlay (commit / push / publish), if open.
     git_dialog: Option<ViewHandle<GitDialog>>,
     /// Per-repo git status model for the current repository, if any.
@@ -660,42 +651,6 @@ impl CodeReviewView {
         }
         ctx.notify();
 
-        // Create global LSP footer for the code review panel
-        // TODO: add support for remote repositories
-        if let Some(repo_path) = self
-            .repo_path()
-            .and_then(LocalOrRemotePath::to_local_path)
-            .map(Path::to_path_buf)
-        {
-            let footer =
-                ctx.add_typed_action_view(|ctx| CodeFooterView::new_for_workspace(repo_path, ctx));
-            ctx.subscribe_to_view(&footer, Self::handle_footer_event);
-            self.code_review_footer = Some(footer);
-
-            // Subscribe to PersistedWorkspace events to refresh the footer
-            // UI after LSP installation succeeds or fails.
-            #[cfg(feature = "local_fs")]
-            {
-                use crate::code::persisted_workspace::{
-                    PersistedWorkspace, PersistedWorkspaceEvent,
-                };
-
-                // PersistedWorkspace handles spawning the server after install;
-                // we only subscribe to refresh the footer UI.
-                ctx.subscribe_to_model(&PersistedWorkspace::handle(ctx), |me, _, event, ctx| {
-                    match event {
-                        PersistedWorkspaceEvent::InstallationSucceeded
-                        | PersistedWorkspaceEvent::InstallationFailed => {
-                            if let Some(footer) = &me.code_review_footer {
-                                footer.update(ctx, |_, ctx| ctx.notify());
-                            }
-                        }
-                        _ => {}
-                    }
-                });
-            }
-        }
-
         // Always reload diffs on open. For local, this re-reads the
         // filesystem. For remote, this re-emits the model's current state
         // (and will make an RPC once that path is wired). We pass
@@ -724,189 +679,9 @@ impl CodeReviewView {
         self.unsubscribe_from_git_repo_status_model(ctx);
         self.unsubscribe_from_github_repo_model(ctx);
 
-        self.code_review_footer = None;
-
         self.diff_state_model.update(ctx, |model, ctx| {
             model.set_code_review_metadata_refresh_enabled(false, ctx);
         });
-    }
-
-    /// Handles events from the global LSP footer in workspace mode.
-    fn handle_footer_event(
-        &mut self,
-        _footer: ViewHandle<CodeFooterView>,
-        event: &CodeFooterViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            CodeFooterViewEvent::RestartAllServers { servers } => {
-                for server in servers {
-                    server.update(ctx, |server, ctx| {
-                        server.restart(ctx);
-                    });
-                }
-            }
-            CodeFooterViewEvent::StopAllServers { servers } => {
-                for server in servers {
-                    server.update(ctx, |server, ctx| {
-                        let _ = server.stop(true, ctx);
-                    });
-                }
-            }
-            CodeFooterViewEvent::StartAllServers { servers } => {
-                for server in servers {
-                    server.update(ctx, |server, ctx| {
-                        let _ = server.manual_start(ctx);
-                    });
-                }
-            }
-            CodeFooterViewEvent::ManageServers => {
-                ctx.dispatch_typed_action(&WorkspaceAction::ShowSettingsPage(
-                    SettingsSection::EditorAndCodeReview,
-                ));
-            }
-            CodeFooterViewEvent::RestartServer { server } => {
-                server.update(ctx, |server, ctx| {
-                    server.restart(ctx);
-                });
-            }
-            CodeFooterViewEvent::StopServer { server } => {
-                server.update(ctx, |server, ctx| {
-                    let _ = server.stop(true, ctx);
-                });
-            }
-            CodeFooterViewEvent::StartServer { server } => {
-                server.update(ctx, |server, ctx| {
-                    let _ = server.manual_start(ctx);
-                });
-            }
-            CodeFooterViewEvent::OpenLogs { path } => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    // Look up the LSP server for this path and emit the log path
-                    let lsp_manager = lsp::LspManagerModel::handle(ctx);
-                    if let Some(server) = lsp_manager.as_ref(ctx).server_for_path(path, ctx) {
-                        let repo_root = server.as_ref(ctx).initial_workspace().to_path_buf();
-                        let server_type = server.as_ref(ctx).server_type();
-                        let log_path =
-                            crate::code::lsp_logs::log_file_path(server_type, &repo_root);
-                        ctx.emit(CodeReviewViewEvent::OpenLspLogs { log_path });
-                    }
-                }
-                let _ = path;
-            }
-            CodeFooterViewEvent::EnableLSP { path, server_type } => {
-                Self::handle_enable_lsp(path, *server_type, ctx);
-            }
-            CodeFooterViewEvent::InstallAndEnableLSP { path, server_type } => {
-                Self::handle_install_and_enable_lsp(path, *server_type, ctx);
-            }
-        }
-    }
-
-    /// Enables an LSP server for the workspace. Uses the provided server_type if given,
-    /// otherwise derives it from the path.
-    #[cfg(feature = "local_fs")]
-    fn handle_enable_lsp(
-        path: &Path,
-        server_type: Option<lsp::supported_servers::LSPServerType>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        use crate::code::persisted_workspace::{LspTask, PersistedWorkspace};
-
-        let server_type =
-            server_type.or_else(|| lsp::LanguageId::from_path(path).map(|id| id.server_type()));
-        let Some(server_type) = server_type else {
-            return;
-        };
-
-        let repo_root = PersistedWorkspace::as_ref(ctx)
-            .root_for_workspace(path)
-            .map(|p| p.to_path_buf())
-            .or_else(|| {
-                repo_metadata::repositories::DetectedRepositories::as_ref(ctx)
-                    .get_root_for_path(&warp_util::local_or_remote_path::LocalOrRemotePath::Local(
-                        path.to_path_buf(),
-                    ))
-                    .and_then(|r| r.to_local_path().map(std::path::Path::to_path_buf))
-            })
-            .or_else(|| path.parent().map(|p| p.to_path_buf()));
-
-        let Some(repo_root) = repo_root else {
-            return;
-        };
-
-        PersistedWorkspace::handle(ctx).update(ctx, |workspace, _ctx| {
-            workspace.enable_lsp_server_for_path(&repo_root, server_type);
-        });
-
-        PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
-            workspace.execute_lsp_task(
-                LspTask::Spawn {
-                    file_path: path.to_path_buf(),
-                },
-                ctx,
-            );
-        });
-    }
-
-    /// Installs and enables an LSP server for the workspace.
-    #[cfg(feature = "local_fs")]
-    fn handle_install_and_enable_lsp(
-        path: &Path,
-        server_type: Option<lsp::supported_servers::LSPServerType>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        use crate::code::persisted_workspace::{LspTask, PersistedWorkspace};
-
-        let server_type =
-            server_type.or_else(|| lsp::LanguageId::from_path(path).map(|id| id.server_type()));
-        let Some(server_type) = server_type else {
-            return;
-        };
-
-        let repo_root = PersistedWorkspace::as_ref(ctx)
-            .root_for_workspace(path)
-            .map(|p| p.to_path_buf())
-            .or_else(|| {
-                repo_metadata::repositories::DetectedRepositories::as_ref(ctx)
-                    .get_root_for_path(&warp_util::local_or_remote_path::LocalOrRemotePath::Local(
-                        path.to_path_buf(),
-                    ))
-                    .and_then(|r| r.to_local_path().map(std::path::Path::to_path_buf))
-            })
-            .or_else(|| path.parent().map(|p| p.to_path_buf()));
-
-        let Some(repo_root) = repo_root else {
-            return;
-        };
-
-        PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
-            workspace.execute_lsp_task(
-                LspTask::Install {
-                    file_path: path.to_path_buf(),
-                    repo_root,
-                    server_type,
-                },
-                ctx,
-            );
-        });
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn handle_enable_lsp(
-        _path: &Path,
-        _server_type: Option<lsp::supported_servers::LSPServerType>,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn handle_install_and_enable_lsp(
-        _path: &Path,
-        _server_type: Option<lsp::supported_servers::LSPServerType>,
-        _ctx: &mut ViewContext<Self>,
-    ) {
     }
 
     fn set_active_repo_comment_model(
@@ -1283,7 +1058,6 @@ impl CodeReviewView {
             #[cfg(not(target_family = "wasm"))]
             open_repository_button,
             is_open: false,
-            code_review_footer: None,
             git_dialog: None,
             git_repo_status: None,
             github_repo_model: None,
@@ -3072,12 +2846,6 @@ impl CodeReviewView {
                     ctx,
                 );
             }
-            #[cfg(not(target_family = "wasm"))]
-            LocalCodeEditorEvent::OpenLspLogs { log_path } => {
-                ctx.emit(CodeReviewViewEvent::OpenLspLogs {
-                    log_path: log_path.clone(),
-                });
-            }
             _ => (),
         }
     }
@@ -3710,25 +3478,11 @@ impl CodeReviewView {
         // The view handles its own resizable logic internally
         let bottom_section = ChildView::new(&self.comment_list_view).finish();
 
-        // Global LSP footer (below comment list)
-        // Only show the footer if there are changes and all editors have finished loading.
-        let footer_section = if !state.file_states.is_empty() && self.all_editors_loaded() {
-            self.code_review_footer
-                .as_ref()
-                .map(|footer| ChildView::new(footer).finish())
-        } else {
-            None
-        };
-
         // Wrap all sections in a vertical flex that takes full height
-        let mut col = Flex::column()
+        let col = Flex::column()
             .with_main_axis_size(MainAxisSize::Max)
             .with_child(Shrinkable::new(1., top_section_with_margin).finish())
             .with_child(bottom_section);
-
-        if let Some(footer) = footer_section {
-            col.add_child(footer);
-        }
 
         col.finish()
     }

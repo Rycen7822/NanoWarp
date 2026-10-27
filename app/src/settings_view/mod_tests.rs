@@ -38,7 +38,6 @@ fn match_data_countable_zero_is_not_truthy() {
 
 #[test]
 fn subpage_display_names_are_correct() {
-    assert_eq!(SettingsSection::Projects.to_string(), "Projects");
     assert_eq!(
         SettingsSection::EditorAndCodeReview.to_string(),
         "Editor and Code Review"
@@ -58,7 +57,6 @@ const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::Keybindings,
     SettingsSection::Privacy,
     SettingsSection::Warpify,
-    SettingsSection::Projects,
     SettingsSection::EditorAndCodeReview,
 ];
 
@@ -72,7 +70,6 @@ fn all_sections_list_is_exhaustive() {
             | SettingsSection::Keybindings
             | SettingsSection::Privacy
             | SettingsSection::Warpify
-            | SettingsSection::Projects
             | SettingsSection::EditorAndCodeReview => section,
         };
         ALL_SECTIONS.contains(&known)
@@ -116,11 +113,8 @@ fn slugs_were_seeded_from_the_display_labels_they_replaced() {
 }
 
 #[test]
-fn from_slug_accepts_legacy_spellings() {
-    assert_eq!(
-        SettingsSection::from_slug("Projects"),
-        Some(SettingsSection::Projects)
-    );
+fn from_slug_accepts_legacy_spellings_and_rejects_removed_pages() {
+    assert_eq!(SettingsSection::from_slug("Projects"), None);
     assert_eq!(
         SettingsSection::from_slug("EditorAndCodeReview"),
         Some(SettingsSection::EditorAndCodeReview)
@@ -155,10 +149,7 @@ fn nav_items_fixture() -> Vec<SettingsNavItem> {
         SettingsNavItem::Umbrella(SettingsUmbrella::new("General", GENERAL_SUBPAGES.to_vec())),
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Code",
-            vec![
-                SettingsSection::Projects,
-                SettingsSection::EditorAndCodeReview,
-            ],
+            vec![SettingsSection::EditorAndCodeReview],
         )),
         SettingsNavItem::Page(SettingsSection::Keybindings),
     ]
@@ -197,7 +188,7 @@ fn collapsed_umbrella_is_a_single_nav_stop() {
         stops[2],
         NavStop::CollapsedUmbrella {
             nav_index: 2,
-            first_subpage: SettingsSection::Projects,
+            first_subpage: SettingsSection::EditorAndCodeReview,
             last_subpage: SettingsSection::EditorAndCodeReview,
         }
     ));
@@ -410,7 +401,7 @@ fn arrow_down_from_appearance_with_collapsed_general_lands_on_first_subpage() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Pressing Down from Appearance should auto-expand General and select Features,
-    // not skip over to Projects.
+    // not skip over to the editor page.
     let next = simulate_cycle(
         &nav_items,
         &stops,
@@ -421,18 +412,18 @@ fn arrow_down_from_appearance_with_collapsed_general_lands_on_first_subpage() {
 }
 
 #[test]
-fn arrow_up_from_projects_with_collapsed_general_lands_on_last_subpage() {
+fn arrow_up_from_editor_with_collapsed_general_lands_on_last_subpage() {
     let nav_items = nav_items_fixture();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    // Pressing Up from Projects should land on the collapsed General
+    // Pressing Up from the editor page should land on the collapsed General
     // umbrella, which resolves to Privacy (last visible subpage)
     // so the user continues moving in natural reading order rather than being
     // jumped back to the top of the umbrella.
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::Projects,
+        SettingsSection::EditorAndCodeReview,
         CycleDirection::Up,
     );
     assert_eq!(next, SettingsSection::Privacy);
@@ -452,7 +443,7 @@ fn arrow_up_into_collapsed_umbrella_respects_search_filter_for_last_subpage() {
     let next = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::Projects,
+        SettingsSection::EditorAndCodeReview,
         CycleDirection::Up,
     );
     assert_eq!(next, SettingsSection::Warpify);
@@ -465,14 +456,14 @@ fn arrow_down_from_expanded_last_subpage_leaves_umbrella() {
     let stops = build_nav_stops(&nav_items, |_| true);
 
     // Privacy is the last General subpage; Down should move to
-    // Projects (the first subpage of the next umbrella).
+    // EditorAndCodeReview (the first subpage of the next umbrella).
     let next = simulate_cycle(
         &nav_items,
         &stops,
         SettingsSection::Privacy,
         CycleDirection::Down,
     );
-    assert_eq!(next, SettingsSection::Projects);
+    assert_eq!(next, SettingsSection::EditorAndCodeReview);
 }
 
 #[test]
@@ -489,15 +480,15 @@ fn arrow_down_across_adjacent_collapsed_umbrellas() {
         SettingsSection::Privacy,
         CycleDirection::Down,
     );
-    assert_eq!(next_after_general, SettingsSection::Projects);
+    assert_eq!(next_after_general, SettingsSection::EditorAndCodeReview);
 
-    // From the Code umbrella stop (i.e. the user is "on" Projects which
+    // From the Code umbrella stop (i.e. the user is "on" the editor page which
     // maps back to the collapsed umbrella), pressing Down again should land
     // on the next top-level page, Keybindings.
     let next_after_code = simulate_cycle(
         &nav_items,
         &stops,
-        SettingsSection::Projects,
+        SettingsSection::EditorAndCodeReview,
         CycleDirection::Down,
     );
     assert_eq!(next_after_code, SettingsSection::Keybindings);

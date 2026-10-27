@@ -13,7 +13,7 @@ use warpui::{
 };
 
 use crate::appearance::Appearance;
-use crate::code::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
+use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::ui_components::icons;
 use crate::view_components::action_button::{ActionButton, SecondaryTheme};
 use crate::view_components::{DropdownItem, FilterableDropdown};
@@ -72,10 +72,8 @@ pub(super) enum DirectoryColorAddPickerEvent {
 
 impl DirectoryColorAddPicker {
     pub(super) fn new(ctx: &mut ViewContext<Self>) -> Self {
-        ctx.subscribe_to_model(&PersistedWorkspace::handle(ctx), |me, _, event, ctx| {
-            if let PersistedWorkspaceEvent::WorkspaceAdded { .. } = event {
-                me.refresh_items(ctx);
-            }
+        ctx.subscribe_to_model(&PersistedWorkspace::handle(ctx), |me, _, _, ctx| {
+            me.refresh_items(ctx);
         });
 
         ctx.subscribe_to_model(&TabSettings::handle(ctx), |me, _, event, ctx| {

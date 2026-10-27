@@ -43,9 +43,6 @@ pub enum CodeViewEvent {
         location: LocalOrRemotePath,
         tab_index: usize,
     },
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
 }
 
 #[derive(Debug, Clone)]

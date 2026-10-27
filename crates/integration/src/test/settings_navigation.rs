@@ -72,7 +72,9 @@ pub fn test_settings_keyboard_navigation_down_into_collapsed_umbrella() -> Build
         .with_step(open_settings_page(SettingsSection::Appearance))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
         .with_step(press_settings_nav_down())
-        .with_step(assert_settings_section(SettingsSection::Projects))
+        .with_step(assert_settings_section(
+            SettingsSection::EditorAndCodeReview,
+        ))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, true))
 }
 
@@ -133,24 +135,22 @@ pub fn test_settings_search_filters_top_level_pages() -> Builder {
         .with_step(assert_settings_section(SettingsSection::Keybindings))
 }
 
-/// A query that only matches one umbrella subpage auto-expands the umbrella,
-/// hides its sibling subpages, and selects the surviving one.
+/// A query matching the remaining code subpage auto-expands its umbrella
+/// and selects that subpage.
 pub fn test_settings_search_filters_subpages() -> Builder {
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Appearance))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
-        .with_step(type_settings_search("repository language server"))
+        .with_step(type_settings_search("auto save"))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, true))
         .with_step(assert_settings_nav_subpage_visible(
-            SettingsSection::Projects,
+            SettingsSection::EditorAndCodeReview,
             true,
         ))
-        .with_step(assert_settings_nav_subpage_visible(
+        .with_step(assert_settings_section(
             SettingsSection::EditorAndCodeReview,
-            false,
         ))
-        .with_step(assert_settings_section(SettingsSection::Projects))
 }
 
 /// A search that matches only one subpage must still render that subpage's
@@ -180,7 +180,7 @@ pub fn test_settings_search_clear_restores_umbrella_state() -> Builder {
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Appearance))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
-        .with_step(type_settings_search("language server"))
+        .with_step(type_settings_search("auto save"))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, true))
         .with_step(clear_settings_search())
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
@@ -198,8 +198,12 @@ pub fn test_settings_search_preserved_on_sidebar_click() -> Builder {
         .with_step(open_settings_page(SettingsSection::Appearance))
         .with_step(type_settings_search("code"))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, true))
-        .with_step(click_settings_nav_subpage(SettingsSection::Projects))
-        .with_step(assert_settings_section(SettingsSection::Projects))
+        .with_step(click_settings_nav_subpage(
+            SettingsSection::EditorAndCodeReview,
+        ))
+        .with_step(assert_settings_section(
+            SettingsSection::EditorAndCodeReview,
+        ))
         // The query survives the click, and so does the filtered sidebar.
         .with_step(assert_settings_nav_page_visible(
             SettingsSection::About,

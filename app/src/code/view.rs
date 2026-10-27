@@ -171,9 +171,6 @@ pub enum CodeViewEvent {
         location: LocalOrRemotePath,
         tab_index: usize,
     },
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
 }
 
 #[derive(Default, Clone)]
@@ -331,15 +328,13 @@ impl CodeView {
                 ctx,
             );
             if is_local {
-                let mut editor = editor.with_find_references_provider(
+                editor.with_find_references_provider(
                     ShowFindReferencesCard {
                         editor_window_id: ctx.window_id(),
                         parent_scrollable_position_id: None,
                     },
                     ctx,
-                );
-                editor.add_footer(ctx);
-                editor
+                )
             } else {
                 editor
             }
@@ -488,11 +483,6 @@ impl CodeView {
             | LocalCodeEditorEvent::RequestOpenComment(_)
             | LocalCodeEditorEvent::DeleteComment { .. } => {
                 // Comment events are handled by CodeReviewView, not CodeView
-            }
-            LocalCodeEditorEvent::OpenLspLogs { log_path } => {
-                ctx.emit(CodeViewEvent::OpenLspLogs {
-                    log_path: log_path.clone(),
-                });
             }
             LocalCodeEditorEvent::DelayedRenderingFlushed => (),
         });
