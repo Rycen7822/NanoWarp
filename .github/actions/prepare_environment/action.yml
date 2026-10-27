@@ -47,15 +47,23 @@ runs:
       shell: bash
       run: |
         REPO_ROOT="${{ steps.repo-root.outputs.path }}"
+        # Non-repository fixtures must not inherit the checkout's .git directory.
+        temp_root="$RUNNER_TEMP/.work/nanowarp"
         mkdir -p "$REPO_ROOT/.work/cargo-home/bin" "$REPO_ROOT/.work/rustup" \
-          "$REPO_ROOT/.work/target" "$REPO_ROOT/.work/tmp"
-        for entry in CARGO_HOME=cargo-home RUSTUP_HOME=rustup CARGO_TARGET_DIR=target TEMP=tmp TMP=tmp TMPDIR=tmp; do
+          "$REPO_ROOT/.work/target" "$temp_root"
+        for entry in CARGO_HOME=cargo-home RUSTUP_HOME=rustup CARGO_TARGET_DIR=target; do
           name="${entry%%=*}"
           value="$REPO_ROOT/.work/${entry#*=}"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             value="$(cygpath -m "$value")"
           fi
           echo "$name=$value" >> "$GITHUB_ENV"
+        done
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          temp_root="$(cygpath -m "$temp_root")"
+        fi
+        for name in TEMP TMP TMPDIR; do
+          echo "$name=$temp_root" >> "$GITHUB_ENV"
         done
         cargo_bin="$REPO_ROOT/.work/cargo-home/bin"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
