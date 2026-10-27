@@ -22,6 +22,10 @@ pub fn run_integration_test(name: &str) -> Result<(), String> {
             // process, otherwise the shell it spawns might not
             // be able to find the binaries it needs to execute.
             k == "PATH"
+                // Keep temporary files in the caller's configured directory.
+                || k == "TMPDIR"
+                || k == "TEMP"
+                || k == "TMP"
                 // Propagate any Rust-related variables.
                 || k.starts_with("RUST_")
                 // Propagate any Warp-specific variables.
