@@ -38,7 +38,6 @@ use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::{EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus};
 use crate::input::Vector2F;
 use crate::menu::{MenuItem, MenuItemFields};
-
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view::header::components::{
     CenteredHeaderEdgeWidth, render_pane_header_buttons, render_pane_header_title_text,
