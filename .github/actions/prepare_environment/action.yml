@@ -151,15 +151,34 @@ runs:
         fi
 
 
+    - name: Install prebuilt protoc for macOS
+      if: ${{ inputs.target_os == 'macos' }}
+      shell: bash
+      run: |
+        # Match script/linux/install_build_deps without upgrading Homebrew dependencies.
+        version="25.1"
+        protoc_dir="${{ steps.repo-root.outputs.path }}/.work/tools/protoc-$version"
+        archive="$RUNNER_TEMP/.work/nanowarp/protoc-$version.zip"
+        mkdir -p "$protoc_dir" "$(dirname "$archive")"
+        if [[ ! -x "$protoc_dir/bin/protoc" ]]; then
+          curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-osx-universal_binary.zip" \
+            -o "$archive"
+          unzip -oq "$archive" -d "$protoc_dir"
+        fi
+        "$protoc_dir/bin/protoc" --version
+        echo "PROTOC=$protoc_dir/bin/protoc" >> "$GITHUB_ENV"
+        echo "PROTOC_INCLUDE=$protoc_dir/include" >> "$GITHUB_ENV"
+        echo "$protoc_dir/bin" >> "$GITHUB_PATH"
+
     - name: Install protoc for generating rust bindings of protobuf APIs
+      if: ${{ inputs.target_os != 'macos' }}
       id: install_protoc
       # Install protoc for generating rust bindings of protobuf APIs.
       uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
-      # Don't fail the job here so the Windows (winget) and macOS (brew) fallbacks
-      # below have a chance to run.
+      # Let the Windows winget fallback below handle a package-manager failure.
       continue-on-error: true
       with:
-        brew: protobuf
         choco: protoc
 
     - name: Install protoc via winget (fallback for Windows)
@@ -167,19 +186,8 @@ runs:
       shell: pwsh
       run: winget install Google.Protobuf
 
-    - name: Install protoc via brew without index update (fallback for macOS)
-      if: ${{ inputs.target_os == 'macos' && steps.install_protoc.outcome == 'failure' }}
-      shell: bash
-      # The install-package action runs `brew update` first, whose fetch of the
-      # formula index from the formulae.brew.sh CDN intermittently times out and
-      # fails the step before `brew install` ever runs. Retry the install
-      # directly, skipping the index refresh: the runner image ships with a
-      # cached index that is at most days old, which is fine for protoc. A real
-      # install failure still fails this step and the job.
-      run: HOMEBREW_NO_AUTO_UPDATE=1 brew install protobuf
-
     - name: Fail if protoc install did not succeed
-      # Windows and macOS surface failures via their fallback steps above.
+      # Windows has a fallback; the dedicated macOS install fails directly.
       if: ${{ inputs.target_os != 'windows' && inputs.target_os != 'macos' && steps.install_protoc.outcome == 'failure' }}
       shell: bash
       run: |
