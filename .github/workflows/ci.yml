@@ -120,10 +120,33 @@ jobs:
           install_test_deps: true
 
       - name: Install Shells
+        if: ${{ matrix.os != 'macos' }}
         uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
         with:
           apt: zsh fish
-          brew: fish bash
+
+      - name: Install MacOS shells
+        if: ${{ matrix.os == 'macos' }}
+        shell: bash
+        run: |
+          # Use the official relocatable CLI instead of building Fish's toolchain dependencies.
+          fish_version="4.9.3"
+          fish_dir="$GITHUB_WORKSPACE/.work/tools/fish-$fish_version"
+          fish_bin="$fish_dir/fish-$fish_version.app/Contents/Resources/base/usr/local/bin"
+          archive="$RUNNER_TEMP/.work/nanowarp/fish-$fish_version.app.zip"
+          mkdir -p "$fish_dir" "$(dirname "$archive")"
+          if [[ ! -x "$fish_bin/fish" ]]; then
+            curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
+              "https://github.com/fish-shell/fish-shell/releases/download/$fish_version/fish-$fish_version.app.zip" \
+              -o "$archive"
+            unzip -oq "$archive" -d "$fish_dir"
+          fi
+          "$fish_bin/fish" --version
+          echo "$fish_bin" >> "$GITHUB_PATH"
+          # Keep the image's Homebrew Bash alongside the system Bash for the existing tests.
+          if ! brew list --versions bash >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
+          fi
 
       - name: Echo Shells (UNIX)
         id: echo_shells_unix
@@ -485,7 +508,7 @@ jobs:
 
   check-release-compilation:
     name: Verify compilation with release flags (${{ matrix.name }})
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.os == 'macos' && 30 || 15 }}
     strategy:
       fail-fast: false
       matrix:
