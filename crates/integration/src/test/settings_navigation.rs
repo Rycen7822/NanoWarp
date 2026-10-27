@@ -140,7 +140,7 @@ pub fn test_settings_search_filters_subpages() -> Builder {
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(open_settings_page(SettingsSection::Appearance))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, false))
-        .with_step(type_settings_search("language server"))
+        .with_step(type_settings_search("repository language server"))
         .with_step(assert_umbrella_expanded(CODE_UMBRELLA, true))
         .with_step(assert_settings_nav_subpage_visible(
             SettingsSection::Projects,
