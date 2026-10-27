@@ -632,19 +632,6 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                         parent_pane_node_id,
                     } = pane_nodes.pop_front().expect("Should have node");
 
-                    // Skip leaves whose content types don't get a
-                    // corresponding `pane_leaves` row on save. Otherwise the
-                    // `pane_nodes` insert below would create an orphan row
-                    // (is_leaf=true, but no matching row in `pane_leaves`),
-                    // and `read_node` would fail to resolve the leaf on
-                    // restore, causing the entire surrounding tab to be
-                    // dropped. See `LeafContents::is_persisted`.
-                    if let PaneNodeSnapshot::Leaf(leaf) = pane_node
-                        && !leaf.contents.is_persisted()
-                    {
-                        continue;
-                    }
-
                     let is_leaf = matches!(pane_node, PaneNodeSnapshot::Leaf(_));
                     let new_pane_node = model::NewPaneNode {
                         tab_id: *tab_id,
@@ -714,18 +701,6 @@ fn save_pane_state(
         LeafContents::Code(_) => CODE_PANE_KIND,
         LeafContents::Settings(_) => SETTINGS_PANE_KIND,
         LeafContents::CodeReview(_) => CODE_REVIEW_PANE_KIND,
-        LeafContents::NetworkLog => {
-            // These pane types are filtered out before this function is
-            // called; see `LeafContents::is_persisted` and the skip in
-            // `save_app_state`. Reaching this arm would mean a `pane_nodes`
-            // row had already been inserted with no corresponding
-            // `pane_leaves` row, which would break restoration.
-            debug_assert!(
-                false,
-                "save_pane_state called for non-persisted LeafContents variant"
-            );
-            return Ok(());
-        }
     };
 
     let leaf = model::NewPane {
@@ -825,9 +800,6 @@ fn save_pane_state(
             diesel::insert_into(schema::code_review_panes::dsl::code_review_panes)
                 .values(code_review)
                 .execute(conn)?;
-        }
-        LeafContents::NetworkLog => {
-            // Unreachable: filtered by `is_persisted` in `save_app_state`.
         }
     }
 

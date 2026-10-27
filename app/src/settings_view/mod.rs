@@ -149,7 +149,6 @@ pub(super) fn render_beta_chip(appearance: &Appearance) -> Box<dyn Element> {
 pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
-    LaunchNetworkLogging,
 }
 
 /// Different navigation sections within the settings view
@@ -1254,9 +1253,6 @@ impl SettingsView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            PrivacyPageViewEvent::LaunchNetworkLogging => {
-                ctx.emit(SettingsViewEvent::LaunchNetworkLogging);
-            }
             PrivacyPageViewEvent::ShowAddRegexModal => {
                 // Modal rendering is handled in get_modal_content_for_page
                 ctx.notify();

@@ -63,7 +63,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| crate::code_review::git_repo_model::GitRepoModels::new());
     crate::terminal::available_shells::register(app);
     AltScreenReporting::register(app);
-    app.add_singleton_model(|_| crate::server::network_logging::NetworkLogModel::default());
     app.add_singleton_model(|_| PersistedWorkspace::new(vec![], None));
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
@@ -166,7 +165,7 @@ impl pane::PaneContent for PreAttachReturnsFalsePane {
     }
 
     fn snapshot(&self, _app: &AppContext) -> LeafContents {
-        LeafContents::NetworkLog
+        unreachable!("a pane rejected by pre_attach must not be snapshotted")
     }
 
     fn has_application_focus(&self, _ctx: &mut ViewContext<PaneGroup>) -> bool {

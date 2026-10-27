@@ -45,7 +45,6 @@ mod remote_server;
 mod resource_limits;
 mod safe_triangle;
 mod search_bar;
-mod server;
 mod session_management;
 mod shell_indicator;
 mod suggestions;
@@ -107,8 +106,6 @@ use quit_warning::UnsavedStateSummary;
 use repo_metadata::{
     RepoMetadataModel, repositories::DetectedRepositories, watcher::DirectoryWatcher,
 };
-use server::network_log_pane_manager::NetworkLogPaneManager;
-use server::network_logging::NetworkLogModel;
 #[cfg(feature = "local_fs")]
 use settings::import::model::ImportedConfigModel;
 use settings_view::pane_manager::SettingsPaneManager;
@@ -756,9 +753,6 @@ pub(crate) fn initialize_app(
         ctx.set_zoom_factor(WindowSettings::as_ref(ctx).zoom_level.as_zoom_factor());
     }
 
-    // Register before local HTTP clients install their network logging hooks.
-    ctx.add_singleton_model(|_ctx| NetworkLogModel::default());
-
     ctx.add_singleton_model(|_ctx| GPUState::new());
 
     PrivacySettings::register_singleton(ctx);
@@ -816,7 +810,6 @@ pub(crate) fn initialize_app(
     // Initialize timestamp for session id and last active event
 
     ctx.add_singleton_model(|_| SettingsPaneManager::new());
-    ctx.add_singleton_model(|_| NetworkLogPaneManager::default());
     #[cfg(target_os = "macos")]
     if launch_mode.is_gui() {
         AppearanceManager::as_ref(ctx).set_app_icon(ctx);

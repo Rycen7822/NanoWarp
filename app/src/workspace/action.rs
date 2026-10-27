@@ -472,9 +472,6 @@ pub enum WorkspaceAction {
     },
     /// Opens the settings.toml file in a code editor pane.
     OpenSettingsFile,
-    /// Opens (or focuses) the in-app network log pane as a right-split of the
-    /// active pane group. Gated on `ContextFlag::NetworkLogConsole`.
-    OpenNetworkLogPane,
 }
 
 impl WorkspaceAction {
@@ -668,8 +665,7 @@ impl WorkspaceAction {
             | TabConfigSidecarMakeDefault { .. }
             | TabConfigSidecarEditConfig { .. }
             | TabConfigSidecarRemoveConfig { .. }
-            | OpenSettingsFile
-            | OpenNetworkLogPane => false,
+            | OpenSettingsFile => false,
             #[cfg(not(target_family = "wasm"))]
             ViewLogs => false,
             #[cfg(target_os = "macos")]

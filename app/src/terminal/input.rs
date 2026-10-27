@@ -38,7 +38,6 @@ use warp_completer::parsers::LiteCommand;
 use warp_completer::parsers::simple::command_at_cursor_position;
 use warp_completer::signatures::CommandRegistry;
 use warp_core::r#async::debounce;
-use warp_core::context_flag::ContextFlag;
 use warp_editor::editor::NavigationKey;
 use warp_errors::{report_error, report_if_error};
 use warp_util::path::ShellFamily;
@@ -834,13 +833,6 @@ pub fn init(app: &mut AppContext) {
             id!("Input") & !id!("IMEOpen") & !id!("PromptChipMenuOpen"),
         ),
     ]);
-
-    app.register_editable_bindings([EditableBinding::new(
-        "input:insert_network_logging_workflow",
-        "Show Warp network log",
-        WorkspaceAction::OpenNetworkLogPane,
-    )
-    .with_enabled(|| ContextFlag::NetworkLogConsole.is_enabled())]);
 
     app.register_editable_bindings([EditableBinding::new(
         "input:clear_screen",

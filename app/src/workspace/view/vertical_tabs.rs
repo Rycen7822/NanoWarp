@@ -853,7 +853,6 @@ pub(super) enum SummaryPaneKind {
     Code { title: String },
     File,
     Settings,
-    Other,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3427,7 +3426,6 @@ enum TypedPane<'a> {
     Code(&'a CodePane),
     File,
     Settings,
-    Other,
 }
 
 impl TypedPane<'_> {
@@ -3439,7 +3437,6 @@ impl TypedPane<'_> {
             },
             TypedPane::File => SummaryPaneKind::File,
             TypedPane::Settings => SummaryPaneKind::Settings,
-            TypedPane::Other => SummaryPaneKind::Other,
         }
     }
 
@@ -3452,7 +3449,6 @@ impl TypedPane<'_> {
             TypedPane::Code(_) => "Code",
             TypedPane::File => "File",
             TypedPane::Settings => "Settings",
-            TypedPane::Other => "Other",
         }
     }
 
@@ -3463,9 +3459,7 @@ impl TypedPane<'_> {
                 .as_ref(app)
                 .contains_unsaved_changes(app)
                 .then(|| "Unsaved".to_string()),
-            TypedPane::Terminal(_) | TypedPane::File | TypedPane::Settings | TypedPane::Other => {
-                None
-            }
+            TypedPane::Terminal(_) | TypedPane::File | TypedPane::Settings => None,
         }
     }
 
@@ -3475,7 +3469,6 @@ impl TypedPane<'_> {
             TypedPane::Code(_) => WarpIcon::Code2,
             TypedPane::File => WarpIcon::File,
             TypedPane::Settings => WarpIcon::Gear,
-            TypedPane::Other => WarpIcon::File,
         }
     }
 }
@@ -3600,7 +3593,7 @@ fn build_vertical_tabs_summary_data(
                     &pane_subtitle,
                 );
             }
-            TypedPane::File | TypedPane::Settings | TypedPane::Other => {
+            TypedPane::File | TypedPane::Settings => {
                 push_normalized_unique_summary_label(
                     &mut primary_labels,
                     &mut primary_seen,
@@ -3729,7 +3722,7 @@ impl<'a> PaneProps<'a> {
                 self.display_title_override.as_deref(),
                 app,
             ),
-            TypedPane::Code(_) | TypedPane::File | TypedPane::Settings | TypedPane::Other => {
+            TypedPane::Code(_) | TypedPane::File | TypedPane::Settings => {
                 non_terminal_search_text_fragments(self.generated_or_tab_title(), &self.subtitle)
             }
         };
@@ -4031,9 +4024,8 @@ impl PaneGroup {
             ),
             IPaneType::File => TypedPane::File,
             IPaneType::Settings => TypedPane::Settings,
-            IPaneType::NetworkLog => TypedPane::Other,
             #[cfg(test)]
-            IPaneType::Dummy => TypedPane::Other,
+            IPaneType::Dummy => unreachable!("dummy panes have no concrete backing view"),
         }
     }
 }
@@ -4042,8 +4034,7 @@ impl PaneGroup {
 /// be rendered visually, matching the treatment used by vertical tabs
 /// Summary mode. Returns `None` when `pane_id` does
 /// not resolve to a pane in `pane_group` so callers can skip stale ids
-/// via `filter_map`; note this is distinct from a known pane that
-/// classifies as `SummaryPaneKind::Other`.
+/// via `filter_map`.
 pub(super) fn pane_summary_kind(
     pane_group: &PaneGroup,
     pane_id: PaneId,
@@ -4647,10 +4638,7 @@ pub(super) fn render_summary_pane_kind_icon_circle(
             }),
             internal_colors::fg_overlay_2(theme).into(),
         ),
-        SummaryPaneKind::Terminal
-        | SummaryPaneKind::File
-        | SummaryPaneKind::Settings
-        | SummaryPaneKind::Other => {
+        SummaryPaneKind::Terminal | SummaryPaneKind::File | SummaryPaneKind::Settings => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
             (
                 icon.to_warpui_icon(icon_color).finish(),
@@ -4684,7 +4672,6 @@ fn summary_pane_kind_icon(
         SummaryPaneKind::Code { .. } => (WarpIcon::Code2, sub_text),
         SummaryPaneKind::File => (WarpIcon::File, sub_text),
         SummaryPaneKind::Settings => (WarpIcon::Gear, main_text),
-        SummaryPaneKind::Other => (WarpIcon::File, sub_text),
     }
 }
 
@@ -6412,7 +6399,7 @@ fn render_detail_section(
             app,
         ),
         TypedPane::Code(_) => render_code_detail_section(props, appearance, app),
-        TypedPane::File | TypedPane::Settings | TypedPane::Other => Empty::new().finish(),
+        TypedPane::File | TypedPane::Settings => Empty::new().finish(),
     }
 }
 pub(super) struct DetailSidecarOverlay {

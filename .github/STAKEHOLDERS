@@ -168,7 +168,6 @@
 ###########################################################################
 
 # REST API and SDKs
-/app/src/server/server_api/ @ianhodge
 /crates/http_client/ @ianhodge
 /crates/http_server/ @ianhodge
 /crates/warp_server_client/ @ianhodge
@@ -187,7 +186,6 @@
 # OAuth, Slack, Linear, and GitHub integrations
 /app/src/auth/ @Legoben @jefflloyd @vorporeal @bnavetta
 /app/src/linear.rs @Legoben @jefflloyd @vorporeal @bnavetta
-/app/src/server/server_api/integrations.rs @Legoben @jefflloyd @vorporeal @bnavetta
 /app/src/ai/agent_sdk/oauth_flow.rs @Legoben @jefflloyd @vorporeal @bnavetta
 /app/src/ai/mcp/manager/oauth.rs @Legoben @jefflloyd @vorporeal @bnavetta
 /app/src/ai/mcp/templatable_manager/oauth.rs @Legoben @jefflloyd @vorporeal @bnavetta

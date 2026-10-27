@@ -97,7 +97,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     #[cfg(enable_crash_recovery)]
     crate::crash_recovery::CrashRecovery::register_for_test(app);
 
-    app.add_singleton_model(|_| crate::server::network_logging::NetworkLogModel::default());
     app.add_singleton_model(|_| PersistedWorkspace::new(vec![], None));
     app.add_singleton_model(|_| History::new(vec![]));
 

@@ -143,8 +143,8 @@ use crate::notification::NotificationContext;
 use crate::palette::PaletteMode;
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{
-    self, AnyPaneContent, CodePane, CodeReviewPanelArg, Direction, NetworkLogPane,
-    NewTerminalOptions, PaneGroup, PaneId, PanesLayout, TabBarHoverIndex, TerminalPaneId,
+    self, AnyPaneContent, CodePane, CodeReviewPanelArg, Direction, NewTerminalOptions, PaneGroup,
+    PaneId, PanesLayout, TabBarHoverIndex, TerminalPaneId,
 };
 use crate::persistence::ModelEvent;
 use crate::prompt::editor_modal::{
@@ -163,7 +163,6 @@ use crate::search::command_palette::view::{
 use crate::search::command_search::searcher::CommandSearchItemAction;
 use crate::search::command_search::view::{CommandSearchEvent, CommandSearchView};
 use crate::search::{self, QueryFilter};
-use crate::server::network_log_pane_manager::NetworkLogPaneManager;
 use crate::session_management::{SessionNavigationData, SessionSource, TabNavigationData};
 use crate::settings::{
     AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
@@ -173,7 +172,7 @@ use crate::settings::{
 };
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::settings_view::pane_manager::SettingsPaneManager;
-use crate::settings_view::{SettingsSection, SettingsView, SettingsViewEvent, flags};
+use crate::settings_view::{SettingsSection, SettingsView, flags};
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
 use crate::shell_indicator::ShellIndicatorType;
 use crate::tab::{
@@ -1131,9 +1130,6 @@ impl Workspace {
         });
 
         let settings_pane = ctx.add_typed_action_view(move |ctx| SettingsView::new(None, ctx));
-        ctx.subscribe_to_view(&settings_pane, move |me, _, event, ctx| {
-            me.handle_settings_pane_event(event, ctx);
-        });
 
         let window_id = ctx.window_id();
         SettingsPaneManager::handle(ctx).update(ctx, |manager, _| {
@@ -8860,19 +8856,6 @@ impl Workspace {
         self.active_tab_pane_group().as_ref(ctx).left_panel_open
     }
 
-    fn handle_settings_pane_event(
-        &mut self,
-        event: &SettingsViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SettingsViewEvent::LaunchNetworkLogging => {
-                self.open_network_log_pane(ctx);
-            }
-            SettingsViewEvent::Pane(_) | SettingsViewEvent::StartResize => {}
-        }
-    }
-
     fn refresh_working_directories_for_pane_group(
         &mut self,
         pane_group: &ViewHandle<PaneGroup>,
@@ -8909,46 +8892,6 @@ impl Workspace {
                 terminal_cwds,
                 local_paths,
                 focused_terminal_id,
-                ctx,
-            );
-        });
-    }
-
-    /// Opens the in-app network log pane as a right-split of the active pane
-    /// group. If a pane already exists for the current window, refreshes its
-    /// snapshot from the in-memory model and focuses it instead of opening
-    /// another one.
-    pub(crate) fn open_network_log_pane(&mut self, ctx: &mut ViewContext<Self>) {
-        let manager = NetworkLogPaneManager::handle(ctx);
-
-        if let Some(locator) = manager.as_ref(ctx).find_pane(ctx.window_id()) {
-            // Pane is already open: refresh its snapshot so any items
-            // captured since the last open are reflected, then focus it.
-            if let Some(tab) = self
-                .tabs
-                .iter()
-                .find(|tab| tab.pane_group.id() == locator.pane_group_id)
-            {
-                let pane_group = tab.pane_group.clone();
-                let network_log_view = pane_group.read(ctx, |pane_group, ctx| {
-                    pane_group
-                        .downcast_pane_by_id::<NetworkLogPane>(locator.pane_id)
-                        .map(|pane| pane.network_log_view(ctx))
-                });
-                if let Some(network_log_view) = network_log_view {
-                    network_log_view.update(ctx, |view, ctx| view.reload_snapshot(ctx));
-                }
-            }
-            self.focus_pane(locator, ctx);
-            return;
-        }
-
-        let pane = NetworkLogPane::new(ctx);
-        self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-            pane_group.add_pane_with_direction(
-                Direction::Right,
-                pane,
-                true, /* focus_new_pane */
                 ctx,
             );
         });
@@ -13724,9 +13667,6 @@ impl TypedActionView for Workspace {
             OpenSettingsFile => {
                 let path = crate::settings::user_preferences_toml_file_path();
                 self.add_tab_for_code_file(path, None, ctx);
-            }
-            OpenNetworkLogPane => {
-                self.open_network_log_pane(ctx);
             }
             OpenWorktreeInRepo { repo_path } => {
                 self.open_worktree_in_repo(repo_path.clone(), ctx);

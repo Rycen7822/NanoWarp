@@ -19,7 +19,6 @@ pub enum ContextFlag {
     CloseWindow,
     ForceSidePanelOpen,
     HideOpenOnDesktopButton,
-    NetworkLogConsole,
     LaunchConfigurations,
     WarpEssentials,
     AllowSettingsModalToClose,
@@ -59,7 +58,6 @@ impl ContextFlag {
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::WarpEssentials);
-        disable_flag(Self::NetworkLogConsole);
     }
 
     pub fn set_settings_link_only() {
@@ -68,7 +66,6 @@ impl ContextFlag {
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::WarpEssentials);
-        disable_flag(Self::NetworkLogConsole);
         disable_flag(Self::AllowSettingsModalToClose);
         disable_flag(Self::ShowSlowShellStartupBanner);
         disable_flag(Self::DynamicBrowserUrl);
@@ -84,7 +81,6 @@ impl FromStr for ContextFlag {
             "CloseWindow" => Ok(Self::CloseWindow),
             "ForceSidePanelOpen" => Ok(Self::ForceSidePanelOpen),
             "HideOpenOnDesktopButton" => Ok(Self::HideOpenOnDesktopButton),
-            "NetworkLogConsole" => Ok(Self::NetworkLogConsole),
             "LaunchConfigurations" => Ok(Self::LaunchConfigurations),
             "WarpEssentials" => Ok(Self::WarpEssentials),
             _ => Err(()),
