@@ -6,7 +6,6 @@ use pathfinder_geometry::vector::vec2f;
 #[cfg(not(target_family = "wasm"))]
 use remote_server::manager::RemoteServerManager;
 use warp_core::features::FeatureFlag;
-use warp_core::ui::icons::ICON_DIMENSIONS;
 use warp_editor::model::CoreEditorModel;
 #[cfg(feature = "local_fs")]
 use warp_files::{FileModel, FileModelEvent};
@@ -19,7 +18,7 @@ use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
 #[cfg(feature = "local_fs")]
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
-    Align, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
+    Align, Container, CrossAxisAlignment, DispatchEventResult, EventHandler, Flex,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, SavePosition, Shrinkable,
     Stack, Text,
 };
@@ -46,21 +45,16 @@ use crate::notebooks::editor::model::NotebooksEditorModel;
 use crate::notebooks::editor::rich_text_styles;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view;
-use crate::pane_group::pane::view::header::components::{
-    CenteredHeaderEdgeWidth, render_pane_header_buttons, render_pane_header_title_text,
-    render_three_column_header,
-};
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
 use crate::settings::FontSettings;
 use crate::terminal::model::session::Session;
 use crate::ui_components::icons::Icon;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_file};
-use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
+use crate::util::openable_file_type::is_jupyter_notebook_file;
 use crate::workspace::ActiveSession;
 
-/// Display mode for markdown files shown via the header segmented control.
+/// Whether notebook Markdown content is rendered or shown as source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkdownDisplayMode {
     Rendered,
@@ -83,16 +77,9 @@ pub struct FileNotebookView {
     links: ModelHandle<NotebookLinks>,
     context_menu: ContextMenuState<Self>,
     view_position_id: String,
-    markdown_display_mode: MarkdownDisplayMode,
-    display_mode_segmented_control: ViewHandle<MarkdownToggleView>,
-    /// Set when the file was opened from a CodePane, and restored on a raw/rendered toggle.
+    /// Source metadata carried when opening the file in the basic code editor.
     #[cfg(feature = "local_fs")]
     code_source: Option<CodeSource>,
-    /// Persistent hover state for the header title tooltip.
-    header_title_mouse_state: MouseStateHandle,
-    /// Vertical scroll fraction (`0..=1`) to restore once the file content is first loaded,
-    /// captured before a markdown raw->rendered toggle. Consumed on the first `set_content`.
-    pending_scroll_fraction: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,7 +114,6 @@ pub enum FileNotebookAction {
     #[cfg(feature = "local_fs")]
     OpenAsCode,
     ContextMenu(ContextMenuAction),
-    ToggleMarkdownDisplayMode(MarkdownDisplayMode),
     ToggleMaximized,
 }
 
@@ -200,18 +186,6 @@ impl FileState {
     }
 }
 
-/// Keymap context set by a pane that can switch between the rendered and raw views of its file,
-/// so the toggle shortcut is only available where the Rendered/Raw control is shown.
-pub const MARKDOWN_DISPLAY_MODE_TOGGLE_CONTEXT: &str = "MarkdownDisplayModeToggle";
-
-// The rendered and raw views are separate panes with their own actions, so each registers its own
-// direction of the toggle. Sharing the name and description gives them a single, jointly
-// rebindable entry in settings.
-pub const TOGGLE_MARKDOWN_DISPLAY_MODE_BINDING_NAME: &str = "markdown:toggle_display_mode";
-pub const TOGGLE_MARKDOWN_DISPLAY_MODE_BINDING_DESCRIPTION: &str =
-    "Toggle Markdown rendered/raw view";
-pub const TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING: &str = "cmdorctrl-e";
-
 pub fn init(app: &mut AppContext) {
     use warpui::keymap::macros::*;
 
@@ -229,13 +203,6 @@ pub fn init(app: &mut AppContext) {
             FileNotebookAction::ReloadFile,
         )
         .with_context_predicate(id!("FileNotebookView")),
-        EditableBinding::new(
-            TOGGLE_MARKDOWN_DISPLAY_MODE_BINDING_NAME,
-            TOGGLE_MARKDOWN_DISPLAY_MODE_BINDING_DESCRIPTION,
-            FileNotebookAction::ToggleMarkdownDisplayMode(MarkdownDisplayMode::Raw),
-        )
-        .with_context_predicate(id!("FileNotebookView") & id!(MARKDOWN_DISPLAY_MODE_TOGGLE_CONTEXT))
-        .with_key_binding(TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING),
     ])
 }
 
@@ -277,15 +244,6 @@ impl FileNotebookView {
 
         let context_menu = ContextMenuState::new(ctx);
 
-        let display_mode_segmented_control = ctx.add_typed_action_view(|ctx| {
-            MarkdownToggleView::new(MarkdownDisplayMode::Rendered, ctx)
-        });
-
-        ctx.subscribe_to_view(&display_mode_segmented_control, |view, _, event, ctx| {
-            let MarkdownToggleEvent::ModeSelected(mode) = event;
-            view.handle_action(&FileNotebookAction::ToggleMarkdownDisplayMode(*mode), ctx);
-        });
-
         Self {
             location: None,
             editor,
@@ -298,12 +256,8 @@ impl FileNotebookView {
             links,
             context_menu,
             view_position_id,
-            markdown_display_mode: MarkdownDisplayMode::Rendered,
-            display_mode_segmented_control,
             #[cfg(feature = "local_fs")]
             code_source: None,
-            header_title_mouse_state: Default::default(),
-            pending_scroll_fraction: None,
         }
     }
 
@@ -355,7 +309,6 @@ impl FileNotebookView {
         let doc_path = self.file_state.local_path().map(|p| p.to_path_buf());
         let render_as_ipynb =
             FeatureFlag::JupyterNotebookRendering.is_enabled() && self.is_jupyter_notebook_file();
-        let scroll_fraction = self.pending_scroll_fraction.take();
         self.editor.update(ctx, |editor, ctx| {
             if render_as_ipynb {
                 editor.reset_with_ipynb(content, ctx);
@@ -365,17 +318,6 @@ impl FileNotebookView {
             // Relative image paths in the content resolve against this.
             editor.model().update(ctx, |model, ctx| {
                 model.set_document_path(doc_path, ctx);
-                // Restore scroll captured before a raw->rendered toggle. Deferred through the
-                // layout pipeline so it applies after the new content is laid out. The version is
-                // read here (after the reset above advanced it) rather than at dequeue: the reset's
-                // BufferEdit reaches the layout channel via a deferred subscription, so it can be
-                // enqueued after our ScrollToFraction.
-                if let Some(fraction) = scroll_fraction {
-                    let version = model.buffer_version(ctx);
-                    model.render_state().update(ctx, |render_state, _ctx| {
-                        render_state.scroll_to_fraction(fraction, version);
-                    });
-                }
             });
         });
     }
@@ -695,38 +637,11 @@ impl FileNotebookView {
         self.links.clone()
     }
 
-    fn is_markdown_file(&self) -> bool {
-        self.file_state
-            .path()
-            .map(|p| is_markdown_file(Path::new(&p.display_path())))
-            .unwrap_or(false)
-    }
-
     fn is_jupyter_notebook_file(&self) -> bool {
         self.file_state
             .path()
             .map(|p| is_jupyter_notebook_file(Path::new(&p.display_path())))
             .unwrap_or(false)
-    }
-
-    fn shows_markdown_toggle(&self) -> bool {
-        self.is_markdown_file()
-            || (FeatureFlag::JupyterNotebookRendering.is_enabled()
-                && self.is_jupyter_notebook_file())
-    }
-
-    fn update_editor_display_mode(&mut self, ctx: &mut ViewContext<Self>) {
-        match self.markdown_display_mode {
-            MarkdownDisplayMode::Rendered => {
-                self.editor.update(ctx, |editor, ctx| {
-                    editor.set_interaction_state(InteractionState::Selectable, ctx);
-                });
-            }
-            MarkdownDisplayMode::Raw => {
-                // For Raw we switch panes entirely (to CodePane). Interaction state here remains
-                // in the rendered notebook mode.
-            }
-        }
     }
 
     fn handle_editor_event(
@@ -922,14 +837,6 @@ impl View for FileNotebookView {
         "FileNotebookView"
     }
 
-    fn keymap_context(&self, _app: &AppContext) -> warpui::keymap::Context {
-        let mut context = Self::default_keymap_context();
-        if self.shows_markdown_toggle() {
-            context.set.insert(MARKDOWN_DISPLAY_MODE_TOGGLE_CONTEXT);
-        }
-        context
-    }
-
     fn accessibility_contents(&self, _ctx: &AppContext) -> Option<AccessibilityContent> {
         Some(AccessibilityContent::new_without_help(
             format!("{} notebook", self.title()),
@@ -1027,34 +934,6 @@ impl TypedActionView for FileNotebookView {
                 }
                 self.context_menu.handle_action(action, ctx);
             }
-            FileNotebookAction::ToggleMarkdownDisplayMode(mode) => {
-                self.markdown_display_mode = *mode;
-                self.display_mode_segmented_control
-                    .update(ctx, |control, ctx| {
-                        control.set_selected_mode(*mode, ctx);
-                    });
-
-                match mode {
-                    MarkdownDisplayMode::Rendered => {
-                        // Already in FileNotebookView with rendered content; nothing else to do.
-                        self.update_editor_display_mode(ctx);
-                    }
-                    MarkdownDisplayMode::Raw => {
-                        #[cfg(feature = "local_fs")]
-                        {
-                            if let Some(path) = self.file_state.path().cloned() {
-                                let scroll_fraction =
-                                    self.scroll_fraction(ctx).map(ordered_float::OrderedFloat);
-                                ctx.emit(FileNotebookEvent::Pane(PaneEvent::ReplaceWithCodePane {
-                                    path,
-                                    source: self.code_source.clone(),
-                                    scroll_fraction,
-                                }));
-                            }
-                        }
-                    }
-                }
-            }
             FileNotebookAction::ToggleMaximized => {
                 ctx.emit(FileNotebookEvent::Pane(PaneEvent::ToggleMaximized));
                 self.pane_configuration.update(ctx, |pane_config, ctx| {
@@ -1136,106 +1015,20 @@ impl BackingView for FileNotebookView {
 
     fn render_header_content(
         &self,
-        ctx: &view::HeaderRenderContext,
+        _ctx: &view::HeaderRenderContext,
         app: &AppContext,
     ) -> view::HeaderContent {
-        let title = self.pane_configuration.as_ref(app).title().to_owned();
-
-        if self.shows_markdown_toggle() {
-            // For markdown files (and rendered Jupyter notebooks) we use a custom header so the
-            // title stays centered identically in both rendered and raw (CodeView) modes.
-            let appearance = Appearance::as_ref(app);
-            let is_pane_dragging = ctx.draggable_state.is_dragging();
-
-            let mut right_row = Flex::row()
-                .with_main_axis_alignment(MainAxisAlignment::End)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_main_axis_size(MainAxisSize::Min);
-
-            right_row.add_child(ChildView::new(&self.display_mode_segmented_control).finish());
-
-            let show_close_button = self
-                .focus_handle
-                .as_ref()
-                .is_some_and(|h| h.is_in_split_pane(app));
-
-            right_row.add_child(render_pane_header_buttons::<FileNotebookAction, ()>(
-                ctx,
-                appearance,
-                show_close_button,
-                None,
-                None,
-            ));
-
-            let button_count = show_close_button as u32 + ctx.has_overflow_items as u32;
-            let buttons_width = button_count as f32 * ICON_DIMENSIONS;
-
-            let title_text = render_pane_header_title_text(
-                title,
-                appearance,
-                warpui::text_layout::ClipConfig::start(),
-            );
-
-            let title_element: Box<dyn Element> =
-                if let Some(display_path) = self.file_state.path().map(|p| p.display_path()) {
-                    use pathfinder_geometry::vector::vec2f;
-                    use warpui::elements::{
-                        ChildAnchor, Hoverable, OffsetPositioning, ParentAnchor,
-                        ParentOffsetBounds, Stack,
-                    };
-                    Hoverable::new(self.header_title_mouse_state.clone(), move |hover_state| {
-                        let mut stack = Stack::new();
-                        stack.add_child(title_text);
-                        if hover_state.is_hovered() {
-                            let tooltip = appearance
-                                .ui_builder()
-                                .tool_tip(display_path.clone())
-                                .build()
-                                .finish();
-                            stack.add_positioned_overlay_child(
-                                tooltip,
-                                OffsetPositioning::offset_from_parent(
-                                    vec2f(0., 4.),
-                                    ParentOffsetBounds::Unbounded,
-                                    ParentAnchor::BottomMiddle,
-                                    ChildAnchor::TopMiddle,
-                                ),
-                            );
-                        }
-                        stack.finish()
-                    })
-                    .finish()
-                } else {
-                    title_text
-                };
-
-            view::HeaderContent::Custom {
-                element: render_three_column_header(
-                    Empty::new().finish(),
-                    title_element,
-                    right_row.finish(),
-                    CenteredHeaderEdgeWidth {
-                        min: buttons_width,
-                        max: 220.0,
-                    },
-                    ctx.header_left_inset,
-                    is_pane_dragging,
-                ),
-                has_custom_draggable_behavior: false,
-            }
-        } else {
-            view::HeaderContent::Standard(view::StandardHeader {
-                title,
-                title_secondary: None,
-                title_style: None,
-                title_clip_config: warpui::text_layout::ClipConfig::start(),
-                title_max_width: None,
-                left_of_title: None,
-                right_of_title: None,
-                left_of_overflow: None,
-                options: Default::default(),
-            })
-        }
+        view::HeaderContent::Standard(view::StandardHeader {
+            title: self.pane_configuration.as_ref(app).title().to_owned(),
+            title_secondary: None,
+            title_style: None,
+            title_clip_config: warpui::text_layout::ClipConfig::start(),
+            title_max_width: None,
+            left_of_title: None,
+            right_of_title: None,
+            left_of_overflow: None,
+            options: Default::default(),
+        })
     }
 
     fn set_focus_handle(&mut self, focus_handle: PaneFocusHandle, _ctx: &mut ViewContext<Self>) {

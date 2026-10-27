@@ -13,22 +13,18 @@ use warp_editor::model::CoreEditorModel;
 use warp_editor::render::model::BlockItem;
 #[cfg(feature = "local_fs")]
 use warp_files::FileModel;
-use warpui::keymap::Keystroke;
 use warpui::platform::WindowStyle;
 use warpui::{App, SingletonEntity, View};
 
-use super::{
-    FileNotebookAction, FileNotebookView, FileState, MarkdownDisplayMode, SourceFile,
-    TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING,
-};
+use super::{FileNotebookAction, FileNotebookView, FileState, MarkdownDisplayMode, SourceFile};
 use crate::notebooks::context_menu::MenuSource;
-use crate::notebooks::file::is_markdown_file;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusState};
 use crate::pane_group::{BackingView as _, PaneId};
 use crate::search::files::model::FileSearchModel;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::model::session::Session;
 use crate::test_util::settings::initialize_settings_for_tests;
+use crate::util::openable_file_type::is_markdown_file;
 use crate::workspace::ActiveSession;
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
@@ -142,13 +138,6 @@ fn test_load_jupyter_notebook_renders_cells() {
             assert!(
                 !markdown.contains("nbformat"),
                 "raw notebook JSON should not be shown, got: {markdown}"
-            );
-
-            // The Rendered/Raw toggle is exposed for .ipynb, the same way it is
-            // for markdown files (PRODUCT invariant 14).
-            assert!(
-                handle.as_ref(ctx).shows_markdown_toggle(),
-                "rendered notebook should expose the Rendered/Raw toggle"
             );
 
             // Rendering should not panic.
@@ -452,88 +441,6 @@ fn test_file_notebook_mermaid_context_menu_does_not_show_copy_image() {
             let item_names = file_notebook.context_menu.item_names(ctx);
             assert!(!item_names.contains(&"Copy image"));
         });
-    });
-}
-
-#[test]
-fn test_markdown_toggle_shortcut_only_handled_for_toggleable_files() {
-    App::test((), |mut app| async move {
-        init_app(&mut app);
-        app.update(super::init);
-        let (window_id, handle) = app.add_window(WindowStyle::NotStealFocus, FileNotebookView::new);
-        let session = Arc::new(Session::test());
-        let keystroke = Keystroke::parse(TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING).unwrap();
-        let press_shortcut = |app: &App| {
-            app.dispatch_keystroke(window_id, &[handle.id()], &keystroke, false)
-                .unwrap()
-        };
-
-        assert!(
-            !press_shortcut(&app),
-            "a pane with no file has no raw view to switch to"
-        );
-
-        handle.update(&mut app, |file_notebook, ctx| {
-            file_notebook.open_local("../README.md", Some(session.clone()), ctx);
-        });
-        assert!(
-            press_shortcut(&app),
-            "a rendered Markdown file should be toggleable from the keyboard"
-        );
-
-        handle.update(&mut app, |file_notebook, ctx| {
-            file_notebook.open_local("../Cargo.toml", Some(session), ctx);
-        });
-        assert!(
-            !press_shortcut(&app),
-            "a file without a Rendered/Raw toggle should not respond to the shortcut"
-        );
-    });
-}
-
-#[test]
-fn test_markdown_toggle_shortcut_follows_jupyter_notebook_rendering_flag() {
-    App::test((), |mut app| async move {
-        init_app(&mut app);
-        app.update(super::init);
-
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("analysis.ipynb");
-        std::fs::write(
-            &path,
-            r##"{
-                "nbformat": 4,
-                "nbformat_minor": 5,
-                "metadata": {"language_info": {"name": "python"}},
-                "cells": [{"cell_type": "markdown", "source": ["# Notebook heading"]}]
-            }"##,
-        )
-        .unwrap();
-
-        let (window_id, handle) = app.add_window(WindowStyle::NotStealFocus, FileNotebookView::new);
-        let session = Arc::new(Session::test());
-        handle.update(&mut app, |file_notebook, ctx| {
-            file_notebook.open_local(&path, Some(session), ctx);
-        });
-        let keystroke = Keystroke::parse(TOGGLE_MARKDOWN_DISPLAY_MODE_KEY_BINDING).unwrap();
-        let press_shortcut = |app: &App| {
-            app.dispatch_keystroke(window_id, &[handle.id()], &keystroke, false)
-                .unwrap()
-        };
-
-        {
-            let _flag = FeatureFlag::JupyterNotebookRendering.override_enabled(false);
-            assert!(
-                !press_shortcut(&app),
-                "a notebook has no Rendered/Raw toggle while notebook rendering is disabled"
-            );
-        }
-
-        let _flag = FeatureFlag::JupyterNotebookRendering.override_enabled(true);
-        assert!(
-            press_shortcut(&app),
-            "a rendered notebook should be toggleable from the keyboard"
-        );
     });
 }
 
