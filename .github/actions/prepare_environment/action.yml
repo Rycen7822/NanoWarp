@@ -49,11 +49,17 @@ runs:
         REPO_ROOT="${{ steps.repo-root.outputs.path }}"
         # Non-repository fixtures must not inherit the checkout's .git directory.
         temp_root="$RUNNER_TEMP/.work/nanowarp"
-        mkdir -p "$REPO_ROOT/.work/cargo-home/bin" "$REPO_ROOT/.work/rustup" \
+        cargo_root="$REPO_ROOT/.work/cargo-home"
+        # rust-cache excludes dependencies stored inside the workspace on Unix.
+        if [[ "$RUNNER_OS" != "Windows" ]]; then
+          cargo_root="$temp_root/cargo-home"
+        fi
+        mkdir -p "$cargo_root/bin" "$REPO_ROOT/.work/rustup" \
           "$REPO_ROOT/.work/target" "$temp_root"
-        for entry in CARGO_HOME=cargo-home RUSTUP_HOME=rustup CARGO_TARGET_DIR=target; do
+        for entry in "CARGO_HOME=$cargo_root" "RUSTUP_HOME=$REPO_ROOT/.work/rustup" \
+          "CARGO_TARGET_DIR=$REPO_ROOT/.work/target"; do
           name="${entry%%=*}"
-          value="$REPO_ROOT/.work/${entry#*=}"
+          value="${entry#*=}"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             value="$(cygpath -m "$value")"
           fi
@@ -65,7 +71,7 @@ runs:
         for name in TEMP TMP TMPDIR; do
           echo "$name=$temp_root" >> "$GITHUB_ENV"
         done
-        cargo_bin="$REPO_ROOT/.work/cargo-home/bin"
+        cargo_bin="$cargo_root/bin"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cargo_bin="$(cygpath -m "$cargo_bin")"
         fi
@@ -89,8 +95,6 @@ runs:
 
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
-        # Retire the existing empty caches so completed builds can populate them.
-        prefix-key: v1-nanowarp
         workspaces: . -> .work/target
         # Make sure x86_64-unknown-linux-gnu and wasm32-unknown-unknown builds
         # don't share a cache, despite running on the same _host_ architecture.
