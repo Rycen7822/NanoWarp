@@ -2021,6 +2021,7 @@ impl FeaturesPageView {
 
         session_widgets.push(Box::new(BlockLimitWidget::default()));
 
+        #[cfg(feature = "local_tty")]
         let session_settings = SessionSettings::as_ref(ctx);
 
         #[cfg(feature = "local_tty")]

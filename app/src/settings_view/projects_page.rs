@@ -262,7 +262,7 @@ impl TypedActionView for ProjectsPageView {
                     });
                 }
                 #[cfg(not(feature = "local_fs"))]
-                let _ = workspace_path;
+                let _ = (workspace_path, server_type);
                 ctx.notify();
             }
             ProjectsPageAction::EnableSuggestedLspServer {

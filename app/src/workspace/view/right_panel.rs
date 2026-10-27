@@ -1,3 +1,4 @@
+#[cfg(feature = "local_fs")]
 use std::path::PathBuf;
 use std::sync::Arc;
 

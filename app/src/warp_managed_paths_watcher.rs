@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(not(target_family = "wasm"))]
+use std::path::PathBuf;
 #[cfg(not(target_family = "wasm"))]
 use std::{fs, sync::Arc, time::Duration};
 
@@ -17,6 +19,7 @@ use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 #[cfg(not(target_family = "wasm"))]
 const WARP_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS: u64 = 500;
 
+#[cfg(not(target_family = "wasm"))]
 pub(crate) fn warp_data_dir() -> PathBuf {
     warp_core::paths::data_dir()
 }

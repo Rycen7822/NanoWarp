@@ -1,9 +1,13 @@
 use std::fmt;
 
 use bounded_vec_deque::BoundedVecDeque;
+#[cfg(feature = "local_fs")]
 use chrono::{DateTime, FixedOffset};
+#[cfg(feature = "local_fs")]
 use warp_errors::report_error;
-use warpui_core::{Entity, ModelContext, SingletonEntity};
+#[cfg(any(feature = "local_fs", test))]
+use warpui_core::ModelContext;
+use warpui_core::{Entity, SingletonEntity};
 
 /// Maximum number of network log items retained in memory. Matches the
 /// previous file-rotation threshold so the pane surface behaves consistently
@@ -13,6 +17,7 @@ const NETWORK_LOGGING_MAX_ITEMS: usize = 50;
 /// Upper bound on the bounded async channel between the HTTP client hooks and
 /// the in-memory model. Keeps a small backlog to tolerate bursts without
 /// blocking the request thread.
+#[cfg(feature = "local_fs")]
 const NETWORK_LOGGING_MAX_QUEUE_SIZE: usize = 100;
 
 /// In-memory store of the most recent network log items. Populated by
@@ -33,6 +38,7 @@ impl Default for NetworkLogModel {
 
 impl NetworkLogModel {
     /// Appends a new log item, evicting the oldest if at capacity.
+    #[cfg(any(feature = "local_fs", test))]
     pub fn push(&mut self, item: NetworkLogItem, ctx: &mut ModelContext<Self>) {
         // `BoundedVecDeque::push_back` returns the evicted item when the
         // store is at capacity; we discard it since the pane only needs the
@@ -61,6 +67,7 @@ impl NetworkLogModel {
     /// The logging happens via an async channel so that request hooks never
     /// block on the main thread. Items are delivered to the model on the main
     /// thread through [`ModelContext::spawn_stream_local`].
+    #[cfg(feature = "local_fs")]
     pub fn install_on_clients<'a>(
         &mut self,
         http_clients: impl IntoIterator<Item = &'a mut http_client::Client>,
@@ -124,6 +131,7 @@ impl SingletonEntity for NetworkLogModel {}
 pub struct NetworkLogItem(String);
 
 impl NetworkLogItem {
+    #[cfg(feature = "local_fs")]
     pub fn request(
         request: &reqwest::Request,
         serialized_payload: Option<String>,
@@ -137,6 +145,7 @@ impl NetworkLogItem {
         ))
     }
 
+    #[cfg(feature = "local_fs")]
     pub fn response(response: &reqwest::Response, timestamp: DateTime<FixedOffset>) -> Self {
         Self(format!(
             "[{}]: {:?}",

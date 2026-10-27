@@ -252,6 +252,7 @@ use crate::util::openable_file_type::{EditorLayout, resolve_file_target_with_edi
 use crate::util::traffic_lights::{TrafficLightMouseStates, TrafficLightSide, traffic_light_data};
 use crate::util::truncation::truncate_from_end;
 #[cfg(target_family = "wasm")]
+#[cfg(not(target_family = "wasm"))]
 use crate::view_components::action_button::ActionButton;
 use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink};
 #[cfg(target_family = "wasm")]
@@ -12481,12 +12482,12 @@ impl Workspace {
     // Allow let and return because of the conditional linux compilation (otherwise we get a clippy
     // warning on mac)
     #[allow(clippy::let_and_return)]
-    fn banner_fields(&self, app: &AppContext) -> Option<WorkspaceBannerFields> {
+    fn banner_fields(&self, _app: &AppContext) -> Option<WorkspaceBannerFields> {
         // Settings errors take priority over the crash recovery banner.
         let banner_fields = self.render_settings_error_banner();
 
         #[cfg(enable_crash_recovery)]
-        let banner_fields = banner_fields.or_else(|| crash_recovery::banner_metadata(app));
+        let banner_fields = banner_fields.or_else(|| crash_recovery::banner_metadata(_app));
 
         banner_fields
     }

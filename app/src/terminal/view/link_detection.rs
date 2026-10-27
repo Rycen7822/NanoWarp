@@ -733,4 +733,5 @@ impl super::TerminalView {
 #[cfg(all(test, feature = "local_fs"))]
 #[path = "link_detection_tests.rs"]
 mod tests;
+#[cfg(feature = "local_fs")]
 use warp_util::path::LineAndColumnArg;

@@ -181,8 +181,10 @@ use crate::settings::{
     InputModeSettingsChangedEvent, InputSettings, PaneSettings, PaneSettingsChangedEvent,
     SelectionSettings, VimBannerSettings,
 };
+use crate::settings_view::SettingsSection;
+#[cfg(feature = "local_fs")]
+use crate::settings_view::flags;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
-use crate::settings_view::{SettingsSection, flags};
 use crate::shell_indicator::ShellIndicatorType;
 use crate::terminal::alias::{AliasedCommand, check_for_alias_async};
 use crate::terminal::alt_screen::alt_screen_element::AltScreenElement;

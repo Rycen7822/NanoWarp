@@ -206,6 +206,8 @@ impl PersistedWorkspace {
         model_event_sender: Option<SyncSender<ModelEvent>>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
+        #[cfg(not(feature = "local_fs"))]
+        let _ = ctx;
         let metadata: HashMap<PathBuf, Workspace> = metadata
             .into_iter()
             .map(|metadata| {
@@ -376,6 +378,7 @@ impl PersistedWorkspace {
     }
 
     /// Returns the enabled lsp servers for a given repo path.
+    #[cfg(feature = "local_fs")]
     pub fn enabled_lsp_servers(
         &self,
         path: &Path,

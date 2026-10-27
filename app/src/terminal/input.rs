@@ -1198,7 +1198,7 @@ impl Input {
         let completions_menu_width = *input_settings.completions_menu_width.value();
         let completions_menu_height = *input_settings.completions_menu_height.value();
 
-        let mut input = Self {
+        let input = Self {
             input_suggestions,
             suggestions_mode_model,
             completions_menu_resizable_width: resizable_state_handle(completions_menu_width),
@@ -1234,6 +1234,9 @@ impl Input {
             input_contents_before_prompt_chip_command: None,
             pending_shell_widget_handoff: None,
         };
+
+        #[cfg(feature = "local_fs")]
+        let mut input = input;
 
         #[cfg(feature = "local_fs")]
         if let Some(db_url) = database_file_path_for_current_scope().to_str()

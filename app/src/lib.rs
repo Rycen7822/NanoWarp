@@ -129,7 +129,9 @@ use std::ops::Deref;
 use ::settings::{Setting, ToggleableSetting};
 #[cfg(feature = "local_tty")]
 use anyhow::Context;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(not(target_family = "wasm"))]
+use anyhow::anyhow;
 use appearance::{Appearance, AppearanceManager};
 use channel::ChannelState;
 use interval_timer::IntervalTimer;

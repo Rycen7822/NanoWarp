@@ -25,8 +25,10 @@ use warp_core::sync_queue::SyncQueue;
 use warp_util::git::run_git_command;
 #[cfg(not(target_arch = "wasm32"))]
 use warpui::AppContext;
+use warpui::ModelContext;
+#[cfg(feature = "local_fs")]
+use warpui::SingletonEntity;
 use warpui::r#async::SpawnedFutureHandle;
-use warpui::{ModelContext, SingletonEntity};
 
 use crate::code_review::diff_size_limits::{
     DiffSize, MAX_DIFF_SIZE, UnrenderableReason, compute_diff_size,

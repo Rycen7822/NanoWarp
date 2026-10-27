@@ -118,9 +118,11 @@ use crate::util::git::{BranchEntry, PrInfo};
 use crate::util::openable_file_type::FileTarget;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::resolve_file_target_with_editor_choice;
+#[cfg(feature = "local_fs")]
+use crate::view_components::action_button::TooltipAlignment;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, AdjoinedSide, ButtonSize, DangerPrimaryTheme, KeystrokeSource,
-    NakedTheme, PaneHeaderTheme, SecondaryTheme, TooltipAlignment,
+    NakedTheme, PaneHeaderTheme, SecondaryTheme,
 };
 use crate::view_components::find::{Event as FindViewEvent, Find, FindEvent, FindWithinBlockState};
 use crate::workspace::{ToastStack, Workspace, WorkspaceAction};
