@@ -88,7 +88,7 @@ jobs:
 
   tests:
     name: Run ${{ matrix.name }} tests
-    timeout-minutes: 35
+    timeout-minutes: ${{ matrix.os == 'macos' && 60 || 35 }}
     env:
       # These GUI integration fixtures require the former Warp GCP test VM.
       # They remain unverified here; local SSH/daemon unit tests still run.
