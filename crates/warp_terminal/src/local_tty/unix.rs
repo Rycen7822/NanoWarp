@@ -7,12 +7,11 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::mem::MaybeUninit;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{io, ptr};
 
 use anyhow::{Context as _, Error, Result};
 use command::blocking::Command;
-use itertools::Itertools;
 use libc::{self, TIOCSCTTY, c_int, winsize};
 use mio::Interest;
 use mio::unix::SourceFd;
