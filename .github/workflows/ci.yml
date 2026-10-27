@@ -209,8 +209,10 @@ jobs:
       - name: Install cargo nextest
         shell: bash
         run: |
-          cargo binstall --secure --no-confirm --no-discover-github-token cargo-nextest --version 0.9.150
-          command -v cargo-nextest
+          nextest_version="0.9.150"
+          if [[ "$(cargo nextest --version 2>/dev/null)" != "cargo-nextest $nextest_version "* ]]; then
+            cargo binstall --no-confirm --no-discover-github-token --force cargo-nextest --version "$nextest_version"
+          fi
           cargo nextest --version
 
       - name: Run ssh-agent for SSH tests
