@@ -9171,6 +9171,7 @@ impl Workspace {
                     self.open_file_notebook(path.clone(), Some(session.clone()), layout, None, ctx);
                 }
             }
+            #[cfg(feature = "local_fs")]
             pane_group::Event::OpenCodeInWarp {
                 source,
                 layout,
@@ -13462,7 +13463,7 @@ impl Workspace {
 
     /// Opens a given URL in the desktop Warp app if installed, or redirects to download page.
     #[cfg(target_family = "wasm")]
-    fn open_link_on_desktop(&mut self, url: &Url, ctx: &mut ViewContext<Self>) {
+    fn open_link_on_desktop(&mut self, url: &url::Url, ctx: &mut ViewContext<Self>) {
         use crate::settings::app_installation_detection::{
             UserAppInstallDetectionSettings, UserAppInstallStatus,
         };

@@ -137,7 +137,6 @@ use itertools::Itertools;
 #[cfg(feature = "integration_tests")]
 pub use persistence::testing as sqlite_testing;
 use settings::{ExtraMetaKeys, PrivacySettings};
-#[cfg(feature = "local_fs")]
 use terminal::input;
 use terminal::session_settings::SessionSettings;
 use url::Url;

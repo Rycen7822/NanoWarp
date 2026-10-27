@@ -31,7 +31,6 @@ pub use noop_command_executor::NoOpCommandExecutor;
 pub use remote_command_executor::RemoteCommandExecutor;
 pub use shared::{ExecutorCommandEvent, shell_escape_single_quotes, shell_quote_arg};
 use warp_completer::completer::CommandOutput;
-#[cfg(feature = "local_tty")]
 use warpui::ModelContext;
 
 use super::SessionInfo;
