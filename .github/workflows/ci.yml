@@ -89,7 +89,8 @@ jobs:
 
   tests:
     name: Run ${{ matrix.name }} tests
-    timeout-minutes: ${{ matrix.os == 'macos' && 60 || 35 }}
+    # Cold macOS builds must finish the serial GUI/shell tests before saving their cache.
+    timeout-minutes: ${{ matrix.os == 'macos' && 90 || 35 }}
     env:
       # These GUI integration fixtures require the former Warp GCP test VM.
       # They remain unverified here; local SSH/daemon unit tests still run.
