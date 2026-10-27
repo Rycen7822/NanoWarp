@@ -52,6 +52,7 @@ impl OpenFileInEditorMethod {
 
 impl<'a> Editor {
     const VSCODE_IDENTIFIER: &'a str = "com.microsoft.VSCode";
+    const TYPORA_IDENTIFIER: &'a str = "abnerworks.Typora";
     const VSCODE_INSIDERS_IDENTIFIER: &'a str = "com.microsoft.VSCodeInsiders";
     const PYCHARM_CE_IDENTIFIER: &'a str = "com.jetbrains.pycharm.ce";
     const INTELLIJ_CE_IDENTIFIER: &'a str = "com.jetbrains.intellij.ce";
@@ -86,6 +87,7 @@ impl<'a> Editor {
     pub fn new_from_identifier(app_identifier: &str) -> Option<Self> {
         match app_identifier {
             Editor::VSCODE_IDENTIFIER => Some(Editor::VSCode),
+            Editor::TYPORA_IDENTIFIER => Some(Editor::Typora),
             Editor::VSCODE_INSIDERS_IDENTIFIER => Some(Editor::VSCodeInsiders),
             Editor::PYCHARM_CE_IDENTIFIER => Some(Editor::PyCharmCE),
             Editor::PYCHARM_IDENTIFIER => Some(Editor::PyCharm),
@@ -116,6 +118,7 @@ impl<'a> Editor {
     ) -> Option<ApplicationBundleInfo<'a>> {
         ctx.application_bundle_info(match self {
             Editor::VSCode => Editor::VSCODE_IDENTIFIER,
+            Editor::Typora => Editor::TYPORA_IDENTIFIER,
             Editor::VSCodeInsiders => Editor::VSCODE_INSIDERS_IDENTIFIER,
             Editor::PyCharmCE => Editor::PYCHARM_CE_IDENTIFIER,
             Editor::PyCharm => Editor::PYCHARM_IDENTIFIER,
@@ -190,6 +193,10 @@ impl<'a> Editor {
             Editor::Atom => (
                 OpenFileInEditorMethod::FromApplicationBundleInfo,
                 vec![full_path_with_line_column],
+            ),
+            Editor::Typora => (
+                OpenFileInEditorMethod::FromApplicationBundleInfo,
+                vec![full_path.to_string_lossy().into_owned()],
             ),
             Editor::Zed => (
                 OpenFileInEditorMethod::AppUrl(Some(Editor::ZED_IDENTIFIER)),

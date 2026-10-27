@@ -472,6 +472,7 @@ impl Editor {
             Sublime => Some(&["sublime-text_subl", "sublime_text"]),
             VSCode => Some(&["code"]),
             VSCodeInsiders => Some(&["code-insiders"]),
+            Typora => Some(&["typora"]),
             WebStorm => Some(&["webstorm", "jetbrains-webstorm"]),
             Windsurf => Some(&["windsurf"]),
             Zed => Some(&["dev.zed.Zed"]),

@@ -40,8 +40,6 @@ pub const SUPPORTED_EDITORS: &[Editor] = &[
     Editor::Sublime3,
     #[cfg(target_os = "macos")]
     Editor::Sublime4,
-    #[cfg(any(target_os = "macos", any(target_os = "linux", target_os = "freebsd")))]
-    // Zed is available on macos and linux
     Editor::Zed,
     #[cfg(any(target_os = "macos", any(target_os = "linux", target_os = "freebsd")))]
     // Zed Preview is available on macos and linux
@@ -55,6 +53,7 @@ pub const SUPPORTED_EDITORS: &[Editor] = &[
     // Cursor *can* run on linux, but does not have a .desktop file
     Editor::Cursor,
     Editor::Windsurf,
+    Editor::Typora,
 ];
 
 #[derive(
@@ -103,6 +102,7 @@ pub enum Editor {
     AndroidStudio,
     Cursor,
     Windsurf,
+    Typora,
 }
 
 impl std::fmt::Display for Editor {
@@ -142,6 +142,7 @@ impl std::fmt::Display for Editor {
                 Editor::RustRoverPreview => "Rust Rover (Preview)",
                 Editor::RustRover => "Rust Rover",
                 Editor::Windsurf => "Windsurf",
+                Editor::Typora => "Typora",
             },
         )
     }
@@ -163,6 +164,7 @@ impl TryFrom<&str> for Editor {
             "code" => Ok(Editor::VSCode),
             "code-insiders" => Ok(Editor::VSCodeInsiders),
             "zed" => Ok(Editor::Zed),
+            "typora" => Ok(Editor::Typora),
             "zed-preview" => Ok(Editor::ZedPreview),
             "cursor" => Ok(Editor::Cursor),
             "windsurf" => Ok(Editor::Windsurf),

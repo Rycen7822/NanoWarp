@@ -18,7 +18,6 @@ use super::Editor;
 static INSTALLED_EDITOR_METADATA: OnceLock<HashMap<Editor, EditorMetadata>> = OnceLock::new();
 
 struct EditorMetadata {
-    #[allow(unused)]
     executable_path: PathBuf,
 }
 
@@ -144,6 +143,8 @@ impl Editor {
             }
             Editor::Cursor => &["62625861-8486-5be9-9e46-1da50df5f8ff"],
             Editor::Windsurf => &["{5A8B7D94-9B5F-4D1F-93FC-5609F7159349}_is1"],
+            Editor::Zed => &["{2DB0DA96-CA55-49BB-AF4F-64AF36A86712}_is1"],
+            Editor::Typora => &["{37771A20-7167-44C0-B322-FD3E54C56156}_is1"],
             _ => &[],
         }
     }
@@ -157,6 +158,12 @@ impl Editor {
                 path_to_executable: Path::new("bin").join("windsurf.exe"),
             }),
             Editor::Cursor => Some(ExecutableLocationMethod::DisplayIcon),
+            Editor::Zed => Some(ExecutableLocationMethod::InstallLocation {
+                path_to_executable: Path::new("bin").join("zed.exe"),
+            }),
+            Editor::Typora => Some(ExecutableLocationMethod::InstallLocation {
+                path_to_executable: PathBuf::from("Typora.exe"),
+            }),
             _ => None,
         }
     }
@@ -192,6 +199,24 @@ impl Editor {
                     .map(LineAndColumnArg::to_string_suffix)
                     .unwrap_or_default();
                 command.arg(format!("windsurf://file/{}{suffix}", full_path.display()));
+                command
+            }
+            Editor::Zed | Editor::Typora => {
+                let metadata = INSTALLED_EDITOR_METADATA
+                    .get_or_init(compute_installed_editors)
+                    .get(self)?;
+                let mut command = Command::new(&metadata.executable_path);
+                if matches!(self, Editor::Zed)
+                    && let Some(line_column_number) = line_column_number
+                {
+                    command.arg(format!(
+                        "{}{}",
+                        full_path.display(),
+                        line_column_number.to_string_suffix()
+                    ));
+                } else {
+                    command.arg(full_path);
+                }
                 command
             }
             _ => return None,
