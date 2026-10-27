@@ -38,11 +38,8 @@ http_server = { path = "crates/http_server" }
 integration = { path = "crates/integration" }
 ipc = { path = "crates/ipc" }
 ipynb_parser = { path = "crates/ipynb_parser" }
-jsonrpc = { path = "crates/jsonrpc" }
 languages = { path = "crates/languages" }
-lsp = { path = "crates/lsp" }
 markdown_parser = { path = "crates/markdown_parser" }
-node_runtime = { path = "crates/node_runtime" }
 persistence = { path = "crates/persistence" }
 prevent_sleep = { path = "crates/prevent_sleep" }
 regex_dfas = { path = "crates/regex_dfas" }

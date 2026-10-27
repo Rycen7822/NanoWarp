@@ -91,7 +91,6 @@ jaq-all.workspace = true
 # process (matched by build-id). This keeps the shipped binary fully
 # strippable.
 jemalloc_pprof = { version = "0.8.1", optional = true }
-lsp-types = "0.97.0"
 indexmap = { version = "2.0.2", features = ["serde"] }
 instant.workspace = true
 ipc.workspace = true
@@ -104,7 +103,6 @@ libc.workspace = true
 line-ending.workspace = true
 log.workspace = true
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
-lsp.workspace = true
 warp_logging.workspace = true
 markdown_parser.workspace = true
 memchr.workspace = true
@@ -477,7 +475,6 @@ local_tty = ["warp_terminal/local_tty"]
 # conditionally include dependencies that should only exist in such
 # environments.
 local_fs = [
-    "lsp/local_fs",
     "persistence/local_fs",
     "repo_metadata/local_fs",
     "warp_core/local_fs",
@@ -555,7 +552,6 @@ file_and_diff_set_comments = []
 classic_completions = []
 native_shell_completions = []
 force_classic_completions = []
-lsp_as_a_tool = []
 new_tab_styling = []
 incremental_auto_reload = []
 directory_tab_colors = []
