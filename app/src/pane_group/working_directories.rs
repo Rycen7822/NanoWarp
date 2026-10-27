@@ -20,8 +20,6 @@ use warpui::{AppContext, SingletonEntity as _};
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, ViewHandle};
 
 use crate::code::buffer_location::LocalOrRemotePath;
-#[cfg(feature = "local_fs")]
-use crate::code::file_tree::FileTreeView;
 use crate::code_review::code_review_view::CodeReviewView;
 use crate::code_review::comments::ReviewCommentBatch;
 use crate::code_review::diff_state::DiffStateModel;
@@ -293,7 +291,6 @@ pub struct WorkingDirectoriesModel {
     /// leaves the pane group's session and returns to it later, even if the auto-selection
     /// logic would otherwise pick a different default.
     selected_review_repo: HashMap<EntityId, LocalOrRemotePath>,
-    file_tree_views: HashMap<EntityId, ViewHandle<FileTreeView>>,
 }
 
 #[derive(Default)]
@@ -513,18 +510,6 @@ impl WorkingDirectoriesModel {
         self.selected_review_repo.remove(&pane_group_id);
     }
 
-    pub fn store_file_tree_view(
-        &mut self,
-        pane_group_id: EntityId,
-        view: ViewHandle<FileTreeView>,
-    ) {
-        self.file_tree_views.insert(pane_group_id, view);
-    }
-
-    pub fn get_file_tree_view(&self, pane_group_id: EntityId) -> Option<ViewHandle<FileTreeView>> {
-        self.file_tree_views.get(&pane_group_id).cloned()
-    }
-
     /// Permanently removes all state associated with a pane group.
     /// This should be called when a tab is closed (pane group is destroyed),
     /// as opposed to handle_empty_pane_group which is called when working directories
@@ -535,7 +520,6 @@ impl WorkingDirectoriesModel {
 
         // Clean up views that should persist in handle_empty_pane_group e.g. there's only a settings pane in the pane group
         // but need to be removed when the pane group is destroyed
-        self.file_tree_views.remove(&pane_group_id);
         self.code_review_views.remove(&pane_group_id);
         self.focused_repo.remove(&pane_group_id);
         self.selected_review_repo.remove(&pane_group_id);
@@ -1001,20 +985,6 @@ impl WorkingDirectoriesModel {
     }
 
     pub fn clear_selected_review_repo(&mut self, _pane_group_id: EntityId) {}
-
-    pub fn store_file_tree_view(
-        &mut self,
-        _pane_group_id: EntityId,
-        _view: ViewHandle<crate::code::file_tree::FileTreeView>,
-    ) {
-    }
-
-    pub fn get_file_tree_view(
-        &self,
-        _pane_group_id: EntityId,
-    ) -> Option<ViewHandle<crate::code::file_tree::FileTreeView>> {
-        None
-    }
 
     pub fn remove_pane_group(&mut self, _pane_group_id: EntityId, _ctx: &mut ModelContext<Self>) {}
 }

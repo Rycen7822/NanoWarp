@@ -7,7 +7,6 @@ mod bootstrapping;
 mod code_review;
 mod copy_current_path;
 mod ctrl_d;
-mod file_tree;
 mod goto_line;
 mod history;
 mod input;
@@ -44,7 +43,6 @@ pub use bootstrapping::*;
 pub use code_review::*;
 pub use copy_current_path::*;
 pub use ctrl_d::*;
-pub use file_tree::*;
 use float_cmp::assert_approx_eq;
 pub use goto_line::*;
 pub use history::*;
@@ -133,7 +131,7 @@ use warp::integration_testing::window::{
     add_and_save_window, add_window, add_window_and_check_bounds, close_window,
     save_active_window_id,
 };
-use warp::integration_testing::workspace::{assert_is_left_panel_open, assert_tab_count};
+use warp::integration_testing::workspace::assert_tab_count;
 use warp::settings::{
     CompletionsOpenWhileTyping, CtrlTabBehavior, INPUT_MODE, MonospaceFontSize,
     NativeShellCompletionsEnabled, TabBehavior,
@@ -460,7 +458,7 @@ pub fn test_open_and_close_theme_creator_modal() -> Builder {
         )
 }
 
-pub fn test_suggestions_menu_positioning() -> Builder {
+pub fn test_suggestions_preserve_input() -> Builder {
     new_builder()
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         // Make sure there are multiple items in the working directory,
@@ -476,61 +474,15 @@ pub fn test_suggestions_menu_positioning() -> Builder {
             new_step_with_default_assertions("Open suggestions")
                 .with_typed_characters(&["ls", " "])
                 .with_keystrokes(&["tab"])
-                .add_named_assertion_with_data_from_prior_step(
-                    "Assert buffer text and save suggestion position",
-                    |app, window_id, step_data| {
-                        let input_view = single_input_view_for_tab(app, window_id, 0);
-                        let outcome = input_view.read(app, |view, ctx| {
-                            view.buffer_text(ctx);
-                            async_assert!(
-                                view.buffer_text(ctx) == *"ls ",
-                                "Input box should contain 'ls '"
-                            )
-                        });
-
-                        app.update(|ctx| {
-                            let presenter = ctx.presenter(window_id).expect("window should exist");
-                            let suggestions_menu_x = presenter
-                                .borrow()
-                                .position_cache()
-                                .get_position("input_suggestions:index_0")
-                                .unwrap()
-                                .origin_x();
-                            step_data.insert("suggestions_menu_x", suggestions_menu_x);
-                        });
-                        outcome
-                    },
-                ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Open Warp Drive")
-                .with_click_on_saved_position("workspace:toggle_left_panel")
-                .add_assertion(assert_is_left_panel_open()),
-        )
-        .with_step(
-            new_step_with_default_assertions("Assert that suggestions menu updated")
-                .add_named_assertion_with_data_from_prior_step(
-                    "Assert suggestions menu shifted to the right",
-                    |app, window_id, step_data| {
-                        app.update(|ctx| {
-                            let presenter = ctx.presenter(window_id).expect("window should exist");
-                            let suggestions_menu_x = presenter
-                                .borrow()
-                                .position_cache()
-                                .get_position("input_suggestions:index_0")
-                                .unwrap()
-                                .origin_x();
-                            assert!(
-                                suggestions_menu_x
-                                    > *step_data
-                                        .get("suggestions_menu_x")
-                                        .expect("data should have been set in earlier step"),
-                                "Suggestions menu should have adjusted rightward"
-                            );
-                        });
-                        AssertionOutcome::Success
-                    },
-                ),
+                .add_assertion(|app, window_id| {
+                    let input_view = single_input_view_for_tab(app, window_id, 0);
+                    input_view.read(app, |view, ctx| {
+                        async_assert!(
+                            view.buffer_text(ctx) == *"ls ",
+                            "Input box should contain 'ls '"
+                        )
+                    })
+                }),
         )
 }
 

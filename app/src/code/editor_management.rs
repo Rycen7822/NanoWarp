@@ -108,8 +108,6 @@ pub enum CodeSource {
         range_start: Option<LineAndColumnArg>,
         range_end: Option<LineAndColumnArg>,
     },
-    /// Opened from file tree (local or remote).
-    FileTree { location: LocalOrRemotePath },
     /// Opened from command palette file search (local or remote).
     CommandPalette { location: LocalOrRemotePath },
     /// Opened from macOS Finder via "Open With".
@@ -122,30 +120,25 @@ impl CodeSource {
             Self::New {
                 default_directory, ..
             } => default_directory.as_ref(),
-            Self::Link { .. }
-            | Self::FileTree { .. }
-            | Self::CommandPalette { .. }
-            | Self::Finder { .. } => None,
+            Self::Link { .. } | Self::CommandPalette { .. } | Self::Finder { .. } => None,
         }
     }
 
     pub fn path(&self) -> Option<PathBuf> {
         match self {
             Self::New { .. } => None,
-            Self::FileTree { location, .. } | Self::CommandPalette { location, .. } => {
-                match location {
-                    LocalOrRemotePath::Local(path) => Some(path.clone()),
-                    LocalOrRemotePath::Remote(_) => None,
-                }
-            }
+            Self::CommandPalette { location, .. } => match location {
+                LocalOrRemotePath::Local(path) => Some(path.clone()),
+                LocalOrRemotePath::Remote(_) => None,
+            },
             Self::Link { path, .. } | Self::Finder { path } => Some(path.clone()),
         }
     }
 
-    /// Returns the `LocalOrRemotePath` for file tree sources.
+    /// Returns the `LocalOrRemotePath` for command palette sources.
     pub fn file_location(&self) -> Option<&LocalOrRemotePath> {
         match self {
-            Self::FileTree { location } | Self::CommandPalette { location } => Some(location),
+            Self::CommandPalette { location } => Some(location),
             _ => None,
         }
     }
@@ -153,14 +146,12 @@ impl CodeSource {
     /// Returns the `LocalOrRemotePath` for any source that has a backing file.
     ///
     /// Unlike `path()` (which only returns local paths) and `file_location()`
-    /// (which only covers `FileTree`), this covers every variant that maps to
+    /// (which only covers `CommandPalette`), this covers every variant that maps to
     /// a file — local or remote.
     pub fn location(&self) -> Option<LocalOrRemotePath> {
         match self {
             Self::New { .. } => None,
-            Self::FileTree { location } | Self::CommandPalette { location } => {
-                Some(location.clone())
-            }
+            Self::CommandPalette { location } => Some(location.clone()),
             Self::Link { path, .. } | Self::Finder { path } => {
                 Some(LocalOrRemotePath::Local(path.clone()))
             }
@@ -183,9 +174,7 @@ impl CodeSource {
     pub fn is_restorable(&self) -> bool {
         !matches!(
             self,
-            Self::FileTree {
-                location: LocalOrRemotePath::Remote(_),
-            } | Self::CommandPalette {
+            Self::CommandPalette {
                 location: LocalOrRemotePath::Remote(_),
             }
         )

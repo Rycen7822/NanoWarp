@@ -541,22 +541,6 @@ fn handle_terminal_view_event(
             Event::OpenFilesPalette { source } => {
                 ctx.emit(pane_group::Event::OpenFilesPalette { source: *source })
             }
-            #[cfg(feature = "local_fs")]
-            Event::FileRenamed { old_path, new_path } => {
-                ctx.emit(pane_group::Event::FileRenamed {
-                    old_path: old_path.clone(),
-                    new_path: new_path.clone(),
-                });
-            }
-            #[cfg(feature = "local_fs")]
-            Event::FileDeleted { path } => {
-                ctx.emit(pane_group::Event::FileDeleted { path: path.clone() });
-            }
-            Event::ToggleLeftPanel { force_open } => {
-                ctx.emit(pane_group::Event::ToggleLeftPanel {
-                    force_open: *force_open,
-                });
-            }
             _ => {}
         }
     } else {

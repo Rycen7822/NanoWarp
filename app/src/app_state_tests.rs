@@ -58,7 +58,7 @@ fn test_code_pane_snapshot_single_tab() {
             path: Some(PathBuf::from("/tmp/test.rs")),
         }],
         active_tab_index: 0,
-        source: Some(CodeSource::FileTree {
+        source: Some(CodeSource::CommandPalette {
             location: crate::code::buffer_location::LocalOrRemotePath::Local(PathBuf::from(
                 "/tmp/test.rs",
             )),
@@ -72,7 +72,7 @@ fn test_code_pane_snapshot_single_tab() {
     assert_eq!(tabs.len(), 1);
     assert_eq!(*active_tab_index, 0);
     assert_eq!(tabs[0].path, Some(PathBuf::from("/tmp/test.rs")));
-    assert!(matches!(source, Some(CodeSource::FileTree { .. })));
+    assert!(matches!(source, Some(CodeSource::CommandPalette { .. })));
 }
 
 #[test]

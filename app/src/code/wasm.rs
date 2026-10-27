@@ -35,10 +35,6 @@ pub enum CodeViewAction {
 #[allow(unused)]
 pub enum CodeViewEvent {
     Pane(PaneEvent),
-    TabChanged {
-        location: Option<LocalOrRemotePath>,
-        tab_index: usize,
-    },
     FileOpened {
         location: LocalOrRemotePath,
         tab_index: usize,

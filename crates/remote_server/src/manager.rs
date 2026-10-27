@@ -2107,8 +2107,8 @@ impl RemoteServerManager {
     /// Sends a `NavigatedToDirectory` request to the remote server for
     /// the given session and returns a future that resolves with the
     /// navigation result on success, or `None` on failure. The
-    /// `NavigatedToDirectory` event is still emitted for other
-    /// subscribers (file tree, etc.).
+    /// `NavigatedToDirectory` event is still emitted for navigation
+    /// observers, including the SSH integration tests.
     ///
     /// Deduplicates: if the same `(session_id, path)` was already requested,
     /// returns the cached result from the last successful navigation instead

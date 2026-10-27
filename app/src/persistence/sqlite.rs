@@ -35,9 +35,9 @@ use super::{
 };
 use crate::app_state::{
     AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, CodeReviewPaneSnapshot,
-    FilePaneSnapshot, LeafContents, LeafSnapshot, LeftPanelSnapshot, PaneFlex, PaneNodeSnapshot,
-    RightPanelSnapshot, SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot,
-    TerminalPaneSnapshot, WindowSnapshot,
+    FilePaneSnapshot, LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, RightPanelSnapshot,
+    SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
+    WindowSnapshot,
 };
 use crate::code::editor_management::CodeSource;
 use crate::persistence::block_list::get_all_restored_blocks;
@@ -510,7 +510,6 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                 origin_y,
                 quake_mode: window.quake_mode,
                 universal_search_width: window.universal_search_width,
-                left_panel_open: Some(window.left_panel_open),
                 vertical_tabs_panel_open: Some(window.vertical_tabs_panel_open),
                 fullscreen_state: window.fullscreen_state as i32,
             };
@@ -608,13 +607,9 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                     parent_pane_node_id: None,
                 });
 
-                if tab.left_panel.is_some() || tab.right_panel.is_some() {
+                if tab.right_panel.is_some() {
                     let new_panel = model::NewPanel {
                         tab_id: *tab_id,
-                        left_panel: tab
-                            .left_panel
-                            .as_ref()
-                            .and_then(|p| serde_json::to_string(p).ok()),
                         right_panel: tab
                             .right_panel
                             .as_ref()
@@ -1173,10 +1168,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                             let root = read_root_node(conn, tab.id).ok()?;
                             let panel = db_panels.get(&tab.id);
 
-                            let left_panel = panel
-                                .and_then(|p| p.left_panel.as_ref())
-                                .and_then(|s| serde_json::from_str::<LeftPanelSnapshot>(s).ok());
-
                             let right_panel = panel
                                 .and_then(|p| p.right_panel.as_ref())
                                 .and_then(|s| serde_json::from_str::<RightPanelSnapshot>(s).ok());
@@ -1202,7 +1193,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                                         )
                                     })
                                     .unwrap_or_default(),
-                                left_panel,
                                 right_panel,
                                 group_id,
                                 pinned: tab.pinned,
@@ -1257,14 +1247,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                         _ => None,
                     };
 
-                    let left_panel_width: Option<f32> =
-                        saved_tabs
-                            .get(tab_index)
-                            .and_then(|tab| match tab.left_panel.as_ref() {
-                                Some(LeftPanelSnapshot { width, .. }) => Some(*width as f32),
-                                _ => None,
-                            });
-
                     let right_panel_width: Option<f32> =
                         saved_tabs
                             .get(tab_index)
@@ -1273,23 +1255,14 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                                 _ => None,
                             });
 
-                    let window_left_panel_open = window.left_panel_open.unwrap_or_else(|| {
-                        saved_tabs
-                            .get(tab_index)
-                            .and_then(|tab| tab.left_panel.as_ref())
-                            .is_some()
-                    });
-
                     WindowSnapshot {
                         tabs: saved_tabs,
                         active_tab_index: tab_index,
                         quake_mode: window.quake_mode,
                         bounds,
                         universal_search_width: window.universal_search_width,
-                        left_panel_open: window_left_panel_open,
                         vertical_tabs_panel_open: window.vertical_tabs_panel_open.unwrap_or(false),
                         fullscreen_state: fullscreen_state_val,
-                        left_panel_width,
                         right_panel_width,
                         tab_groups: tab_groups_snapshots,
                     }

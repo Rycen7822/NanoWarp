@@ -21,7 +21,7 @@ integration_tests! {
     test_unnecessary_resizes,
     test_removing_tabs_out_of_order,
     #[ignore = "Affected by agent_view feature flag UI changes"]
-    test_suggestions_menu_positioning,
+    test_suggestions_preserve_input,
     test_open_and_close_theme_creator_modal,
     #[ignore = "Affected by agent_view feature flag UI changes"]
     test_click_on_prompt_to_focus_input,
@@ -262,12 +262,6 @@ integration_tests! {
 
     test_undo_close_stack_timeout_cleanup,
 
-    test_file_tree_opens_files_in_warp,
-    test_file_tree_open_in_new_pane,
-    test_file_tree_open_in_new_tab,
-    test_file_tree_keyboard_navigation,
-    test_file_tree_non_openable_files,
-    test_file_tree_nested_file_opening,
 
     // Copy current path command-palette action
     test_copy_current_path_copies_terminal_pwd,

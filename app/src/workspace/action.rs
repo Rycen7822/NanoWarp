@@ -293,8 +293,6 @@ pub enum WorkspaceAction {
         cursor_position: Vector2F,
     },
     DropGroup,
-    /// Toggles the left panel as an explicit action from the user.
-    ToggleLeftPanel,
     /// Toggles the right panel. This happens as an explicit action from the user.
     ToggleRightPanel,
     /// Opens the code review panel (right panel) without toggling. If already open,
@@ -392,17 +390,6 @@ pub enum WorkspaceAction {
         window_id: WindowId,
         view_id: EntityId,
     },
-    /// Handle a file being renamed in the file tree
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// Handle a file being deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
-    },
     /// Open a repository directory, selecting a folder when the path is absent.
     OpenRepository {
         path: Option<String>,
@@ -416,9 +403,6 @@ pub enum WorkspaceAction {
     NewCodeFile,
     NavigatePrevPaneOrPanel,
     NavigateNextPaneOrPanel,
-    ToggleProjectExplorer,
-    OpenProjectExplorer,
-    ToggleHiddenFiles,
     /// Take a process sample of the app (equivalent to Activity Monitor > Sample Process).
     #[cfg(target_os = "macos")]
     SampleProcess,
@@ -595,7 +579,6 @@ impl WorkspaceAction {
             | StartTabDrag
             | DragGroup { .. }
             | StartGroupDrag(_)
-            | ToggleLeftPanel
             | ClosePanel
             | ToggleRightPanel
             | OpenCodeReviewPanel(..)
@@ -649,9 +632,6 @@ impl WorkspaceAction {
             | UndoRevertInCodeReviewPane { .. }
             | NavigatePrevPaneOrPanel
             | NavigateNextPaneOrPanel
-            | ToggleProjectExplorer
-            | OpenProjectExplorer
-            | ToggleHiddenFiles
             | OpenLightbox { .. }
             | UpdateLightboxImage { .. }
             | ShowSessionConfigModal
@@ -666,10 +646,6 @@ impl WorkspaceAction {
             ViewLogs => false,
             #[cfg(target_os = "macos")]
             SampleProcess => false,
-            #[cfg(feature = "local_fs")]
-            FileRenamed { .. } => false, // File rename doesn't change workspace state
-            #[cfg(feature = "local_fs")]
-            FileDeleted { .. } => false, // File deletion doesn't change workspace state
             #[cfg(target_os = "linux")]
             DismissWaylandCrashRecoveryBanner => false,
             #[cfg(target_family = "wasm")]

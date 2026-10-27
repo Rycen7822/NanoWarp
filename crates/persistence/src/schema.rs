@@ -124,7 +124,6 @@ diesel::table! {
     panels (id) {
         id -> Integer,
         tab_id -> Integer,
-        left_panel -> Nullable<Text>,
         right_panel -> Nullable<Text>,
     }
 }
@@ -181,7 +180,6 @@ diesel::table! {
         quake_mode -> Bool,
         universal_search_width -> Nullable<Float>,
         fullscreen_state -> Integer,
-        left_panel_open -> Nullable<Bool>,
         vertical_tabs_panel_open -> Nullable<Bool>,
     }
 }

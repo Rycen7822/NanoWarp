@@ -1125,21 +1125,6 @@ pub enum Event {
         target: FileTarget,
         line_col: Option<LineAndColumnArg>,
     },
-    /// Emitted when a file in the file tree is renamed.
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// Emitted when a file in the file tree is deleted.
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
-    },
-    /// Toggle the left panel to the file tree
-    ToggleLeftPanel {
-        force_open: bool,
-    },
     SlowBootstrap,
     ShowToast {
         message: String,
@@ -2420,24 +2405,6 @@ impl TerminalView {
                             );
                         }
                     }
-                    RemoteServerManagerEvent::NavigatedToDirectory {
-                        session_id: nav_session_id,
-                        remote_path,
-                        is_git: _,
-                    } => {
-                        // Repo registration is now handled by the unified
-                        // detect_possible_git_repo callback in BlockMetadataReceived.
-                        // Check if this navigation belongs to our active session
-                        // using exact session_id match (no CWD heuristics).
-                        let is_relevant = me
-                            .active_block_session_id()
-                            .is_some_and(|sid| sid == *nav_session_id);
-                        if is_relevant {
-                            ctx.emit(Event::Pane(PaneEvent::RemoteRepoNavigated {
-                                remote_path: remote_path.clone(),
-                            }));
-                        }
-                    }
                     RemoteServerManagerEvent::HostDisconnected { host_id } => {
                         #[cfg(target_family = "wasm")]
                         let _ = host_id;
@@ -2458,6 +2425,7 @@ impl TerminalView {
                         }
                     }
                     RemoteServerManagerEvent::SessionDisconnected { .. }
+                    | RemoteServerManagerEvent::NavigatedToDirectory { .. }
                     | RemoteServerManagerEvent::ClientRequestFailed { .. }
                     | RemoteServerManagerEvent::ServerMessageDecodingError { .. }
                     | RemoteServerManagerEvent::SessionReconnected { .. }
@@ -3455,16 +3423,6 @@ impl TerminalView {
             self.input
                 .update(ctx, |input, ctx| input.system_insert(characters, ctx));
         }
-    }
-
-    /// Handles a file-tree drag-and-drop onto the terminal by piping the dropped text
-    /// through the same path as user-typed characters for the active command.
-    pub fn handle_file_tree_drop_on_active_command(
-        &mut self,
-        text: &str,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.typed_characters_on_terminal(text, ctx);
     }
 
     fn set_marked_text_on_terminal(
@@ -4655,10 +4613,6 @@ impl TerminalView {
                                     // Re-run app-state propagation now that the remote path
                                     // is known so the active session's working directory catches up.
                                     ctx.emit(Event::AppStateChanged);
-
-                                    ctx.emit(Event::Pane(PaneEvent::RemoteRepoNavigated {
-                                        remote_path: remote_path.clone(),
-                                    }));
 
                                     // Wire up the remote git-status chips when the
                                     // remote repo changed (mirrors the local branch).
@@ -6124,8 +6078,6 @@ impl TerminalView {
         self.input.update(ctx, |input, ctx| {
             input.try_execute_command(&format!("cd {escaped}"), ctx);
         });
-
-        self.toggle_left_panel_file_tree(true, ctx);
     }
 
     fn reset_onboarding_blocks(&mut self) {
@@ -6788,10 +6740,6 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         self.on_pane_state_change(ctx);
-    }
-
-    fn toggle_left_panel_file_tree(&self, force_open: bool, ctx: &mut ViewContext<Self>) {
-        ctx.emit(Event::ToggleLeftPanel { force_open });
     }
 
     /// Adds persistent toast to toast stack.

@@ -150,7 +150,6 @@ fn transferred_tab_workspace(
                 source_window_id: ctx.window_id(),
                 tab_color: None,
                 custom_title: None,
-                left_panel_open: false,
                 vertical_tabs_panel_open,
                 right_panel_open: false,
                 is_right_panel_maximized: false,
@@ -199,71 +198,8 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
                 closed_padding,
                 "Theme chooser should not be treated as a left panel for tab bar padding"
             );
-
-            workspace.open_left_panel(ctx);
-            assert_eq!(
-                workspace.compute_tab_bar_left_padding(ctx),
-                closed_padding,
-                "Open tools panel should still reserve tab bar traffic light padding"
-            );
         });
     });
-}
-
-fn assert_vertical_tabs_tools_panel_preserves_padding(config: HeaderToolbarChipSelection) {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        app.update(|ctx| {
-            TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-                report_if_error!(settings.use_vertical_tabs.set_value(true, ctx));
-                report_if_error!(
-                    settings
-                        .header_toolbar_chip_selection
-                        .set_value(config, ctx)
-                );
-            });
-        });
-
-        let workspace = mock_workspace(&mut app);
-        workspace.update(&mut app, |workspace, ctx| {
-            let closed_padding = workspace.compute_tab_bar_left_padding(ctx);
-            assert!(
-                closed_padding > 0.,
-                "Vertical tabs should reserve traffic light padding"
-            );
-
-            workspace.open_left_panel(ctx);
-            assert_eq!(
-                workspace.compute_tab_bar_left_padding(ctx),
-                closed_padding,
-                "An open tools panel should still reserve traffic light padding in vertical tabs"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_tools_panel_does_not_suppress_vertical_tab_bar_traffic_light_padding() {
-    let _vertical_tabs_guard = FeatureFlag::VerticalTabs.override_enabled(true);
-    for config in [
-        HeaderToolbarChipSelection::Custom {
-            left: vec![],
-            right: vec![
-                HeaderToolbarItemKind::TabsPanel,
-                HeaderToolbarItemKind::ToolsPanel,
-                HeaderToolbarItemKind::CodeReview,
-            ],
-        },
-        HeaderToolbarChipSelection::Custom {
-            left: vec![
-                HeaderToolbarItemKind::TabsPanel,
-                HeaderToolbarItemKind::ToolsPanel,
-            ],
-            right: vec![HeaderToolbarItemKind::CodeReview],
-        },
-    ] {
-        assert_vertical_tabs_tools_panel_preserves_padding(config);
-    }
 }
 
 #[cfg(feature = "local_fs")]
@@ -460,9 +396,7 @@ fn test_worktree_sidecar_close_via_select_item_executes_from_workspace() {
     });
 }
 
-/// Regression test for the agent file-range preview's "Open file" button: the
-/// handler used to zero out `range_start`, so consumers that read the jump
-/// target off the `CodeSource` opened the file at the top.
+/// File-opening events preserve the requested line in the code source.
 #[cfg(feature = "local_fs")]
 #[test]
 fn test_open_file_with_target_event_preserves_requested_line() {
@@ -488,7 +422,7 @@ fn test_open_file_with_target_event_preserves_requested_line() {
 
         workspace.update(&mut app, |workspace, ctx| {
             let pane_group = workspace.active_tab_pane_group().clone();
-            workspace.handle_file_tree_event(
+            workspace.handle_pane_group_event(
                 pane_group,
                 &crate::pane_group::Event::OpenFileWithTarget {
                     path: code_path.clone(),
@@ -1782,232 +1716,6 @@ fn test_close_active_session() {
             assert_eq!(
                 active_session_state(panes, first_terminal_id, ctx),
                 ActiveSessionState::Active
-            );
-        });
-    });
-}
-
-fn set_left_panel_visibility_across_tabs(is_enabled: bool, ctx: &mut ViewContext<Workspace>) {
-    WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
-        window_settings
-            .left_panel_visibility_across_tabs
-            .set_value(is_enabled, ctx)
-            .expect("Failed to update left_panel_visibility_across_tabs setting");
-    });
-}
-
-fn add_settings_tab(workspace: &mut Workspace, ctx: &mut ViewContext<Workspace>) {
-    workspace.add_tab_with_pane_layout(
-        PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-            is_focused: true,
-            custom_vertical_tabs_title: None,
-            contents: LeafContents::Settings(crate::app_state::SettingsPaneSnapshot::Local {
-                current_page: Default::default(),
-                search_query: None,
-            }),
-        }))),
-        Arc::new(HashMap::<PaneUuid, Vec<SerializedBlock>>::new()),
-        None,
-        ctx,
-    );
-}
-
-fn find_terminal_tab_index(workspace: &Workspace, ctx: &AppContext) -> usize {
-    workspace
-        .tabs
-        .iter()
-        .position(|tab| tab.pane_group.as_ref(ctx).has_terminal_panes())
-        .expect("Expected a terminal tab")
-}
-
-fn find_non_following_tab_index(workspace: &Workspace, ctx: &AppContext) -> usize {
-    workspace
-        .tabs
-        .iter()
-        .position(|tab| {
-            !Workspace::should_enable_file_tree_for_pane_group(tab.pane_group.as_ref(ctx))
-        })
-        .expect("Expected a non-following tab")
-}
-
-#[test]
-fn test_left_panel_window_scoped_reconciles_between_terminal_tabs_when_enabled() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(true, ctx);
-
-            workspace.add_terminal_tab(false, ctx);
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            workspace.activate_tab(1, ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            workspace.close_left_panel(ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-        });
-    });
-}
-
-#[test]
-fn test_left_panel_window_scoped_non_following_tab_does_not_reconcile_but_updates_window_state() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(true, ctx);
-
-            // Establish window-scoped desired state = open on a terminal tab.
-            workspace.open_left_panel(ctx);
-            assert!(workspace.left_panel_open);
-
-            // Create a non-following settings tab, which should not auto-open even though
-            // the window state is open.
-            add_settings_tab(workspace, ctx);
-            let non_following_tab_index = find_non_following_tab_index(workspace, ctx);
-            workspace.activate_tab(non_following_tab_index, ctx);
-
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            // User actions in the non-following tab still update window state.
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            workspace.close_left_panel(ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            // The window state should reconcile back onto following tabs.
-            let terminal_tab_index = find_terminal_tab_index(workspace, ctx);
-            workspace.activate_tab(terminal_tab_index, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // But toggling the window state from a following tab should not auto-open the
-            // non-following tab.
-            workspace.open_left_panel(ctx);
-            assert!(workspace.left_panel_open);
-
-            workspace.activate_tab(non_following_tab_index, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-        });
-    });
-}
-
-#[test]
-fn test_left_panel_window_scoped_disabled_keeps_per_tab_state() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(false, ctx);
-
-            workspace.add_terminal_tab(false, ctx);
-
-            // Open left panel on tab 0.
-            workspace.activate_tab(0, ctx);
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // With window scoping disabled, switching tabs should not reconcile the open state.
-            workspace.activate_tab(1, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // Each tab can be toggled independently.
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
             );
         });
     });

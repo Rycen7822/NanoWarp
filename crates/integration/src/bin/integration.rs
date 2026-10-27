@@ -147,7 +147,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_long_running_block_height_updated);
     register_test!(test_unnecessary_resizes);
     register_test!(test_open_and_close_settings);
-    register_test!(test_suggestions_menu_positioning);
+    register_test!(test_suggestions_preserve_input);
     register_test!(test_open_and_close_theme_creator_modal);
     register_test!(test_removing_tabs_out_of_order);
     register_test!(test_ctrl_c);
@@ -399,14 +399,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(make_1000_blocks_memory_benchmark);
 
     register_test!(test_undo_close_stack_timeout_cleanup);
-
-    // File tree tests
-    register_test!(test_file_tree_opens_files_in_warp);
-    register_test!(test_file_tree_open_in_new_pane);
-    register_test!(test_file_tree_open_in_new_tab);
-    register_test!(test_file_tree_keyboard_navigation);
-    register_test!(test_file_tree_non_openable_files);
-    register_test!(test_file_tree_nested_file_opening);
 
     // Copy current path command-palette action
     register_test!(test_copy_current_path_copies_terminal_pwd);

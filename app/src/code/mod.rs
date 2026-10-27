@@ -80,10 +80,8 @@ pub enum SaveOutcome {
     Succeeded,
 }
 
-pub mod file_tree;
 mod icon;
 
-pub mod active_file;
 pub mod opened_files;
 pub(crate) mod persisted_workspace;
 pub use icon::icon_from_file_path;
@@ -94,7 +92,6 @@ pub mod view;
 
 pub fn init(app: &mut AppContext) {
     self::view::init(app);
-    self::file_tree::init(app);
 }
 
 #[derive(Debug)]

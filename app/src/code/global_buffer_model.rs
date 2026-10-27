@@ -850,32 +850,6 @@ impl GlobalBufferModel {
         }
     }
 
-    /// Remap an existing buffer from `old_file_id` to a new path, preserving the buffer
-    /// content and unsaved edits. Re-registers the new path with FileModel.
-    ///
-    /// Used for file rename.
-    #[cfg(feature = "local_fs")]
-    pub fn rename(
-        &mut self,
-        old_file_id: FileId,
-        new_path: PathBuf,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<BufferState> {
-        let old_state = self.buffers.remove(&old_file_id)?;
-        let buffer = old_state.buffer.upgrade(ctx)?;
-
-        self.location_to_id.remove_by_right(&old_file_id);
-
-        // Cancel + unsubscribe old FileId from FileModel.
-        let file_model = FileModel::handle(ctx);
-        file_model.update(ctx, |file_model, ctx| {
-            file_model.cancel(old_file_id);
-            file_model.unsubscribe(old_file_id, ctx);
-        });
-
-        Some(self.register_buffer_for_path(new_path, buffer, old_state.base_content_version(), ctx))
-    }
-
     /// Adopt an existing buffer under a new path without reading from disk.
     /// Used by `save_as` to register a newly-created file with GlobalBufferModel.
     #[cfg(feature = "local_fs")]

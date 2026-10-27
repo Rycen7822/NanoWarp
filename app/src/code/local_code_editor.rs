@@ -624,30 +624,6 @@ impl LocalCodeEditorView {
         self.file_location().and_then(|loc| loc.to_local_path())
     }
 
-    /// Update this editor's file identity after a `GlobalBufferModel::rename`.
-    /// Sets the new file_id and path, re-subscribes to `GlobalBufferModelEvent`,
-    /// and updates the language from the new path.
-    #[cfg(feature = "local_fs")]
-    pub fn apply_rename(
-        &mut self,
-        buffer_state: BufferState,
-        new_path: &Path,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let file_id = buffer_state.file_id;
-        self.metadata = Some(LoadedFileMetadata {
-            id: file_id,
-            location: BufferFileLocation::Local(new_path.to_path_buf()),
-        });
-
-        self.editor.update(ctx, |editor, ctx| {
-            editor.set_language_with_local_path(new_path, ctx);
-        });
-
-        // Re-subscribe to GlobalBufferModel events for the new file_id.
-        Self::subscribe_to_global_buffer_events(file_id, ctx);
-    }
-
     pub fn editor(&self) -> &ViewHandle<CodeEditorView> {
         &self.editor
     }

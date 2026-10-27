@@ -394,7 +394,6 @@ default = [
     "undo_closed_panes",
     "revert_diff_hunk",
     "code_review_save_changes",
-    "file_tree",
     "vim_code_editor",
     "code_launch_modal",
     "allow_ignoring_input_suggestions",
@@ -539,7 +538,6 @@ undo_closed_panes = []
 revert_diff_hunk = []
 code_review_save_changes = []
 remote_code_review = []
-file_tree = []
 code_launch_modal = []
 discard_per_file_and_all_changes = []
 ui_zoom = []

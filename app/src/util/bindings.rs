@@ -92,7 +92,6 @@ pub enum CustomAction {
     ToggleSyncTerminalInputsInCurrentTab,
     DisableSyncTerminalInputs,
     ReopenClosedSession,
-    ToggleLeftPanel,
     AddWindow,
     CloseCurrentSession,
     CloseWindow,
@@ -100,7 +99,6 @@ pub enum CustomAction {
     WindowsPaste,
     #[cfg(windows)]
     WindowsCopy,
-    ToggleProjectExplorer,
     OpenRepository,
     NewTerminalTab,
     GoToLine,
@@ -358,22 +356,8 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
         CustomAction::AddWindow => Keystroke::parse(cmd_or_ctrl_shift("n")).ok(),
-        CustomAction::ToggleLeftPanel => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("cmd-\\").ok()
-            } else {
-                Keystroke::parse("ctrl-shift-|").ok()
-            }
-        }
         CustomAction::CloseWindow => mac_only_keystroke("cmd-shift-W"),
         CustomAction::CloseCurrentSession => Keystroke::parse(cmd_or_ctrl_shift("w")).ok(),
-        CustomAction::ToggleProjectExplorer => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-1").ok()
-            } else {
-                Keystroke::parse("alt-1").ok()
-            }
-        }
         CustomAction::OpenRepository => {
             if OperatingSystem::get().is_mac() {
                 Keystroke::parse("cmd-shift-O").ok()

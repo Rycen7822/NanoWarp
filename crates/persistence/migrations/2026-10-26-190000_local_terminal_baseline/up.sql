@@ -11,7 +11,6 @@ CREATE TABLE windows (
     quake_mode BOOLEAN NOT NULL DEFAULT FALSE,
     universal_search_width FLOAT CHECK (universal_search_width >= 0),
     fullscreen_state INTEGER NOT NULL DEFAULT 0,
-    left_panel_open BOOLEAN,
     vertical_tabs_panel_open BOOLEAN,
     CONSTRAINT Bound_integrity CHECK (
         COALESCE(window_width, window_height, origin_x, origin_y) IS NOT NULL
@@ -120,7 +119,6 @@ CREATE TABLE settings_panes (
 CREATE TABLE panels (
     id INTEGER PRIMARY KEY NOT NULL,
     tab_id INTEGER NOT NULL UNIQUE REFERENCES tabs(id) ON DELETE CASCADE,
-    left_panel TEXT,
     right_panel TEXT
 );
 

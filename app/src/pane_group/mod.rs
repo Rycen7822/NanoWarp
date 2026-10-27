@@ -22,7 +22,6 @@ use warp_terminal::focus_env::add_session_focus_env_vars;
 #[cfg(feature = "local_fs")]
 use warp_util::path::LineAndColumnArg;
 use warp_util::path::convert_wsl_to_windows_host_path;
-use warp_util::remote_path::RemotePath;
 use warpui::elements::{
     ChildView, CrossAxisAlignment, DispatchEventResult, Element, EventHandler, Flex, MainAxisSize,
     ParentElement, Shrinkable,
@@ -45,7 +44,6 @@ use crate::appearance::Appearance;
 use crate::banner::{Banner, BannerEvent, BannerState, BannerTextContent, DismissalType};
 use crate::channel::{Channel, ChannelState};
 use crate::cmd_or_ctrl_shift;
-use crate::code::active_file::ActiveFileModel;
 use crate::code::buffer_location::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -384,9 +382,6 @@ pub enum Event {
     Exited {
         add_to_undo_stack: bool,
     },
-    LeftPanelToggled {
-        is_open: bool,
-    },
     PaneTitleUpdated,
     SendNotification {
         notification: BlockNotification,
@@ -416,10 +411,6 @@ pub enum Event {
     ToggleCodeReviewPane(CodeReviewPanelArg),
     /// Dirty the workspace so the tab indicator shows.
     MaximizePaneToggled,
-    /// A remote server resolved the repo root for a session in this pane group.
-    RemoteRepoNavigated {
-        remote_path: RemotePath,
-    },
     /// Refresh the workspace-level active session state.
     ActiveSessionChanged,
     FocusPaneGroup,
@@ -494,33 +485,13 @@ pub enum Event {
     OpenFilesPalette {
         source: PaletteSource,
     },
-    ToggleLeftPanel {
-        force_open: bool,
-    },
     #[cfg(feature = "local_fs")]
     OpenFileWithTarget {
         path: PathBuf,
         target: FileTarget,
         line_col: Option<LineAndColumnArg>,
     },
-    /// File was renamed in the file tree
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// File was deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
-    },
     RepoChanged,
-    CDToDirectory {
-        path: PathBuf,
-    },
-    OpenDirectoryInNewTab {
-        path: PathBuf,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -638,12 +609,6 @@ pub struct PaneGroup {
     dragged_border: Option<DraggedBorder>,
     user_default_shell_changed_banner: ViewHandle<Banner<PaneGroupAction>>,
 
-    /// Model that tracks the currently active file.
-    active_file_model: ModelHandle<ActiveFileModel>,
-    /// If there is an open summarization cancel dialog, the terminal pane ID where summarization is active.
-
-    /// If the left panel is open for this pane group
-    pub left_panel_open: bool,
     /// If the right panel is open for this pane group
     pub right_panel_open: bool,
     /// If the right panel is maximized
@@ -817,10 +782,6 @@ impl PaneGroup {
         self.pane_contents
             .keys()
             .any(|pane_id| pane_id.is_code_pane())
-    }
-
-    pub fn active_file_model(&self) -> &ModelHandle<ActiveFileModel> {
-        &self.active_file_model
     }
 
     pub fn smart_split_direction(
@@ -1722,8 +1683,6 @@ impl PaneGroup {
             me.discard_pane(*pane_id, ctx);
         });
 
-        let active_file_model = ctx.add_model(|_| ActiveFileModel::new());
-
         let mut pane_group = Self {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
@@ -1734,9 +1693,7 @@ impl PaneGroup {
             pane_contents,
             dragged_border: None,
             user_default_shell_changed_banner,
-            active_file_model,
             right_panel_open: false,
-            left_panel_open: false,
             is_right_panel_maximized: false,
             custom_title: None,
         };
@@ -1985,14 +1942,6 @@ impl PaneGroup {
                 config.set_dim_even_if_focused(dim_even_if_focused, ctx);
             });
         }
-    }
-
-    pub fn set_left_panel_open(&mut self, is_open: bool, ctx: &mut ViewContext<Self>) {
-        if self.left_panel_open != is_open {
-            self.left_panel_open = is_open;
-            ctx.emit(Event::LeftPanelToggled { is_open });
-        }
-        ctx.notify();
     }
 
     pub fn focus_first_pane(&mut self, ctx: &mut ViewContext<Self>) -> bool {
@@ -2405,7 +2354,7 @@ impl PaneGroup {
         use crate::pane_group::CodePane;
 
         // Use the provided source if available, or construct from the path.
-        let source = source.unwrap_or(CodeSource::FileTree { location: path });
+        let source = source.unwrap_or(CodeSource::CommandPalette { location: path });
 
         let code_pane = CodePane::new(source, None, ctx);
         // Seed the restored scroll before the pane attaches and lays out. The fraction is consumed
@@ -2480,11 +2429,6 @@ impl PaneGroup {
             }
             PaneEvent::RepoChanged => {
                 ctx.emit(Event::RepoChanged);
-            }
-            PaneEvent::RemoteRepoNavigated { remote_path } => {
-                ctx.emit(Event::RemoteRepoNavigated {
-                    remote_path: remote_path.clone(),
-                });
             }
         }
     }

@@ -88,6 +88,7 @@ use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusEvent, GitR
 use crate::code_review::github_repo_model::{GitHubRepoEvent, GitHubRepoModel};
 use crate::code_review::hidden_lines::calculate_hidden_lines;
 use crate::code_review::{CurrentHead, DiffBase};
+#[cfg(not(target_family = "wasm"))]
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::editor::InteractionState;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
@@ -384,7 +385,7 @@ impl Default for UiStateHandles {
     }
 }
 
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
+#[cfg(not(target_family = "wasm"))]
 struct GitSessionState {
     enablement: CodingPanelEnablementState,
 }
@@ -2448,9 +2449,7 @@ impl CodeReviewView {
             let is_wsl = session.as_ref().map(|s| s.is_wsl()).unwrap_or(false);
 
             let enablement = if is_remote {
-                CodingPanelEnablementState::RemoteSession {
-                    has_remote_server: false,
-                }
+                CodingPanelEnablementState::RemoteSession
             } else if is_wsl {
                 CodingPanelEnablementState::UnsupportedSession
             } else {
@@ -2479,7 +2478,7 @@ impl CodeReviewView {
         let open_repo_button = || Some(ChildView::new(&self.open_repository_button).finish());
         match self.session_env(app) {
             Some(GitSessionState {
-                enablement: CodingPanelEnablementState::RemoteSession { .. },
+                enablement: CodingPanelEnablementState::RemoteSession,
             }) => {
                 // No "Open repository" CTA when the session is remote — the
                 // button navigates to a local folder, which is not meaningful
@@ -2491,10 +2490,7 @@ impl CodeReviewView {
             }) => Self::render_wsl_state(appearance, open_repo_button()),
             None
             | Some(GitSessionState {
-                enablement:
-                    CodingPanelEnablementState::Enabled
-                    | CodingPanelEnablementState::PendingRemoteSession
-                    | CodingPanelEnablementState::Disabled,
+                enablement: CodingPanelEnablementState::Enabled,
             }) => Self::render_not_repo_state(appearance, open_repo_button()),
         }
     }

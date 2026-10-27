@@ -159,10 +159,6 @@ pub enum CodeViewAction {
 #[derive(Debug, Clone)]
 pub enum CodeViewEvent {
     Pane(PaneEvent),
-    TabChanged {
-        location: Option<LocalOrRemotePath>,
-        tab_index: usize,
-    },
     FileOpened {
         location: LocalOrRemotePath,
         tab_index: usize,
@@ -1097,88 +1093,6 @@ impl CodeView {
         self.active_tab_index = index;
         self.update_tab_bar_state(ctx);
 
-        let location = self.tab_at(index).and_then(|tab| tab.location.clone());
-        ctx.emit(CodeViewEvent::TabChanged {
-            location,
-            tab_index: index,
-        });
-
-        ctx.notify();
-    }
-
-    /// Close all tabs with the specified file path.
-    /// Used when a file is renamed to prevent saving to the old path.
-    pub fn close_tabs_with_path(&mut self, file_path: &Path, ctx: &mut ViewContext<Self>) {
-        let mut indices_to_remove = Vec::new();
-        for (tab_idx, tab) in self.tab_group.iter().enumerate() {
-            if tab.local_path().is_some_and(|path| path == file_path) {
-                indices_to_remove.push(tab_idx);
-            }
-        }
-        // Remove tabs in reverse order to maintain indices
-        for &tab_idx in indices_to_remove.iter().rev() {
-            self.remove_tab_data_index(tab_idx, ctx);
-        }
-    }
-
-    /// Update any tabs opened to `old_path` so they now point to `new_path`,
-    /// preserving any unsaved edits.
-    pub fn rename_tabs_with_path(
-        &mut self,
-        old_path: &Path,
-        new_path: &Path,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        for tab in self.tab_group.iter_mut() {
-            if tab.local_path().is_some_and(|path| path == old_path) {
-                tab.location = Some(LocalOrRemotePath::Local(new_path.to_path_buf()));
-                tab.editor_view.update(ctx, |editor, ctx| {
-                    let was_unsaved = editor.has_unsaved_changes(ctx);
-
-                    // Remap the buffer from old_path to new_path via GlobalBufferModel,
-                    // preserving buffer content and unsaved edits.
-                    if let Some(old_file_id) = editor.file_id() {
-                        let buffer_state = GlobalBufferModel::handle(ctx).update(
-                            ctx,
-                            |model, ctx| {
-                                model.rename(old_file_id, new_path.to_path_buf(), ctx)
-                            },
-                        );
-                        if let Some(buffer_state) = buffer_state {
-                            editor.apply_rename(buffer_state, new_path, ctx);
-                        }
-                    }
-
-                    if was_unsaved {
-                        let summary = UnsavedStateSummary::for_editor_tab(
-                            Some(new_path.file_name().unwrap().to_string_lossy().to_string()),
-                            vec![CodeEditorStatus::new(true)], /* editor_status(unsaved_changes=true) */
-                            ctx,
-                        );
-
-                        let on_save = {
-                            let handle = ctx.handle().clone();
-                            move |ctx: &mut AppContext| {
-                                if let Some(view) = handle.upgrade(ctx) {
-                                    view.update(ctx, |editor, ctx| {
-                                        let _ = editor.save_local(ctx);
-                                    });
-                                }
-                            }
-                        };
-
-                        summary
-                            .dialog()
-                            .on_save_changes(on_save)
-                            .on_discard_changes(|_| {})
-                            .show(ctx);
-                    }
-                });
-            }
-        }
-
-        self.update_tab_bar_state(ctx);
-        self.set_title_after_content_update(ctx);
         ctx.notify();
     }
 

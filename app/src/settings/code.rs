@@ -17,24 +17,6 @@ define_settings_group!(CodeSettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         private: true,
     },
-    // Controls whether the project explorer / file tree appears in the tools panel.
-    show_project_explorer: ShowProjectExplorer {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: false,
-        toml_path: "code.editor.show_project_explorer",
-        description: "Whether the project explorer is shown in the tools panel.",
-    },
-    // Controls whether hidden files (dotfiles) are shown in the project explorer.
-    show_hidden_files: ShowHiddenFiles {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: false,
-        toml_path: "code.editor.show_hidden_files",
-        description: "Whether hidden files (dotfiles) are shown in the project explorer.",
-    },
     // Controls whether the Warp text editor automatically saves file changes as the
     // user types (debounced) and when the editor loses focus. Only applies to the
     // Warp text editor, not the command line.

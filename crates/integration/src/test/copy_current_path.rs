@@ -5,28 +5,13 @@ use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::tab::assert_pane_title;
 use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
 use warp::integration_testing::view_getters::{pane_group_view, workspace_view};
-use warp::workspace::WorkspaceAction;
+use warp::util::openable_file_type::{EditorLayout, FileTarget};
+use warp::workspace::CodeSource;
+use warpui_core::async_assert_eq;
 use warpui_core::integration::{AssertionOutcome, TestStep};
-use warpui_core::{App, async_assert_eq};
 
 use super::{Builder, new_builder};
 use crate::util::write_all_rc_files_for_test;
-
-fn open_file_tree_panel(app: &mut App) {
-    let window_id = app.read(|ctx| {
-        ctx.windows()
-            .active_window()
-            .expect("should have active window")
-    });
-    let workspace = workspace_view(app, window_id);
-    app.update(|ctx| {
-        ctx.dispatch_typed_action_for_view(
-            window_id,
-            workspace.id(),
-            &WorkspaceAction::ToggleProjectExplorer,
-        );
-    });
-}
 
 /// Running the "Copy current path" command-palette action while a regular terminal is focused
 /// copies the focused session's working directory to the clipboard.
@@ -83,12 +68,30 @@ pub fn test_copy_current_path_copies_code_editor_file_path() -> Builder {
         })
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(
-            new_step_with_default_assertions("Open file tree panel")
-                .with_action(|app, _, _| open_file_tree_panel(app)),
-        )
-        .with_step(
-            new_step_with_default_assertions("Click on copy_path_test.txt in file tree")
-                .with_click_on_saved_position("file_tree_item:copy_path_test.txt")
+            new_step_with_default_assertions("Open copy_path_test.txt in editor")
+                .with_action(|app, window_id, _| {
+                    let pane_group = pane_group_view(app, window_id, 0);
+                    let path = pane_group.read(app, |group, ctx| {
+                        let pwd = group
+                            .focused_session_view(ctx)
+                            .and_then(|terminal| terminal.as_ref(ctx).pwd())
+                            .expect("focused terminal should have a working directory");
+                        std::path::PathBuf::from(pwd).join("copy_path_test.txt")
+                    });
+                    workspace_view(app, window_id).update(app, |workspace, ctx| {
+                        workspace.open_file_with_target(
+                            path.clone(),
+                            FileTarget::CodeEditor(EditorLayout::SplitPane),
+                            None,
+                            CodeSource::Link {
+                                path,
+                                range_start: None,
+                                range_end: None,
+                            },
+                            ctx,
+                        );
+                    });
+                })
                 .add_assertion(|app, window_id| {
                     let pane_group = pane_group_view(app, window_id, 0);
                     pane_group.read(app, |pane_group, _ctx| {

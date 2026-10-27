@@ -271,7 +271,6 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
             }),
             default_directory_color: None,
             selected_color: SelectedTabColor::default(),
-            left_panel: None,
             right_panel: None,
             group_id: None,
             pinned: false,
@@ -281,9 +280,7 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
         fullscreen_state: Default::default(),
         quake_mode: false,
         universal_search_width: None,
-        left_panel_open: false,
         vertical_tabs_panel_open,
-        left_panel_width: None,
         right_panel_width: None,
         tab_groups: vec![],
     }
@@ -348,7 +345,6 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
                 }),
                 default_directory_color: None,
                 selected_color: SelectedTabColor::default(),
-                left_panel: None,
                 right_panel: None,
                 group_id: None,
                 pinned: false,
@@ -358,9 +354,7 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
             fullscreen_state: Default::default(),
             quake_mode: false,
             universal_search_width: None,
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
-            left_panel_width: None,
             right_panel_width: None,
             tab_groups: vec![],
         }],
@@ -412,7 +406,7 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
                             CodePaneTabSnapshot { path: None },
                         ],
                         active_tab_index: 1,
-                        source: Some(CodeSource::FileTree {
+                        source: Some(CodeSource::CommandPalette {
                             location: crate::code::buffer_location::LocalOrRemotePath::Local(
                                 PathBuf::from("/tmp/main.rs"),
                             ),
@@ -421,7 +415,6 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
                 }),
                 default_directory_color: None,
                 selected_color: SelectedTabColor::default(),
-                left_panel: None,
                 right_panel: None,
                 group_id: None,
                 pinned: false,
@@ -431,9 +424,7 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
             fullscreen_state: Default::default(),
             quake_mode: false,
             universal_search_width: None,
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
-            left_panel_width: None,
             right_panel_width: None,
             tab_groups: vec![],
         }],
@@ -468,7 +459,7 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
     assert_eq!(tabs[0].path, Some(PathBuf::from("/tmp/main.rs")));
     assert_eq!(tabs[1].path, Some(PathBuf::from("/tmp/lib.rs")));
     assert_eq!(tabs[2].path, None);
-    assert!(matches!(source, Some(CodeSource::FileTree { .. })));
+    assert!(matches!(source, Some(CodeSource::CommandPalette { .. })));
 }
 
 /// Verifies that a tab group and its membership round-trip through save/restore.
@@ -497,7 +488,6 @@ fn test_sqlite_round_trips_tab_groups() {
         }),
         default_directory_color: None,
         selected_color: SelectedTabColor::default(),
-        left_panel: None,
         right_panel: None,
         group_id: Some(group_id),
         pinned: false,
@@ -520,7 +510,6 @@ fn test_sqlite_round_trips_tab_groups() {
         }),
         default_directory_color: None,
         selected_color: SelectedTabColor::default(),
-        left_panel: None,
         right_panel: None,
         group_id: None,
         pinned: false,
@@ -534,9 +523,7 @@ fn test_sqlite_round_trips_tab_groups() {
             fullscreen_state: Default::default(),
             quake_mode: false,
             universal_search_width: None,
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
-            left_panel_width: None,
             right_panel_width: None,
             tab_groups: vec![TabGroupSnapshot {
                 id: group_id,
@@ -605,7 +592,6 @@ fn test_sqlite_round_trips_pinned_state() {
         }),
         default_directory_color: None,
         selected_color: SelectedTabColor::default(),
-        left_panel: None,
         right_panel: None,
         group_id: None,
         pinned: true,
@@ -628,7 +614,6 @@ fn test_sqlite_round_trips_pinned_state() {
         }),
         default_directory_color: None,
         selected_color: SelectedTabColor::default(),
-        left_panel: None,
         right_panel: None,
         group_id: Some(unpinned_group_id),
         pinned: false,
@@ -651,7 +636,6 @@ fn test_sqlite_round_trips_pinned_state() {
         }),
         default_directory_color: None,
         selected_color: SelectedTabColor::default(),
-        left_panel: None,
         right_panel: None,
         group_id: Some(pinned_group_id),
         pinned: false,
@@ -665,9 +649,7 @@ fn test_sqlite_round_trips_pinned_state() {
             fullscreen_state: Default::default(),
             quake_mode: false,
             universal_search_width: None,
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
-            left_panel_width: None,
             right_panel_width: None,
             tab_groups: vec![
                 TabGroupSnapshot {

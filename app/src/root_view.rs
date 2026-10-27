@@ -382,7 +382,6 @@ pub fn create_transferred_window(
                     source_window_id,
                     tab_color: transferred_tab.color,
                     custom_title: transferred_tab.custom_title.clone(),
-                    left_panel_open: transferred_tab.left_panel_open,
                     vertical_tabs_panel_open: transferred_tab.vertical_tabs_panel_open,
                     right_panel_open: transferred_tab.right_panel_open,
                     is_right_panel_maximized: transferred_tab.is_right_panel_maximized,
@@ -1029,8 +1028,6 @@ pub enum NewWorkspaceSource {
         tab_color: Option<AnsiColorIdentifier>,
         /// Custom title from the source tab
         custom_title: Option<String>,
-        /// Whether the left panel was open in the source tab
-        left_panel_open: bool,
         /// Captured from the source window so detached tabs inherit the panel state.
         vertical_tabs_panel_open: bool,
         /// Whether the right panel was open in the source tab

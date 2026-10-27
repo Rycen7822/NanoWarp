@@ -1,7 +1,6 @@
 use crate::palette::PaletteSource;
 #[cfg(enable_crash_recovery)]
 mod crash_recovery;
-pub(crate) mod left_panel;
 pub(crate) mod right_panel;
 mod startup_directory;
 mod tab_grouping;
@@ -38,8 +37,6 @@ use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 #[cfg(feature = "local_fs")]
-use repo_metadata::RemoteRepositoryIdentifier;
-#[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
 use serde_json;
 use warp_core::context_flag::ContextFlag;
@@ -56,8 +53,6 @@ use warpui::accessibility::{
     AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, WarpA11yRole,
 };
 use warpui::clipboard::ClipboardContent;
-#[cfg(target_family = "wasm")]
-use warpui::elements::Percentage;
 use warpui::elements::{
     Align, Border, CacheOption, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Dismiss, DispatchEventResult, DragAxis, Draggable,
@@ -108,9 +103,8 @@ use super::util::{
 use super::{ActiveSession, TabBarDropTargetData, TabBarLocation, WorkspaceRegistry, util};
 use crate::GlobalResourceHandles;
 use crate::app_state::{
-    FilePaneSnapshot, LeafContents, LeafSnapshot, LeftPanelDisplayedTab, LeftPanelSnapshot,
-    PaneNodeSnapshot, PaneUuid, RightPanelSnapshot, SettingsPaneSnapshot, TabGroupSnapshot,
-    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    FilePaneSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid, RightPanelSnapshot,
+    SettingsPaneSnapshot, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::appearance::{Appearance, AppearanceManager};
 use crate::banner::BannerState;
@@ -123,7 +117,6 @@ use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::code_review::GlobalCodeReviewModel;
 use crate::code_review::diff_state::DiffStateModel;
-use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::context_chips::ChipRuntimeCapabilities;
 use crate::default_terminal::DefaultTerminal;
 use crate::editor::{
@@ -150,7 +143,6 @@ use crate::prompt::editor_modal::{
     EditorModal as PromptEditorModal, EditorModalEvent as PromptEditorModalEvent,
 };
 use crate::quit_warning::UnsavedStateSummary;
-use crate::remote_server::manager::RemoteServerManager;
 use crate::resource_center::{
     ResourceCenterEvent, ResourceCenterPage, ResourceCenterView, Tip, TipAction, TipsCompleted,
     mark_feature_used_and_write_to_user_defaults, skip_tips_and_write_to_user_defaults,
@@ -165,9 +157,9 @@ use crate::search::{self, QueryFilter};
 use crate::session_management::{SessionNavigationData, SessionSource, TabNavigationData};
 use crate::settings::{
     AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
-    CodeSettings, CodeSettingsChangedEvent, CtrlTabBehavior, CursorBlink, DebugSettings,
-    FontSettings, GPUSettings, InputSettings, MonospaceFontSize, PaneSettings, SelectionSettings,
-    SshSettings, ThemeSettings, active_theme_kind, respect_system_theme,
+    CodeSettings, CtrlTabBehavior, CursorBlink, DebugSettings, FontSettings, GPUSettings,
+    InputSettings, MonospaceFontSize, PaneSettings, SelectionSettings, SshSettings, ThemeSettings,
+    active_theme_kind, respect_system_theme,
 };
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::settings_view::pane_manager::SettingsPaneManager;
@@ -203,9 +195,9 @@ use crate::terminal::model::escape_sequences::C0;
 #[cfg(feature = "local_fs")]
 use crate::terminal::model::session::Session;
 use crate::terminal::model::session::SessionId;
-use crate::terminal::resizable_data::{
-    DEFAULT_LEFT_PANEL_WIDTH, DEFAULT_RIGHT_PANEL_WIDTH, ModalSizes, ModalType, ResizableData,
-};
+#[cfg(feature = "local_fs")]
+use crate::terminal::resizable_data::ModalType;
+use crate::terminal::resizable_data::{DEFAULT_RIGHT_PANEL_WIDTH, ModalSizes, ResizableData};
 use crate::terminal::safe_mode_settings::SafeModeSettings;
 use crate::terminal::session_settings::{
     NewSessionSource, NotificationsMode, NotificationsSettings, SessionSettings,
@@ -261,9 +253,6 @@ use crate::workspace::tab_group::{TabGroup, TabGroupId};
 use crate::workspace::tab_settings::TabCloseButtonPosition;
 use crate::workspace::toast_stack::{
     ToastStack, ToastStack as WorkspaceToastStack, ToastStackEvent as WorkspaceToastStackEvent,
-};
-use crate::workspace::view::left_panel::{
-    LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
 };
 use crate::workspace::view::right_panel::{RightPanelEvent, RightPanelView};
 
@@ -350,8 +339,6 @@ const NEW_SESSION_SIDECAR_FOOTER_VERTICAL_PADDING: f32 = 8.;
 const SHOW_SETTINGS_KEYBINDING_NAME: &str = "workspace:show_settings";
 pub const TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME: &str = "workspace:toggle_command_palette";
 
-// these won't have to be public after we deprecate the code mode v1 project explorer which is defined in terminal
-pub(crate) const TOGGLE_PROJECT_EXPLORER_BINDING_NAME: &str = "workspace:toggle_project_explorer";
 pub(crate) const TOGGLE_RIGHT_PANEL_BINDING_NAME: &str = "workspace:toggle_right_panel";
 pub(crate) const TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME: &str =
     "workspace:toggle_vertical_tabs_panel";
@@ -361,20 +348,11 @@ pub(crate) const NEW_FILE_BINDING_NAME: &str = "workspace:new_file";
 pub(crate) const NEW_WINDOW_BINDING_NAME: &str = "workspace:new_window";
 pub(crate) const TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME: &str = "workspace:toggle_tab_configs_menu";
 
-// Editable left panel toolbelt keybindings.
-pub(crate) const LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME: &str =
-    "workspace:left_panel_project_explorer";
-
 const KEYBINDINGS_TO_CACHE: [&str; 3] = [
     TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME,
     SHOW_SETTINGS_KEYBINDING_NAME,
     TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME,
 ];
-
-#[cfg(target_family = "wasm")]
-const MOBILE_OVERLAY_PANEL_WIDTH_RATIO: f32 = 0.9;
-#[cfg(target_family = "wasm")]
-const MOBILE_OVERLAY_SCRIM_ALPHA: u8 = 128;
 
 pub const NEW_TAB_BUTTON_POSITION_ID: &str = "new_tab_button";
 pub const NEW_SESSION_MENU_BUTTON_POSITION_ID: &str = "new_session_menu_button";
@@ -420,7 +398,6 @@ enum PanePanelDirection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusRegion {
-    LeftPanel,
     PaneGroup,
     RightPanel,
     Other,
@@ -538,7 +515,6 @@ pub struct TransferredTab {
     pub pane_group: ViewHandle<PaneGroup>,
     pub color: Option<AnsiColorIdentifier>,
     pub custom_title: Option<String>,
-    pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
     pub right_panel_open: bool,
     pub is_right_panel_maximized: bool,
@@ -645,11 +621,8 @@ pub struct Workspace {
     wasm_nux_dialog: ViewHandle<WasmNUXDialog>,
 
     file_upload_sessions: FileUploadSessions,
-    left_panel_open: bool,
     vertical_tabs_panel_open: bool,
     vertical_tabs_panel: VerticalTabsPanelState,
-    left_panel_view: ViewHandle<LeftPanelView>,
-    left_panel_views: Vec<ToolPanelView>,
     right_panel_view: ViewHandle<RightPanelView>,
     working_directories_model: ModelHandle<pane_group::WorkingDirectoriesModel>,
     lightbox_view: Option<ViewHandle<LightboxView>>,
@@ -1685,13 +1658,13 @@ impl Workspace {
         let window_id = ctx.window_id();
         let has_horizontal_split = workspace_setting.has_horizontal_split();
 
-        let (left_panel_size, right_panel_size) =
-            compute_default_panel_widths(ctx, window_id, has_horizontal_split);
+        let right_panel_size =
+            compute_default_right_panel_width(ctx, window_id, has_horizontal_split);
         let new_resizable_modal_sizes = match workspace_setting.clone() {
             NewWorkspaceSource::Restored {
                 window_snapshot, ..
-            } => ModalSizes::from_restored(&window_snapshot, left_panel_size, right_panel_size),
-            _ => ModalSizes::default_with_panel_defaults(left_panel_size, right_panel_size),
+            } => ModalSizes::from_restored(&window_snapshot, right_panel_size),
+            _ => ModalSizes::default_with_panel_defaults(right_panel_size),
         };
         resizable_data.update(ctx, |model, _| {
             model.insert(window_id, new_resizable_modal_sizes)
@@ -1772,20 +1745,6 @@ impl Workspace {
         let working_directories_model =
             ctx.add_model(|_| pane_group::WorkingDirectoriesModel::new());
 
-        let left_panel_views = Self::compute_left_panel_views(ctx);
-
-        let left_panel_view = ctx.add_typed_action_view(|ctx| {
-            LeftPanelView::new(
-                working_directories_model.clone(),
-                left_panel_views.clone(),
-                ctx,
-            )
-        });
-
-        ctx.subscribe_to_view(&left_panel_view, |me, _, event, ctx| {
-            me.handle_left_panel_event(event, ctx);
-        });
-
         let right_panel_view = ctx.add_typed_action_view(|ctx| {
             RightPanelView::new(working_directories_model.clone(), ctx)
         });
@@ -1807,13 +1766,6 @@ impl Workspace {
         let tab_settings_handle = TabSettings::handle(ctx);
         ctx.subscribe_to_model(&tab_settings_handle, |me, _, event, ctx| {
             me.handle_tab_settings_change(event, ctx)
-        });
-
-        ctx.subscribe_to_model(&CodeSettings::handle(ctx), |me, _, event, ctx| {
-            if matches!(event, CodeSettingsChangedEvent::ShowProjectExplorer { .. }) {
-                me.update_left_panel_available_views(ctx);
-                ctx.notify();
-            }
         });
 
         let toast_stack =
@@ -1894,11 +1846,8 @@ impl Workspace {
             tab_bar_pinned_by_popup: false,
             native_modal,
             file_upload_sessions: Default::default(),
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
             vertical_tabs_panel: Default::default(),
-            left_panel_view,
-            left_panel_views,
             right_panel_view,
             working_directories_model,
 
@@ -2231,7 +2180,6 @@ impl Workspace {
                 block_lists,
             } => {
                 let active_tab_index = window_snapshot.active_tab_index;
-                let restored_left_panel_open = window_snapshot.left_panel_open;
 
                 // Restore groups first so per-tab `group_id` assignments
                 // below can validate membership against a populated map.
@@ -2285,10 +2233,6 @@ impl Workspace {
 
                         let pane_group = self.tabs[tab_index].pane_group.clone();
 
-                        if let Some(left_panel_snapshot) = &saved_tab.left_panel {
-                            self.restore_left_panel_for_tab(&pane_group, left_panel_snapshot, ctx);
-                        }
-
                         if let Some(right_panel_snapshot) = &saved_tab.right_panel {
                             self.restore_right_panel_for_tab(
                                 &pane_group,
@@ -2308,8 +2252,6 @@ impl Workspace {
                         false, /* hide_homepage */
                         ctx,
                     );
-                } else if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = restored_left_panel_open;
                 }
 
                 self.activate_tab_internal(active_tab_index, ctx);
@@ -2332,7 +2274,6 @@ impl Workspace {
             NewWorkspaceSource::TransferredTab {
                 tab_color,
                 custom_title,
-                left_panel_open,
                 right_panel_open,
                 is_right_panel_maximized,
                 is_tab_drag_preview,
@@ -2348,9 +2289,6 @@ impl Workspace {
                 if let (Some(color), Some(tab)) = (tab_color, self.tabs.last_mut()) {
                     tab.selected_color = SelectedTabColor::Color(color);
                 }
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = left_panel_open;
-                }
                 if right_panel_open {
                     self.right_panel_view.update(ctx, |rp, ctx| {
                         rp.set_maximized(is_right_panel_maximized, ctx);
@@ -2363,7 +2301,6 @@ impl Workspace {
             NewWorkspaceSource::TransferredTab {
                 tab_color,
                 custom_title,
-                left_panel_open,
                 is_tab_drag_preview,
                 ..
             } => {
@@ -2377,9 +2314,6 @@ impl Workspace {
                 if let (Some(color), Some(tab)) = (tab_color, self.tabs.last_mut()) {
                     tab.selected_color = SelectedTabColor::Color(color);
                 }
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = left_panel_open;
-                }
                 self.pending_pane_group_transfer = true;
             }
         };
@@ -2388,16 +2322,6 @@ impl Workspace {
             self.tab_count() > 0,
             "Workspace should have at least one tab upon configuration"
         );
-
-        if self.left_panel_visibility_across_tabs_enabled(ctx) {
-            self.reconcile_left_panel_open_for_active_tab(ctx);
-        }
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        let working_directories_model = self.working_directories_model.clone();
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.set_active_pane_group(active_pane_group, &working_directories_model, ctx);
-        });
     }
 
     fn initial_vertical_tabs_panel_open(
@@ -2429,35 +2353,6 @@ impl Workspace {
             | NewWorkspaceSource::Session { .. }
             | NewWorkspaceSource::NotebookFromFilePath { .. } => should_default_open,
         }
-    }
-
-    fn restore_left_panel_for_tab(
-        &mut self,
-        pane_group: &ViewHandle<PaneGroup>,
-        left_panel_snapshot: &LeftPanelSnapshot,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        pane_group.update(ctx, |pg, ctx| {
-            pg.set_left_panel_open(true, ctx);
-        });
-
-        let resizable = ResizableData::handle(ctx);
-        if let Some(modal_sizes) = resizable.as_ref(ctx).get_all_handles(self.window_id)
-            && let Ok(mut handle) = modal_sizes.left_panel_width.lock()
-        {
-            handle.set_size(left_panel_snapshot.width as f32);
-        }
-
-        self.left_panel_view.update(ctx, |lp, ctx| {
-            // Restore which panel tab was active
-            let active_view = match left_panel_snapshot.left_panel_displayed_tab {
-                LeftPanelDisplayedTab::FileTree => ToolPanelView::ProjectExplorer,
-            };
-            lp.restore_active_view_from_snapshot(active_view, ctx);
-            lp.set_active_pane_group(pane_group.clone(), &self.working_directories_model, ctx);
-        });
-
-        ctx.notify();
     }
 
     fn restore_right_panel_for_tab(
@@ -2514,9 +2409,6 @@ impl Workspace {
             return FocusRegion::PaneGroup;
         }
 
-        if self.left_panel_view.is_self_or_child_focused(app) {
-            return FocusRegion::LeftPanel;
-        }
         if self.right_panel_view.is_self_or_child_focused(app) {
             return FocusRegion::RightPanel;
         }
@@ -2526,10 +2418,6 @@ impl Workspace {
         }
 
         FocusRegion::Other
-    }
-
-    fn has_left_region(&self, app: &AppContext) -> bool {
-        self.active_tab_pane_group().as_ref(app).left_panel_open
     }
 
     fn has_right_region(&self, app: &AppContext) -> bool {
@@ -2557,14 +2445,6 @@ impl Workspace {
         handle.update(ctx, |pane_group, ctx| pane_group.focus_last_pane(ctx))
     }
 
-    fn focus_left_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.has_left_region(ctx) {
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.focus_active_view_on_entry(ctx);
-            });
-        }
-    }
-
     fn focus_right_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
         let group = self.active_tab_pane_group().as_ref(ctx);
         if group.right_panel_open {
@@ -2582,16 +2462,10 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         let current_region = self.current_focus_region(ctx);
-        let has_left_panel = self.has_left_region(ctx);
         let has_right_panel = self.has_right_region(ctx);
 
-        let target_region = self.compute_target_focus_region(
-            current_region,
-            direction,
-            has_left_panel,
-            has_right_panel,
-            ctx,
-        );
+        let target_region =
+            self.compute_target_focus_region(current_region, direction, has_right_panel, ctx);
 
         self.set_pane_dimming_for_region(target_region, ctx);
 
@@ -2602,30 +2476,16 @@ impl Workspace {
         &mut self,
         region: FocusRegion,
         direction: PanePanelDirection,
-        has_left_panel: bool,
         has_right_panel: bool,
         ctx: &mut ViewContext<Self>,
     ) -> FocusRegion {
         match (region, direction) {
-            // NEXT: Left panel to first pane
-            (FocusRegion::LeftPanel, PanePanelDirection::Next) => {
-                // Always attempt to focus the first pane in the group and ensure the pane group
-                // regains application focus.
+            // NEXT: Right panel to first pane
+            (FocusRegion::RightPanel, PanePanelDirection::Next) => {
                 self.focus_first_visible_pane_in_group(ctx);
-                self.focus_active_tab(ctx);
                 FocusRegion::PaneGroup
             }
-            // NEXT: Right panel to left panel if open, else first pane
-            (FocusRegion::RightPanel, PanePanelDirection::Next) => {
-                if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
-                } else {
-                    self.focus_first_visible_pane_in_group(ctx);
-                    FocusRegion::PaneGroup
-                }
-            }
-            // NEXT: Pane group to next pane, or at end to right panel, left panel, first pane
+            // NEXT: Pane group to next pane, or at end to right panel or first pane
             // Included Other here for cases like the command palette action "Activate next Pane"
             (FocusRegion::PaneGroup, PanePanelDirection::Next)
             | (FocusRegion::Other, PanePanelDirection::Next) => {
@@ -2635,9 +2495,6 @@ impl Workspace {
                 } else if has_right_panel {
                     self.focus_right_region_entry(ctx);
                     FocusRegion::RightPanel
-                } else if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
                 } else {
                     // No panels, wrap within panes.
                     self.focus_first_visible_pane_in_group(ctx);
@@ -2653,26 +2510,13 @@ impl Workspace {
                 self.focus_active_tab(ctx);
                 FocusRegion::PaneGroup
             }
-            // PREV: Left panel to right panel if open, else last pane
-            (FocusRegion::LeftPanel, PanePanelDirection::Prev) => {
-                if has_right_panel {
-                    self.focus_right_region_entry(ctx);
-                    FocusRegion::RightPanel
-                } else {
-                    self.focus_last_visible_pane_in_group(ctx);
-                    FocusRegion::PaneGroup
-                }
-            }
-            // PREV: Pane group to prev pane, or at beginning to left panel to right panel to last pane
+            // PREV: Pane group to prev pane, or at beginning to right panel or last pane
             // Included Other here for cases like the command palette action "Activate next Pane"
             (FocusRegion::PaneGroup, PanePanelDirection::Prev)
             | (FocusRegion::Other, PanePanelDirection::Prev) => {
                 let did_move = self.focus_prev_pane_in_group(ctx);
                 if did_move {
                     FocusRegion::PaneGroup
-                } else if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
                 } else if has_right_panel {
                     self.focus_right_region_entry(ctx);
                     FocusRegion::RightPanel
@@ -2691,8 +2535,7 @@ impl Workspace {
     }
 
     fn set_pane_dimming_for_region(&mut self, region: FocusRegion, ctx: &mut ViewContext<Self>) {
-        let dim_even_if_focused =
-            matches!(region, FocusRegion::LeftPanel | FocusRegion::RightPanel);
+        let dim_even_if_focused = matches!(region, FocusRegion::RightPanel);
         let handle = self.active_tab_pane_group().clone();
         handle.update(ctx, |pane_group, ctx| {
             pane_group.set_dim_even_if_focused_for_all_panes(dim_even_if_focused, ctx);
@@ -2700,13 +2543,11 @@ impl Workspace {
     }
 
     /// This function shifts focus to the panel on the left.
-    /// The current focusable panels are: tools panel, theme chooser, and resource center (keyboard shortcuts page only)
+    /// The current focusable panels are: theme chooser and resource center (keyboard shortcuts page only)
     fn focus_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
         // Starts from terminal
         if self.active_tab_pane_group().is_self_or_child_focused(ctx) {
-            if self.is_left_panel_open(ctx) {
-                self.focus_left_region_entry(ctx);
-            } else if self.is_theme_chooser_open() {
+            if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
             } else if self.current_workspace_state.is_resource_center_open {
                 ctx.focus(&self.resource_center_view);
@@ -2716,10 +2557,8 @@ impl Workspace {
         else if self.resource_center_view.is_self_or_child_focused(ctx) {
             self.focus_active_tab(ctx);
         }
-        // Starts from a left panel: tools panel or theme chooser.
-        else if self.left_panel_view.is_self_or_child_focused(ctx)
-            || self.theme_chooser_view.is_self_or_child_focused(ctx)
-        {
+        // Starts from a left panel: theme chooser.
+        else if self.theme_chooser_view.is_self_or_child_focused(ctx) {
             if self.current_workspace_state.is_right_panel_open() {
                 ctx.focus(&self.resource_center_view);
             } else {
@@ -2738,23 +2577,17 @@ impl Workspace {
         if self.active_tab_pane_group().is_self_or_child_focused(ctx) {
             if self.current_workspace_state.is_resource_center_open {
                 ctx.focus(&self.resource_center_view);
-            } else if self.is_left_panel_open(ctx) {
-                self.focus_left_region_entry(ctx);
             } else if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
             }
         }
-        // Starts from a left panel: tools panel, theme chooser
-        else if self.left_panel_view.is_self_or_child_focused(ctx)
-            || self.theme_chooser_view.is_self_or_child_focused(ctx)
-        {
+        // Starts from a left panel: theme chooser
+        else if self.theme_chooser_view.is_self_or_child_focused(ctx) {
             self.focus_active_tab(ctx);
         }
         // Starts from a right panel: resource center (keyboard shortcuts page only)
         else if self.resource_center_view.is_self_or_child_focused(ctx) {
-            if self.is_left_panel_open(ctx) {
-                self.focus_left_region_entry(ctx);
-            } else if self.is_theme_chooser_open() {
+            if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
             } else {
                 self.focus_active_tab(ctx);
@@ -2900,30 +2733,6 @@ impl Workspace {
         }
     }
 
-    fn left_panel_visibility_across_tabs_enabled(&self, ctx: &AppContext) -> bool {
-        *WindowSettings::as_ref(ctx)
-            .left_panel_visibility_across_tabs
-            .value()
-    }
-
-    /// Reconciles the active tab's tools panel open/closed state to match the window-scoped desired state
-    /// (syncing left panel open/closed state across tabs).
-    fn reconcile_left_panel_open_for_active_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        let pane_group = self.active_tab_pane_group().clone();
-        let pane_group_supports_tools_panel = pane_group.read(ctx, |pane_group, _| {
-            Self::should_enable_file_tree_for_pane_group(pane_group)
-        });
-
-        if !pane_group_supports_tools_panel {
-            return;
-        }
-
-        let desired_open = self.left_panel_open;
-        pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(desired_open, ctx);
-        });
-    }
-
     /// Change the active tab index. This must be used instead of setting `self.active_tab_index`
     /// directly, as it updates related state.
     pub(crate) fn set_active_tab_index(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
@@ -2955,21 +2764,9 @@ impl Workspace {
             self.vertical_tabs_panel.scroll_to_tab(index);
         }
 
-        if self.left_panel_visibility_across_tabs_enabled(ctx) {
-            self.reconcile_left_panel_open_for_active_tab(ctx);
-        }
-
-        let left_active_pane_group = self.active_tab_pane_group().clone();
         let right_active_pane_group = self.active_tab_pane_group().clone();
         let working_directories_model = self.working_directories_model.clone();
 
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.set_active_pane_group(
-                left_active_pane_group,
-                &working_directories_model,
-                ctx,
-            );
-        });
         self.right_panel_view.update(ctx, |right_pane, ctx| {
             right_pane.set_active_pane_group(
                 right_active_pane_group,
@@ -3489,19 +3286,11 @@ impl Workspace {
             .header_toolbar_chip_selection
             .clone();
         let left_items = config.left_items();
-        let tools_position = if left_items.contains(&HeaderToolbarItemKind::ToolsPanel) {
-            PanelPosition::Left
-        } else {
-            PanelPosition::Right
-        };
         let code_review_position = if left_items.contains(&HeaderToolbarItemKind::CodeReview) {
             PanelPosition::Left
         } else {
             PanelPosition::Right
         };
-        self.left_panel_view.update(ctx, |view, ctx| {
-            view.set_panel_position(tools_position, ctx);
-        });
         self.right_panel_view.update(ctx, |view, ctx| {
             view.set_panel_position(code_review_position, ctx);
         });
@@ -3681,48 +3470,6 @@ impl Workspace {
         }
     }
 
-    fn handle_left_panel_event(&mut self, event: &LeftPanelEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            LeftPanelEvent::FileTree(pane_group_event) => {
-                let pane_group = self.active_tab_pane_group().clone();
-                self.handle_file_tree_event(pane_group, pane_group_event, ctx);
-            }
-            LeftPanelEvent::OpenFileWithTarget {
-                location,
-                target,
-                line_col,
-            } => {
-                let code_source = CodeSource::FileTree {
-                    location: location.clone(),
-                };
-                match location {
-                    LocalOrRemotePath::Local(path) => {
-                        self.open_file_with_target(
-                            path.clone(),
-                            target.clone(),
-                            *line_col,
-                            code_source,
-                            ctx,
-                        );
-                    }
-                    LocalOrRemotePath::Remote(_) => {
-                        #[cfg(feature = "local_fs")]
-                        {
-                            self.open_code(
-                                code_source,
-                                crate::util::openable_file_type::EditorLayout::SplitPane,
-                                *line_col,
-                                false,
-                                &[],
-                                ctx,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn handle_right_panel_event(&mut self, event: RightPanelEvent, ctx: &mut ViewContext<Self>) {
         #[cfg(feature = "local_fs")]
         match event {
@@ -3764,7 +3511,7 @@ impl Workspace {
                 }
                 path @ LocalOrRemotePath::Remote(_) => {
                     self.open_code(
-                        CodeSource::FileTree { location: path },
+                        CodeSource::CommandPalette { location: path },
                         EditorLayout::NewTab,
                         line_and_column,
                         false,
@@ -5113,33 +4860,6 @@ impl Workspace {
         );
     }
 
-    fn cd_to_directory(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        let Some(input_handle) = self.get_active_input_view_handle(ctx) else {
-            log::warn!("No active input view when trying to cd to directory");
-            return;
-        };
-
-        let Some(path_str) = path.to_str() else {
-            log::warn!("Could not convert path to string for cd command");
-            return;
-        };
-
-        let cd_command = format!("cd {}", shell_words::quote(path_str));
-        input_handle.update(ctx, |input_view, ctx| {
-            input_view.replace_buffer_content(&cd_command, ctx);
-        });
-    }
-
-    fn open_directory_in_new_tab(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        let options = NewTerminalOptions::default().with_initial_directory(path);
-        self.add_tab_with_pane_layout(
-            PanesLayout::SingleTerminal(Box::new(options)),
-            Arc::new(HashMap::new()),
-            None,
-            ctx,
-        );
-    }
-
     #[cfg(feature = "local_fs")]
     fn open_code(
         &mut self,
@@ -5443,28 +5163,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn open_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        self.left_panel_open = true;
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(true, ctx);
-        });
-
-        ctx.notify();
-    }
-
-    fn close_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        self.left_panel_open = false;
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(false, ctx);
-        });
-
-        ctx.notify();
-    }
-
     fn toggle_vertical_tabs_panel(&mut self, ctx: &mut ViewContext<Self>) {
         self.vertical_tabs_panel_open = !self.vertical_tabs_panel_open;
         if !self.vertical_tabs_panel_open {
@@ -5477,64 +5175,6 @@ impl Workspace {
 
     fn close_vertical_tabs_settings_popup(&mut self) {
         self.vertical_tabs_panel.show_settings_popup = false;
-    }
-
-    fn toggle_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        let active_pane_group = self.active_tab_pane_group().clone();
-
-        let was_open = active_pane_group.read(ctx, |pane_group, _| pane_group.left_panel_open);
-        let new_state = !was_open;
-
-        if new_state {
-            self.open_left_panel(ctx);
-        } else {
-            self.close_left_panel(ctx);
-        }
-
-        // If we are opening the panel, set width based on the most recent tab's width if available,
-        // otherwise compute default width from current window size. Also auto-expand the project
-        // explorer if it's the active left panel view.
-        if new_state {
-            let window_id = ctx.window_id();
-            let resizable_data = ResizableData::handle(ctx);
-            if let Some(handle) = resizable_data
-                .as_ref(ctx)
-                .get_handle(window_id, ModalType::LeftPanelWidth)
-                && let Ok(mut state) = handle.lock()
-            {
-                // Get the current width from ResizableData - this reflects the most recent tab's width
-                let current_width = state.size();
-
-                // Only recompute default if the current width is at the default value
-                // This preserves the width from the most recent tab
-                if current_width == DEFAULT_LEFT_PANEL_WIDTH {
-                    let has_horizontal_split = active_pane_group
-                        .read(ctx, |pane_group, _| pane_group.has_horizontal_split());
-                    let (left_width, _right_width) =
-                        compute_default_panel_widths(ctx, window_id, has_horizontal_split);
-                    state.set_size(left_width);
-                }
-                // If current_width is not the default, it means we have a width from a previous tab,
-                // so we don't need to do anything - the width is already preserved
-            }
-
-            // Auto-expand the file tree when the left panel is opened and the project explorer is
-            // the active view.
-            let file_tree_active = self
-                .left_panel_view
-                .read(ctx, |lp, _| lp.is_file_tree_active());
-            if file_tree_active {
-                self.left_panel_view.update(ctx, |left_panel, ctx| {
-                    left_panel.auto_expand_active_file_tree_to_most_recent_directory(ctx);
-                });
-            }
-        }
-
-        if !new_state {
-            self.focus_active_tab(ctx);
-        }
-
-        ctx.notify();
     }
 
     #[cfg(feature = "local_fs")]
@@ -5658,8 +5298,8 @@ impl Workspace {
                         let has_horizontal_split = panel_update_params
                             .pane_group
                             .read(ctx, |pane_group, _| pane_group.has_horizontal_split());
-                        let (_left_width, right_width) =
-                            compute_default_panel_widths(ctx, window_id, has_horizontal_split);
+                        let right_width =
+                            compute_default_right_panel_width(ctx, window_id, has_horizontal_split);
                         state.set_size(right_width);
                     }
                     // If current_width is not the default, it means we have a width from a previous tab,
@@ -7171,13 +6811,6 @@ impl Workspace {
                 let resizable_data = ResizableData::handle(app);
                 let modal_sizes = resizable_data.as_ref(app).get_all_handles(window_id);
 
-                let left_panel_width = modal_sizes.map(|ms| {
-                    ms.left_panel_width
-                        .lock()
-                        .expect("should be able to lock left panel handle")
-                        .size()
-                });
-
                 let right_panel_width = modal_sizes.map(|ms| {
                     ms.right_panel_width
                         .lock()
@@ -7187,8 +6820,6 @@ impl Workspace {
 
                 let pane_group = pane_group_view.as_ref(app);
                 let root = pane_group.snapshot(app);
-                let left_panel =
-                    self.compute_left_panel_snapshot(pane_group_view, left_panel_width, app);
                 let right_panel =
                     self.compute_right_panel_snapshot(pane_group_view, right_panel_width, app);
                 TabSnapshot {
@@ -7203,7 +6834,6 @@ impl Workspace {
                         .get(tab_index)
                         .map(|tab| tab.selected_color)
                         .unwrap_or_default(),
-                    left_panel,
                     right_panel,
                     group_id: if FeatureFlag::GroupedTabs.is_enabled() {
                         self.tabs.get(tab_index).and_then(|tab| tab.group_id)
@@ -7262,13 +6892,6 @@ impl Workspace {
                 .size()
         });
 
-        let left_panel_width = modal_sizes.map(|ms| {
-            ms.left_panel_width
-                .lock()
-                .map(|guard| guard.size())
-                .unwrap_or(DEFAULT_LEFT_PANEL_WIDTH)
-        });
-
         let right_panel_width = modal_sizes.map(|ms| {
             ms.right_panel_width
                 .lock()
@@ -7283,34 +6906,10 @@ impl Workspace {
             fullscreen_state: window_fullscreen_state,
             quake_mode,
             universal_search_width,
-            left_panel_open: self.left_panel_open,
             vertical_tabs_panel_open: self.vertical_tabs_panel_open,
-            left_panel_width,
             right_panel_width,
             tab_groups,
         }
-    }
-
-    fn compute_left_panel_snapshot(
-        &self,
-        pane_group: &ViewHandle<PaneGroup>,
-        left_panel_width: Option<f32>,
-        app: &AppContext,
-    ) -> Option<LeftPanelSnapshot> {
-        let pane_group_ref = pane_group.as_ref(app);
-        if !pane_group_ref.left_panel_open {
-            return None;
-        }
-
-        let pane_group_id = pane_group.id();
-
-        self.left_panel_view.read(app, |lp, _| {
-            Some(LeftPanelSnapshot {
-                left_panel_displayed_tab: lp.active_view().into(),
-                pane_group_id: pane_group_id.to_string(),
-                width: left_panel_width.unwrap_or(DEFAULT_LEFT_PANEL_WIDTH) as usize,
-            })
-        })
     }
 
     fn compute_right_panel_snapshot(
@@ -7697,50 +7296,6 @@ impl Workspace {
         self.close_tabs(indices_to_remove, skip_confirmation, true, ctx);
     }
 
-    /// Closes all tabs that have code panes with the specified file path open.
-    /// This is used when a file is renamed or deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    fn close_tabs_with_file_path(&mut self, old_path: &Path, ctx: &mut ViewContext<Self>) {
-        // Find all code panes across all tabs that have this file open
-        for tab_data in &self.tabs {
-            // Check if this tab has any code panes with the old file path open
-            tab_data.pane_group.update(ctx, |pane_group, ctx| {
-                // Collect code panes first to avoid borrowing issues
-                let code_panes: Vec<_> = pane_group.code_panes(ctx).collect();
-                for (_, code_pane) in code_panes {
-                    code_pane.update(ctx, |code_view, ctx| {
-                        code_view.close_tabs_with_path(old_path, ctx);
-                    });
-                }
-            });
-        }
-
-        ctx.notify();
-    }
-
-    /// Renames all open code tabs that point to `old_path` to now point to `new_path`,
-    /// updating their contents in-place rather than closing them.
-    #[cfg(feature = "local_fs")]
-    fn rename_tabs_with_file_path(
-        &mut self,
-        old_path: &Path,
-        new_path: &Path,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        for tab_data in &self.tabs {
-            tab_data.pane_group.update(ctx, |pane_group, ctx| {
-                // Collect code panes first to avoid borrowing issues
-                let code_panes: Vec<_> = pane_group.code_panes(ctx).collect();
-                for (_, code_pane) in code_panes {
-                    code_pane.update(ctx, |code_view, ctx| {
-                        code_view.rename_tabs_with_path(old_path, new_path, ctx);
-                    });
-                }
-            });
-        }
-        ctx.notify();
-    }
-
     /// Update this workspace when it is reopened after being closed.
     pub fn handle_reopen(&mut self, ctx: &mut ViewContext<Self>) {
         self.sync_window_button_visibility(ctx);
@@ -7931,14 +7486,6 @@ impl Workspace {
         custom_tab_title: Option<String>,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Remember whether the left panel was open on the current active pane group
-        // before creating a new active pane group.
-        let left_panel_was_open = if self.tabs.is_empty() {
-            false
-        } else {
-            self.active_tab_pane_group().as_ref(ctx).left_panel_open
-        };
-
         // Capture the active tab's colors before creating the new tab.
         let active_tab = self.tabs.get(self.active_tab_index);
         let active_tab_selected_color = active_tab.map(|tab| tab.selected_color);
@@ -7963,7 +7510,7 @@ impl Workspace {
         });
 
         ctx.subscribe_to_view(&new_pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         // Compute where the new tab goes and whether it inherits a group, then
@@ -8009,14 +7556,6 @@ impl Workspace {
                 }
             }
         }
-
-        // If the previous tab's left panel was open, maintain that state with the new tab
-        // (unless we're restoring the tab from a persisted snapshot).
-        if !is_restoration && left_panel_was_open {
-            self.active_tab_pane_group().update(ctx, |pg, ctx| {
-                pg.set_left_panel_open(true, ctx);
-            });
-        }
     }
 
     pub fn add_tab_from_existing_pane(
@@ -8037,7 +7576,7 @@ impl Workspace {
             )
         });
         ctx.subscribe_to_view(&new_pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         if self.tab_count() == 0 {
@@ -8832,10 +8371,6 @@ impl Workspace {
             || self.current_workspace_state.is_ctrl_tab_palette_open
     }
 
-    pub fn is_left_panel_open(&self, ctx: &AppContext) -> bool {
-        self.active_tab_pane_group().as_ref(ctx).left_panel_open
-    }
-
     fn refresh_working_directories_for_pane_group(
         &mut self,
         pane_group: &ViewHandle<PaneGroup>,
@@ -8877,7 +8412,7 @@ impl Workspace {
         });
     }
 
-    pub(crate) fn handle_file_tree_event(
+    pub(crate) fn handle_pane_group_event(
         &mut self,
         pane_group: ViewHandle<PaneGroup>,
         event: &pane_group::Event,
@@ -9008,12 +8543,6 @@ impl Workspace {
                     ctx,
                 );
             }
-            pane_group::Event::CDToDirectory { path } => {
-                self.cd_to_directory(path.clone(), ctx);
-            }
-            pane_group::Event::OpenDirectoryInNewTab { path } => {
-                self.open_directory_in_new_tab(path.clone(), ctx);
-            }
             pane_group::Event::OpenCodeReviewPane(arg) => {
                 self.open_code_review_panel_from_arg(arg, pane_group.clone(), ctx);
             }
@@ -9080,31 +8609,6 @@ impl Workspace {
                     Self::sync_codebase_tab_color(tab, ctx);
                 }
             }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::RemoteRepoNavigated { remote_path } => {
-                let remote_id = RemoteRepositoryIdentifier::new(
-                    remote_path.host_id.clone(),
-                    remote_path.path.clone(),
-                );
-                let pane_group_id = pane_group.id();
-                if let Some(file_tree_view) = self
-                    .working_directories_model
-                    .as_ref(ctx)
-                    .get_file_tree_view(pane_group_id)
-                {
-                    file_tree_view.update(ctx, |view, ctx| {
-                        view.set_remote_root_directories(std::slice::from_ref(&remote_id), ctx);
-                    });
-                }
-
-                // Remote repos now enter repository_roots through
-                // refresh_working_directories_for_pane_group (via
-                // pwd_as_local_or_remote). No need to register here —
-                // doing so would race with refresh and prevent stale
-                // DiffStateModels from being dropped.
-            }
-            #[cfg(not(feature = "local_fs"))]
-            pane_group::Event::RemoteRepoNavigated { .. } => {}
             pane_group::Event::DroppedOnTabBar { origin, pane_id } => {
                 if let Some(hovered_tab_index) = self.hovered_tab_index {
                     match hovered_tab_index {
@@ -9509,32 +9013,6 @@ impl Workspace {
                     toast_stack.add_ephemeral_toast(toast, ctx);
                 });
             }
-            pane_group::Event::OpenThemeChooser => {
-                self.show_theme_chooser_for_custom_theme(ctx);
-            }
-            pane_group::Event::OpenFilesPalette { source } => {
-                self.open_palette_action(PaletteMode::Files, *source, None, ctx);
-            }
-            pane_group::Event::ToggleLeftPanel { force_open } => {
-                let is_target_active = self
-                    .left_panel_view
-                    .read(ctx, |left_panel, _| left_panel.is_file_tree_active());
-
-                if self.active_tab_pane_group().as_ref(ctx).left_panel_open && is_target_active {
-                    // No-op if we are forcing the target to open when it is already active.
-                    if !*force_open {
-                        self.toggle_left_panel(ctx);
-                    }
-                } else {
-                    if !self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-                        self.toggle_left_panel(ctx);
-                    }
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        let action = LeftPanelAction::ProjectExplorer;
-                        left_panel.handle_action(&action, ctx);
-                    });
-                }
-            }
             #[cfg(feature = "local_fs")]
             pane_group::Event::OpenFileWithTarget {
                 path,
@@ -9557,22 +9035,11 @@ impl Workspace {
                     ctx,
                 );
             }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::FileRenamed { old_path, new_path } => {
-                self.rename_tabs_with_file_path(old_path, new_path, ctx);
+            pane_group::Event::OpenThemeChooser => {
+                self.show_theme_chooser_for_custom_theme(ctx);
             }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::FileDeleted { path } => {
-                self.close_tabs_with_file_path(path, ctx);
-            }
-            pane_group::Event::LeftPanelToggled { is_open } => {
-                // Only handle visibility changes from the active pane group.
-                if pane_group.id() == self.active_tab_pane_group().id() {
-                    self.left_panel_open = *is_open;
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        left_panel.on_left_panel_visibility_changed(ctx);
-                    });
-                }
+            pane_group::Event::OpenFilesPalette { source } => {
+                self.open_palette_action(PaletteMode::Files, *source, None, ctx);
             }
         }
     }
@@ -9788,125 +9255,52 @@ impl Workspace {
     /// Update the active session model state.
     fn update_active_session(&mut self, ctx: &mut ViewContext<Self>) {
         let pane_group_handle = self.active_tab_pane_group();
-        let file_tree_is_enabled = {
-            #[cfg(feature = "local_fs")]
-            {
-                Self::should_enable_file_tree_for_pane_group(
-                    self.active_tab_pane_group().as_ref(ctx),
-                )
-            }
-
-            #[cfg(not(feature = "local_fs"))]
-            {
-                false
-            }
-        };
 
         // Update working directories for the current pane group
         let pane_group_handle = pane_group_handle.clone();
         self.refresh_working_directories_for_pane_group(&pane_group_handle, ctx);
 
-        match pane_group_handle.as_ref(ctx).active_session_view(ctx) {
-            Some(terminal_handle) => {
-                #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-                let (session, pwd_location, is_local, is_wsl_session, session_id, has_pending_ssh) =
-                    terminal_handle.read(ctx, |terminal, ctx| {
-                        let active_session_id = terminal.active_block_session_id();
-                        let session = active_session_id
-                            .and_then(|id| terminal.sessions_model().as_ref(ctx).get(id));
-                        let pwd_location = terminal.pwd_as_local_or_remote(ctx);
-                        let is_local = terminal.active_session_is_local(ctx);
-                        let is_wsl_session = session.as_ref().map(|s| s.is_wsl()).unwrap_or(false);
-                        let has_pending_ssh = terminal.has_pending_ssh_command();
-                        (
-                            session,
-                            pwd_location,
-                            is_local,
-                            is_wsl_session,
-                            active_session_id,
-                            has_pending_ssh,
-                        )
-                    });
+        let Some(terminal_handle) = pane_group_handle.as_ref(ctx).active_session_view(ctx) else {
+            #[cfg(feature = "local_fs")]
+            self.right_panel_view.update(ctx, |right_panel, ctx| {
+                right_panel.update_session_env(false, false, ctx);
+            });
+            return;
+        };
 
-                let window_id = ctx.window_id();
-                ActiveSession::handle(ctx).update(ctx, |active_session, ctx| {
-                    active_session.set_session_state(
-                        window_id,
-                        session,
-                        pwd_location,
-                        Some(terminal_handle.id()),
-                        ctx,
-                    );
-                });
+        let (session, pwd_location, _is_local, _is_wsl_session) =
+            terminal_handle.read(ctx, |terminal, ctx| {
+                let active_session_id = terminal.active_block_session_id();
+                let session =
+                    active_session_id.and_then(|id| terminal.sessions_model().as_ref(ctx).get(id));
+                let pwd_location = terminal.pwd_as_local_or_remote(ctx);
+                let is_local = terminal.active_session_is_local(ctx);
+                let is_wsl_session = session.as_ref().map(|s| s.is_wsl()).unwrap_or(false);
+                (session, pwd_location, is_local, is_wsl_session)
+            });
 
-                let is_remote = matches!(is_local, Some(false));
-                let is_unsupported_session = is_wsl_session;
+        let window_id = ctx.window_id();
+        ActiveSession::handle(ctx).update(ctx, |active_session, ctx| {
+            active_session.set_session_state(
+                window_id,
+                session,
+                pwd_location,
+                Some(terminal_handle.id()),
+                ctx,
+            );
+        });
 
-                // Check whether this remote session has an active remote server
-                // connection (or is in the process of connecting). This is only
-                // true for Auto SSH Warpification (mode 1) sessions where
-                // `connect_session` was called at `InitShell` time.
-                let has_remote_server = is_remote
-                    && FeatureFlag::SshRemoteServer.is_enabled()
-                    && session_id.is_some_and(|sid| {
-                        RemoteServerManager::as_ref(ctx).is_session_potentially_active(sid)
-                    });
+        #[cfg(feature = "local_fs")]
+        {
+            let is_remote = matches!(_is_local, Some(false));
+            self.right_panel_view.update(ctx, |right_panel, ctx| {
+                right_panel.update_session_env(is_remote, _is_wsl_session, ctx);
+            });
 
-                let enablement = CodingPanelEnablementState::from_session_env(
-                    file_tree_is_enabled,
-                    is_remote,
-                    is_unsupported_session,
-                    has_remote_server,
-                );
-
-                // When an SSH command is running (pending host set + block
-                // still long-running), the old local session is still active
-                // so the enablement computes as `Enabled`. Override to
-                // `PendingRemoteSession` so the file tree shows loading
-                // instead of the stale local tree.
-                let enablement = if has_pending_ssh
-                    && matches!(enablement, CodingPanelEnablementState::Enabled)
-                {
-                    CodingPanelEnablementState::PendingRemoteSession
-                } else {
-                    enablement
-                };
-
-                self.left_panel_view.update(ctx, |left_panel, ctx| {
-                    left_panel.update_coding_panel_enablement(enablement, ctx);
-                });
-
-                #[cfg(feature = "local_fs")]
-                {
-                    self.right_panel_view.update(ctx, |right_panel, ctx| {
-                        right_panel.update_session_env(is_remote, is_wsl_session, ctx);
-                    });
-
-                    // Code review panel setup is handled by the RepositoriesChanged
-                    // event emitted from refresh_working_directories earlier in this
-                    // function. Calling setup_code_review_panel here would race
-                    // with that path and re-create models that were just dropped.
-                }
-            }
-            _ => {
-                let enablement = CodingPanelEnablementState::from_session_env(
-                    file_tree_is_enabled,
-                    false,
-                    false,
-                    false,
-                );
-
-                self.left_panel_view.update(ctx, |left_panel, ctx| {
-                    left_panel.update_coding_panel_enablement(enablement, ctx);
-                });
-
-                #[cfg(feature = "local_fs")]
-                {
-                    self.right_panel_view.update(ctx, |right_panel, ctx| {
-                        right_panel.update_session_env(false, false, ctx);
-                    });
-                }
-            }
+            // Code review panel setup is handled by the RepositoriesChanged
+            // event emitted from refresh_working_directories earlier in this
+            // function. Calling setup_code_review_panel here would race
+            // with that path and re-create models that were just dropped.
         }
     }
 
@@ -9995,13 +9389,6 @@ impl Workspace {
                 let backdrop = *WindowSettings::as_ref(ctx).background_backdrop;
                 if let Some(window) = ctx.windows().platform_window(ctx.window_id()) {
                     window.set_background_backdrop(backdrop);
-                }
-            }
-            WindowSettingsChangedEvent::LeftPanelVisibilityAcrossTabs { .. } => {
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = self
-                        .active_tab_pane_group()
-                        .read(ctx, |pane_group, _| pane_group.left_panel_open);
                 }
             }
             WindowSettingsChangedEvent::ZoomLevel { .. } => {
@@ -11041,52 +10428,25 @@ impl Workspace {
         }
     }
 
-    fn render_left_toggle_button(
+    fn render_vertical_tabs_toggle_button(
         &self,
         appearance: &Appearance,
         ctx: &AppContext,
     ) -> Box<dyn Element> {
-        let vertical_tabs_active =
-            FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
-
-        let (is_active, tooltip_text, action, keybinding_name, save_position_id) =
-            if vertical_tabs_active {
-                (
-                    self.vertical_tabs_panel_open,
-                    "Tabs panel",
-                    WorkspaceAction::ToggleVerticalTabsPanel,
-                    "workspace:toggle_vertical_tabs_panel",
-                    "workspace:toggle_vertical_tabs_panel",
-                )
-            } else {
-                let tooltip = if self.left_panel_views.len() <= 1 {
-                    match self.left_panel_views.first() {
-                        Some(ToolPanelView::ProjectExplorer) => "Project explorer",
-                        None => "Tools panel",
-                    }
-                } else {
-                    "Tools panel"
-                };
-                (
-                    self.active_tab_pane_group().as_ref(ctx).left_panel_open,
-                    tooltip,
-                    WorkspaceAction::ToggleLeftPanel,
-                    "workspace:toggle_left_panel",
-                    "workspace:toggle_left_panel",
-                )
-            };
-
         SavePosition::new(
             Container::new(
                 Align::new(
                     self.render_tab_bar_icon_button(
                         appearance,
                         icons::Icon::Menu,
-                        &self.mouse_states.left_panel_icon,
-                        action,
-                        tooltip_text.to_string(),
-                        keybinding_name_to_display_string(keybinding_name, ctx),
-                        is_active,
+                        &self.mouse_states.vertical_tabs_icon,
+                        WorkspaceAction::ToggleVerticalTabsPanel,
+                        "Tabs panel".to_string(),
+                        keybinding_name_to_display_string(
+                            "workspace:toggle_vertical_tabs_panel",
+                            ctx,
+                        ),
+                        self.vertical_tabs_panel_open,
                         false,
                     )
                     .finish(),
@@ -11094,51 +10454,12 @@ impl Workspace {
                 .finish(),
             )
             .finish(),
-            save_position_id,
+            "workspace:toggle_vertical_tabs_panel",
         )
         .finish()
     }
 
-    fn render_tools_panel_button(
-        &self,
-        appearance: &Appearance,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_active = self.active_tab_pane_group().as_ref(ctx).left_panel_open;
-
-        let tooltip_text = if self.left_panel_views.len() <= 1 {
-            match self.left_panel_views.first() {
-                Some(ToolPanelView::ProjectExplorer) => "Project explorer",
-                None => "Tools panel",
-            }
-        } else {
-            "Tools panel"
-        };
-
-        SavePosition::new(
-            Container::new(
-                Align::new(
-                    self.render_tab_bar_icon_button(
-                        appearance,
-                        icons::Icon::Tool2,
-                        &self.mouse_states.tools_panel_icon,
-                        WorkspaceAction::ToggleLeftPanel,
-                        tooltip_text.to_string(),
-                        keybinding_name_to_display_string("workspace:toggle_left_panel", ctx),
-                        is_active,
-                        false,
-                    )
-                    .finish(),
-                )
-                .finish(),
-            )
-            .finish(),
-            "workspace:toggle_left_panel",
-        )
-        .finish()
-    }
-
-    fn should_enable_file_tree_for_pane_group(pane_group: &PaneGroup) -> bool {
+    fn should_enable_code_review_for_pane_group(pane_group: &PaneGroup) -> bool {
         pane_group
             .pane_ids()
             .filter(|id| !pane_group.is_pane_hidden_for_close(*id))
@@ -11151,8 +10472,9 @@ impl Workspace {
         ctx: &AppContext,
     ) -> Box<dyn Element> {
         let is_active = self.active_tab_pane_group().as_ref(ctx).right_panel_open;
-        let is_enabled =
-            Self::should_enable_file_tree_for_pane_group(self.active_tab_pane_group().as_ref(ctx));
+        let is_enabled = Self::should_enable_code_review_for_pane_group(
+            self.active_tab_pane_group().as_ref(ctx),
+        );
         let disable = !is_enabled;
 
         let theme = appearance.theme();
@@ -11637,19 +10959,9 @@ impl Workspace {
         if !item.is_available(ctx) {
             return None;
         }
-        let vertical_tabs_active =
-            FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
         let inner = match item {
-            HeaderToolbarItemKind::TabsPanel => self.render_left_toggle_button(appearance, ctx),
-            HeaderToolbarItemKind::ToolsPanel => {
-                if self.left_panel_views.is_empty() {
-                    return None;
-                }
-                if vertical_tabs_active {
-                    self.render_tools_panel_button(appearance, ctx)
-                } else {
-                    self.render_left_toggle_button(appearance, ctx)
-                }
+            HeaderToolbarItemKind::TabsPanel => {
+                self.render_vertical_tabs_toggle_button(appearance, ctx)
             }
             HeaderToolbarItemKind::CodeReview => self.render_right_panel_button(appearance, ctx),
         };
@@ -12747,12 +12059,6 @@ impl Workspace {
                     .finish(),
                 )
             }
-            HeaderToolbarItemKind::ToolsPanel => {
-                if !pane_group.left_panel_open || warpui::platform::is_mobile_device() {
-                    return None;
-                }
-                Some(ChildView::new(&self.left_panel_view).finish())
-            }
             HeaderToolbarItemKind::CodeReview => {
                 if !pane_group.right_panel_open {
                     return None;
@@ -12975,12 +12281,6 @@ impl Workspace {
             context.set.insert(flags::OPEN_WINDOWS_AT_CUSTOM_SIZE_FLAG);
         }
 
-        if *window_settings.left_panel_visibility_across_tabs {
-            context
-                .set
-                .insert(flags::LEFT_PANEL_VISIBILITY_ACROSS_TABS_FLAG);
-        }
-
         if *font_settings.match_notebook_to_monospace_font_size {
             context
                 .set
@@ -13190,55 +12490,6 @@ impl Workspace {
 
     fn all_pane_group_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.tab_views().map(|tab| tab.id())
-    }
-
-    fn open_left_panel_view(&mut self, action: &LeftPanelAction, ctx: &mut ViewContext<Self>) {
-        if !self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-            self.toggle_left_panel(ctx);
-        }
-
-        if self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.handle_action(action, ctx);
-                left_panel.focus_active_view_on_entry(ctx);
-            });
-        }
-    }
-
-    fn toggle_left_panel_view(
-        &mut self,
-        action: &LeftPanelAction,
-        is_showing_target_view: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let is_left_panel_open = self.active_tab_pane_group().as_ref(ctx).left_panel_open;
-
-        if is_left_panel_open && is_showing_target_view {
-            // If we're showing the target view for this action,
-            // toggle the left panel closed.
-            self.toggle_left_panel(ctx);
-        } else {
-            self.open_left_panel_view(action, ctx);
-        }
-    }
-
-    /// Computes the list of available left panel views based on current settings and feature flags.
-    fn compute_left_panel_views(ctx: &AppContext) -> Vec<ToolPanelView> {
-        let mut views = vec![];
-        if cfg!(feature = "local_fs") && *CodeSettings::as_ref(ctx).show_project_explorer.value() {
-            views.push(ToolPanelView::ProjectExplorer);
-        }
-        views
-    }
-
-    /// Recomputes the available left panel views based on current settings and feature flags,
-    /// then updates both the workspace's left_panel_views and the LeftPanelView's toolbelt buttons.
-    fn update_left_panel_available_views(&mut self, ctx: &mut ViewContext<Self>) {
-        let views = Self::compute_left_panel_views(ctx);
-        self.left_panel_views = views.clone();
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.update_available_views(views, ctx);
-        });
     }
 
     /// Opens a given URL in the desktop Warp app if installed, or redirects to download page.
@@ -13729,25 +12980,6 @@ impl TypedActionView for Workspace {
             DropGroup => {
                 ctx.notify();
             }
-            ToggleLeftPanel => {
-                let active_pane_group = self.active_tab_pane_group().clone();
-                let was_open = active_pane_group.read(ctx, |pg, _| pg.left_panel_open);
-
-                // Don't open the panel if no views are available.
-                if !was_open && self.left_panel_views.is_empty() {
-                    return;
-                }
-
-                self.toggle_left_panel(ctx);
-
-                let is_open = active_pane_group.read(ctx, |pg, _| pg.left_panel_open);
-
-                if !was_open && is_open {
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        left_panel.focus_active_view_on_entry(ctx);
-                    });
-                }
-            }
             ToggleRightPanel => {
                 let pane_group_handle = self.active_tab_pane_group().clone();
                 self.toggle_right_panel(&pane_group_handle, ctx);
@@ -13880,9 +13112,7 @@ impl TypedActionView for Workspace {
                 ctx.notify();
             }
             ClosePanel => {
-                if self.left_panel_view.is_self_or_child_focused(ctx) {
-                    self.close_left_panel(ctx);
-                } else if self.right_panel_view.is_self_or_child_focused(ctx) {
+                if self.right_panel_view.is_self_or_child_focused(ctx) {
                     let pane_group_handle = self.active_tab_pane_group().clone();
                     self.close_right_panel(&pane_group_handle, ctx);
                 }
@@ -14117,14 +13347,6 @@ impl TypedActionView for Workspace {
             NewCodeFile => {
                 self.add_tab_for_new_code_file(ctx);
             }
-            #[cfg(feature = "local_fs")]
-            FileRenamed { old_path, new_path } => {
-                self.rename_tabs_with_file_path(old_path, new_path, ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            FileDeleted { path } => {
-                self.close_tabs_with_file_path(path, ctx);
-            }
             #[cfg(target_os = "macos")]
             SampleProcess => {
                 let pid = process::id();
@@ -14200,23 +13422,6 @@ impl TypedActionView for Workspace {
                         });
                     },
                 );
-            }
-            ToggleProjectExplorer => {
-                if *CodeSettings::as_ref(ctx).show_project_explorer {
-                    let is_showing = self.left_panel_view.as_ref(ctx).active_view()
-                        == ToolPanelView::ProjectExplorer;
-                    self.toggle_left_panel_view(&LeftPanelAction::ProjectExplorer, is_showing, ctx);
-                }
-            }
-            OpenProjectExplorer => {
-                if *CodeSettings::as_ref(ctx).show_project_explorer {
-                    self.open_left_panel_view(&LeftPanelAction::ProjectExplorer, ctx);
-                }
-            }
-            ToggleHiddenFiles => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_hidden_files.toggle_and_save_value(ctx));
-                });
             }
             OpenLightbox {
                 images,
@@ -14365,13 +13570,6 @@ impl View for Workspace {
             context.set.insert("Workspace_ActiveOrSelectedTabsInGroup");
         }
 
-        if *CodeSettings::as_ref(app).show_project_explorer {
-            context.set.insert(flags::SHOW_PROJECT_EXPLORER);
-        }
-        if *CodeSettings::as_ref(app).show_hidden_files {
-            context.set.insert(flags::SHOW_HIDDEN_FILES);
-        }
-
         self.add_toggle_setting_context_flags(app, &mut context);
 
         let sync_state = SyncedInputState::as_ref(app);
@@ -14446,52 +13644,6 @@ impl View for Workspace {
                 .finish()
         };
         let mut stack = Stack::new();
-
-        #[cfg(target_family = "wasm")]
-        {
-            let pane_group = self.active_tab_pane_group().as_ref(app);
-            if warpui::platform::wasm::is_mobile_device() && pane_group.left_panel_open {
-                let scrim = Rect::new()
-                    .with_background(Fill::Solid(ColorU::new(
-                        0,
-                        0,
-                        0,
-                        MOBILE_OVERLAY_SCRIM_ALPHA,
-                    )))
-                    .finish();
-                let clickable_scrim = EventHandler::new(scrim)
-                    .on_left_mouse_down(|ctx, _, _| {
-                        ctx.dispatch_typed_action(WorkspaceAction::ToggleLeftPanel);
-                        DispatchEventResult::StopPropagation
-                    })
-                    .finish();
-                stack.add_positioned_overlay_child(
-                    Percentage::width(1.0 - MOBILE_OVERLAY_PANEL_WIDTH_RATIO, clickable_scrim)
-                        .finish(),
-                    OffsetPositioning::offset_from_save_position_element(
-                        TAB_BAR_POSITION_ID,
-                        vec2f(0., 0.),
-                        PositionedElementOffsetBounds::WindowBySize,
-                        PositionedElementAnchor::BottomRight,
-                        ChildAnchor::TopRight,
-                    ),
-                );
-
-                let panel_content = Container::new(ChildView::new(&self.left_panel_view).finish())
-                    .with_background(appearance.theme().surface_1())
-                    .finish();
-                stack.add_positioned_overlay_child(
-                    Percentage::width(MOBILE_OVERLAY_PANEL_WIDTH_RATIO, panel_content).finish(),
-                    OffsetPositioning::offset_from_save_position_element(
-                        TAB_BAR_POSITION_ID,
-                        vec2f(0., 0.),
-                        PositionedElementOffsetBounds::WindowBySize,
-                        PositionedElementAnchor::BottomLeft,
-                        ChildAnchor::TopLeft,
-                    ),
-                );
-            }
-        }
 
         stack.add_child(
             Container::new(panels)
@@ -15226,7 +14378,6 @@ impl Workspace {
         let color = tab.color();
         let draggable_state = tab.draggable_state.clone();
         let custom_title = pane_group.read(ctx, |pg, ctx| pg.custom_title(ctx));
-        let left_panel_open = pane_group.read(ctx, |pg, _| pg.left_panel_open);
         let right_panel_open = pane_group.read(ctx, |pg, _| pg.right_panel_open);
         let is_right_panel_maximized = pane_group.read(ctx, |pg, _| pg.is_right_panel_maximized);
         let vertical_tabs_panel_open = self.vertical_tabs_panel_open;
@@ -15235,7 +14386,6 @@ impl Workspace {
             pane_group,
             color,
             custom_title,
-            left_panel_open,
             right_panel_open,
             is_right_panel_maximized,
             draggable_state,
@@ -15294,7 +14444,7 @@ impl Workspace {
             ..
         } = transferred_tab;
         ctx.subscribe_to_view(&pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         let index = insertion_index.min(self.tabs.len());
@@ -15558,11 +14708,11 @@ impl Workspace {
         // placeholder is dropped and any events we need to react to — most
         // notably `PaneGroup::Event::Exited` fired by cmd-W — come from
         // `new_pane_group` instead. Without this, `close_pane` emits
-        // `Exited` but `handle_file_tree_event` is never invoked, so the
+        // `Exited` but `handle_pane_group_event` is never invoked, so the
         // workspace never calls `close_tab` and cmd-W appears to do nothing.
         ctx.unsubscribe_to_view(&placeholder_pane_group);
         ctx.subscribe_to_view(&new_pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         let working_directories_model = self.working_directories_model.clone();
@@ -16839,19 +15989,16 @@ fn render_cross_window_ghost_chip(
     }
 }
 
-fn compute_default_panel_widths(
+fn compute_default_right_panel_width(
     app: &AppContext,
     window_id: WindowId,
     has_horizontal_split: bool,
-) -> (f32, f32) {
+) -> f32 {
     if let Some(bounds) = app.window_bounds(&window_id) {
         let window_width = bounds.width();
-        let left_ratio = 0.15;
         let right_ratio = if has_horizontal_split { 0.3 } else { 0.5 };
-        let left = window_width * left_ratio;
-        let right = window_width * right_ratio;
-        (left, right)
+        window_width * right_ratio
     } else {
-        (DEFAULT_LEFT_PANEL_WIDTH, DEFAULT_RIGHT_PANEL_WIDTH)
+        DEFAULT_RIGHT_PANEL_WIDTH
     }
 }

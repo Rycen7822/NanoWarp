@@ -78,8 +78,6 @@ impl EditorAndCodeReviewPageView {
             Box::new(CodeReviewPanelToggleWidget::default())
                 as Box<dyn SettingsWidget<View = Self>>,
             Box::new(CodeReviewDiffStatsToggleWidget::default()),
-            Box::new(ProjectExplorerToggleWidget::default()),
-            Box::new(ShowHiddenFilesToggleWidget::default()),
             Box::new(AutoSaveToggleWidget::default()),
         ]);
 
@@ -141,8 +139,6 @@ impl View for EditorAndCodeReviewPageView {
 pub enum EditorAndCodeReviewPageAction {
     ToggleCodeReviewPanel,
     ToggleShowCodeReviewDiffStats,
-    ToggleProjectExplorer,
-    ToggleShowHiddenFiles,
     ToggleAutoSave,
     SetCodeEditorLineNumberMode(CodeEditorLineNumberMode),
 }
@@ -165,18 +161,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
                             .show_code_review_diff_stats
                             .toggle_and_save_value(ctx)
                     );
-                });
-                ctx.notify();
-            }
-            EditorAndCodeReviewPageAction::ToggleProjectExplorer => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_project_explorer.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            EditorAndCodeReviewPageAction::ToggleShowHiddenFiles => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_hidden_files.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -250,22 +234,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 )),
                 context,
                 flags::SHOW_CODE_REVIEW_DIFF_STATS_FLAG,
-            ),
-            ToggleSettingActionPair::new(
-                "project explorer",
-                builder(SettingsAction::EditorAndCodeReview(
-                    EditorAndCodeReviewPageAction::ToggleProjectExplorer,
-                )),
-                context,
-                flags::SHOW_PROJECT_EXPLORER,
-            ),
-            ToggleSettingActionPair::new(
-                "show hidden files in project explorer",
-                builder(SettingsAction::EditorAndCodeReview(
-                    EditorAndCodeReviewPageAction::ToggleShowHiddenFiles,
-                )),
-                context,
-                flags::SHOW_HIDDEN_FILES,
             ),
         ],
         app,
@@ -376,89 +344,6 @@ impl SettingsWidget for CodeReviewDiffStatsToggleWidget {
                 })
                 .finish(),
             Some("Show lines added and removed counts on the code review button.".into()),
-        )
-    }
-}
-
-#[derive(Default)]
-struct ProjectExplorerToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ProjectExplorerToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "project explorer file tree left panel tools"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let code_settings = CodeSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Project explorer".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*code_settings.show_project_explorer)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAndCodeReviewPageAction::ToggleProjectExplorer);
-                })
-                .finish(),
-            Some(
-                "Adds an IDE-style project explorer / file tree to the left side tools panel."
-                    .into(),
-            ),
-        )
-    }
-}
-
-#[derive(Default)]
-struct ShowHiddenFilesToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ShowHiddenFilesToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "show hidden files dotfiles project explorer file tree"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let code_settings = CodeSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Show hidden files in project explorer".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*code_settings.show_hidden_files)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAndCodeReviewPageAction::ToggleShowHiddenFiles);
-                })
-                .finish(),
-            Some(
-                "Show dotfiles and hidden files (starting with .) in the project explorer.".into(),
-            ),
         )
     }
 }

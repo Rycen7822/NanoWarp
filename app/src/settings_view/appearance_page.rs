@@ -53,7 +53,7 @@ use crate::features::FeatureFlag;
 use crate::gpu_state::{GPUState, GPUStateEvent};
 use crate::settings::app_icon::{AppIcon, AppIconSettings};
 use crate::settings::{
-    AppEditorSettings, CodeSettings, CursorBlink, CursorDisplayType, DEFAULT_MONOSPACE_FONT_NAME,
+    AppEditorSettings, CursorBlink, CursorDisplayType, DEFAULT_MONOSPACE_FONT_NAME,
     EnforceMinimumContrast, FontSettings, FontSettingsChangedEvent, GPUSettings, InputBoxType,
     InputModeSettings, InputSettings, InputSettingsChangedEvent, MonospaceFontName, PaneSettings,
     ThemeSettings, active_theme_kind, respect_system_theme,
@@ -245,15 +245,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         )),
         context,
         flags::OPEN_WINDOWS_AT_CUSTOM_SIZE_FLAG,
-    ));
-
-    toggle_binding_pairs.push(ToggleSettingActionPair::new(
-        "tools panel visibility across tabs",
-        builder(SettingsAction::AppearancePageToggle(
-            AppearancePageAction::ToggleLeftPanelVisibility,
-        )),
-        context,
-        flags::LEFT_PANEL_VISIBILITY_ACROSS_TABS_FLAG,
     ));
 
     toggle_binding_pairs.push(ToggleSettingActionPair::new(
@@ -459,8 +450,6 @@ pub enum AppearancePageAction {
     ToggleHideTitleBarSearchBarInVerticalTabs,
     ToggleLigatureRendering,
     SetWindowBackdrop(WindowBackdrop),
-    ToggleLeftPanelVisibility,
-    ToggleToolsPanelProjectExplorer,
     SetEnforceMinimumContrast(EnforceMinimumContrast),
     ToggleFocusPaneOnHover,
     ToggleInputMode,
@@ -572,15 +561,6 @@ impl TypedActionView for AppearanceSettingsPageView {
             ToggleAllAvailableFonts => self.toggle_all_available_fonts(ctx),
             ToggleDimInactivePanes => self.toggle_dim_inactive_panes(ctx),
             SetWindowBackdrop(backdrop) => self.set_window_backdrop(*backdrop, ctx),
-            ToggleLeftPanelVisibility => self.toggle_left_panel_visibility(ctx),
-            ToggleToolsPanelProjectExplorer => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_project_explorer.toggle_and_save_value(ctx));
-                });
-                // The Appearance page does not subscribe to these settings
-                // groups, so notify explicitly to refresh the switch state.
-                ctx.notify();
-            }
             SetInputMode {
                 new_mode,
                 from_binding,
@@ -1281,32 +1261,8 @@ impl AppearanceSettingsPageView {
             window_settings_widgets.push(Box::new(ZoomLevelWidget));
         }
 
-        if window_settings
-            .left_panel_visibility_across_tabs
-            .is_supported_on_current_platform()
-        {
-            window_settings_widgets.push(Box::new(ToolsPanelStateScopeWidget::default()));
-        }
-
         if !window_settings_widgets.is_empty() {
             categories.push(Category::new("Window", window_settings_widgets));
-        }
-
-        // Tools panel tab visibility toggles. These control which of the four
-        // tabs appear in the tools panel and mirror the onboarding "Customize
-        // your UI" tools-panel selection (see `crates/onboarding`); each toggle
-        // points at the same backing setting as onboarding so the two surfaces
-        // stay in sync, and the tools panel already recomputes its available
-        // views live when these settings change (see `Workspace::new`).
-        // Each toggle is gated only on compile-time / feature-flag availability
-        // of the corresponding tab (not on transient login/AI state), so the
-        // section stays stable regardless of when the page is built.
-        let mut tools_panel_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![];
-        if cfg!(feature = "local_fs") {
-            tools_panel_widgets.push(Box::new(ToolsPanelProjectExplorerWidget::default()));
-        }
-        if !tools_panel_widgets.is_empty() {
-            categories.push(Category::new("Tools panel", tools_panel_widgets));
         }
 
         // Create the Input category with all widgets
@@ -2029,17 +1985,6 @@ impl AppearanceSettingsPageView {
     fn set_window_backdrop(&mut self, backdrop: WindowBackdrop, ctx: &mut ViewContext<Self>) {
         WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
             report_if_error!(window_settings.background_backdrop.set_value(backdrop, ctx));
-        });
-        ctx.notify();
-    }
-
-    pub fn toggle_left_panel_visibility(&mut self, ctx: &mut ViewContext<Self>) {
-        WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
-            report_if_error!(
-                window_settings
-                    .left_panel_visibility_across_tabs
-                    .toggle_and_save_value(ctx)
-            );
         });
         ctx.notify();
     }
@@ -3052,89 +2997,6 @@ impl SettingsWidget for WindowBackdropWidget {
             );
         }
         col.finish()
-    }
-}
-
-#[derive(Default)]
-struct ToolsPanelStateScopeWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ToolsPanelStateScopeWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "left tools panel open closed across tabs file tree project explorer"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let window_settings = WindowSettings::as_ref(app);
-        let is_enabled = *window_settings.left_panel_visibility_across_tabs;
-
-        render_body_item::<AppearancePageAction>(
-            "Tools panel visibility is consistent across tabs".to_string(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(is_enabled)
-                .build()
-                .on_click(|evt_ctx, _app, _v2f| {
-                    evt_ctx.dispatch_typed_action(AppearancePageAction::ToggleLeftPanelVisibility);
-                })
-                .finish(),
-            None,
-        )
-    }
-}
-
-/// Tools panel tab-visibility toggles. Each mirrors an onboarding tools-panel
-/// chip and points at the same backing setting so Settings and onboarding stay
-/// in sync; toggling live-updates the tools panel via `Workspace`'s settings
-/// subscriptions.
-#[derive(Default)]
-struct ToolsPanelProjectExplorerWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ToolsPanelProjectExplorerWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "tools panel tabs file explorer project explorer file tree left panel visibility"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        render_body_item::<AppearancePageAction>(
-            "Project explorer".to_string(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*CodeSettings::as_ref(app).show_project_explorer)
-                .build()
-                .on_click(|evt_ctx, _app, _v2f| {
-                    evt_ctx.dispatch_typed_action(
-                        AppearancePageAction::ToggleToolsPanelProjectExplorer,
-                    );
-                })
-                .finish(),
-            Some("Show the project explorer / file tree tab in the tools panel.".to_string()),
-        )
     }
 }
 

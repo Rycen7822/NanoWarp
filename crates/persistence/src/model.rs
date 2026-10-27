@@ -26,7 +26,6 @@ pub struct Window {
     pub quake_mode: bool,
     pub universal_search_width: Option<f32>,
     pub fullscreen_state: i32,
-    pub left_panel_open: Option<bool>,
     pub vertical_tabs_panel_open: Option<bool>,
 }
 
@@ -60,7 +59,6 @@ pub struct NewWindow {
     pub quake_mode: bool,
     pub universal_search_width: Option<f32>,
     pub fullscreen_state: i32,
-    pub left_panel_open: Option<bool>,
     pub vertical_tabs_panel_open: Option<bool>,
 }
 
@@ -416,7 +414,6 @@ pub struct NewIgnoredSuggestion {
 #[diesel(table_name = panels)]
 pub struct NewPanel {
     pub tab_id: i32,
-    pub left_panel: Option<String>,
     pub right_panel: Option<String>,
 }
 
@@ -425,6 +422,5 @@ pub struct NewPanel {
 pub struct Panel {
     pub id: i32,
     pub tab_id: i32,
-    pub left_panel: Option<String>,
     pub right_panel: Option<String>,
 }

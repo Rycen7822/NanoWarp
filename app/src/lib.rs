@@ -10,6 +10,7 @@ mod banner;
 mod chip_configurator;
 mod code;
 mod code_review;
+#[cfg(not(target_family = "wasm"))]
 mod coding_panel_enablement_state;
 mod command_palette;
 mod completer;

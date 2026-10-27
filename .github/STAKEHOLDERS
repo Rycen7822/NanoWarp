@@ -52,7 +52,6 @@
 /app/src/search/search_results_menu/ @moirahuang
 /app/src/search/slash_command_menu/ @moirahuang
 /app/src/terminal/input/slash_commands/ @moirahuang
-/app/src/code/file_tree/ @moirahuang
 /app/src/workspace/view/global_search/ @moirahuang
 
 # Tab configs and worktrees

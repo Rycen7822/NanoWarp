@@ -16,7 +16,6 @@ use crate::terminal::model::block::SerializedBlock;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::WorkspaceRegistry;
 use crate::workspace::tab_group::TabGroupId;
-use crate::workspace::view::left_panel::ToolPanelView;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
@@ -36,9 +35,7 @@ pub struct WindowSnapshot {
     pub fullscreen_state: FullscreenState,
     pub quake_mode: bool,
     pub universal_search_width: Option<f32>,
-    pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
-    pub left_panel_width: Option<f32>,
     pub right_panel_width: Option<f32>,
     /// Tab groups defined in this window. Group order is implicit from
     /// member tabs' positions, so no explicit ordering is persisted.
@@ -60,7 +57,6 @@ pub struct TabSnapshot {
     pub root: PaneNodeSnapshot,
     pub default_directory_color: Option<AnsiColorIdentifier>,
     pub selected_color: SelectedTabColor,
-    pub left_panel: Option<LeftPanelSnapshot>,
     pub right_panel: Option<RightPanelSnapshot>,
     /// Tab group this tab belongs to, if any.
     pub group_id: Option<TabGroupId>,
@@ -170,26 +166,6 @@ pub enum CodeReviewPaneSnapshot {
         terminal_uuid: Vec<u8>,
         repo_path: PathBuf,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum LeftPanelDisplayedTab {
-    FileTree,
-}
-
-impl From<ToolPanelView> for LeftPanelDisplayedTab {
-    fn from(view: ToolPanelView) -> Self {
-        match view {
-            ToolPanelView::ProjectExplorer => LeftPanelDisplayedTab::FileTree,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LeftPanelSnapshot {
-    pub left_panel_displayed_tab: LeftPanelDisplayedTab,
-    pub pane_group_id: String,
-    pub width: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

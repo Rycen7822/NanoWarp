@@ -99,12 +99,11 @@ impl PaneContent for CodePane {
     }
     fn attach(
         &self,
-        group: &PaneGroup,
+        _group: &PaneGroup,
         focus_handle: crate::pane_group::focus_state::PaneFocusHandle,
         ctx: &mut ViewContext<PaneGroup>,
     ) {
         let pane_id = self.id();
-        let _code_model = group.active_file_model().clone();
 
         self.view
             .update(ctx, |view, ctx| view.set_focus_handle(focus_handle, ctx));
@@ -115,18 +114,8 @@ impl PaneContent for CodePane {
                 CodeViewEvent::Pane(pane_event) => {
                     pane_group.handle_pane_event(pane_id, pane_event, ctx)
                 }
-                CodeViewEvent::TabChanged { location, .. } => {
-                    if let Some(loc) = location {
-                        pane_group.active_file_model().update(ctx, |model, ctx| {
-                            model.active_file_changed(loc.clone(), ctx);
-                        });
-                    }
-                }
+                #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
                 CodeViewEvent::FileOpened { location, .. } => {
-                    pane_group.active_file_model().update(ctx, |model, ctx| {
-                        model.active_file_changed(location.clone(), ctx);
-                    });
-
                     // Track the opened file in the OpenedFilesModel
                     #[cfg(feature = "local_fs")]
                     {
