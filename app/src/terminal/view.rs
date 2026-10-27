@@ -3652,7 +3652,7 @@ impl TerminalView {
             self.horizontal_clipped_scroll_state.clone(),
             content_element_size,
             self.input_size_at_last_frame(app).unwrap_or_default(),
-            AutoscrollBehavior::Always,
+            AutoscrollBehavior::WhenScrolledToEnd,
         )
     }
 
