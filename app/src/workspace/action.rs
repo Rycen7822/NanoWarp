@@ -372,10 +372,9 @@ pub enum WorkspaceAction {
     ToggleDebugNetworkStatus,
     ToggleShowMemoryStats,
     RunCommand(String),
-    /// Dismisses the Wayland crash recovery banner and opens a link to our docs page with more
-    /// information.
+    /// Acknowledges and dismisses the local Wayland crash recovery warning.
     #[cfg(target_os = "linux")]
-    DismissWaylandCrashRecoveryBannerAndOpenLink,
+    DismissWaylandCrashRecoveryBanner,
     FocusTerminalViewInWorkspace {
         terminal_view_id: EntityId,
     },
@@ -681,7 +680,7 @@ impl WorkspaceAction {
             #[cfg(feature = "local_fs")]
             FileDeleted { .. } => false, // File deletion doesn't change workspace state
             #[cfg(target_os = "linux")]
-            DismissWaylandCrashRecoveryBannerAndOpenLink => false,
+            DismissWaylandCrashRecoveryBanner => false,
             #[cfg(target_family = "wasm")]
             OpenLinkOnDesktop(_) => false,
             // actions that are related to updating user settings or

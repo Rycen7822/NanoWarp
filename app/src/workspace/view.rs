@@ -14298,9 +14298,8 @@ impl TypedActionView for Workspace {
                 ctx.notify();
             }
             #[cfg(all(enable_crash_recovery, target_os = "linux"))]
-            DismissWaylandCrashRecoveryBannerAndOpenLink => {
+            DismissWaylandCrashRecoveryBanner => {
                 self.dismiss_workspace_banner(ctx, &WorkspaceBanner::WaylandCrashRecovery);
-                ctx.open_url("https://docs.warp.dev/terminal/more-features/linux#native-wayland");
             }
             TabHoverWidthStart { width } => {
                 // Store the fixed width value for the tab to maintain consistent size during hover
