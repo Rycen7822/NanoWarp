@@ -13,15 +13,11 @@ use warpui::{
 use super::section_views::feature_section::FeatureSectionEvent;
 use super::section_views::{
     BUTTON_PADDING, DETAIL_FONT_SIZE, FOOTER_ICON_SIZE, SCROLLBAR_OFFSET, SCROLLBAR_WIDTH,
-    SECTION_SPACING, SectionViewHandle,
+    SECTION_SPACING,
 };
 use super::sections::sections;
-use super::{
-    ContentSectionData, ContentSectionView, FeatureSection, FeatureSectionData, FeatureSectionView,
-    Section, TipsCompleted,
-};
+use super::{FeatureSection, FeatureSectionData, FeatureSectionView, TipsCompleted};
 use crate::appearance::Appearance;
-use crate::channel::ChannelState;
 use crate::resource_center::skip_tips_and_write_to_user_defaults;
 
 use crate::workspace::WorkspaceAction;
@@ -39,7 +35,7 @@ pub enum ResourceCenterMainEvent {
 pub struct ResourceCenterMainView {
     button_mouse_states: MouseStateHandles,
     clipped_scroll_state: ClippedScrollStateHandle,
-    section_views: Vec<SectionViewHandle>,
+    section_views: Vec<ViewHandle<FeatureSectionView>>,
     tips_completed: ModelHandle<TipsCompleted>,
 }
 
@@ -66,65 +62,32 @@ impl ResourceCenterMainView {
         tips_completed: ModelHandle<TipsCompleted>,
         action_target: ModelHandle<ActionTarget>,
         ctx: &mut ViewContext<Self>,
-    ) -> Vec<SectionViewHandle> {
+    ) -> Vec<ViewHandle<FeatureSectionView>> {
         let sections = sections(ctx);
-
-        // Set gamified tips count
-        let gamified_tips_count = sections
-            .iter()
-            .map(|section| {
-                let mut count = 0;
-                if let Section::Feature(data) = section {
-                    count = data.items.len()
-                }
-                count
-            })
-            .sum();
-
+        let gamified_tips_count = sections.iter().map(|section| section.items.len()).sum();
         tips_completed.update(ctx, |tips_completed, _ctx| {
             tips_completed.set_gamified_tips_count(gamified_tips_count);
         });
-
-        // Determines if user has completed all tips under Getting Started
         let is_onboarded = sections.iter().any(|section| {
-            if let Section::Feature(data) = section {
-                let is_section_completed = data.is_section_completed(tips_completed.as_ref(ctx));
-                is_section_completed && data.section_name == FeatureSection::GettingStarted
-            } else {
-                false
-            }
+            section.section_name == FeatureSection::GettingStarted
+                && section.is_section_completed(tips_completed.as_ref(ctx))
         });
-
         sections
             .iter()
-            .map(|section| match section {
-                Section::Feature(data) => {
-                    let is_tips_completed = tips_completed.as_ref(ctx).skipped_or_completed;
-                    let is_expanded = match data.section_name {
-                        // Always show What's New section
-                        FeatureSection::WhatsNew => true,
-                        FeatureSection::GettingStarted => !is_tips_completed && !is_onboarded,
-                        // Expand Maximize Warp section once user has completed welcome tips,
-                        // and keep open after users have completed/skipped all tips
-                        FeatureSection::MaximizeWarp => is_tips_completed || is_onboarded,
-                        _ => false,
-                    };
-
-                    // Show tips progress for every section except What's New
-                    let show_tips_progress = !matches!(data.section_name, FeatureSection::WhatsNew);
-
-                    SectionViewHandle::Feature(Self::build_feature_section_view(
-                        data,
-                        action_target.clone(),
-                        ctx,
-                        tips_completed.clone(),
-                        show_tips_progress,
-                        is_expanded,
-                    ))
-                }
-                Section::Content(data) => {
-                    SectionViewHandle::Content(Self::build_content_section_view(data, ctx))
-                }
+            .map(|data| {
+                let is_tips_completed = tips_completed.as_ref(ctx).skipped_or_completed;
+                let is_expanded = match data.section_name {
+                    FeatureSection::GettingStarted => !is_tips_completed && !is_onboarded,
+                    FeatureSection::MaximizeWarp => is_tips_completed || is_onboarded,
+                };
+                Self::build_feature_section_view(
+                    data,
+                    action_target.clone(),
+                    ctx,
+                    tips_completed.clone(),
+                    true,
+                    is_expanded,
+                )
             })
             .collect()
     }
@@ -167,32 +130,13 @@ impl ResourceCenterMainView {
             }
             FeatureSectionEvent::ExpandSection(section_name) => {
                 for section_view in &self.section_views {
-                    match section_view {
-                        SectionViewHandle::Feature(feature_view_handle) => {
-                            if feature_view_handle
-                                .as_ref(ctx)
-                                .feature_section_data
-                                .section_name
-                                == *section_name
-                            {
-                                feature_view_handle.update(ctx, |view, ctx| {
-                                    view.expand_section(ctx);
-                                })
-                            }
-                        }
-                        SectionViewHandle::Content(_) => {}
+                    if section_view.as_ref(ctx).feature_section_data.section_name == *section_name {
+                        section_view.update(ctx, |view, ctx| view.expand_section(ctx));
                     }
                 }
                 ctx.notify();
             }
         }
-    }
-
-    fn build_content_section_view(
-        section_data: &ContentSectionData,
-        ctx: &mut ViewContext<ResourceCenterMainView>,
-    ) -> ViewHandle<ContentSectionView> {
-        ctx.add_typed_action_view(|ctx| ContentSectionView::new(section_data.clone(), false, ctx))
     }
 
     pub fn set_action_target(
@@ -202,14 +146,9 @@ impl ResourceCenterMainView {
         ctx: &mut ViewContext<Self>,
     ) {
         for section_view in &self.section_views {
-            match section_view {
-                SectionViewHandle::Feature(view_handle) => {
-                    view_handle.update(ctx, |feature_section_view, ctx| {
-                        feature_section_view.set_action_target(window_id, input_id, ctx)
-                    });
-                }
-                SectionViewHandle::Content(_) => {}
-            }
+            section_view.update(ctx, |view, ctx| {
+                view.set_action_target(window_id, input_id, ctx)
+            });
         }
     }
 
@@ -217,14 +156,7 @@ impl ResourceCenterMainView {
         let mut body = Flex::column();
 
         for section_view in &self.section_views {
-            match section_view {
-                SectionViewHandle::Feature(feature_view_handle) => {
-                    body.add_child(ChildView::new(feature_view_handle).finish());
-                }
-                SectionViewHandle::Content(section_view_handle) => {
-                    body.add_child(ChildView::new(section_view_handle).finish());
-                }
-            }
+            body.add_child(ChildView::new(section_view).finish());
         }
 
         let theme = appearance.theme();
@@ -241,8 +173,7 @@ impl ResourceCenterMainView {
     }
 
     fn render_current_version(&self, appearance: &Appearance) -> Box<dyn Element> {
-        // Use a dummy string for git release tag which is not available on local env
-        let version = ChannelState::app_version().unwrap_or("v0.local.testing.string_00");
+        let version = warp_cli::version_string();
 
         let style = UiComponentStyles {
             font_color: Some(appearance.theme().nonactive_ui_text_color().into()),

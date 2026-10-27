@@ -12,7 +12,7 @@ pub use main_page::{ResourceCenterMainEvent, ResourceCenterMainView};
 mod keybindings_page;
 pub use keybindings_page::KeybindingsView;
 mod section_views;
-pub use section_views::{ContentSectionView, FeatureSectionView};
+pub use section_views::FeatureSectionView;
 pub mod sections;
 mod view;
 use serde::{Deserialize, Serialize};
@@ -86,9 +86,6 @@ pub enum TipAction {
     HistorySearch,
     CommandSearch,
     SaveNewLaunchConfig,
-    // This toggles Warp Drive rather than opening it. This enum can't directly be
-    // renamed because we serialize it into the welcome tips.
-    OpenWarpDrive,
 }
 
 impl TipAction {
@@ -100,7 +97,6 @@ impl TipAction {
             TipAction::CommandSearch => "workspace:show_command_search",
             TipAction::ThemePicker => "workspace:show_theme_chooser",
             TipAction::SaveNewLaunchConfig => "workspace:open_launch_config_save_modal",
-            TipAction::OpenWarpDrive => "workspace:toggle_left_panel",
         }
     }
 
@@ -153,30 +149,10 @@ impl FeatureItem {
     }
 }
 
-#[derive(Clone, Debug)]
-// Section item that links to an external URL
-pub struct ContentItem {
-    pub title: &'static str,
-    pub description: &'static str,
-    pub url: &'static str,
-    pub button_label: &'static str,
-}
-
-pub enum Section {
-    Feature(FeatureSectionData),
-    Content(ContentSectionData),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeatureSectionData {
     pub section_name: FeatureSection,
     pub items: Vec<FeatureItem>,
-}
-
-#[derive(Clone)]
-pub struct ContentSectionData {
-    pub section_name: FeatureSection,
-    pub items: Vec<ContentItem>,
 }
 
 #[derive(Default)]

@@ -26,19 +26,15 @@ use crate::themes::theme::Fill;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FeatureSection {
-    WhatsNew,
     GettingStarted,
     MaximizeWarp,
-    AdvancedSetup,
 }
 
 impl FeatureSection {
     pub fn section_name_string(&self) -> &'static str {
         match self {
-            FeatureSection::WhatsNew => "What's New?",
             FeatureSection::GettingStarted => "Getting Started",
-            FeatureSection::MaximizeWarp => "Maximize Warp",
-            FeatureSection::AdvancedSetup => "Advanced Setup",
+            FeatureSection::MaximizeWarp => "Terminal Tips",
         }
     }
 }
@@ -376,7 +372,6 @@ impl TypedActionView for FeatureSectionView {
                 ctx.emit(FeatureSectionEvent::ExpandSection(*section_name));
                 ctx.notify();
             }
-            _ => {}
         }
     }
 }
@@ -384,11 +379,6 @@ impl TypedActionView for FeatureSectionView {
 impl SectionView for FeatureSectionView {
     fn is_expanded(&self) -> bool {
         self.is_expanded
-    }
-
-    fn toggle_expanded(&mut self, ctx: &mut ViewContext<Self>) {
-        self.is_expanded = !self.is_expanded;
-        ctx.notify();
     }
 
     fn section_progress_indicator(
@@ -421,10 +411,6 @@ impl SectionView for FeatureSectionView {
         } else {
             None
         }
-    }
-
-    fn section_link(&self, _appearance: &Appearance) -> Option<Box<dyn Element>> {
-        None
     }
 }
 
