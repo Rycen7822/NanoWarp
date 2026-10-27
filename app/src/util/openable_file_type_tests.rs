@@ -27,16 +27,15 @@ fn test_open_code_panels_file_editor_default_is_warp() {
 
 #[test]
 #[cfg(feature = "local_fs")]
-fn test_resolve_file_target_markdown_viewer_precedence() {
+fn test_resolve_file_target_markdown_uses_external_editor() {
     let target = resolve_file_target_with_editor_choice(
         Path::new("README.md"),
         EditorChoice::ExternalEditor(Editor::VSCode),
-        true, /* prefer_markdown_viewer */
         EditorLayout::SplitPane,
         None,
     );
 
-    assert_eq!(target, FileTarget::MarkdownViewer(EditorLayout::SplitPane));
+    assert_eq!(target, FileTarget::ExternalEditor(Editor::VSCode));
 }
 
 #[test]
@@ -45,7 +44,6 @@ fn test_resolve_file_target_warp_uses_default_layout() {
     let target = resolve_file_target_with_editor_choice(
         Path::new("data.txt"),
         EditorChoice::Warp,
-        true, /* prefer_markdown_viewer */
         EditorLayout::NewTab,
         None,
     );
@@ -53,11 +51,11 @@ fn test_resolve_file_target_warp_uses_default_layout() {
     assert_eq!(target, FileTarget::CodeEditor(EditorLayout::NewTab));
 }
 
-/// `file.open` from local control relies on this resolver never routing to an
-/// external editor or the system default app, even when user settings prefer one.
+/// Ordinary files can still be opened in the basic editor, while documents
+/// respect the user's external application choice.
 #[test]
 #[cfg(feature = "local_fs")]
-fn test_resolve_file_target_to_open_in_warp_never_leaves_warp() {
+fn test_basic_editor_routes_documents_externally() {
     use crate::util::file::external_editor::settings::{
         OpenCodePanelsFileEditor, OpenConversationLayoutPreference, OpenFileEditor, OpenFileLayout,
         PreferMarkdownViewer, PreferTabbedEditorView,
@@ -73,14 +71,18 @@ fn test_resolve_file_target_to_open_in_warp_never_leaves_warp() {
         prefer_tabbed_editor_view: PreferTabbedEditorView::new(None),
         open_conversation_layout_preference: OpenConversationLayoutPreference::new(None),
     };
-    for path in ["README.md", "data.txt", "main.rs", "image.png", "script.sh"] {
+    assert_eq!(
+        resolve_file_target_to_open_in_warp(Path::new("README.md"), &settings, None),
+        FileTarget::ExternalEditor(Editor::VSCode)
+    );
+    for path in ["data.txt", "main.rs", "image.png", "script.sh"] {
         let target = resolve_file_target_to_open_in_warp(Path::new(path), &settings, None);
         assert!(
             matches!(
                 target,
                 FileTarget::CodeEditor(_) | FileTarget::MarkdownViewer(_)
             ),
-            "{path} must resolve to an in-Warp surface, got {target:?}"
+            "{path} must resolve to the basic editor, got {target:?}"
         );
     }
 }
@@ -91,7 +93,6 @@ fn test_resolve_file_target_binary_is_system_generic() {
     let target = resolve_file_target_with_editor_choice(
         Path::new("image.png"),
         EditorChoice::Warp,
-        true, /* prefer_markdown_viewer */
         EditorLayout::SplitPane,
         None,
     );
@@ -105,7 +106,6 @@ fn test_resolve_file_target_binary_uses_env_editor() {
     let target = resolve_file_target_with_editor_choice(
         Path::new("image.png"),
         EditorChoice::EnvEditor,
-        true, /* prefer_markdown_viewer */
         EditorLayout::SplitPane,
         None,
     );
@@ -132,34 +132,14 @@ fn test_renders_in_warp_notebook_viewer() {
 
 #[test]
 #[cfg(feature = "local_fs")]
-fn test_resolve_file_target_jupyter_notebook_flag_on() {
-    let _flag = FeatureFlag::JupyterNotebookRendering.override_enabled(true);
-    // Even with prefer_markdown_viewer off and an explicit Warp editor choice,
-    // a Jupyter notebook routes to the notebook viewer (not the JSON editor).
+fn test_resolve_file_target_notebook_uses_system_default() {
     let target = resolve_file_target_with_editor_choice(
         Path::new("analysis.ipynb"),
         EditorChoice::Warp,
-        false, /* prefer_markdown_viewer */
         EditorLayout::SplitPane,
         None,
     );
-    assert_eq!(target, FileTarget::MarkdownViewer(EditorLayout::SplitPane));
-}
-
-#[test]
-#[cfg(feature = "local_fs")]
-fn test_resolve_file_target_jupyter_notebook_flag_off() {
-    let _flag = FeatureFlag::JupyterNotebookRendering.override_enabled(false);
-    // With the flag off, a Jupyter notebook opens as JSON in the code editor,
-    // exactly as it does today.
-    let target = resolve_file_target_with_editor_choice(
-        Path::new("analysis.ipynb"),
-        EditorChoice::Warp,
-        true, /* prefer_markdown_viewer */
-        EditorLayout::SplitPane,
-        None,
-    );
-    assert_eq!(target, FileTarget::CodeEditor(EditorLayout::SplitPane));
+    assert_eq!(target, FileTarget::SystemDefault);
 }
 
 #[test]

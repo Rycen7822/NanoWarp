@@ -168,32 +168,19 @@ pub fn is_file_openable_in_warp(path: &Path) -> Option<OpenableFileType> {
     }
 }
 
-/// Only use this for UI elements that must explicitly open a file in Warp (i.e. "Open in New Tab").
+/// Use this for UI elements that open ordinary files in the basic editor.
 /// Prefer `resolve_file_target` for all other cases to respect users' preferences.
-/// This would also force any binary file to be opened in Warp's Code Editor, so you should likely check
-/// `is_file_openable_in_warp` before rendering any such UI Elements.
+/// Notebook and Markdown documents always use an external application.
 #[cfg(feature = "local_fs")]
 pub fn resolve_file_target_to_open_in_warp(
     path: &Path,
     settings: &EditorSettings,
     layout: Option<EditorLayout>,
 ) -> FileTarget {
-    let openable_file_type = is_file_openable_in_warp(path);
-    let is_markdown = matches!(openable_file_type, Some(OpenableFileType::Markdown));
-    let layout = layout.unwrap_or(*settings.open_file_layout);
-
-    // Jupyter notebooks render in Warp's notebook viewer unconditionally when
-    // the feature flag is enabled (the whole point is to avoid raw JSON).
-    if openable_file_type.is_some()
-        && FeatureFlag::JupyterNotebookRendering.is_enabled()
-        && is_jupyter_notebook_file(path)
-    {
-        return FileTarget::MarkdownViewer(layout);
+    if is_markdown_file(path) || is_jupyter_notebook_file(path) {
+        return resolve_file_target(path, settings, layout);
     }
-    if is_markdown && *settings.prefer_markdown_viewer {
-        return FileTarget::MarkdownViewer(layout);
-    }
-    FileTarget::CodeEditor(layout)
+    FileTarget::CodeEditor(layout.unwrap_or(*settings.open_file_layout))
 }
 
 /// Resolves the target application or viewer for opening a file based on its path and editor settings.
@@ -206,7 +193,6 @@ pub fn resolve_file_target(
     resolve_file_target_with_editor_choice(
         path,
         *settings.open_file_editor,
-        *settings.prefer_markdown_viewer,
         *settings.open_file_layout,
         layout,
     )
@@ -216,29 +202,18 @@ pub fn resolve_file_target(
 pub fn resolve_file_target_with_editor_choice(
     path: &Path,
     editor_choice: EditorChoice,
-    prefer_markdown_viewer: bool,
     default_layout: EditorLayout,
     layout: Option<EditorLayout>,
 ) -> FileTarget {
-    let is_openable_in_warp = is_file_openable_in_warp(path);
-    let is_markdown = matches!(is_openable_in_warp, Some(OpenableFileType::Markdown));
+    if is_markdown_file(path) || is_jupyter_notebook_file(path) {
+        return match editor_choice {
+            EditorChoice::ExternalEditor(editor) => FileTarget::ExternalEditor(editor),
+            _ => FileTarget::SystemDefault,
+        };
+    }
+
+    let is_openable_in_warp = is_file_openable_in_warp(path).is_some();
     let layout = layout.unwrap_or(default_layout);
-    let is_openable_in_warp = is_openable_in_warp.is_some();
-
-    // 0. Jupyter notebooks render in Warp's notebook viewer unconditionally
-    // when the feature flag is enabled (not gated on `prefer_markdown_viewer`
-    // or `editor_choice`, since rendering-instead-of-JSON is the whole point).
-    if is_openable_in_warp
-        && FeatureFlag::JupyterNotebookRendering.is_enabled()
-        && is_jupyter_notebook_file(path)
-    {
-        return FileTarget::MarkdownViewer(layout);
-    }
-
-    // 1. Markdown Viewer (only if user preference specified)
-    if is_markdown && prefer_markdown_viewer {
-        return FileTarget::MarkdownViewer(layout);
-    }
 
     // 2. Warp Code Editor (Explicit user preference)
     if is_openable_in_warp && matches!(editor_choice, EditorChoice::Warp) {

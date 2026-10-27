@@ -637,7 +637,6 @@ impl LeftPanelView {
                     LocalOrRemotePath::Local(path) => resolve_file_target_with_editor_choice(
                         path,
                         *settings.open_code_panels_file_editor,
-                        *settings.prefer_markdown_viewer,
                         *settings.open_file_layout,
                         None,
                     ),
