@@ -19,14 +19,12 @@ pub fn with_error_scope<T>(
     // immediately.  On wasm, it may take longer due to asynchronous browser
     // APIs, but it's necessary to wait here to know if it is safe to continue.
     let error_future = error_scope.pop();
-    cfg_if::cfg_if! {
-        if #[cfg(target_family = "wasm")] {
-            let error = crate::r#async::block_on(error_future);
-        } else {
-            use futures::FutureExt;
-            let error = error_future.now_or_never().expect("always resolves immediately");
-        }
-    }
+
+    use futures::FutureExt;
+    let error = error_future
+        .now_or_never()
+        .expect("always resolves immediately");
+
     (ret, error.map(Into::into))
 }
 

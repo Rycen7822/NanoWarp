@@ -39,7 +39,6 @@ pub fn main() -> Result<()> {
                 warp::terminal::local_tty::run_terminal_server(args);
                 return Ok(());
             }
-            #[cfg(not(target_family = "wasm"))]
             WorkerCommand::RemoteServerProxy(_) | WorkerCommand::RemoteServerDaemon(_) => {
                 return warp::run();
             }

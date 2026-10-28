@@ -67,7 +67,7 @@ pub fn write_tab_config(config: &TabConfig, dir: &Path, base_name: &str) -> Resu
 /// Builds a `TabConfig` from a live tab's pane tree snapshot.
 ///
 /// Walks the `PaneNodeSnapshot` recursively and produces a flat `[[panes]]`
-/// array. Non-terminal leaves (notebook, code, settings, etc.) are replaced
+/// array. Non-terminal leaves (code, settings, etc.) are replaced
 /// with empty terminal panes to preserve the spatial layout.
 pub fn tab_config_from_pane_snapshot(
     snapshot: &PaneNodeSnapshot,

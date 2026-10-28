@@ -1,5 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
-
 pub(super) mod diff;
 mod element;
 pub mod find;

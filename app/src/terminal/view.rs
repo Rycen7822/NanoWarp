@@ -70,9 +70,7 @@ use markdown_parser::FormattedTextFragment;
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use regex::Regex;
-#[cfg(not(target_family = "wasm"))]
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::repositories::RepoDetectionSource;
+use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 use serde::Serialize;
 use settings::Setting;
 use ssh_file_upload::{FileUpload, FileUploadEvent};
@@ -81,7 +79,6 @@ use vec1::vec1;
 use warp_completer::meta::Span;
 use warp_core::r#async::debounce;
 use warp_core::command::ExitCode;
-use warp_core::context_flag::ContextFlag;
 use warp_core::semantic_selection::SemanticSelection;
 use warp_core::user_preferences::GetUserPreferences as _;
 use warp_errors::{report_error, report_if_error};
@@ -2388,9 +2385,6 @@ impl TerminalView {
                         }
                     }
                     RemoteServerManagerEvent::HostDisconnected { host_id } => {
-                        #[cfg(target_family = "wasm")]
-                        let _ = host_id;
-                        #[cfg(not(target_family = "wasm"))]
                         DetectedRepositories::handle(ctx).update(ctx, |repos, _| {
                             repos.remove_roots_for_host(host_id);
                         });
@@ -3934,11 +3928,6 @@ impl TerminalView {
         trigger: NotificationsTrigger,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Desktop notifications discovery isn't meaningful on the web surface.
-        if cfg!(target_family = "wasm") {
-            return;
-        }
-
         // Don't show if the user has dismissed the banner in this session.
         if matches!(
             self.inline_banners_state.notifications_discovery_banner,
@@ -4496,7 +4485,6 @@ impl TerminalView {
 
                             match &repo_path_opt {
                                 Some(LocalOrRemotePath::Remote(remote_path)) => {
-                                    #[cfg(not(target_family = "wasm"))]
                                     DetectedRepositories::handle(ctx).update(ctx, |repos, _| {
                                         repos.register_remote_repo_root(remote_path.clone());
                                     });
@@ -5386,7 +5374,6 @@ impl TerminalView {
                 // that child via `kill_on_drop`, which closes the
                 // multiplexed channel on the ControlMaster so the foreground
                 // ssh can exit cleanly instead of hanging.
-                #[cfg(not(target_family = "wasm"))]
                 if FeatureFlag::SshRemoteServer.is_enabled() {
                     use crate::remote_server::manager::RemoteServerManager;
                     RemoteServerManager::handle(ctx).update(
@@ -5396,10 +5383,6 @@ impl TerminalView {
                         },
                     );
                 }
-                // The remote-server manager only exists on non-wasm targets,
-                // so this handler is a no-op on wasm.
-                #[cfg(target_family = "wasm")]
-                let _ = session_id;
             }
             // Handled by RemoteServerController via model subscription.
             ModelEvent::SshInitShell { .. } => {}
@@ -7254,7 +7237,7 @@ impl TerminalView {
     ) -> Vec<MenuItem<TerminalAction>> {
         let mut items = vec![];
 
-        if ContextFlag::CreateNewSession.is_enabled() {
+        {
             items.extend(vec![
                 MenuItemFields::new("Split pane right")
                     .with_on_select_action(TerminalAction::SplitRight(shell.clone()))
@@ -12705,9 +12688,7 @@ impl View for TerminalView {
 
         // Only show one of these banners at a time, to avoid them visually
         // stacking on top of each other.
-        if self.is_slow_bootstrap_banner_open
-            && ContextFlag::ShowSlowShellStartupBanner.is_enabled()
-        {
+        if self.is_slow_bootstrap_banner_open {
             stack.add_child(ChildView::new(&self.slow_bootstrap_banner).finish());
         } else if self.control_master_error_banner_state.is_open {
             stack.add_child(ChildView::new(&self.control_master_error_banner).finish());

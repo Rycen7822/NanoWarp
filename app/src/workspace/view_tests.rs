@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pane_group::{FilePane, PaneState, SplitPaneState, TerminalPaneId};
+use pane_group::{CodePane, PaneState, SplitPaneState, TerminalPaneId};
 #[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
 use repo_metadata::repositories::DetectedRepositories;
@@ -38,6 +38,7 @@ use crate::util::traffic_lights::windows::RendererState;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use crate::{GlobalResourceHandlesProvider, workspace};
 pub(crate) fn initialize_app(app: &mut App) {
+    app.add_singleton_model(|_| crate::code::editor_management::CodeManager::default());
     initialize_settings_for_tests(app);
 
     // Add the necessary singleton models to the App
@@ -97,6 +98,7 @@ pub(crate) fn initialize_app(app: &mut App) {
 
     // Make sure to initialize the keybindings so that they are available for subviews
     app.update(workspace::init);
+    app.add_singleton_model(crate::code::global_buffer_model::GlobalBufferModel::new);
 }
 
 pub(crate) fn mock_workspace(app: &mut App) -> ViewHandle<Workspace> {
@@ -199,15 +201,11 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
 #[cfg(feature = "local_fs")]
 #[test]
 fn test_open_file_with_target_event_preserves_requested_line() {
-    use crate::code::editor_management::CodeManager;
-    use crate::code::global_buffer_model::GlobalBufferModel;
     use crate::terminal::local_shell::LocalShellState;
 
     App::test((), |mut app| async move {
         initialize_app(&mut app);
-        app.add_singleton_model(|_| CodeManager::default());
         app.add_singleton_model(|_| LocalShellState::NotLoaded);
-        app.add_singleton_model(GlobalBufferModel::new);
         let workspace = mock_workspace(&mut app);
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let code_path = temp_dir.path().join("main.rs");
@@ -1234,7 +1232,7 @@ fn test_switch_focus_panels() {
 }
 
 #[test]
-fn test_focus_file_pane() {
+fn test_focus_code_pane() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -1252,18 +1250,18 @@ fn test_focus_file_pane() {
                 .expect("should be a terminal pane")
         });
 
-        let file_pane_id = pane_group.update(&mut app, |panes, ctx| {
-            // Add a file pane to the left.
-            let file_pane = FilePane::new(
-                None,
-                None,
-                #[cfg(feature = "local_fs")]
+        let code_pane_id = pane_group.update(&mut app, |panes, ctx| {
+            // Add a code pane to the left.
+            let code_pane = CodePane::new(
+                crate::code::editor_management::CodeSource::New {
+                    default_directory: None,
+                },
                 None,
                 ctx,
             );
             panes.add_pane_with_direction(
                 Direction::Left,
-                file_pane,
+                code_pane,
                 true, /* focus_new_pane */
                 ctx,
             );
@@ -1272,7 +1270,7 @@ fn test_focus_file_pane() {
 
         // The new pane should be focused, but the terminal is still the active session.
         pane_group.read(&app, |panes, ctx| {
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(panes.active_session_id(ctx), Some(first_terminal_id));
             assert_eq!(
                 split_pane_state(panes, first_terminal_id, ctx),
@@ -1283,7 +1281,7 @@ fn test_focus_file_pane() {
                 ActiveSessionState::Active
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
         });
@@ -1291,7 +1289,7 @@ fn test_focus_file_pane() {
         // Add a terminal below.
         let second_terminal_id = pane_group.update(&mut app, |panes, ctx| {
             panes.add_terminal_pane(Direction::Down, None, ctx);
-            get_newly_created_pane_id(panes, &[first_terminal_id.into(), file_pane_id])
+            get_newly_created_pane_id(panes, &[first_terminal_id.into(), code_pane_id])
                 .as_terminal_pane_id()
                 .expect("should be a terminal pane")
         });
@@ -1317,7 +1315,7 @@ fn test_focus_file_pane() {
                 ActiveSessionState::Active
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
         });
@@ -1327,17 +1325,17 @@ fn test_focus_file_pane() {
             panes.close_pane(second_terminal_id.into(), ctx);
         });
 
-        // Focus should switch to the file pane, and the first terminal session
+        // Focus should switch to the code pane, and the first terminal session
         // will activate.
         pane_group.read(&app, |panes, ctx| {
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(panes.active_session_id(ctx), Some(first_terminal_id));
             assert_eq!(
                 split_pane_state(panes, first_terminal_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
             assert_eq!(
@@ -1375,18 +1373,18 @@ fn test_close_active_session() {
                 .expect("should be a terminal pane")
         });
 
-        let file_pane_id = pane_group.update(&mut app, |panes, ctx| {
-            // Add a file pane to the left.
-            let file_pane = FilePane::new(
-                None,
-                None,
-                #[cfg(feature = "local_fs")]
+        let code_pane_id = pane_group.update(&mut app, |panes, ctx| {
+            // Add a code pane to the left.
+            let code_pane = CodePane::new(
+                crate::code::editor_management::CodeSource::New {
+                    default_directory: None,
+                },
                 None,
                 ctx,
             );
             panes.add_pane_with_direction(
                 Direction::Left,
-                file_pane,
+                code_pane,
                 true, /* focus_new_pane */
                 ctx,
             );
@@ -1397,18 +1395,18 @@ fn test_close_active_session() {
         });
 
         pane_group.read(&app, |panes, ctx| {
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(panes.active_session_id(ctx), Some(second_terminal_id));
         });
 
         pane_group.update(&mut app, |panes, ctx| {
-            // Close the active session, which should leave the file pane focused and activate the
+            // Close the active session, which should leave the code pane focused and activate the
             // remaining session.
             panes.close_pane(second_terminal_id.into(), ctx);
         });
 
         pane_group.read(&app, |panes, ctx| {
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(panes.active_session_id(ctx), Some(first_terminal_id));
             assert_eq!(
                 split_pane_state(panes, first_terminal_id, ctx),
@@ -1433,7 +1431,7 @@ fn test_close_active_session() {
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
             assert_eq!(

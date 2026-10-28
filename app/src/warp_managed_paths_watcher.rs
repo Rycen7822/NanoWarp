@@ -1,33 +1,18 @@
-use std::path::Path;
-#[cfg(not(target_family = "wasm"))]
-use std::path::PathBuf;
-#[cfg(not(target_family = "wasm"))]
-use std::{fs, sync::Arc, time::Duration};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
-#[cfg(not(target_family = "wasm"))]
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
-use repo_metadata::RepositoryUpdate;
-#[cfg(not(target_family = "wasm"))]
-use repo_metadata::TargetFile;
-#[cfg(not(target_family = "wasm"))]
-use warpui::ModelHandle;
-use warpui::{Entity, ModelContext, SingletonEntity};
-#[cfg(not(target_family = "wasm"))]
+use repo_metadata::{RepositoryUpdate, TargetFile};
+use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 
 /// Duration between filesystem watch events for the Warp managed paths watcher, in milliseconds.
-#[cfg(not(target_family = "wasm"))]
 const WARP_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS: u64 = 500;
-
-#[cfg(not(target_family = "wasm"))]
 pub(crate) fn warp_data_dir() -> PathBuf {
     warp_core::paths::data_dir()
 }
-
-#[cfg(target_family = "wasm")]
-pub(crate) fn ensure_warp_watch_roots_exist() {}
-
-#[cfg(not(target_family = "wasm"))]
 pub(crate) fn ensure_warp_watch_roots_exist() {
     let data_dir = warp_data_dir();
     if let Err(err) = fs::create_dir_all(&data_dir) {
@@ -47,18 +32,12 @@ pub(crate) fn ensure_warp_watch_roots_exist() {
         );
     }
 }
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn repository_update_touches_path(update: &RepositoryUpdate, path: &Path) -> bool {
     repository_update_paths(update).any(|candidate| candidate == path)
 }
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn repository_update_touches_prefix(update: &RepositoryUpdate, prefix: &Path) -> bool {
     repository_update_paths(update).any(|candidate| candidate.starts_with(prefix))
 }
-
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 fn repository_update_paths(update: &RepositoryUpdate) -> impl Iterator<Item = &Path> {
     update
         .added
@@ -70,8 +49,6 @@ fn repository_update_paths(update: &RepositoryUpdate) -> impl Iterator<Item = &P
             [to_target.path.as_path(), from_target.path.as_path()]
         }))
 }
-
-#[cfg(not(target_family = "wasm"))]
 fn filesystem_event_to_repository_update(event: &BulkFilesystemWatcherEvent) -> RepositoryUpdate {
     RepositoryUpdate {
         added: event
@@ -107,25 +84,12 @@ fn filesystem_event_to_repository_update(event: &BulkFilesystemWatcherEvent) -> 
         remote_ref_updated: false,
     }
 }
-
-#[cfg(target_family = "wasm")]
-#[allow(dead_code)]
-pub(crate) enum WarpManagedPathsWatcherEvent {}
-
-#[cfg(not(target_family = "wasm"))]
 pub(crate) enum WarpManagedPathsWatcherEvent {
     FilesChanged(RepositoryUpdate),
 }
-
-#[cfg(not(target_family = "wasm"))]
 pub(crate) struct WarpManagedPathsWatcher {
     _watcher: ModelHandle<BulkFilesystemWatcher>,
 }
-
-#[cfg(target_family = "wasm")]
-pub(crate) struct WarpManagedPathsWatcher;
-
-#[cfg(not(target_family = "wasm"))]
 impl WarpManagedPathsWatcher {
     pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
         Self::new_internal(ctx, true)
@@ -214,18 +178,6 @@ impl WarpManagedPathsWatcher {
         if !update.is_empty() {
             ctx.emit(WarpManagedPathsWatcherEvent::FilesChanged(update));
         }
-    }
-}
-
-#[cfg(target_family = "wasm")]
-impl WarpManagedPathsWatcher {
-    pub(crate) fn new(_ctx: &mut ModelContext<Self>) -> Self {
-        Self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_testing(_ctx: &mut ModelContext<Self>) -> Self {
-        Self
     }
 }
 

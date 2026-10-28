@@ -17,7 +17,6 @@ define_settings_group!(SshSettings,
 
 /// Returns the stable local partition ID for remote daemon sockets and data.
 /// This is not an authentication credential.
-#[cfg(not(target_family = "wasm"))]
 pub(crate) fn remote_server_instance_id(ctx: &warpui::AppContext) -> anyhow::Result<String> {
     use warp_core::user_preferences::GetUserPreferences;
 
@@ -32,7 +31,7 @@ pub(crate) fn remote_server_instance_id(ctx: &warpui::AppContext) -> anyhow::Res
     Ok(instance_id)
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(test)]
 #[test]
 fn remote_server_instance_id_is_stable_across_reads() {
     warpui::App::test((), |mut app| async move {

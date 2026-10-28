@@ -93,7 +93,6 @@ pub struct LeafSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LeafContents {
     Terminal(TerminalPaneSnapshot),
-    File(FilePaneSnapshot),
     Code(CodePaneSnapShot),
     Settings(SettingsPaneSnapshot),
 }
@@ -106,13 +105,6 @@ pub struct TerminalPaneSnapshot {
     pub shell_launch_data: Option<ShellLaunchData>,
     pub is_active: bool,
     pub is_read_only: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct FilePaneSnapshot {
-    /// The path to the local file that was open in this pane. This may be `None` if
-    /// the pane contained an unreadable file.
-    pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

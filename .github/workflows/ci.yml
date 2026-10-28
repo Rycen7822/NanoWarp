@@ -485,39 +485,6 @@ jobs:
       - name: Check for inline Rust test modules
         run: ./script/check_no_inline_test_modules
 
-  wasm-lint:
-    name: Formatting + Clippy (wasm)
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-    runs-on: ubuntu-latest
-    needs: params
-    if: ${{ needs.params.outputs.needs-build == 'true' }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - uses: ./.github/actions/prepare_environment
-        with:
-          target_os: wasm
-
-      - name: Ensure cargo.lock is up-to-date
-        run:
-          cargo metadata --locked --format-version=1 >/dev/null || (echo "::error::Cargo.lock is out-of-date with Cargo.toml. Run 'cargo check' to update." && exit 1)
-
-      - name: Check Rust formatting
-        shell: bash
-        run: |
-          # TODO(vorporeal): Once people have gotten used to ./script/format, in a week or so,
-          # we can have CI enforce the new formatting.
-          #./script/format --check
-
-          # Until then, we'll keep running the traditional formatting check.
-          cargo fmt --check
-
-      - name: Run cargo clippy
-        run: |
-          cargo clippy --locked --target wasm32-unknown-unknown --profile release-wasm-debug_assertions -- -D warnings
-
   check-release-compilation:
     name: Verify compilation with release flags (${{ matrix.name }})
     timeout-minutes: ${{ matrix.os == 'macos' && 30 || 15 }}
@@ -540,10 +507,6 @@ jobs:
             runner: windows-latest
             null_device: "NUL"
 
-          - os: "wasm"
-            name: "wasm"
-            runner: ubuntu-latest
-            null_device: "/dev/null"
     runs-on: ${{ matrix.runner }}
     needs: params
     if: ${{ needs.params.outputs.needs-build == 'true' }}
@@ -557,11 +520,7 @@ jobs:
       - name: Verify compilation with release flags
         shell: bash
         run: |
-          if ${{ matrix.os == 'wasm' }}; then
-            ./script/wasm/bundle --nouniversal --check-only
-          else
-            ./script/bundle --nouniversal --check-only
-          fi
+          ./script/bundle --nouniversal --check-only
         env:
           # Attach the GitHub auth token so that requests to the GitHub API
           # don't get rate limited while fetching native build dependencies.
@@ -584,7 +543,6 @@ jobs:
       - database-migration
       - tests
       - lints
-      - wasm-lint
       - general-lint
       - check-release-compilation
     steps:

@@ -24,7 +24,6 @@ use crate::terminal::model::{StartCommandOutcome, escape_sequences};
 use crate::terminal::model_events::{AnsiHandlerEvent, ModelEvent, ModelEventDispatcher};
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::LINEFEED_REGEX;
-#[cfg(not(target_family = "wasm"))]
 use crate::terminal::writeable_pty::bootstrap_file::{TempBootstrapFile, permanent_bootstrap_file};
 use crate::terminal::{SizeUpdate, TerminalModel, bootstrap};
 
@@ -76,7 +75,6 @@ pub struct PtyController<T: EventLoopSender> {
     /// If we're bootstrapping the shell by sourcing a file with the bootstrap
     /// script, this will hold the handle to the file.  Once bootstrapping is
     /// complete, it will be dropped to clean up the temporary file.
-    #[cfg(not(target_family = "wasm"))]
     bootstrap_file: Option<TempBootstrapFile>,
     in_flight_native_completions_results_tx:
         Option<async_channel::Sender<(Vec<ShellCompletion>, Option<Span>)>>,
@@ -175,7 +173,6 @@ impl<T: EventLoopSender> PtyController<T> {
             pending_writes: VecDeque::new(),
             is_user_command_executing: false,
             is_bracketed_paste_enabled: false,
-            #[cfg(not(target_family = "wasm"))]
             bootstrap_file: None,
             in_flight_native_completions_results_tx: None,
         }
@@ -459,7 +456,6 @@ impl<T: EventLoopSender> PtyController<T> {
 
         // Now that we have bootstrapped, we can be sure that the bootstrap
         // file is no longer needed.
-        #[cfg(not(target_family = "wasm"))]
         self.bootstrap_file.take();
     }
 

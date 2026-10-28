@@ -151,7 +151,7 @@ if (-not $haveMsvcBuildTools) {
 # A bash executable should come with Git for Windows
 & "$gitBinDir\bash.exe" "$PWD\script\install_cargo_test_deps"
 
-# Needed in wasm compilation for parsing the version of wasm-bindgen
+# Used by repository build and release scripts
 winget install jqlang.jq
 
 # CMake is needed to build native dependencies.

@@ -5,7 +5,6 @@ pub(crate) mod cross_window_tab_drag;
 mod global_actions;
 pub mod header_toolbar_editor;
 pub mod header_toolbar_item;
-mod home;
 mod lightbox_view;
 mod native_modal;
 mod registry;
@@ -27,7 +26,6 @@ pub use view::{
     NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID, PANEL_HEADER_HEIGHT,
     TAB_BAR_HEIGHT, TOTAL_TAB_BAR_HEIGHT, WORKSPACE_PADDING, Workspace,
 };
-use warp_core::context_flag::ContextFlag;
 use warpui::AppContext;
 use warpui::accessibility::AccessibilityVerbosity;
 use warpui::elements::DropTargetData;
@@ -40,7 +38,7 @@ use crate::palette::PaletteMode;
 use crate::settings_view::{self, SettingsSection, flags};
 use crate::tab::{NewSessionMenuItem, uses_vertical_tabs};
 use crate::util::bindings::{self, CustomAction, cmd_or_ctrl_shift, is_binding_pty_compliant};
-use crate::{code, modal, notebooks, tab_configs};
+use crate::{code, modal, tab_configs};
 
 // Helper function to access panel header corner radius from other modules
 pub fn panel_header_corner_radius() -> warpui::elements::CornerRadius {
@@ -73,7 +71,6 @@ pub fn init(app: &mut AppContext) {
         WorkspaceAction::DispatchToSettingsTab(settings_action)
     });
     global_actions::init_global_actions(app);
-    notebooks::init(app);
     code::init(app);
     sync_inputs::init(app);
 
@@ -148,8 +145,7 @@ pub fn init(app: &mut AppContext) {
         WorkspaceAction::AddWindow,
     )
     .with_custom_action(CustomAction::AddWindow)
-    .with_context_predicate(id!("Workspace"))
-    .with_enabled(|| ContextFlag::CreateNewSession.is_enabled())]);
+    .with_context_predicate(id!("Workspace"))]);
 
     app.register_editable_bindings([EditableBinding::new(
         NEW_FILE_BINDING_NAME,
@@ -202,7 +198,7 @@ pub fn init(app: &mut AppContext) {
         ]);
     }
 
-    if ContextFlag::LaunchConfigurations.is_enabled() {
+    {
         app.register_fixed_bindings([FixedBinding::custom(
             CustomAction::SaveCurrentConfig,
             WorkspaceAction::OpenLaunchConfigSaveModal,
@@ -447,8 +443,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::AddDefaultTab,
         )
         .with_context_predicate(id!("Workspace") & !id!("Workspace_PaneDragging"))
-        .with_custom_action(CustomAction::NewTab)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::NewTab),
         EditableBinding::new(
             NEW_TERMINAL_TAB_BINDING_NAME,
             BindingDescription::new("New Terminal Tab"),
@@ -457,8 +452,7 @@ pub fn init(app: &mut AppContext) {
             },
         )
         .with_context_predicate(id!("Workspace") & !id!("Workspace_PaneDragging"))
-        .with_custom_action(CustomAction::NewTerminalTab)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::NewTerminalTab),
         EditableBinding::new(
             TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
             BindingDescription::new("Toggle vertical tabs panel")
@@ -687,8 +681,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::TerminateApp,
         )
         .with_context_predicate(id!("Workspace"))
-        .with_group(bindings::BindingGroup::Close.as_str())
-        .with_enabled(|| ContextFlag::CloseWindow.is_enabled()),
+        .with_group(bindings::BindingGroup::Close.as_str()),
         EditableBinding::new(
             "workspace:close_window",
             BindingDescription::new("Close Window")
@@ -698,8 +691,7 @@ pub fn init(app: &mut AppContext) {
         .with_mac_key_binding("cmd-shift-W")
         .with_context_predicate(id!("Workspace"))
         .with_group(bindings::BindingGroup::Close.as_str())
-        .with_custom_action(CustomAction::CloseWindow)
-        .with_enabled(|| ContextFlag::CloseWindow.is_enabled()),
+        .with_custom_action(CustomAction::CloseWindow),
         EditableBinding::new(
             "workspace:close_active_tab",
             "Close the current tab",
@@ -765,8 +757,7 @@ pub fn init(app: &mut AppContext) {
             },
         )
         .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::LaunchConfigPalette)
-        .with_enabled(|| ContextFlag::LaunchConfigurations.is_enabled()),
+        .with_custom_action(CustomAction::LaunchConfigPalette),
         EditableBinding::new(
             "workspace:toggle_files_palette",
             "Toggle Files Palette",
@@ -783,8 +774,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::OpenLaunchConfigSaveModal,
         )
         .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::SaveCurrentConfig)
-        .with_enabled(|| ContextFlag::LaunchConfigurations.is_enabled()),
+        .with_custom_action(CustomAction::SaveCurrentConfig),
     ]);
 
     app.register_editable_bindings([EditableBinding::new(
@@ -833,7 +823,6 @@ pub fn init(app: &mut AppContext) {
     ]);
 
     add_open_setting_pages_as_editable_binding(app);
-    #[cfg(not(target_family = "wasm"))]
     add_log_directory_binding(app);
 }
 
@@ -919,8 +908,6 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         .with_context_predicate(id!("Workspace")),
     ]);
 }
-
-#[cfg(not(target_family = "wasm"))]
 fn add_log_directory_binding(app: &mut AppContext) {
     use warpui::keymap::macros::*;
 

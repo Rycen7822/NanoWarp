@@ -15,6 +15,8 @@ standalone = []
 test-util = ["dep:mockito", "warp_features/test-util"]
 
 [dependencies]
+tokio.workspace = true
+
 anyhow.workspace = true
 cfg-if.workspace = true
 command-corrections.workspace = true
@@ -60,8 +62,6 @@ mockito = { workspace = true, optional = true }
 string-offset.workspace = true
 chrono.workspace = true
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { workspace = true, features = [

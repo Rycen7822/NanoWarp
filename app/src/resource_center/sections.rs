@@ -1,4 +1,3 @@
-use warp_core::context_flag::ContextFlag;
 use warpui::ViewContext;
 
 use super::{
@@ -65,7 +64,7 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
         ctx,
     ));
 
-    if ContextFlag::CreateNewSession.is_enabled() {
+    {
         maximize_warp_items.push(FeatureItem::new(
             "Split panes",
             "Split tabs into multiple panes to make your ideal layout.",
@@ -74,7 +73,7 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
         ));
     }
 
-    if ContextFlag::LaunchConfigurations.is_enabled() {
+    {
         maximize_warp_items.push(FeatureItem::new(
             "Launch configuration",
             "Save your current configuration of windows, tabs, and panes.",

@@ -8,7 +8,6 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 use settings::Setting as _;
-use warp_core::context_flag::ContextFlag;
 use warp_core::ui::Icon as WarpIcon;
 use warp_core::ui::color::blend::Blend;
 use warp_core::ui::theme::color::internal_colors;
@@ -850,7 +849,6 @@ enum VerticalTabsResolvedMode {
 pub(super) enum SummaryPaneKind {
     Terminal,
     Code { title: String },
-    File,
     Settings,
 }
 
@@ -2394,7 +2392,7 @@ fn render_tab_group_internal(
 
     // Mirror the horizontal-tab behavior: middle-click closes the tab, except when it would
     // close the last tab in a context that doesn't allow closing the window.
-    if ContextFlag::CloseWindow.is_enabled() || !is_last_tab {
+    {
         group_element = group_element.on_middle_click(move |ctx, _, _| {
             ctx.dispatch_typed_action(WorkspaceAction::CloseTab(tab_index));
         });
@@ -3204,11 +3202,6 @@ fn resolve_icon_with_status_variant(
             icon: typed.icon(),
             icon_color: main_text,
         },
-        // Other pane types use sub-text color
-        other => PaneIcon::Neutral {
-            icon: other.icon(),
-            icon_color: sub_text,
-        },
     }
 }
 
@@ -3423,7 +3416,6 @@ fn render_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn Element> {
 enum TypedPane<'a> {
     Terminal(&'a TerminalPane),
     Code(&'a CodePane),
-    File,
     Settings,
 }
 
@@ -3434,7 +3426,6 @@ impl TypedPane<'_> {
             TypedPane::Code(_) => SummaryPaneKind::Code {
                 title: title.to_string(),
             },
-            TypedPane::File => SummaryPaneKind::File,
             TypedPane::Settings => SummaryPaneKind::Settings,
         }
     }
@@ -3446,7 +3437,6 @@ impl TypedPane<'_> {
         match self {
             TypedPane::Terminal(_) => "Terminal",
             TypedPane::Code(_) => "Code",
-            TypedPane::File => "File",
             TypedPane::Settings => "Settings",
         }
     }
@@ -3458,7 +3448,7 @@ impl TypedPane<'_> {
                 .as_ref(app)
                 .contains_unsaved_changes(app)
                 .then(|| "Unsaved".to_string()),
-            TypedPane::Terminal(_) | TypedPane::File | TypedPane::Settings => None,
+            TypedPane::Terminal(_) | TypedPane::Settings => None,
         }
     }
 
@@ -3466,7 +3456,6 @@ impl TypedPane<'_> {
         match self {
             TypedPane::Terminal(_) => WarpIcon::Terminal,
             TypedPane::Code(_) => WarpIcon::Code2,
-            TypedPane::File => WarpIcon::File,
             TypedPane::Settings => WarpIcon::Gear,
         }
     }
@@ -3592,7 +3581,7 @@ fn build_vertical_tabs_summary_data(
                     &pane_subtitle,
                 );
             }
-            TypedPane::File | TypedPane::Settings => {
+            TypedPane::Settings => {
                 push_normalized_unique_summary_label(
                     &mut primary_labels,
                     &mut primary_seen,
@@ -3721,7 +3710,7 @@ impl<'a> PaneProps<'a> {
                 self.display_title_override.as_deref(),
                 app,
             ),
-            TypedPane::Code(_) | TypedPane::File | TypedPane::Settings => {
+            TypedPane::Code(_) | TypedPane::Settings => {
                 non_terminal_search_text_fragments(self.generated_or_tab_title(), &self.subtitle)
             }
         };
@@ -4021,7 +4010,6 @@ impl PaneGroup {
                 self.downcast_pane_by_id::<CodePane>(pane_id)
                     .expect("IPaneType::Code must correspond to a CodePane"),
             ),
-            IPaneType::File => TypedPane::File,
             IPaneType::Settings => TypedPane::Settings,
             #[cfg(test)]
             IPaneType::Dummy => unreachable!("dummy panes have no concrete backing view"),
@@ -4635,7 +4623,7 @@ pub(super) fn render_summary_pane_kind_icon_circle(
             }),
             internal_colors::fg_overlay_2(theme).into(),
         ),
-        SummaryPaneKind::Terminal | SummaryPaneKind::File | SummaryPaneKind::Settings => {
+        SummaryPaneKind::Terminal | SummaryPaneKind::Settings => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
             (
                 icon.to_warpui_icon(icon_color).finish(),
@@ -4667,7 +4655,6 @@ fn summary_pane_kind_icon(
     match kind {
         SummaryPaneKind::Terminal => (WarpIcon::Terminal, main_text),
         SummaryPaneKind::Code { .. } => (WarpIcon::Code2, sub_text),
-        SummaryPaneKind::File => (WarpIcon::File, sub_text),
         SummaryPaneKind::Settings => (WarpIcon::Gear, main_text),
     }
 }
@@ -6348,7 +6335,7 @@ fn render_detail_section(
             app,
         ),
         TypedPane::Code(_) => render_code_detail_section(props, appearance, app),
-        TypedPane::File | TypedPane::Settings => Empty::new().finish(),
+        TypedPane::Settings => Empty::new().finish(),
     }
 }
 pub(super) struct DetailSidecarOverlay {

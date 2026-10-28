@@ -9,8 +9,6 @@ use warpui::{AppContext, SingletonEntity};
 use warpui_extras::user_preferences;
 
 use super::app_icon::AppIconSettings;
-use super::app_installation_detection::UserAppInstallDetectionSettings;
-use super::native_preference::NativePreferenceSettings;
 use super::{
     AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
     CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings, FontSettingsChangedEvent,
@@ -68,8 +66,6 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     InputModeSettings::register(ctx);
     ThemeSettings::register(ctx);
     AccessibilitySettings::register(ctx);
-    NativePreferenceSettings::register(ctx);
-    UserAppInstallDetectionSettings::register(ctx);
     AppIconSettings::register(ctx);
     AppEditorSettings::register(ctx);
     InputSettings::register(ctx);
@@ -256,7 +252,7 @@ fn handle_warp_config_change(
 /// Used directly for private settings, and also as the fallback for public
 /// settings when the settings file feature flag is disabled.
 fn init_platform_native_preferences() -> user_preferences::Model {
-    #[cfg(not(any(test, target_family = "wasm")))]
+    #[cfg(not(test))]
     if warp_core::paths::runtime_root().is_some() {
         return Box::new(
             user_preferences::file_backed::FileBackedUserPreferences::new(
@@ -283,9 +279,7 @@ fn init_platform_native_preferences() -> user_preferences::Model {
             Box::new(user_preferences::user_defaults::UserDefaultsPreferencesStorage::new(
                 warp_core::channel::ChannelState::data_domain_if_not_default()
             ))
-        } else if #[cfg(target_family = "wasm")] {
-            Box::<user_preferences::local_storage::LocalStoragePreferences>::default()
-        } else {
+        }  else {
             unreachable!("Unspecified user preferences implementation for current platform!");
         }
     }
@@ -313,9 +307,7 @@ pub fn init_public_user_preferences() -> (user_preferences::Model, Option<user_p
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             (Box::<user_preferences::in_memory::InMemoryPreferences>::default(), None)
-        } else if #[cfg(target_family = "wasm")] {
-            (Box::<user_preferences::local_storage::LocalStoragePreferences>::default(), None)
-        } else {
+        }  else {
             if warp_core::features::FeatureFlag::SettingsFile.is_enabled() {
                 let (prefs, parse_error) =
                     user_preferences::toml_backed::TomlBackedUserPreferences::new(

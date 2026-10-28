@@ -73,8 +73,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::UseTantivySearch,
         #[cfg(feature = "markdown_tables")]
         FeatureFlag::MarkdownTables,
-        #[cfg(feature = "jupyter_notebook_rendering")]
-        FeatureFlag::JupyterNotebookRendering,
         #[cfg(feature = "markdown_mermaid")]
         FeatureFlag::MarkdownMermaid,
         #[cfg(feature = "editable_markdown_mermaid")]

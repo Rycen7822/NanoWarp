@@ -14,11 +14,9 @@ pub mod code_block;
 pub mod editor;
 pub mod editor_management;
 pub mod global_buffer_model;
-#[cfg(not(target_family = "wasm"))]
 pub mod local_code_editor;
 
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub enum ImmediateSaveError {
     #[error("No FileId")]
     NoFileId,
@@ -40,8 +38,6 @@ impl ErrorExt for ImmediateSaveError {
     }
 }
 register_error!(ImmediateSaveError);
-
-#[cfg_attr(target_family = "wasm", expect(dead_code))]
 #[derive(Debug)]
 pub enum SaveStatus {
     /// Save completed immediately and successfully.
@@ -53,7 +49,6 @@ pub enum SaveStatus {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-#[cfg_attr(target_family = "wasm", expect(dead_code))]
 pub enum SaveOutcome {
     Canceled,
     Failed,
@@ -66,8 +61,7 @@ pub mod opened_files;
 pub(crate) mod persisted_workspace;
 pub use icon::icon_from_file_path;
 
-#[cfg_attr(not(target_family = "wasm"), path = "view.rs")]
-#[cfg_attr(target_family = "wasm", path = "wasm.rs")]
+#[path = "view.rs"]
 pub mod view;
 
 pub fn init(app: &mut AppContext) {
@@ -75,7 +69,6 @@ pub fn init(app: &mut AppContext) {
 }
 
 #[derive(Debug)]
-#[cfg_attr(target_family = "wasm", expect(dead_code))]
 pub struct EditorTabBarDropTargetData {
     index: usize,
 }

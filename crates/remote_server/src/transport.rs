@@ -11,16 +11,13 @@
 //!
 //! [`RemoteServerManager`]: crate::manager::RemoteServerManager
 use std::future::Future;
-#[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::pin::Pin;
 
 use async_channel::Receiver;
 use warpui_core::r#async::executor;
 
-#[cfg(not(target_family = "wasm"))]
-use crate::client::RemoteServerLog;
-use crate::client::{ClientEvent, RemoteServerClient};
+use crate::client::{ClientEvent, RemoteServerClient, RemoteServerLog};
 use crate::manager::RemoteServerExitStatus;
 use crate::setup::{PreinstallCheckResult, RemotePlatform};
 
@@ -121,7 +118,6 @@ impl Error {
 /// behavior: only `WarpManaged` masters are stopped with `ssh -O exit`
 /// on explicit teardown (see [`crate::ssh::stop_control_master`]);
 /// `UserOwned` masters must be left running.
-#[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone)]
 pub enum ControlPath {
     /// Warp created the ControlMaster at this socket path and is
@@ -145,7 +141,6 @@ pub enum ControlPath {
 /// once.
 ///
 /// [`RemoteServerManager`]: crate::manager::RemoteServerManager
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub struct Connection {
     pub client: RemoteServerClient,
     pub event_rx: Receiver<ClientEvent>,
@@ -164,18 +159,15 @@ pub struct Connection {
     /// lifetime of the session and drops it on teardown.
     ///
     /// [`RemoteServerManager`]: crate::manager::RemoteServerManager
-    #[cfg(not(target_family = "wasm"))]
     pub child: async_process::Child,
     /// For transports that multiplex through a local SSH
     /// `ControlMaster` socket: the socket path tagged with master
     /// ownership, which decides whether explicit teardown (after the
     /// user's shell exits) runs `ssh -O exit` against it. See
     /// [`ControlPath`].
-    #[cfg(not(target_family = "wasm"))]
     pub control_path: ControlPath,
     /// Tail buffer of the last N stderr lines from the SSH subprocess.
     /// Drained on connection failure and attached to telemetry.
-    #[cfg(not(target_family = "wasm"))]
     pub stderr_tail: RemoteServerLog,
 }
 

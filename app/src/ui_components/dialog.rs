@@ -20,8 +20,6 @@ pub struct Dialog {
     title: String,
     body: Option<String>,
     child: Option<Box<dyn Element>>,
-    #[cfg(target_family = "wasm")]
-    close_button: Option<Box<dyn Element>>,
     styles: UiComponentStyles,
 }
 
@@ -49,19 +47,11 @@ impl Dialog {
             child: None,
             styles,
             bottom_row: Default::default(),
-            #[cfg(target_family = "wasm")]
-            close_button: None,
         }
     }
 
     pub fn with_child(mut self, child: Box<dyn Element>) -> Self {
         self.child = Some(child);
-        self
-    }
-
-    #[cfg(target_family = "wasm")]
-    pub fn with_close_button(mut self, close_button: Box<dyn Element>) -> Self {
-        self.close_button = Some(close_button);
         self
     }
 
@@ -120,11 +110,6 @@ impl UiComponent for Dialog {
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_child(title_element);
-        #[cfg(target_family = "wasm")]
-        let header = match self.close_button {
-            Some(close_button) => header.with_child(close_button),
-            None => header,
-        };
         main_content.add_child(
             Container::new(header.finish())
                 .with_padding_bottom(DIALOG_PADDING)

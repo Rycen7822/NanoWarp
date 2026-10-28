@@ -5,9 +5,7 @@ members = [
 ]
 resolver = "2"
 
-# Include all members except serve-wasm (since it's a helper helper for serving
-# wasm binaries and not something we want to regularly compile or run
-# tests against) and integration (since it is only used for testing).
+# Include regular application members; integration is only used for testing.
 default-members = [
   "app",
   "crates/command",
@@ -27,7 +25,6 @@ publish = false
 
 [workspace.dependencies]
 # Local workspace crates. This lets us reference them in other crates without specifying a path.
-app-installation-detection = { path = "crates/app-installation-detection" }
 asset_cache = { path = "crates/asset_cache" }
 asset_macro = { path = "crates/asset_macro" }
 command = { path = "crates/command" }
@@ -37,7 +34,6 @@ http_client = { path = "crates/http_client" }
 http_server = { path = "crates/http_server" }
 integration = { path = "crates/integration" }
 ipc = { path = "crates/ipc" }
-ipynb_parser = { path = "crates/ipynb_parser" }
 languages = { path = "crates/languages" }
 markdown_parser = { path = "crates/markdown_parser" }
 persistence = { path = "crates/persistence" }
@@ -69,7 +65,6 @@ warp_logging = { path = "crates/warp_logging" }
 warp_search_core = { path = "crates/warp_search_core" }
 warp_terminal = { path = "crates/warp_terminal" }
 warp_util = { path = "crates/warp_util" }
-warp_web_event_bus = { path = "crates/warp_web_event_bus" }
 warpui = { path = "crates/warpui" }
 warpui_core = { path = "crates/warpui_core" }
 warpui_extras = { path = "crates/warpui_extras", default-features = false }
@@ -130,11 +125,6 @@ futures-util = { version = "0.3", default-features = false }
 fs4 = { version = "0.13.1", features = ["sync"] }
 get-size = { version = "0.1.4", features = ["derive"] }
 globset = "0.4.18"
-gloo = { version = "0.11.0", default-features = false, features = [
-  "events",
-  "futures",
-  "utils",
-] }
 hashbrown = "0.17.1"
 hex = "0.4.3"
 # This matches the version of hyper used by reqwest.
@@ -149,7 +139,7 @@ image = { version = "0.25.9", default-features = false, features = [
   "gif",
   "webp",
 ] }
-instant = { version = "0.1.12", features = ["wasm-bindgen"] }
+instant = "0.1.12"
 itertools = "0.14.0"
 jaq-json = { version = "2.0", features = ["serde"] }
 # Disabling the default `formats` feature is intended to avoid pulling in
@@ -281,26 +271,6 @@ vec1 = { version = "1.8.0", features = ["serde"] }
 version-compare = "0.1"
 vte = { git = "https://github.com/warpdotdev/vte.git", rev = "4b399c87b63ba88f45709edaa6383fc519f6c900", default-features = false }
 walkdir = "2"
-wasm-bindgen = "0.2.89"
-wasm-bindgen-futures = "0.4.42"
-web-sys = { version = "0.3.69", features = [
-  "Blob",
-  "Clipboard",
-  "ClipboardEvent",
-  "ClipboardItem",
-  "CompositionEvent",
-  "Document",
-  "DataTransfer",
-  "Event",
-  "HtmlCanvasElement",
-  "HtmlInputElement",
-  "InputEvent",
-  "Navigator",
-  "MediaQueryList",
-  "Window",
-  "Notification",
-  "NotificationPermission",
-] }
 # Disable default features to disable support for WebGPU, which does not yet
 # have wide browser support.  We enable all other default feature of wgpu,
 # though.
@@ -433,25 +403,12 @@ debug-assertions = true
 [profile.rltoda]
 inherits = "release-lto-debug_assertions"
 
-[profile.release-wasm]
-inherits = "release"
-opt-level = "s"
-lto = true
-codegen-units = 1
 
-[profile.release-wasm-debug_assertions]
-inherits = "release-wasm"
-debug-assertions = true
 
-# A dev profile optimized for remote server deployment. Strips symbols to
-# reduce binary size and improve rsync delta transfer efficiency.
 [profile.dev-remote]
 inherits = "dev"
 strip = "symbols"
 
-[profile.dev-wasm]
-inherits = "dev"
-opt-level = "s"
 
 [patch.crates-io]
 # Pinned to the merge commit of servo/core-foundation-rs#746, which fixes a

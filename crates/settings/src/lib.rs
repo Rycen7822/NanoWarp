@@ -147,7 +147,6 @@ pub enum SupportedPlatforms {
     MAC,
     LINUX,
     WINDOWS,
-    WEB,
     OR(Box<SupportedPlatforms>, Box<SupportedPlatforms>),
 }
 
@@ -155,23 +154,15 @@ impl SupportedPlatforms {
     pub fn matches_current_platform(&self) -> bool {
         match self {
             SupportedPlatforms::ALL => true,
-            SupportedPlatforms::DESKTOP => {
-                cfg!(not(target_family = "wasm"))
-            }
+            SupportedPlatforms::DESKTOP => true,
             SupportedPlatforms::MAC => {
-                cfg!(all(not(target_family = "wasm"), target_os = "macos"))
+                cfg!(target_os = "macos")
             }
             SupportedPlatforms::LINUX => {
-                cfg!(all(
-                    not(target_family = "wasm"),
-                    any(target_os = "linux", target_os = "freebsd")
-                ))
+                cfg!(any(target_os = "linux", target_os = "freebsd"))
             }
             SupportedPlatforms::WINDOWS => {
-                cfg!(all(not(target_family = "wasm"), target_os = "windows"))
-            }
-            SupportedPlatforms::WEB => {
-                cfg!(target_family = "wasm")
+                cfg!(target_os = "windows")
             }
             SupportedPlatforms::OR(first, second) => {
                 first.matches_current_platform() || second.matches_current_platform()

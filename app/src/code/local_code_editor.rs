@@ -15,6 +15,7 @@ use warp_core::ui::appearance::Appearance;
 use warp_core::ui::icons::Icon;
 use warp_util::content_version::ContentVersion;
 use warp_util::file::{FileId, FileLoadError, FileSaveError};
+use warp_util::path::LineAndColumnArg;
 use warp_util::sync::Condition;
 use warpui::elements::{
     ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment,
@@ -38,7 +39,7 @@ use crate::settings::CodeSettings;
 const AUTO_SAVE_DEBOUNCE_PERIOD: Duration = Duration::from_millis(1000);
 
 use super::ImmediateSaveError;
-use super::editor::scroll::{ScrollPosition, ScrollTrigger};
+use super::editor::scroll::ScrollTrigger;
 use super::editor::view::{CodeEditorEvent, CodeEditorView};
 
 type SaveCallback =
@@ -115,7 +116,7 @@ pub struct LocalCodeEditorView {
     /// Pending scroll position to apply after the file is loaded. This is used when
     /// `set_pending_scroll` is called before the file content has finished loading
     /// (e.g., in the GlobalBuffer path where content loads asynchronously).
-    pending_scroll_on_load: Option<ScrollPosition>,
+    pending_scroll_on_load: Option<LineAndColumnArg>,
 }
 
 impl LocalCodeEditorView {
@@ -347,7 +348,7 @@ impl LocalCodeEditorView {
         local_editor
     }
 
-    pub fn set_pending_scroll(&mut self, position: ScrollPosition, ctx: &mut ViewContext<Self>) {
+    pub fn set_pending_scroll(&mut self, position: LineAndColumnArg, ctx: &mut ViewContext<Self>) {
         // If the file is already loaded, we can set the scroll trigger immediately with the
         // current buffer version. Otherwise, store it and apply when the file finishes loading.
         // This handles the race condition where set_pending_scroll is called before the file

@@ -31,7 +31,6 @@ use super::buffer_location::LocalOrRemotePath;
 use super::editor::view::{CodeEditorEvent, CodeEditorView};
 use super::editor_management::CodeSource;
 use super::local_code_editor::{LocalCodeEditorEvent, LocalCodeEditorView};
-use crate::code::editor::scroll::ScrollPosition;
 use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::code::editor_management::CodeEditorStatus;
 use crate::code::global_buffer_model::GlobalBufferModel;
@@ -573,22 +572,8 @@ impl CodeView {
             return;
         };
 
-        let position = ScrollPosition::LineAndColumn(line_col);
         tab.editor_view.update(ctx, |editor, ctx| {
-            editor.set_pending_scroll(position, ctx);
-        });
-    }
-
-    /// Seed a pending scroll fraction on the active tab, restoring scroll after a markdown
-    /// rendered->raw toggle. Applied on the next `ViewportUpdated` (after layout), overriding the
-    /// default top-of-file scroll. The fraction is used rather than a line/column because the
-    /// rendered and raw documents differ.
-    pub(crate) fn set_pending_scroll_fraction(&self, fraction: f32, ctx: &mut ViewContext<Self>) {
-        let Some(tab) = self.tab_group.get(self.active_tab_index) else {
-            return;
-        };
-        tab.editor_view.update(ctx, |editor, ctx| {
-            editor.set_pending_scroll(ScrollPosition::Fraction(fraction), ctx);
+            editor.set_pending_scroll(line_col, ctx);
         });
     }
 
@@ -608,14 +593,11 @@ impl CodeView {
                 tab_index: active_tab_index,
             });
 
-            let scroll_position = match line_col {
-                Some(line_col) => ScrollPosition::LineAndColumn(line_col),
-                // By default scroll to the first line.
-                None => ScrollPosition::LineAndColumn(LineAndColumnArg {
-                    line_num: 1,
-                    column_num: None,
-                }),
-            };
+            // By default scroll to the first line.
+            let scroll_position = line_col.unwrap_or(LineAndColumnArg {
+                line_num: 1,
+                column_num: None,
+            });
 
             // For GlobalBuffer path, set_pending_scroll handles the case where the file
             // hasn't finished loading yet by deferring the scroll until FileLoaded.

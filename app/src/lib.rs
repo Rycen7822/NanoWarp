@@ -20,8 +20,6 @@ mod debug_dump;
 mod default_terminal;
 #[cfg(windows)]
 mod dynamic_libraries;
-#[cfg(target_family = "wasm")]
-mod font_fallback;
 mod global_resource_handles;
 mod gpu_state;
 mod interval_timer;
@@ -30,7 +28,6 @@ mod login_item;
 mod menu;
 mod modal;
 mod network;
-mod notebooks;
 mod notification;
 mod palette;
 mod persistence;
@@ -61,8 +58,6 @@ pub mod util;
 mod view_components;
 mod vim_registers;
 mod warp_managed_paths_watcher;
-#[cfg(target_family = "wasm")]
-mod wasm_nux_dialog;
 mod window_settings;
 
 // PLEASE DO NOT ADD MORE PUBLIC MODULES!
@@ -109,13 +104,12 @@ use settings::import::model::ImportedConfigModel;
 use settings_view::pane_manager::SettingsPaneManager;
 use terminal::general_settings::GeneralSettings;
 use terminal::keys_settings::KeysSettings;
-#[cfg(all(not(target_family = "wasm"), feature = "local_tty"))]
+#[cfg(feature = "local_tty")]
 use terminal::local_shell::LocalShellState;
 pub use util::bindings::cmd_or_ctrl_shift;
 #[cfg(feature = "local_fs")]
 use watcher::HomeDirectoryWatcher;
 
-use crate::uri::web_intent_parser::maybe_rewrite_web_url_to_intent;
 pub mod workspace;
 
 use std::borrow::Cow;
@@ -198,7 +192,6 @@ pub(crate) enum LaunchMode {
 
     /// Remote server proxy — bridges SSH stdio to the daemon's Unix socket.
     /// This is a short-lived process that runs for the lifetime of an SSH session.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     RemoteServerProxy,
 
     /// Remote server daemon — long-lived headless process serving remote
@@ -266,7 +259,6 @@ impl LaunchMode {
     }
 
     /// Only GUI instances start the fixed-port installation/profiling server.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     fn should_start_local_http_server(&self) -> bool {
         self.is_gui()
     }
@@ -337,9 +329,6 @@ fn apply_scroll_multiplier(event: &mut Event, app: &AppContext) {
 /// Runs the desktop application or one of its workers.
 #[::tracing::instrument(skip_all)]
 pub fn run() -> Result<()> {
-    // Perform any necessary platform-specific initialization.
-    platform::init();
-
     // Ensure feature flags are initialized before parsing command-line arguments.
     features::init_feature_flags();
 
@@ -357,7 +346,6 @@ pub fn run() -> Result<()> {
             warp_cli::Command::DumpDebugInfo => {
                 return debug_dump::run();
             }
-            #[cfg(not(target_family = "wasm"))]
             warp_cli::Command::DumpSettingsSchema { output_path } => {
                 return settings::schema_generation::dump_settings_schema(output_path.as_deref());
             }
@@ -377,7 +365,6 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             crate::terminal::local_tty::run_terminal_server(args);
             Ok(())
         }
-        #[cfg(not(target_family = "wasm"))]
         warp_cli::WorkerCommand::RemoteServerProxy(args) => {
             // Proxy is a thin byte bridge (stdin/stdout ↔ Unix socket).
             // It only needs logging to stderr since stdout is the protocol
@@ -391,17 +378,10 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             })?;
             crate::remote_server::run_proxy(args.identity_key.clone())
         }
-        #[cfg(not(target_family = "wasm"))]
         warp_cli::WorkerCommand::RemoteServerDaemon(args) => {
             // Daemon handles its own full initialization (including
             // initialize_app and crash reporting) inside run_daemon_app.
             crate::remote_server::run_daemon(args.identity_key.clone())
-        }
-        #[cfg(all(target_family = "wasm", not(feature = "local_tty")))]
-        worker => {
-            // On wasm, specifically, we should fail spectacularly if we get here.
-            #[cfg(target_family = "wasm")]
-            panic!("Worker process not supported on WASM: {worker:?}")
         }
     }
 }
@@ -481,17 +461,6 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     // any children we spawn (like the terminal server) inherit our adjusted
     // rlimits.
     resource_limits::adjust_resource_limits();
-
-    // For wasm builds we have this special case to parse out the intent
-    // from the url that is used to visite the app on web.
-    #[cfg(target_family = "wasm")]
-    {
-        use uri::web_intent_parser;
-        if let Some(intent) = web_intent_parser::parse_web_intent_from_current_url() {
-            launch_mode.add_url(intent);
-        }
-        web_intent_parser::set_context_flags_from_current_url();
-    }
 
     #[cfg(all(
         feature = "release_bundle",
@@ -677,7 +646,6 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     );
 
     app_builder.run(move |ctx| {
-        #[cfg(not(target_family = "wasm"))]
         // Rotate the log files in the background.
         ctx.background_executor()
             .spawn(warp_logging::rotate_log_files())
@@ -781,8 +749,6 @@ pub(crate) fn initialize_app(
 
     ctx.add_singleton_model(AntivirusInfo::new);
 
-    ctx.set_fallback_font_source_provider(|url| ::asset_cache::url_source(url));
-
     ctx.set_default_binding_validator(is_binding_cross_platform);
 
     // Initialize timestamp for session id and last active event
@@ -825,17 +791,6 @@ pub(crate) fn initialize_app(
         apply_scroll_multiplier(event, ctx);
     });
 
-    // Rewrite recognized Warp web URLs (sessions, Drive, settings, home) into local
-    // intent URLs when possible so they open directly in the desktop app.
-    ctx.set_before_open_url(|url_str, _ctx| {
-        if let Ok(url) = Url::parse(url_str)
-            && let Some(intent) = maybe_rewrite_web_url_to_intent(&url)
-        {
-            return intent.to_string();
-        }
-        url_str.to_owned()
-    });
-
     ctx.set_a11y_verbosity(*AccessibilitySettings::as_ref(ctx).a11y_verbosity);
 
     #[cfg(enable_crash_recovery)]
@@ -873,8 +828,6 @@ pub(crate) fn initialize_app(
             crash_recovery.on_frame_drawn(window_id);
         });
     });
-
-    #[cfg(not(target_family = "wasm"))]
     {
         ctx.add_singleton_model(DirectoryWatcher::new);
         ctx.add_singleton_model(|_| DetectedRepositories::default());
@@ -937,7 +890,6 @@ pub(crate) fn initialize_app(
     view_components::keyboard_navigable_buttons::init(ctx);
     app_services::init(ctx);
     // // TODO: Temporarily disabling keybindings for WASM builds. Will be implemented in future WASM support.
-    #[cfg(not(target_family = "wasm"))]
     code::editor::find::view::init(ctx);
     workspace::init(ctx);
     pane_group::init(ctx);
@@ -985,7 +937,7 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| OpenedFilesModel::new());
     ctx.add_singleton_model(|_| ActiveSession::default());
 
-    #[cfg(all(not(target_family = "wasm"), feature = "local_tty"))]
+    #[cfg(feature = "local_tty")]
     {
         ctx.add_singleton_model(LocalShellState::new);
         ctx.add_singleton_model(system::SystemInfo::new);
@@ -1013,14 +965,9 @@ pub(crate) fn initialize_app(
             persisted_ignored_suggestions,
         )
     });
-
-    #[cfg(not(target_family = "wasm"))]
     if launch_mode.should_start_local_http_server() {
         ctx.add_singleton_model(move |ctx| {
-            let routers = vec![
-                app_installation_detection::make_router(),
-                profiling::make_router(),
-            ];
+            let routers = vec![profiling::make_router()];
             http_server::HttpServer::new(routers, ctx)
         });
     }
@@ -1345,10 +1292,6 @@ fn launch(ctx: &mut warpui::AppContext, app_state: Option<AppState>, launch_mode
     IntervalTimer::handle(ctx).update(ctx, |timer, _ctx| {
         timer.mark_interval_end("KEYBINDINGS_LOADED");
     });
-
-    // For now, we only specify application-level fallback fonts on web.
-    #[cfg(target_family = "wasm")]
-    ctx.set_fallback_font_fn(font_fallback::fallback_font_fn);
 
     match launch_mode {
         LaunchMode::App { .. } | LaunchMode::Test { .. } => {

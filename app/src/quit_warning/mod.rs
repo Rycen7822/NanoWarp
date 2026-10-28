@@ -425,13 +425,14 @@ impl<'a> QuitWarningDialog<'a> {
         let dialog = self.build();
         // We don't support showing a modal on all platforms.
         let mut shown = false;
-        if cfg!(all(not(target_family = "wasm"), target_os = "macos")) {
+        if cfg!(all(target_os = "macos")) {
             ctx.show_native_platform_modal(dialog);
             shown = true;
-        } else if cfg!(all(
-            not(target_family = "wasm"),
-            any(target_os = "linux", target_os = "freebsd", windows)
-        )) {
+        } else if cfg!(all(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            windows
+        ))) {
             // Find a window to show the Warp-native modal in. If there is no active window, use
             // one of the windows with a running process.
             let window_id_to_focus = ctx

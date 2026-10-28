@@ -25,8 +25,8 @@ use warpui::windowing::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH};
 
 use super::block_list::{delete_blocks, save_block};
 use super::model::{
-    self, CODE_PANE_KIND, NOTEBOOK_PANE_KIND, NewApp, NewCommand, NewTab, NewTabGroup, NewWindow,
-    NewWorkspaceMetadata, SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, Tab, TabGroup, Window,
+    self, CODE_PANE_KIND, NewApp, NewCommand, NewTab, NewTabGroup, NewWindow, NewWorkspaceMetadata,
+    SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, Tab, TabGroup, Window,
     WorkspaceMetadata as WorkspaceMetadataModel,
 };
 use super::{
@@ -34,9 +34,9 @@ use super::{
     StartedCommandMetadata, WriterHandles, schema,
 };
 use crate::app_state::{
-    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, FilePaneSnapshot,
-    LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, SettingsPaneSnapshot, SplitDirection,
-    TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
+    PaneFlex, PaneNodeSnapshot, SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot,
+    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::code::editor_management::CodeSource;
 use crate::persistence::block_list::get_all_restored_blocks;
@@ -461,7 +461,6 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
         // Remove old app state
         diesel::delete(schema::app::dsl::app).execute(conn)?;
         diesel::delete(schema::terminal_panes::dsl::terminal_panes).execute(conn)?;
-        diesel::delete(schema::notebook_panes::dsl::notebook_panes).execute(conn)?;
         diesel::delete(schema::code_panes::dsl::code_panes).execute(conn)?;
         diesel::delete(schema::settings_panes::dsl::settings_panes).execute(conn)?;
         diesel::delete(schema::pane_leaves::dsl::pane_leaves).execute(conn)?;
@@ -675,7 +674,6 @@ fn save_pane_state(
     // kind-specific tables.
     let kind = match &snapshot.contents {
         LeafContents::Terminal(_) => TERMINAL_PANE_KIND,
-        LeafContents::File(_) => NOTEBOOK_PANE_KIND,
         LeafContents::Code(_) => CODE_PANE_KIND,
         LeafContents::Settings(_) => SETTINGS_PANE_KIND,
     };
@@ -706,16 +704,6 @@ fn save_pane_state(
 
             diesel::insert_into(schema::terminal_panes::dsl::terminal_panes)
                 .values(terminal)
-                .execute(conn)?;
-        }
-        LeafContents::File(notebook_snapshot) => {
-            let notebook = model::NewNotebookPane {
-                id,
-                local_path: notebook_snapshot.path.clone().map(encode_path),
-            };
-
-            diesel::insert_into(schema::notebook_panes::dsl::notebook_panes)
-                .values(notebook)
                 .execute(conn)?;
         }
         LeafContents::Code(code_snapshot) => {
@@ -936,16 +924,6 @@ fn read_node(
                         is_active: terminal_pane.is_active,
                         is_read_only: false,
                         shell_launch_data,
-                    })
-                }
-                NOTEBOOK_PANE_KIND => {
-                    let notebook_pane = schema::notebook_panes::dsl::notebook_panes
-                        .find(node.id)
-                        .select(model::NotebookPane::as_select())
-                        .first(conn)?;
-
-                    LeafContents::File(FilePaneSnapshot {
-                        path: notebook_pane.local_path.map(decode_path),
                     })
                 }
                 CODE_PANE_KIND => {

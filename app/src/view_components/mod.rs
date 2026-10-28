@@ -1,7 +1,6 @@
 //! This module is meant to house the app's reusable Views
 
 pub mod action_button;
-mod compact_dropdown;
 mod dismissible_toast;
 pub mod dropdown;
 mod feature_popup;
@@ -11,7 +10,6 @@ pub(crate) mod inline_action_header;
 pub(crate) mod keyboard_navigable_buttons;
 mod submittable_text_input;
 
-pub use compact_dropdown::{CompactDropdown, CompactDropdownEvent, CompactDropdownItem};
 pub use dismissible_toast::*;
 pub use dropdown::{Dropdown, DropdownItem, DropdownItemAction};
 pub use feature_popup::*;

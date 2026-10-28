@@ -3,7 +3,6 @@ pub mod assertions;
 pub mod r#async;
 pub mod channel;
 pub mod command;
-pub mod context_flag;
 pub mod execution_mode;
 pub mod features;
 pub mod interval_timer;

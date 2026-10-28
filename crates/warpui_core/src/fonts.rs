@@ -1,5 +1,4 @@
 pub mod canvas;
-mod external_fallback;
 mod metrics;
 mod text_layout_system;
 
@@ -123,11 +122,9 @@ impl CustomWeightConversion for CustomWeight {
     }
 }
 
-pub use external_fallback::{ExternalFontFamily, FallbackFontEvent, FallbackFontModel};
-pub(crate) use external_fallback::{FontBytes, RequestedFallbackFontSource};
+use futures_util::FutureExt;
+use futures_util::future::BoxFuture;
 pub use metrics::Metrics;
-#[cfg(not(target_family = "wasm"))]
-use {futures_util::FutureExt, futures_util::future::BoxFuture};
 
 pub type GlyphId = u32;
 
@@ -136,8 +133,6 @@ pub struct FamilyId(pub usize);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FontId(pub usize);
-
-type FontFamilyName = &'static str;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Properties {
@@ -215,16 +210,7 @@ pub struct Cache {
     glyph_advances: DashMap<(FontId, GlyphId), Result<Vector2I, Error>>,
     glyph_typographic_bounds: DashMap<(FontId, GlyphId), Result<RectI, Error>>,
     raster_bounds: DashMap<RasterBoundsKey, Result<RectI, Error>>,
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     available_system_fonts: Option<Vec<(Option<FamilyId>, FontInfo)>>,
-    font_fallback_cache: FontFallbackCache,
-}
-
-#[derive(Default)]
-struct FontFallbackCache {
-    loaded_fallback_families: DashMap<FontFamilyName, FamilyId>,
-    requested_fallback_families: DashMap<ExternalFontFamily, Vec<RequestedFallbackFontSource>>,
-    fallback_font_fn: Option<Box<dyn Fn(char) -> Option<ExternalFontFamily> + Send + Sync>>,
 }
 
 impl Properties {
@@ -251,7 +237,6 @@ impl Cache {
             glyph_typographic_bounds: Default::default(),
             raster_bounds: Default::default(),
             available_system_fonts: Default::default(),
-            font_fallback_cache: Default::default(),
         }
     }
 
@@ -260,7 +245,6 @@ impl Cache {
     pub fn text_layout_system(&self) -> TextLayoutSystem<'_> {
         TextLayoutSystem {
             platform: self.font_db().text_layout_system(),
-            cache: &self.font_fallback_cache,
         }
     }
 
@@ -276,7 +260,6 @@ impl Cache {
     /// that returns all of the system fonts when awaited.
     /// NOTE it is up to the caller to cache the result of the future via a call to
     /// [`Self::set_system_fonts`].
-    #[cfg(not(target_family = "wasm"))]
     pub fn all_system_fonts(
         &self,
         ctx: &mut crate::ModelContext<Self>,
@@ -305,8 +288,6 @@ impl Cache {
     pub fn load_family_from_bytes(&mut self, name: &str, bytes: Vec<Vec<u8>>) -> Result<FamilyId> {
         self.platform.load_from_bytes(name, bytes)
     }
-
-    #[cfg(not(target_family = "wasm"))]
     /// Returns the family ID for a given font, loading it into memory if it's
     /// not already known to the cache.
     pub fn get_or_load_system_font(&mut self, font_family: &str) -> Result<FamilyId> {
@@ -325,8 +306,6 @@ impl Cache {
             None => self.load_system_font(font_family),
         }
     }
-
-    #[cfg(not(target_family = "wasm"))]
     pub fn load_system_font(&mut self, font_family: &str) -> Result<FamilyId> {
         self.platform.load_from_system(font_family)
     }
@@ -474,14 +453,7 @@ impl Cache {
         }
 
         if should_check_fallback_fonts {
-            self.font_fallback_cache.request_fallback_font_for_char(
-                char,
-                RequestedFallbackFontSource::GlyphForChar((font, char)),
-            );
-
-            let fallback_glyph_and_font = self
-                .app_font_fallback(char, font)
-                .or(self.system_font_fallback(char, font));
+            let fallback_glyph_and_font = self.system_font_fallback(char, font);
 
             self.glyphs_by_char
                 .insert((font, char), fallback_glyph_and_font);
@@ -523,10 +495,6 @@ impl Cache {
                 }
             },
         }
-    }
-
-    pub(crate) fn remove_glyphs_by_char_entry(&mut self, key: (FontId, char)) {
-        self.glyphs_by_char.remove(&key);
     }
 }
 

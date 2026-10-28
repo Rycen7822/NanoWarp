@@ -3,7 +3,6 @@ pub mod diff_size_limits;
 pub mod diff_state;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub(crate) mod file_invalidation_queue;
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod git_actions;
 pub mod git_repo_model;
 mod git_repo_models;

@@ -697,7 +697,7 @@ fn assert_encode_then_decode_preserves_original_path(original_path: PathBuf) {
 }
 
 /// Test that a local path can be encoded and decoded. We use this when persisting a local
-/// file path for notebooks in sqlite. We need this test because Windows `OsString`s are
+/// file path in sqlite. We need this test because Windows `OsString`s are
 /// often arbitrary sequences of 16-bit values, unlike Unix which uses sequences of 8-bit
 /// values (bytes). Since `diesel::sql_types::Binary` deals with sequences of bytes (`u8`)
 /// we need to perform special casting on `OsString`s on Windows.

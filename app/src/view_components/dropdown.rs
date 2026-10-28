@@ -13,7 +13,7 @@ use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlign
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{
     Action, AppContext, BlurContext, Entity, SingletonEntity, TypedActionView, View, ViewContext,
-    ViewHandle, WeakViewHandle,
+    ViewHandle,
 };
 
 use crate::appearance::Appearance;
@@ -59,10 +59,7 @@ impl PartialEq for Box<dyn DropdownItemAction> {
 /// A dropdown menu view. The view renders each DropdownItem. When a menu item is clicked,
 /// on_click_action_name is dispatched, with the value of the corresponding menu item.
 ///
-/// The item action type powers typed item helpers like `set_items` and
-/// `set_selected_by_action`. Callers that populate the menu with already-erased rich
-/// [`MenuItem<DropdownAction>`] values through `set_rich_items` do not need to name a concrete
-/// item action type.
+/// The item action type powers typed item helpers like `set_items` and `set_selected_by_action`.
 pub struct Dropdown<A: DropdownItemAction = ()> {
     is_expanded: bool,
     disabled: bool,
@@ -71,7 +68,6 @@ pub struct Dropdown<A: DropdownItemAction = ()> {
 
     dropdown: ViewHandle<Menu<DropdownAction>>,
     selected_item: Option<MenuItem<DropdownAction>>,
-    self_handle: WeakViewHandle<Self>,
     // The menu stores erased `DropdownAction`s internally, but the public API remains generic over
     // the caller's concrete item action type (`set_items`, `set_selected_by_action`, etc.).
     _item_action_type: PhantomData<A>,
@@ -206,7 +202,6 @@ where
             top_bar_mouse_state: Default::default(),
             top_bar_max_width: TOP_MENU_BAR_MAX_WIDTH,
             selected_item: None,
-            self_handle: ctx.handle(),
             _item_action_type: PhantomData,
         }
     }
@@ -219,41 +214,9 @@ where
         ctx.notify();
     }
 
-    pub fn is_focused(&self, ctx: &AppContext) -> bool {
-        let Some(handle) = self.self_handle.upgrade(ctx) else {
-            return false;
-        };
-
-        if handle.is_focused(ctx) {
-            return true;
-        }
-
-        if self.dropdown.is_focused(ctx) {
-            return true;
-        }
-
-        false
-    }
-
     pub fn set_items(&mut self, items: Vec<DropdownItem<A>>, ctx: &mut ViewContext<Self>) {
         self.dropdown.update(ctx, |dropdown, ctx| {
             dropdown.set_items(items.iter().map(|item| item.into()), ctx);
-        });
-        ctx.notify();
-    }
-
-    /// Set items from rich menu items.
-    ///
-    /// Rich menu items already carry erased [`DropdownAction`]s. The dropdown dispatches selected
-    /// item actions through normal action propagation, so callers should ensure each action is
-    /// handled by an appropriate view in the containing view hierarchy.
-    pub fn set_rich_items(
-        &mut self,
-        items: impl IntoIterator<Item = MenuItem<DropdownAction>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.dropdown.update(ctx, |dropdown, ctx| {
-            dropdown.set_items(items, ctx);
         });
         ctx.notify();
     }

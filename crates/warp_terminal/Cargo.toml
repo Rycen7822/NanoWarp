@@ -6,6 +6,10 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+async-io.workspace = true
+gethostname = "1.1.0"
+mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
+
 anyhow.workspace = true
 async-broadcast.workspace = true
 async-channel.workspace = true
@@ -66,10 +70,6 @@ warp_errors.workspace = true
 warp_util.workspace = true
 warpui_core.workspace = true
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-async-io.workspace = true
-gethostname = "1.1.0"
-mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
 
 [target.'cfg(unix)'.dependencies]
 cvt = "0.1.1"

@@ -237,10 +237,8 @@ impl TryFrom<PaneNodeSnapshot> for PaneTemplateType {
                     pane_mode: PaneMode::Terminal,
                     shell: None,
                 }),
-                // Currently, notebook panes cannot be saved in launch configurations.
-                LeafContents::File(_) | LeafContents::Code(_) | LeafContents::Settings(_) => {
-                    Err(())
-                }
+                // Non-terminal panes are not saved in launch configurations.
+                LeafContents::Code(_) | LeafContents::Settings(_) => Err(()),
             },
         }
     }

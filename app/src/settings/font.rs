@@ -1,10 +1,8 @@
+use settings::SupportedPlatforms;
 use settings::macros::define_settings_group;
-use settings::{Setting, SupportedPlatforms};
-use warp_core::ui::builder::MIN_FONT_SIZE;
 use warpui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
 use warpui::fonts::Weight;
 use warpui::rendering::ThinStrokes;
-use warpui::{AppContext, SingletonEntity};
 
 use super::EnforceMinimumContrast as EnforceMinimumContrastEnum;
 
@@ -49,22 +47,6 @@ define_settings_group!(FontSettings,
             toml_path: "appearance.text.line_height_ratio",
             description: "The line height ratio for terminal text.",
         },
-        notebook_font_size: NotebookFontSize {
-            type: f32,
-            default: 14.0,
-            supported_platforms: SupportedPlatforms::ALL,
-            private: false,
-            toml_path: "appearance.text.notebook_font_size",
-            description: "The font size used in notebooks.",
-        },
-        match_notebook_to_monospace_font_size: MatchNotebookToMonospaceFontSize {
-            type: bool,
-            default: true,
-            supported_platforms: SupportedPlatforms::ALL,
-            private: false,
-            toml_path: "appearance.text.match_notebook_to_monospace_font_size",
-            description: "Whether the notebook font size matches the terminal font size.",
-        },
         enforce_minimum_contrast: EnforceMinimumContrast {
             type: EnforceMinimumContrastEnum,
             default: EnforceMinimumContrastEnum::default(),
@@ -83,32 +65,3 @@ define_settings_group!(FontSettings,
         },
     ]
 );
-
-const MAX_NOTEBOOK_FONT_SIZE: f32 = 25.0;
-const NOTEBOOK_FONT_SIZE_INCREMENT: f32 = 1.0;
-
-pub fn increase_notebook_font_size(ctx: &mut AppContext) -> anyhow::Result<()> {
-    adjust_notebook_font_size(NOTEBOOK_FONT_SIZE_INCREMENT, ctx)
-}
-
-pub fn decrease_notebook_font_size(ctx: &mut AppContext) -> anyhow::Result<()> {
-    adjust_notebook_font_size(-NOTEBOOK_FONT_SIZE_INCREMENT, ctx)
-}
-
-fn adjust_notebook_font_size(delta: f32, ctx: &mut AppContext) -> anyhow::Result<()> {
-    let current_size = derived_notebook_font_size(FontSettings::as_ref(ctx));
-    let new_font_size = (current_size + delta).clamp(MIN_FONT_SIZE, MAX_NOTEBOOK_FONT_SIZE);
-    FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
-        font_settings
-            .notebook_font_size
-            .set_value(new_font_size, ctx)
-    })
-}
-
-pub fn derived_notebook_font_size(font_settings: &FontSettings) -> f32 {
-    if *font_settings.match_notebook_to_monospace_font_size {
-        *font_settings.monospace_font_size
-    } else {
-        *font_settings.notebook_font_size
-    }
-}

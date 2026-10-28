@@ -77,14 +77,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    notebook_panes (id) {
-        id -> Integer,
-        kind -> Text,
-        local_path -> Nullable<Binary>,
-    }
-}
-
-diesel::table! {
     pane_branches (id) {
         id -> Integer,
         pane_node_id -> Integer,

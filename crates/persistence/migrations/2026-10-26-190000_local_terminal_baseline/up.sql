@@ -79,13 +79,6 @@ CREATE TABLE terminal_panes (
     FOREIGN KEY (id, kind) REFERENCES pane_leaves(pane_node_id, kind)
 );
 
-CREATE TABLE notebook_panes (
-    id INTEGER PRIMARY KEY NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'notebook' CHECK (kind = 'notebook'),
-    local_path BLOB,
-    FOREIGN KEY (id, kind) REFERENCES pane_leaves(pane_node_id, kind)
-);
-
 CREATE TABLE code_panes (
     id INTEGER PRIMARY KEY NOT NULL,
     active_tab_index INTEGER NOT NULL DEFAULT 0,

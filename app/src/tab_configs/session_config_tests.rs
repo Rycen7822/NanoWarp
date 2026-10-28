@@ -247,12 +247,15 @@ fn snapshot_2x2_grid() {
 
 #[test]
 fn snapshot_non_terminal_leaf_replaced_with_terminal() {
-    use crate::app_state::FilePaneSnapshot;
+    use crate::app_state::SettingsPaneSnapshot;
 
     let file_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
         is_focused: false,
         custom_vertical_tabs_title: None,
-        contents: LeafContents::File(FilePaneSnapshot { path: None }),
+        contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+            current_page: crate::settings_view::SettingsSection::Appearance,
+            search_query: None,
+        }),
     });
     let snapshot = PaneNodeSnapshot::Branch(BranchSnapshot {
         direction: crate::app_state::SplitDirection::Horizontal,

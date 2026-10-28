@@ -4,9 +4,9 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
 use super::schema::{
-    app, blocks, code_pane_tabs, code_panes, commands, ignored_suggestions, notebook_panes,
-    pane_branches, pane_leaves, pane_nodes, settings_panes, tab_groups, tabs, terminal_panes,
-    windows, workspace_metadata,
+    app, blocks, code_pane_tabs, code_panes, commands, ignored_suggestions, pane_branches,
+    pane_leaves, pane_nodes, settings_panes, tab_groups, tabs, terminal_panes, windows,
+    workspace_metadata,
 };
 
 #[derive(Insertable)]
@@ -136,17 +136,6 @@ pub struct TerminalPane {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = notebook_panes)]
-#[diesel(primary_key(id))]
-pub struct NotebookPane {
-    pub id: i32,
-    // This is hardcoded in the database, and not used in the app, but Diesel requires it so that
-    // fields are in the same order as the table's columns.
-    pub kind: String,
-    pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = code_panes)]
 #[diesel(primary_key(id))]
 pub struct CodePane {
@@ -218,9 +207,6 @@ pub struct NewPane {
 /// The [`pane_leaves::kind`] value for terminal panes.
 pub const TERMINAL_PANE_KIND: &str = "terminal";
 
-/// The [`pane_leaves::kind`] value for notebook panes.
-pub const NOTEBOOK_PANE_KIND: &str = "notebook";
-
 /// The [`pane_leaves::kind`] value for code panes.
 pub const CODE_PANE_KIND: &str = "code";
 
@@ -236,13 +222,6 @@ pub struct NewTerminalPane {
     pub is_active: bool,
     /// This is serialized JSON data for a ShellLaunchData struct.
     pub shell_launch_data: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = notebook_panes)]
-pub struct NewNotebookPane {
-    pub id: i32,
-    pub local_path: Option<Vec<u8>>,
 }
 
 #[derive(Insertable)]

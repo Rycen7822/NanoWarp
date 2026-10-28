@@ -7,8 +7,6 @@ mod tab_grouping;
 #[path = "view_tests.rs"]
 pub(crate) mod tests;
 mod vertical_tabs;
-#[cfg(target_family = "wasm")]
-mod wasm_view;
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -36,7 +34,6 @@ use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use serde_json;
-use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::semantic_selection::SemanticSelection;
 use warp_core::ui::Icon;
@@ -98,8 +95,8 @@ use super::util::{
 use super::{ActiveSession, TabBarDropTargetData, TabBarLocation, WorkspaceRegistry, util};
 use crate::GlobalResourceHandles;
 use crate::app_state::{
-    FilePaneSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid, SettingsPaneSnapshot,
-    TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid, SettingsPaneSnapshot, TabGroupSnapshot,
+    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::appearance::{Appearance, AppearanceManager};
 use crate::banner::BannerState;
@@ -216,12 +213,7 @@ use crate::util::openable_file_type::FileTarget;
 use crate::util::openable_file_type::{EditorLayout, resolve_file_target_with_editor_choice};
 use crate::util::traffic_lights::{TrafficLightMouseStates, TrafficLightSide, traffic_light_data};
 use crate::util::truncation::truncate_from_end;
-#[cfg(target_family = "wasm")]
-#[cfg(not(target_family = "wasm"))]
-use crate::view_components::action_button::ActionButton;
 use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink};
-#[cfg(target_family = "wasm")]
-use crate::wasm_nux_dialog::WasmNUXDialog;
 use crate::window_settings::{WindowSettings, WindowSettingsChangedEvent, ZoomLevel};
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::cross_window_tab_drag::{
@@ -235,14 +227,6 @@ use crate::workspace::tab_settings::TabCloseButtonPosition;
 use crate::workspace::toast_stack::{
     ToastStack, ToastStack as WorkspaceToastStack, ToastStackEvent as WorkspaceToastStackEvent,
 };
-
-/// The padding that should be applied to the workspace as a whole.
-///
-/// Zero on web: browsers that round the viewport's corners clip this padding into a stray
-/// line along the top and left edges, so we rely on the browser's own edge there instead.
-#[cfg(target_family = "wasm")]
-pub const WORKSPACE_PADDING: f32 = 0.0;
-#[cfg(not(target_family = "wasm"))]
 pub const WORKSPACE_PADDING: f32 = 1.0;
 
 /// The minimum font size at which terminal text will be rendered.
@@ -272,8 +256,6 @@ const TAB_BAR_ICON_PADDING: f32 = 4.;
 
 // We use the word "Warp" in the Update Ready button to make it obvious that the terminal is Warp.
 // This can lead to free advertising when users screen-share Warp when an update is available.
-
-#[cfg(not(target_family = "wasm"))]
 const RESOURCE_CENTER_WIDTH: f32 = 361.;
 
 // Ratio of terminal : theme chooser when theme chooser is active
@@ -552,13 +534,6 @@ pub struct Workspace {
     cached_keybindings: HashMap<String, Option<String>>,
     tab_bar_pinned_by_popup: bool,
     native_modal: ViewHandle<NativeModal>,
-
-    // When user's open WEB for the first time, we ask them to select a preference of
-    // always opening in web or opening in native app.
-    #[cfg(target_family = "wasm")]
-    show_wasm_nux_dialog: bool,
-    #[cfg(target_family = "wasm")]
-    wasm_nux_dialog: ViewHandle<WasmNUXDialog>,
 
     file_upload_sessions: FileUploadSessions,
     vertical_tabs_panel_open: bool,
@@ -1471,9 +1446,6 @@ impl Workspace {
         let toast_stack =
             ctx.add_typed_action_view(|_| DismissibleToastStack::new(Duration::from_secs(4)));
 
-        #[cfg(target_family = "wasm")]
-        let wasm_nux_dialog = Self::build_wasm_nux_dialog(ctx);
-
         let cached_keybindings = KEYBINDINGS_TO_CACHE
             .iter()
             .map(|name| {
@@ -1547,10 +1519,6 @@ impl Workspace {
             vertical_tabs_panel_open: false,
             vertical_tabs_panel: Default::default(),
 
-            #[cfg(target_family = "wasm")]
-            show_wasm_nux_dialog: WasmNUXDialog::should_display(ctx),
-            #[cfg(target_family = "wasm")]
-            wasm_nux_dialog,
             tab_fixed_width: None,
             lightbox_view: None,
             pending_pane_group_transfer: false,
@@ -1931,9 +1899,6 @@ impl Workspace {
                     ctx,
                 );
             }
-            NewWorkspaceSource::NotebookFromFilePath { file_path } => {
-                self.add_tab_for_file_notebook(file_path, ctx);
-            }
             #[cfg(feature = "local_fs")]
             NewWorkspaceSource::TransferredTab {
                 tab_color,
@@ -2006,8 +1971,7 @@ impl Workspace {
             } => *vertical_tabs_panel_open,
             NewWorkspaceSource::Empty { .. }
             | NewWorkspaceSource::FromTemplate { .. }
-            | NewWorkspaceSource::Session { .. }
-            | NewWorkspaceSource::NotebookFromFilePath { .. } => should_default_open,
+            | NewWorkspaceSource::Session { .. } => should_default_open,
         }
     }
 
@@ -2018,19 +1982,13 @@ impl Workspace {
         shell: Option<AvailableShell>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let show_warp_home = !ContextFlag::CreateNewSession.is_enabled();
-        if !show_warp_home {
-            self.add_new_session_tab(
-                NewSessionSource::Window,
-                previous_active_window,
-                shell,
-                false, /* hide_homepage */
-                ctx,
-            );
-        } else {
-            let home_pane = super::home::create_home_pane(ctx);
-            self.add_tab_from_existing_pane(home_pane, 0, None, ctx);
-        }
+        self.add_new_session_tab(
+            NewSessionSource::Window,
+            previous_active_window,
+            shell,
+            false,
+            ctx,
+        );
     }
 
     fn current_focus_region(&self, ctx: &mut ViewContext<Self>) -> FocusRegion {
@@ -3063,8 +3021,6 @@ impl Workspace {
             }
         }
     }
-
-    #[cfg(not(target_family = "wasm"))]
     fn view_logs(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.spawn(
             async { tokio::task::spawn_blocking(warp_logging::create_log_bundle_zip).await },
@@ -5777,9 +5733,7 @@ impl Workspace {
         // If this is the last tab, close the window instead of actually removing
         // the tab.
         if self.tabs.len() == 1 {
-            if ContextFlag::CloseWindow.is_enabled() {
-                ctx.close_window();
-            }
+            ctx.close_window();
             return;
         }
 
@@ -5902,13 +5856,10 @@ impl Workspace {
                     })
                     .build();
 
-                if cfg!(all(not(target_family = "wasm"), target_os = "macos")) {
+                if cfg!(target_os = "macos") {
                     AppContext::show_native_platform_modal(ctx, dialog);
                     return false;
-                } else if cfg!(all(
-                    not(target_family = "wasm"),
-                    any(target_os = "linux", windows)
-                )) {
+                } else if cfg!(any(target_os = "linux", windows)) {
                     self.show_native_modal(dialog, ctx);
                     return false;
                 }
@@ -5936,9 +5887,6 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         let is_last_tab = self.tabs.len() == 1;
-        if !ContextFlag::CloseWindow.is_enabled() && is_last_tab {
-            return;
-        }
 
         let tabs_closed = self.close_tabs(
             vec![index].into_iter(),
@@ -6284,20 +6232,6 @@ impl Workspace {
             }
             self.expand_tab_group(group_id, ctx);
         }
-    }
-
-    /// Add a tab with a file notebook pane open.
-    pub fn add_tab_for_file_notebook(
-        &mut self,
-        file_path: Option<PathBuf>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let panes_layout = PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-            is_focused: true,
-            custom_vertical_tabs_title: None,
-            contents: LeafContents::File(FilePaneSnapshot { path: file_path }),
-        })));
-        self.add_tab_with_pane_layout(panes_layout, Arc::new(HashMap::new()), None, ctx);
     }
 
     /// Add a tab with a code pane open for the specified file.
@@ -7297,9 +7231,7 @@ impl Workspace {
                                 }
                             }
                         }
-                        #[cfg_attr(target_family = "wasm", allow(unused_variables))]
                         TabBarHoverIndex::OverTab(workspace_tab_index) => {
-                            #[cfg(not(target_family = "wasm"))]
                             {
                                 let prefers_tabbed_editor_view = FeatureFlag::TabbedEditorView
                                     .is_enabled()
@@ -9387,9 +9319,7 @@ impl Workspace {
                 tab_bar.add_child(self.render_tab_hover_indicator(appearance));
             }
 
-            if ContextFlag::CreateNewSession.is_enabled() {
-                tab_bar.add_child(self.render_new_session_button(ctx));
-            }
+            tab_bar.add_child(self.render_new_session_button(ctx));
         }
 
         // Trailing spacer fills only the leftover width. When groups are collapsed
@@ -9473,7 +9403,7 @@ impl Workspace {
         }
 
         let resource_center_closed = !self.current_workspace_state.is_resource_center_open;
-        if resource_center_closed && ContextFlag::WarpEssentials.is_enabled() {
+        if resource_center_closed {
             target.add_child(
                 Container::new(self.render_resource_center_button(appearance, ctx))
                     .with_margin_left(TAB_BAR_PADDING_LEFT)
@@ -9970,8 +9900,6 @@ impl Workspace {
             .with_max_width(240.0)
             .finish()
     }
-
-    #[cfg(not(target_family = "wasm"))]
     fn render_resource_center(&self) -> Box<dyn Element> {
         ConstrainedBox::new(ChildView::new(&self.resource_center_view).finish())
             .with_width(RESOURCE_CENTER_WIDTH)
@@ -10387,7 +10315,6 @@ impl Workspace {
         }
 
         // Resource center is a workspace-level panel, not configurable.
-        #[cfg(not(target_family = "wasm"))]
         if self.current_workspace_state.is_right_panel_open() {
             panels_view = panels_view.with_child(self.render_panel(
                 app,
@@ -10461,7 +10388,6 @@ impl Workspace {
         let alias_expansion_settings = AliasExpansionSettings::as_ref(app);
         let code_settings = CodeSettings::as_ref(app);
         let input_settings = InputSettings::as_ref(app);
-        let font_settings = FontSettings::as_ref(app);
         let reporting_setings = AltScreenReporting::as_ref(app);
         let general_settings = GeneralSettings::as_ref(app);
         let theme_settings = ThemeSettings::as_ref(app);
@@ -10630,12 +10556,6 @@ impl Workspace {
         }
         if *window_settings.open_windows_at_custom_size {
             context.set.insert(flags::OPEN_WINDOWS_AT_CUSTOM_SIZE_FLAG);
-        }
-
-        if *font_settings.match_notebook_to_monospace_font_size {
-            context
-                .set
-                .insert(flags::MATCH_NOTEBOOK_FONT_SIZE_TO_TERMINAL_FONT_SIZE_FLAG);
         }
 
         if *pane_settings.focus_panes_on_hover {
@@ -10835,42 +10755,6 @@ impl Workspace {
 
     fn all_pane_group_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.tab_views().map(|tab| tab.id())
-    }
-
-    /// Opens a given URL in the desktop Warp app if installed, or redirects to download page.
-    #[cfg(target_family = "wasm")]
-    fn open_link_on_desktop(&mut self, url: &url::Url, ctx: &mut ViewContext<Self>) {
-        use crate::settings::app_installation_detection::{
-            UserAppInstallDetectionSettings, UserAppInstallStatus,
-        };
-
-        // Check if the desktop app is installed
-        let is_app_installed = *UserAppInstallDetectionSettings::as_ref(ctx)
-            .user_app_installation_detected
-            .value()
-            == UserAppInstallStatus::Detected;
-
-        if !is_app_installed {
-            // App not installed - redirect to download page
-            ctx.open_url("https://warp.dev/download");
-            // In webapp code we cannot distinguish between
-            // the localhost:9277/install_detection endpoint not running (not installed) vs
-            // the browser blocking Local Network Access which results in CORS error;
-            // the browser intentionally obscures the error root cause for privacy reasons.
-            // Many users' browser settings will block Local Network Access so this will end up redirecting to download page,
-            // even if they have the app installed.
-            let toast_message = format!(
-                "Have Warp installed but redirecting to download page?\nEnable Local Network Access for {} in your browser.",
-                ChannelState::server_root_url()
-            );
-            self.toast_stack.update(ctx, |toast_stack, ctx| {
-                toast_stack.add_persistent_toast(DismissibleToast::default(toast_message), ctx)
-            });
-            // Still try to open the url on desktop below
-        }
-
-        // Open the URL on desktop. This does nothing if the app isn't installed.
-        crate::uri::web_intent_parser::open_url_on_desktop(url);
     }
 }
 
@@ -11243,7 +11127,6 @@ impl TypedActionView for Workspace {
                 mode: palette_mode,
                 source,
             } => self.toggle_palette(*palette_mode, *source, ctx),
-            #[cfg(not(target_family = "wasm"))]
             ViewLogs => self.view_logs(ctx),
             ChangeCursor(cursor) => self.change_cursor(*cursor, ctx),
             ToggleErrorUnderlining => self.toggle_error_underlining(ctx),
@@ -11259,8 +11142,6 @@ impl TypedActionView for Workspace {
                 ctx.dispatch_typed_action_for_view(window_id, self.settings_pane.id(), action)
             }
             OpenLink(link) => ctx.open_url(link),
-            #[cfg(target_family = "wasm")]
-            OpenLinkOnDesktop(url) => self.open_link_on_desktop(url, ctx),
             DumpDebugInfo => self.dump_debug_info(ctx),
             ToggleRecordingMode => self.toggle_recording_mode(ctx),
             ToggleInBandGenerators => self.toggle_in_band_generators(ctx),
@@ -11561,9 +11442,7 @@ impl TypedActionView for Workspace {
                 ctx.terminate_app(TerminationMode::Cancellable, None);
             }
             CloseWindow => {
-                if ContextFlag::CloseWindow.is_enabled() {
-                    ctx.close_window();
-                }
+                ctx.close_window();
             }
             RunCommand(code) => {
                 let command = code.trim().to_string();
@@ -11779,9 +11658,7 @@ impl View for Workspace {
             context.set.insert("AccessibilityVerbosity_Verbose");
         }
 
-        if ContextFlag::CloseWindow.is_enabled() {
-            context.set.insert("Workspace_CloseWindow");
-        }
+        context.set.insert("Workspace_CloseWindow");
 
         match self.tab_count() {
             0 => {
@@ -12456,19 +12333,6 @@ impl View for Workspace {
             ChildView::new(&self.toast_stack).finish(),
             self.global_toast_positioning(),
         );
-
-        #[cfg(target_family = "wasm")]
-        if self.show_wasm_nux_dialog {
-            stack.add_positioned_overlay_child(
-                ChildView::new(&self.wasm_nux_dialog).finish(),
-                OffsetPositioning::offset_from_parent(
-                    vec2f(-10., 67.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::TopRight,
-                    ChildAnchor::TopRight,
-                ),
-            );
-        }
 
         // Add workspace-wide UI event handling.
         let stack = if FeatureFlag::VerticalTabs.is_enabled()

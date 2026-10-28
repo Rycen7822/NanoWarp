@@ -820,26 +820,21 @@ fn decode_wsl_path_result(result: io::Result<process::Output>) -> Option<UnixPat
     };
     if !output.status.success() {
         // Errors with wsl.exe usage itself outputs error messages in UTF-16.
-        cfg_if::cfg_if! {
-            // WSL is Windows only, but most of the WSL code isn't cfg-guarded. This
-            // snipped does need to be guarded.
-            if #[cfg(windows)] {
-                use std::os::windows::ffi::OsStringExt as _;
-                let wsl_err_msg = OsString::from_wide(bytemuck::cast_slice(&output.stdout));
-            } else {
-                let wsl_err_msg = "";
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt as _;
+            let wsl_err_msg = OsString::from_wide(bytemuck::cast_slice(&output.stdout));
+            if !wsl_err_msg.is_empty() {
+                log::error!("Error invoking wsl.exe: {wsl_err_msg:?}");
+                report_error!("Error invoking wsl.exe");
+                return None;
             }
         }
         // If wsl.exe was correctly invoked but the Linux command had an error, that will
         // be UTF-8.
-        if wsl_err_msg.is_empty() {
-            if let Ok(inner_err_msg) = String::from_utf8(output.stderr) {
-                log::error!("Error from WSL command: {inner_err_msg}");
-                report_error!("Error from WSL command");
-            }
-        } else {
-            log::error!("Error invoking wsl.exe: {wsl_err_msg:?}");
-            report_error!("Error invoking wsl.exe");
+        if let Ok(inner_err_msg) = String::from_utf8(output.stderr) {
+            log::error!("Error from WSL command: {inner_err_msg}");
+            report_error!("Error from WSL command");
         }
         return None;
     }

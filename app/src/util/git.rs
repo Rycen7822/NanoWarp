@@ -247,14 +247,6 @@ pub async fn get_file_change_entries(
     Ok(entries)
 }
 
-#[cfg(not(feature = "local_fs"))]
-pub async fn get_file_change_entries(
-    _repo_path: &Path,
-    _include_unstaged: bool,
-) -> Result<Vec<FileChangeEntry>> {
-    Err(anyhow!("Not supported on wasm"))
-}
-
 /// Returns per-file change entries for the **committed** branch diff
 /// (`merge_base(HEAD, main)..HEAD`) — exactly what an opened PR would contain.
 ///
@@ -300,11 +292,6 @@ pub async fn get_committed_branch_file_entries(repo_path: &Path) -> Result<Vec<F
     }
 
     Ok(entries)
-}
-
-#[cfg(not(feature = "local_fs"))]
-pub async fn get_committed_branch_file_entries(_repo_path: &Path) -> Result<Vec<FileChangeEntry>> {
-    Err(anyhow!("Not supported on wasm"))
 }
 
 /// Unpushed commits: `<upstream>..HEAD`, or `<fork_point>..HEAD` if no upstream.
@@ -393,15 +380,6 @@ fn parse_commit_log(output: &str) -> Result<Vec<Commit>> {
     Ok(commits)
 }
 
-#[cfg(not(feature = "local_fs"))]
-pub async fn get_unpushed_commits(
-    _repo_path: &Path,
-    _current_branch_name: Option<&str>,
-    _upstream_ref: Option<&str>,
-) -> Result<Vec<Commit>> {
-    Err(anyhow!("Not supported on wasm"))
-}
-
 /// Computes the branch's unpushed commits together with its upstream
 /// tracking ref, so callers that need both (metadata refresh, the remote
 /// git-operation delta returned to the client) don't repeat the work.
@@ -484,16 +462,6 @@ pub async fn run_commit(
     run_git_command_with_env(repo_path, &["commit", "-m", message], path_env).await
 }
 
-#[cfg(not(feature = "local_fs"))]
-pub async fn run_commit(
-    _repo_path: &Path,
-    _message: &str,
-    _include_unstaged: bool,
-    _path_env: Option<&str>,
-) -> Result<String> {
-    Err(anyhow!("Not supported on wasm"))
-}
-
 /// Pushes the given branch to origin, setting upstream tracking if not already configured.
 /// `path_env` is forwarded so the LFS `pre-push` hook can find `git-lfs`.
 #[cfg(feature = "local_fs")]
@@ -504,11 +472,6 @@ pub async fn run_push(repo_path: &Path, branch: &str, path_env: Option<&str>) ->
         path_env,
     )
     .await
-}
-
-#[cfg(not(feature = "local_fs"))]
-pub async fn run_push(_repo_path: &Path, _branch: &str, _path_env: Option<&str>) -> Result<String> {
-    Err(anyhow!("Not supported on wasm"))
 }
 
 // ── gh CLI helpers ───────────────────────────────────────────────────────────
@@ -706,14 +669,6 @@ pub async fn get_pr_for_branch(repo_path: &Path, path_env: Option<&str>) -> Resu
     }
 }
 
-#[cfg(not(feature = "local_fs"))]
-pub async fn get_pr_for_branch(
-    _repo_path: &Path,
-    _path_env: Option<&str>,
-) -> Result<Option<PrInfo>> {
-    Err(anyhow!("Not supported on wasm"))
-}
-
 #[cfg(feature = "local_fs")]
 fn is_no_pr_for_branch_error(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
@@ -788,11 +743,6 @@ pub async fn create_pr(repo_path: &Path, path_env: Option<&str>) -> Result<PrInf
         draft: false,
         base_branch: base.to_string(),
     })
-}
-
-#[cfg(not(feature = "local_fs"))]
-pub async fn create_pr(_repo_path: &Path, _path_env: Option<&str>) -> Result<PrInfo> {
-    Err(anyhow!("Not supported on wasm"))
 }
 
 /// A single branch entry returned by [`get_all_branches`].

@@ -14,9 +14,7 @@ use crate::terminal::writeable_pty::pty_controller::EventLoopSender;
 use crate::terminal::writeable_pty::{
     PtyController, PtyControllerEvent, PtyIntent, PtyIntentEvent, TerminalSurface,
 };
-use crate::terminal::{ModelEventDispatcher, TerminalModel};
-#[cfg(not(target_family = "wasm"))]
-use crate::terminal::{TerminalView, view};
+use crate::terminal::{ModelEventDispatcher, TerminalModel, TerminalView, view};
 
 /// Wires up bi-directional communication between the PtyController and a terminal surface.
 /// Note that this interaction can't live in the surface itself because the surface must be
@@ -132,7 +130,6 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
 /// NOTE: we cannot simply use the strong references (the handle arguments to this wire_up fn)
 /// in the subscription callbacks because that will create a reference cycle. Instead,
 /// we should use weak handles and upgrade them lazily.
-#[cfg(not(target_family = "wasm"))]
 pub fn wire_up_remote_server_controller_with_view<T: EventLoopSender>(
     remote_server_controller: &ModelHandle<
         super::remote_server_controller::RemoteServerController<T>,
@@ -187,7 +184,6 @@ pub fn init_pty_controller_model<Sender: EventLoopSender>(
 }
 
 /// Creates a [`RemoteServerController`] that orchestrates the SSH init flow.
-#[cfg(not(target_family = "wasm"))]
 pub fn init_remote_server_controller<Sender: EventLoopSender>(
     pty_controller: &ModelHandle<PtyController<Sender>>,
     model_events: &ModelHandle<ModelEventDispatcher>,

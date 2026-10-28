@@ -2,7 +2,6 @@ pub mod bootstrap;
 pub mod event;
 pub mod event_listener;
 pub mod focus_env;
-#[cfg(not(target_family = "wasm"))]
 pub mod local_tty;
 pub mod model;
 mod runtime;

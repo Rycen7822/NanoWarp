@@ -14,12 +14,11 @@ tokio-errors = ["dep:tokio"]
 websocket-errors = ["dep:websocket", "dep:http"]
 
 [dependencies]
+tokio = { workspace = true, optional = true }
+websocket = { workspace = true, optional = true }
+
 anyhow.workspace = true
 log.workspace = true
 inventory = "0.3.20"
 http = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio = { workspace = true, optional = true }
-websocket = { workspace = true, optional = true }

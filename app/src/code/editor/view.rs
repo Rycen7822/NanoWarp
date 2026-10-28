@@ -1,4 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
 // Adding this file level gate as some of the code around editability is not used in WASM yet.
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -7,11 +6,14 @@ use std::path::Path;
 
 use lazy_static::lazy_static;
 use num_traits::SaturatingSub;
+use pathfinder_color::ColorU;
 use settings::Setting as _;
 use string_offset::CharOffset;
 use vec1::vec1;
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
+use warp_core::ui::builder::CHECK_SVG_PATH;
+use warp_core::ui::theme::color::internal_colors;
 use warp_editor::content::buffer::{Buffer, EditOrigin, ToBufferPoint};
 use warp_editor::content::version::BufferVersion;
 use warp_editor::model::CoreEditorModel;
@@ -20,8 +22,9 @@ use warp_editor::render::element::{
     DisplayOptions, DisplayStateHandle, RichTextElement, VerticalExpansionBehavior,
 };
 use warp_editor::render::model::{
-    AutoScrollMode, BlockSpacing, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, ExpansionType,
-    LineCount, ParagraphStyles, RichTextStyles,
+    AutoScrollMode, BlockSpacing, BlockSpacings, BrokenLinkStyle,
+    CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, CheckBoxStyle, ExpansionType, HorizontalRuleStyle,
+    InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles, TableStyle,
 };
 use warp_editor::search::{SearchEvent, Searcher};
 use warp_util::content_version::ContentVersion;
@@ -30,11 +33,12 @@ use warpui::elements::new_scrollable::{
     AxisConfiguration, DualAxisConfig, NewScrollableElement, ScrollableAppearance,
 };
 use warpui::elements::{
-    ChildView, Dismiss, Fill, Flex, Margin, NewScrollable, Padding, ParentElement,
+    Border, ChildView, Dismiss, Fill, Flex, Margin, NewScrollable, Padding, ParentElement,
     ScrollStateHandle, Shrinkable, Stack,
 };
 use warpui::event::ModifiersState;
 use warpui::keymap::Keystroke;
+use warpui::ui_components::checkbox::HOVER_BACKGROUND_COLOR;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle,
@@ -48,11 +52,11 @@ use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewE
 use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
 use crate::code::editor::model::{CodeEditorModel, CodeEditorModelEvent, LineBound};
 use crate::code::editor::nav_bar::{NavBar, NavBarEvent};
-use crate::code::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
+use crate::code::editor::scroll::{ScrollTrigger, ScrollWheelBehavior};
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
-use crate::notebooks::editor::rich_text_styles;
 use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, FontSettings};
+use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 use crate::view_components::find::FindDirection;
 
 mod actions;
@@ -155,10 +159,7 @@ impl CodeEditorView {
     ) -> Self {
         let appearance_handle = Appearance::handle(ctx);
         let font_settings_handle = FontSettings::handle(ctx);
-        let initial_styles = code_text_styles(
-            appearance_handle.as_ref(ctx),
-            font_settings_handle.as_ref(ctx),
-        );
+        let initial_styles = code_text_styles(appearance_handle.as_ref(ctx));
         ctx.subscribe_to_model(&appearance_handle, |me, _, _, ctx| {
             me.handle_appearance_or_font_change(ctx);
         });
@@ -725,14 +726,11 @@ impl CodeEditorView {
                     .pending_scroll
                     .take_if(|trigger| trigger.minimum_applicable_version <= *version)
                 {
-                    match trigger.position {
-                        ScrollPosition::LineAndColumn(line_col) => {
-                            self.jump_to_line_column(line_col.line_num, line_col.column_num, ctx);
-                        }
-                        ScrollPosition::Fraction(fraction) => {
-                            self.scroll_to_fraction(fraction, ctx);
-                        }
-                    }
+                    self.jump_to_line_column(
+                        trigger.position.line_num,
+                        trigger.position.column_num,
+                        ctx,
+                    );
                 }
                 ctx.emit(CodeEditorEvent::ViewportUpdated);
             }
@@ -764,7 +762,7 @@ impl CodeEditorView {
 
     /// Handles [`Appearance`] changes by updating the render model.
     fn handle_appearance_or_font_change(&mut self, ctx: &mut ViewContext<Self>) {
-        let new_styles = code_text_styles(Appearance::as_ref(ctx), FontSettings::as_ref(ctx));
+        let new_styles = code_text_styles(Appearance::as_ref(ctx));
         self.model.update(ctx, move |model, ctx| {
             model.handle_appearance_or_font_change(new_styles, ctx);
         });
@@ -877,17 +875,6 @@ impl CodeEditorView {
 
     pub fn buffer_version(&self, ctx: &AppContext) -> BufferVersion {
         self.model.as_ref(ctx).buffer_version(ctx)
-    }
-
-    fn scroll_to_fraction(&self, fraction: f32, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            // Content is already rendered here (this runs from `ViewportUpdated`), so the current
-            // buffer version is the one to wait for.
-            let version = model.buffer_version(ctx);
-            model.render_state().update(ctx, |render_state, _ctx| {
-                render_state.scroll_to_fraction(fraction, version);
-            });
-        });
     }
 
     pub fn interaction_state(&self, ctx: &AppContext) -> InteractionState {
@@ -1393,10 +1380,9 @@ impl View for CodeEditorView {
     }
 }
 
-pub fn code_text_styles(appearance: &Appearance, font_settings: &FontSettings) -> RichTextStyles {
-    let mut styling = rich_text_styles(appearance, font_settings);
+pub fn code_text_styles(appearance: &Appearance) -> RichTextStyles {
     let theme = appearance.theme();
-    styling.base_text = ParagraphStyles {
+    let base_text = ParagraphStyles {
         font_size: appearance.monospace_font_size(),
         line_height_ratio: appearance.line_height_ratio(),
         font_family: appearance.monospace_font_family(),
@@ -1405,16 +1391,72 @@ pub fn code_text_styles(appearance: &Appearance, font_settings: &FontSettings) -
         baseline_ratio: 0.8,
         fixed_width_tab_size: Some(4),
     };
-    styling.block_spacings.text = BlockSpacing {
-        margin: Margin::uniform(0.).with_left(1.),
-        padding: Padding::uniform(0.),
+    let block_spacings = BlockSpacings {
+        text: BlockSpacing {
+            margin: Margin::uniform(0.).with_left(1.),
+            padding: Padding::uniform(0.),
+        },
+        ..Default::default()
     };
-    styling.show_placeholder_text_on_empty_block = false;
-    styling.minimum_paragraph_height = None;
-    styling.cursor_width = 2.;
-    // URLs are not clickable in code editors, so we should not highlight them.
-    styling.highlight_urls = false;
-    styling
+    RichTextStyles {
+        base_text,
+        code_text: base_text,
+        code_background: theme.background().into(),
+        embedding_background: theme.surface_2().into(),
+        embedding_text: ParagraphStyles {
+            text_color: theme.main_text_color(theme.surface_2()).into_solid(),
+            ..base_text
+        },
+        code_border: Border::all(1.).with_border_fill(theme.surface_3()),
+        placeholder_color: theme.hint_text_color(theme.background()).into_solid(),
+        selection_fill: theme.text_selection_color().into(),
+        cursor_fill: theme
+            .cursor()
+            .on_background(theme.background(), MinimumAllowedContrast::Text)
+            .into(),
+        inline_code_style: InlineCodeStyle {
+            font_family: appearance.monospace_font_family(),
+            background: theme.surface_3().into(),
+            font_color: ColorU::from(theme.terminal_colors().normal.red)
+                .on_background(theme.surface_3().into(), MinimumAllowedContrast::Text),
+        },
+        check_box_style: CheckBoxStyle {
+            border_color: theme.foreground().into(),
+            border_width: 2.,
+            icon_path: CHECK_SVG_PATH,
+            background: theme.accent().into(),
+            hover_background: *HOVER_BACKGROUND_COLOR,
+        },
+        horizontal_rule_style: HorizontalRuleStyle {
+            color: theme.surface_3().into(),
+            rule_height: 3.,
+        },
+        broken_link_style: BrokenLinkStyle {
+            icon_path: "bundled/svg/link-broken-02.svg",
+            icon_color: theme.terminal_colors().normal.red.into(),
+        },
+        block_spacings,
+        show_placeholder_text_on_empty_block: false,
+        minimum_paragraph_height: None,
+        cursor_width: 2.,
+        highlight_urls: false,
+        table_style: TableStyle {
+            border_color: internal_colors::neutral_4(theme),
+            header_background: ColorU::transparent_black(),
+            cell_background: ColorU::transparent_black(),
+            alternate_row_background: None,
+            text_color: internal_colors::text_sub(theme, theme.background()),
+            header_text_color: internal_colors::text_main(theme, theme.background()),
+            scrollbar_nonactive_thumb_color: theme.nonactive_ui_detail().into_solid(),
+            scrollbar_active_thumb_color: theme.active_ui_detail().into_solid(),
+            font_family: base_text.font_family,
+            font_size: base_text.font_size,
+            cell_padding: 12.,
+            outer_border: false,
+            column_dividers: false,
+            row_dividers: true,
+        },
+    }
 }
 
 #[cfg(feature = "integration_tests")]

@@ -9,7 +9,6 @@
 //! The [`PaneId`] must be created via a [`PaneView<BackingView>`]. The [`PaneId`] is consequently
 //! used to render a [`PaneView`] which internally renders the pane, including the [`BackingView`].
 pub(super) mod code_pane;
-pub(super) mod file_pane;
 pub(super) mod settings_pane;
 pub(super) mod terminal_pane;
 pub mod view;
@@ -27,11 +26,8 @@ use warpui::{
 
 pub use self::view::{PaneHeaderAction, PaneHeaderCustomAction, PaneView, PaneViewEvent};
 use super::{ActivationReason, LeafContents, PaneGroup, PaneGroupAction};
-#[cfg(feature = "local_fs")]
-use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::view::CodeView;
 use crate::menu::MenuItem;
-use crate::notebooks::file::FileNotebookView;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::settings::PaneSettings;
 use crate::settings_view::SettingsView;
@@ -98,7 +94,6 @@ impl Display for IPaneId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum IPaneType {
     Terminal,
-    File,
     Code,
     Settings,
     /// A pane type only for tests.
@@ -110,7 +105,6 @@ impl Display for IPaneType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IPaneType::Terminal => write!(f, "Terminal"),
-            IPaneType::File => write!(f, "File"),
             IPaneType::Code => write!(f, "Code"),
             IPaneType::Settings => write!(f, "Settings"),
             #[cfg(test)]
@@ -139,11 +133,6 @@ impl PaneId {
         Self::new_from_ctx(IPaneType::Terminal, ctx)
     }
 
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<FileNotebookView>>`]
-    pub fn from_file_pane_ctx(ctx: &ViewContext<PaneView<FileNotebookView>>) -> Self {
-        Self::new_from_ctx(IPaneType::File, ctx)
-    }
-
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<TextView>>`]
     pub fn from_code_pane_ctx(ctx: &ViewContext<PaneView<CodeView>>) -> Self {
         Self::new_from_ctx(IPaneType::Code, ctx)
@@ -159,11 +148,6 @@ impl PaneId {
         terminal_pane_view: &ViewHandle<terminal_pane::TerminalPaneView>,
     ) -> Self {
         Self::new(IPaneType::Terminal, terminal_pane_view)
-    }
-
-    /// Creates a [`PaneId`] from a [`PaneView<FileNotebookView>`] entity ID.
-    pub fn from_file_pane_view(file_pane_view: &ViewHandle<PaneView<FileNotebookView>>) -> Self {
-        Self::new(IPaneType::File, file_pane_view)
     }
 
     /// Creates a [`PaneId`] from a [`PaneView<TextView>`] entity ID.
@@ -212,18 +196,11 @@ impl PaneId {
         matches!(self.0.pane_type, IPaneType::Code)
     }
 
-    pub fn is_file_pane(&self) -> bool {
-        matches!(self.0.pane_type, IPaneType::File)
-    }
-
     /// Renders the child view backing this pane.
     pub fn render(self, app: &AppContext) -> Box<dyn Element> {
         let mut element = match self.0.pane_type {
             IPaneType::Terminal => {
                 ChildView::<PaneView<TerminalView>>::with_id(self.0.pane_view_id).finish()
-            }
-            IPaneType::File => {
-                ChildView::<PaneView<FileNotebookView>>::with_id(self.0.pane_view_id).finish()
             }
             IPaneType::Code => {
                 ChildView::<PaneView<CodeView>>::with_id(self.0.pane_view_id).finish()
@@ -785,13 +762,4 @@ pub enum PaneEvent {
     /// Repo for this pane's terminal has changed
     RepoChanged,
     ClearHoveredTabIndex,
-    #[cfg(feature = "local_fs")]
-    ReplaceWithCodePane {
-        path: LocalOrRemotePath,
-        source: Option<crate::code::editor_management::CodeSource>,
-        /// Vertical scroll fraction (`0..=1`) captured from the outgoing pane, to restore on the
-        /// new pane. `None` scrolls to the top. Wrapped in `OrderedFloat` so `PaneEvent` can
-        /// still derive `Eq`.
-        scroll_fraction: Option<ordered_float::OrderedFloat<f32>>,
-    },
 }

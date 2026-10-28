@@ -16,7 +16,6 @@ use settings::Setting as _;
 use typed_path::TypedPath;
 use uuid::Uuid;
 use warp_core::command::ExitCode;
-use warp_core::context_flag::ContextFlag;
 use warp_errors::report_if_error;
 use warp_terminal::focus_env::add_session_focus_env_vars;
 #[cfg(feature = "local_fs")]
@@ -37,20 +36,18 @@ use warpui::{
 #[cfg(feature = "local_fs")]
 use crate::app_state::CodePaneSnapShot;
 use crate::app_state::{
-    self, BranchSnapshot, FilePaneSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid,
+    self, BranchSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid,
     SettingsPaneSnapshot, TerminalPaneSnapshot,
 };
 use crate::appearance::Appearance;
 use crate::banner::{Banner, BannerEvent, BannerState, BannerTextContent, DismissalType};
 use crate::channel::{Channel, ChannelState};
 use crate::cmd_or_ctrl_shift;
-use crate::code::buffer_location::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
 use crate::code::view::{CodeView, CodeViewAction};
 use crate::features::FeatureFlag;
 use crate::launch_configs::launch_config::{self, PaneMode, PaneTemplateType};
-use crate::notebooks::file::FileNotebookView;
 use crate::palette::{PaletteMode, PaletteSource};
 use crate::pane_group::focus_state::PaneGroupFocusEvent;
 use crate::pane_group::pane::ActionOrigin;
@@ -77,8 +74,6 @@ use crate::terminal::view::ssh_file_upload::FileUploadId;
 use crate::terminal::view::{BlockNotification, SyncEvent, TerminalViewState};
 use crate::terminal::{ShellLaunchData, TerminalManager, TerminalModel, TerminalView};
 use crate::undo_close::{UndoCloseStack, UndoCloseStackEvent};
-#[cfg(target_family = "wasm")]
-use crate::uri::browser_url_handler::update_browser_url;
 use crate::util::bindings::{CustomAction, is_binding_pty_compliant};
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
@@ -96,7 +91,6 @@ use focus_state::PaneGroupFocusState;
 mod tests;
 
 pub use pane::code_pane::CodePane;
-pub use pane::file_pane::FilePane;
 pub use pane::settings_pane::SettingsPane;
 pub use pane::terminal_pane::TerminalPane;
 pub use pane::{
@@ -245,16 +239,14 @@ pub fn init(app: &mut AppContext) {
             PaneGroupAction::Add(Direction::Left),
         )
         .with_context_predicate(id!("PaneGroup") & !id!("PaneGroup_PaneDragging"))
-        .with_custom_action(CustomAction::SplitPaneLeft)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::SplitPaneLeft),
         EditableBinding::new(
             "pane_group:add_up",
             "Split pane up",
             PaneGroupAction::Add(Direction::Up),
         )
         .with_context_predicate(id!("PaneGroup") & !id!("PaneGroup_PaneDragging"))
-        .with_custom_action(CustomAction::SplitPaneUp)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::SplitPaneUp),
         EditableBinding::new(
             "pane_group:navigate_left",
             "Switch panes left",
@@ -342,16 +334,14 @@ pub fn init(app: &mut AppContext) {
             PaneGroupAction::Add(Direction::Down),
         )
         .with_context_predicate(id!("PaneGroup") & !id!("PaneGroup_PaneDragging"))
-        .with_custom_action(CustomAction::SplitPaneDown)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::SplitPaneDown),
         EditableBinding::new(
             "pane_group:add_right",
             "Split pane right",
             PaneGroupAction::Add(Direction::Right),
         )
         .with_context_predicate(id!("PaneGroup") & !id!("PaneGroup_PaneDragging"))
-        .with_custom_action(CustomAction::SplitPaneRight)
-        .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
+        .with_custom_action(CustomAction::SplitPaneRight),
         EditableBinding::new(
             TOGGLE_MAXIMIZE_PANE_BINDING_NAME,
             "Toggle Maximize Active Pane",
@@ -1213,24 +1203,6 @@ impl PaneGroup {
 
                 Ok((PaneData::new(pane_id), focus))
             }
-            LeafContents::File(FilePaneSnapshot { path }) => {
-                let pane = FilePane::new(
-                    path.map(LocalOrRemotePath::Local),
-                    None,
-                    #[cfg(feature = "local_fs")]
-                    None,
-                    ctx,
-                );
-
-                let pane_id = pane.id();
-                pane_contents.insert(pane_id, Box::new(pane));
-                let focus = InitialFocus {
-                    focused_pane: leaf.is_focused.then_some(pane_id),
-                    active_session: None,
-                };
-
-                Ok((PaneData::new(pane_id), focus))
-            }
             #[cfg(feature = "local_fs")]
             LeafContents::Code(snapshot) => {
                 let CodePaneSnapShot::Local {
@@ -1444,14 +1416,6 @@ impl PaneGroup {
         self.panes_of::<CodePane>()
             .map(move |pane| (pane.id(), pane.file_view(app)))
     }
-    /// Iterate over the file notebook panes in this pane group.
-    pub fn file_notebook_panes<'a>(
-        &'a self,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = (PaneId, ViewHandle<FileNotebookView>)> + 'a {
-        self.panes_of::<FilePane>()
-            .map(move |pane| (pane.id(), pane.file_view(app)))
-    }
 
     /// Whether the focused pane is a code pane whose active tab should show
     /// the unsaved-changes indicator. Auto-save-aware: changes auto-save can
@@ -1472,20 +1436,12 @@ impl PaneGroup {
     }
 
     /// Returns the path to copy for the currently focused pane: the open file's display path
-    /// if the focused pane is the rendered file viewer (`FilePane`) or code editor
+    /// if the focused pane is the code editor
     /// (`CodePane`), otherwise the focused terminal session's working directory (raw pwd,
     /// falling back to the user-friendly display form). `None` if the focused pane is none of
     /// those, or yields no path.
     pub fn path_from_focused_pane(&self, ctx: &AppContext) -> Option<String> {
         let focused_pane_id = self.focused_pane_id(ctx);
-
-        if let Some(file_pane) = self.downcast_pane_by_id::<FilePane>(focused_pane_id) {
-            return file_pane
-                .file_view(ctx)
-                .as_ref(ctx)
-                .path()
-                .map(|path| path.display_path());
-        }
 
         if let Some(code_pane) = self.downcast_pane_by_id::<CodePane>(focused_pane_id) {
             let code_view = code_pane.file_view(ctx);
@@ -2326,40 +2282,6 @@ impl PaneGroup {
         original_pane_id
     }
 
-    #[cfg(feature = "local_fs")]
-    fn replace_file_pane_with_code_pane(
-        &mut self,
-        file_pane_id: PaneId,
-        path: LocalOrRemotePath,
-        source: Option<crate::code::editor_management::CodeSource>,
-        scroll_fraction: Option<f32>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        use crate::code::editor_management::CodeSource;
-        use crate::pane_group::CodePane;
-
-        // Use the provided source if available, or construct from the path.
-        let source = source.unwrap_or(CodeSource::CommandPalette { location: path });
-
-        let code_pane = CodePane::new(source, None, ctx);
-        // Seed the restored scroll before the pane attaches and lays out. The fraction is consumed
-        // on a later async `ViewportUpdated` (never within this synchronous pass), so setting it
-        // here is strictly before any possible apply.
-        if let Some(fraction) = scroll_fraction {
-            code_pane.file_view(ctx).update(ctx, |code_view, ctx| {
-                code_view.set_pending_scroll_fraction(fraction, ctx);
-            });
-        }
-        let success = self.replace_pane(file_pane_id, code_pane, false, ctx);
-
-        if !success {
-            report_error!(
-                "Failed to replace file pane with code pane",
-                extra: { "file_pane_id" => ?file_pane_id }
-            );
-        }
-    }
-
     /// Handle a common pane event, such as splitting off another pane.
     fn handle_pane_event(
         &mut self,
@@ -2398,20 +2320,6 @@ impl PaneGroup {
                 ctx.emit(Event::AppStateChanged);
             }
             PaneEvent::ClearHoveredTabIndex => ctx.emit(Event::ClearHoveredTabIndex),
-            #[cfg(feature = "local_fs")]
-            PaneEvent::ReplaceWithCodePane {
-                path,
-                source,
-                scroll_fraction,
-            } => {
-                self.replace_file_pane_with_code_pane(
-                    pane_id,
-                    path.clone(),
-                    source.clone(),
-                    (*scroll_fraction).map(|f| f.into_inner()),
-                    ctx,
-                );
-            }
             PaneEvent::RepoChanged => {
                 ctx.emit(Event::RepoChanged);
             }
@@ -3599,18 +3507,6 @@ impl PaneGroup {
         if let Some(pane) = self.focused_pane_content(ctx) {
             pane.focus(ctx);
         }
-
-        #[cfg(target_family = "wasm")]
-        {
-            if ContextFlag::DynamicBrowserUrl.is_enabled() {
-                self.update_browser_url(ctx);
-            }
-        }
-    }
-
-    #[cfg(target_family = "wasm")]
-    fn update_browser_url(&self, _ctx: &mut ViewContext<Self>) {
-        update_browser_url(None, false);
     }
 
     /// Focus the active terminal session, if there is one.
@@ -3897,12 +3793,6 @@ impl PaneGroup {
 
     pub fn code_views(&self, ctx: &AppContext) -> Vec<ViewHandle<CodeView>> {
         self.panes_of::<CodePane>()
-            .map(|p| p.file_view(ctx))
-            .collect()
-    }
-
-    pub fn file_notebook_views(&self, ctx: &AppContext) -> Vec<ViewHandle<FileNotebookView>> {
-        self.panes_of::<FilePane>()
             .map(|p| p.file_view(ctx))
             .collect()
     }

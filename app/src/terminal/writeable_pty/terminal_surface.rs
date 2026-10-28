@@ -48,7 +48,6 @@ pub trait TerminalSurface: Entity + 'static
 where
     <Self as Entity>::Event: PtyIntentEvent,
 {
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     fn on_shell_replaced(
         &mut self,
         _request_id: Uuid,

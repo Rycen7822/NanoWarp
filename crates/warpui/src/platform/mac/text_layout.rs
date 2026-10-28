@@ -865,7 +865,6 @@ fn line_from_ct_line(
         caret_positions,
         // TODO(CORE-2004): If we want to support external font fallback on
         // Mac, we need to populate this with the missing chars.
-        chars_with_missing_glyphs: vec![],
     }
 }
 

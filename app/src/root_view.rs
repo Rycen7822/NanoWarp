@@ -8,7 +8,6 @@ use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 use serde::{Deserialize, Serialize};
 use settings::Setting as _;
-use warp_core::context_flag::ContextFlag;
 use warpui::keymap::{EditableBinding, FixedBinding};
 use warpui::platform::{WindowBounds, WindowStyle};
 use warpui::presenter::ChildView;
@@ -208,12 +207,6 @@ pub fn init(app: &mut AppContext) {
     app.add_action(
         "root_view:open_settings_in_existing_window",
         RootView::open_settings_in_existing_window,
-    );
-
-    app.add_action("root_view:add_file_pane", RootView::add_file_pane);
-    app.add_global_action(
-        "root_view:open_new_with_file_notebook",
-        open_new_with_file_notebook,
     );
 
     app.register_fixed_bindings([
@@ -645,16 +638,6 @@ fn open_settings_in_new_window(args: &OpenSettingsArgs, ctx: &mut AppContext) {
     });
 }
 
-/// Opens a new window with a file-based notebook open.
-fn open_new_with_file_notebook(arg: &PathBuf, ctx: &mut AppContext) {
-    open_new_with_workspace_source(
-        NewWorkspaceSource::NotebookFromFilePath {
-            file_path: Some(arg.to_owned()),
-        },
-        ctx,
-    );
-}
-
 /// Creates a new window and returns its [`WindowId`] and root view's [`ViewHandle`].
 pub(crate) fn open_new_window_get_handles(
     shell: Option<AvailableShell>,
@@ -1014,9 +997,6 @@ pub enum NewWorkspaceSource {
     Session {
         options: Box<NewTerminalOptions>,
     },
-    NotebookFromFilePath {
-        file_path: Option<PathBuf>,
-    },
     /// A tab is being transferred from another window via the transferable views framework.
     /// The workspace will create a placeholder tab, which will be replaced by the transferred
     /// PaneGroup after window creation.
@@ -1078,7 +1058,7 @@ impl RootView {
     }
 
     fn close_window(&mut self, _: &(), ctx: &mut ViewContext<Self>) -> bool {
-        if ContextFlag::CloseWindow.is_enabled() {
+        {
             ctx.close_window();
         }
         true
@@ -1168,17 +1148,6 @@ impl RootView {
             ctx.windows().show_window_and_focus_app(window_id);
             ctx.notify();
         });
-        true
-    }
-
-    pub fn add_file_pane(&mut self, path: &PathBuf, ctx: &mut ViewContext<Self>) -> bool {
-        let handle = &self.workspace;
-        handle.update(ctx, |workspace, ctx| {
-            workspace.add_tab_for_file_notebook(Some(path.to_owned()), ctx);
-        });
-        let window_id = ctx.window_id();
-        ctx.windows().show_window_and_focus_app(window_id);
-        ctx.notify();
         true
     }
 

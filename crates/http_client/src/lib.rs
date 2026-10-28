@@ -1,7 +1,6 @@
 use std::time::Duration;
 use std::{fmt, future};
 
-#[cfg(not(target_family = "wasm"))]
 use async_compat::{Compat, CompatExt};
 use async_stream::stream;
 use bytes::Bytes;
@@ -21,8 +20,6 @@ use warp_errors::report_error;
 /// run outside of a Tokio context.
 pub struct Client {
     wrapped: reqwest::Client,
-    #[cfg(target_family = "wasm")]
-    omit_credentials: bool,
 
     /// A callback that is executed before every request is sent with a cloned
     /// version of the outbound request.  If for some reason the request cannot be
@@ -42,23 +39,10 @@ pub type RequestHookFn = Box<dyn Fn(&reqwest::Request, &Option<String>) + 'stati
 /// reference to the inbound response object.
 pub type ResponseHookFn = Box<dyn Fn(&reqwest::Response) + 'static + Send + Sync>;
 
-cfg_if::cfg_if! {
-    if #[cfg(target_family = "wasm")] {
-        // The WASM version of this type has no bound on `Send`, which is not implemented on
-        // `wasm_bindgen::JsValue`, which is ultimately used in reqwest_eventsource::Error.
-        // Furthermore, `Send` is an unnecessary bound when targeting wasm because the browser is
-        // single-threaded (and we don't leverage WebWorkers for async execution in WoW).
-        pub type EventSourceStream = futures::stream::LocalBoxStream<
-            'static,
-            Result<reqwest_eventsource::Event, reqwest_eventsource::Error>,
-        >;
-    } else {
-        pub type EventSourceStream = futures::stream::BoxStream<
-            'static,
-            Result<reqwest_eventsource::Event, reqwest_eventsource::Error>,
-        >;
-    }
-}
+pub type EventSourceStream = futures::stream::BoxStream<
+    'static,
+    Result<reqwest_eventsource::Event, reqwest_eventsource::Error>,
+>;
 
 /// A custom request builder that is a wrapper around a `request::RequestBuilder`. Ensures any async
 /// call to the underyling `reqwest::RequestBuilder` are properly adapted to run outside of a Tokio
@@ -91,11 +75,9 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        #[cfg_attr(target_family = "wasm", expect(unused_mut))]
         let mut builder = reqwest::Client::builder();
 
         // Set some HTTP/2-related settings that aren't available on wasm.
-        #[cfg(not(target_family = "wasm"))]
         {
             builder = builder
                 .http2_keep_alive_interval(Duration::from_secs(60))
@@ -111,13 +93,7 @@ impl Client {
 
     /// Creates a pooled client that omits browser credentials.
     pub fn new_external() -> Self {
-        let client = Self::new();
-        #[cfg(target_family = "wasm")]
-        let client = Self {
-            omit_credentials: true,
-            ..client
-        };
-        client
+        Self::new()
     }
 
     #[cfg(feature = "test-util")]
@@ -135,8 +111,6 @@ impl Client {
     pub fn from_client_builder(client_builder: reqwest::ClientBuilder) -> reqwest::Result<Self> {
         client_builder.build().map(|client| Self {
             wrapped: client,
-            #[cfg(target_family = "wasm")]
-            omit_credentials: false,
             before_request_sent: None,
             after_response_received: None,
         })
@@ -151,12 +125,6 @@ impl Client {
     }
 
     fn builder(&self, wrapped: reqwest::RequestBuilder) -> RequestBuilder<'_> {
-        #[cfg(target_family = "wasm")]
-        let wrapped = if self.omit_credentials {
-            wrapped.fetch_credentials_omit()
-        } else {
-            wrapped
-        };
         RequestBuilder {
             wrapped,
             client: self,
@@ -203,17 +171,11 @@ impl Client {
 
         let _guard = prevent_sleep_reason.map(prevent_sleep::prevent_sleep);
 
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                let result = self.wrapped.execute(request).await?;
-            } else {
-                // Explicitly await the future before converting from tokio -> futures. This is because
-                // certain calls to tokio (such as tokio::time::sleep) will panic upon creation if they
-                // are not in a tokio runtime. Wrapping the call in an async block first makes sure that it
-                // is lazily evaluated, ensuring that it is created within a tokio runtime.
-                let result = Compat::new(async { self.wrapped.execute(request).await }).await?;
-            }
-        }
+        // Explicitly await the future before converting from tokio -> futures. This is because
+        // certain calls to tokio (such as tokio::time::sleep) will panic upon creation if they
+        // are not in a tokio runtime. Wrapping the call in an async block first makes sure that it
+        // is lazily evaluated, ensuring that it is created within a tokio runtime.
+        let result = Compat::new(async { self.wrapped.execute(request).await }).await?;
 
         if let Some(after_response_received_fn) = &self.after_response_received {
             after_response_received_fn(&result);
@@ -278,52 +240,28 @@ impl<'a> RequestBuilder<'a> {
     /// Sends the request to the endpoint, which is assumed to be a streaming server-sent-events
     /// endpoint, and returns a corresponding `EventSource`.
     pub fn eventsource(self) -> EventSourceStream {
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                let mut stream = self
-                    .wrapped
-                    .eventsource()
-                    .expect("Request type for SSE endpoint must be cloneable.");
+        let mut stream = self
+            .wrapped
+            .eventsource()
+            .expect("Request type for SSE endpoint must be cloneable.");
 
-                let stream = stream! {
-                    while let Some(event) = stream.next().await {
-                        match event {
-                            Ok(event) => {
-                                yield Ok(event);
-                            }
-                            Err(err) => {
-                                yield Err(err);
-
-                                // Close the stream if an error occurs.
-                                stream.close();
-                            }
-                        }
+        let stream = stream! {
+            // Wrap the stream with async-compat since reqwest requires Tokio.
+            while let Some(event) = stream.next().compat().await {
+                match event {
+                    Ok(event) => {
+                        yield Ok(event);
                     }
-                };
-            } else {
-                let mut stream = self
-                    .wrapped
-                    .eventsource()
-                    .expect("Request type for SSE endpoint must be cloneable.");
+                    Err(err) => {
+                        yield Err(err);
 
-                let stream = stream! {
-                    // Wrap the stream with async-compat since reqwest requires Tokio.
-                    while let Some(event) = stream.next().compat().await {
-                        match event {
-                            Ok(event) => {
-                                yield Ok(event);
-                            }
-                            Err(err) => {
-                                yield Err(err);
-
-                                // Close the stream if an error occurs.
-                                stream.close();
-                            }
-                        }
+                        // Close the stream if an error occurs.
+                        stream.close();
                     }
-                };
+                }
             }
-        }
+        };
+
         let stream = stream.take_while(|event| {
             if let Err(reqwest_eventsource::Error::StreamEnded) = event {
                 return future::ready(false);
@@ -337,13 +275,7 @@ impl<'a> RequestBuilder<'a> {
             self.prevent_sleep_reason.map(prevent_sleep::prevent_sleep),
         );
 
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                stream.boxed_local()
-            } else {
-                stream.boxed()
-            }
-        }
+        stream.boxed()
     }
 
     pub fn basic_auth<U, P>(self, username: U, password: Option<P>) -> RequestBuilder<'a>
@@ -367,20 +299,10 @@ impl<'a> RequestBuilder<'a> {
         }
     }
 
-    // The `timeout` argument is unused on wasm.
-    #[cfg_attr(target_family = "wasm", allow(unused_variables))]
     pub fn timeout(self, timeout: Duration) -> RequestBuilder<'a> {
-        cfg_if::cfg_if! {
-            // reqwest provides no ability to configure a request timeout
-            // on wasm, so make this a no-op (it's the best we can do).
-            if #[cfg(target_family = "wasm")] {
-                self
-            } else {
-                Self {
-                    wrapped: self.wrapped.timeout(timeout),
-                    ..self
-                }
-            }
+        Self {
+            wrapped: self.wrapped.timeout(timeout),
+            ..self
         }
     }
 
@@ -422,7 +344,6 @@ impl<'a> RequestBuilder<'a> {
 
     /// Attach a `multipart/form-data` body.
     /// Not available on wasm because reqwest's multipart builder API is native-only.
-    #[cfg(not(target_family = "wasm"))]
     pub fn multipart(self, form: reqwest::multipart::Form) -> RequestBuilder<'a> {
         Self {
             wrapped: self.wrapped.multipart(form),
@@ -466,13 +387,7 @@ impl std::error::Error for ResponseError {
 
 impl Response {
     pub async fn text(self) -> reqwest::Result<String> {
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                self.0.text().await
-            } else {
-                Compat::new(async { self.0.text().compat().await }).await
-            }
-        }
+        Compat::new(async { self.0.text().compat().await }).await
     }
 
     pub fn status(&self) -> StatusCode {
@@ -480,13 +395,7 @@ impl Response {
     }
 
     pub async fn json<T: DeserializeOwned>(self) -> reqwest::Result<T> {
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                self.0.json().await
-            } else {
-                Compat::new(async { self.0.json().compat().await }).await
-            }
-        }
+        Compat::new(async { self.0.json().compat().await }).await
     }
 
     /// Checks the response status and returns an error if it's not successful.
@@ -552,6 +461,6 @@ impl Response {
     }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

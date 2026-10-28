@@ -4,8 +4,6 @@ use std::rc::Rc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use super::{AssetCache, AssetHandle, AssetSource, AssetStateInternal, LocalFileContentVersion};
-
-#[cfg(not(target_arch = "wasm32"))]
 fn unique_temp_path(name: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
@@ -14,8 +12,6 @@ fn unique_temp_path(name: &str) -> std::path::PathBuf {
     ));
     path
 }
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn local_file_content_version_changes_when_file_contents_change() {
     let path = unique_temp_path("contents_change.png");
@@ -72,8 +68,6 @@ fn local_file_content_version_changes_when_file_contents_change() {
 
     let _ = std::fs::remove_file(&path);
 }
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn local_file_content_version_is_none_for_missing_file() {
     let path = unique_temp_path("definitely_missing.png");

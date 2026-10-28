@@ -1,4 +1,4 @@
-use asset_macro::bundled_or_fetched_asset;
+use asset_macro::bundled_asset;
 use pathfinder_color::ColorU;
 use warp_core::ui::color::blend::Blend;
 use warp_core::ui::color::{OPAQUE, coloru_with_opacity};
@@ -417,7 +417,7 @@ pub(super) fn phenomenon() -> WarpTheme {
         Some(Details::Darker),
         phenomenon_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/phenomenon_bg.jpg"),
+            source: bundled_asset!("jpg/phenomenon_bg.jpg", "async"),
             opacity: 100,
         }),
         Some("Phenomenon".to_string()),
@@ -434,7 +434,7 @@ pub(super) fn jellyfish() -> WarpTheme {
         Some(Details::Darker),
         dark_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/jellyfish_bg.jpg"),
+            source: bundled_asset!("jpg/jellyfish_bg.jpg", "async"),
             opacity: 30,
         }),
         Some("Jellyfish".to_string()),
@@ -450,7 +450,7 @@ pub(super) fn koi() -> WarpTheme {
         Some(Details::Darker),
         dark_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/koi_bg.jpg"),
+            source: bundled_asset!("jpg/koi_bg.jpg", "async"),
             opacity: 30,
         }),
         Some("Koi".to_string()),
@@ -466,7 +466,7 @@ pub(super) fn leafy() -> WarpTheme {
         Some(Details::Darker),
         dark_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/leafy_bg.jpg"),
+            source: bundled_asset!("jpg/leafy_bg.jpg", "async"),
             opacity: 30,
         }),
         Some("Leafy".to_string()),
@@ -482,7 +482,7 @@ pub(super) fn marble() -> WarpTheme {
         Some(Details::Lighter),
         light_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/marble_bg.jpg"),
+            source: bundled_asset!("jpg/marble_bg.jpg", "async"),
             opacity: 50,
         }),
         Some("Marble".to_string()),
@@ -501,7 +501,7 @@ pub(super) fn pink_city() -> WarpTheme {
         Some(Details::Custom(details)),
         light_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/pink_city_bg.jpg"),
+            source: bundled_asset!("jpg/pink_city_bg.jpg", "async"),
             opacity: 40,
         }),
         Some("Pink City".to_string()),
@@ -520,7 +520,7 @@ pub(super) fn snowy() -> WarpTheme {
         Some(Details::Lighter),
         light_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/snowy_bg.jpg"),
+            source: bundled_asset!("jpg/snowy_bg.jpg", "async"),
             opacity: 20,
         }),
         Some("Snowy".to_string()),
@@ -541,7 +541,7 @@ pub(super) fn red_rock() -> WarpTheme {
         Some(Details::Darker),
         dark_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/red_rock_bg.jpg"),
+            source: bundled_asset!("jpg/red_rock_bg.jpg", "async"),
             opacity: 30,
         }),
         Some("Red Rock".to_string()),
@@ -562,7 +562,7 @@ pub(super) fn dark_city() -> WarpTheme {
         Some(Details::Darker),
         dark_mode_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/dark_city_bg.jpg"),
+            source: bundled_asset!("jpg/dark_city_bg.jpg", "async"),
             opacity: 20,
         }),
         Some("Dark City".to_string()),
@@ -578,7 +578,7 @@ pub(super) fn solar_flare() -> WarpTheme {
         Some(Details::Darker),
         solarflare_colors(),
         Some(Image {
-            source: bundled_or_fetched_asset!("jpg/solarflare_bg.jpg"),
+            source: bundled_asset!("jpg/solarflare_bg.jpg", "async"),
             opacity: 20,
         }),
         Some("Solar Flare".to_string()),

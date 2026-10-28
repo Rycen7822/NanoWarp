@@ -51,8 +51,6 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     app.add_singleton_model(|_| GitRepoModels::new());
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
-
-    #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(SystemInfo::new);
 
     app.add_singleton_model(|_| WorkspaceRegistry::new());

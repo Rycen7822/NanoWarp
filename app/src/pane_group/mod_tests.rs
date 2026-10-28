@@ -36,6 +36,8 @@ use crate::workspace::{ActiveSession, WorkspaceRegistry};
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
 fn initialize_app(app: &mut App) {
+    app.add_singleton_model(warp_files::FileModel::new);
+    app.add_singleton_model(|_| crate::code::editor_management::CodeManager::default());
     initialize_settings_for_tests(app);
 
     app.add_singleton_model(|_ctx| PtySpawner::new_for_test());
@@ -69,6 +71,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
     app.add_singleton_model(|_| History::new(vec![]));
     app.add_singleton_model(remote_server::manager::RemoteServerManager::new);
+    app.add_singleton_model(crate::code::global_buffer_model::GlobalBufferModel::new);
 }
 
 struct MockOptions {
@@ -252,13 +255,13 @@ fn test_active_session_id_reset_on_last_pane_close() {
                 terminal_id.as_terminal_pane_id()
             );
 
-            // Add a non-terminal pane (File) so the pane group remains alive when terminal is closed.
+            // Add a non-terminal pane (Code) so the pane group remains alive when terminal is closed.
             panes.add_pane_with_direction(
                 Direction::Right,
-                FilePane::new(
-                    None,
-                    None,
-                    #[cfg(feature = "local_fs")]
+                CodePane::new(
+                    crate::code::editor_management::CodeSource::New {
+                        default_directory: None,
+                    },
                     None,
                     ctx,
                 ),
@@ -303,7 +306,7 @@ fn test_add_pane_aborts_cleanly_when_pre_attach_returns_false() {
 }
 
 #[test]
-fn test_focus_file_pane() {
+fn test_focus_code_pane() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let pane_group = mock_pane_group(&mut app, Default::default());
@@ -311,23 +314,23 @@ fn test_focus_file_pane() {
         pane_group.update(&mut app, |panes, ctx| {
             let first_terminal_id = get_newly_created_pane_id(panes, &[]);
 
-            // Add a file pane to the left.
+            // Add a code pane to the left.
             panes.add_pane_with_direction(
                 Direction::Left,
-                FilePane::new(
-                    None,
-                    None,
-                    #[cfg(feature = "local_fs")]
+                CodePane::new(
+                    crate::code::editor_management::CodeSource::New {
+                        default_directory: None,
+                    },
                     None,
                     ctx,
                 ),
                 true, /* focus_new_pane */
                 ctx,
             );
-            let file_pane_id = get_newly_created_pane_id(panes, &[first_terminal_id]);
+            let code_pane_id = get_newly_created_pane_id(panes, &[first_terminal_id]);
 
             // The new pane should be focused, but the terminal is still the active session.
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(
                 panes.active_session_id(ctx).map(Into::into),
                 Some(first_terminal_id)
@@ -338,14 +341,14 @@ fn test_focus_file_pane() {
             );
             assert!(is_active_session(panes, first_terminal_id, ctx));
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
 
             // Add a terminal below.
             panes.add_terminal_pane(Direction::Down, None, ctx);
             let second_terminal_id =
-                get_newly_created_pane_id(panes, &[first_terminal_id, file_pane_id]);
+                get_newly_created_pane_id(panes, &[first_terminal_id, code_pane_id]);
 
             // The new terminal should be both focused and the active session.
             assert_eq!(panes.focused_pane_id(ctx), second_terminal_id);
@@ -364,14 +367,14 @@ fn test_focus_file_pane() {
             );
             assert!(is_active_session(panes, second_terminal_id, ctx));
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
 
-            // Close the new terminal. Focus should switch to the file pane, and the first terminal
+            // Close the new terminal. Focus should switch to the code pane, and the first terminal
             // session will activate.
             panes.close_pane(second_terminal_id, ctx);
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(
                 panes.active_session_id(ctx).map(Into::into),
                 Some(first_terminal_id)
@@ -381,7 +384,7 @@ fn test_focus_file_pane() {
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
             assert!(is_active_session(panes, first_terminal_id, ctx));
@@ -398,27 +401,27 @@ fn test_group_without_terminals() {
         pane_group.update(&mut app, |panes, ctx| {
             let terminal_id = get_newly_created_pane_id(panes, &[]);
 
-            // Add a file pane to the left.
+            // Add a code pane to the left.
             panes.add_pane_with_direction(
                 Direction::Left,
-                FilePane::new(
-                    None,
-                    None,
-                    #[cfg(feature = "local_fs")]
+                CodePane::new(
+                    crate::code::editor_management::CodeSource::New {
+                        default_directory: None,
+                    },
                     None,
                     ctx,
                 ),
                 true, /* focus_new_pane */
                 ctx,
             );
-            let file_pane_id = get_newly_created_pane_id(panes, &[terminal_id]);
+            let code_pane_id = get_newly_created_pane_id(panes, &[terminal_id]);
 
             // Close the terminal, which should leave the group without an active session.
             panes.close_pane(terminal_id, ctx);
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(panes.active_session_id(ctx), None);
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::NotInSplitPane
             );
         });
@@ -437,31 +440,31 @@ fn test_close_active_session() {
             panes.add_terminal_pane(Direction::Up, None, ctx);
             let second_terminal_id = get_newly_created_pane_id(panes, &[first_terminal_id]);
 
-            // Add a file pane to the left.
+            // Add a code pane to the left.
             panes.add_pane_with_direction(
                 Direction::Left,
-                FilePane::new(
-                    None,
-                    None,
-                    #[cfg(feature = "local_fs")]
+                CodePane::new(
+                    crate::code::editor_management::CodeSource::New {
+                        default_directory: None,
+                    },
                     None,
                     ctx,
                 ),
                 true, /* focus_new_pane */
                 ctx,
             );
-            let file_pane_id =
+            let code_pane_id =
                 get_newly_created_pane_id(panes, &[first_terminal_id, second_terminal_id]);
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(
                 panes.active_session_id(ctx).map(Into::into),
                 Some(second_terminal_id)
             );
 
-            // Close the active session, which should leave the file pane focused and activate the
+            // Close the active session, which should leave the code pane focused and activate the
             // remaining session.
             panes.close_pane(second_terminal_id, ctx);
-            assert_eq!(panes.focused_pane_id(ctx), file_pane_id);
+            assert_eq!(panes.focused_pane_id(ctx), code_pane_id);
             assert_eq!(
                 panes.active_session_id(ctx).map(Into::into),
                 Some(first_terminal_id)
@@ -484,7 +487,7 @@ fn test_close_active_session() {
                 SplitPaneState::InSplitPane(PaneState::Focused)
             );
             assert_eq!(
-                split_pane_state(panes, file_pane_id, ctx),
+                split_pane_state(panes, code_pane_id, ctx),
                 SplitPaneState::InSplitPane(PaneState::Unfocused)
             );
             assert!(is_active_session(panes, first_terminal_id, ctx));
@@ -813,10 +816,10 @@ fn test_terminal_pane_headers() {
         pane_group.update(&mut app, |pane_group, ctx| {
             pane_group.add_pane_with_direction(
                 Direction::Left,
-                FilePane::new(
-                    None,
-                    None,
-                    #[cfg(feature = "local_fs")]
+                CodePane::new(
+                    crate::code::editor_management::CodeSource::New {
+                        default_directory: None,
+                    },
                     None,
                     ctx,
                 ),
@@ -1067,93 +1070,6 @@ fn test_focused_pane_is_synchronized_with_application_focus() {
             // effect queue doesn't get processed or further modified before we
             // enqueue this event on the effect queue.
             ctx.emit(Event::OpenPromptEditor);
-        });
-    });
-}
-
-/// APP-5243: closing a file pane only hides it while undo-close is available, and the same view is
-/// reattached without reopening its file. Releasing the file on close would therefore leave a
-/// restored pane rendering content that can never update again. The file is released only once the
-/// pane is permanently discarded.
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_undo_close_keeps_a_file_pane_watching_its_file() {
-    use warp_files::FileModel;
-
-    let _undo_closed_panes = FeatureFlag::UndoClosedPanes.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        app.add_singleton_model(FileModel::new);
-        let pane_group = mock_pane_group(&mut app, Default::default());
-
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("notes.md");
-        std::fs::write(&path, "# before").expect("write file");
-
-        pane_group.update(&mut app, |panes, ctx| {
-            let pane = FilePane::new(
-                Some(LocalOrRemotePath::Local(path.clone())),
-                None,
-                None,
-                ctx,
-            );
-            panes.add_pane_with_direction(Direction::Right, pane, true, ctx);
-        });
-
-        let (file_pane_id, file_view) = pane_group.read(&app, |panes, ctx| {
-            panes
-                .file_notebook_panes(ctx)
-                .next()
-                .expect("the file pane should exist")
-        });
-
-        // Let the read settle so the pane is fully loaded and watching.
-        let loaded = file_view.update(&mut app, |view, ctx| {
-            let file_id = view.file_id_for_test().expect("the file should be open");
-            let future_handle = FileModel::as_ref(ctx)
-                .get_future_handle(file_id)
-                .expect("Loading future should be present");
-            ctx.await_spawned_future(future_handle.future_id())
-        });
-        loaded.await;
-
-        // Close the way the pane header's close button does, which is the path that reaches
-        // `BackingView::close` before the pane group hides the pane.
-        file_view.update(&mut app, BackingView::close);
-        pane_group.update(&mut app, |panes, ctx| {
-            assert!(
-                panes.is_pane_hidden_for_close(file_pane_id),
-                "closing should hide the pane for undo rather than discard it"
-            );
-            assert!(
-                panes.restore_closed_pane(file_pane_id, ctx),
-                "the closed pane should be restorable"
-            );
-        });
-
-        app.read(|ctx| {
-            let file_id = file_view
-                .as_ref(ctx)
-                .file_id_for_test()
-                .expect("a restored pane should still hold its file open");
-            assert!(
-                FileModel::as_ref(ctx).file_path(file_id).is_some(),
-                "a restored pane should still be tracked by the file model"
-            );
-        });
-
-        // Permanently discarding the pane does release it.
-        pane_group.update(&mut app, |panes, ctx| {
-            panes.close_pane(file_pane_id, ctx);
-            panes.cleanup_closed_pane(file_pane_id, ctx);
-        });
-
-        app.read(|ctx| {
-            assert!(
-                file_view.as_ref(ctx).file_id_for_test().is_none(),
-                "a permanently discarded pane should release its file"
-            );
         });
     });
 }

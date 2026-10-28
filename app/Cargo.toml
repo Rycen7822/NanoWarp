@@ -26,6 +26,34 @@ path = "src/bin/integration.rs"
 test = false
 
 [dependencies]
+async-io.workspace = true
+axum.workspace = true
+comfy-table = "7.1.4"
+inquire = "0.9.1"
+diesel = { workspace = true, features = ["sqlite", "chrono"] }
+diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
+env_logger.workspace = true
+git2 = { version = "0.20.4", default-features = false, features = [
+    "vendored-libgit2",
+] }
+http_server.workspace = true
+hyper.workspace = true
+libsqlite3-sys = { version = "0.33.0", features = ["bundled"] }
+mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
+tokio.workspace = true
+tokio-util.workspace = true
+warp_errors = { workspace = true, features = ["tokio-errors", "websocket-errors", "reqwest-errors"] }
+
+
+notify-debouncer-full.workspace = true
+rustls.workspace = true
+syntect = "5.0"
+sysinfo.workspace = true
+warp-command-signatures = { workspace = true, features = ["embed-signatures"] }
+is_executable = "1.0.1"
+watcher.workspace = true
+warp_files.workspace = true
+
 addr = "0.15.6"
 alphanumeric-sort = "1.5.7"
 anyhow.workspace = true
@@ -62,7 +90,6 @@ dashmap.workspace = true
 deltae = "0.3.1"
 derivative.workspace = true
 dhat = { version = "0.3.2", optional = true }
-diesel.workspace = true
 difflib = { git = "https://github.com/warpdotdev/difflib.git", rev = "114177e7d8e1f8017baca397f943e11644b14d63" }
 directories.workspace = true
 dirs.workspace = true
@@ -107,7 +134,6 @@ warp_logging.workspace = true
 markdown_parser.workspace = true
 memchr.workspace = true
 memo-map.workspace = true
-mermaid_to_svg.workspace = true
 num-traits.workspace = true
 num_cpus = "1.13.0"
 once_cell.workspace = true
@@ -179,7 +205,6 @@ walkdir.workspace = true
 warp_assets.workspace = true
 warp_completer.workspace = true
 warp_core.workspace = true
-warp_errors = { workspace = true, features = ["reqwest-errors"] }
 warp_editor.workspace = true
 warp_search_core.workspace = true
 warp_util.workspace = true
@@ -234,59 +259,6 @@ security-framework-sys = "2.0.0"
 winit = { workspace = true }
 wgpu.workspace = true
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-app-installation-detection.workspace = true
-async-io.workspace = true
-axum.workspace = true
-comfy-table = "7.1.4"
-inquire = "0.9.1"
-diesel = { workspace = true, features = ["sqlite", "chrono"] }
-diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
-env_logger.workspace = true
-git2 = { version = "0.20.4", default-features = false, features = [
-    "vendored-libgit2",
-] }
-http_server.workspace = true
-hyper.workspace = true
-libsqlite3-sys = { version = "0.33.0", features = ["bundled"] }
-mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
-tokio.workspace = true
-tokio-util.workspace = true
-warp_errors = { workspace = true, features = ["tokio-errors", "websocket-errors"] }
-
-
-notify-debouncer-full.workspace = true
-rustls.workspace = true
-syntect = "5.0"
-sysinfo.workspace = true
-warp-command-signatures = { workspace = true, features = ["embed-signatures"] }
-is_executable = "1.0.1"
-watcher.workspace = true
-warp_files.workspace = true
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-console_error_panic_hook = { version = "0.1.6" }
-# We only have an indirect dependency on this crate; we depend on reqwest-eventsource@0.6.0 which depends on
-# futures-timer@3.0.2. For whatever unfortunate reason, this crate doesn't automatically enable its feature
-# required for wasm-compatibility when targeting wasm. So we need to explicitly specify this dependency when
-# targeting wasm and leverage the fact that cargo enables the superset of enabled features for a given crate.
-futures-timer = { version = "3.0.2", features = ["wasm-bindgen"] }
-js-sys = "0.3.63"
-# Make sure we embed the data into the wasm binary even when running in debug
-# mode, as it cannot be read directly from the filesystem.
-rust-embed = { workspace = true, features = ["debug-embed"] }
-syntect = { version = "5.0", default-features = false, features = [
-    "default-fancy",
-] }
-wasm-bindgen.workspace = true
-# We need to make sure that "js" is enabled as a feature when using wasm.
-getrandom = { version = "0.2", features = ["js"] }
-gloo.workspace = true
-serde-wasm-bindgen = "0.6.5"
-# For wasm, we don't use the feature "embed-signatures".
-warp-command-signatures = { workspace = true }
-web-sys.workspace = true
-warp_web_event_bus.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = { version = "0.3.17", features = ["extended-siginfo"] }
@@ -333,6 +305,8 @@ windows-result = { workspace = true }
 winreg.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "test-util"] }
+
 async-process.workspace = true
 jsonschema = { workspace = true, default-features = false }
 async-executor = "1.5.1"
@@ -354,15 +328,11 @@ warpui_extras = { workspace = true, features = ["test-util"] }
 warp_files = { workspace = true, features = ["test-util"] }
 repo_metadata = { workspace = true, features = ["test-util"] }
 
-[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "test-util"] }
 
 [build-dependencies]
 anyhow = "1.0"
 cc = "1.0"
 cfg_aliases.workspace = true
-sha2.workspace = true
-walkdir = "2.3.2"
 warp_util.workspace = true
 
 [target.'cfg(windows)'.build-dependencies]
@@ -468,7 +438,6 @@ local_fs = [
     "warp_core/local_fs",
     "warp_terminal/local_fs",
 ]
-jupyter_notebook_rendering = []
 markdown_tables = []
 markdown_mermaid = []
 # Remote-backed tty that connects to a PTY-like interface via a server.

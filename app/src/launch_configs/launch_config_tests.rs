@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use super::{CommandTemplate, LaunchConfig, PaneMode, PaneTemplateType, TabTemplate};
 use crate::app_state::{
-    AppState, BranchSnapshot, FilePaneSnapshot, LeafContents, LeafSnapshot, PaneFlex,
-    PaneNodeSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
+    AppState, BranchSnapshot, LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot,
+    SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
     WindowSnapshot,
 };
 use crate::tab::SelectedTabColor;
@@ -64,7 +64,10 @@ fn test_config_from_snapshot_flattens_single_pane() {
                 PaneNodeSnapshot::Leaf(LeafSnapshot {
                     is_focused: true,
                     custom_vertical_tabs_title: None,
-                    contents: LeafContents::File(FilePaneSnapshot { path: None }),
+                    contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                        current_page: crate::settings_view::SettingsSection::Appearance,
+                        search_query: None,
+                    }),
                 }),
             ),
             (
@@ -121,7 +124,10 @@ fn test_config_from_snapshot_filters_panes() {
                 PaneNodeSnapshot::Leaf(LeafSnapshot {
                     is_focused: false,
                     custom_vertical_tabs_title: None,
-                    contents: LeafContents::File(FilePaneSnapshot { path: None }),
+                    contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                        current_page: crate::settings_view::SettingsSection::Appearance,
+                        search_query: None,
+                    }),
                 }),
             ),
             (
@@ -177,7 +183,10 @@ fn test_config_from_snapshot_filters_tabs() {
             PaneNodeSnapshot::Leaf(LeafSnapshot {
                 is_focused: true,
                 custom_vertical_tabs_title: None,
-                contents: LeafContents::File(FilePaneSnapshot { path: None }),
+                contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                    current_page: crate::settings_view::SettingsSection::Appearance,
+                    search_query: None,
+                }),
             }),
         )],
     }));
@@ -364,7 +373,10 @@ fn test_config_with_active_tab_index_and_filtered_tabs() {
                         PaneNodeSnapshot::Leaf(LeafSnapshot {
                             is_focused: true,
                             custom_vertical_tabs_title: None,
-                            contents: LeafContents::File(FilePaneSnapshot { path: None }),
+                            contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                                current_page: crate::settings_view::SettingsSection::Appearance,
+                                search_query: None,
+                            }),
                         }),
                     )],
                 }),
@@ -442,7 +454,10 @@ fn test_config_with_active_tab_being_filtered() {
                         PaneNodeSnapshot::Leaf(LeafSnapshot {
                             is_focused: true,
                             custom_vertical_tabs_title: None,
-                            contents: LeafContents::File(FilePaneSnapshot { path: None }),
+                            contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                                current_page: crate::settings_view::SettingsSection::Appearance,
+                                search_query: None,
+                            }),
                         }),
                     )],
                 }),
@@ -491,7 +506,10 @@ fn unsaveable_tab(group_id: Option<TabGroupId>) -> TabSnapshot {
         root: PaneNodeSnapshot::Leaf(LeafSnapshot {
             is_focused: true,
             custom_vertical_tabs_title: None,
-            contents: LeafContents::File(FilePaneSnapshot { path: None }),
+            contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+                current_page: crate::settings_view::SettingsSection::Appearance,
+                search_query: None,
+            }),
         }),
         group_id,
         pinned: false,

@@ -38,7 +38,6 @@ pub fn mock_paragraph(height: f32, width: f32, content_length: usize) -> BlockIt
             descent: height * (1. - TEST_BASELINE_OFFSET),
             clip_config: None,
             caret_positions: Vec::new(),
-            chars_with_missing_glyphs: Vec::new(),
         }],
         width,
         Default::default(),
@@ -251,7 +250,6 @@ pub fn layout(text: &str, styles: &RichTextStyles, max_width: impl IntoPixels) -
                 descent: styles.base_text.font_size * (1. - TEST_BASELINE_OFFSET),
                 clip_config: None,
                 caret_positions: mem::take(&mut carets_acc),
-                chars_with_missing_glyphs: Vec::new(),
             });
             line_width = Pixels::zero();
         }
@@ -290,7 +288,6 @@ pub fn layout(text: &str, styles: &RichTextStyles, max_width: impl IntoPixels) -
             descent: styles.base_text.font_size * (1. - TEST_BASELINE_OFFSET),
             clip_config: None,
             caret_positions: carets_acc,
-            chars_with_missing_glyphs: Vec::new(),
         });
     }
 

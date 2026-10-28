@@ -17,8 +17,6 @@ use crate::{AppContext, AppContextRefMut, CursorInfo, Event, Scene};
 pub struct EventDispatchResult {
     /// Whether the event was handled by the UI framework.
     pub handled: bool,
-    /// Whether the soft keyboard should be shown (mobile WASM only).
-    pub soft_keyboard_requested: bool,
 }
 
 pub(crate) type EventCallback = Box<dyn Fn(Event, &mut AppContext) -> EventDispatchResult>;
@@ -99,12 +97,7 @@ impl<'a> WindowCallbackDispatcher<'a> {
 // support application menus, so these never get called.
 // TODO(CORE-2691): implement native Windows OS app menus
 #[cfg_attr(
-    any(
-        target_os = "linux",
-        target_os = "freebsd",
-        target_os = "windows",
-        target_family = "wasm"
-    ),
+    any(target_os = "linux", target_os = "freebsd", target_os = "windows",),
     allow(dead_code)
 )]
 impl WindowCallbackDispatcher<'_> {

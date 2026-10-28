@@ -7,16 +7,12 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use super::sqlite::{encode_path, init_db};
 use super::{PersistenceScope, schema};
 
-/// Sets the path in a single-file Markdown or code restoration fixture using this platform's encoding.
-pub fn set_path_for_restored_file_pane(path: PathBuf) {
+/// Sets the path in a code restoration fixture using this platform's encoding.
+pub fn set_path_for_restored_code_pane(path: PathBuf) {
     let path = encode_path(path);
     let mut conn =
         init_db(&PersistenceScope::App).expect("Should be able to establish sqlite connection.");
 
-    diesel::update(schema::notebook_panes::table)
-        .set(schema::notebook_panes::local_path.eq(&path))
-        .execute(&mut conn)
-        .expect("Failed to set the restored Markdown file path.");
     diesel::update(schema::code_pane_tabs::table)
         .set(schema::code_pane_tabs::local_path.eq(&path))
         .execute(&mut conn)

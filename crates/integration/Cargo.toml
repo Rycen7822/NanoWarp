@@ -12,6 +12,9 @@ path = "src/bin/integration.rs"
 test = false
 
 [dependencies]
+diesel = { version = "2.2.4", features = ["sqlite", "chrono"] }
+sysinfo.workspace = true
+
 anyhow = "1.0"
 backtrace.workspace = true
 cfg-if.workspace = true
@@ -53,10 +56,6 @@ command = { workspace = true, features = ["test-util"] }
 warpui = { workspace = true, features = ["integration_tests"] }
 warp_core = { workspace = true, features = ["test-util"] }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-app-installation-detection.workspace = true
-diesel = { version = "2.2.4", features = ["sqlite", "chrono"] }
-sysinfo.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, features = ["user", "signal"] }

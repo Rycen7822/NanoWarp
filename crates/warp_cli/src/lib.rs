@@ -1,5 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(dead_code))]
-
 use std::path::Path;
 use std::{env, fmt};
 
@@ -88,20 +86,15 @@ pub struct AppArgs {
 impl Args {
     /// Parses application and worker arguments from the operating environment.
     pub fn from_env() -> Self {
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                Args::default()
-            } else {
-                use clap::FromArgMatches as _;
-                Self::clap_command().try_get_matches()
-                    .and_then(|matches| Self::from_arg_matches(&matches))
-                    .unwrap_or_else(|err| {
-                        #[cfg(windows)]
-                        warp_util::windows::attach_to_parent_console();
-                        err.exit()
-                    })
-            }
-        }
+        use clap::FromArgMatches as _;
+        Self::clap_command()
+            .try_get_matches()
+            .and_then(|matches| Self::from_arg_matches(&matches))
+            .unwrap_or_else(|err| {
+                #[cfg(windows)]
+                warp_util::windows::attach_to_parent_console();
+                err.exit()
+            })
     }
 
     pub fn clap_command() -> clap::Command {
@@ -134,14 +127,12 @@ pub enum WorkerCommand {
     /// Run the remote development server proxy over SSH stdio.
     /// Ensures the daemon is running, then bridges its stdin/stdout
     /// to the daemon via a Unix domain socket.
-    #[cfg(not(target_family = "wasm"))]
     #[clap(hide = true)]
     RemoteServerProxy(RemoteServerIdentityArgs),
 
     /// Run the long-lived remote development server daemon.
     /// Listens on a Unix domain socket and accepts multiple concurrent
     /// connections from proxy processes.
-    #[cfg(not(target_family = "wasm"))]
     #[clap(hide = true)]
     RemoteServerDaemon(RemoteServerIdentityArgs),
 }
@@ -156,7 +147,6 @@ pub enum Command {
     #[clap(long_flag = "dump-debug-info")]
     DumpDebugInfo,
     /// Print the JSON schema for the current Warp channel's settings and exit.
-    #[cfg(not(target_family = "wasm"))]
     DumpSettingsSchema {
         /// Write the schema to this path instead of standard output.
         output_path: Option<std::path::PathBuf>,
@@ -169,7 +159,6 @@ impl Command {
         match self {
             Command::Worker(_) => false,
             Command::DumpDebugInfo => true,
-            #[cfg(not(target_family = "wasm"))]
             Command::DumpSettingsSchema { output_path } => output_path.is_none(),
         }
     }

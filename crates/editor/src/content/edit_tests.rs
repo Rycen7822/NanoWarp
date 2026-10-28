@@ -1,8 +1,5 @@
-use std::path::Path;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rangemap::RangeSet;
@@ -713,8 +710,6 @@ fn test_resolve_asset_source_relative_to_directory_uses_base_directory() {
         source => panic!("expected local file asset source, got {source:?}"),
     }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
 fn unique_markdown_image_path() -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -725,8 +720,6 @@ fn unique_markdown_image_path() -> PathBuf {
         std::process::id()
     ))
 }
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn test_resolve_asset_source_versions_local_files_for_markdown_layout() {
     let image_path = unique_markdown_image_path();

@@ -18,17 +18,14 @@ cfg_if::cfg_if! {
         use std::fs;
     }
 }
-#[cfg(not(target_family = "wasm"))]
 use warp_core::channel::ChannelState;
 #[cfg(feature = "local_fs")]
 use warp_core::sync_queue::SyncQueue;
 use warp_util::git::run_git_command;
-#[cfg(not(target_arch = "wasm32"))]
-use warpui::AppContext;
-use warpui::ModelContext;
 #[cfg(feature = "local_fs")]
 use warpui::SingletonEntity;
 use warpui::r#async::SpawnedFutureHandle;
+use warpui::{AppContext, ModelContext};
 
 use crate::code_review::diff_size_limits::{
     DiffSize, MAX_DIFF_SIZE, UnrenderableReason, compute_diff_size,
@@ -385,15 +382,6 @@ impl LocalDiffStateModel {
         ));
     }
 
-    #[cfg(not(feature = "local_fs"))]
-    pub fn load_diffs_for_current_repo(
-        &mut self,
-        _should_fetch_base: bool,
-        _ctx: &mut ModelContext<Self>,
-    ) {
-        // Noop on WASM builds.
-    }
-
     /// Stashes uncommitted changes for specific files
     #[cfg(feature = "local_fs")]
     async fn stash_uncommitted_changes(repo_path: &Path, relative_paths: &[String]) -> Result<()> {
@@ -690,17 +678,6 @@ impl LocalDiffStateModel {
         );
     }
 
-    #[cfg(not(feature = "local_fs"))]
-    pub fn discard_files(
-        &mut self,
-        _file_infos: Vec<FileStatusInfo>,
-        _should_stash: bool,
-        _branch_name: Option<String>,
-        _ctx: &mut ModelContext<Self>,
-    ) {
-        // Noop on WASM builds.
-    }
-
     /// Sets whether the code review pane needs diff metadata.
     /// When transitioning from disabled to enabled, triggers an
     /// immediate refresh to catch up on changes that occurred while disabled.
@@ -746,15 +723,6 @@ impl LocalDiffStateModel {
             move |me, res, ctx| me.handle_updated_metadata_for_repo(res, should_reload_diffs, ctx),
         );
         self.computing_metadata_abort_handle = Some(abort_handle);
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    pub fn refresh_diff_metadata_for_current_repo(
-        &mut self,
-        _should_reload_diffs: bool,
-        _ctx: &mut ModelContext<Self>,
-    ) {
-        // Noop on WASM builds.
     }
 
     #[cfg(feature = "local_fs")]

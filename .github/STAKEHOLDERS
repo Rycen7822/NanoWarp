@@ -27,7 +27,6 @@
 # Code editor / notebooks / codebase context
 /app/src/code/ @kevinyang372 @harryalbert
 /app/src/editor/ @kevinyang372 @harryalbert
-/app/src/notebooks/ @kevinyang372 @bnavetta
 /app/src/ai/get_relevant_files/ @kevinyang372
 /crates/ai/src/index/ @kevinyang372
 /crates/ai/src/project_context/ @kevinyang372
@@ -215,7 +214,6 @@
 # Agent SDK and platform crates
 /app/src/ai/agent_sdk/ @bnavetta @ianhodge
 /crates/isolation_platform/ @bnavetta @ianhodge
-/crates/warp_web_event_bus/ @bnavetta @ianhodge
 
 
 # OS-level bootstrap scripts

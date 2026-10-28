@@ -7,7 +7,7 @@ use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
 use warp::integration_testing::{self};
 use warp::settings_view::{SettingsSection, SettingsView};
-use warp::sqlite_testing::{set_path_for_restored_file_pane, set_user_and_hostname_for_blocks};
+use warp::sqlite_testing::{set_path_for_restored_code_pane, set_user_and_hostname_for_blocks};
 use warp::terminal::model::session::get_local_hostname;
 use warp::terminal::model::terminal_model::BlockIndex;
 use warp::terminal::shell::ShellType;
@@ -323,49 +323,6 @@ pub fn test_restore_snapshot_with_background_output() -> Builder {
         )
 }
 
-/// Tests restoring a snapshot that includes a Markdown file pane.
-///
-/// The snapshot has a single window with one tab, containing:
-/// * A terminal pane
-/// * A Markdown file pane, `test.md` (backed by [`../../tests/data/test.md`]).
-///
-/// Normally, we store absolute paths in SQLite for restoring Markdown panes. The test uses a
-/// relative path for portability, and assumes it's run from the root of the `integration` crate.
-pub fn test_restore_snapshot_with_markdown_file() -> Builder {
-    new_builder()
-        .with_setup(|utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                "file_notebook.sqlite",
-                &integration_testing::persistence::database_file_path_for_scope(
-                    &integration_testing::persistence::PersistenceScope::App,
-                ),
-            );
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                "test.md",
-                &utils.test_dir().join("docs/test.md"),
-            );
-            set_path_for_restored_file_pane("./docs/test.md".into());
-        })
-        // Wait for the terminal pane to bootstrap first - we need an active session to resolve the
-        // home directory and context for the notebook pane.
-        .with_step(
-            new_step_with_default_assertions_for_pane("Wait for terminal pane to bootstrap", 0, 0)
-                .add_assertion(assert_pane_title(
-                    0,
-                    0,
-                    tab_title_in_home_dir("test_restore_snapshot_with_markdown_file"),
-                )),
-        )
-        .with_step(
-            // The pane title isn't set until after the Markdown file is read in, so this verifies
-            // that both pieces were successful.
-            TestStep::new("Verify that the notebook pane was restored")
-                .add_assertion(assert_pane_title(0, 1, "test.md")),
-        )
-}
-
 /// Tests restoring a snapshot that includes a code pane.
 ///
 /// The snapshot has a single window with one tab, containing:
@@ -389,10 +346,10 @@ pub fn test_restore_snapshot_with_code_file() -> Builder {
                 "test.rs",
                 &utils.test_dir().join("docs/test.rs"),
             );
-            set_path_for_restored_file_pane("./docs/test.rs".into());
+            set_path_for_restored_code_pane("./docs/test.rs".into());
         })
         // Wait for the terminal pane to bootstrap first - we need an active session to resolve the
-        // home directory and context for the notebook pane.
+        // home directory and context for the code pane.
         .with_step(
             new_step_with_default_assertions_for_pane("Wait for terminal pane to bootstrap", 0, 0)
                 .add_assertion(assert_pane_title(

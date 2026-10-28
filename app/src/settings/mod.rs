@@ -1,7 +1,6 @@
 mod accessibility;
 mod alias_expansion;
 pub mod app_icon;
-pub mod app_installation_detection;
 mod block_visibility;
 mod code;
 mod debug;
@@ -17,11 +16,9 @@ mod input_mode;
 mod linux;
 pub mod macros;
 pub mod manager;
-pub mod native_preference;
 mod pane;
 mod privacy;
 mod same_line_prompt_block;
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod schema_generation;
 mod scroll;
 mod select;
@@ -47,11 +44,9 @@ pub use input::*;
 pub use input_mode::*;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub use linux::*;
-pub use native_preference::*;
 pub use pane::*;
 pub use privacy::*;
 pub use same_line_prompt_block::*;
-#[cfg(not(target_family = "wasm"))]
 pub use schema_generation::dump_settings_schema;
 pub use scroll::*;
 pub use select::*;

@@ -198,46 +198,6 @@ fn test_remove_extension() {
     assert_eq!(remove_extension("🍞.yaml"), Some("🍞"));
 }
 
-#[test]
-fn resolve_browser_url_uses_requested_url_outside_the_viewer() {
-    let base_app_url = Url::parse(&format!("{}/app", ChannelState::server_root_url())).unwrap();
-    let requested_url = Url::parse(&format!(
-        "{}/session/317d0686-7a0b-4b67-806b-aaa3e9df501b",
-        ChannelState::server_root_url()
-    ))
-    .unwrap();
-
-    let resolved = browser_url_resolution::resolve_browser_url(
-        Some(base_app_url),
-        Some(requested_url.clone()),
-    );
-
-    assert_eq!(resolved, Some(requested_url));
-}
-
-#[test]
-fn resolve_browser_url_falls_back_to_base_app_url_outside_the_viewer() {
-    let current_url = Url::parse(&format!(
-        "{}/drive/notebook/some-notebook?focused_folder_id=abc",
-        ChannelState::server_root_url()
-    ))
-    .unwrap();
-
-    let resolved = browser_url_resolution::resolve_browser_url(Some(current_url), None);
-
-    assert_eq!(
-        resolved,
-        Some(Url::parse(&format!("{}/app", ChannelState::server_root_url())).unwrap())
-    );
-}
-
-#[test]
-fn resolve_browser_url_returns_none_when_neither_url_is_known() {
-    let resolved = browser_url_resolution::resolve_browser_url(None, None);
-
-    assert_eq!(resolved, None);
-}
-
 fn open_file_editor_test_path(file_name: &str) -> (String, PathBuf) {
     #[cfg(windows)]
     let path = format!("C:/tmp/{file_name}");

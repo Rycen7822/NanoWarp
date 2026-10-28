@@ -1,4 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
 // Adding this file level gate as some of the code around editability is not used in WASM yet.
 
 use std::collections::{HashMap, HashSet};
@@ -23,10 +22,10 @@ use warpui::units::Pixels;
 use warpui::{AppContext, TypedActionView, ViewContext, WeakViewHandle};
 
 use crate::cmd_or_ctrl_shift;
+use crate::code::editor::model::word_unit;
 use crate::code::editor::view::{CodeEditorView, VimMode};
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
-use crate::notebooks::editor::model::word_unit;
 use crate::util::bindings::CustomAction;
 
 /// Disable editing keybindings for read-only editors.

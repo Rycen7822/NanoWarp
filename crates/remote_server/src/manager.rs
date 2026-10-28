@@ -1,63 +1,49 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
-#[cfg(not(target_family = "wasm"))]
 use std::time::Duration;
 
 use futures::channel::oneshot;
 use repo_metadata::RepoMetadataUpdate;
 use serde::Serialize;
 use warp_core::SessionId;
-#[cfg(not(target_family = "wasm"))]
 use warp_core::channel::ChannelState;
 use warp_errors::report_error;
 use warp_util::remote_path::{RemoteNavigationResult, RemotePath};
 use warp_util::standardized_path::StandardizedPath;
-#[cfg(not(target_family = "wasm"))]
 use warpui_core::r#async::FutureExt as _;
 use warpui_core::{Entity, ModelContext, ModelSpawner, SingletonEntity};
 
 use crate::HostId;
-#[cfg(not(target_family = "wasm"))]
-use crate::client::ClientEvent;
-use crate::client::RemoteServerClient;
+use crate::client::{ClientEvent, RemoteServerClient};
 use crate::proto::{
     DiffMode, DiffState, DiffStateErrorValue, DiffStateFileDelta, DiffStateMetadataUpdate,
     DiffStateSnapshot, FileStatusInfo, GetDiffStateResponse, GitOpDelta, GitStatusMetadata, PrInfo,
     RepositoryInfo, TextEdit, diff_state, get_diff_state_response,
 };
 use crate::repo_metadata_proto::proto_load_repo_metadata_directory_response_to_update;
-#[cfg(not(target_family = "wasm"))]
-use crate::setup::PreinstallStatus;
-#[cfg(not(target_family = "wasm"))]
-use crate::setup::RemoteOs;
-#[cfg(not(target_family = "wasm"))]
-use crate::setup::UnsupportedReason;
-use crate::setup::{PreinstallCheckResult, RemotePlatform, RemoteServerSetupState};
-#[cfg(not(target_family = "wasm"))]
-use crate::transport::{Connection, ControlPath};
-use crate::transport::{Error, RemoteTransport};
+use crate::setup::{
+    PreinstallCheckResult, PreinstallStatus, RemoteOs, RemotePlatform, RemoteServerSetupState,
+    UnsupportedReason,
+};
+use crate::transport::{Connection, ControlPath, Error, RemoteTransport};
 
 /// Maximum number of reconnection attempts after a spontaneous disconnect.
 pub const MAX_RECONNECT_ATTEMPTS: u32 = 2;
 /// Delay between reconnection attempts.
-#[cfg(not(target_family = "wasm"))]
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 /// Timeout for host-scoped requests. Matches the client's prior
 /// `REQUEST_TIMEOUT` (these requests used it before host-scoped lifecycle
 /// moved to the manager). If the daemon accepts a request but never responds,
 /// the manager fails the caller and aborts the request after this elapses so
 /// `pending_host_requests` doesn't leak.
-#[cfg(not(target_family = "wasm"))]
 const HOST_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// Brief timeout for awaiting a child process's exit status after a
 /// connection failure. Gives the SSH subprocess time to report its exit
 /// code and signal status before we give up and report `None`.
-#[cfg(not(target_family = "wasm"))]
 const EXIT_STATUS_WAIT_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// Parameters that travel together through the reconnection flow.
-#[cfg(not(target_family = "wasm"))]
 struct ReconnectParams {
     attempt: u32,
     host_id: HostId,
@@ -65,7 +51,6 @@ struct ReconnectParams {
     transport: Arc<dyn RemoteTransport>,
     control_path: ControlPath,
 }
-#[cfg(not(target_family = "wasm"))]
 struct InitializeHandshake {
     host_id: HostId,
     event_rx: async_channel::Receiver<ClientEvent>,
@@ -75,7 +60,6 @@ struct InitializeHandshake {
 
 /// Error from [`RemoteServerManager::run_connect_and_handshake`] that
 /// preserves which phase failed so callers can report accurate telemetry.
-#[cfg(not(target_family = "wasm"))]
 #[derive(Debug, thiserror::Error)]
 enum ConnectAndHandshakeError {
     /// `transport.connect()` failed, or the session was deregistered
@@ -86,8 +70,6 @@ enum ConnectAndHandshakeError {
     #[error("{0:#}")]
     Initialize(anyhow::Error),
 }
-
-#[cfg(not(target_family = "wasm"))]
 impl ConnectAndHandshakeError {
     fn phase(&self) -> RemoteServerInitPhase {
         match self {
@@ -188,7 +170,6 @@ impl RemoteServerErrorKind {
 ///   release-tagged client should not accept an untagged server — it
 ///   likely means the artifact was prepared from an untagged dev build
 ///   rather than the matching release.
-#[cfg(not(target_family = "wasm"))]
 fn version_is_compatible(client: Option<&str>, server: &str) -> bool {
     match (client, server.is_empty()) {
         (Some(c), false) => c == server,
@@ -196,8 +177,6 @@ fn version_is_compatible(client: Option<&str>, server: &str) -> bool {
         (Some(_), true) => false,
     }
 }
-
-#[cfg(not(target_family = "wasm"))]
 fn client_event_kind(event: &ClientEvent) -> &'static str {
     match event {
         ClientEvent::Disconnected => "disconnected",
@@ -247,13 +226,10 @@ pub enum RemoteSessionState {
         /// The transport's owning `Child`. Dropped when the state is
         /// replaced or removed, killing the subprocess via
         /// `kill_on_drop`.
-        #[cfg(not(target_family = "wasm"))]
         _child: async_process::Child,
         /// See type-level doc.
-        #[cfg(not(target_family = "wasm"))]
         control_path: ControlPath,
         /// Tail buffer of the last N stderr lines from the proxy subprocess.
-        #[cfg(not(target_family = "wasm"))]
         stderr_tail: crate::client::RemoteServerLog,
     },
     /// Initialize handshake succeeded. Client is ready for requests.
@@ -261,17 +237,13 @@ pub enum RemoteSessionState {
         client: Arc<RemoteServerClient>,
         host_id: HostId,
         /// The transport's owning `Child`. See `Initializing::_child`.
-        #[cfg(not(target_family = "wasm"))]
         _child: async_process::Child,
         /// See type-level doc.
-        #[cfg(not(target_family = "wasm"))]
         control_path: ControlPath,
         /// Transport stored for reconnection after spontaneous disconnect.
-        #[cfg(not(target_family = "wasm"))]
         transport: Arc<dyn RemoteTransport>,
     },
     /// A reconnection attempt is in progress after a spontaneous disconnect.
-    #[cfg(not(target_family = "wasm"))]
     Reconnecting {
         attempt: u32,
         host_id: HostId,
@@ -281,7 +253,6 @@ pub enum RemoteSessionState {
     /// the child process's exit status before emitting the failure event.
     /// Preserves the `control_path` so `deregister_session` can still
     /// call `stop_control_master` if the user exits during this window.
-    #[cfg(not(target_family = "wasm"))]
     AwaitingExitStatus { control_path: ControlPath },
     /// Connection dropped (EOF/error from the reader task).
     Disconnected,
@@ -633,13 +604,11 @@ struct PendingHostRequest {
     /// manager retries the same request ID on another connected session for
     /// the host. Only read off-wasm (the writer-failure retry path is
     /// gated out on wasm), so it's write-only there.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     dispatched_session_id: SessionId,
     /// Original host-scoped message, including request ID, retained so a
     /// writer failure before daemon receipt can be retried through a sibling
     /// connection without changing the caller-visible request lifecycle.
     /// Only read off-wasm (see `dispatched_session_id`).
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     msg: crate::proto::ClientMessage,
     /// Oneshot sender to resolve the caller's future with the raw
     /// `ServerMessage`. The caller parses the response variant.
@@ -984,7 +953,6 @@ struct NavigationCache {
 /// Persists for the lifetime of the session (removed only in
 /// `deregister_session`) so that `mark_session_connected` can re-send
 /// the notification after a reconnect.
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 struct SessionBootstrapInfo {
     shell_type: String,
     shell_path: Option<String>,
@@ -1029,7 +997,6 @@ pub struct RemoteServerManager {
     /// Background executor used to schedule host-scoped request timeouts.
     /// Only used off-wasm (timers and detached tasks aren't available on
     /// wasm), so the field is allowed to be dead there.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
     executor: Arc<warpui_core::r#async::executor::Background>,
 }
 
@@ -1238,7 +1205,6 @@ impl RemoteServerManager {
     /// full timeout. (A detached `BackgroundTask` can't be cancelled by
     /// dropping it — tokio detaches rather than aborts — so we drive
     /// cancellation through the abort handle.)
-    #[cfg(not(target_family = "wasm"))]
     fn schedule_host_request_timeout(
         &self,
         request_id: crate::protocol::RequestId,
@@ -1255,17 +1221,6 @@ impl RemoteServerManager {
         Some(abort_handle)
     }
 
-    /// No-op on wasm: timers and detached background tasks aren't available,
-    /// and the SSH-backed remote server isn't used there.
-    #[cfg(target_family = "wasm")]
-    fn schedule_host_request_timeout(
-        &self,
-        _request_id: crate::protocol::RequestId,
-        _host_id: HostId,
-    ) -> Option<futures::future::AbortHandle> {
-        None
-    }
-
     /// Fails a host-scoped request that is still pending after
     /// [`HOST_REQUEST_TIMEOUT`]. If the request already completed (response
     /// arrived, or it was failed by a disconnect), this is a no-op. Otherwise
@@ -1275,7 +1230,6 @@ impl RemoteServerManager {
     /// Only compiled off-wasm, where [`Self::schedule_host_request_timeout`]
     /// arms the timer; the wasm scheduler is a no-op so nothing calls this and
     /// it (along with `HOST_REQUEST_TIMEOUT`) isn't compiled there.
-    #[cfg(not(target_family = "wasm"))]
     fn timeout_host_request(&mut self, request_id: crate::protocol::RequestId, host_id: HostId) {
         let Some(pending) = self.pending_host_requests.remove(&request_id) else {
             // Already resolved by a response or a disconnect.
@@ -1349,7 +1303,6 @@ impl RemoteServerManager {
     ///
     /// Only compiled off-wasm: the sole caller is `forward_client_event`,
     /// which is itself gated out on wasm.
-    #[cfg(not(target_family = "wasm"))]
     fn fail_host_request_decode_error(&mut self, request_id: crate::protocol::RequestId) {
         if let Some(pending) = self.pending_host_requests.remove(&request_id) {
             pending.cancel_timeout();
@@ -1371,7 +1324,6 @@ impl RemoteServerManager {
     ///
     /// Only compiled off-wasm: the sole caller is `forward_client_event`,
     /// which is itself gated out on wasm.
-    #[cfg(not(target_family = "wasm"))]
     fn handle_host_scoped_write_failed(
         &mut self,
         session_id: SessionId,
@@ -1433,7 +1385,6 @@ impl RemoteServerManager {
     /// Ok(false) if it is definitively not installed or unsupported setup
     /// should skip install decisions, and
     /// Err(_) if the check failed (e.g. SSH timeout/unreachable).
-    #[cfg_attr(target_family = "wasm", allow(unused_variables))]
     pub fn check_binary<T>(
         &mut self,
         session_id: SessionId,
@@ -1442,12 +1393,6 @@ impl RemoteServerManager {
     ) where
         T: RemoteTransport + 'static,
     {
-        #[cfg(target_family = "wasm")]
-        {
-            log::warn!("Remote server check_binary is a no-op on WASM");
-        }
-
-        #[cfg(not(target_family = "wasm"))]
         {
             ctx.emit(RemoteServerManagerEvent::SetupStateChanged {
                 session_id,
@@ -1535,7 +1480,6 @@ impl RemoteServerManager {
     /// that has passed the support gate. Callers must only invoke this after
     /// platform detection and the preinstall check have ruled out unsupported
     /// OS, architecture, and libc cases.
-    #[cfg(not(target_family = "wasm"))]
     async fn check_if_binary_is_installed<T>(
         spawner: &ModelSpawner<Self>,
         session_id: SessionId,
@@ -1577,7 +1521,6 @@ impl RemoteServerManager {
             })
             .await;
     }
-    #[cfg(not(target_family = "wasm"))]
     async fn emit_unsupported_preinstall_check(
         spawner: &ModelSpawner<Self>,
         session_id: SessionId,
@@ -1614,7 +1557,6 @@ impl RemoteServerManager {
     /// Emits `BinaryInstallComplete { result }`.
     ///
     /// Emits the install result, including failures such as SSH timeouts.
-    #[cfg_attr(target_family = "wasm", allow(unused_variables))]
     pub fn install_binary<T>(
         &mut self,
         session_id: SessionId,
@@ -1624,12 +1566,6 @@ impl RemoteServerManager {
     ) where
         T: RemoteTransport + 'static,
     {
-        #[cfg(target_family = "wasm")]
-        {
-            log::warn!("Remote server install_binary is a no-op on WASM");
-        }
-
-        #[cfg(not(target_family = "wasm"))]
         {
             let setup_state = if is_update {
                 RemoteServerSetupState::Updating
@@ -1676,7 +1612,6 @@ impl RemoteServerManager {
     ///    `HostId`) and transition to `Connected`.
     ///
     /// No-op on WASM (remote server connections use a different transport).
-    #[cfg_attr(target_family = "wasm", allow(unused_variables, unused_mut))]
     pub fn connect_session<T>(
         &mut self,
         session_id: SessionId,
@@ -1686,12 +1621,6 @@ impl RemoteServerManager {
     ) where
         T: RemoteTransport + 'static,
     {
-        #[cfg(target_family = "wasm")]
-        {
-            log::warn!("Remote server connect_session is a no-op on WASM");
-        }
-
-        #[cfg(not(target_family = "wasm"))]
         {
             log::info!("Starting remote server connection: session={session_id:?}");
 
@@ -1842,7 +1771,6 @@ impl RemoteServerManager {
     /// 3. Runs the initialize handshake to negotiate version and host identity.
     ///
     /// Returns `Ok(InitializeHandshake)` on success, or a phase-tagged error.
-    #[cfg(not(target_family = "wasm"))]
     async fn run_connect_and_handshake(
         session_id: SessionId,
         transport: &dyn RemoteTransport,
@@ -2008,7 +1936,6 @@ impl RemoteServerManager {
         // Warp-managed masters to exit below. Safe to do under the
         // "caller already observed ExitShell" assumption documented
         // above.
-        #[cfg(not(target_family = "wasm"))]
         let control_path = match &prev {
             Some(RemoteSessionState::Connected { control_path, .. })
             | Some(RemoteSessionState::Initializing { control_path, .. })
@@ -2022,7 +1949,6 @@ impl RemoteServerManager {
         // Extract `host_id` from states that track a host connection.
         let host_id = match &prev {
             Some(RemoteSessionState::Connected { host_id, .. }) => Some(host_id.clone()),
-            #[cfg(not(target_family = "wasm"))]
             Some(RemoteSessionState::Reconnecting { host_id, .. }) => Some(host_id.clone()),
             _ => None,
         };
@@ -2043,7 +1969,6 @@ impl RemoteServerManager {
         // leaves user-owned masters running. Spawned detached because
         // the ssh subcommand may take a moment to complete and we don't
         // want to block the main thread on it.
-        #[cfg(not(target_family = "wasm"))]
         ctx.background_executor()
             .spawn(async move {
                 crate::ssh::stop_control_master(&control_path).await;
@@ -2071,14 +1996,12 @@ impl RemoteServerManager {
     pub fn is_session_potentially_active(&self, session_id: SessionId) -> bool {
         match self.sessions.get(&session_id) {
             Some(RemoteSessionState::Disconnected) | None => false,
-            #[cfg(not(target_family = "wasm"))]
             Some(RemoteSessionState::AwaitingExitStatus { .. }) => false,
             Some(
                 RemoteSessionState::Connecting
                 | RemoteSessionState::Initializing { .. }
                 | RemoteSessionState::Connected { .. },
             ) => true,
-            #[cfg(not(target_family = "wasm"))]
             Some(RemoteSessionState::Reconnecting { .. }) => true,
         }
     }
@@ -2726,7 +2649,6 @@ impl RemoteServerManager {
 
     /// Forwards a push event from the client event channel as a manager event.
     /// No-ops if the session is not in `Connected` state.
-    #[cfg(not(target_family = "wasm"))]
     fn forward_client_event(
         &mut self,
         session_id: SessionId,
@@ -2848,7 +2770,6 @@ impl RemoteServerManager {
 
     /// Transitions a session from `Initializing` to `Connected`. Stores the
     /// `transport` for reconnection support after a spontaneous disconnect.
-    #[cfg(not(target_family = "wasm"))]
     fn mark_session_connected(
         &mut self,
         session_id: SessionId,
@@ -2973,7 +2894,6 @@ impl RemoteServerManager {
     }
 
     /// Captures the exit status from a `Child` process, if available.
-    #[cfg(not(target_family = "wasm"))]
     fn capture_exit_status(
         child: &mut async_process::Child,
         session_id: SessionId,
@@ -3021,7 +2941,6 @@ impl RemoteServerManager {
     /// `ResponseChannelClosed` where the pipe breaks before the
     /// subprocess has fully exited, causing `try_status()` to return
     /// `None` due to the timing race.
-    #[cfg(not(target_family = "wasm"))]
     async fn await_exit_status(
         mut child: async_process::Child,
         session_id: SessionId,
@@ -3060,8 +2979,6 @@ impl RemoteServerManager {
             }
         }
     }
-
-    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn mark_session_disconnected(
         &mut self,
         session_id: SessionId,
@@ -3131,7 +3048,6 @@ impl RemoteServerManager {
     }
 
     /// Attempt to re-establish the remote server connection.
-    #[cfg(not(target_family = "wasm"))]
     fn attempt_reconnect(
         &mut self,
         session_id: SessionId,
@@ -3249,7 +3165,6 @@ impl RemoteServerManager {
     }
 
     /// Handle a failed reconnection attempt: either retry or give up.
-    #[cfg(not(target_family = "wasm"))]
     fn handle_reconnect_failure(
         &mut self,
         session_id: SessionId,
@@ -3291,7 +3206,6 @@ impl RemoteServerManager {
     /// Not used by `handle_reconnect_failure` because that path enters
     /// from `attempt_reconnect`, which already cleared the host index
     /// and emitted `HostDisconnected` when entering the reconnect flow.
-    #[cfg(not(target_family = "wasm"))]
     fn finalize_disconnect(
         &mut self,
         session_id: SessionId,

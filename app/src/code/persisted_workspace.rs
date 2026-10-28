@@ -24,7 +24,6 @@ pub struct PersistedWorkspace {
 pub enum PersistedWorkspaceEvent {
     /// Emitted when the user explicitly adds a repo via a picker (e.g. the tab-config
     /// params modal's repo dropdown). Subscribers can use this to refresh their list.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     WorkspaceAdded { path: PathBuf },
 }
 

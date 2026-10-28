@@ -1,15 +1,11 @@
 use async_channel::Sender;
 pub use warp_terminal::shell::{shell_escape_single_quotes, shell_quote_arg};
-#[cfg(not(target_family = "wasm"))]
 use warp_util::path::ShellFamily;
 
 use crate::terminal::model::session::command_executor::{
     InBandCommand, InBandCommandCancelledEvent,
 };
-#[cfg(not(target_family = "wasm"))]
 use crate::terminal::shell::ShellType;
-
-#[cfg(not(target_family = "wasm"))]
 pub(super) fn serialize_environment_variables<'s>(
     pairs: impl IntoIterator<Item = (&'s str, &'s str)>,
     shell_type: ShellType,

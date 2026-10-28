@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use crate::fonts::{FontFallbackCache, RequestedFallbackFontSource};
 use crate::platform;
 use crate::platform::LineStyle;
 use crate::text_layout::{
@@ -11,21 +10,9 @@ use crate::text_layout::{
 /// See [fonts::Cache::text_layout_system].
 pub struct TextLayoutSystem<'a> {
     pub(super) platform: &'a dyn platform::TextLayoutSystem,
-    pub(super) cache: &'a FontFallbackCache,
 }
 
 impl TextLayoutSystem<'_> {
-    /// Checks if the application specified a fallback font for the given char.
-    /// If yes, the UI framework will lazy load the fallback font and trigger
-    /// a re-render of the window.
-    pub(crate) fn request_fallback_font_for_char(
-        &self,
-        ch: char,
-        source: RequestedFallbackFontSource,
-    ) {
-        self.cache.request_fallback_font_for_char(ch, source)
-    }
-
     pub fn layout_line(
         &self,
         text: &str,
@@ -76,7 +63,7 @@ impl TextLayoutSystem<'_> {
         let style_runs = adjusted_style_runs
             .as_ref()
             .map_or(style_runs, Vec::as_slice);
-        let text_frame = self.layout_text(
+        self.layout_text(
             text,
             line_style,
             style_runs,
@@ -84,16 +71,6 @@ impl TextLayoutSystem<'_> {
             max_height,
             alignment,
             first_line_head_indent,
-        );
-        for line in text_frame.lines() {
-            self.request_fallback_fonts(&line.chars_with_missing_glyphs);
-        }
-        text_frame
-    }
-
-    fn request_fallback_fonts(&self, missing_glyphs: &[char]) {
-        for ch in missing_glyphs {
-            self.request_fallback_font_for_char(*ch, RequestedFallbackFontSource::UncachedText);
-        }
+        )
     }
 }

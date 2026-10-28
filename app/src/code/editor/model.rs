@@ -1,4 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
 // Adding this file level gate as some of the code around editability is not used in WASM yet.
 
 use std::future::Future;
@@ -64,9 +63,13 @@ use super::diff::{
 use crate::appearance::Appearance;
 use crate::code::editor::line_iterator::LineIterator;
 use crate::editor::InteractionState;
-use crate::notebooks::editor::model::word_unit;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::util::link_detection::get_word_range_at_offset;
+
+/// Text unit for by-word navigation with the current word boundary policy.
+pub(super) fn word_unit(ctx: &AppContext) -> TextUnit {
+    TextUnit::Word(SemanticSelection::as_ref(ctx).word_boundary_policy())
+}
 
 /// Enum used for vim movements to the start and end of lines
 pub enum LineBound {

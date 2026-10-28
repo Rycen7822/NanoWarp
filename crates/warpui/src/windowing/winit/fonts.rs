@@ -18,9 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Result, anyhow, bail};
 use bimap::BiMap;
-use cosmic_text::{
-    Align, Attrs, AttrsList, BidiParagraphs, LayoutGlyph, LayoutLine, ShapeLine, Shaping, Wrap,
-};
+use cosmic_text::{Align, Attrs, AttrsList, BidiParagraphs, LayoutLine, ShapeLine, Shaping, Wrap};
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use fontdb::Source;
@@ -300,27 +298,6 @@ mod loader {
     ) -> Result<Vec<FontHandle>, Error> {
         let loader = FontconfigLoader::new()?;
         loader.fallback_fonts(family_name, properties)
-    }
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows")))]
-mod loader {
-    use super::*;
-    #[cfg(not(target_family = "wasm"))]
-    use crate::fonts::FontInfo;
-
-    #[cfg(not(target_family = "wasm"))]
-    pub fn load_system_font(_font_family: &str) -> Result<FontFamily> {
-        anyhow::bail!("have not yet implemented loading system fonts")
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    pub fn load_all_system_fonts() -> Vec<(FontInfo, FontFamily)> {
-        vec![]
-    }
-
-    pub fn fallback_fonts(_family_name: &str, _properties: Properties) -> Result<Vec<FontHandle>> {
-        anyhow::bail!("Fallback fonts are not yet implemented on wasm")
     }
 }
 
@@ -909,7 +886,6 @@ impl TextLayoutSystem {
     #[cfg(target_os = "windows")]
     fn load_fallback_fonts(&self, _font_id: FontId, _family_name: &str, _properties: Properties) {}
 
-    #[allow(clippy::too_many_arguments)]
     fn create_text_frame(
         &self,
         layout_lines: impl Iterator<Item = (LayoutLine, bool)>,
@@ -918,7 +894,6 @@ impl TextLayoutSystem {
         max_height: f32,
         alignment: TextAlignment,
         str_index_map: &StrIndexMap,
-        text: &str,
     ) -> TextFrame {
         let (_, upper_bound) = layout_lines.size_hint();
         let mut lines = match upper_bound {
@@ -940,7 +915,6 @@ impl TextLayoutSystem {
                 text_styles_map,
                 is_last_line.then_some(ClipConfig::default()),
                 str_index_map,
-                text,
                 line_glyph_start_index,
                 has_trailing_newline,
             );
@@ -983,7 +957,6 @@ impl TextLayoutSystem {
         text_styles_map: &TextStylesMap,
         clip_config: Option<ClipConfig>,
         str_index_map: &StrIndexMap,
-        text: &str,
         line_glyph_start_index: usize,
         has_trailing_newline: bool,
     ) -> Line {
@@ -1004,7 +977,6 @@ impl TextLayoutSystem {
 
         let mut run_builder = RunBuilder::new(text_styles_map, initial_font_id, str_index_map);
         let mut caret_positions = vec![];
-        let mut chars_with_missing_glyphs = vec![];
         let mut last_glyph_offset: usize = 0;
 
         run_builder.reserve_capacity(layout_line.glyphs.len());
@@ -1026,13 +998,6 @@ impl TextLayoutSystem {
                     last_offset,
                 });
                 last_glyph_offset = last_offset;
-            }
-
-            // A glyph_id of 0 implies that no glyph was found for this character.
-            if glyph.glyph_id == 0
-                && let Some(ch) = Self::char_for_glyph(&glyph, text)
-            {
-                chars_with_missing_glyphs.push(ch);
             }
 
             run_builder.push_glyph(glyph, |id| {
@@ -1064,17 +1029,7 @@ impl TextLayoutSystem {
             descent: layout_line.max_descent,
             clip_config,
             caret_positions,
-            chars_with_missing_glyphs,
         }
-    }
-
-    fn char_for_glyph(glyph: &LayoutGlyph, text: &str) -> Option<char> {
-        if !text.is_char_boundary(glyph.start) {
-            log::warn!("Expected glyph start to be a char boundary");
-            return None;
-        }
-
-        text[glyph.start..].chars().next()
     }
 
     /// Produces an [`AttrsList`] to layout text given a list of `style_runs` and the `text` the
@@ -1133,8 +1088,6 @@ impl TextLayoutSystem {
         attrs_list
     }
 }
-
-#[cfg_attr(target_family = "wasm", expect(dead_code))]
 struct LoadedSystemFonts(Vec<(crate::fonts::FontInfo, FontFamily)>);
 
 impl platform::LoadedSystemFonts for LoadedSystemFonts {
@@ -1148,21 +1101,15 @@ impl platform::FontDB for FontDB {
         let family = load_font_family_from_bytes(name, bytes)?;
         self.insert_font_family(family)
     }
-
-    #[cfg(not(target_family = "wasm"))]
     fn load_from_system(&mut self, font_family: &str) -> Result<FamilyId> {
         let family = loader::load_system_font(font_family)?;
         self.insert_font_family(family)
     }
-
-    #[cfg(not(target_family = "wasm"))]
     fn load_all_system_fonts(
         &self,
     ) -> futures::future::BoxFuture<'static, Box<dyn platform::LoadedSystemFonts>> {
         self.text_layout_system.load_all_system_fonts()
     }
-
-    #[cfg(not(target_family = "wasm"))]
     fn process_loaded_system_fonts(
         &mut self,
         loaded_system_fonts: Box<dyn platform::LoadedSystemFonts>,
@@ -1365,7 +1312,6 @@ impl platform::TextLayoutSystem for TextLayoutSystem {
             &text_styles_map,
             Some(clip_config),
             &str_index_map,
-            &text,
             0,
             false,
         )
@@ -1455,13 +1401,11 @@ impl platform::TextLayoutSystem for TextLayoutSystem {
             max_height,
             alignment,
             &str_index_map,
-            text,
         )
     }
 }
 
 impl TextLayoutSystem {
-    #[cfg(not(target_family = "wasm"))]
     fn load_all_system_fonts(
         &self,
     ) -> futures::future::BoxFuture<'static, Box<dyn platform::LoadedSystemFonts>> {

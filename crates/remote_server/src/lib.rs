@@ -5,7 +5,6 @@ pub mod manager;
 pub mod protocol;
 pub mod repo_metadata_proto;
 pub mod setup;
-#[cfg(not(target_family = "wasm"))]
 pub mod ssh;
 pub mod transport;
 

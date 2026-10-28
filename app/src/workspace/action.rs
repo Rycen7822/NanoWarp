@@ -251,7 +251,6 @@ pub enum WorkspaceAction {
         source: PaletteSource,
     },
     /// Open the log directory in the system file explorer with the current log file selected.
-    #[cfg(not(target_family = "wasm"))]
     ViewLogs,
     ChangeCursor(Cursor),
     ToggleBlockSnackbar,
@@ -306,9 +305,8 @@ pub enum WorkspaceAction {
     ToggleVerticalTabsShowDiffStats,
     ToggleVerticalTabsShowDetailsOnHover,
     CopyTextToClipboard(String),
-    /// Copies a path to the clipboard based on the focused pane: the open file's display path
-    /// if the focused pane is the rendered file viewer (`FilePane`), otherwise the focused
-    /// terminal session's working directory. No-op if neither yields a path.
+    /// Copies the focused code pane's file path or the focused terminal's working directory.
+    /// No-op if neither yields a path.
     CopyCurrentPath,
     DismissWorkspaceBanner(WorkspaceBanner),
     /// An action only registered in dev and local builds, which triggers a
@@ -332,9 +330,6 @@ pub enum WorkspaceAction {
         position: Vector2F,
     },
     OpenLink(String),
-    /// On WASM, opens a given URL in the desktop Warp app (if installed) or redirects to download page.
-    #[cfg(target_family = "wasm")]
-    OpenLinkOnDesktop(url::Url),
     ReopenClosedSession,
     AddWindow,
     AddWindowWithShell {
@@ -610,14 +605,11 @@ impl WorkspaceAction {
             | TabConfigSidecarEditConfig { .. }
             | TabConfigSidecarRemoveConfig { .. }
             | OpenSettingsFile => false,
-            #[cfg(not(target_family = "wasm"))]
             ViewLogs => false,
             #[cfg(target_os = "macos")]
             SampleProcess => false,
             #[cfg(target_os = "linux")]
             DismissWaylandCrashRecoveryBanner => false,
-            #[cfg(target_family = "wasm")]
-            OpenLinkOnDesktop(_) => false,
             // actions that are related to updating user settings or
             // managing some ui elements (like closing/opening modals)
             // that don't reflect on actual workspace and don't need to
