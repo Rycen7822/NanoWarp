@@ -221,20 +221,7 @@ fn buffer(
     app: &mut App,
     markdown: &str,
 ) -> (ModelHandle<Buffer>, ModelHandle<BufferSelectionModel>) {
-    let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-    let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-    buffer.update(app, |buffer, ctx| {
-        *buffer = Buffer::from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            selection.clone(),
-            ctx,
-        );
-    });
-
-    (buffer, selection)
+    Buffer::mock_from_markdown(markdown, None, Box::new(|_, _| IndentBehavior::Ignore), app)
 }
 
 fn searcher(

@@ -47,10 +47,6 @@ impl BufferSelectionModel {
         }
     }
 
-    pub(super) fn truncate(&mut self) {
-        self.selections.truncate();
-    }
-
     /// Create a new anchor at the given offset.
     pub fn anchor(&mut self, offset: CharOffset, ctx: &AppContext) -> Anchor {
         self.anchors

@@ -10,7 +10,7 @@ use line_ending::LineEnding;
 use markdown_parser::{
     CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
     FormattedTextFragment, FormattedTextHeader, FormattedTextLine, FormattedTextStyles,
-    OrderedFormattedIndentTextInline, parse_markdown,
+    OrderedFormattedIndentTextInline,
 };
 use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
@@ -54,19 +54,11 @@ use crate::render::model::{
     EmbeddedItem, RenderedSelection, RenderedSelectionBias, RenderedSelectionSet,
 };
 
-/// Format of the passed in text.
-#[derive(Clone, Debug, Copy)]
-pub enum ContentFormat {
-    Markdown,
-    PlainText,
-}
-
 /// Configuration struct that holds all the fields needed to reset the entire editor.
 /// This consolidates parameters that were previously passed individually to reset functions.
 #[derive(Debug, Clone)]
 pub struct InitialBufferState<'a> {
     pub text: &'a str,
-    pub format: ContentFormat,
     pub version: ContentVersion,
 }
 
@@ -75,16 +67,6 @@ impl<'a> InitialBufferState<'a> {
     pub fn plain_text(text: &'a str) -> Self {
         Self {
             text,
-            format: ContentFormat::PlainText,
-            version: ContentVersion::new(),
-        }
-    }
-
-    /// Create a new InitialBufferState with markdown format
-    pub fn markdown(text: &'a str) -> Self {
-        Self {
-            text,
-            format: ContentFormat::Markdown,
             version: ContentVersion::new(),
         }
     }
@@ -769,35 +751,6 @@ impl Buffer {
         buffer_cursor.char_at(offset)
     }
 
-    /// Construct a [`Buffer`] from formatted text contents.
-    ///
-    /// If provided, the [`EmbeddedItemConversion`] is used to parse embedded item YAML
-    /// descriptions.
-    pub fn from_formatted_text(
-        text: FormattedText,
-        embedded_item_conversion: Option<EmbeddedItemConversion>,
-        tab_indentation: TabIndentation,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> Self {
-        let mut buffer = Buffer::new(tab_indentation);
-        buffer.embedded_item_conversion = embedded_item_conversion;
-        // If the formatted text is empty, keep the default buffer state - empty buffers are
-        // invalid.
-        if !text.lines.is_empty() {
-            // When initializing a buffer from formatted text, we should remove the default
-            // plain text marker as well.
-            buffer.replace_with_formatted_text(
-                CharOffset::zero()..CharOffset::from(1),
-                text,
-                EditOrigin::UserInitiated,
-                selection_model,
-                ctx,
-            );
-        }
-        buffer
-    }
-
     pub fn from_plain_text(
         text: &str,
         embedded_item_conversion: Option<EmbeddedItemConversion>,
@@ -808,7 +761,7 @@ impl Buffer {
         let mut buffer = Buffer::new(tab_indentation);
         buffer.embedded_item_conversion = embedded_item_conversion;
 
-        // If the parsed markdown is empty, keep the default buffer state - empty buffers are invalid.
+        // If the text is empty, keep the default buffer state - empty buffers are invalid.
         if !text.is_empty() {
             buffer.edit_internal_first_selection(
                 CharOffset::zero()..CharOffset::from(1),
@@ -819,31 +772,6 @@ impl Buffer {
             );
         }
         buffer
-    }
-
-    pub(crate) fn from_markdown(
-        markdown: &str,
-        embedded_item_conversion: Option<EmbeddedItemConversion>,
-        tab_indentation: TabIndentation,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> Self {
-        let parsed_formatted_text = match parse_markdown(markdown) {
-            Ok(parsed) => parsed,
-            Err(_) => {
-                log::error!("Failed to parse markdown to start notebook");
-
-                // Return a default formatted text instead of panicking.
-                FormattedText::new(vec![])
-            }
-        };
-        Self::from_formatted_text(
-            parsed_formatted_text,
-            embedded_item_conversion,
-            tab_indentation,
-            selection_model,
-            ctx,
-        )
     }
 
     fn replace(
@@ -880,22 +808,13 @@ impl Buffer {
         let old_byte_start = ByteOffset::from(1);
         let old_byte_end = self.max_byte_offset();
 
-        *self = match state.format {
-            ContentFormat::Markdown => Buffer::from_markdown(
-                state.text,
-                callback,
-                indentation,
-                selection_model.clone(),
-                ctx,
-            ),
-            ContentFormat::PlainText => Buffer::from_plain_text(
-                state.text,
-                callback,
-                indentation,
-                selection_model.clone(),
-                ctx,
-            ),
-        };
+        *self = Buffer::from_plain_text(
+            state.text,
+            callback,
+            indentation,
+            selection_model.clone(),
+            ctx,
+        );
 
         // Infer line ending from the new content and restore session_platform.
         self.session_platform = session_platform;

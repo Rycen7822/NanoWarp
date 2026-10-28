@@ -106,13 +106,6 @@ impl SelectionSet {
         self.selections.push(selection);
     }
 
-    /// Remove all selections except the first one.
-    pub fn truncate(&mut self) {
-        self.selections
-            .truncate(1)
-            .expect("Truncating to literal 1 cannot fail");
-    }
-
     pub fn len(&self) -> usize {
         self.selections.len()
     }

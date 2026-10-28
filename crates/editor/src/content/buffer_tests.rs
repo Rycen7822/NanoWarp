@@ -16,7 +16,7 @@ use vec1::{Vec1, vec1};
 use warp_util::content_version::ContentVersion;
 use warpui_core::elements::ListIndentLevel;
 use warpui_core::text::point::Point;
-use warpui_core::{App, AppContext, ModelContext, ModelHandle, ReadModel};
+use warpui_core::{App, AppContext, ModelContext, ModelHandle};
 
 use super::{BufferEvent, EditResult, ToBufferCharOffset};
 use crate::content::buffer::{
@@ -132,23 +132,39 @@ impl Buffer {
         self.style_link_internal(text, url, selection_model, ctx)
     }
 
+    pub(in crate::content) fn apply_formatted_edit_fixture(
+        &mut self,
+        range: Range<CharOffset>,
+        text: FormattedText,
+        origin: EditOrigin,
+        selection_model: ModelHandle<BufferSelectionModel>,
+        ctx: &mut ModelContext<Self>,
+    ) -> EditResult {
+        let edit = self.edits_for_formatted_text(range, text, origin);
+        self.modify_first_selection(selection_model, edit, ctx)
+    }
+
     pub fn mock_from_markdown(
         markdown: &str,
         embedded_item_conversion: Option<EmbeddedItemConversion>,
         tab_indentation: TabIndentation,
         ctx: &mut App,
     ) -> (ModelHandle<Self>, ModelHandle<BufferSelectionModel>) {
-        let buffer = ctx.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
+        let text = parse_markdown(markdown).expect("Markdown fixture should parse");
+        let buffer = ctx.add_model(|_| Buffer::new(tab_indentation));
         let selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(ctx, |buffer, ctx| {
-            *buffer = Buffer::from_markdown(
-                markdown,
-                embedded_item_conversion,
-                tab_indentation,
-                selection.clone(),
-                ctx,
-            );
+            buffer.embedded_item_conversion = embedded_item_conversion;
+            if !text.lines.is_empty() {
+                buffer.apply_formatted_edit_fixture(
+                    CharOffset::zero()..CharOffset::from(1),
+                    text,
+                    EditOrigin::UserInitiated,
+                    selection.clone(),
+                    ctx,
+                );
+            }
         });
 
         (buffer, selection)
@@ -439,7 +455,7 @@ fn test_replace_above_with_anchors() {
 
         buffer.update(&mut app, |buffer, ctx| {
             buffer.replace(
-                InitialBufferState::markdown("Howdy.\nGoodbye world."),
+                InitialBufferState::plain_text("Howdy.\nGoodbye world."),
                 selection.clone(),
                 ctx,
             );
@@ -3343,135 +3359,19 @@ fn test_markdown_escapes() {
 }
 
 #[test]
-fn test_import_markdown() {
+fn test_empty_plain_text_initialization_and_reset() {
     App::test((), |mut app| async move {
-        let markdown_string =
-            "test\n```warp-runnable-command\nparagragh\n```\nSome text\nSome ***bold and italic***";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>paragragh<text>Some text\\nSome <b_s><i_s>bold and italic<b_e><i_e>"
+        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
+        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        buffer.update(&mut app, |buffer, ctx| {
+            *buffer = Buffer::from_plain_text(
+                "",
+                None,
+                Box::new(|_, _| IndentBehavior::Ignore),
+                selection.clone(),
+                ctx,
             );
         });
-
-        let markdown_string = "***bold and italic";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(buffer.content.debug(), "<text>***bold and italic");
-        });
-
-        let markdown_string = "p1\n```text\nsome\ncode\n```\na\n```text\nsome\nother\ncode\n```\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>p1<code:Code>some\\ncode<text>a<code:Code>some\\nother\\ncode<text>"
-            );
-        });
-
-        let markdown_string = "aaa\n```warp-runnable-command\nafb\n```\n*b**b***\n```warp-runnable-command\nb\nlll\n```\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>aaa<code:Shell>afb<text><i_s>b<b_s>b<b_e><i_e><code:Shell>b\\nlll<text>"
-            );
-        });
-
-        let markdown_string = "```warp-runnable-command\ntest\nblock\n```\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(buffer.content.debug(), "<code:Shell>test\\nblock<text>");
-        });
-
-        let markdown_string = "### Header\n## Header\nText";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<header3>Header<header2>Header<text>Text"
-            );
-        });
-
-        let markdown_string = "* List\n* List\nText";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(buffer.content.debug(), "<ul0>List<ul0>List<text>Text");
-        });
-
-        let markdown_string = "* List\n    * List\n        * List\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        app.read_model(&buffer, |buffer, _| {
-            assert_eq!(buffer.content.debug(), "<ul0>List<ul1>List<ul2>List<text>");
-        });
-
-        // Per the spec, only the first ordered list item's number is used.
-        // https://spec.commonmark.org/0.30/#start-number
-        let markdown_string = "3. First\n2. Second\n1. Third";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown_string,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        // When importing from Markdown, we ensure that the buffer ends as plain text.
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<ol0@3>First<ol0>Second<ol0>Third<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_import_empty_markdown() {
-    App::test((), |mut app| async move {
-        // This is a regression test for CLD-601, where parsing an empty Markdown file would put the
-        // buffer in an invalid state.
-        let (buffer, selection) =
-            Buffer::mock_from_markdown("", None, Box::new(|_, _| IndentBehavior::Ignore), &mut app);
         buffer.read(&app, |buffer, _| {
             assert_eq!(buffer.content.debug(), "<text>");
         });
@@ -3484,15 +3384,20 @@ fn test_import_empty_markdown() {
             });
         });
 
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "has text",
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
+        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
+        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        buffer.update(&mut app, |buffer, ctx| {
+            *buffer = Buffer::from_plain_text(
+                "has text",
+                None,
+                Box::new(|_, _| IndentBehavior::Ignore),
+                selection.clone(),
+                ctx,
+            );
+        });
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace(InitialBufferState::markdown(""), selection.clone(), ctx);
+            buffer.replace(InitialBufferState::plain_text(""), selection.clone(), ctx);
 
             assert_eq!(buffer.content.debug(), "<text>");
         });
@@ -3501,80 +3406,6 @@ fn test_import_empty_markdown() {
             assert_eq!(selection.first_selection_head(), CharOffset::from(1));
         });
 
-        buffer.read(&app, |buffer, _| {
-            selection.read(&app, |selection, _| {
-                buffer.validate(&selection.anchors);
-            });
-        });
-    });
-}
-
-#[test]
-fn test_import_markdown_code() {
-    App::test((), |mut app| async move {
-        // This tests that we categorize Markdown code blocks as expected.
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            r#"```
-default code
-```
-```sh
-sh code
-```
-```rust
-rust code
-```
-```warp-runnable-command
-warp code
-```"#,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(buffer.debug(), "<code:Shell>default code<code:Shell>sh code<code:Rust>rust code<code:Shell>warp code<text>");
-        });
-        buffer.read(&app, |buffer, _| {
-            selection.read(&app, |selection, _| {
-                buffer.validate(&selection.anchors);
-            });
-        });
-    });
-}
-
-#[test]
-fn test_import_markdown_embedded() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            r#"```
-default code
-```
-```warp-embedded-object
-id: workflow-123
-```
-```warp-embedded-object
-id: workflow-123
-type: workflow
-author: kevin
-```"#,
-            Some(
-                |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
-                    Some(Value::String(hashed_id)) => {
-                        Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
-                    }
-                    _ => None,
-                },
-            ),
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>default code<embed_workflow-123><embed_workflow-123><text>"
-            );
-        });
         buffer.read(&app, |buffer, _| {
             selection.read(&app, |selection, _| {
                 buffer.validate(&selection.anchors);
@@ -4766,7 +4597,7 @@ fn test_insert_formatted_text() {
             );
 
             let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![FormattedTextFragment::bold("test text")])]);
-            buffer.replace_with_formatted_text(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<text>Before<b_s>test text<b_e><code:Shell>Block<text>After"
@@ -4774,7 +4605,7 @@ fn test_insert_formatted_text() {
 
             let formatted_text =
                 FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 1\nblock 2".to_string() }), FormattedTextLine::Line(vec![FormattedTextFragment::plain_text(" other ")]), FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 3".to_string() })]);
-            buffer.replace_with_formatted_text(CharOffset::from(1)..CharOffset::from(16), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(1)..CharOffset::from(16), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<code:Shell>block 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
@@ -4782,14 +4613,14 @@ fn test_insert_formatted_text() {
 
             // Inserting block style into an already active block with the same style should be the same as inserting plain text.
             let formatted_text = FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block content".to_string() })]);
-            buffer.replace_with_formatted_text(CharOffset::from(1)..CharOffset::from(1), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(1)..CharOffset::from(1), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<code:Shell>block contentblock 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
             );
 
             let formatted_text = FormattedText::new(vec![FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("abc")] }), FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("def")] })]);
-            buffer.replace_with_formatted_text(CharOffset::from(3)..CharOffset::from(3), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(3)..CharOffset::from(3), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<code:Shell>blabc<ul0>def<code:Shell>ock contentblock 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
@@ -4818,7 +4649,7 @@ fn test_insert_code_block_with_language() {
                     lang: "jsx".to_string(),
                     code: "Some code".to_string(),
                 })]);
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(8)..CharOffset::from(8),
                 formatted_text,
                 EditOrigin::UserInitiated,
@@ -4842,7 +4673,7 @@ fn test_insert_formatted_text_empty_buffer() {
         buffer.update(&mut app, |buffer, ctx| {
             let formatted_text = parse_markdown("\n```\nblock\n```\n").expect("Should parse");
             let delta = buffer
-                .replace_with_formatted_text(
+                .apply_formatted_edit_fixture(
                     CharOffset::from(0)..CharOffset::from(1),
                     formatted_text.clone(),
                     EditOrigin::UserInitiated,
@@ -4907,7 +4738,7 @@ fn test_insert_code_block_in_text_lines() {
                 })]);
             // Inserting code block in between plain text line should split it in half.
             let delta = buffer
-                .replace_with_formatted_text(
+                .apply_formatted_edit_fixture(
                     CharOffset::from(3)..CharOffset::from(3),
                     formatted_text.clone(),
                     EditOrigin::UserInitiated,
@@ -4936,7 +4767,7 @@ fn test_insert_code_block_in_text_lines() {
 
             // Inserting code block before a new plain text line should replace the starting block marker.
             let delta = buffer
-                .replace_with_formatted_text(
+                .apply_formatted_edit_fixture(
                     CharOffset::from(13)..CharOffset::from(17),
                     formatted_text.clone(),
                     EditOrigin::UserInitiated,
@@ -4969,7 +4800,7 @@ fn test_insert_code_block_in_text_lines() {
 
             // Inserting code block at the end of the buffer should add a trailing newline.
             let delta = buffer
-                .replace_with_formatted_text(
+                .apply_formatted_edit_fixture(
                     CharOffset::from(32)..CharOffset::from(32),
                     formatted_text,
                     EditOrigin::UserInitiated,
@@ -5156,7 +4987,7 @@ fn test_embedded_item_as_plain_text() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(7)..CharOffset::from(7),
                 FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
                     Value::String("id".to_string()),
@@ -5166,7 +4997,7 @@ fn test_embedded_item_as_plain_text() {
                 selection.clone(),
                 ctx,
             );
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(8)..CharOffset::from(8),
                 FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
                     Value::String("id".to_string()),
@@ -6397,7 +6228,7 @@ fn test_insert_formatted_text_header() {
             assert_eq!(buffer.content.debug(), "<text>test<code:Shell>line<text>");
 
             let formatted_text = parse_markdown("## New Header\n### Subheader").expect("Should parse");
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(11)..CharOffset::from(11),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -6410,7 +6241,7 @@ fn test_insert_formatted_text_header() {
                 "<text>test<code:Shell>line<header2>New Header<header3>Subheader<text>"
             );
 
-            buffer.replace_with_formatted_text(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<text>test<code:Shell>lNew Header<header3>Subheader<code:Shell>ine<header2>New Header<header3>Subheader<text>"
@@ -9267,7 +9098,7 @@ fn test_copy_paste_behavior() {
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\n");
 
             let formatted_text = FormattedText::new(vec![FormattedTextLine::Heading(FormattedTextHeader { heading_size: 2, text: vec![FormattedTextFragment::plain_text("New Header")] })]);
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(11)..CharOffset::from(11),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -9284,7 +9115,7 @@ fn test_copy_paste_behavior() {
 
             // Scenario 2: When inserting a non-plain text block in the middle of a line, we should keep the existing styling
             // instead of replacing it.
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(10)..CharOffset::from(10),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -9298,7 +9129,7 @@ fn test_copy_paste_behavior() {
 
             // Scenario 3: When inserting a non-plain text block to replace an entire line, we should replace that newline
             // with the pasted block style.
-            buffer.replace_with_formatted_text(CharOffset::from(6)..CharOffset::from(20), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(6)..CharOffset::from(20), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<text>test<header2>New Header<header2>New Header<text>"
@@ -9309,7 +9140,7 @@ fn test_copy_paste_behavior() {
 
             // Scenario 4: When inserting a multi-line non-plain text block in the middle of a line, we should keep the original
             // line's format for the first line. For the second line onwards, we will keep the pasted block style.
-            buffer.replace_with_formatted_text(CharOffset::from(5)..CharOffset::from(5), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(5)..CharOffset::from(5), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<text>testlist<ul1>sublist<header2>New Header<header2>New Header<text>"
@@ -9319,7 +9150,7 @@ fn test_copy_paste_behavior() {
 
             // Scenario 5: When inserting a plain text block to replace a non-plain text line, we should keep the original
             // line's block style.
-            buffer.replace_with_formatted_text(CharOffset::from(10)..CharOffset::from(17), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
+            buffer.apply_formatted_edit_fixture(CharOffset::from(10)..CharOffset::from(17), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<text>testlist<ul1>start<header2>New Header<header2>New Header<text>"
@@ -9329,7 +9160,7 @@ fn test_copy_paste_behavior() {
 
             // Scenario 6: When inserting a multi-line code block in a non-plain text block, we should keep the original
             // line's format and treat it as inserting a multi-line plain text.
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(15)..CharOffset::from(15),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -9342,7 +9173,7 @@ fn test_copy_paste_behavior() {
             );
 
             // Scenario 7: When inserting a multi-line code block to replace a plain text line, we should keep the code block format.
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(1)..CharOffset::from(9),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -9355,7 +9186,7 @@ fn test_copy_paste_behavior() {
             );
 
             // Scenario 8: When inserting a multi-line code block into a multi-line code block, we should keep it as one code block.
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(7)..CharOffset::from(7),
                 formatted_text.clone(),
                 EditOrigin::UserInitiated,
@@ -9468,7 +9299,7 @@ fn test_multi_linebreak_paste() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(3)..CharOffset::from(3),
                 FormattedText::new([FormattedTextLine::LineBreak, FormattedTextLine::LineBreak]),
                 EditOrigin::UserInitiated,
@@ -9496,7 +9327,7 @@ fn test_mixed_linebreak_paste() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(4)..CharOffset::from(4),
                 FormattedText::new([
                     FormattedTextLine::UnorderedList(FormattedIndentTextInline {
@@ -9774,7 +9605,7 @@ fn test_insert_tasklist_on_plain_text() {
                     indent_level: 0,
                     text: vec![FormattedTextFragment::plain_text("test text")],
                 })]);
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(9)..CharOffset::from(9),
                 formatted_text,
                 EditOrigin::UserInitiated,
@@ -9805,7 +9636,7 @@ fn test_insert_block_item_in_plain_text() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.replace_with_formatted_text(
+            let edit_result = buffer.apply_formatted_edit_fixture(
                 CharOffset::from(4)..CharOffset::from(4),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -9855,7 +9686,7 @@ fn test_insert_block_item_in_plain_text() {
             assert_eq!(buffer.content.debug(), "<text>Bef<hr><text>ore\\n\\n");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.replace_with_formatted_text(
+            let edit_result = buffer.apply_formatted_edit_fixture(
                 CharOffset::from(11)..CharOffset::from(11),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -9926,7 +9757,7 @@ fn test_styling_over_block_item() {
             buffer.style_internal(TextStyles::default().bold(), selection.clone(), ctx);
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.replace_with_formatted_text(
+            let edit_result = buffer.apply_formatted_edit_fixture(
                 CharOffset::from(5)..CharOffset::from(6),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -10051,7 +9882,7 @@ fn test_block_styling_around_block_item() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(5)..CharOffset::from(6),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -10129,7 +9960,7 @@ fn test_block_styling_overlapping_block_item() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(5)..CharOffset::from(5),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -10137,7 +9968,7 @@ fn test_block_styling_overlapping_block_item() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(11)..CharOffset::from(11),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -10200,7 +10031,7 @@ fn test_insert_block_item_in_the_middle_of_consecutive_linebreak() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(6)..CharOffset::from(6),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -10228,7 +10059,7 @@ fn test_backspace_on_block_item() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(5)..CharOffset::from(5),
                 FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
                 EditOrigin::UserInitiated,
@@ -11187,7 +11018,7 @@ fn test_insert_embedding() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.replace_with_formatted_text(
+            let edit_result = buffer.apply_formatted_edit_fixture(
                 CharOffset::from(7)..CharOffset::from(7),
                 FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
                     Value::String("id".to_string()),
@@ -11295,7 +11126,7 @@ fn test_replace_or_remove_embedding() {
                 ctx,
             );
 
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(7)..CharOffset::from(7),
                 FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
                     Value::String("id".to_string()),
@@ -13736,12 +13567,17 @@ fn test_insert_at_offsets_overlapping_ranges_skipped() {
 #[test]
 fn test_from_plain_text() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "Hello\nWorld",
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
+        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
+        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        buffer.update(&mut app, |buffer, ctx| {
+            *buffer = Buffer::from_plain_text(
+                "Hello\nWorld",
+                None,
+                Box::new(|_, _| IndentBehavior::Ignore),
+                selection.clone(),
+                ctx,
+            );
+        });
 
         buffer.update(&mut app, |buffer, _ctx| {
             // Ensure that there is a text marker at the start of the buffer.

@@ -1,13 +1,14 @@
 //! End-to-end editor tests.
 
 use string_offset::CharOffset;
+use vec1::vec1;
 use warpui_core::{App, ModelHandle, ReadModel};
 
 use super::model::test_utils::{TEST_STYLES, init_logging};
 use super::model::{RenderEvent, RenderState};
 use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
-    InitialBufferState, ShouldAutoscroll,
+    SelectionOffsets, ShouldAutoscroll,
 };
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{BlockType, BufferBlockItem, IndentBehavior, TextStyles};
@@ -49,7 +50,7 @@ fn test_edit_many_lines() {
     App::test((), |mut app| async move {
         let state = TestState::new(&mut app);
 
-        // Reset with several lines of Markdown at once.
+        // Initialize with several lines of Markdown at once.
         state
             .markdown(
                 r#"a
@@ -485,11 +486,19 @@ impl TestState {
             .expect("Layout channel should not be closed");
     }
 
-    /// Replace the buffer with the given Markdown.
+    /// Initialize a fresh buffer with the given Markdown fixture.
     async fn markdown(&self, markdown: &str, app: &mut App) {
-        let state = InitialBufferState::markdown(markdown);
+        let text =
+            markdown_parser::parse_markdown(markdown).expect("Markdown fixture should parse");
+        // Replace the initial marker so the fixture starts with its own block style.
+        self.selection.update(app, |selection, _| {
+            selection.set_selection_offsets(vec1![SelectionOffsets {
+                head: CharOffset::from(1),
+                tail: CharOffset::zero(),
+            }]);
+        });
         self.edit(
-            BufferEditAction::ReplaceWith(state),
+            BufferEditAction::InsertFormatted(text),
             EditOrigin::SystemEdit,
             app,
         )

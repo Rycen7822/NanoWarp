@@ -11,8 +11,7 @@ use warpui_core::{App, ModelAsRef};
 use super::{SelectionModel, TextDirection, TextUnit};
 use crate::content::buffer::tests::TestEmbeddedItem;
 use crate::content::buffer::{
-    AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin,
-    InitialBufferState, SelectionOffsets,
+    AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin, SelectionOffsets,
 };
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{BufferBlockStyle, IndentBehavior, IndentUnit};
@@ -152,13 +151,8 @@ fn test_vertical_movement_with_goal() {
 #[test]
 fn test_word_and_line_boundary_movement_with_block_item() {
     App::test((), |mut app| async move {
-        let selection = app.add_model(|ctx| {
-            let buffer = ctx.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-            let buffer_selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-            buffer.update(ctx, |buffer, ctx| {
-                *buffer = Buffer::from_markdown(
-                    r#"text
+        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
+            r#"text
 ```warp-embedded-object
 id: workflow-123
 ```
@@ -167,20 +161,18 @@ id: workflow-123
 type: workflow
 author: kevin
 ```"#,
-                    Some(
-                        |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
-                            Some(Value::String(hashed_id)) => {
-                                Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
-                            }
-                            _ => None,
-                        },
-                    ),
-                    Box::new(|_, _| IndentBehavior::Ignore),
-                    buffer_selection.clone(),
-                    ctx,
-                );
-            });
-
+            Some(
+                |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
+                    Some(Value::String(hashed_id)) => {
+                        Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
+                    }
+                    _ => None,
+                },
+            ),
+            Box::new(|_, _| IndentBehavior::Ignore),
+            &mut app,
+        );
+        let selection = app.add_model(|ctx| {
             let render = ctx.add_model(|_| {
                 RenderState::new_for_test(
                     TEST_STYLES,
@@ -234,20 +226,12 @@ author: kevin
 #[test]
 fn test_paragraph_navigation() {
     App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let buffer_selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let state = InitialBufferState::markdown(
-                "Line one\nLine two\n```\nfirst code\nsecond code\n```\n* list\n* list",
-            );
-            buffer.update_content(
-                BufferEditAction::ReplaceWith(state),
-                EditOrigin::SystemEdit,
-                buffer_selection.clone(),
-                ctx,
-            );
-        });
+        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
+            "Line one\nLine two\n```\nfirst code\nsecond code\n```\n* list\n* list",
+            None,
+            Box::new(|_, _| IndentBehavior::Ignore),
+            &mut app,
+        );
 
         let render = app.add_model(|_| {
             RenderState::new_for_test(TEST_STYLES, f32::MAX.into_pixels(), f32::MAX.into_pixels())
@@ -287,25 +271,17 @@ fn test_paragraph_navigation() {
 #[test]
 fn test_indented_code_line_boundaries() {
     App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
+        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
+            "```\n    test\n```",
+            None,
+            Box::new(|block_style, _| match block_style {
                 BufferBlockStyle::CodeBlock { .. } => {
                     IndentBehavior::TabIndent(IndentUnit::Space(4))
                 }
                 _ => IndentBehavior::Ignore,
-            }))
-        });
-        let buffer_selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let state = InitialBufferState::markdown("```\n    test\n```");
-            buffer.update_content(
-                BufferEditAction::ReplaceWith(state),
-                EditOrigin::SystemEdit,
-                buffer_selection.clone(),
-                ctx,
-            );
-        });
+            }),
+            &mut app,
+        );
 
         let render = app.add_model(|_| {
             let mut render = RenderState::new_for_test(

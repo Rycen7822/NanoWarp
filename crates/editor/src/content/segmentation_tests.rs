@@ -16,7 +16,7 @@ fn test_forward_iteration() {
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
                 parse_markdown("```\nText\n```\n**bold**\nAnd *italic* too.")
                     .expect("Markdown should parse"),
@@ -61,7 +61,7 @@ fn test_start_styled() {
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
                 parse_markdown("*styled* text").expect("Markdown should parse"),
                 EditOrigin::UserInitiated,
@@ -83,7 +83,7 @@ fn test_reverse_iteration() {
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
                 parse_markdown("some *text*").expect("Markdown should parse"),
                 EditOrigin::UserInitiated,
@@ -121,7 +121,7 @@ fn test_plain_text_boundaries() {
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace_with_formatted_text(
+            buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
                 parse_markdown("this *is* plain\ntext").expect("Markdown should parse"),
                 EditOrigin::UserInitiated,

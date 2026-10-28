@@ -158,21 +158,6 @@ impl StyledBufferRun {
 }
 
 impl Buffer {
-    pub(super) fn replace_with_formatted_text(
-        &mut self,
-        range: Range<CharOffset>,
-        text: FormattedText,
-        origin: EditOrigin,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        selection_model.update(ctx, |selection_model, _| {
-            selection_model.truncate();
-        });
-        let edit = self.edits_for_formatted_text(range, text, origin);
-        self.modify_first_selection(selection_model, edit, ctx)
-    }
-
     pub(super) fn insert_formatted_text_at_selections(
         &mut self,
         text: FormattedText,
