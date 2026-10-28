@@ -36,7 +36,6 @@ use self::ordered_list::RenderableOrderedListItem;
 pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
 use self::paragraph::RenderableParagraph;
 use self::runnable_command::RenderableRunnableCommand;
-use self::table::RenderableTable;
 use self::task_list::RenderableTaskList;
 use self::text_block::RenderableTextBlock;
 use self::unordered_list::RenderableBulletList;
@@ -59,7 +58,6 @@ mod paint;
 mod paragraph;
 mod placeholder;
 mod runnable_command;
-mod table;
 mod task_list;
 mod temporary_block;
 mod text_block;
@@ -527,7 +525,7 @@ impl<V: EditorView> RichTextElement<V> {
             return false;
         };
         // Bounds checks should use the element's own layer. Child layers may have narrower clip
-        // bounds (for example, a wide table's clipped content layer), and using those clip bounds
+        // bounds, and using those clip bounds
         // can incorrectly reject valid clicks within the editor before block-level hit testing runs.
         ctx.visible_rect(origin, size)
             .is_some_and(|bounds| bounds.contains_point(position))
@@ -895,7 +893,6 @@ impl<V: EditorView> RichTextElement<V> {
                         .finish(),
                     BlockItem::HorizontalRule(_) => HorizontalRule::new(item).finish(),
                     BlockItem::Image { .. } => RenderableImage::new(item).finish(),
-                    BlockItem::Table { .. } => RenderableTable::new(item).finish(),
                     BlockItem::TrailingNewLine(_) => Empty::new(item).finish(),
                     BlockItem::Hidden(config) => {
                         let full_line_range = model.line_range_at_offset(item.block_offset);

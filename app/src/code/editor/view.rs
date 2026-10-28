@@ -13,7 +13,6 @@ use vec1::vec1;
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
 use warp_core::ui::builder::CHECK_SVG_PATH;
-use warp_core::ui::theme::color::internal_colors;
 use warp_editor::content::buffer::{Buffer, EditOrigin, ToBufferPoint};
 use warp_editor::content::version::BufferVersion;
 use warp_editor::model::CoreEditorModel;
@@ -24,7 +23,7 @@ use warp_editor::render::element::{
 use warp_editor::render::model::{
     AutoScrollMode, BlockSpacing, BlockSpacings, BrokenLinkStyle,
     CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, CheckBoxStyle, ExpansionType, HorizontalRuleStyle,
-    InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles, TableStyle,
+    InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles,
 };
 use warp_editor::search::{SearchEvent, Searcher};
 use warp_util::content_version::ContentVersion;
@@ -1440,22 +1439,6 @@ pub fn code_text_styles(appearance: &Appearance) -> RichTextStyles {
         minimum_paragraph_height: None,
         cursor_width: 2.,
         highlight_urls: false,
-        table_style: TableStyle {
-            border_color: internal_colors::neutral_4(theme),
-            header_background: ColorU::transparent_black(),
-            cell_background: ColorU::transparent_black(),
-            alternate_row_background: None,
-            text_color: internal_colors::text_sub(theme, theme.background()),
-            header_text_color: internal_colors::text_main(theme, theme.background()),
-            scrollbar_nonactive_thumb_color: theme.nonactive_ui_detail().into_solid(),
-            scrollbar_active_thumb_color: theme.active_ui_detail().into_solid(),
-            font_family: base_text.font_family,
-            font_size: base_text.font_size,
-            cell_padding: 12.,
-            outer_border: false,
-            column_dividers: false,
-            row_dividers: true,
-        },
     }
 }
 

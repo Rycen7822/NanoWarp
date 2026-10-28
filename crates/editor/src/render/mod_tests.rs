@@ -1,11 +1,10 @@
 //! End-to-end editor tests.
 
 use string_offset::CharOffset;
-use warp_core::features::FeatureFlag;
 use warpui_core::{App, ModelHandle, ReadModel};
 
 use super::model::test_utils::{TEST_STYLES, init_logging};
-use super::model::{BlockItem, RenderEvent, RenderState};
+use super::model::{RenderEvent, RenderState};
 use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
     InitialBufferState, ShouldAutoscroll,
@@ -547,24 +546,4 @@ Actual:
             );
         }
     }
-}
-
-#[test]
-fn test_markdown_table_render_starts_at_zero_offset() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::MarkdownTables.override_enabled(true);
-        let state = TestState::new(&mut app);
-        state
-            .markdown("| Name | Age |\n| --- | --- |\n| Alice | 30 |\n", &mut app)
-            .await;
-
-        state.render.read(&app, |render_state, _| {
-            let content = render_state.content();
-            let block = content
-                .block_at_offset(CharOffset::zero())
-                .expect("table block should exist at offset 0");
-            assert_eq!(block.start_char_offset, CharOffset::zero());
-            assert!(matches!(block.item, BlockItem::Table(_)));
-        });
-    });
 }

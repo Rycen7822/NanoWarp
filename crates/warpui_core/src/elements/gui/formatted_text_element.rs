@@ -1631,8 +1631,7 @@ impl From<&FormattedTextLine> for LineType {
             FormattedTextLine::UnorderedList(_) => LineType::UnorderedList,
             FormattedTextLine::Heading(_)
             | FormattedTextLine::Line(_)
-            | FormattedTextLine::TaskList(_)
-            | FormattedTextLine::Table(_) => LineType::FormattedLine,
+            | FormattedTextLine::TaskList(_) => LineType::FormattedLine,
             FormattedTextLine::CodeBlock(_) => LineType::CodeBlock,
             FormattedTextLine::LineBreak
             | FormattedTextLine::HorizontalRule
@@ -1709,10 +1708,6 @@ impl Element for FormattedTextElement {
                     res.push(FormattedTextFragment::plain_text(formatted));
 
                     (self.font_size, &res, 1, LineType::CodeBlock)
-                }
-                FormattedTextLine::Table(table) => {
-                    res.push(FormattedTextFragment::plain_text(table.to_plain_text()));
-                    (self.font_size, &res, 0, LineType::FormattedLine)
                 }
                 FormattedTextLine::LineBreak
                 | FormattedTextLine::HorizontalRule

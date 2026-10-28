@@ -11,7 +11,7 @@ use warpui_core::units::{IntoPixels, Pixels};
 
 use super::{
     BlockItem, BlockSpacing, HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem,
-    LaidOutTable, LayoutSummary, LineCount, Paragraph, ParagraphBlock, RenderContext, bounds,
+    LayoutSummary, LineCount, Paragraph, ParagraphBlock, RenderContext, bounds,
 };
 use crate::render::layout::line_height;
 
@@ -201,14 +201,6 @@ impl<'a> Positioned<'a, BlockItem> {
 
     pub fn image(&self, image_config: &'a ImageBlockConfig) -> Positioned<'a, ImageBlockConfig> {
         self.position_centered(image_config, image_config.height)
-    }
-
-    pub fn table(&self, laid_out_table: &'a LaidOutTable) -> Positioned<'a, LaidOutTable> {
-        debug_assert!(
-            matches!(self.item, BlockItem::Table(_)),
-            "Must be a table block"
-        );
-        self.position_centered(laid_out_table, laid_out_table.height())
     }
 
     /// Helper to position-wrap an item's contents when pattern-matching.

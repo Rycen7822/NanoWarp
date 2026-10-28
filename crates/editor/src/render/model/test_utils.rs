@@ -16,7 +16,7 @@ use warpui_core::units::{IntoPixels, Pixels};
 use super::{
     BlockItem, BrokenLinkStyle, CheckBoxStyle, DEFAULT_BLOCK_SPACINGS, HorizontalRuleStyle,
     InlineCodeStyle, OffsetMap, PARAGRAPH_MIN_HEIGHT, Paragraph, ParagraphStyles, RichTextStyles,
-    TEXT_SPACING, TableStyle,
+    TEXT_SPACING,
 };
 use crate::content::text::BufferBlockStyle;
 
@@ -199,22 +199,6 @@ pub const TEST_STYLES: RichTextStyles = RichTextStyles {
     minimum_paragraph_height: Some(PARAGRAPH_MIN_HEIGHT),
     cursor_width: 1.,
     highlight_urls: true,
-    table_style: TableStyle {
-        border_color: WHITE,
-        header_background: WHITE,
-        cell_background: WHITE,
-        alternate_row_background: None,
-        text_color: WHITE,
-        header_text_color: WHITE,
-        scrollbar_nonactive_thumb_color: WHITE,
-        scrollbar_active_thumb_color: WHITE,
-        font_family: FamilyId(0),
-        font_size: 10.,
-        cell_padding: 8.0,
-        outer_border: true,
-        column_dividers: true,
-        row_dividers: true,
-    },
 };
 
 /// Minimal text layout for unit tests that require populated text frames.

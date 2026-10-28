@@ -374,7 +374,6 @@ default = [
     "incremental_auto_reload",
     "kitty_keyboard_protocol",
     "github_pr_prompt_chip",
-    "markdown_tables",
     "warpify_footer",
     "configurable_toolbar",
     "vertical_tabs",
@@ -436,7 +435,6 @@ local_fs = [
     "warp_core/local_fs",
     "warp_terminal/local_fs",
 ]
-markdown_tables = []
 # Remote-backed tty that connects to a PTY-like interface via a server.
 remote_tty = ["warp_terminal/remote_tty"]
 # Fix for cursor reflow bug during window resize, from Alacritty resizing logic.

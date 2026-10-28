@@ -1,4 +1,4 @@
-use markdown_parser::{CodeBlockText, FormattedTable};
+use markdown_parser::CodeBlockText;
 use warpui_core::fonts::Weight;
 
 use super::{
@@ -71,31 +71,6 @@ fn test_text_style_xor() {
 }
 
 #[test]
-fn test_formatted_table_round_trip() {
-    let input = "Name\tAge\nAlice\t30\nBob\t25\n";
-    let table = FormattedTable::from_internal_format(input);
-    assert_eq!(table.headers.len(), 2);
-    assert_eq!(table.rows.len(), 2);
-    assert_eq!(table.to_internal_format(), input);
-}
-
-#[test]
-fn test_formatted_table_single_column() {
-    let input = "Header\nValue";
-    let table = FormattedTable::from_internal_format(input);
-    assert_eq!(table.headers.len(), 1);
-    assert_eq!(table.rows.len(), 1);
-    assert_eq!(table.to_internal_format(), "Header\nValue\n");
-}
-
-#[test]
-fn test_formatted_table_empty_input() {
-    let table = FormattedTable::from_internal_format("");
-    assert!(table.headers.is_empty());
-    assert!(table.rows.is_empty());
-}
-
-#[test]
 fn test_mermaid_code_block_is_plain_code() {
     let markdown = CodeBlockText {
         lang: "mermaid".to_string(),
@@ -108,16 +83,6 @@ fn test_mermaid_code_block_is_plain_code() {
             lang: "mermaid".to_string(),
         }
     );
-}
-
-#[test]
-fn test_formatted_table_normalize_shape() {
-    let input = "A\tB\tC\nX";
-    let mut table = FormattedTable::from_internal_format(input);
-    assert_eq!(table.rows[0].len(), 1);
-    table.normalize_shape();
-    assert_eq!(table.headers.len(), 3);
-    assert_eq!(table.rows[0].len(), 3);
 }
 
 #[test]

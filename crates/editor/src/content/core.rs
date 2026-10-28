@@ -686,18 +686,6 @@ impl Buffer {
                         &mut previous_block_type,
                     );
                 }
-                FormattedTextLine::Table(table) => {
-                    let internal_text = table.to_internal_format();
-                    insert_multiline_block(
-                        &internal_text,
-                        BufferBlockStyle::table(table.alignments.clone()),
-                        source,
-                        inherit_styling,
-                        edit_cursor,
-                        &mut new_content,
-                        &mut previous_block_type,
-                    );
-                }
                 FormattedTextLine::Heading(text) => {
                     let header_size: BlockHeaderSize = text
                         .heading_size

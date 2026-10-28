@@ -89,7 +89,7 @@ fn test_end_to_end() {
     use crate::render::model::test_utils::TEST_BASELINE_OFFSET;
     use crate::render::model::{
         BlockItem, BrokenLinkStyle, CheckBoxStyle, HorizontalRuleStyle, InlineCodeStyle,
-        PARAGRAPH_MIN_HEIGHT, ParagraphStyles, RichTextStyles, TableStyle,
+        PARAGRAPH_MIN_HEIGHT, ParagraphStyles, RichTextStyles,
     };
 
     App::test((), |mut app| async move {
@@ -146,22 +146,6 @@ fn test_end_to_end() {
             minimum_paragraph_height: Some(PARAGRAPH_MIN_HEIGHT),
             cursor_width: 1.,
             highlight_urls: true,
-            table_style: TableStyle {
-                border_color: ColorU::black(),
-                header_background: ColorU::black(),
-                cell_background: ColorU::black(),
-                alternate_row_background: None,
-                text_color: ColorU::white(),
-                header_text_color: ColorU::white(),
-                scrollbar_nonactive_thumb_color: ColorU::white(),
-                scrollbar_active_thumb_color: ColorU::white(),
-                font_family: paragraph_styles.font_family,
-                font_size: 12.,
-                cell_padding: 8.0,
-                outer_border: true,
-                column_dividers: true,
-                row_dividers: true,
-            },
         };
 
         // Start by creating a buffer with a single line of text that includes a placeholder.

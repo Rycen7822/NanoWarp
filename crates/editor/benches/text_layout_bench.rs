@@ -11,7 +11,7 @@ use warp_editor::content::text::{BufferBlockStyle, TextStylesWithMetadata};
 use warp_editor::render::layout::TextLayout;
 use warp_editor::render::model::{
     BrokenLinkStyle, CheckBoxStyle, HorizontalRuleStyle, InlineCodeStyle, ParagraphStyles,
-    RichTextStyles, TableStyle,
+    RichTextStyles,
 };
 #[cfg(target_os = "macos")]
 use warpui::platform::mac::FontDB as MacFontDB;
@@ -96,22 +96,6 @@ fn benchmark_styles(font_family: FamilyId) -> RichTextStyles {
         show_placeholder_text_on_empty_block: false,
         cursor_width: 1.,
         highlight_urls: false,
-        table_style: TableStyle {
-            border_color: white,
-            header_background: white,
-            cell_background: white,
-            alternate_row_background: None,
-            text_color: white,
-            header_text_color: white,
-            scrollbar_nonactive_thumb_color: white,
-            scrollbar_active_thumb_color: white,
-            font_family,
-            font_size: 13.,
-            cell_padding: 8.,
-            outer_border: true,
-            column_dividers: true,
-            row_dividers: true,
-        },
     }
 }
 

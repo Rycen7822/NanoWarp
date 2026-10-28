@@ -8,9 +8,9 @@ use enum_iterator::all;
 use itertools::{Either, Itertools};
 use line_ending::LineEnding;
 use markdown_parser::{
-    CodeBlockText, FormattedIndentTextInline, FormattedTable, FormattedTaskList, FormattedText,
+    CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
     FormattedTextFragment, FormattedTextHeader, FormattedTextLine, FormattedTextStyles,
-    OrderedFormattedIndentTextInline, parse_markdown, parse_markdown_with_gfm_tables,
+    OrderedFormattedIndentTextInline, parse_markdown,
 };
 use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
@@ -37,7 +37,7 @@ use super::text::{
     BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
     BufferSummary, BufferText, BufferTextStyle, Bytes, CodeBlockType, IndentBehavior, LineCount,
     LinkCount, LinkMarker, MarkerDir, StyleSummary, SyntaxColorId, TextStyles,
-    TextStylesWithMetadata, TextSummary, inline_to_text,
+    TextStylesWithMetadata, TextSummary,
 };
 use super::undo::{NonAtomicType, UndoActionType, UndoArg, UndoStack};
 use super::validation::validate_content;
@@ -828,12 +828,7 @@ impl Buffer {
         selection_model: ModelHandle<BufferSelectionModel>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let parse_fn = if warp_core::features::FeatureFlag::MarkdownTables.is_enabled() {
-            parse_markdown_with_gfm_tables
-        } else {
-            parse_markdown
-        };
-        let parsed_formatted_text = match parse_fn(markdown) {
+        let parsed_formatted_text = match parse_markdown(markdown) {
             Ok(parsed) => parsed,
             Err(_) => {
                 log::error!("Failed to parse markdown to start notebook");
@@ -2283,120 +2278,20 @@ impl Buffer {
         let mut offset = range.start;
 
         while offset < range.end {
-            let block_start = self.containing_block_start(offset);
             let block_end = self.containing_block_end(offset);
             let segment_end = range.end.min(block_end);
             let segment = offset..segment_end;
-            let block_type = self.block_type_at_point(offset);
-
-            match block_type {
-                BlockType::Text(BufferBlockStyle::Table { .. }) => {
-                    text.push_str(&self.clipboard_table_text_in_range(
-                        block_start,
-                        segment,
-                        line_ending_mode,
-                    ));
-                }
-                _ => {
-                    text.push_str(
-                        &self
-                            .styled_blocks_at(segment, StyledBlockBoundaryBehavior::Exclusive)
-                            .with_line_end_mode(line_ending_mode)
-                            .map(|block| block.content())
-                            .collect::<String>(),
-                    );
-                }
-            }
+            text.push_str(
+                &self
+                    .styled_blocks_at(segment, StyledBlockBoundaryBehavior::Exclusive)
+                    .with_line_end_mode(line_ending_mode)
+                    .map(|block| block.content())
+                    .collect::<String>(),
+            );
 
             offset = segment_end;
         }
 
-        text
-    }
-
-    fn clipboard_table_text_in_range(
-        &self,
-        block_start: CharOffset,
-        range: Range<CharOffset>,
-        line_ending_mode: LineEnding,
-    ) -> String {
-        let fallback_text = || {
-            self.styled_blocks_at(range.clone(), StyledBlockBoundaryBehavior::Exclusive)
-                .with_line_end_mode(line_ending_mode)
-                .map(|block| block.content())
-                .collect()
-        };
-        let block_end = self.containing_block_end(block_start);
-        let block = self
-            .styled_blocks_in_range(
-                block_start..block_end,
-                StyledBlockBoundaryBehavior::Exclusive,
-            )
-            .into_iter()
-            .next();
-
-        let Some(StyledBufferBlock::Text(table_block)) = block else {
-            return fallback_text();
-        };
-
-        let BufferBlockStyle::Table { alignments, cache } = &table_block.style else {
-            return fallback_text();
-        };
-
-        let table_text = table_block
-            .block
-            .iter()
-            .map(|run| run.run.as_str())
-            .collect::<String>();
-        let cached = cache.get_or_populate(&table_text, alignments);
-        let table = &cached.table;
-        let cell_offset_maps = &cached.cell_offset_maps;
-        let offset_map = &cached.offset_map;
-
-        let cell_text = std::iter::once(&table.headers)
-            .chain(table.rows.iter())
-            .map(|row| row.iter().map(|cell| inline_to_text(cell)).collect_vec())
-            .collect_vec();
-        let relative_start = range.start - block_start;
-        let relative_end = range.end - block_start;
-        let mut text = String::new();
-
-        for (row_idx, row) in cell_text.iter().enumerate() {
-            for (col_idx, cell) in row.iter().enumerate() {
-                let Some(cell_range) = offset_map.cell_range(row_idx, col_idx) else {
-                    continue;
-                };
-                let Some(cell_offset_map) = cell_offset_maps
-                    .get(row_idx)
-                    .and_then(|row_maps| row_maps.get(col_idx))
-                else {
-                    continue;
-                };
-
-                if cell_range.end > relative_start && cell_range.start < relative_end {
-                    let slice_start = cell_offset_map.source_to_rendered(
-                        relative_start.max(cell_range.start) - cell_range.start,
-                    );
-                    let slice_end = cell_offset_map
-                        .source_to_rendered(relative_end.min(cell_range.end) - cell_range.start);
-                    if slice_end > slice_start {
-                        text.push_str(
-                            char_slice(cell, slice_start.as_usize(), slice_end.as_usize())
-                                .unwrap_or(cell),
-                        );
-                    }
-                }
-
-                let separator_offset = cell_range.end;
-                if relative_start <= separator_offset && separator_offset < relative_end {
-                    if col_idx + 1 < row.len() {
-                        text.push('\t');
-                    } else {
-                        text.push_str(line_ending_mode.as_str());
-                    }
-                }
-            }
-        }
         text
     }
 
@@ -5965,9 +5860,6 @@ fn convert_text_with_style_to_formatted_text(
                 code: text.to_string(),
             })]
         }
-        BufferBlockStyle::Table { .. } => vec![FormattedTextLine::Table(
-            FormattedTable::from_internal_format(text),
-        )],
     })
 }
 

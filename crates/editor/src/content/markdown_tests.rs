@@ -7,7 +7,7 @@ use warpui_core::{App, ReadModel};
 use super::MarkdownStyle;
 use crate::content::buffer::Buffer;
 use crate::content::buffer::tests::TestEmbeddedItem;
-use crate::content::text::{IndentBehavior, TABLE_BLOCK_MARKDOWN_LANG};
+use crate::content::text::IndentBehavior;
 
 #[test]
 fn test_export_normalizes_code_languages() {
@@ -116,52 +116,6 @@ export: true
 
 ```
 "#
-        );
-    });
-}
-
-#[test]
-fn test_table_markdown_round_trip() {
-    App::test((), |mut app| async move {
-        let markdown = format!(
-            "```{}\nheader 1\theader 2\nvalue 1\tvalue 2\n```\n",
-            TABLE_BLOCK_MARKDOWN_LANG
-        );
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        let internal_markdown = app.read_model(&buffer, |buffer, _| buffer.markdown());
-        assert_eq!(internal_markdown, markdown);
-
-        let exported_markdown = app.read_model(&buffer, |buffer, _| buffer.markdown_unescaped());
-        assert_eq!(
-            exported_markdown,
-            "| header 1 | header 2 |\n| --- | --- |\n| value 1 | value 2 |\n"
-        );
-    });
-}
-
-#[test]
-fn test_table_markdown_export_escapes_pipe_characters() {
-    App::test((), |mut app| async move {
-        let markdown = format!(
-            "```{}\nhead|er 1\theader 2\nvalue | 1\tvalue 2\n```\n",
-            TABLE_BLOCK_MARKDOWN_LANG
-        );
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let exported_markdown = app.read_model(&buffer, |buffer, _| buffer.markdown_unescaped());
-        assert_eq!(
-            exported_markdown,
-            "| head\\|er 1 | header 2 |\n| --- | --- |\n| value \\| 1 | value 2 |\n"
         );
     });
 }

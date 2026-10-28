@@ -1,109 +1,13 @@
-use std::cell::Cell;
-use std::sync::Arc;
-
-use pathfinder_color::ColorU;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use warpui_core::fonts::FamilyId;
-use warpui_core::text_layout::{CaretPosition, TextFrame};
 use warpui_core::units::IntoPixels;
 
-use crate::content::text::{
-    BufferBlockStyle, CodeBlockType, FormattedTable, table_cell_offset_maps,
-};
+use crate::content::text::{BufferBlockStyle, CodeBlockType};
 use crate::render::model::location::{HitTestBlockType, HitTestOptions, WrapDirection};
 use crate::render::model::test_utils::{
     TEST_STYLES, laid_out_paragraph, laid_out_unordered_lists, layout_paragraphs,
 };
-use crate::render::model::{
-    BlockItem, COMMAND_SPACING, CellLayout, LaidOutTable, Location, ParagraphBlock, RenderState,
-    TableBlockConfig, TableStyle, table_offset_map,
-};
-
-fn test_table_layout() -> LaidOutTable {
-    let source = "aaa\tbbb\nccc\tddd\n";
-    let table = FormattedTable::from_internal_format(source);
-    let cell_offset_maps = table_cell_offset_maps(&table, source);
-    let offset_map = table_offset_map::TableOffsetMap::new(
-        cell_offset_maps
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.source_length().as_usize())
-                    .collect()
-            })
-            .collect(),
-    );
-    let content_length = offset_map.total_length();
-    let cell_layout = CellLayout {
-        line_heights: vec![20.0],
-        line_y_offsets: vec![0.0],
-        line_char_ranges: vec![CharOffset::from(0)..CharOffset::from(3)],
-        line_widths: vec![30.0],
-        line_caret_positions: vec![vec![
-            CaretPosition {
-                position_in_line: 0.0,
-                start_offset: 0,
-                last_offset: 0,
-            },
-            CaretPosition {
-                position_in_line: 10.0,
-                start_offset: 1,
-                last_offset: 1,
-            },
-            CaretPosition {
-                position_in_line: 20.0,
-                start_offset: 2,
-                last_offset: 2,
-            },
-        ]],
-    };
-    let cell_frame = Arc::new(TextFrame::mock("aaa"));
-
-    LaidOutTable {
-        table,
-        config: TableBlockConfig {
-            width: 60.0.into_pixels(),
-            spacing: Default::default(),
-            style: TableStyle {
-                border_color: ColorU::new(0, 0, 0, 255),
-                header_background: ColorU::new(0, 0, 0, 255),
-                cell_background: ColorU::new(0, 0, 0, 255),
-                alternate_row_background: None,
-                text_color: ColorU::new(0, 0, 0, 255),
-                header_text_color: ColorU::new(0, 0, 0, 255),
-                scrollbar_nonactive_thumb_color: ColorU::new(0, 0, 0, 255),
-                scrollbar_active_thumb_color: ColorU::new(0, 0, 0, 255),
-                font_family: FamilyId(0),
-                font_size: 10.0,
-                cell_padding: 0.0,
-                outer_border: true,
-                column_dividers: true,
-                row_dividers: true,
-            },
-        },
-        row_heights: vec![20.0.into_pixels(), 20.0.into_pixels()],
-        column_widths: vec![30.0.into_pixels(), 30.0.into_pixels()],
-        total_height: 40.0.into_pixels(),
-        offset_map,
-        content_length,
-        cell_offset_maps,
-        row_y_offsets: vec![0.0, 20.0, 40.0],
-        col_x_offsets: vec![0.0, 30.0, 60.0],
-        cell_text_frames: vec![
-            vec![cell_frame.clone(), cell_frame.clone()],
-            vec![cell_frame.clone(), cell_frame],
-        ],
-        cell_layouts: vec![
-            vec![cell_layout.clone(), cell_layout.clone()],
-            vec![cell_layout.clone(), cell_layout],
-        ],
-        cell_links: vec![vec![vec![], vec![]], vec![vec![], vec![]]],
-        scroll_left: Cell::new(30.0.into_pixels()),
-        scrollbar_interaction_state: Default::default(),
-        horizontal_scroll_allowed: true,
-    }
-}
+use crate::render::model::{BlockItem, COMMAND_SPACING, Location, ParagraphBlock, RenderState};
 
 #[test]
 fn test_hit_within_line() {
@@ -138,30 +42,6 @@ fn test_hit_within_line() {
         ),
         Location::Text {
             char_offset: 2.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: CharOffset::zero(),
-            link: None,
-        }
-    );
-}
-
-#[test]
-fn test_table_hit_testing_accounts_for_horizontal_scroll() {
-    let mut model =
-        RenderState::new_for_test(TEST_STYLES.clone(), 30.0.into_pixels(), 60.0.into_pixels());
-    model.set_content(SumTree::from_item(BlockItem::Table(Box::new(
-        test_table_layout(),
-    ))));
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            0.0.into_pixels(),
-            0.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 4.into(),
             clamped: false,
             wrap_direction: WrapDirection::Down,
             block_start: CharOffset::zero(),

@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
@@ -7,35 +6,30 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use itertools::Itertools;
-use markdown_parser::{Hyperlink, TableAlignment};
 use num_traits::SaturatingSub;
 use rangemap::RangeSet;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use string_offset::{ByteOffset, CharOffset};
 use urlocator::{UrlLocation, UrlLocator};
 use vec1::Vec1;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_errors::report_error;
 use warpui_core::AppContext;
 use warpui_core::assets::asset_cache::AssetSource;
-use warpui_core::fonts::Weight;
 use warpui_core::text::char_slice;
 use warpui_core::text::point::Point;
-use warpui_core::text_layout::{StyleAndFont, TextAlignment};
-use warpui_core::units::{IntoPixels, Pixels};
+use warpui_core::text_layout::StyleAndFont;
+use warpui_core::units::IntoPixels;
 
 use super::buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock};
-use super::text::{BufferBlockItem, BufferBlockStyle, FormattedTable, TableBlockCache};
+use super::text::{BufferBlockItem, BufferBlockStyle};
 use crate::parallel_util::Last;
-use crate::render::layout::{InlineTextLayoutInput, TextLayout, add_link_to_style_and_font};
+use crate::render::layout::{TextLayout, add_link_to_style_and_font};
 use crate::render::model::{
-    BlockItem, BlockLocation, BlockSpacing, CellLayout, Cursor, Decoration, FrameOffset,
-    HiddenBlockConfig, HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem, LaidOutTable,
-    LineCount, OffsetMap, Paragraph, ParagraphBlock, ParagraphStyles, SelectableTextRun,
-    TableBlockConfig, TableStyle, gutter_expansion_button_types,
+    BlockItem, BlockLocation, Cursor, Decoration, FrameOffset, HiddenBlockConfig,
+    HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem, LineCount, OffsetMap, Paragraph,
+    ParagraphBlock, ParagraphStyles, SelectableTextRun, gutter_expansion_button_types,
 };
-use crate::render::{TABLE_BASELINE_RATIO, TABLE_LINE_HEIGHT_RATIO};
 
 #[cfg(test)]
 #[path = "edit_tests.rs"]
@@ -94,8 +88,6 @@ fn resolve_asset_source(source: &str, base_path: Option<&Path>) -> AssetSource {
 /// Default height multiplier for images when no dimensions are specified.
 /// Images are rendered at 10x the base line height by default.
 const DEFAULT_IMAGE_HEIGHT_LINE_MULTIPLIER: f32 = 10.0;
-const MIN_TABLE_CELL_CONTENT_WIDTH_EMS: f32 = 1.0;
-const MAX_TABLE_CELL_CONTENT_WIDTH_PX: f32 = 500.0;
 
 /// Metadata for rendering a temporary block in the render model. Temporary blocks are not selectable or editable.
 #[derive(Debug, Clone, PartialEq)]
@@ -184,9 +176,6 @@ pub struct ParsedUrl {
 }
 
 impl ParsedUrl {
-    pub(crate) fn new(url_range: Range<usize>, link: String) -> Self {
-        Self { url_range, link }
-    }
     pub fn url_range(&self) -> Range<usize> {
         self.url_range.clone()
     }
@@ -218,88 +207,6 @@ struct LayOutArgs {
     next_url_index: usize,
     /// The active urls in the current text line.
     active_line_url: Vec<ParsedUrl>,
-}
-
-struct TableCellTextLayout {
-    paragraph_style: ParagraphStyles,
-    text_layout: InlineTextLayoutInput,
-}
-
-/// The first table layout pass measures each cell without a column-width constraint so we can
-/// compute shared column widths before the final pass applies alignment-sensitive layout. We also
-/// keep the styled text inputs from this pass so the second pass can reuse them directly.
-fn measure_table_cells(
-    table: &FormattedTable,
-    layout: &TextLayout,
-    table_style: &TableStyle,
-    header_paragraph_style: ParagraphStyles,
-    body_paragraph_style: ParagraphStyles,
-) -> (Vec<Pixels>, Vec<Vec<TableCellTextLayout>>) {
-    let num_cols = table.headers.len();
-    let mut column_widths = vec![Pixels::zero(); num_cols];
-    let mut cell_text_layouts = Vec::with_capacity(1 + table.rows.len());
-
-    for (row_idx, row) in std::iter::once(&table.headers)
-        .chain(table.rows.iter())
-        .enumerate()
-    {
-        let paragraph_style = if row_idx == 0 {
-            header_paragraph_style
-        } else {
-            body_paragraph_style
-        };
-        let mut row_text_layouts = Vec::with_capacity(row.len());
-        for (col_idx, cell_inline) in row.iter().enumerate() {
-            let runs: Vec<StyledBufferRun> = cell_inline
-                .iter()
-                .map(|fragment| StyledBufferRun {
-                    run: fragment.text.clone(),
-                    text_styles: fragment.styles.clone().into(),
-                    block_style: BufferBlockStyle::PlainText,
-                })
-                .collect();
-            let mut line = LayOutArgs::new();
-            line.highlighted_urls = highlight_urls(&runs);
-            for run in &runs {
-                line.layout_run(layout, run, &paragraph_style);
-            }
-            let text_layout = InlineTextLayoutInput {
-                text: line.text,
-                style_runs: line.style_runs,
-            };
-            let frame = layout.layout_text_with_options(
-                &text_layout.text,
-                &paragraph_style,
-                &text_layout.style_runs,
-                f32::MAX,
-                TextAlignment::Left,
-            );
-
-            let cell_width = (frame.max_width() + table_style.cell_padding * 2.0)
-                .into_pixels()
-                .max(minimum_table_cell_width(table_style))
-                .min(maximum_table_cell_width(table_style));
-            if let Some(w) = column_widths.get_mut(col_idx) {
-                *w = (*w).max(cell_width);
-            }
-            row_text_layouts.push(TableCellTextLayout {
-                paragraph_style,
-                text_layout,
-            });
-        }
-        cell_text_layouts.push(row_text_layouts);
-    }
-
-    (column_widths, cell_text_layouts)
-}
-
-fn minimum_table_cell_width(table_style: &TableStyle) -> Pixels {
-    (table_style.cell_padding * 2.0 + table_style.font_size * MIN_TABLE_CELL_CONTENT_WIDTH_EMS)
-        .into_pixels()
-}
-
-fn maximum_table_cell_width(table_style: &TableStyle) -> Pixels {
-    (table_style.cell_padding * 2.0 + MAX_TABLE_CELL_CONTENT_WIDTH_PX).into_pixels()
 }
 
 impl LayOutArgs {
@@ -902,17 +809,6 @@ fn layout_text_block(
         ));
     }
 
-    // Short-circuit before paragraph accumulation for table blocks.
-    if matches!(text_block.style, BufferBlockStyle::Table { .. })
-        && FeatureFlag::MarkdownTables.is_enabled()
-    {
-        let spacing = layout
-            .rich_text_styles()
-            .block_spacings
-            .from_block_style(&text_block.style);
-        return layout_table_block(text_block, layout, spacing).map(|block| (block, false));
-    }
-
     // Accumulator for the current line (paragraph) of text.
     let mut active_line = LayOutArgs::new();
     // Accumulator for fully laid-out paragraphs.
@@ -933,7 +829,7 @@ fn layout_text_block(
     for run in &text_block.block {
         let new_line = active_line.layout_run(layout, run, &paragraph_styles);
 
-        if new_line && !matches!(text_block.style, BufferBlockStyle::Table { .. }) {
+        if new_line {
             let offsets = active_line.finish_offsets();
             paragraphs.push(Paragraph::new(
                 layout.layout_text(
@@ -1075,193 +971,9 @@ fn layout_text_block(
                 .map(BlockItem::Paragraph)
                 .ok_or_else(|| anyhow!("Plain text item should have one paragraph"))
         }
-        BufferBlockStyle::Table { .. } => paragraphs
-            .pop()
-            .map(BlockItem::Paragraph)
-            .ok_or_else(|| anyhow!("Table fallback should have at least one paragraph")),
     };
 
     block_item.map(|item| (item, has_trailing_newline))
-}
-
-fn layout_table_block(
-    text_block: &StyledTextBlock,
-    layout: &TextLayout,
-    spacing: BlockSpacing,
-) -> Result<BlockItem> {
-    let table_plain_text = text_block
-        .block
-        .iter()
-        .map(|run| run.run.as_str())
-        .collect::<String>();
-    let style_cache = match &text_block.style {
-        BufferBlockStyle::Table { alignments, cache } => {
-            Some(cache.get_or_populate(&table_plain_text, alignments))
-        }
-        _ => None,
-    };
-    let owned_cache = if style_cache.is_none() {
-        Some(TableBlockCache::build(&table_plain_text, Vec::new()))
-    } else {
-        None
-    };
-    let cached = style_cache
-        .or(owned_cache.as_ref())
-        .expect("cache is always populated from style or owned fallback");
-    let table = cached.table.clone();
-    let cell_offset_maps = cached.cell_offset_maps.clone();
-    let offset_map = cached.offset_map.clone();
-
-    let table_style = layout.rich_text_styles().table_style;
-    let mut header_paragraph_style = layout.paragraph_styles(&text_block.style);
-    header_paragraph_style.font_weight = Weight::Bold;
-    header_paragraph_style.text_color = table_style.header_text_color;
-    header_paragraph_style.line_height_ratio = TABLE_LINE_HEIGHT_RATIO;
-    header_paragraph_style.baseline_ratio = TABLE_BASELINE_RATIO;
-
-    let mut body_paragraph_style = layout.paragraph_styles(&text_block.style);
-    body_paragraph_style.text_color = table_style.text_color;
-    body_paragraph_style.line_height_ratio = TABLE_LINE_HEIGHT_RATIO;
-    body_paragraph_style.baseline_ratio = TABLE_BASELINE_RATIO;
-
-    let (column_widths, cell_text_layouts) = measure_table_cells(
-        &table,
-        layout,
-        &table_style,
-        header_paragraph_style,
-        body_paragraph_style,
-    );
-    let cell_links = table_cell_links(&table);
-
-    let mut row_heights = Vec::with_capacity(cell_text_layouts.len());
-    let mut cell_text_frames = Vec::with_capacity(cell_text_layouts.len());
-    let mut cell_layouts = Vec::with_capacity(cell_text_layouts.len());
-
-    for row in &cell_text_layouts {
-        let mut row_height = Pixels::zero();
-        let mut row_frames = Vec::with_capacity(row.len());
-        let mut row_layouts = Vec::with_capacity(row.len());
-
-        for (col_idx, cell) in row.iter().enumerate() {
-            let cell_content_width = (column_widths
-                .get(col_idx)
-                .map(|width| width.as_f32())
-                .unwrap_or(0.0)
-                - table_style.cell_padding * 2.0)
-                .max(0.0);
-            let frame = layout.layout_text_with_options(
-                &cell.text_layout.text,
-                &cell.paragraph_style,
-                &cell.text_layout.style_runs,
-                cell_content_width,
-                table_column_text_alignment(&table, col_idx),
-            );
-            let cell_layout = CellLayout::from_text_frame(&frame);
-            let text_height = cell_layout
-                .line_heights
-                .iter()
-                .copied()
-                .sum::<f32>()
-                .into_pixels();
-            let min_height = (cell.paragraph_style.line_height().as_f32()
-                + table_style.cell_padding * 2.0)
-                .into_pixels();
-            let cell_height =
-                (text_height + (table_style.cell_padding * 2.0).into_pixels()).max(min_height);
-            row_height = row_height.max(cell_height);
-            row_frames.push(frame);
-            row_layouts.push(cell_layout);
-        }
-
-        row_heights.push(row_height);
-        cell_text_frames.push(row_frames);
-        cell_layouts.push(row_layouts);
-    }
-
-    let total_height = row_heights
-        .iter()
-        .fold(Pixels::zero(), |acc, row_height| acc + *row_height);
-    let width = column_widths
-        .iter()
-        .fold(Pixels::zero(), |acc, column_width| acc + *column_width);
-
-    let mut row_y_offsets = Vec::with_capacity(row_heights.len() + 1);
-    row_y_offsets.push(0.0);
-    let mut running_y = 0.0;
-    for height in &row_heights {
-        running_y += height.as_f32();
-        row_y_offsets.push(running_y);
-    }
-
-    let mut col_x_offsets = Vec::with_capacity(column_widths.len() + 1);
-    col_x_offsets.push(0.0);
-    let mut running_x = 0.0;
-    for width in &column_widths {
-        running_x += width.as_f32();
-        col_x_offsets.push(running_x);
-    }
-
-    let config = TableBlockConfig {
-        width,
-        spacing,
-        style: table_style,
-    };
-    let content_length = text_block.content_length;
-    let horizontal_scroll_allowed = !layout.container_scrolls_horizontally();
-    Ok(BlockItem::Table(Box::new(LaidOutTable {
-        table,
-        config,
-        row_heights,
-        column_widths,
-        total_height,
-        offset_map,
-        content_length,
-        cell_offset_maps,
-        row_y_offsets,
-        col_x_offsets,
-        cell_text_frames,
-        cell_layouts,
-        cell_links,
-        scroll_left: Cell::new(Pixels::zero()),
-        scrollbar_interaction_state: Default::default(),
-        horizontal_scroll_allowed,
-    })))
-}
-
-/// Returns links found in each table cell.
-///
-/// The return type is `Vec<Vec<Vec<ParsedUrl>>>` where:
-/// - Outer `Vec`: rows (header row first, then body rows)
-/// - Middle `Vec`: cells within each row
-/// - Inner `Vec`: parsed URLs found within a cell
-fn table_cell_links(table: &FormattedTable) -> Vec<Vec<Vec<ParsedUrl>>> {
-    std::iter::once(&table.headers)
-        .chain(table.rows.iter())
-        .map(|row| {
-            row.iter()
-                .map(|cell| {
-                    let mut links = Vec::new();
-                    let mut start = 0;
-                    for fragment in cell {
-                        let end = start + fragment.text.chars().count();
-                        if let Some(Hyperlink::Url(url)) = &fragment.styles.hyperlink {
-                            links.push(ParsedUrl::new(start..end, url.clone()));
-                        }
-                        start = end;
-                    }
-                    links
-                })
-                .collect()
-        })
-        .collect()
-}
-
-fn table_column_text_alignment(table: &FormattedTable, col: usize) -> TextAlignment {
-    match table.alignments.get(col).copied().unwrap_or_default() {
-        TableAlignment::Left => TextAlignment::Left,
-        TableAlignment::Center => TextAlignment::Center,
-        TableAlignment::Right => TextAlignment::Right,
-    }
 }
 
 /// Lay out a single temporary text block.

@@ -115,12 +115,6 @@ impl Describe for BlockItem {
             BlockItem::Header { header_size, .. } => write!(f, "{header_size:?}")?,
             BlockItem::HorizontalRule(_) => f.write_str("Horizontal Rule")?,
             BlockItem::Image { alt_text, .. } => write!(f, "Image: {alt_text}")?,
-            BlockItem::Table(laid_out_table) => write!(
-                f,
-                "Table: {}x{}",
-                laid_out_table.table.rows.len() + 1,
-                laid_out_table.table.headers.len()
-            )?,
             BlockItem::TrailingNewLine(_) => f.write_str("Trailing Newline")?,
             BlockItem::Embedded(_) => f.write_str("Embedded Item")?,
             BlockItem::Hidden { .. } => f.write_str("Hidden")?,

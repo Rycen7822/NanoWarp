@@ -3,13 +3,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-#[cfg(test)]
-use markdown_parser::FormattedTextInline;
 use warpui_core::AppContext;
 use warpui_core::color::ColorU;
 use warpui_core::fonts::TextLayoutSystem;
-#[cfg(test)]
-use warpui_core::fonts::{Style, Weight};
 use warpui_core::text_layout::{
     ClipConfig, LayoutCache, Line, StyleAndFont, TextAlignment, TextBorder, TextFrame, TextStyle,
 };
@@ -60,18 +56,11 @@ fn clamp_style_runs_for_layout(
         .collect()
 }
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct InlineTextLayoutInput {
-    pub text: String,
-    pub style_runs: Vec<(Range<usize>, StyleAndFont)>,
-}
-
 /// Utility for laying out rich text.
 pub struct TextLayout<'a> {
     font_cache: TextLayoutSystem<'a>,
     rich_text_styles: &'a RichTextStyles,
     max_width: f32,
-    container_scrolls_horizontally: bool,
 }
 
 impl<'a> TextLayout<'a> {
@@ -84,23 +73,7 @@ impl<'a> TextLayout<'a> {
             font_cache,
             rich_text_styles,
             max_width,
-            container_scrolls_horizontally: false,
         }
-    }
-
-    /// Indicate that the surrounding container (for example, a code editor) already provides
-    /// horizontal scrolling over its full content area. Blocks whose rendering would otherwise
-    /// introduce a nested horizontal scroll (like wide Markdown tables) should render at their
-    /// full intrinsic width instead and rely on the container's scroll.
-    pub fn with_container_scrolls_horizontally(mut self, flag: bool) -> Self {
-        self.container_scrolls_horizontally = flag;
-        self
-    }
-
-    /// Whether the surrounding container already provides horizontal scrolling over its full
-    /// content area. See [`Self::with_container_scrolls_horizontally`].
-    pub fn container_scrolls_horizontally(&self) -> bool {
-        self.container_scrolls_horizontally
     }
 
     /// Builds a [`TextLayout`] for an editor render state.
@@ -110,7 +83,6 @@ impl<'a> TextLayout<'a> {
             model.styles(),
             model.viewport().width().as_f32(),
         )
-        .with_container_scrolls_horizontally(model.container_scrolls_horizontally())
     }
 
     /// Lay out a single frame of text. The caller is responsible for mapping rich text into
@@ -281,75 +253,6 @@ pub(crate) fn add_link_to_style_and_font(mut style: StyleAndFont) -> StyleAndFon
         .with_underline_color(hyperlink_color)
         .with_foreground_color(hyperlink_color);
     style
-}
-
-#[cfg(test)]
-pub(crate) fn markdown_inline_to_text_and_style_runs(
-    inline: &FormattedTextInline,
-    paragraph_style: &ParagraphStyles,
-    link_color: Option<ColorU>,
-    inline_code_background: Option<ColorU>,
-) -> InlineTextLayoutInput {
-    let mut text = String::new();
-    let mut style_runs = Vec::new();
-    let mut start = 0usize;
-
-    for fragment in inline {
-        if fragment.text.is_empty() {
-            continue;
-        }
-
-        text.push_str(&fragment.text);
-        let len = fragment.text.chars().count();
-        let end = start + len;
-
-        let mut properties = paragraph_style.properties();
-        if let Some(custom_weight) = fragment.styles.weight {
-            properties = properties.weight(Weight::from_custom_weight(Some(custom_weight)));
-        }
-        if fragment.styles.italic {
-            properties = properties.style(Style::Italic);
-        }
-
-        let mut text_style = TextStyle::new();
-        if fragment.styles.strikethrough {
-            text_style = text_style.with_show_strikethrough(true);
-        }
-        if fragment.styles.underline {
-            text_style = text_style.with_underline_color(paragraph_style.text_color);
-        }
-        if fragment.styles.inline_code
-            && let Some(background) = inline_code_background
-        {
-            text_style = text_style.with_background_color(background);
-        }
-        if fragment.styles.hyperlink.is_some()
-            && let Some(link_color) = link_color
-        {
-            text_style = text_style
-                .with_foreground_color(link_color)
-                .with_underline_color(link_color);
-        }
-
-        style_runs.push((
-            start..end,
-            StyleAndFont::new(paragraph_style.font_family, properties, text_style),
-        ));
-        start = end;
-    }
-
-    if text.is_empty() {
-        style_runs.push((
-            0..0,
-            StyleAndFont::new(
-                paragraph_style.font_family,
-                paragraph_style.properties(),
-                TextStyle::new(),
-            ),
-        ));
-    }
-
-    InlineTextLayoutInput { text, style_runs }
 }
 
 #[cfg(test)]

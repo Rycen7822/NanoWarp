@@ -2,7 +2,6 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use line_ending::LineEnding;
 use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::{
     CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
@@ -34,7 +33,7 @@ use crate::content::selection::TextStyleBias;
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{
     BlockHeaderSize, BlockType, BufferBlockItem, BufferBlockStyle, CodeBlockType, IndentBehavior,
-    IndentUnit, TABLE_BLOCK_MARKDOWN_LANG, TextStyles, TextStylesWithMetadata,
+    IndentUnit, TextStyles, TextStylesWithMetadata,
 };
 use crate::content::undo::{
     NonAtomicType, ReversibleEditorActions, ReversibleSelectionState, UndoActionType, UndoArg,
@@ -12536,74 +12535,6 @@ fn test_multiselect_copy_blocks() {
                 "Hey\nYo\next\nThis"
             );
         })
-    });
-}
-
-#[test]
-fn test_selected_table_copy_uses_visible_plain_text() {
-    App::test((), |mut app| async move {
-        let table_source = "Header\t**Bold**";
-        let markdown = format!("```{TABLE_BLOCK_MARKDOWN_LANG}\n{table_source}\n```\n");
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let block_start = buffer.containing_block_start(CharOffset::from(1));
-            let bold_start = CharOffset::from(
-                table_source
-                    .find("**Bold**")
-                    .expect("table source should contain bold cell"),
-            );
-            let visible_bold_start = block_start + bold_start + CharOffset::from(2);
-            let visible_bold_end = visible_bold_start + CharOffset::from("Bold".chars().count());
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![visible_bold_start..visible_bold_end]);
-            });
-
-            assert_eq!(
-                buffer
-                    .selected_text_as_plain_text(selection.clone(), ctx)
-                    .as_str(),
-                "Bold"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_clipboard_table_copy_uses_source_offsets_for_later_formatted_cells() {
-    App::test((), |mut app| async move {
-        let table_source = "Header\t**Bold**\nNext\t*Italic*";
-        let markdown = format!("```{TABLE_BLOCK_MARKDOWN_LANG}\n{table_source}\n```\n");
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, _ctx| {
-            let block_start = buffer.containing_block_start(CharOffset::from(1));
-            let italic_start = CharOffset::from(
-                table_source
-                    .find("*Italic*")
-                    .expect("table source should contain italic cell"),
-            );
-            let italic_end = italic_start + CharOffset::from("*Italic*".chars().count());
-
-            assert_eq!(
-                buffer.clipboard_table_text_in_range(
-                    block_start,
-                    (block_start + italic_start)..(block_start + italic_end),
-                    LineEnding::LF,
-                ),
-                "Italic"
-            );
-        });
     });
 }
 

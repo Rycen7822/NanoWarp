@@ -71,8 +71,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CommandCorrectionKey,
         #[cfg(feature = "use_tantivy_search")]
         FeatureFlag::UseTantivySearch,
-        #[cfg(feature = "markdown_tables")]
-        FeatureFlag::MarkdownTables,
         #[cfg(feature = "msys2_shells")]
         FeatureFlag::MSYS2Shells,
         #[cfg(feature = "code_find_replace")]

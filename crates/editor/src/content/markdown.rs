@@ -3,9 +3,9 @@ use std::fmt::Write;
 use std::ops::Range;
 
 use markdown_parser::{
-    CodeBlockText, FormattedIndentTextInline, FormattedTableAlignment, FormattedTaskList,
-    FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextInline,
-    FormattedTextLine, OrderedFormattedIndentTextInline,
+    CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
+    FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
+    OrderedFormattedIndentTextInline,
 };
 use string_offset::CharOffset;
 use warpui_core::elements::{ListIndentLevel, ListNumbering};
@@ -16,10 +16,7 @@ use super::buffer::{
     StyledBufferBlocks, StyledBufferRun,
 };
 use super::core::{CoreEditorAction, CoreEditorActionType};
-use super::text::{
-    BlockHeaderSize, BlockType, BufferBlockStyle, FormattedTable, TABLE_BLOCK_MARKDOWN_LANG,
-    TextStylesWithMetadata,
-};
+use super::text::{BlockHeaderSize, BlockType, BufferBlockStyle, TextStylesWithMetadata};
 use crate::content::anchor::AnchorSide;
 use crate::content::selection_model::BufferSelectionModel;
 
@@ -61,18 +58,6 @@ impl<'a> BufferMarkdownParser<'a> {
                     res.push('\n');
                 }
                 StyledBufferBlock::Text(text_block) => {
-                    if let BufferBlockStyle::Table { alignments, .. } = &text_block.style
-                        && matches!(self.style, MarkdownStyle::Export { .. })
-                    {
-                        let markdown_text = Self::styled_runs_to_markdown_text(&text_block.block);
-                        let table = super::text::table_from_internal_format_with_inline_markdown(
-                            &markdown_text,
-                            alignments.clone(),
-                        );
-                        Self::serialize_table_to_gfm_markdown(&table, &mut res);
-                        continue;
-                    }
-
                     // Push the prefix for the active block.
                     match text_block.style.clone() {
                         BufferBlockStyle::Header { header_size } => {
@@ -111,11 +96,6 @@ impl<'a> BufferMarkdownParser<'a> {
                                 res.push_str("- [ ] ");
                             }
                         }
-                        BufferBlockStyle::Table { .. } => {
-                            res.push_str("```");
-                            res.push_str(TABLE_BLOCK_MARKDOWN_LANG);
-                            res.push('\n');
-                        }
                         BufferBlockStyle::PlainText => (),
                     };
 
@@ -134,9 +114,7 @@ impl<'a> BufferMarkdownParser<'a> {
 
                     // Push the suffix for the active block.
                     match text_block.style {
-                        BufferBlockStyle::CodeBlock { .. } | BufferBlockStyle::Table { .. } => {
-                            res.push_str("```\n")
-                        }
+                        BufferBlockStyle::CodeBlock { .. } => res.push_str("```\n"),
                         BufferBlockStyle::Header { .. }
                         | BufferBlockStyle::PlainText
                         | BufferBlockStyle::UnorderedList { .. }
@@ -148,48 +126,6 @@ impl<'a> BufferMarkdownParser<'a> {
         }
 
         res
-    }
-
-    fn serialize_table_to_gfm_markdown(table: &FormattedTable, buf: &mut String) {
-        let mut column_count = table.headers.len();
-        for row in &table.rows {
-            column_count = column_count.max(row.len());
-        }
-
-        if column_count == 0 {
-            return;
-        }
-
-        let header_cells = (0..column_count)
-            .map(|index| {
-                table
-                    .headers
-                    .get(index)
-                    .map(inline_to_markdown)
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
-        append_gfm_table_row(&header_cells, buf);
-
-        let separator_cells: Vec<String> = (0..column_count)
-            .map(|index| {
-                alignment_to_gfm_separator(
-                    table
-                        .alignments
-                        .get(index)
-                        .copied()
-                        .unwrap_or(FormattedTableAlignment::Left),
-                )
-            })
-            .collect();
-        append_gfm_table_row(&separator_cells, buf);
-
-        for row in &table.rows {
-            let row_cells = (0..column_count)
-                .map(|index| row.get(index).map(inline_to_markdown).unwrap_or_default())
-                .collect::<Vec<_>>();
-            append_gfm_table_row(&row_cells, buf);
-        }
     }
 
     /// Emits Markdown formatting markers for changing from `prev_styles` to `next_styles`.
@@ -338,12 +274,6 @@ impl<'a> BufferMarkdownParser<'a> {
         }
     }
 
-    fn styled_runs_to_markdown_text(runs: &[StyledBufferRun]) -> String {
-        let mut res = String::new();
-        Self::append_block_content(runs, false, &mut res);
-        res
-    }
-
     fn append_block_content(runs: &[StyledBufferRun], block_escapes: bool, buf: &mut String) {
         let mut prev_styles = TextStylesWithMetadata::default();
         for run in runs {
@@ -478,14 +408,6 @@ impl<'a> BufferToFormattedText<'a> {
                                 code: text,
                             })
                         }
-                        BufferBlockStyle::Table { alignments, .. } => {
-                            trailing_new_line = false;
-                            let text: String =
-                                text_block.block.into_iter().map(|run| run.run).collect();
-                            FormattedTextLine::Table(
-                                markdown_parser::FormattedTable::from_internal_format_with_alignments(&text, alignments),
-                            )
-                        }
                         BufferBlockStyle::PlainText => {
                             trailing_new_line = false;
                             FormattedTextLine::Line(
@@ -531,10 +453,7 @@ impl BufferBlockStyle {
     /// Whether or not punctuation that may be misinterpreted as Markdown formatting should be
     /// escaped. This is true for _most_ block types, but some do not allow escapes.
     fn escape_markdown_punctuation(&self) -> bool {
-        !matches!(
-            self,
-            BufferBlockStyle::CodeBlock { .. } | BufferBlockStyle::Table { .. }
-        )
+        !matches!(self, BufferBlockStyle::CodeBlock { .. })
     }
 }
 
@@ -654,7 +573,6 @@ fn formatted_text_line_to_block_style(line: &FormattedTextLine) -> Option<Buffer
         FormattedTextLine::CodeBlock(text) => Some(BufferBlockStyle::CodeBlock {
             code_block_type: text.into(),
         }),
-        FormattedTextLine::Table(table) => Some(BufferBlockStyle::table(table.alignments.clone())),
         FormattedTextLine::UnorderedList(list) => Some(BufferBlockStyle::UnorderedList {
             indent_level: ListIndentLevel::from_usize(list.indent_level),
         }),
@@ -674,52 +592,6 @@ fn formatted_text_line_to_block_style(line: &FormattedTextLine) -> Option<Buffer
         // Images are block items, not block styles
         FormattedTextLine::Image(_) => None,
     }
-}
-
-fn inline_to_markdown(inline: &FormattedTextInline) -> String {
-    let mut markdown = String::new();
-    let mut previous_styles = TextStylesWithMetadata::default();
-    for fragment in inline {
-        let next_styles = TextStylesWithMetadata::from(fragment.styles.clone());
-        let content = BufferMarkdownParser::append_formatting(
-            &previous_styles,
-            &next_styles,
-            fragment.text.as_str(),
-            &mut markdown,
-        );
-        previous_styles = next_styles;
-        BufferMarkdownParser::append_content(content, true, &mut markdown);
-    }
-    BufferMarkdownParser::append_formatting(
-        &previous_styles,
-        &TextStylesWithMetadata::default(),
-        "",
-        &mut markdown,
-    );
-    markdown
-}
-
-fn append_gfm_table_row(cells: &[String], buf: &mut String) {
-    buf.push('|');
-    for cell in cells {
-        buf.push(' ');
-        buf.push_str(&escape_gfm_table_cell(cell));
-        buf.push(' ');
-        buf.push('|');
-    }
-    buf.push('\n');
-}
-
-fn alignment_to_gfm_separator(alignment: FormattedTableAlignment) -> String {
-    match alignment {
-        FormattedTableAlignment::Left => "---".to_string(),
-        FormattedTableAlignment::Center => ":---:".to_string(),
-        FormattedTableAlignment::Right => "---:".to_string(),
-    }
-}
-
-fn escape_gfm_table_cell(cell: &str) -> String {
-    cell.replace('|', "\\|")
 }
 
 #[cfg(test)]

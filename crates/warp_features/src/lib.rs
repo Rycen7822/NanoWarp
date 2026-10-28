@@ -155,9 +155,6 @@ pub enum FeatureFlag {
     /// Enables asynchronous find in terminal, running search on a background thread.
     AsyncFind,
 
-    /// Enables rendering markdown tables in notebooks.
-    MarkdownTables,
-
     /// Enables configuring header toolbar item order, side placement, and visibility.
     ConfigurableToolbar,
 

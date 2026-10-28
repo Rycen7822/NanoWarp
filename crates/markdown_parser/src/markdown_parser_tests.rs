@@ -3,15 +3,11 @@ use nom::error::{VerboseError, convert_error};
 use serde_yaml::Mapping;
 
 use super::*;
-use crate::{CustomWeight, FormattedTable, FormattedTextStyles, LineCount};
+use crate::{CustomWeight, FormattedTextStyles};
 
 // Simple transformer to make testing easier.
 fn test_parse_markdown(source: &str) -> Vec<FormattedTextLine> {
-    parse_all(source, |input| parse_markdown_internal(input, false))
-}
-
-fn test_parse_markdown_with_gfm_tables(source: &str) -> Vec<FormattedTextLine> {
-    parse_all(source, |input| parse_markdown_internal(input, true))
+    parse_all(source, parse_markdown_internal)
 }
 
 #[test]
@@ -561,17 +557,6 @@ fn test_parse_code_block_lang() {
             lang: "sample_lang".to_string(),
             code: "some code\n".to_string()
         }),]
-    );
-}
-
-#[test]
-fn test_parse_table_block_lang() {
-    let source = format!("```{TABLE_BLOCK_MARKDOWN_LANG}\nname\tage\nalice\t30\n```");
-    assert_eq!(
-        test_parse_markdown(source.as_str()),
-        vec![FormattedTextLine::Table(
-            FormattedTable::from_internal_format("name\tage\nalice\t30\n")
-        )]
     );
 }
 
@@ -2535,21 +2520,6 @@ fn test_parse_image_title_with_embedded_newline_falls_back() {
 }
 
 #[test]
-fn test_table_line_helpers() {
-    let mut line = FormattedTextLine::Table(FormattedTable::from_internal_format(
-        "name\tage\nalice\t30\n",
-    ));
-    let before = line.clone();
-
-    assert_eq!(line.raw_text(), "name\tage\nalice\t30\n".to_string());
-    assert_eq!(line.num_lines(), 2);
-    assert!(line.hyperlinks(false).is_empty());
-
-    line.set_weight(Some(CustomWeight::Bold));
-    assert_eq!(line, before);
-}
-
-#[test]
 fn test_parse_image_url() {
     let source = "![Remote image](https://example.com/image.png)\n";
     assert_eq!(
@@ -2611,38 +2581,6 @@ fn test_parse_image_with_other_content() {
     assert!(matches!(result[4], FormattedTextLine::Line(_)));
 }
 
-// Table parsing tests
-
-#[test]
-fn table_cell_escaped_pipe_is_literal() {
-    // Parse just the data row to validate cell splitting respects \\|.
-    // Start at the first cell content (after the leading '|').
-    let row_after_bar = " A \\| B | Pipe |";
-    let (rest, cell1) = parse(row_after_bar, parse_table_cell);
-    assert_eq!(cell1, "A | B");
-    let (_rest2, cell2) = parse(rest, parse_table_cell);
-    assert_eq!(cell2, "Pipe");
-}
-
-#[test]
-fn table_cell_html_entities_are_decoded() {
-    let decode = |s: &str| {
-        let fragments = parse_cell_content(s);
-        fragments.into_iter().map(|f| f.text).collect::<String>()
-    };
-
-    assert_eq!(decode("&lt;"), "<");
-    assert_eq!(decode("&gt;"), ">");
-    assert_eq!(decode("&amp;"), "&");
-    assert_eq!(decode("&vert;"), "|");
-    assert_eq!(decode("&ast;"), "*");
-    assert_eq!(decode("&lowbar;"), "_");
-    assert_eq!(decode("&grave;"), "`");
-    assert_eq!(decode("&bsol;"), "\\");
-    assert_eq!(decode("&#92;"), "\\");
-    assert_eq!(decode("&#96;"), "`");
-}
-
 #[test]
 fn test_html_entity_all_named_entities() {
     let decode = |s: &str| {
@@ -2685,6 +2623,8 @@ fn test_html_entity_numeric_decimal() {
     assert_eq!(decode("&#38;"), "&");
     assert_eq!(decode("&#34;"), "\"");
     assert_eq!(decode("&#39;"), "'");
+    assert_eq!(decode("&#92;"), "\\");
+    assert_eq!(decode("&#96;"), "`");
     assert_eq!(decode("&#160;"), "\u{00A0}");
     assert_eq!(decode("&#169;"), "\u{00A9}");
     assert_eq!(decode("&#8212;"), "\u{2014}");
@@ -2737,146 +2677,6 @@ fn test_html_entity_invalid_not_decoded() {
     assert_eq!(decode("&#;"), "&#;");
     assert_eq!(decode("&#x;"), "&#x;");
     assert_eq!(decode("&#99999999999;"), "&#99999999999;");
-}
-
-#[test]
-fn test_parse_simple_table() {
-    let source = "| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    eprintln!("Parse result: {:?}", result);
-    eprintln!("Result length: {}", result.len());
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.headers.len(), 2);
-        assert_eq!(table.alignments.len(), 2);
-        assert_eq!(table.rows.len(), 1);
-        assert_eq!(table.rows[0].len(), 2);
-    } else {
-        panic!("Expected table, got {:?}", result[0]);
-    }
-}
-
-#[test]
-fn test_parse_table_with_alignments() {
-    let source = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| L | C | R |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.alignments[0], TableAlignment::Left);
-        assert_eq!(table.alignments[1], TableAlignment::Center);
-        assert_eq!(table.alignments[2], TableAlignment::Right);
-    } else {
-        panic!("Expected table");
-    }
-}
-
-#[test]
-fn test_parse_table_with_inline_formatting() {
-    let source = "| **Bold** | *Italic* |\n| --- | --- |\n| `code` | normal |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        // Check bold header
-        assert_eq!(table.headers[0].len(), 1);
-        assert_eq!(table.headers[0][0].styles.weight, Some(CustomWeight::Bold));
-
-        // Check italic header
-        assert_eq!(table.headers[1].len(), 1);
-        assert!(table.headers[1][0].styles.italic);
-
-        // Check inline code in cell
-        assert_eq!(table.rows[0][0].len(), 1);
-        assert!(table.rows[0][0][0].styles.inline_code);
-    } else {
-        panic!("Expected table");
-    }
-}
-
-#[test]
-fn test_parse_table_multiple_rows() {
-    let source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.rows.len(), 3);
-        assert_eq!(table.rows[0][0][0].text, "1");
-        assert_eq!(table.rows[1][0][0].text, "3");
-        assert_eq!(table.rows[2][0][0].text, "5");
-    } else {
-        panic!("Expected table");
-    }
-}
-
-#[test]
-fn test_parse_table_with_empty_cells() {
-    let source = "| A | B |\n| --- | --- |\n|  | filled |\n| filled |  |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.rows.len(), 2);
-        assert_eq!(table.rows[0][0].len(), 0);
-        assert_eq!(table.rows[1][1].len(), 0);
-    } else {
-        panic!("Expected table");
-    }
-}
-
-#[test]
-fn test_parse_table_with_links() {
-    let source = "| Link | Text |\n| --- | --- |\n| [Warp](https://warp.dev) | normal |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.rows.len(), 1);
-        let link_cell = &table.rows[0][0];
-        assert_eq!(link_cell.len(), 1);
-        assert_eq!(link_cell[0].text, "Warp");
-        assert!(matches!(
-            &link_cell[0].styles.hyperlink,
-            Some(Hyperlink::Url(url)) if url == "https://warp.dev"
-        ));
-    } else {
-        panic!("Expected table");
-    }
-}
-
-#[test]
-fn test_parse_table_followed_by_other_content() {
-    let source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n\nSome text after the table\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 3);
-
-    assert!(matches!(result[0], FormattedTextLine::Table(_)));
-    assert!(matches!(result[1], FormattedTextLine::LineBreak));
-
-    if let FormattedTextLine::Line(fragments) = &result[2] {
-        assert_eq!(fragments[0].text, "Some text after the table");
-    } else {
-        panic!("Expected Line, got {:?}", result[2]);
-    }
-}
-
-#[test]
-fn test_parse_table_with_strikethrough() {
-    let source = "| Format | Example |\n| --- | --- |\n| ~~Strikethrough~~ | text |\n";
-    let result = test_parse_markdown_with_gfm_tables(source);
-    assert_eq!(result.len(), 1);
-
-    if let FormattedTextLine::Table(table) = &result[0] {
-        assert_eq!(table.rows.len(), 1);
-        let cell = &table.rows[0][0];
-        assert_eq!(cell.len(), 1);
-        assert!(cell[0].styles.strikethrough);
-        assert_eq!(cell[0].text, "Strikethrough");
-    } else {
-        panic!("Expected table");
-    }
 }
 
 #[test]

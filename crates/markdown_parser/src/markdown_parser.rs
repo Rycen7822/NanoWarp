@@ -18,10 +18,9 @@ use nom::{FindToken, IResult, InputIter, InputLength, Parser, Slice};
 use serde_yaml::Value;
 
 use crate::{
-    CodeBlockText, CustomWeight, FormattedImage, FormattedIndentTextInline, FormattedTable,
-    FormattedTaskList, FormattedText, FormattedTextFragment, FormattedTextHeader,
-    FormattedTextInline, FormattedTextLine, FormattedTextStyles, Hyperlink,
-    OrderedFormattedIndentTextInline, TableAlignment,
+    CodeBlockText, CustomWeight, FormattedImage, FormattedIndentTextInline, FormattedTaskList,
+    FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
+    FormattedTextStyles, Hyperlink, OrderedFormattedIndentTextInline,
 };
 
 const HEADER_TAG_MIN_COUNT: usize = 1;
@@ -36,7 +35,6 @@ pub const EMBED_BLOCK_MARKDOWN_LANG: &str = "warp-embedded-object";
 
 pub const RUNNABLE_BLOCK_MARKDOWN_LANG: &str = "warp-runnable-command";
 pub const CODE_BLOCK_DEFAULT_MARKDOWN_LANG: &str = "text";
-pub const TABLE_BLOCK_MARKDOWN_LANG: &str = "warp-markdown-table";
 
 const INDENT_TAG_MIN_COUNT: usize = 0;
 const INDENT_TAG_MAX_COUNT: usize = INDENT_MAX_LEVEL * NUM_SPACE_PER_INDENT_LEVEL;
@@ -109,15 +107,7 @@ impl ListIndentationContext {
 }
 
 pub fn parse_markdown(markdown: &str) -> Result<FormattedText> {
-    parse_markdown_impl(markdown, false)
-}
-
-pub fn parse_markdown_with_gfm_tables(markdown: &str) -> Result<FormattedText> {
-    parse_markdown_impl(markdown, true)
-}
-
-fn parse_markdown_impl(markdown: &str, parse_gfm_tables: bool) -> Result<FormattedText> {
-    parse_markdown_internal::<'_, nom::error::Error<_>>(markdown, parse_gfm_tables)
+    parse_markdown_internal::<'_, nom::error::Error<_>>(markdown)
         .map(|(_, mut res)| {
             if let Some(FormattedTextLine::LineBreak) = res.last() {
                 res.pop();
@@ -140,7 +130,6 @@ pub fn parse_markdown_to_raw_text(markdown: &str) -> Result<String> {
 
 fn parse_markdown_internal<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
     markdown: &'a str,
-    parse_gfm_tables: bool,
 ) -> IResult<&'a str, Vec<FormattedTextLine>, E> {
     let indentation_context = RefCell::new(ListIndentationContext::new());
 
@@ -154,11 +143,6 @@ fn parse_markdown_internal<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
                     && let Ok(Value::Mapping(mapping)) = serde_yaml::from_str(&content)
                 {
                     return FormattedTextLine::Embedded(mapping);
-                }
-                if lang == TABLE_BLOCK_MARKDOWN_LANG {
-                    return FormattedTextLine::Table(FormattedTable::from_internal_format(
-                        &content,
-                    ));
                 }
 
                 FormattedTextLine::CodeBlock(CodeBlockText {
@@ -179,12 +163,6 @@ fn parse_markdown_internal<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
             |i| {
                 parse_unordered_list(i, &indentation_context)
                     .map(|(s, u)| (s, FormattedTextLine::UnorderedList(u)))
-            },
-            |i| {
-                if !parse_gfm_tables {
-                    return Err(nom::Err::Error(E::from_error_kind(i, ErrorKind::Alt)));
-                }
-                map(parse_table, FormattedTextLine::Table)(i)
             },
             parse_paragraph,
         )),
@@ -573,161 +551,6 @@ fn parse_image_title<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
         title.push(ch);
         remaining = &remaining[ch_len..];
     }
-}
-
-/// Parse a GFM-style markdown table.
-///
-/// Tables have:
-/// - Header row: `| Header 1 | Header 2 |`
-/// - Separator row: `| --- | :---: |` (determines alignment)
-/// - Data rows: `| Cell 1 | Cell 2 |`
-///
-fn parse_table<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
-    markdown: &'a str,
-) -> IResult<&'a str, FormattedTable, E> {
-    context("table", |input| {
-        let (input, _) = parse_block_leading_spaces(input)?;
-
-        let (input, headers) = parse_table_row(input)?;
-
-        let (input, alignments) = parse_table_separator(input)?;
-
-        if alignments.len() != headers.len() {
-            return Err(nom::Err::Error(make_error(input, ErrorKind::Verify)));
-        }
-
-        let mut rows = Vec::new();
-        let mut remaining = input;
-
-        while let Ok((next_input, cells)) = parse_table_row::<E>(remaining) {
-            rows.push(cells);
-            remaining = next_input;
-        }
-
-        Ok((
-            remaining,
-            FormattedTable {
-                headers,
-                alignments,
-                rows,
-            },
-        ))
-    })(markdown)
-}
-
-/// Parse a single table row, returning each cell's content as parsed inline markdown
-fn parse_table_row<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
-    input: &'a str,
-) -> IResult<&'a str, Vec<FormattedTextInline>, E> {
-    let (input, _) = space0(input)?;
-    let (input, _) = tag("|")(input)?;
-
-    let (input, cells) = many0(parse_table_cell)(input)?;
-
-    let (input, _) = alt((value((), parse_line_ending), value((), eof)))(input)?;
-
-    let parsed_cells = cells.iter().map(|cell| parse_cell_content(cell)).collect();
-    Ok((input, parsed_cells))
-}
-
-/// Parse a single table cell, handling escaped pipes (`\|`) as literal pipe characters.
-/// Stops at newlines since table rows are line-based.
-fn parse_table_cell<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
-    input: &'a str,
-) -> IResult<&'a str, String, E> {
-    let mut content = String::new();
-    let mut chars = input.char_indices().peekable();
-    let mut end_index = 0;
-
-    while let Some((i, c)) = chars.next() {
-        if c == '|' {
-            end_index = i;
-            break;
-        } else if c == '\n' || c == '\r' {
-            return Err(nom::Err::Error(make_error(input, ErrorKind::TakeUntil)));
-        } else if c == '\\' {
-            if let Some(&(_, next_c)) = chars.peek()
-                && next_c == '|'
-            {
-                content.push('|');
-                chars.next();
-                continue;
-            }
-            content.push(c);
-        } else {
-            content.push(c);
-        }
-        end_index = i + c.len_utf8();
-    }
-
-    if end_index >= input.len() || !input[end_index..].starts_with('|') {
-        return Err(nom::Err::Error(make_error(input, ErrorKind::TakeUntil)));
-    }
-
-    let remaining = &input[end_index + 1..];
-    Ok((remaining, content.trim().to_string()))
-}
-
-/// Parse the table separator row to determine column alignments
-fn parse_table_separator<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
-    input: &'a str,
-) -> IResult<&'a str, Vec<TableAlignment>, E> {
-    let (input, _) = space0(input)?;
-    let (input, _) = tag("|")(input)?;
-
-    let (input, alignments) = many0(parse_separator_cell)(input)?;
-
-    // Must have at least one column
-    if alignments.is_empty() {
-        return Err(nom::Err::Error(make_error(input, ErrorKind::Verify)));
-    }
-
-    let (input, _) = alt((value((), parse_line_ending), value((), eof)))(input)?;
-
-    Ok((input, alignments))
-}
-
-/// Parse a single separator cell to determine alignment
-fn parse_separator_cell<'a, E: ContextError<&'a str> + ParseError<&'a str>>(
-    input: &'a str,
-) -> IResult<&'a str, TableAlignment, E> {
-    let (input, content) = take_until("|")(input)?;
-    let (input, _) = tag("|")(input)?;
-
-    let trimmed = content.trim();
-
-    // Verify it's a valid separator (contains only :, -, and whitespace)
-    let is_valid = trimmed
-        .chars()
-        .all(|c: char| c == '-' || c == ':' || c.is_whitespace());
-    if !is_valid || trimmed.is_empty() {
-        return Err(nom::Err::Error(make_error(input, ErrorKind::Verify)));
-    }
-
-    let alignment = if trimmed.starts_with(':') && trimmed.ends_with(':') {
-        TableAlignment::Center
-    } else if trimmed.ends_with(':') {
-        TableAlignment::Right
-    } else {
-        TableAlignment::Left
-    };
-
-    Ok((input, alignment))
-}
-
-/// Parse cell content as inline markdown
-fn parse_cell_content(cell: &str) -> Vec<FormattedTextFragment> {
-    match all_consuming(parse_inline::<nom::error::Error<_>>)(cell) {
-        Ok((_, fragments)) => fragments,
-        Err(_) => vec![FormattedTextFragment::plain_text(cell)],
-    }
-}
-
-/// Parse a string as inline markdown.
-/// This is useful for parsing table cell content or other inline text that may contain
-/// formatting like **bold**, *italic*, `code`, [links](url), etc.
-pub fn parse_inline_markdown(text: &str) -> Vec<FormattedTextFragment> {
-    parse_cell_content(text)
 }
 
 fn parse_header_tag<'a, E: ContextError<&'a str> + ParseError<&'a str>>(

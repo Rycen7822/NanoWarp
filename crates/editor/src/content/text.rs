@@ -1,24 +1,18 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Range, Sub, SubAssign};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
 use lazy_static::lazy_static;
-pub use markdown_parser::markdown_parser::TABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::markdown_parser::{
     CODE_BLOCK_DEFAULT_MARKDOWN_LANG, EMBED_BLOCK_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
 };
 use markdown_parser::weight::CustomWeight;
 use markdown_parser::{
     CodeBlockText, FormattedImage, FormattedTextLine, FormattedTextStyles, Hyperlink,
-    parse_markdown,
-};
-pub use markdown_parser::{
-    FormattedTable, FormattedTableAlignment, FormattedTextFragment, FormattedTextInline,
 };
 use pathfinder_color::ColorU;
 use rand::Rng;
@@ -35,126 +29,6 @@ use super::buffer::Buffer;
 use super::core::CursorType;
 use super::markdown::MarkdownStyle;
 use crate::render::model::EmbeddedItem;
-use crate::render::model::table_offset_map::{TableCellOffsetMap, TableOffsetMap};
-
-/// Collect the plain text from a `FormattedTextInline` (a slice of fragments).
-pub fn inline_to_text(inline: &[FormattedTextFragment]) -> String {
-    inline
-        .iter()
-        .map(|fragment| fragment.text.as_str())
-        .collect()
-}
-
-/// Build per-cell source↔rendered offset maps for every cell in `table`, using the raw
-/// tab-and-newline-separated `source` text as the source of truth for each cell's pre-parse bytes.
-///
-/// We pass `source` in rather than deriving it from `table` because the parser has already stripped
-/// escape backslashes, consolidated fragments, and potentially normalized table shape. Walking the
-/// raw source alongside each cell's parsed fragments gives exact source spans without having to
-/// reproduce marker syntax in this crate.
-pub fn table_cell_offset_maps(
-    table: &FormattedTable,
-    source: &str,
-) -> Vec<Vec<TableCellOffsetMap>> {
-    let source_rows: Vec<Vec<&str>> = source
-        .lines()
-        .map(|row| row.split('\t').collect())
-        .collect();
-
-    std::iter::once(&table.headers)
-        .chain(table.rows.iter())
-        .enumerate()
-        .map(|(row_idx, row)| {
-            row.iter()
-                .enumerate()
-                .map(|(col_idx, cell)| {
-                    let cell_source = source_rows
-                        .get(row_idx)
-                        .and_then(|row_cells| row_cells.get(col_idx))
-                        .copied()
-                        .unwrap_or("");
-                    TableCellOffsetMap::from_inline_and_source(cell_source, cell)
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// Cached parse of a Markdown table block: the parsed `FormattedTable`, per-cell source↔rendered
-/// offset maps, and the linear `TableOffsetMap` that maps character offsets to cell coordinates.
-///
-/// Storing these together lets consumers that already know the block's plain text (clipboard copy,
-/// table layout) avoid re-running `table_from_internal_format_with_inline_markdown` and
-/// `table_cell_offset_maps` on every access.
-pub struct TableBlockCache {
-    pub table: FormattedTable,
-    pub cell_offset_maps: Vec<Vec<TableCellOffsetMap>>,
-    pub offset_map: TableOffsetMap,
-}
-
-impl TableBlockCache {
-    pub(super) fn build(text: &str, alignments: Vec<FormattedTableAlignment>) -> Self {
-        let mut table = table_from_internal_format_with_inline_markdown(text, alignments);
-        table.normalize_shape();
-        let cell_offset_maps = table_cell_offset_maps(&table, text);
-        let cell_lengths = cell_offset_maps
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.source_length().as_usize())
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let offset_map = TableOffsetMap::new(cell_lengths);
-        Self {
-            table,
-            cell_offset_maps,
-            offset_map,
-        }
-    }
-}
-
-/// Lazy wrapper around a shared [`TableBlockCache`] stored on [`BufferBlockStyle::Table`].
-///
-/// The cache is populated on first access via [`TableCache::get_or_populate`]. Clones share the
-/// same lock, so populating the cache through one clone makes the result visible to all clones.
-///
-/// `TableCache` intentionally compares equal to every other `TableCache` and hashes to the same
-/// value, so the cache field does not affect `BufferBlockStyle` equality or hashing — two table
-/// markers with the same alignments are considered equal regardless of cache state.
-#[derive(Clone, Default)]
-pub struct TableCache(Arc<OnceLock<TableBlockCache>>);
-
-impl TableCache {
-    /// Returns the cached parse of the table block, populating it from `text` and `alignments`
-    /// on the first call.
-    pub fn get_or_populate(
-        &self,
-        text: &str,
-        alignments: &[FormattedTableAlignment],
-    ) -> &TableBlockCache {
-        self.0
-            .get_or_init(|| TableBlockCache::build(text, alignments.to_vec()))
-    }
-}
-
-impl PartialEq for TableCache {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl Eq for TableCache {}
-
-impl Hash for TableCache {
-    fn hash<H: Hasher>(&self, _state: &mut H) {}
-}
-
-impl fmt::Debug for TableCache {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("TableCache").finish()
-    }
-}
 
 pub const CODE_BLOCK_DEFAULT_DISPLAY_LANG: &str = "Code";
 pub const CODE_BLOCK_SHELL_DISPLAY_LANG: &str = "Shell";
@@ -195,47 +69,6 @@ impl<'a> std::ops::AddAssign<&'a Self> for TextSummary {
         self.chars += other.chars;
         self.bytes += other.bytes;
         self.lines += other.lines;
-    }
-}
-
-fn parse_table_cell_markdown_inline(cell: &str) -> FormattedTextInline {
-    let Ok(parsed) = parse_markdown(cell) else {
-        return vec![FormattedTextFragment::plain_text(cell)];
-    };
-
-    let mut inline = Vec::new();
-    for line in parsed.lines {
-        match line {
-            FormattedTextLine::Line(fragments) => inline.extend(fragments),
-            FormattedTextLine::Heading(header) => inline.extend(header.text),
-            FormattedTextLine::OrderedList(item) => inline.extend(item.indented_text.text),
-            FormattedTextLine::UnorderedList(item) => inline.extend(item.text),
-            FormattedTextLine::TaskList(item) => inline.extend(item.text),
-            FormattedTextLine::CodeBlock(block) => {
-                inline.push(FormattedTextFragment::plain_text(block.code));
-            }
-            FormattedTextLine::Table(table) => {
-                inline.push(FormattedTextFragment::plain_text(
-                    table.to_internal_format(),
-                ));
-            }
-            FormattedTextLine::Image(image) => {
-                inline.push(FormattedTextFragment::plain_text(image.alt_text));
-            }
-            FormattedTextLine::LineBreak => {
-                inline.push(FormattedTextFragment::plain_text("\n"));
-            }
-            FormattedTextLine::HorizontalRule => {
-                inline.push(FormattedTextFragment::plain_text("---"));
-            }
-            FormattedTextLine::Embedded(_) => {}
-        }
-    }
-
-    if inline.is_empty() {
-        vec![FormattedTextFragment::plain_text(cell)]
-    } else {
-        inline
     }
 }
 
@@ -366,31 +199,6 @@ impl LinkMarker {
 pub enum BlockType {
     Item(BufferBlockItem),
     Text(BufferBlockStyle),
-}
-
-/// Parse the internal tab-separated format
-/// `parse_markdown` to each cell so that inline formatting is preserved.
-pub fn table_from_internal_format_with_inline_markdown(
-    content: &str,
-    mut alignments: Vec<FormattedTableAlignment>,
-) -> FormattedTable {
-    let parse_line = |line: &str| -> Vec<FormattedTextInline> {
-        line.split('\t')
-            .map(parse_table_cell_markdown_inline)
-            .collect()
-    };
-
-    let mut lines = content.lines().peekable();
-    let headers = lines.next().map(parse_line).unwrap_or_default();
-    let rows: Vec<Vec<FormattedTextInline>> = lines.map(parse_line).collect();
-    let col_count = headers.len();
-    alignments.resize(col_count, FormattedTableAlignment::default());
-
-    FormattedTable {
-        headers,
-        alignments,
-        rows,
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -648,7 +456,6 @@ impl Display for BufferText {
                             write!(f, "@{number}")?;
                         }
                     }
-                    BufferBlockStyle::Table { .. } => f.write_str("table")?,
                 };
                 f.write_str(">")
             }
@@ -872,24 +679,9 @@ pub enum BufferBlockStyle {
         number: Option<usize>,
         indent_level: ListIndentLevel,
     },
-    Table {
-        alignments: Vec<FormattedTableAlignment>,
-        /// Lazy cache of the parsed table, per-cell offset maps, and linear offset map for this
-        /// block. Does not participate in equality or hashing.
-        #[allow(dead_code)]
-        cache: TableCache,
-    },
 }
 
 impl BufferBlockStyle {
-    /// Construct a new `Table` block style with an empty cache.
-    pub fn table(alignments: Vec<FormattedTableAlignment>) -> Self {
-        Self::Table {
-            alignments,
-            cache: TableCache::default(),
-        }
-    }
-
     pub(super) fn line_break_behavior(&self) -> BlockLineBreakBehavior {
         match self {
             Self::Header { .. } => BlockLineBreakBehavior::BlockMarker(BufferBlockStyle::PlainText),
@@ -910,9 +702,7 @@ impl BufferBlockStyle {
                     number: None,
                 })
             }
-            Self::PlainText | Self::CodeBlock { .. } | Self::Table { .. } => {
-                BlockLineBreakBehavior::NewLine
-            }
+            Self::PlainText | Self::CodeBlock { .. } => BlockLineBreakBehavior::NewLine,
         }
     }
 
@@ -926,9 +716,7 @@ impl BufferBlockStyle {
         match self {
             // For plain text and runnable code blocks, always inherit the previous block's styling if
             // the cursor is not at buffer start.
-            Self::PlainText | Self::CodeBlock { .. } | Self::Table { .. } => {
-                edit_cursor != CursorType::BufferStart
-            }
+            Self::PlainText | Self::CodeBlock { .. } => edit_cursor != CursorType::BufferStart,
             // For other non-plain text blocks, inherit the previous block's styling if
             // 1) The block styling is different.
             // 2) The cursor is either inline or in a runnable code block.
@@ -951,8 +739,7 @@ impl BufferBlockStyle {
             | Self::Header { .. }
             | Self::UnorderedList { .. }
             | Self::OrderedList { .. }
-            | Self::TaskList { .. }
-            | Self::Table { .. } => true,
+            | Self::TaskList { .. } => true,
             Self::CodeBlock { .. } => false,
         }
     }

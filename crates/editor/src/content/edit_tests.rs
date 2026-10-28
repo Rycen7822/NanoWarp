@@ -4,16 +4,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rangemap::RangeSet;
 use string_offset::CharOffset;
-use warp_core::features::FeatureFlag;
 use warpui_core::App;
 use warpui_core::assets::asset_cache::AssetSource;
-use warpui_core::fonts::{Properties, Style, Weight};
+use warpui_core::fonts::{Properties, Weight};
 use warpui_core::text_layout::{StyleAndFont, TextStyle};
 
 use super::{
-    BlockLocation, LayOutArgs, LayoutTask, MAX_LAYOUT_CONTENT_CHARS_PER_PARALLEL_CHUNK,
-    MAX_LAYOUT_TASKS_PER_PARALLEL_CHUNK, chunk_layout_tasks, layout_table_block,
-    layout_temporary_blocks, layout_text_block,
+    LayOutArgs, LayoutTask, MAX_LAYOUT_CONTENT_CHARS_PER_PARALLEL_CHUNK,
+    MAX_LAYOUT_TASKS_PER_PARALLEL_CHUNK, chunk_layout_tasks, layout_temporary_blocks,
 };
 use crate::content::buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock};
 use crate::content::edit::{
@@ -21,9 +19,7 @@ use crate::content::edit::{
     resolve_asset_source_relative_to_directory,
 };
 use crate::content::text::{BufferBlockStyle, CodeBlockType, TextStylesWithMetadata};
-use crate::render::layout::{
-    TextLayout, add_link_to_style_and_font, markdown_inline_to_text_and_style_runs,
-};
+use crate::render::layout::{TextLayout, add_link_to_style_and_font};
 use crate::render::model::test_utils::TEST_STYLES;
 use crate::render::model::{BlockItem, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, LineCount};
 
@@ -428,262 +424,6 @@ fn test_resolve_asset_source_leaves_non_local_markdown_images_unchanged() {
             "non-local source should not be changed: {source}"
         );
     }
-}
-
-#[test]
-fn test_layout_text_block_uses_rich_table_when_flag_enabled() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let _flag = FeatureFlag::MarkdownTables.override_enabled(true);
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            let content = "short\tmuch longer\ncell\trow\n";
-            let block = StyledTextBlock {
-                block: vec![StyledBufferRun {
-                    run: content.to_string(),
-                    text_styles: TextStylesWithMetadata::default(),
-                    block_style: BufferBlockStyle::table(Vec::new()),
-                }],
-                style: BufferBlockStyle::table(Vec::new()),
-                content_length: CharOffset::from(content.chars().count()),
-            };
-
-            let (item, has_trailing_newline) =
-                layout_text_block(&block, &text_layout, BlockLocation::Middle, false)
-                    .expect("table layout should succeed");
-
-            assert!(matches!(item, BlockItem::Table(_)));
-            assert!(!has_trailing_newline);
-        });
-    })
-}
-
-#[test]
-fn test_layout_text_block_uses_plain_text_when_flag_disabled() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let _flag = FeatureFlag::MarkdownTables.override_enabled(false);
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            let content = "short\tmuch longer\ncell\trow\n";
-            let block = StyledTextBlock {
-                block: vec![StyledBufferRun {
-                    run: content.to_string(),
-                    text_styles: TextStylesWithMetadata::default(),
-                    block_style: BufferBlockStyle::table(Vec::new()),
-                }],
-                style: BufferBlockStyle::table(Vec::new()),
-                content_length: CharOffset::from(content.chars().count()),
-            };
-
-            let (item, _has_trailing_newline) =
-                layout_text_block(&block, &text_layout, BlockLocation::Middle, false)
-                    .expect("table layout should succeed");
-
-            assert!(matches!(item, BlockItem::Paragraph(_)));
-        });
-    })
-}
-
-#[test]
-fn test_layout_table_block_caches_cell_text_frames() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            let content = "short\tmuch longer\ncell\trow\n";
-            let block = StyledTextBlock {
-                block: vec![StyledBufferRun {
-                    run: content.to_string(),
-                    text_styles: TextStylesWithMetadata::default(),
-                    block_style: BufferBlockStyle::table(Vec::new()),
-                }],
-                style: BufferBlockStyle::table(Vec::new()),
-                content_length: CharOffset::from(content.chars().count()),
-            };
-
-            let table = match layout_table_block(
-                &block,
-                &text_layout,
-                TEST_STYLES
-                    .block_spacings
-                    .from_block_style(&BufferBlockStyle::table(Vec::new())),
-            )
-            .expect("table layout should succeed")
-            {
-                BlockItem::Table(table) => table,
-                item => panic!("expected table block, got {item:?}"),
-            };
-
-            assert_eq!(table.cell_text_frames.len(), 2);
-            assert_eq!(table.cell_text_frames[0].len(), 2);
-            assert_eq!(table.cell_text_frames[1].len(), 2);
-            assert_eq!(table.cell_layouts.len(), 2);
-            assert_eq!(table.cell_layouts[0].len(), 2);
-            assert_eq!(table.cell_layouts[1].len(), 2);
-            assert!(
-                table.cell_text_frames[0][1].max_width()
-                    <= table.column_widths[1].as_f32() - table.config.style.cell_padding * 2.0
-            );
-        });
-    })
-}
-
-#[test]
-fn test_layout_table_block_clamps_cell_width_to_max() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            // One long cell in the second column that would otherwise blow out the column
-            // width. The paragraph has no natural break points within the first 500px, so the
-            // cell must rely on the per-cell max width cap to keep the column size bounded.
-            let long_content = "word ".repeat(400);
-            let content = format!("short\t{long_content}\ncell\trow\n");
-            let block = StyledTextBlock {
-                block: vec![StyledBufferRun {
-                    run: content.clone(),
-                    text_styles: TextStylesWithMetadata::default(),
-                    block_style: BufferBlockStyle::table(Vec::new()),
-                }],
-                style: BufferBlockStyle::table(Vec::new()),
-                content_length: CharOffset::from(content.chars().count()),
-            };
-
-            let table = match layout_table_block(
-                &block,
-                &text_layout,
-                TEST_STYLES
-                    .block_spacings
-                    .from_block_style(&BufferBlockStyle::table(Vec::new())),
-            )
-            .expect("table layout should succeed")
-            {
-                BlockItem::Table(table) => table,
-                item => panic!("expected table block, got {item:?}"),
-            };
-
-            let cell_padding = table.config.style.cell_padding;
-            let expected_max_cell_width = cell_padding * 2.0 + 500.0;
-            assert!(
-                table.column_widths[1].as_f32() <= expected_max_cell_width + f32::EPSILON,
-                "long cell column width {} should be clamped to {}",
-                table.column_widths[1].as_f32(),
-                expected_max_cell_width,
-            );
-            // The clamped cell frame must be laid out within the clamped column's content
-            // width so soft-wrap can occur inside the cell at paint time.
-            let max_content_width =
-                table.column_widths[1].as_f32() - table.config.style.cell_padding * 2.0;
-            assert!(
-                table.cell_text_frames[0][1].max_width() <= max_content_width + f32::EPSILON,
-                "long cell frame max width {} should fit within clamped content width {}",
-                table.cell_text_frames[0][1].max_width(),
-                max_content_width,
-            );
-        });
-    })
-}
-
-#[test]
-fn test_table_inline_style_runs_apply_header_bold_default() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            let mut header_style =
-                text_layout.paragraph_styles(&BufferBlockStyle::table(Vec::new()));
-            header_style.font_weight = Weight::Bold;
-            let table = crate::content::text::table_from_internal_format_with_inline_markdown(
-                "Header\tValue\nText\tCell\n",
-                Vec::new(),
-            );
-
-            let layout_input = markdown_inline_to_text_and_style_runs(
-                &table.headers[0],
-                &header_style,
-                Some(header_style.text_color),
-                Some(TEST_STYLES.table_style.header_background),
-            );
-
-            assert_eq!(layout_input.text, "Header");
-            assert!(!layout_input.style_runs.is_empty());
-            assert!(
-                layout_input
-                    .style_runs
-                    .iter()
-                    .all(|(_, style)| style.properties.weight == Weight::Bold)
-            );
-        });
-    });
-}
-
-#[test]
-fn test_table_inline_style_runs_preserve_markdown_cell_styles() {
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-            let body_style = text_layout.paragraph_styles(&BufferBlockStyle::table(Vec::new()));
-            let table = crate::content::text::table_from_internal_format_with_inline_markdown(
-                "Header\tValue\nText\t**Bold** *Italic* [Link](https://warp.dev) `code`\n",
-                Vec::new(),
-            );
-
-            let layout_input = markdown_inline_to_text_and_style_runs(
-                &table.rows[0][1],
-                &body_style,
-                Some(body_style.text_color),
-                Some(TEST_STYLES.table_style.cell_background),
-            );
-
-            assert_eq!(layout_input.text, "Bold Italic Link code");
-            assert_eq!(layout_input.style_runs.len(), 7);
-
-            assert_eq!(layout_input.style_runs[0].0, 0..4);
-            assert_eq!(layout_input.style_runs[0].1.properties.weight, Weight::Bold);
-
-            assert_eq!(layout_input.style_runs[2].0, 5..11);
-            assert_eq!(layout_input.style_runs[2].1.properties.style, Style::Italic);
-
-            assert_eq!(layout_input.style_runs[4].0, 12..16);
-            assert!(
-                layout_input.style_runs[4]
-                    .1
-                    .style
-                    .foreground_color
-                    .is_some()
-            );
-            assert!(layout_input.style_runs[4].1.style.underline_color.is_some());
-
-            assert_eq!(layout_input.style_runs[6].0, 17..21);
-            assert!(
-                layout_input.style_runs[6]
-                    .1
-                    .style
-                    .background_color
-                    .is_some()
-            );
-        });
-    });
 }
 
 #[test]

@@ -189,23 +189,6 @@ impl<'a> Positioned<'a, BlockItem> {
                 end_offset: self.end_char_offset(),
                 block_type: HitTestBlockType::Embedding,
             },
-            BlockItem::Table(laid_out_table) => {
-                let relative_x = (x.as_f32() - self.content_origin().x()).max(0.0);
-                let relative_y = (y.as_f32() - self.content_origin().y()).max(0.0);
-                let cell_offset = laid_out_table.coordinate_to_offset(
-                    relative_x + laid_out_table.scroll_left().as_f32(),
-                    relative_y,
-                );
-                let char_offset = self.start_char_offset + cell_offset;
-                let link = laid_out_table.link_at_offset(cell_offset);
-                Location::Text {
-                    char_offset,
-                    clamped: false,
-                    wrap_direction: WrapDirection::Down,
-                    block_start: self.start_char_offset,
-                    link,
-                }
-            }
             BlockItem::HorizontalRule { .. }
             | BlockItem::Image { .. }
             | BlockItem::TrailingNewLine(_)

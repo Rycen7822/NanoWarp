@@ -1,11 +1,9 @@
 use itertools::Itertools;
 use markdown_parser::parse_markdown;
 use string_offset::CharOffset;
-use warp_core::features::FeatureFlag;
 use warpui_core::App;
 use warpui_core::text::TextBuffer;
 use warpui_core::text::point::Point;
-use warpui_core::text::word_boundaries::WordBoundariesPolicy;
 
 use crate::content::buffer::{Buffer, EditOrigin};
 use crate::content::selection_model::BufferSelectionModel;
@@ -52,38 +50,6 @@ fn test_forward_iteration() {
                     'n', 'd', ' ', 'i', 't', 'a', 'l', 'i', 'c', ' ', 't', 'o', 'o', '.'
                 ]
             );
-        });
-    });
-}
-
-#[test]
-fn test_table_word_boundaries_include_full_cell_text() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::MarkdownTables.override_enabled(true);
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "| Hello | Value |\n| --- | --- |\n| World | Cell |\n",
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.read(&app, |buffer, _| {
-            let chars = buffer
-                .chars_at(CharOffset::from(1))
-                .expect("Offset valid")
-                .take(12)
-                .collect_vec();
-            assert_eq!(
-                chars,
-                vec!['H', 'e', 'l', 'l', 'o', '\t', 'V', 'a', 'l', 'u', 'e', '\n']
-            );
-
-            let policy = WordBoundariesPolicy::Default;
-            let start = buffer.word_start(CharOffset::from(1), &policy);
-            let end = buffer.word_end(CharOffset::from(1), &policy);
-
-            assert_eq!(start, CharOffset::from(1));
-            assert_eq!(buffer.text_in_range(start..end).into_string(), "Hello");
         });
     });
 }

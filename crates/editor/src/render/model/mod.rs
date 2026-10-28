@@ -8,7 +8,6 @@ use std::{fmt, mem};
 
 use float_cmp::ApproxEq;
 use itertools::Itertools;
-use markdown_parser::TableAlignment;
 use num_traits::SaturatingSub;
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
@@ -32,7 +31,7 @@ use warpui_core::fonts::{FamilyId, Properties, Weight};
 use warpui_core::geometry::rect::RectF;
 use warpui_core::geometry::vector::{Vector2F, vec2f};
 use warpui_core::platform::LineStyle;
-use warpui_core::text_layout::{CaretPosition, Line, TextFrame};
+use warpui_core::text_layout::{Line, TextFrame};
 use warpui_core::text_selection_utils::{
     NewlineTickParams, calculate_tick_width, create_newline_tick_rect,
     selection_crosses_newline_offset_based,
@@ -58,7 +57,7 @@ use crate::content::edit::{
 };
 use crate::content::hidden_lines_model::HiddenLinesModel;
 use crate::content::markdown::MarkdownStyle;
-use crate::content::text::{BlockHeaderSize, BufferBlockStyle, CodeBlockType, FormattedTable};
+use crate::content::text::{BlockHeaderSize, BufferBlockStyle, CodeBlockType};
 use crate::content::version::BufferVersion;
 use crate::editor::EmbeddedItemModel;
 use crate::render::model::debug::Describe;
@@ -69,7 +68,6 @@ mod location;
 mod offset_map;
 mod positioned;
 pub mod saved_positions;
-pub mod table_offset_map;
 pub mod viewport;
 
 #[cfg(test)]
@@ -86,7 +84,6 @@ const AUTO_SCROLL_MARGIN: f32 = 12.;
 
 /// The minimum height of a paragraph, not including padding or margins.
 pub const PARAGRAPH_MIN_HEIGHT: Pixels = Pixels::new(24.);
-const TABLE_SCROLL_REVEAL_MARGIN: Pixels = Pixels::new(8.);
 
 pub const EMBEDDED_ITEM_FIRST_LINE_HEIGHT: f32 = 24.;
 
@@ -402,8 +399,6 @@ pub struct RichTextStyles {
     pub cursor_width: f32,
     /// Whether to highlight detected URLs.
     pub highlight_urls: bool,
-    /// Styling for tables.
-    pub table_style: TableStyle,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -451,7 +446,7 @@ impl BlockSpacings {
             BufferBlockStyle::TaskList { indent_level, .. } => {
                 self.task_list.to_spacing(*indent_level)
             }
-            BufferBlockStyle::PlainText | BufferBlockStyle::Table { .. } => self.text,
+            BufferBlockStyle::PlainText => self.text,
             BufferBlockStyle::CodeBlock { .. } => self.code_block,
         }
     }
@@ -494,24 +489,6 @@ pub struct HorizontalRuleStyle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TableStyle {
-    pub border_color: ColorU,
-    pub header_background: ColorU,
-    pub cell_background: ColorU,
-    pub alternate_row_background: Option<ColorU>,
-    pub text_color: ColorU,
-    pub header_text_color: ColorU,
-    pub scrollbar_nonactive_thumb_color: ColorU,
-    pub scrollbar_active_thumb_color: ColorU,
-    pub font_family: FamilyId,
-    pub font_size: f32,
-    pub cell_padding: f32,
-    pub outer_border: bool,
-    pub column_dividers: bool,
-    pub row_dividers: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InlineCodeStyle {
     pub font_family: FamilyId,
     pub background: ColorU,
@@ -521,14 +498,6 @@ pub struct InlineCodeStyle {
 impl InlineCodeStyle {
     pub fn requires_relayout(&self, new_styles: &InlineCodeStyle) -> bool {
         self.font_family != new_styles.font_family
-    }
-}
-
-impl TableStyle {
-    pub fn requires_relayout(&self, new_styles: &TableStyle) -> bool {
-        self.font_family != new_styles.font_family
-            || self.font_size != new_styles.font_size
-            || self.cell_padding != new_styles.cell_padding
     }
 }
 
@@ -663,7 +632,6 @@ pub enum BlockItem {
         asset_source: AssetSource,
         config: ImageBlockConfig,
     },
-    Table(Box<LaidOutTable>),
     TrailingNewLine(Cursor),
     Hidden(HiddenBlockConfig),
 }
@@ -904,469 +872,6 @@ pub struct ImageBlockConfig {
     pub width: Pixels,
     pub height: Pixels,
     pub spacing: BlockSpacing,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TableBlockConfig {
-    pub width: Pixels,
-    pub spacing: BlockSpacing,
-    pub style: TableStyle,
-}
-
-/// Layout information for a single table cell, including line-level details
-/// for proper text selection rendering in cells with wrapped text.
-#[derive(Debug, Clone, Default)]
-pub struct CellLayout {
-    pub line_heights: Vec<f32>,
-    pub line_y_offsets: Vec<f32>,
-    pub line_char_ranges: Vec<Range<CharOffset>>,
-    pub line_widths: Vec<f32>,
-    pub line_caret_positions: Vec<Vec<CaretPosition>>,
-}
-
-impl CellLayout {
-    pub fn from_text_frame(frame: &TextFrame) -> Self {
-        let lines = frame.lines();
-        let mut line_heights = Vec::with_capacity(lines.len());
-        let mut line_y_offsets = Vec::with_capacity(lines.len());
-        let mut line_char_ranges = Vec::with_capacity(lines.len());
-        let mut line_widths = Vec::with_capacity(lines.len());
-        let mut line_caret_positions = Vec::with_capacity(lines.len());
-        let mut y_offset = 0.0;
-
-        for line in lines.iter() {
-            let height = line.font_size * line.line_height_ratio;
-            line_heights.push(height);
-            line_y_offsets.push(y_offset);
-            line_widths.push(line.width);
-            line_caret_positions.push(line.caret_positions.clone());
-            y_offset += height;
-
-            let char_start = line
-                .caret_positions
-                .first()
-                .map(|cp| cp.start_offset)
-                .unwrap_or(0);
-            let char_end = line
-                .caret_positions
-                .last()
-                .map(|cp| cp.last_offset + 1)
-                .unwrap_or(char_start);
-            line_char_ranges.push(CharOffset::from(char_start)..CharOffset::from(char_end));
-        }
-
-        Self {
-            line_heights,
-            line_y_offsets,
-            line_char_ranges,
-            line_widths,
-            line_caret_positions,
-        }
-    }
-
-    pub fn line_at_char_offset(&self, char_offset: CharOffset) -> Option<usize> {
-        for (i, range) in self.line_char_ranges.iter().enumerate() {
-            if char_offset < range.end {
-                return Some(i);
-            }
-        }
-        if !self.line_char_ranges.is_empty() {
-            Some(self.line_char_ranges.len() - 1)
-        } else {
-            None
-        }
-    }
-
-    pub fn x_for_char_in_line(&self, line_idx: usize, char_offset: usize) -> f32 {
-        let Some(carets) = self.line_caret_positions.get(line_idx) else {
-            return 0.0;
-        };
-        let width = self.line_widths.get(line_idx).copied().unwrap_or(0.0);
-        for caret in carets {
-            if caret.contains_index(char_offset) {
-                return caret.position_in_line;
-            }
-        }
-        if carets
-            .first()
-            .is_some_and(|caret| char_offset < caret.start_offset)
-        {
-            0.0
-        } else {
-            width
-        }
-    }
-
-    pub fn line_at_y_offset(&self, y: f32) -> usize {
-        for i in 0..self.line_y_offsets.len() {
-            let line_top = self.line_y_offsets[i];
-            let line_bottom = line_top + self.line_heights.get(i).copied().unwrap_or(0.0);
-            if y >= line_top && y < line_bottom {
-                return i;
-            }
-        }
-        self.line_y_offsets.len().saturating_sub(1)
-    }
-
-    /// Returns the nearest character offset for a horizontal hit-test within a line.
-    ///
-    /// The explicit caret list does not include the insertion point at the visual end of the
-    /// line, so we compare against both the stored caret positions and the implicit line-end
-    /// caret at `line_width`. That keeps table hit-testing from snapping to the last glyph when a
-    /// click near the right edge is visually closer to the position after it.
-    pub fn char_at_x_in_line(&self, line_idx: usize, x: f32) -> CharOffset {
-        let Some(range) = self.line_char_ranges.get(line_idx) else {
-            return CharOffset::zero();
-        };
-        if range.start >= range.end {
-            return range.start;
-        }
-
-        let Some(carets) = self.line_caret_positions.get(line_idx) else {
-            return range.start;
-        };
-        if carets.is_empty() || x <= 0.0 {
-            return range.start;
-        }
-
-        let line_width = self.line_widths.get(line_idx).copied().unwrap_or(0.0);
-        if x >= line_width {
-            return range.end;
-        }
-        let mut closest = range.start;
-        let mut closest_distance = f32::INFINITY;
-
-        for caret in carets {
-            let distance = (caret.position_in_line - x).abs();
-            if distance <= closest_distance {
-                closest = CharOffset::from(caret.start_offset).clamp(range.start, range.end);
-                closest_distance = distance;
-            }
-        }
-
-        if (line_width - x).abs() <= closest_distance {
-            range.end
-        } else {
-            closest
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LaidOutTable {
-    pub table: FormattedTable,
-    pub config: TableBlockConfig,
-    pub row_heights: Vec<Pixels>,
-    pub column_widths: Vec<Pixels>,
-    pub total_height: Pixels,
-    pub offset_map: table_offset_map::TableOffsetMap,
-    pub content_length: CharOffset,
-    pub cell_offset_maps: Vec<Vec<table_offset_map::TableCellOffsetMap>>,
-    pub row_y_offsets: Vec<f32>,
-    pub col_x_offsets: Vec<f32>,
-    pub cell_text_frames: Vec<Vec<Arc<TextFrame>>>,
-    pub cell_layouts: Vec<Vec<CellLayout>>,
-    pub cell_links: Vec<Vec<Vec<ParsedUrl>>>,
-    pub scroll_left: Cell<Pixels>,
-    pub(crate) scrollbar_interaction_state: TableScrollbarInteractionState,
-    /// When `false`, the surrounding container already owns horizontal scrolling, so this table
-    /// should render at full intrinsic width without introducing its own clip, scrollbar, or
-    /// scroll event handling.
-    pub horizontal_scroll_allowed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct TableScrollbarDragState {
-    pub start_position_x: Pixels,
-    pub start_scroll_left: Pixels,
-    pub scroll_data: ScrollData,
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TableScrollbarInteractionState {
-    drag_state: Cell<Option<TableScrollbarDragState>>,
-    hovered: Cell<bool>,
-}
-
-impl LaidOutTable {
-    pub fn height(&self) -> Pixels {
-        self.total_height
-    }
-
-    pub fn width(&self) -> Pixels {
-        self.config.width
-    }
-
-    pub fn spacing(&self) -> BlockSpacing {
-        self.config.spacing
-    }
-
-    pub fn content_length(&self) -> CharOffset {
-        self.content_length
-    }
-
-    pub fn viewport_width(&self, viewport_width: Pixels) -> Pixels {
-        if !self.horizontal_scroll_allowed {
-            return self.width();
-        }
-        viewport_width.min(self.width())
-    }
-
-    pub fn max_scroll_left(&self, viewport_width: Pixels) -> Pixels {
-        if !self.horizontal_scroll_allowed {
-            return Pixels::zero();
-        }
-        (self.width() - self.viewport_width(viewport_width)).max(Pixels::zero())
-    }
-
-    pub fn scroll_left(&self) -> Pixels {
-        if !self.horizontal_scroll_allowed {
-            return Pixels::zero();
-        }
-        self.scroll_left.get()
-    }
-
-    pub fn set_scroll_left(&self, scroll_left: Pixels, viewport_width: Pixels) -> bool {
-        if !self.horizontal_scroll_allowed {
-            return false;
-        }
-        let clamped = scroll_left
-            .max(Pixels::zero())
-            .min(self.max_scroll_left(viewport_width));
-        if clamped.approx_eq(self.scroll_left.get(), UNIT_MARGIN) {
-            false
-        } else {
-            self.scroll_left.set(clamped);
-            true
-        }
-    }
-
-    pub fn scroll_horizontally(&self, delta: Pixels, viewport_width: Pixels) -> bool {
-        if !self.horizontal_scroll_allowed {
-            return false;
-        }
-        self.set_scroll_left(self.scroll_left.get() - delta, viewport_width)
-    }
-
-    pub(crate) fn start_scrollbar_drag(&self, start_position_x: Pixels, scroll_data: ScrollData) {
-        self.scrollbar_interaction_state
-            .drag_state
-            .set(Some(TableScrollbarDragState {
-                start_position_x,
-                start_scroll_left: self.scroll_left(),
-                scroll_data,
-            }));
-    }
-
-    pub(crate) fn end_scrollbar_drag(&self) -> bool {
-        self.scrollbar_interaction_state.drag_state.take().is_some()
-    }
-
-    pub(crate) fn scrollbar_drag_state(&self) -> Option<TableScrollbarDragState> {
-        self.scrollbar_interaction_state.drag_state.get()
-    }
-
-    pub(crate) fn scrollbar_hovered(&self) -> bool {
-        self.scrollbar_interaction_state.hovered.get()
-    }
-
-    pub(crate) fn set_scrollbar_hovered(&self, hovered: bool) -> bool {
-        self.scrollbar_interaction_state.hovered.replace(hovered) != hovered
-    }
-
-    pub(crate) fn clear_scrollbar_interaction_state(&self) {
-        self.scrollbar_interaction_state.drag_state.set(None);
-        self.scrollbar_interaction_state.hovered.set(false);
-    }
-
-    pub fn reveal_offset(&self, offset: CharOffset, viewport_width: Pixels) -> bool {
-        if !self.horizontal_scroll_allowed {
-            return false;
-        }
-        let Some(bounds) = self.relative_character_bounds(offset) else {
-            return false;
-        };
-        let viewport_width = self.viewport_width(viewport_width);
-        let mut new_scroll_left = self.scroll_left.get();
-        let visible_start = self.scroll_left.get();
-        let visible_end = visible_start + viewport_width;
-        let character_start = Pixels::new(bounds.origin_x());
-        let character_end = Pixels::new(bounds.origin_x() + bounds.width());
-
-        if character_start - TABLE_SCROLL_REVEAL_MARGIN < visible_start {
-            new_scroll_left = (character_start - TABLE_SCROLL_REVEAL_MARGIN).max(Pixels::zero());
-        } else if character_end + TABLE_SCROLL_REVEAL_MARGIN > visible_end {
-            new_scroll_left =
-                (character_end + TABLE_SCROLL_REVEAL_MARGIN - viewport_width).max(Pixels::zero());
-        }
-
-        self.set_scroll_left(new_scroll_left, viewport_width)
-    }
-
-    pub fn character_bounds(&self, offset: CharOffset, table_origin: Vector2F) -> Option<RectF> {
-        let bounds = self.relative_character_bounds(offset)?;
-        Some(RectF::new(
-            table_origin + bounds.origin() - vec2f(self.scroll_left.get().as_f32(), 0.0),
-            bounds.size(),
-        ))
-    }
-
-    pub fn lines(&self) -> LineCount {
-        LineCount(1 + self.table.rows.len())
-    }
-
-    /// Maps an x/y coordinate within the table content bounds to the nearest
-    /// character offset in the table's flattened content stream.
-    pub fn coordinate_to_offset(&self, x: f32, y: f32) -> CharOffset {
-        let row = self.row_at_y(y);
-        let col = self.col_at_x(x);
-
-        let Some(cell_range) = self.offset_map.cell_range(row, col) else {
-            return CharOffset::zero();
-        };
-        let Some(cell_offset_map) = self.cell_offset_maps.get(row).and_then(|r| r.get(col)) else {
-            return cell_range.start;
-        };
-        let cell_start = cell_range.start;
-        if cell_offset_map.rendered_length() == CharOffset::zero() {
-            return cell_start
-                + cell_offset_map
-                    .rendered_to_source(CharOffset::zero())
-                    .as_usize();
-        }
-
-        let row_y_start = self.row_y_offsets.get(row).copied().unwrap_or(0.0);
-        let col_start_x = self.col_x_offsets.get(col).copied().unwrap_or(0.0);
-        let col_width = self
-            .column_widths
-            .get(col)
-            .map(|w| w.as_f32())
-            .unwrap_or(0.0);
-
-        let cell_content_start_x = col_start_x + self.config.style.cell_padding;
-        let cell_content_start_y = row_y_start + self.config.style.cell_padding;
-        let cell_content_width = (col_width - self.config.style.cell_padding * 2.0).max(0.0);
-
-        let x_in_cell = (x - cell_content_start_x).max(0.0);
-        let y_in_cell = (y - cell_content_start_y).max(0.0);
-
-        if let Some(cell_layout) = self.cell_layouts.get(row).and_then(|r| r.get(col)) {
-            let line_idx = cell_layout.line_at_y_offset(y_in_cell);
-            let rendered_offset = cell_layout.char_at_x_in_line(line_idx, x_in_cell);
-            return cell_start
-                + cell_offset_map
-                    .rendered_to_source(rendered_offset)
-                    .as_usize();
-        }
-        if x_in_cell <= 0.0 {
-            return cell_start
-                + cell_offset_map
-                    .rendered_to_source(CharOffset::zero())
-                    .as_usize();
-        }
-        if x_in_cell >= cell_content_width {
-            return cell_start
-                + cell_offset_map
-                    .rendered_to_source(cell_offset_map.rendered_length())
-                    .as_usize();
-        }
-        cell_start
-            + cell_offset_map
-                .rendered_to_source(CharOffset::zero())
-                .as_usize()
-    }
-
-    /// Returns the row index containing the provided y coordinate.
-    fn row_at_y(&self, y: f32) -> usize {
-        let num_rows = self.row_y_offsets.len().saturating_sub(1);
-        let idx = self.row_y_offsets.partition_point(|&offset| offset <= y);
-        idx.saturating_sub(1).min(num_rows.saturating_sub(1))
-    }
-
-    /// Returns the column index containing the provided x coordinate.
-    fn col_at_x(&self, x: f32) -> usize {
-        let num_cols = self.col_x_offsets.len().saturating_sub(1);
-        let idx = self.col_x_offsets.partition_point(|&offset| offset <= x);
-        idx.saturating_sub(1).min(num_cols.saturating_sub(1))
-    }
-
-    /// Returns the hyperlink URL at the given character offset within the table,
-    /// if the offset falls within a linked fragment.
-    pub fn link_at_offset(&self, offset: CharOffset) -> Option<String> {
-        let cell_at = self.offset_map.cell_at_offset(offset)?;
-        let target = self
-            .cell_offset_maps
-            .get(cell_at.row)?
-            .get(cell_at.col)?
-            .source_to_rendered(cell_at.offset_in_cell)
-            .as_usize();
-        self.cell_links
-            .get(cell_at.row)?
-            .get(cell_at.col)?
-            .iter()
-            .find(|link| link.url_range().contains(&target))
-            .map(ParsedUrl::link)
-    }
-
-    fn relative_character_bounds(&self, offset: CharOffset) -> Option<RectF> {
-        let cell = self.offset_map.cell_at_offset(offset)?;
-        let rendered_offset = self
-            .cell_offset_maps
-            .get(cell.row)?
-            .get(cell.col)?
-            .source_to_rendered(cell.offset_in_cell);
-        let cell_layout = self.cell_layouts.get(cell.row)?.get(cell.col)?;
-        let line_idx = cell_layout
-            .line_at_char_offset(rendered_offset)
-            .unwrap_or(0);
-        let line_y = cell_layout
-            .line_y_offsets
-            .get(line_idx)
-            .copied()
-            .unwrap_or(0.0);
-        let line_height = cell_layout
-            .line_heights
-            .get(line_idx)
-            .copied()
-            .unwrap_or(20.0);
-        let start_x = cell_layout.x_for_char_in_line(line_idx, rendered_offset.as_usize());
-        let end_x = cell_layout.x_for_char_in_line(line_idx, rendered_offset.as_usize() + 1);
-        Some(RectF::new(
-            self.cell_content_origin(cell.row, cell.col) + vec2f(start_x, line_y),
-            vec2f((end_x - start_x).max(1.0), line_height),
-        ))
-    }
-
-    pub(crate) fn cell_content_origin(&self, row: usize, col: usize) -> Vector2F {
-        let col_start_x = self.col_x_offsets.get(col).copied().unwrap_or(0.0);
-        let row_start_y = self.row_y_offsets.get(row).copied().unwrap_or(0.0);
-        vec2f(
-            col_start_x + self.config.style.cell_padding + self.cell_alignment_x_offset(row, col),
-            row_start_y + self.config.style.cell_padding,
-        )
-    }
-
-    fn cell_alignment_x_offset(&self, row: usize, col: usize) -> f32 {
-        let cell_content_width = self
-            .column_widths
-            .get(col)
-            .map(|width| width.as_f32())
-            .unwrap_or(0.0)
-            - self.config.style.cell_padding * 2.0;
-        let cell_content_width = cell_content_width.max(0.0);
-        let frame_width = self
-            .cell_text_frames
-            .get(row)
-            .and_then(|row_frames| row_frames.get(col))
-            .map(|frame| frame.max_width())
-            .unwrap_or(0.0);
-
-        match self.table.alignments.get(col).copied().unwrap_or_default() {
-            TableAlignment::Left => 0.0,
-            TableAlignment::Center => (cell_content_width - frame_width).max(0.0) / 2.0,
-            TableAlignment::Right => (cell_content_width - frame_width).max(0.0),
-        }
-    }
 }
 
 impl HorizontalRuleConfig {
@@ -1702,14 +1207,6 @@ impl RenderState {
     pub fn with_width_setting(mut self, setting: WidthSetting) -> Self {
         self.width_setting = setting;
         self
-    }
-
-    /// Whether the surrounding container for this render state already provides horizontal
-    /// scrolling over its full content area. Blocks that would otherwise introduce a nested
-    /// horizontal scroll (for example, wide Markdown tables) should render at full intrinsic
-    /// width in that case.
-    pub fn container_scrolls_horizontally(&self) -> bool {
-        matches!(self.width_setting, WidthSetting::InfiniteWidth)
     }
 
     pub fn set_show_final_trailing_newline_when_non_empty(&mut self, show: bool) {
@@ -2195,7 +1692,6 @@ impl RenderState {
                 WidthSetting::InfiniteWidth => f32::MAX,
             },
         )
-        .with_container_scrolls_horizontally(self.container_scrolls_horizontally())
     }
 
     /// If we are performing layout lazily, call this to flush the pending edits and selection changes
@@ -2522,7 +2018,6 @@ impl RenderState {
 
     /// Perform an autoscroll action based on the mode.
     pub fn autoscroll(&mut self, mode: AutoScrollMode, ctx: &mut ModelContext<Self>) {
-        let table_scroll_changed = self.reveal_autoscroll_offsets_in_tables(&mode);
         let ((in_line_selection_start, in_line_selection_end), vertical_autoscroll_only) =
             match mode {
                 AutoScrollMode::ScrollOffsetsIntoViewport(offsets) => {
@@ -2538,7 +2033,6 @@ impl RenderState {
                     if self
                         .viewport
                         .scroll_to(start.y().into_pixels() + pixel_delta, self.height())
-                        || table_scroll_changed
                     {
                         ctx.notify();
                     }
@@ -2589,54 +2083,9 @@ impl RenderState {
             self.height(),
             self.width(),
             should_autoscroll_horizontally,
-        ) || table_scroll_changed
-        {
+        ) {
             ctx.notify();
         }
-    }
-
-    fn reveal_autoscroll_offsets_in_tables(&self, mode: &AutoScrollMode) -> bool {
-        match mode {
-            AutoScrollMode::ScrollOffsetsIntoViewport(offsets) => {
-                let mut changed = self.reveal_offset_in_table(offsets.start);
-                if offsets.end > offsets.start {
-                    changed |= self
-                        .reveal_offset_in_table(offsets.end.saturating_sub(&CharOffset::from(1)));
-                }
-                changed
-            }
-            AutoScrollMode::ScrollToExactVertical {
-                character_offset, ..
-            }
-            | AutoScrollMode::PositionOffsetInViewportCenter(character_offset) => {
-                self.reveal_offset_in_table(*character_offset)
-            }
-            AutoScrollMode::ScrollToActiveSelections { .. } => {
-                self.selections().iter().fold(false, |changed, selection| {
-                    self.reveal_offset_in_table(selection.head) || changed
-                })
-            }
-        }
-    }
-
-    fn reveal_offset_in_table(&self, offset: CharOffset) -> bool {
-        let content = self.content.borrow();
-        let mut cursor = content.cursor::<CharOffset, LayoutSummary>();
-        cursor.seek(&offset, SeekBias::Right);
-
-        let Some(block) = cursor.positioned_item() else {
-            return false;
-        };
-        let BlockItem::Table(laid_out_table) = block.item else {
-            return false;
-        };
-        if offset < block.start_char_offset || offset >= block.end_char_offset() {
-            return false;
-        }
-
-        let viewport_width =
-            (self.viewport.width() - block.item.spacing().x_axis_offset()).max(Pixels::zero());
-        laid_out_table.reveal_offset(offset - block.start_char_offset, viewport_width)
     }
 
     /// Given the coordinates of all selections, determine what is the bounding box that we want to autoscroll to.
@@ -3089,12 +2538,6 @@ impl RichTextStyles {
             | BufferBlockStyle::UnorderedList { .. }
             | BufferBlockStyle::OrderedList { .. }
             | BufferBlockStyle::TaskList { .. } => self.base_text,
-            BufferBlockStyle::Table { .. } => {
-                let mut style = self.base_text;
-                style.font_family = self.table_style.font_family;
-                style.font_size = self.table_style.font_size;
-                style
-            }
             BufferBlockStyle::CodeBlock { .. } => self.code_text,
             BufferBlockStyle::Header { header_size } => {
                 let mut base_text_style = self.base_text;
@@ -3118,7 +2561,6 @@ impl RichTextStyles {
             || self
                 .inline_code_style
                 .requires_relayout(&new_styles.inline_code_style)
-            || self.table_style.requires_relayout(&new_styles.table_style)
             || self.minimum_paragraph_height != new_styles.minimum_paragraph_height
     }
 }
@@ -3197,7 +2639,6 @@ impl BlockItem {
             BlockItem::TrailingNewLine(cursor) => cursor.height.as_f32(),
             BlockItem::HorizontalRule(config) => config.line_height.as_f32(),
             BlockItem::Image { config, .. } => config.height.as_f32(),
-            BlockItem::Table(laid_out_table) => laid_out_table.height().as_f32(),
             BlockItem::Embedded(embedded_item) => embedded_item.height().as_f32(),
             BlockItem::Hidden(config) => config.height().as_f32(),
         }
@@ -3220,7 +2661,6 @@ impl BlockItem {
             BlockItem::TrailingNewLine(cursor) => cursor.spacing(),
             BlockItem::HorizontalRule(config) => config.spacing,
             BlockItem::Image { config, .. } => config.spacing,
-            BlockItem::Table(laid_out_table) => laid_out_table.spacing(),
             BlockItem::Embedded(embedded_item) => embedded_item.spacing(),
             BlockItem::Hidden { .. } => BlockSpacing::default(),
         }
@@ -3256,7 +2696,6 @@ impl BlockItem {
             BlockItem::Embedded(embedded_item) => embedded_item.height(),
             BlockItem::HorizontalRule(rule) => rule.line_height,
             BlockItem::Image { config, .. } => config.height,
-            BlockItem::Table(laid_out_table) => laid_out_table.height(),
             BlockItem::Hidden(config) => config.height(),
         }
     }
@@ -3279,7 +2718,6 @@ impl BlockItem {
             BlockItem::Embedded(object) => object.size().x().into_pixels(),
             BlockItem::HorizontalRule(rule) => rule.width,
             BlockItem::Image { config, .. } => config.width,
-            BlockItem::Table(laid_out_table) => laid_out_table.width(),
             BlockItem::Hidden(_) => MIN_HIDDEN_BLOCK_WIDTH,
         }
     }
@@ -3309,7 +2747,6 @@ impl BlockItem {
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. } => CharOffset::from(1),
-            BlockItem::Table(laid_out_table) => laid_out_table.content_length(),
             BlockItem::Hidden(config) => config.content_length(),
         }
     }
@@ -3330,7 +2767,6 @@ impl BlockItem {
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. } => LineCount(1),
-            BlockItem::Table(laid_out_table) => laid_out_table.lines(),
             BlockItem::Hidden(config) => config.line_count(),
         }
     }
@@ -3348,11 +2784,10 @@ impl BlockItem {
             BlockItem::RunnableCodeBlock {
                 paragraph_block, ..
             } => paragraph_block.is_empty(),
-            // Embeds, images, tables, and horizontal rules are never empty.
+            // Embeds, images, and horizontal rules are never empty.
             BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. }
-            | BlockItem::Table(_)
             | BlockItem::TemporaryBlock { .. } => false,
             // The trailing newline placeholder and hidden blocks are always considered empty.
             BlockItem::TrailingNewLine(_) | BlockItem::Hidden { .. } => true,
@@ -3412,20 +2847,6 @@ impl Positioned<'_, BlockItem> {
             | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. }
             | BlockItem::Hidden { .. } => self.start_char_offset,
-            BlockItem::Table(laid_out_table) => {
-                let row_in_table = point.row().saturating_sub(self.start_line.as_u32()) as usize;
-                if let Some(cell_range) = laid_out_table.offset_map.cell_range(row_in_table, 0) {
-                    let visible_cell_start = laid_out_table
-                        .cell_offset_maps
-                        .get(row_in_table)
-                        .and_then(|row| row.first())
-                        .map(|cell| cell.rendered_to_source(CharOffset::zero()))
-                        .unwrap_or(CharOffset::zero());
-                    self.start_char_offset + cell_range.start + visible_cell_start.as_usize()
-                } else {
-                    self.start_char_offset
-                }
-            }
         }
     }
 
@@ -3476,15 +2897,6 @@ impl Positioned<'_, BlockItem> {
             | BlockItem::Hidden { .. } => {
                 SoftWrapPoint::new(self.start_line.as_u32(), Pixels::zero())
             }
-            BlockItem::Table(laid_out_table) => {
-                let relative_offset = offset.saturating_sub(&self.start_char_offset);
-                let row = laid_out_table
-                    .offset_map
-                    .cell_at_offset(relative_offset)
-                    .map(|c| c.row)
-                    .unwrap_or(0);
-                SoftWrapPoint::new(self.start_line.as_u32() + row as u32, Pixels::zero())
-            }
         }
     }
 
@@ -3534,14 +2946,6 @@ impl Positioned<'_, BlockItem> {
                     vec2f(config.width.as_f32(), config.height.as_f32()),
                 ))
             }
-            BlockItem::Table(laid_out_table) => {
-                if offset < self.start_char_offset || offset >= self.end_char_offset() {
-                    None
-                } else {
-                    laid_out_table
-                        .character_bounds(offset - self.start_char_offset, self.content_origin())
-                }
-            }
             BlockItem::Embedded(embedded_item) => {
                 let origin = self.content_origin();
                 Some(RectF::new(origin, embedded_item.size()))
@@ -3585,16 +2989,6 @@ impl Positioned<'_, BlockItem> {
             BlockItem::Image { config, .. } => {
                 let origin = self.content_origin();
                 RectF::new(origin, vec2f(config.width.as_f32(), config.height.as_f32()))
-            }
-            BlockItem::Table(laid_out_table) => {
-                let origin = self.content_origin();
-                RectF::new(
-                    origin,
-                    vec2f(
-                        laid_out_table.width().as_f32(),
-                        laid_out_table.height().as_f32(),
-                    ),
-                )
             }
             BlockItem::Embedded(embedded_item) => {
                 let origin = self.visible_origin();
