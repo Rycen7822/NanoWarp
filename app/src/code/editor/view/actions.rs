@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use rangemap::RangeSet;
 use string_offset::CharOffset;
 use warp_editor::content::version::BufferVersion;
-use warp_editor::editor::{RunnableCommandModel, TextDecoration};
+use warp_editor::editor::TextDecoration;
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
 use warp_editor::render::element::RichTextAction;
 use warp_editor::render::model::{ExpansionType, LineCount, Location};
@@ -1012,14 +1012,6 @@ impl TypedActionView for CodeEditorView {
 
 impl warp_editor::editor::EditorView for CodeEditorView {
     type RichTextAction = CodeEditorViewAction;
-
-    fn runnable_command_at<'a>(
-        &self,
-        _block_offset: CharOffset,
-        _ctx: &'a AppContext,
-    ) -> Option<&'a dyn RunnableCommandModel> {
-        None
-    }
 
     fn text_decorations<'a>(
         &'a self,

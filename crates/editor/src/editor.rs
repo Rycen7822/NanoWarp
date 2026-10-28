@@ -1,7 +1,6 @@
 //! Interoperability traits for interaction between the generic rendering/content layers and parent
 //! editor layers.
 
-use std::any::Any;
 use std::cell::Ref;
 use std::ops::Range;
 
@@ -9,9 +8,8 @@ use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
 use rangemap::{RangeMap, RangeSet};
 use string_offset::CharOffset;
-use warpui_core::elements::Border;
 use warpui_core::text_layout::PaintStyleOverride;
-use warpui_core::{Action, AppContext, Element, TypedActionView, View};
+use warpui_core::{Action, AppContext, TypedActionView, View};
 
 use crate::content::version::BufferVersion;
 use crate::render::element::RichTextAction;
@@ -25,14 +23,6 @@ where
     Self: Sized + View + TypedActionView<Action = Self::RichTextAction>,
 {
     type RichTextAction: RichTextAction<Self> + Action;
-
-    /// Get the backing model for a runnable command block. The implementation may return `None`
-    /// if it does not want interactive features for the block.
-    fn runnable_command_at<'a>(
-        &self,
-        block_offset: CharOffset,
-        ctx: &'a AppContext,
-    ) -> Option<&'a dyn RunnableCommandModel>;
 
     /// Returns text decorations (e.g., syntax highlighting, underlines) for the given viewport ranges.
     ///
@@ -109,21 +99,6 @@ impl<'a> TextDecoration<'a> {
             None => RangeMap::default(),
         }
     }
-}
-
-/// API for the logical editor model backing a runnable command block.
-pub trait RunnableCommandModel {
-    /// Builds the footer component for the command or code block
-    /// This can include a button to insert a command into the terminal input.
-    fn render_block_footer(&self, editor_is_focused: bool, ctx: &AppContext) -> Box<dyn Element>;
-
-    /// Border for this command block. Models can use this for state-dependent accents like
-    /// success/failure/selection colors.
-    ///
-    /// If `None`, the default code border in the model's `RichTextStyles` is used instead.
-    fn border(&self, app: &AppContext) -> Option<Border>;
-
-    fn as_any(&self) -> &dyn Any;
 }
 
 /// A navigation key, which could be propagated from an editor to its parent view.

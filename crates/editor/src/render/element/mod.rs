@@ -822,7 +822,7 @@ impl<V: EditorView> RichTextElement<V> {
     /// Builds a [`RenderableBlock`] for each block in the current viewport. This is done lazily,
     /// during layout.
     fn renderable_blocks(&mut self, styles: &RichTextStyles, ctx: &AppContext) {
-        let parent = match self.parent_view.upgrade(ctx) {
+        let _parent = match self.parent_view.upgrade(ctx) {
             Some(handle) => handle.as_ref(ctx),
             None => {
                 report_error!("Parent rich-text editor view dropped before layout");
@@ -872,17 +872,7 @@ impl<V: EditorView> RichTextElement<V> {
                         RenderableOrderedListItem::new(*indent_level, item, number).finish()
                     }
                     BlockItem::RunnableCodeBlock { .. } => {
-                        // For layout purposes, the start marker for the command block is considered
-                        // the ending newline of the _previous_ block.
-                        let start_offset = item.block_offset;
-                        let runnable_command = parent.runnable_command_at(start_offset, ctx);
-                        RenderableRunnableCommand::new(
-                            item,
-                            runnable_command,
-                            self.display_options.focused,
-                            ctx,
-                        )
-                        .finish()
+                        RenderableRunnableCommand::new(item).finish()
                     }
                     BlockItem::TemporaryBlock {
                         decoration,

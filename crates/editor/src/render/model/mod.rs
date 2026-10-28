@@ -46,7 +46,7 @@ use self::saved_positions::SavedPositions;
 use self::viewport::{
     ScrollPositionSnapshot, SizeInfo, ViewportItem, ViewportIterator, ViewportState,
 };
-use super::BLOCK_FOOTER_HEIGHT;
+use super::CODE_BLOCK_BOTTOM_PADDING;
 use super::element::{CursorData, RenderContext, RenderableBlock};
 use super::layout::{TextLayout, line_height};
 use crate::content::edit::{
@@ -94,8 +94,7 @@ pub const COMMAND_SPACING: BlockSpacing = BlockSpacing {
     padding: Padding::uniform(8.)
         .with_left(16.)
         .with_top(16.)
-        // Reserve space for the buttons.
-        .with_bottom(BLOCK_FOOTER_HEIGHT),
+        .with_bottom(CODE_BLOCK_BOTTOM_PADDING),
 };
 
 pub const HEADER_SPACING: BlockSpacing = BlockSpacing {
