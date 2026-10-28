@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use warp_editor::render::model::{LineCount, RenderLineLocation};
+use warp_editor::render::model::LineCount;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorLineLocation {
@@ -28,14 +28,6 @@ impl EditorLineLocation {
         }
     }
 
-    pub fn line_number(&self) -> Option<LineCount> {
-        match self {
-            EditorLineLocation::Current { line_number, .. } => Some(*line_number),
-            EditorLineLocation::Removed { line_number, .. } => Some(*line_number),
-            EditorLineLocation::Collapsed { .. } => None,
-        }
-    }
-
     /// Check if this line location represents the same line as another.
     /// This is not the same as equality, as the line range of the diff hunk may differ.
     pub fn is_same_line(&self, other: &Self) -> bool {
@@ -57,27 +49,6 @@ impl EditorLineLocation {
                 },
             ) if al == bl && ai == bi => true,
             _ => false,
-        }
-    }
-
-    pub fn into_render_line_location(self) -> RenderLineLocation {
-        match self {
-            EditorLineLocation::Current { line_number, .. } => {
-                RenderLineLocation::Current(line_number)
-            }
-            EditorLineLocation::Removed {
-                line_number, index, ..
-            } => RenderLineLocation::Temporary {
-                at_line: line_number,
-                index_from_at_line: index,
-            },
-            EditorLineLocation::Collapsed { line_range } => {
-                debug_assert!(
-                    false,
-                    "We don't support converting from collapsed line location to render line location yet"
-                );
-                RenderLineLocation::Current(line_range.start)
-            }
         }
     }
 }

@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 use std::mem;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use itertools::Itertools;
 #[cfg(feature = "local_fs")]
 use num_traits::SaturatingSub;
-use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
@@ -23,7 +20,6 @@ use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
 #[cfg(not(target_family = "wasm"))]
 use warp_editor::render::model::AutoScrollMode;
-use warp_editor::render::model::LineCount;
 use warp_util::content_version::ContentVersion;
 use warp_util::path::LineAndColumnArg;
 use warp_util::standardized_path::StandardizedPath;
@@ -36,9 +32,9 @@ use warpui::elements::{
     Container, CornerRadius, CrossAxisAlignment, DEFAULT_UI_LINE_HEIGHT_RATIO, DispatchEventResult,
     DragBarSide, Element, Empty, EventHandler, Flex, Hoverable, List, ListState, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, Percentage, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
-    Rect, Resizable, ResizableStateHandle, SavePosition, ScrollOffset, ScrollStateHandle,
-    ScrollbarWidth, Shrinkable, Stack, Text, resizable_state_handle,
+    ParentOffsetBounds, Percentage, Radius, Rect, Resizable, ResizableStateHandle, SavePosition,
+    ScrollOffset, ScrollStateHandle, ScrollbarWidth, Shrinkable, Stack, Text,
+    resizable_state_handle,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::keymap::Keystroke;
@@ -53,30 +49,19 @@ use warpui::{
 };
 
 use super::code_review_header::CodeReviewHeader;
-use super::comment_list_view::{CommentListEvent, CommentListView};
-use super::comments::{AttachedReviewComment, CommentOrigin};
 use super::diff_size_limits::DiffSize;
 use super::git_dialog::{GitDialog, GitDialogEvent, GitDialogKind};
 use super::{GlobalCodeReviewEvent, GlobalCodeReviewModel};
 use crate::appearance::Appearance;
-use crate::code::ShowCommentEditorProvider;
 use crate::code::buffer_location::LocalOrRemotePath;
-use crate::code::editor::comment_editor::DEFAULT_COMMENT_MAX_WIDTH;
-use crate::code::editor::line::EditorLineLocation;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
-use crate::code::editor::{
-    CommentEditor, CommentEditorEvent, EditorCommentsModel, EditorReviewComment, GutterHoverTarget,
-    add_color, remove_color,
-};
+use crate::code::editor::{GutterHoverTarget, add_color, remove_color};
 use crate::code::editor_management::CodeEditorStatus;
 use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::local_code_editor::{
     LocalCodeEditorEvent, LocalCodeEditorView, render_unsaved_circle_with_tooltip,
 };
 use crate::code::view::PendingSaveIntent;
-use crate::code_review::comments::{
-    AttachedReviewCommentTarget, CommentId, ReviewCommentBatch, ReviewCommentBatchEvent,
-};
 use crate::code_review::diff_selector::{DiffSelector, DiffSelectorEvent, DiffTarget};
 use crate::code_review::diff_state::{
     DiffHunk, DiffLineType, DiffMode, DiffState, DiffStateModel, DiffStateModelEvent, DiffStats,
@@ -87,7 +72,6 @@ use crate::code_review::find_model::CodeReviewFindModel;
 use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusEvent, GitRepoStatusModel};
 use crate::code_review::github_repo_model::{GitHubRepoEvent, GitHubRepoModel};
 use crate::code_review::hidden_lines::calculate_hidden_lines;
-use crate::code_review::{CurrentHead, DiffBase};
 #[cfg(not(target_family = "wasm"))]
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::editor::InteractionState;
@@ -226,8 +210,6 @@ pub(super) const CONTENT_TOP_MARGIN: f32 = 4.;
 pub(crate) const CONTENT_LEFT_MARGIN: f32 = 16.;
 pub(crate) const CONTENT_RIGHT_MARGIN: f32 = 4.;
 const CODE_REVIEW_EDITOR_LINE_HEIGHT_RATIO: f32 = 1.4;
-/// Extra scroll buffer (in pixels) added when scrolling to a line that has a comment editor below it.
-const COMMENT_EDITOR_SCROLL_BUFFER: f32 = 200.0;
 
 pub const CODE_REVIEW_TOOLTIP_TEXT: &str = "View changes";
 const REMOTE_TEXT: &str = "Diffs only work for local workspaces.";
@@ -302,7 +284,6 @@ pub enum CodeReviewAction {
     ToggleStashChanges,
     ToggleFileSelection(String),
     CopyFilePath(String),
-    OpenCommentComposerFromHeader,
     ShowFindBar,
     FocusView,
     OpenRepository,
@@ -342,22 +323,6 @@ impl LoadedState {
             total_additions: self.total_additions,
             total_deletions: self.total_deletions,
         }
-    }
-
-    /// Returns a list of pairs of code editor views and the host-aware
-    /// absolute paths of their underlying files.
-    fn editor_absolute_file_paths(
-        &self,
-        repo_path: &LocalOrRemotePath,
-    ) -> Vec<(ViewHandle<LocalCodeEditorView>, LocalOrRemotePath)> {
-        self.file_states
-            .values()
-            .filter_map(|file_state| {
-                let editor = file_state.editor_state.as_ref()?.editor().clone();
-                let file_location = repo_path.join(&file_state.file_diff.file_path);
-                Some((editor, file_location))
-            })
-            .collect()
     }
 }
 
@@ -562,28 +527,17 @@ pub struct CodeReviewView {
     undo_action_button: ViewHandle<ActionButton>,
     last_revert: Option<(ViewHandle<CodeEditorView>, ContentVersion)>,
     containing_pane_id: Option<PaneId>,
-    // Header-specific dropdown menu ("Add diff set as context" / "Add comment")
+    // Header-specific dropdown menu.
     header_menu: ViewHandle<Menu<CodeReviewAction>>,
     header_menu_open: bool,
     view_position_id: String,
-    /// Position ID of the code review list within this view.
-    code_review_list_position_id: String,
-    /// Position ID of the header (used for anchoring overlays like the comment composer).
-    header_position_id: String,
     discard_dialog_state: DiscardDialogState,
 
     find_model: ModelHandle<CodeReviewFindModel>,
     find_bar: ViewHandle<Find<CodeReviewFindModel>>,
-    comment_list_view: ViewHandle<crate::code_review::comment_list_view::CommentListView>,
-    /// Optional overlay composer for creating a new review-level comment.
-    comment_composer: Option<ViewHandle<CommentEditor>>,
 
     /// Precise position to auto-scroll to once editor layout completes
     pending_precise_scroll: Option<PendingPreciseScroll>,
-    /// Comment to scroll to once the view finishes loading.
-    pending_jump_to_comment: Option<CommentId>,
-
-    active_comment_model: Option<ModelHandle<ReviewCommentBatch>>,
 
     #[cfg(not(target_family = "wasm"))]
     open_repository_button: ViewHandle<ActionButton>,
@@ -683,85 +637,6 @@ impl CodeReviewView {
         });
     }
 
-    fn set_active_repo_comment_model(
-        &mut self,
-        new_handle: Option<ModelHandle<ReviewCommentBatch>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.active_comment_model == new_handle {
-            return;
-        }
-
-        if let Some(old_model) = &self.active_comment_model {
-            ctx.unsubscribe_to_model(old_model);
-        }
-
-        self.active_comment_model = new_handle.clone();
-
-        if let Some(new_model) = new_handle.clone() {
-            ctx.subscribe_to_model(&new_model, Self::handle_comment_model_event);
-        }
-
-        self.comment_list_view.update(ctx, |view, ctx| {
-            view.set_comment_model(new_handle, ctx);
-        });
-
-        self.update_editor_comment_markers(ctx);
-    }
-
-    fn handle_comment_model_event(
-        &mut self,
-        model: ModelHandle<ReviewCommentBatch>,
-        event: &ReviewCommentBatchEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.active_comment_model.as_ref() != Some(&model) {
-            return;
-        }
-
-        self.update_editor_comment_markers(ctx);
-
-        if let ReviewCommentBatchEvent::Changed {
-            should_reposition_comments: true,
-        } = event
-            && self.all_editors_loaded()
-        {
-            let diff_mode = self.diff_state_model.as_ref(ctx).diff_mode(ctx);
-            self.reposition_comments_in_file(&diff_mode, ctx);
-        }
-    }
-
-    fn clear_comment_locations(
-        &self,
-        editor_file_paths: &[(ViewHandle<LocalCodeEditorView>, LocalOrRemotePath)],
-        ctx: &mut ViewContext<Self>,
-    ) {
-        for (editor, _) in editor_file_paths {
-            editor.update(ctx, |local_editor, ctx| {
-                local_editor.editor().update(ctx, |code_editor, ctx| {
-                    code_editor.clear_comment_locations(ctx);
-                });
-            });
-        }
-    }
-
-    fn collect_comments_by_file(
-        &self,
-        model: &ModelHandle<ReviewCommentBatch>,
-        editor_file_paths: &[(ViewHandle<LocalCodeEditorView>, LocalOrRemotePath)],
-        ctx: &mut ViewContext<Self>,
-    ) -> HashMap<LocalOrRemotePath, Vec<EditorReviewComment>> {
-        model.read(ctx, |batch, _| {
-            editor_file_paths
-                .iter()
-                .map(|(_, file_location)| {
-                    let comments = batch.editor_comments_for_file(file_location);
-                    (file_location.clone(), comments)
-                })
-                .collect::<HashMap<_, _>>()
-        })
-    }
-
     /// Creates a new `ListState` with scroll preservation and sets up debounced
     /// scroll tracking. Used during construction and full invalidation.
     fn create_list_state(ctx: &mut ViewContext<Self>) -> ListState<RelocatableScrollContext> {
@@ -791,42 +666,9 @@ impl CodeReviewView {
         list_state
     }
 
-    fn update_editor_comment_markers(&mut self, ctx: &mut ViewContext<Self>) {
-        let CodeReviewViewState::Loaded(state) = self.state() else {
-            return;
-        };
-
-        let Some(repo_path) = self.repo_path().cloned() else {
-            return;
-        };
-
-        let editor_file_paths = state.editor_absolute_file_paths(&repo_path);
-
-        let Some(model) = self.active_comment_model.as_ref() else {
-            self.clear_comment_locations(&editor_file_paths, ctx);
-            return;
-        };
-
-        let comments_by_file = self.collect_comments_by_file(model, &editor_file_paths, ctx);
-
-        for (editor, file_location) in editor_file_paths {
-            let comments = comments_by_file
-                .get(&file_location)
-                .cloned()
-                .unwrap_or_default();
-
-            editor.update(ctx, |local_editor, ctx| {
-                local_editor.editor().update(ctx, |code_editor, ctx| {
-                    code_editor.set_comment_locations(comments.into_iter(), ctx);
-                });
-            });
-        }
-    }
-
     pub fn new(
         repo_path: Option<LocalOrRemotePath>,
         diff_state_model: ModelHandle<DiffStateModel>,
-        comment_batch_model: Option<ModelHandle<ReviewCommentBatch>>,
         action_target_provider: Option<Box<dyn ReviewActionTargetProvider>>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
@@ -996,12 +838,6 @@ impl CodeReviewView {
             me.handle_find_model_event(event, ctx);
         });
 
-        let comment_list_view = ctx
-            .add_typed_action_view(|ctx| CommentListView::new(repo_path.clone(), self_handle, ctx));
-        ctx.subscribe_to_view(&comment_list_view, |me, _, event, ctx| {
-            me.handle_comment_list_event(event, ctx);
-        });
-
         let ui_state_handles = UiStateHandles::default();
         let header = CodeReviewHeader::new();
 
@@ -1043,17 +879,11 @@ impl CodeReviewView {
             header_menu,
             header_menu_open: false,
             view_position_id: format!("code_review_view_{}", ctx.view_id()),
-            code_review_list_position_id: format!("code_review_view_list_{}", ctx.view_id()),
-            header_position_id: format!("code_review_view_header_{}", ctx.view_id()),
             discard_dialog_state,
             header,
             find_model,
             find_bar,
-            comment_list_view,
-            comment_composer: None,
             pending_precise_scroll: None,
-            pending_jump_to_comment: None,
-            active_comment_model: None,
             #[cfg(not(target_family = "wasm"))]
             open_repository_button,
             is_open: false,
@@ -1061,7 +891,6 @@ impl CodeReviewView {
             git_repo_status: None,
             github_repo_model: None,
         };
-        view.set_active_repo_comment_model(comment_batch_model, ctx);
         if has_repo {
             view.fetch_branches_and_setup_dropdown(ctx);
         }
@@ -1319,26 +1148,6 @@ impl CodeReviewView {
         }
     }
 
-    fn handle_comment_list_event(&mut self, event: &CommentListEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            CommentListEvent::Cancelled => {
-                self.clear_review_comments(ctx);
-                ctx.notify();
-            }
-            CommentListEvent::DeleteComment { comment_id } => {
-                self.delete_comment_by_id(*comment_id, ctx);
-            }
-            CommentListEvent::EditComment(comment_id) => {
-                self.handle_edit_comment(comment_id, ctx);
-                ctx.notify();
-            }
-            CommentListEvent::JumpToCommentLocation(comment_id) => {
-                self.handle_jump_to_comment_location(comment_id, ctx);
-                ctx.notify();
-            }
-        }
-    }
-
     #[cfg(not(target_family = "wasm"))]
     fn update_search_decorations(&mut self, ctx: &mut ViewContext<Self>) {
         let CodeReviewViewState::Loaded(state) = self.state() else {
@@ -1371,248 +1180,6 @@ impl CodeReviewView {
     #[cfg(target_family = "wasm")]
     fn update_search_decorations(&mut self, _ctx: &mut ViewContext<Self>) {
         unreachable!("Code review is not available on wasm")
-    }
-
-    fn open_review_comment_composer(
-        &mut self,
-        existing_comment: Option<AttachedReviewComment>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.comment_composer.is_some() {
-            return;
-        }
-
-        let comment_model = ctx.add_model(EditorCommentsModel::new);
-        let comment_model_handle = comment_model.clone();
-
-        let composer = ctx.add_typed_action_view(move |ctx| {
-            CommentEditor::new(ctx, comment_model_handle.clone())
-        });
-
-        if let Some(comment) = &existing_comment {
-            composer.update(ctx, |editor, ctx| {
-                editor.reopen_saved_comment(
-                    &comment.id,
-                    None,
-                    &comment.content,
-                    &comment.origin,
-                    ctx,
-                );
-            });
-        }
-
-        ctx.subscribe_to_view(&composer, |me, _, event, ctx| match event {
-            CommentEditorEvent::CommentSaved {
-                id, comment_text, ..
-            } => {
-                if let Some(id) = id {
-                    if let Some(comment) = me.get_comment_by_id(*id, ctx) {
-                        let mut updated = comment;
-                        updated.content = comment_text.clone();
-                        updated.last_update_time = chrono::Local::now();
-                        me.update_review_comment(updated, ctx);
-                    }
-                } else {
-                    let base = me.get_diff_base(ctx).ok();
-                    let head = me.get_current_head(ctx);
-                    let new_comment = AttachedReviewComment {
-                        id: CommentId::new(),
-                        content: comment_text.clone(),
-                        target: AttachedReviewCommentTarget::General,
-                        last_update_time: chrono::Local::now(),
-                        base,
-                        head,
-                        outdated: false,
-                        origin: CommentOrigin::Native,
-                    };
-
-                    me.update_review_comment(new_comment, ctx);
-                }
-            }
-            CommentEditorEvent::DeleteComment { id } => {
-                me.delete_comment_by_id(*id, ctx);
-                me.comment_composer = None;
-                me.update_header_dropdown_active_state(ctx);
-                ctx.notify();
-            }
-            CommentEditorEvent::CloseEditor => {
-                me.comment_composer = None;
-                me.update_header_dropdown_active_state(ctx);
-                ctx.notify();
-            }
-            _ => {}
-        });
-
-        self.comment_composer = Some(composer.clone());
-
-        // Focus the comment editor when the composer opens
-        ctx.focus(&composer);
-
-        self.update_header_dropdown_active_state(ctx);
-        ctx.notify();
-    }
-
-    fn handle_edit_comment(&mut self, comment_id: &CommentId, ctx: &mut ViewContext<Self>) {
-        let Some(comment) = self.get_comment_by_id(*comment_id, ctx) else {
-            report_error!("Couldn't find code review comment by ID");
-            return;
-        };
-
-        let CodeReviewViewState::Loaded(state) = self.state() else {
-            return;
-        };
-        match &comment.target {
-            AttachedReviewCommentTarget::Line {
-                absolute_file_path,
-                line,
-                ..
-            } => {
-                let Some((editor_index, file_state)) = self.editor_for_comment(&comment, state)
-                else {
-                    log::warn!(
-                        "Couldn't find editor for file: {}",
-                        absolute_file_path.display_path()
-                    );
-                    return;
-                };
-
-                let Some(editor_state) = &file_state.editor_state.as_ref() else {
-                    report_error!(
-                        "CodeReviewView could not fetch editor for file",
-                        extra: { "file_path" => ?file_state.file_diff.file_path }
-                    );
-                    return;
-                };
-
-                editor_state.editor().update(ctx, |local_editor, ctx| {
-                    local_editor.editor().update(ctx, |editor, ctx| {
-                        editor.open_existing_comment(
-                            &comment.id,
-                            line,
-                            &comment.content,
-                            comment.origin(),
-                            ctx,
-                        );
-                    });
-                });
-
-                self.scroll_to_line(editor_index, line, COMMENT_EDITOR_SCROLL_BUFFER, ctx);
-            }
-            AttachedReviewCommentTarget::General => {
-                self.open_review_comment_composer(Some(comment), ctx);
-            }
-            AttachedReviewCommentTarget::File { .. } => {
-                report_error!(
-                    "Attempted to edit a file-level comment; file-level comments are not editable"
-                );
-            }
-        }
-    }
-
-    pub fn handle_jump_to_comment_location(
-        &mut self,
-        comment_id: &CommentId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let Some(comment) = self.get_comment_by_id(*comment_id, ctx) else {
-            if !matches!(self.state(), CodeReviewViewState::Loaded(_)) {
-                self.pending_jump_to_comment = Some(*comment_id);
-            } else {
-                log::warn!("CodeReviewView couldn't find code review comment by ID");
-            }
-            return;
-        };
-
-        self.comment_list_view.update(ctx, |comment_list, ctx| {
-            comment_list.scroll_to_comment(*comment_id, ctx);
-        });
-
-        let CodeReviewViewState::Loaded(state) = &self.state() else {
-            self.pending_jump_to_comment = Some(*comment_id);
-            return;
-        };
-
-        match &comment.target {
-            AttachedReviewCommentTarget::Line {
-                absolute_file_path, ..
-            }
-            | AttachedReviewCommentTarget::File { absolute_file_path } => {
-                let Some((editor_index, _file_state)) = self.editor_for_comment(&comment, state)
-                else {
-                    log::warn!(
-                        "Couldn't find editor for file: {}",
-                        absolute_file_path.display_path()
-                    );
-                    return;
-                };
-
-                if let AttachedReviewCommentTarget::Line { line, .. } = &comment.target {
-                    self.scroll_to_line(editor_index, line, 0.0, ctx);
-                } else {
-                    self.viewported_list_state
-                        .scroll_to_with_offset(editor_index, Pixels::new(0.0));
-                }
-            }
-            AttachedReviewCommentTarget::General => {
-                // Review-level comments only need to be scrolled into view in the comment list.
-            }
-        }
-    }
-
-    fn editor_for_comment<'a>(
-        &self,
-        comment: &AttachedReviewComment,
-        state: &'a LoadedState,
-    ) -> Option<(usize, &'a FileState)> {
-        let file_path = match &comment.target {
-            AttachedReviewCommentTarget::Line {
-                absolute_file_path, ..
-            }
-            | AttachedReviewCommentTarget::File { absolute_file_path } => absolute_file_path,
-            AttachedReviewCommentTarget::General => return None,
-        };
-        let repo_path = self.repo_path()?;
-
-        state
-            .file_states
-            .values()
-            .enumerate()
-            .find(|(_, file_state)| {
-                let editor_file = repo_path.join(&file_state.file_diff.file_path);
-                file_path == &editor_file
-            })
-    }
-
-    fn scroll_to_line(
-        &mut self,
-        editor_index: usize,
-        line: &EditorLineLocation,
-        buffer: f32,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let CodeReviewViewState::Loaded(state) = self.state() else {
-            return;
-        };
-
-        let Some(editor_state) = state
-            .file_states
-            .get_index(editor_index)
-            .map(|(_, fs)| fs)
-            .and_then(|fs| fs.editor_state.as_ref())
-        else {
-            log::warn!("No editor state found for index {editor_index}");
-            return;
-        };
-
-        let (start_offset, end_offset) = editor_state
-            .editor
-            .as_ref(ctx)
-            .editor()
-            .read(ctx, |code_editor_view, ctx| {
-                code_editor_view.line_location_to_offsets(line, ctx)
-            });
-
-        self.scroll_to_position(editor_index, start_offset, end_offset, buffer, ctx);
     }
 
     fn scroll_to_selected_match(&mut self, ctx: &mut ViewContext<Self>) {
@@ -2020,7 +1587,7 @@ impl CodeReviewView {
     }
 
     fn update_header_dropdown_active_state(&mut self, ctx: &mut ViewContext<Self>) {
-        let is_active = self.header_menu_open || self.comment_composer.is_some();
+        let is_active = self.header_menu_open;
         self.header_dropdown_button.update(ctx, |button, ctx| {
             button.set_active(is_active, ctx);
         });
@@ -2098,7 +1665,6 @@ impl CodeReviewView {
             repo.state = CodeReviewViewState::Loaded(diff_data);
         }
 
-        self.update_editor_comment_markers(ctx);
         GlobalBufferModel::handle(ctx).update(ctx, |model, ctx| {
             model.remove_deallocated_buffers(ctx);
         });
@@ -2189,17 +1755,6 @@ impl CodeReviewView {
                 total_deletions: diff_data.total_deletions,
                 files_changed: diff_data.files_changed,
             });
-        }
-
-        if self.all_editors_loaded() {
-            let diff_mode = self.diff_state_model.as_ref(ctx).diff_mode(ctx);
-            self.reposition_comments_in_file(&diff_mode, ctx);
-        }
-
-        self.update_editor_comment_markers(ctx);
-
-        if let Some(comment_id) = self.pending_jump_to_comment.take() {
-            self.handle_jump_to_comment_location(&comment_id, ctx);
         }
 
         ctx.notify();
@@ -2356,62 +1911,6 @@ impl CodeReviewView {
             .as_ref()
             .map(|repo| repo.should_auto_expand_file(file))
             .unwrap_or(false)
-    }
-
-    fn get_existing_diffset_comment(&self, app: &AppContext) -> Option<AttachedReviewComment> {
-        self.active_comment_model
-            .as_ref()
-            .and_then(|model| model.read(app, |batch, _| batch.diffset_comment().cloned()))
-    }
-
-    /// Updates or adds a review comment.
-    fn update_review_comment(
-        &mut self,
-        comment: AttachedReviewComment,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let Some(model) = self.active_comment_model.clone() else {
-            return;
-        };
-
-        model.update(ctx, move |batch, ctx| {
-            batch.upsert_comment(comment.clone(), ctx);
-        });
-
-        ctx.focus_self();
-    }
-
-    /// Clears all review comments.
-    fn clear_review_comments(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(model) = self.active_comment_model.clone() {
-            model.update(ctx, |batch, ctx| {
-                batch.clear_all(ctx);
-            });
-        }
-    }
-
-    fn delete_comment_by_id(&mut self, id: CommentId, ctx: &mut ViewContext<Self>) {
-        if let Some(model) = self.active_comment_model.clone() {
-            model.update(ctx, |batch, ctx| {
-                batch.delete_comment(id, ctx);
-            });
-        }
-    }
-
-    pub fn editor_lens_for_location(
-        &self,
-        path: &LocalOrRemotePath,
-        line: Range<EditorLineLocation>,
-        ctx: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        let editor = self.editor_for_path(path, ctx)?;
-        Some(
-            editor
-                .as_ref(ctx)
-                .editor()
-                .as_ref(ctx)
-                .lens_for_line_range(line, ctx),
-        )
     }
 
     /// The focused terminal of the hosting pane group, if any.
@@ -2586,17 +2085,10 @@ impl CodeReviewView {
                                     VerticalExpansionBehavior::InfiniteHeight,
                                 )
                                 .lazy_layout()
-                                .line_height_override(CODE_REVIEW_EDITOR_LINE_HEIGHT_RATIO)
-                                .with_show_comment_editor_provider(ShowCommentEditor {
-                                    comment_list_save_position_id: self
-                                        .code_review_list_position_id
-                                        .clone(),
-                                    window_id: ctx.window_id(),
-                                }),
+                                .line_height_override(CODE_REVIEW_EDITOR_LINE_HEIGHT_RATIO),
                                 ctx,
                             )
                             .with_revert_diff_hunk_button() // Enable revert diff button for code review
-                            .with_comment_button() // Enable comment button for code review
                             .with_collapsible_diffs(false) // Disable collapsible diffs
                             .disable_diff_indicator_expansion_on_hover()
                             .with_gutter_hover_target(GutterHoverTarget::Line) // Show gutter element when hovering the line.
@@ -2621,18 +2113,12 @@ impl CodeReviewView {
                 }
             });
 
-            Self::apply_diff_to_code_editor(
-                &local_code_view,
-                file,
-                true,
-                &self.comment_line_numbers_for_file(&full_file_location, ctx),
-                ctx,
-            );
+            Self::apply_diff_to_code_editor(&local_code_view, file, true, ctx);
 
             ctx.subscribe_to_view(&local_code_view, {
                 let file_location = full_file_location.clone();
-                move |me, editor, event, ctx| {
-                    me.handle_local_code_editor_events(editor, event, &file_location, ctx);
+                move |me, _, event, ctx| {
+                    me.handle_local_code_editor_events(event, &file_location, ctx);
                 }
             });
 
@@ -2657,17 +2143,10 @@ impl CodeReviewView {
                     None,
                     CodeEditorRenderOptions::new(VerticalExpansionBehavior::InfiniteHeight)
                         .lazy_layout()
-                        .line_height_override(CODE_REVIEW_EDITOR_LINE_HEIGHT_RATIO)
-                        .with_show_comment_editor_provider(ShowCommentEditor {
-                            comment_list_save_position_id: self
-                                .code_review_list_position_id
-                                .clone(),
-                            window_id: ctx.window_id(),
-                        }),
+                        .line_height_override(CODE_REVIEW_EDITOR_LINE_HEIGHT_RATIO),
                     ctx,
                 )
                 .with_revert_diff_hunk_button() // Enable revert diff button for code review
-                .with_comment_button() // Enable comment button for code review
                 .with_collapsible_diffs(false) // Disable collapsible diffs
                 .disable_diff_indicator_expansion_on_hover()
                 .with_gutter_hover_target(GutterHoverTarget::Line) // Show gutter element when hovering the line.
@@ -2698,20 +2177,12 @@ impl CodeReviewView {
                 LocalCodeEditorView::new(code_editor_view, ctx)
             });
 
-            let comment_line_numbers = self.comment_line_numbers_for_file(&full_file_location, ctx);
-
-            Self::apply_diff_to_code_editor(
-                &local_code_view,
-                file,
-                true,
-                &comment_line_numbers,
-                ctx,
-            );
+            Self::apply_diff_to_code_editor(&local_code_view, file, true, ctx);
 
             ctx.subscribe_to_view(&local_code_view, {
                 let file_location = full_file_location.clone();
-                move |me, editor, event, ctx| {
-                    me.handle_local_code_editor_events(editor, event, &file_location, ctx);
+                move |me, _, event, ctx| {
+                    me.handle_local_code_editor_events(event, &file_location, ctx);
                 }
             });
 
@@ -2723,7 +2194,6 @@ impl CodeReviewView {
 
     fn handle_local_code_editor_events(
         &mut self,
-        editor: ViewHandle<LocalCodeEditorView>,
         event: &LocalCodeEditorEvent,
         file_location: &LocalOrRemotePath,
         ctx: &mut ViewContext<Self>,
@@ -2737,7 +2207,7 @@ impl CodeReviewView {
             | LocalCodeEditorEvent::FailedToLoad { .. } => {
                 // Mark the editor as loaded so we can render it.
                 // This is only relevant for global buffer mode.
-                self.mark_editor_loaded_for_file(file_location, ctx);
+                self.mark_editor_loaded_for_file(file_location);
                 ctx.notify();
             }
             LocalCodeEditorEvent::DiscardUnsavedChanges { path: _path } => {
@@ -2745,60 +2215,6 @@ impl CodeReviewView {
                 GlobalBufferModel::handle(ctx).update(ctx, |global_buffer, ctx| {
                     global_buffer.discard_unsaved_changes(_path, ctx);
                 });
-            }
-            LocalCodeEditorEvent::CommentSaved { comment } => {
-                // Use `file_location()` to preserve host identity for
-                // remote editors. The comment batch is already host-scoped
-                // (keyed by the repo `LocalOrRemotePath` in
-                // `WorkingDirectoriesModel.comment_models`), but encoding
-                // the host on the comment target keeps later helpers
-                // honest.
-                let Some(file_location) = editor.as_ref(ctx).file_location().cloned() else {
-                    report_error!(
-                        "Attempted to attach code review comment to a LocalCodeEditorView without a file path"
-                    );
-                    return;
-                };
-                let base = self.get_diff_base(ctx).ok();
-                let head = self.get_current_head(ctx);
-                let comment_with_file_context = AttachedReviewComment::from_editor_review_comment(
-                    comment.clone(),
-                    file_location,
-                    base,
-                    head,
-                );
-                self.update_review_comment(comment_with_file_context, ctx);
-                ctx.notify();
-            }
-            LocalCodeEditorEvent::DeleteComment { id } => {
-                self.delete_comment_by_id(*id, ctx);
-            }
-            LocalCodeEditorEvent::RequestOpenComment(comment_id) => {
-                let Some(existing_comment) = self.get_comment_by_id(*comment_id, ctx) else {
-                    log::warn!("Tried to reopen non-existent comment with ID {comment_id:?}");
-                    return;
-                };
-                match &existing_comment.target {
-                    AttachedReviewCommentTarget::Line { line, .. } => {
-                        let comment_text = &existing_comment.content;
-                        let origin = &existing_comment.origin;
-                        editor.update(ctx, |local_code_editor, ctx| {
-                            local_code_editor.editor().update(ctx, |code_editor, ctx| {
-                                code_editor.open_existing_comment(
-                                    comment_id,
-                                    line,
-                                    comment_text,
-                                    origin,
-                                    ctx,
-                                );
-                            });
-                        });
-                    }
-                    AttachedReviewCommentTarget::File { .. }
-                    | AttachedReviewCommentTarget::General => {
-                        report_error!("Tried to reopen a non-line review comment.");
-                    }
-                }
             }
             LocalCodeEditorEvent::DiffStatusUpdated => {}
             LocalCodeEditorEvent::ViewportUpdated => {}
@@ -2811,27 +2227,6 @@ impl CodeReviewView {
             }
             _ => (),
         }
-    }
-
-    fn get_comment_by_id(&self, id: CommentId, app: &AppContext) -> Option<AttachedReviewComment> {
-        self.active_comment_model.as_ref().and_then(|model| {
-            model.read(app, |batch, _| batch.get_review_comment_by_id(id).cloned())
-        })
-    }
-
-    fn comment_line_numbers_for_file(
-        &self,
-        file_path: &LocalOrRemotePath,
-        app: &AppContext,
-    ) -> Vec<LineCount> {
-        self.active_comment_model
-            .as_ref()
-            .map(|model| {
-                model.read(app, |batch, _| {
-                    batch.comment_line_numbers_for_file(file_path).collect_vec()
-                })
-            })
-            .unwrap_or_default()
     }
 
     fn file_state_index_for_location(&self, file_location: &LocalOrRemotePath) -> Option<usize> {
@@ -2847,11 +2242,7 @@ impl CodeReviewView {
 
     /// Marks the editor for the given file location as loaded.
     /// This is called when LocalCodeEditorEvent::DelayedRenderingFlushed or FailedToLoad fires.
-    fn mark_editor_loaded_for_file(
-        &mut self,
-        file_location: &LocalOrRemotePath,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn mark_editor_loaded_for_file(&mut self, file_location: &LocalOrRemotePath) {
         let Some(file_index) = self.file_state_index_for_location(file_location) else {
             return;
         };
@@ -2867,11 +2258,6 @@ impl CodeReviewView {
             && let Some(editor_state) = &mut file_state.editor_state
         {
             editor_state.set_loaded();
-        }
-
-        if self.all_editors_loaded() {
-            let diff_mode = self.diff_state_model.as_ref(ctx).diff_mode(ctx);
-            self.reposition_comments_in_file(&diff_mode, ctx);
         }
     }
 
@@ -2899,7 +2285,6 @@ impl CodeReviewView {
         code_editor_view: &ViewHandle<LocalCodeEditorView>,
         file: &FileDiffAndContent,
         is_initial_setup: bool,
-        comment_line_numbers: &[LineCount],
         ctx: &mut ViewContext<Self>,
     ) {
         if let Some(file_content) = &file.content_at_head {
@@ -2927,11 +2312,7 @@ impl CodeReviewView {
                 // For deleted files or when global buffer is disabled, we need to populate the buffer directly.
                 if is_deleted_file {
                     let line_count = file_content.lines().count();
-                    range = Some(calculate_hidden_lines(
-                        &diff_deltas,
-                        line_count,
-                        comment_line_numbers,
-                    ));
+                    range = Some(calculate_hidden_lines(&diff_deltas, line_count));
                     let state = InitialBufferState::plain_text(file_content).with_version(version);
                     // Reset editor state with incoming content.
                     local_editor.reset_with_state(state, ctx);
@@ -2977,118 +2358,6 @@ impl CodeReviewView {
                 });
             });
         }
-    }
-
-    /// Relocates comments by updating their line locations based on the current state of editors.
-    ///
-    /// This is a pure function that takes comments and returns updated comments without mutation.
-    /// For each `Line` comment, it finds the matching editor via file path and computes the new
-    /// target location. Comments without matching editors or without matching line content are
-    /// marked as outdated.
-    ///
-    /// Returns all comments with their updated targets.
-    fn relocate_comments(
-        comments: impl IntoIterator<Item = AttachedReviewComment>,
-        state: &LoadedState,
-        repo_path: &LocalOrRemotePath,
-        ctx: &mut ViewContext<Self>,
-    ) -> Vec<AttachedReviewComment> {
-        let editor_file_paths = state.editor_absolute_file_paths(repo_path);
-
-        comments
-            .into_iter()
-            .map(|mut comment| {
-                if comment.target.absolute_file_path().is_none() {
-                    // General comments pass through unchanged.
-                    return comment;
-                };
-
-                let matching_editor = match &comment.target {
-                    AttachedReviewCommentTarget::Line {
-                        absolute_file_path, ..
-                    }
-                    | AttachedReviewCommentTarget::File { absolute_file_path } => editor_file_paths
-                        .iter()
-                        .find(|(_, editor_path)| editor_path == absolute_file_path)
-                        .map(|(editor, _)| editor),
-                    AttachedReviewCommentTarget::General => None,
-                };
-
-                let Some(editor_view) = matching_editor else {
-                    // If there's no matching editor, mark the comment as outdated.
-                    // The comment retains its original content so it can still be displayed.
-                    comment.outdated = true;
-                    return comment;
-                };
-
-                let AttachedReviewCommentTarget::Line {
-                    absolute_file_path,
-                    line,
-                    content,
-                } = &comment.target
-                else {
-                    // File-level comments with matching editors pass through unchanged.
-                    return comment;
-                };
-
-                let match_text = content.original_text();
-
-                let (new_location, new_content, used_fallback) =
-                    editor_view.update(ctx, |local_editor, ctx| {
-                        local_editor.editor().update(ctx, |editor, ctx| {
-                            editor.model.update(ctx, |model, ctx| {
-                                model.get_new_line_location(line, match_text, ctx)
-                            })
-                        })
-                    });
-
-                if used_fallback {
-                    comment.outdated = true;
-                } else {
-                    comment.outdated = false;
-                    comment.target = AttachedReviewCommentTarget::Line {
-                        absolute_file_path: absolute_file_path.clone(),
-                        line: new_location,
-                        content: new_content,
-                    };
-                }
-
-                comment
-            })
-            .collect()
-    }
-
-    fn reposition_comments_in_file(&mut self, _diff_mode: &DiffMode, ctx: &mut ViewContext<Self>) {
-        let Some(model) = &self.active_comment_model else {
-            report_error!(anyhow::anyhow!(
-                "Failed to relocate PR comments: CodeReviewView diff state not loaded",
-            ));
-            return;
-        };
-
-        let Some(repo_path) = self.repo_path().cloned() else {
-            report_error!("Failed to relocate PR comments: CodeReviewView has no repo path");
-            return;
-        };
-
-        let CodeReviewViewState::Loaded(state) = self.state() else {
-            log::warn!("Failed to relocate PR comments: CodeReviewView diff state not loaded");
-            return;
-        };
-
-        let comments = model.update(ctx, |batch, _| batch.take_comments());
-
-        if comments.is_empty() {
-            return;
-        }
-
-        let relocated_comments = Self::relocate_comments(comments, state, &repo_path, ctx);
-
-        model.update(ctx, |batch, ctx| {
-            batch.upsert_comments(relocated_comments, ctx);
-        });
-
-        ctx.notify();
     }
 
     fn render_placeholder_header(appearance: &Appearance) -> Box<dyn Element> {
@@ -3437,15 +2706,10 @@ impl CodeReviewView {
         .with_min_width(180.)
         .finish();
 
-        // Bottom section: comment list view
-        // The view handles its own resizable logic internally
-        let bottom_section = ChildView::new(&self.comment_list_view).finish();
-
         // Wrap all sections in a vertical flex that takes full height
         let col = Flex::column()
             .with_main_axis_size(MainAxisSize::Max)
-            .with_child(Shrinkable::new(1., top_section_with_margin).finish())
-            .with_child(bottom_section);
+            .with_child(Shrinkable::new(1., top_section_with_margin).finish());
 
         col.finish()
     }
@@ -3525,8 +2789,7 @@ impl CodeReviewView {
         is_in_split_pane: bool,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let has_menu_flags = FeatureFlag::DiscardPerFileAndAllChanges.is_enabled()
-            || FeatureFlag::FileAndDiffSetComments.is_enabled();
+        let has_menu_flags = FeatureFlag::DiscardPerFileAndAllChanges.is_enabled();
         let has_changes = matches!(self.state(), CodeReviewViewState::Loaded(loaded) if !loaded.to_diff_stats().has_no_changes());
         let has_header_menu_items =
             has_menu_flags && (!FeatureFlag::GitOperationsInCodeReview.is_enabled() || has_changes);
@@ -3554,14 +2817,13 @@ impl CodeReviewView {
             git_operations_menu_open: self.git_operations_menu_open,
         };
 
-        let header = if FeatureFlag::GitOperationsInCodeReview.is_enabled() {
+        if FeatureFlag::GitOperationsInCodeReview.is_enabled() {
             self.header
                 .render_new(appearance, &code_review_header_fields)
         } else {
             self.header
                 .render(state, appearance, &code_review_header_fields, app)
-        };
-        SavePosition::new(header, &self.header_position_id).finish()
+        }
     }
 
     /// Renders additions and deletions counts
@@ -3717,8 +2979,6 @@ impl CodeReviewView {
         .with_propagate_mousewheel_if_not_handled(true)
         .with_always_handle_events_first(false)
         .finish();
-        let scrollable_diffs =
-            SavePosition::new(scrollable_diffs, &self.code_review_list_position_id).finish();
 
         let diffs_container = if self.file_sidebar_expanded && !state.file_states.is_empty() {
             let margin = if sidebar_on_right {
@@ -4902,27 +4162,6 @@ impl CodeReviewView {
         !self.get_unsaved_file_paths(ctx).is_empty()
     }
 
-    fn get_current_head(&self, ctx: &ViewContext<Self>) -> Option<CurrentHead> {
-        self.diff_state_model
-            .as_ref(ctx)
-            .get_current_branch_name(ctx)
-            .map(CurrentHead::BranchName)
-    }
-
-    fn get_diff_base(&self, ctx: &ViewContext<Self>) -> anyhow::Result<DiffBase> {
-        match self.diff_state_model.as_ref(ctx).diff_mode(ctx) {
-            DiffMode::Head => Ok(DiffBase::UncommittedChanges),
-            DiffMode::MainBranch => {
-                let main_branch_name = self.diff_state_model.as_ref(ctx).get_main_branch_name(ctx);
-                match main_branch_name {
-                    Some(name) => Ok(DiffBase::BranchName(name)),
-                    None => Err(anyhow::anyhow!("unable to determine main branch name")),
-                }
-            }
-            DiffMode::OtherBranch(branch_name) => Ok(DiffBase::BranchName(branch_name)),
-        }
-    }
-
     fn save_files(&mut self, paths: &[String], ctx: &mut ViewContext<Self>) {
         for path in paths {
             self.save_file(path, ctx);
@@ -5421,65 +4660,13 @@ impl CodeReviewView {
     }
 
     /// Items for the header overflow menu (three-dots button).
-    fn header_menu_items(&self, ctx: &mut ViewContext<Self>) -> Vec<MenuItem<CodeReviewAction>> {
-        if FeatureFlag::GitOperationsInCodeReview.is_enabled() {
-            self.header_menu_items_new(ctx)
-        } else {
-            self.header_menu_items_legacy(ctx)
-        }
-    }
-
-    /// Legacy menu items — gated on FileAndDiffSetComments only.
-    fn header_menu_items_legacy(
-        &self,
-        ctx: &mut ViewContext<Self>,
-    ) -> Vec<MenuItem<CodeReviewAction>> {
+    fn header_menu_items(&self) -> Vec<MenuItem<CodeReviewAction>> {
         let mut items = Vec::new();
-
-        if !FeatureFlag::FileAndDiffSetComments.is_enabled() {
+        if !FeatureFlag::GitOperationsInCodeReview.is_enabled() {
             return items;
         }
 
-        let (comment_label, comment_icon) = if self.get_existing_diffset_comment(ctx).is_some() {
-            ("Show saved comment", Icon::MessageText)
-        } else {
-            ("Add comment", Icon::MessagePlusSquare)
-        };
-
-        items.push(
-            MenuItemFields::new(comment_label)
-                .with_icon(comment_icon)
-                .with_on_select_action(CodeReviewAction::OpenCommentComposerFromHeader)
-                .into_item(),
-        );
-
-        items
-    }
-
-    /// New menu items — individually gated, includes discard and AI check.
-    fn header_menu_items_new(
-        &self,
-        ctx: &mut ViewContext<Self>,
-    ) -> Vec<MenuItem<CodeReviewAction>> {
-        let mut items = Vec::new();
-
         let has_changes = matches!(self.state(), CodeReviewViewState::Loaded(loaded) if !loaded.to_diff_stats().has_no_changes());
-
-        if FeatureFlag::FileAndDiffSetComments.is_enabled() && has_changes {
-            let (comment_label, comment_icon) = if self.get_existing_diffset_comment(ctx).is_some()
-            {
-                ("Show saved comment", Icon::MessageText)
-            } else {
-                ("Add comment", Icon::MessagePlusSquare)
-            };
-
-            items.push(
-                MenuItemFields::new(comment_label)
-                    .with_icon(comment_icon)
-                    .with_on_select_action(CodeReviewAction::OpenCommentComposerFromHeader)
-                    .into_item(),
-            );
-        }
 
         if FeatureFlag::DiscardPerFileAndAllChanges.is_enabled() && has_changes {
             items.push(
@@ -5581,28 +4768,6 @@ impl CodeReviewView {
         });
     }
 
-    pub(super) fn editor_for_path(
-        &self,
-        path: &LocalOrRemotePath,
-        ctx: &AppContext,
-    ) -> Option<ViewHandle<LocalCodeEditorView>> {
-        match self.state() {
-            CodeReviewViewState::Loaded(loaded) => loaded
-                .file_states
-                .values()
-                .filter_map(|file| file.editor_state.as_ref())
-                .find_map(|state| {
-                    let editor_location = state.editor.as_ref(ctx).file_location();
-                    if editor_location == Some(path) {
-                        Some(state.editor.clone())
-                    } else {
-                        None
-                    }
-                }),
-            _ => None,
-        }
-    }
-
     pub(super) fn editor_handles(
         &self,
     ) -> Box<dyn Iterator<Item = ViewHandle<LocalCodeEditorView>> + '_> {
@@ -5688,31 +4853,6 @@ impl View for CodeReviewView {
             .with_child(content_with_handler)
             .with_constrain_absolute_children();
 
-        // Pane-level comment composer overlay, anchored to the header position.
-        if let Some(composer) = &self.comment_composer {
-            let editor = ChildView::new(composer).finish();
-            let styled_composer = Container::new(
-                ConstrainedBox::new(editor)
-                    .with_max_width(DEFAULT_COMMENT_MAX_WIDTH)
-                    .with_max_height(260.)
-                    .finish(),
-            )
-            .with_margin_left(32.)
-            .with_margin_right(32.)
-            .finish();
-
-            stack.add_positioned_child(
-                styled_composer,
-                OffsetPositioning::offset_from_save_position_element(
-                    self.header_position_id.as_str(),
-                    vec2f(0., -40.),
-                    PositionedElementOffsetBounds::ParentByPosition,
-                    PositionedElementAnchor::BottomRight,
-                    ChildAnchor::TopRight,
-                ),
-            );
-        }
-
         // Header dropdown menu is rendered inline with the header button in CodeReviewHeader
 
         if self.find_model.as_ref(ctx).is_find_bar_open() {
@@ -5764,7 +4904,7 @@ impl View for CodeReviewView {
         // Suppress pane-level shortcuts (e.g. `F`) when a descendant text editor
         // is focused; otherwise the binding fires before the editor receives
         // the keystroke as text input. Covers the three text-input surfaces in
-        // this pane: diff editor (`CodeEditorView`), comment composers
+        // this pane: diff editor (`CodeEditorView`)
         // (`RichTextEditorView`), and the find bar (`EditorView`).
         let editor_focused = ctx
             .focused_view_id(self.window_id)
@@ -5932,7 +5072,7 @@ impl TypedActionView for CodeReviewView {
             }
             CodeReviewAction::OpenHeaderMenu => {
                 // Header dropdown: build items and toggle the menu open/closed.
-                let items = self.header_menu_items(ctx);
+                let items = self.header_menu_items();
                 if items.is_empty() {
                     return;
                 }
@@ -5953,11 +5093,6 @@ impl TypedActionView for CodeReviewView {
                 }
                 self.update_header_dropdown_active_state(ctx);
                 ctx.notify();
-            }
-            CodeReviewAction::OpenCommentComposerFromHeader => {
-                // Show the review comment composer overlay if it's not already open.
-                let existing_comment = self.get_existing_diffset_comment(ctx);
-                self.open_review_comment_composer(existing_comment, ctx);
             }
             CodeReviewAction::EmitPaneEvent(event) => {
                 ctx.emit(CodeReviewViewEvent::Pane(event.clone()));
@@ -6258,26 +5393,6 @@ impl BackingView for CodeReviewView {
     }
 }
 
-#[derive(Debug)]
-struct ShowCommentEditor {
-    comment_list_save_position_id: String,
-    window_id: WindowId,
-}
-
-impl ShowCommentEditorProvider for ShowCommentEditor {
-    fn should_show_comment_editor(&self, editor_line_location: RectF, app: &AppContext) -> bool {
-        let Some(comment_list_view_position) = app.element_position_by_id_at_last_frame(
-            self.window_id,
-            &self.comment_list_save_position_id,
-        ) else {
-            return false;
-        };
-
-        comment_list_view_position.contains_point(editor_line_location.upper_right())
-            || comment_list_view_position.contains_point(editor_line_location.lower_left())
-    }
-}
-
 #[path = "scroll_preservation.rs"]
 mod scroll_preservation;
 use scroll_preservation::RelocatableScrollContext;
@@ -6288,7 +5403,6 @@ mod code_review_view_integration;
 
 #[cfg(feature = "integration_tests")]
 pub use code_review_view_integration::CodeReviewVisibleAnchorForTest;
-use warp_errors::report_error;
 
 #[cfg(test)]
 #[path = "code_review_view_tests.rs"]

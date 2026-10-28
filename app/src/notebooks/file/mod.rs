@@ -654,8 +654,6 @@ impl FileNotebookView {
             EditorViewEvent::Focused => ctx.emit(FileNotebookEvent::Pane(PaneEvent::FocusSelf)),
             EditorViewEvent::Navigate(_)
             | EditorViewEvent::Edited
-            | EditorViewEvent::CmdEnter
-            | EditorViewEvent::EscapePressed
             | EditorViewEvent::TextSelectionChanged => (),
             EditorViewEvent::OpenFile { .. } => {
                 // We don't support opening files from the notebook view: file paths rely on a

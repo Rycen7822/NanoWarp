@@ -1,7 +1,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
 
-use pathfinder_geometry::rect::RectF;
 use serde::{Deserialize, Serialize};
 use warp_errors::{ErrorExt, register_error};
 use warp_util::file::FileSaveError;
@@ -42,24 +41,6 @@ impl ErrorExt for ImmediateSaveError {
     }
 }
 register_error!(ImmediateSaveError);
-
-/// Trait to determine whether we should show the comment editor based on state held
-/// by the parent of the [`CodeEditorView`].
-pub trait ShowCommentEditorProvider: Debug + 'static {
-    /// Returns whether the comment editor should be shown given the location of the line where
-    /// the editor would be shown.
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    fn should_show_comment_editor(&self, editor_line_location: RectF, app: &AppContext) -> bool;
-}
-
-#[derive(Debug)]
-struct NoopCommentEditorProvider;
-
-impl ShowCommentEditorProvider for NoopCommentEditorProvider {
-    fn should_show_comment_editor(&self, _editor_line_location: RectF, _app: &AppContext) -> bool {
-        false
-    }
-}
 
 #[cfg_attr(target_family = "wasm", expect(dead_code))]
 #[derive(Debug)]

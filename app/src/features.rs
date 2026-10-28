@@ -81,8 +81,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::EditableMarkdownMermaid,
         #[cfg(feature = "msys2_shells")]
         FeatureFlag::MSYS2Shells,
-        #[cfg(feature = "context_line_review_comments")]
-        FeatureFlag::ContextLineReviewComments,
         #[cfg(feature = "code_find_replace")]
         FeatureFlag::CodeFindReplace,
         #[cfg(feature = "command_palette_file_search")]
@@ -113,12 +111,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CodeReviewFind,
         #[cfg(feature = "ui_zoom")]
         FeatureFlag::UIZoom,
-        #[cfg(feature = "inline_code_review")]
-        FeatureFlag::InlineCodeReview,
-        #[cfg(feature = "embedded_code_review_comments")]
-        FeatureFlag::EmbeddedCodeReviewComments,
-        #[cfg(feature = "file_and_diff_set_comments")]
-        FeatureFlag::FileAndDiffSetComments,
         #[cfg(feature = "configurable_toolbar")]
         FeatureFlag::ConfigurableToolbar,
         #[cfg(feature = "classic_completions")]

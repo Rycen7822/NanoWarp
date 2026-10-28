@@ -417,11 +417,6 @@ impl CodeView {
                     global_buffer.discard_unsaved_changes(path, ctx);
                 });
             }
-            LocalCodeEditorEvent::CommentSaved { .. }
-            | LocalCodeEditorEvent::RequestOpenComment(_)
-            | LocalCodeEditorEvent::DeleteComment { .. } => {
-                // Comment events are handled by CodeReviewView, not CodeView
-            }
             LocalCodeEditorEvent::DelayedRenderingFlushed => (),
         });
 

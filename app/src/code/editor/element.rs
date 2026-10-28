@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use gutter_button::{CommentButton, RevertHunkButton};
+pub use gutter_button::RevertHunkButton;
 use parking_lot::Mutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
@@ -13,8 +13,7 @@ use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
 use warp_editor::editor::EditorView;
-use warp_editor::render::element::lens_element::RichTextElementLens;
-use warp_editor::render::element::{RenderableBlock, RichTextElement, VerticalExpansionBehavior};
+use warp_editor::render::element::{RichTextElement, VerticalExpansionBehavior};
 use warp_editor::render::model::{
     BlockLocation, ExpansionType, LineCount, RenderState, gutter_expansion_button_types,
 };
@@ -27,7 +26,7 @@ use warpui::elements::{
 use warpui::event::DispatchedEvent;
 use warpui::fonts::FamilyId;
 use warpui::ui_components::components::UiComponent;
-use warpui::units::{IntoPixels, Pixels};
+use warpui::units::Pixels;
 use warpui::{
     AfterLayoutContext, AppContext, ClipBounds, Element, Event, EventContext, LayoutContext,
     ModelHandle, PaintContext, SingletonEntity, SizeConstraint,
@@ -37,20 +36,13 @@ use super::diff::{DiffHunkDisplay, DiffStatus};
 use super::model::DiffNavigationState;
 use crate::code::editor::element::gutter_button::GutterButton;
 use crate::code::editor::line::EditorLineLocation;
-use crate::code::editor::view::{CodeEditorViewAction, SavedComment};
+use crate::code::editor::view::CodeEditorViewAction;
 use crate::settings::CodeEditorLineNumberMode;
 use crate::view_components::action_button::{ActionButtonTheme, SecondaryTheme};
 
 pub const GUTTER_WIDTH: f32 = 94.;
 const VERTICAL_DIFF_HUNK_INDICATOR_WIDTH: f32 = 3.;
 const VERTICAL_DIFF_HUNK_INDICATOR_HOVERED_WIDTH: f32 = 8.;
-
-fn highlight_element(appearance: &Appearance) -> Box<dyn Element> {
-    let border_color = appearance.theme().accent();
-    Container::new(Empty::new().finish())
-        .with_border(Border::all(2.).with_border_fill(border_color))
-        .finish()
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeType {
@@ -67,77 +59,6 @@ pub enum GutterElementType {
     HiddenSection {
         expansion_type: ExpansionType,
     },
-}
-
-/// The inner editor element wrapped by the EditorWrapper. Currently we support a full scrollable
-/// editor or a lens element into a section of the buffer.
-pub enum InnerEditor<V: EditorView> {
-    FullEditor(RichTextElement<V>),
-    Lens(RichTextElementLens<V>),
-}
-
-impl<V: EditorView> InnerEditor<V> {
-    fn blocks(&self) -> Option<&[Box<dyn RenderableBlock>]> {
-        match self {
-            InnerEditor::FullEditor(element) => element.blocks(),
-            InnerEditor::Lens(element) => element.blocks(),
-        }
-    }
-
-    fn model(&self) -> &ModelHandle<RenderState> {
-        match self {
-            InnerEditor::FullEditor(element) => &element.model,
-            InnerEditor::Lens(element) => &element.model,
-        }
-    }
-}
-
-impl<V: EditorView> Element for InnerEditor<V> {
-    fn layout(
-        &mut self,
-        constraint: SizeConstraint,
-        ctx: &mut LayoutContext,
-        app: &AppContext,
-    ) -> Vector2F {
-        match self {
-            InnerEditor::FullEditor(element) => element.layout(constraint, ctx, app),
-            InnerEditor::Lens(element) => element.layout(constraint, ctx, app),
-        }
-    }
-
-    fn after_layout(&mut self, ctx: &mut AfterLayoutContext, app: &AppContext) {
-        match self {
-            InnerEditor::FullEditor(element) => element.after_layout(ctx, app),
-            InnerEditor::Lens(element) => element.after_layout(ctx, app),
-        }
-    }
-
-    fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
-        match self {
-            InnerEditor::FullEditor(element) => element.paint(origin, ctx, app),
-            InnerEditor::Lens(element) => element.paint(origin, ctx, app),
-        };
-    }
-
-    fn size(&self) -> Option<Vector2F> {
-        None
-    }
-
-    fn origin(&self) -> Option<Point> {
-        None
-    }
-
-    fn dispatch_event(
-        &mut self,
-        event: &DispatchedEvent,
-        ctx: &mut EventContext,
-        app: &AppContext,
-    ) -> bool {
-        match self {
-            InnerEditor::FullEditor(element) => element.dispatch_event(event, ctx, app),
-            InnerEditor::Lens(element) => element.dispatch_event(event, ctx, app),
-        }
-    }
 }
 
 struct GutterElement {
@@ -282,8 +203,6 @@ pub struct EditorWrapperState {
     in_click: AtomicBool,
     /// Mouse state handle for the revert button.
     revert_mouse_state: MouseStateHandle,
-    /// Mouse state handle for the comment button.
-    comment_mouse_state: MouseStateHandle,
 }
 
 pub type EditorWrapperStateHandle = Arc<EditorWrapperState>;
@@ -350,19 +269,13 @@ impl LineNumberConfig {
     }
 }
 
-struct CommentBox {
-    line_highlight_element: Box<dyn Element>,
-    line: EditorLineLocation,
-}
-
 pub struct EditorWrapper<V: EditorView> {
-    editor: InnerEditor<V>,
+    editor: RichTextElement<V>,
     element_size: Option<Vector2F>,
     element_origin: Option<Point>,
     /// Whether the editor should expand vertically to fill the available space.
     vertical_expansion_behavior: VerticalExpansionBehavior,
-    /// If there is no [`LineNumberConfig`], the entire left gutter won't be rendered.
-    line_number_config: Option<LineNumberConfig>,
+    line_number_config: LineNumberConfig,
     gutter_elements: Option<Vec<GutterElement>>,
     diff_status: DiffStatus,
     state_handle: EditorWrapperStateHandle,
@@ -381,16 +294,8 @@ pub struct EditorWrapper<V: EditorView> {
     child_max_z_index: Option<ZIndex>,
     /// Display state of the "revert" button shown next to diff hunks.
     revert_hunk_button: Option<RevertHunkButton>,
-    /// Display state of the "comment" button shown next to diff hunks.
-    comment_button: Option<CommentButton>,
-    // Todo: kc combine all comment related fields into a struct.
-    comment_box: Option<CommentBox>,
-    /// Lines with saved comments attached. These lines always have an
-    /// indicator in the gutter element.
-    saved_comments: Vec<SavedComment>,
     gutter_element_hover_target: GutterHoverTarget,
     expand_diff_indicator_width_on_hover: bool,
-    comment_save_position_id: String,
 }
 
 impl<V: EditorView> EditorWrapper<V> {
@@ -471,9 +376,9 @@ impl<V: EditorView> EditorWrapper<V> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        editor: InnerEditor<V>,
+        editor: RichTextElement<V>,
         vertical_expansion_behavior: VerticalExpansionBehavior,
-        line_number_config: Option<LineNumberConfig>,
+        line_number_config: LineNumberConfig,
         diff_status: DiffStatus,
         state_handle: EditorWrapperStateHandle,
         click_handler: EditorWrapperClickHandler,
@@ -481,11 +386,8 @@ impl<V: EditorView> EditorWrapper<V> {
         diff_navigation_state: DiffNavigationState,
         focused_diff_line_range: Option<Range<LineCount>>,
         revert_hunk_button: Option<RevertHunkButton>,
-        comment_button: Option<CommentButton>,
-        saved_comments: Vec<SavedComment>,
         expand_diff_indicator_width_on_hover: bool,
         gutter_element_hover_target: GutterHoverTarget,
-        comment_save_position_id: String,
     ) -> Self {
         Self {
             editor,
@@ -502,22 +404,9 @@ impl<V: EditorView> EditorWrapper<V> {
             should_handle_scroll_wheel,
             child_max_z_index: None,
             revert_hunk_button,
-            comment_button,
             expand_diff_indicator_width_on_hover,
             gutter_element_hover_target,
-            comment_box: None,
-            saved_comments,
-            comment_save_position_id,
         }
-    }
-
-    /// Set the comment box to be displayed at a specific line
-    pub fn set_comment_box(&mut self, line: EditorLineLocation, app: &AppContext) {
-        let appearance = Appearance::as_ref(app);
-        self.comment_box = Some(CommentBox {
-            line_highlight_element: highlight_element(appearance),
-            line,
-        });
     }
 
     /// True iff the diff hunks are expanded in the underlying editor model.
@@ -525,18 +414,8 @@ impl<V: EditorView> EditorWrapper<V> {
         !matches!(self.diff_navigation_state, DiffNavigationState::Collapsed)
     }
 
-    /// Returns the saved comment for the given line, if any.
-    fn find_saved_comment_for_line(&self, line: &EditorLineLocation) -> Option<SavedComment> {
-        self.saved_comments
-            .iter()
-            .find(|comment| comment.location().is_same_line(line))
-            .cloned()
-    }
-
     fn should_display_relative_line_number(&self) -> bool {
-        let Some(line_number_config) = &self.line_number_config else {
-            return false;
-        };
+        let line_number_config = &self.line_number_config;
         if line_number_config.mode != CodeEditorLineNumberMode::Relative
             || line_number_config.active_line_number.is_none()
         {
@@ -548,15 +427,11 @@ impl<V: EditorView> EditorWrapper<V> {
         line_number_config.active_cursor_is_visible
     }
 
-    /// Returning **no** gutter means the gutter shouldn't be rendered at all.
-    /// Returning an **empty** gutter means the gutter should be rendered with no contents.
-    fn gutter_elements(&self, app: &AppContext) -> Option<Vec<GutterElement>> {
+    fn gutter_elements(&self, app: &AppContext) -> Vec<GutterElement> {
         let appearance = Appearance::as_ref(app);
-        let Some(line_number_config) = &self.line_number_config else {
-            return None;
-        };
+        let line_number_config = &self.line_number_config;
         let Some(blocks) = self.editor.blocks() else {
-            return Some(Vec::new());
+            return Vec::new();
         };
 
         let mut elements = Vec::new();
@@ -572,14 +447,7 @@ impl<V: EditorView> EditorWrapper<V> {
                 continue;
             };
 
-            // For lens element, we need to use use the content offset - scroll top instead of the render model's viewport
-            // offset since we are only rendering a section of the editor.
-            let offset = match &self.editor {
-                InnerEditor::Lens(element) => (block.viewport_item().content_offset.as_f32()
-                    - element.starting_renderable_block_offset().unwrap_or(0.))
-                .into_pixels(),
-                InnerEditor::FullEditor(_) => block.viewport_item().viewport_offset,
-            };
+            let offset = block.viewport_item().viewport_offset;
             let diff_hunk = self.diff_status.diff_hunk(line_count, appearance);
             let is_removal = matches!(diff_hunk, Some(DiffHunkDisplay::Remove(_)));
 
@@ -619,7 +487,6 @@ impl<V: EditorView> EditorWrapper<V> {
                         line_range: diff_range.unwrap_or(line_count..line_count),
                         index: removed_hunk_line_index,
                     };
-                    // Show comment button only on the specific hovered line with matching index
                     let is_diff_line = self.diff_hunks_are_expanded() && diff_hunk.is_some();
                     let range_hovered = hovered_range
                         .as_ref()
@@ -628,39 +495,10 @@ impl<V: EditorView> EditorWrapper<V> {
                     let is_this_line_hovered = hovered_range
                         .as_ref()
                         .is_some_and(|hovered_line| hovered_line.is_same_line(&line));
-                    let attached_comment = self.find_saved_comment_for_line(&line);
-
-                    let is_comment_on_current_line = attached_comment.is_some();
-
-                    let is_comment_box_open = self.comment_box.is_some();
-                    let is_comment_box_open_on_current_line = self
-                        .comment_box
-                        .as_ref()
-                        .is_some_and(|comment_box| comment_box.line.is_same_line(&line));
-                    let is_comment_box_open_on_different_line =
-                        is_comment_box_open && !is_comment_box_open_on_current_line;
-
-                    // We want to show the gutter buttons if either:
-                    // 1) This line is part of a diff hunk that is being hovered and the comment box
-                    // isn't open on another line.
-                    // 2) We're currently on a line where the comment box is open.
-                    let show_gutter_buttons = (is_diff_line
-                        && is_this_line_hovered
-                        && !is_comment_box_open_on_different_line)
-                        || is_comment_box_open_on_current_line;
-
-                    // Compute comment visibility independently of diff-hunk buttons
-                    let should_show_comment_button = (is_this_line_hovered
-                        && !is_comment_box_open_on_different_line)
-                        || is_comment_box_open_on_current_line;
-
                     let element = self.render_gutter_element(
                         None,
                         line_number_config,
-                        show_gutter_buttons,
-                        should_show_comment_button,
-                        is_comment_on_current_line,
-                        attached_comment,
+                        is_diff_line && is_this_line_hovered,
                         first_line_height,
                         height,
                         &line,
@@ -793,53 +631,13 @@ impl<V: EditorView> EditorWrapper<V> {
                 .as_ref()
                 .is_some_and(|hovered_line| hovered_line.line_range() == line.line_range());
 
-            // Show comment button only on the specific hovered line
             let is_this_line_hovered = hovered_range
                 .as_ref()
                 .is_some_and(|hovered_line| hovered_line.is_same_line(&line));
-            let attached_comment = self.find_saved_comment_for_line(&line);
-
-            let is_comment_box_open = self.comment_box.is_some();
-            let is_comment_box_open_on_current_line = self
-                .comment_box
-                .as_ref()
-                .is_some_and(|comment_box| comment_box.line.is_same_line(&line));
-            let is_comment_box_open_on_different_line =
-                is_comment_box_open && !is_comment_box_open_on_current_line;
-
-            // We want to show the gutter buttons if either:
-            // 1) This line is part of a diff hunk that is being hovered and the comment box
-            // isn't open on another line.
-            // 2) We're currently on a line where the comment box is open.
-            let should_show_diff_hunk_button = (is_diff_line
-                && is_this_line_hovered
-                && !is_removal
-                && !is_comment_box_open_on_different_line)
-                || is_comment_box_open_on_current_line;
-
-            let is_comment_on_current_line = attached_comment.is_some();
-
-            // The gutter element should take the same height as block's first line.
-            // Compute comment visibility for any hovered/current line, not just diff lines
-            // For non-diff lines, check the feature flag before showing comment button
-            let should_show_comment_button = {
-                if !is_diff_line && !FeatureFlag::ContextLineReviewComments.is_enabled() {
-                    // Only show comment button if there's already a comment on this line
-                    is_comment_box_open_on_current_line
-                } else {
-                    // Show comment button normally for diff lines or when feature flag is enabled
-                    (is_this_line_hovered && !is_comment_box_open_on_different_line)
-                        || is_comment_box_open_on_current_line
-                }
-            };
-
             let element = self.render_gutter_element(
                 Some(current_line),
                 line_number_config,
-                should_show_diff_hunk_button,
-                should_show_comment_button,
-                is_comment_on_current_line,
-                attached_comment,
+                is_diff_line && is_this_line_hovered && !is_removal,
                 height,
                 height,
                 &line,
@@ -868,7 +666,7 @@ impl<V: EditorView> EditorWrapper<V> {
                 overlay: None,
             });
         }
-        Some(elements)
+        elements
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -932,12 +730,7 @@ impl<V: EditorView> EditorWrapper<V> {
         appearance: &Appearance,
         gutter_button: &dyn GutterButton,
     ) -> Box<dyn Element> {
-        let vertical_padding = if FeatureFlag::InlineCodeReview.is_enabled() {
-            2.
-        } else {
-            4.
-        };
-
+        let vertical_padding = 2.;
         let button_size = gutter_element_height;
         let icon_size = button_size - (vertical_padding * 2.);
         let enabled = gutter_button.is_enabled();
@@ -1024,66 +817,12 @@ impl<V: EditorView> EditorWrapper<V> {
         )
     }
 
-    /// Renders the comment button for adding comments to diff hunks.
-    fn render_comment_button(
-        &self,
-        gutter_element_height: f32,
-        line: &EditorLineLocation,
-        attached_comment: Option<SavedComment>,
-        appearance: &Appearance,
-        comment_button: &CommentButton,
-    ) -> Box<dyn Element> {
-        let (on_click_action, comment_button, mouse_state) = if self
-            .comment_box
-            .as_ref()
-            .is_some_and(|comment_box| comment_box.line.is_same_line(line))
-        {
-            let comment_button = if attached_comment.is_some() {
-                CommentButton::EditorOpenedToUpdateComment
-            } else {
-                CommentButton::EditorOpenedToCreateNewComment
-            };
-            // If the comment box is already open for this line, don't do anything on click
-            (
-                None,
-                comment_button,
-                self.state_handle.comment_mouse_state.clone(),
-            )
-        } else {
-            match attached_comment {
-                Some(saved_comment) => (
-                    Some(CodeEditorViewAction::RequestOpenSavedComment {
-                        uuid: saved_comment.uuid(),
-                    }),
-                    CommentButton::AddedComment,
-                    saved_comment.mouse_state().clone(),
-                ),
-                None => (
-                    Some(CodeEditorViewAction::NewCommentOnLine { line: line.clone() }),
-                    *comment_button,
-                    self.state_handle.comment_mouse_state.clone(),
-                ),
-            }
-        };
-
-        self.render_gutter_button(
-            mouse_state,
-            gutter_element_height,
-            on_click_action,
-            appearance,
-            &comment_button,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn render_gutter_element(
         &self,
         current_line: Option<usize>,
         line_number_config: &LineNumberConfig,
         should_show_diff_hunk_icons: bool,
-        should_show_comment_button: bool,
-        is_active_comment_on_current_line: bool,
-        attached_comment: Option<SavedComment>,
         line_height: f32,
         gutter_element_height: f32,
         line: &EditorLineLocation,
@@ -1125,25 +864,8 @@ impl<V: EditorView> EditorWrapper<V> {
         let show_revert_diff_hunk =
             FeatureFlag::RevertDiffHunk.is_enabled() && self.revert_hunk_button.is_some();
 
-        // Show comment button independently of diff hunk state when requested
-        let show_comment_button = FeatureFlag::InlineCodeReview.is_enabled()
-            && self.comment_button.is_some()
-            && (should_show_comment_button || is_active_comment_on_current_line);
-
-        if should_show_diff_hunk_icons || is_active_comment_on_current_line || show_comment_button {
+        if should_show_diff_hunk_icons {
             let mut buttons = Flex::row().with_main_axis_size(MainAxisSize::Min);
-            if let Some(comment_button) =
-                self.comment_button.as_ref().filter(|_| show_comment_button)
-            {
-                buttons.add_child(self.render_comment_button(
-                    line_height,
-                    line,
-                    attached_comment,
-                    appearance,
-                    comment_button,
-                ));
-            }
-
             if should_show_diff_hunk_icons
                 && let Some(revert_hunk_button) = self
                     .revert_hunk_button
@@ -1208,16 +930,11 @@ impl<V: EditorView> EditorWrapper<V> {
     }
 
     fn model(&self) -> &ModelHandle<RenderState> {
-        self.editor.model()
+        &self.editor.model
     }
 
     fn size_buffer(&self) -> Vector2F {
-        let is_gutter_present = self.line_number_config.is_some();
-        if is_gutter_present {
-            GUTTER_WIDTH.along(Axis::Horizontal)
-        } else {
-            Vector2F::zero()
-        }
+        GUTTER_WIDTH.along(Axis::Horizontal)
     }
 }
 
@@ -1246,31 +963,11 @@ impl<V: EditorView> Element for EditorWrapper<V> {
         };
 
         let mut gutter_elements = self.gutter_elements(app);
-        if let Some(gutter_elements) = &mut gutter_elements {
-            for gutter_element in gutter_elements {
-                let gutter_element_size = gutter_element.element.layout(constraint, ctx, app);
-
-                if FeatureFlag::InlineCodeReview.is_enabled()
-                    && let Some(comment_box) = &mut self.comment_box
-                {
-                    let highlight_line = &comment_box.line;
-                    if gutter_element.line == *highlight_line {
-                        let highlight_width = size.x();
-                        let highlight_height = gutter_element_size.y();
-                        comment_box.line_highlight_element.layout(
-                            SizeConstraint {
-                                min: vec2f(0.0, 0.0),
-                                max: vec2f(highlight_width, highlight_height),
-                            },
-                            ctx,
-                            app,
-                        );
-                    }
-                }
-            }
+        for gutter_element in &mut gutter_elements {
+            gutter_element.element.layout(constraint, ctx, app);
         }
 
-        self.gutter_elements = gutter_elements;
+        self.gutter_elements = Some(gutter_elements);
         self.element_size = Some(size);
         size
     }
@@ -1299,13 +996,7 @@ impl<V: EditorView> Element for EditorWrapper<V> {
         {
             let model = self.model().as_ref(app);
             let content = model.content();
-            let y_adjustment = match &self.editor {
-                InnerEditor::Lens(element) => element
-                    .starting_renderable_block_offset()
-                    .unwrap_or(0.)
-                    .into_pixels(),
-                InnerEditor::FullEditor(_) => model.viewport().scroll_top(),
-            };
+            let y_adjustment = model.viewport().scroll_top();
             for decoration in model.decorations().line_decoration_ranges() {
                 let start_y = content.y_offset_at_line(decoration.start);
                 let end_y = content.y_offset_at_line(decoration.end);
@@ -1328,10 +1019,6 @@ impl<V: EditorView> Element for EditorWrapper<V> {
         let gutter_width = self.size_buffer().x();
         let gutter_bounds = RectF::new(origin, vec2f(gutter_width, wrapper_size.y()));
 
-        // Track the offset and height of the gutter element under which we should render the
-        // inline comment box.
-        let mut inline_comment_gutter_element: Option<(f32, f32)> = None;
-
         if let Some(gutter_elements) = &mut self.gutter_elements {
             // Start clipping layer for gutter elements to prevent overflow
             // at the bottom of the editor.
@@ -1339,8 +1026,7 @@ impl<V: EditorView> Element for EditorWrapper<V> {
             ctx.scene
                 .start_layer(ClipBounds::BoundedByActiveLayerAnd(gutter_bounds));
 
-            // Combined pass: compute grouped diff indicator sliver rects and
-            // track positions for inline comment / find references.
+            // Compute grouped diff indicator sliver rects.
             // Adjacent indicators in the same diff range are grouped into one tall rect.
             struct SliverGroup<'a> {
                 start_y: f32,
@@ -1397,22 +1083,6 @@ impl<V: EditorView> Element for EditorWrapper<V> {
                         });
                     }
                 }
-
-                // Track positions for inline comment and find references.
-                if !matches!(
-                    element.element_type,
-                    GutterElementType::HiddenSection { .. }
-                ) {
-                    // If this is the gutter element for the inline comment box,
-                    // save its position for later rendering.
-                    if self
-                        .comment_box
-                        .as_ref()
-                        .is_some_and(|cb| element.line == cb.line)
-                    {
-                        inline_comment_gutter_element = Some((gutter_y, element.height));
-                    }
-                }
             }
             // Flush last group.
             if let Some(g) = group.take() {
@@ -1439,24 +1109,6 @@ impl<V: EditorView> Element for EditorWrapper<V> {
             }
 
             ctx.scene.stop_layer();
-
-            if FeatureFlag::InlineCodeReview.is_enabled()
-                && let Some(comment_box) = &mut self.comment_box
-                && let Some((offset, height)) = inline_comment_gutter_element
-            {
-                let gutter_origin = origin + vec2f(0., offset);
-
-                // Highlight the selected line.
-                comment_box
-                    .line_highlight_element
-                    .paint(gutter_origin, ctx, app);
-
-                // Cache a single pixel where the comment editor would be located
-                // if were to render it within this element.
-                let rect = RectF::new(gutter_origin, vec2f(1., height));
-                ctx.position_cache
-                    .cache_position_for_one_frame(self.comment_save_position_id.clone(), rect);
-            }
         }
 
         self.child_max_z_index = Some(ctx.scene.max_active_z_index());
@@ -1556,17 +1208,11 @@ impl<V: EditorView> Element for EditorWrapper<V> {
 
 impl<V: EditorView> NewScrollableElement for EditorWrapper<V> {
     fn scroll_data(&self, axis: Axis, app: &AppContext) -> Option<ScrollData> {
-        // TODO: Support scrolling in editor lens.
-        match &self.editor {
-            InnerEditor::FullEditor(element) => element.scroll_data(axis, app),
-            InnerEditor::Lens(_) => None,
-        }
+        self.editor.scroll_data(axis, app)
     }
 
     fn scroll(&mut self, delta: Pixels, axis: Axis, ctx: &mut EventContext) {
-        if let InnerEditor::FullEditor(element) = &mut self.editor {
-            element.scroll(delta, axis, ctx)
-        }
+        self.editor.scroll(delta, axis, ctx)
     }
 
     fn axis_should_handle_scroll_wheel(&self, _axis: Axis) -> bool {

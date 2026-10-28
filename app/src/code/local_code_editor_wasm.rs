@@ -10,9 +10,6 @@ use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, Vi
 
 use super::ImmediateSaveError;
 use super::editor::view::CodeEditorView;
-use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
-use crate::code::editor::EditorReviewComment;
-use crate::code_review::comments::CommentId;
 
 #[derive(Debug)]
 pub enum LocalCodeEditorEvent {
@@ -28,12 +25,6 @@ pub enum LocalCodeEditorEvent {
     DiffStatusUpdated,
     #[allow(dead_code)]
     DiscardUnsavedChanges { path: PathBuf },
-    #[allow(dead_code)]
-    CommentSaved { comment: EditorReviewComment },
-    #[allow(dead_code)]
-    DeleteComment { id: CommentId },
-    #[allow(dead_code)]
-    RequestOpenComment(CommentId),
     #[allow(dead_code)]
     ViewportUpdated,
     #[allow(dead_code)]
@@ -71,12 +62,6 @@ impl LocalCodeEditorView {
     /// Stub: the WASM editor has no backing file, so nothing can be auto-saved.
     pub fn can_auto_save(&self, _app: &AppContext) -> bool {
         false
-    }
-
-    /// Returns the unified file location (local or remote).
-    /// The WASM stub has no backing file, so this always returns `None`.
-    pub fn file_location(&self) -> Option<&BufferFileLocation> {
-        None
     }
 }
 

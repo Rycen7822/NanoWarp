@@ -1074,11 +1074,6 @@ impl RightPanelView {
         }
 
         let diff_state_model_clone = diff_state_model.clone();
-        let code_review_comment_batch =
-            self.working_directories_model
-                .update(ctx, |working_directories, ctx| {
-                    working_directories.get_or_create_code_review_comments(repo_path, ctx)
-                });
         let action_target_provider: Box<dyn ReviewActionTargetProvider> =
             Box::new(RightPanelReviewActionTargetProvider {
                 right_panel: ctx.handle(),
@@ -1087,7 +1082,6 @@ impl RightPanelView {
             CodeReviewView::new(
                 Some(repo_path.clone()),
                 diff_state_model_clone,
-                code_review_comment_batch,
                 Some(action_target_provider),
                 ctx,
             )

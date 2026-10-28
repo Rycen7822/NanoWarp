@@ -1,30 +1,17 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use chrono::Local;
 use repo_metadata::repositories::DetectedRepositories;
 use warp_core::ui::appearance::Appearance;
-use warp_editor::content::buffer::InitialBufferState;
-use warp_editor::render::element::VerticalExpansionBehavior;
-use warp_editor::render::model::LineCount;
-use warpui::elements::{Empty, MouseStateHandle};
+use warpui::elements::Empty;
 use warpui::platform::WindowStyle;
 use warpui::{App, ViewHandle};
 
 use super::*;
 use crate::code::buffer_location::LocalOrRemotePath;
-use crate::code::editor::view::{CodeEditorRenderOptions, CodeEditorView};
-use crate::code::local_code_editor::LocalCodeEditorView;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::code_review::GlobalCodeReviewModel;
-use crate::code_review::comments::{
-    AttachedReviewComment, AttachedReviewCommentTarget, CommentId, CommentOrigin, LineDiffContent,
-};
-use crate::code_review::diff_size_limits::DiffSize;
-use crate::code_review::diff_state::{DiffStateModel, FileDiff, GitFileStatus};
-use crate::code_review::editor_state::CodeReviewEditorState;
+use crate::code_review::diff_state::DiffStateModel;
 use crate::code_review::git_repo_model::GitRepoModels;
-use crate::pane_group::WorkingDirectoriesModel;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
 use crate::terminal::local_shell::LocalShellState;
 use crate::test_util::settings::initialize_settings_for_tests;
@@ -69,531 +56,37 @@ fn initialize_test_app(app: &mut App) {
     app.add_singleton_model(|_| ActiveSession::default());
 }
 
-/// Creates a LocalCodeEditorView with the given content
-fn create_editor_with_content(app: &mut App, content: &str) -> ViewHandle<LocalCodeEditorView> {
-    let content = content.to_string();
-    let (_, local_editor) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-        let code_editor_view = ctx.add_typed_action_view(|ctx| {
-            CodeEditorView::new(
-                None,
-                None,
-                CodeEditorRenderOptions::new(VerticalExpansionBehavior::GrowToMaxHeight),
-                ctx,
-            )
-        });
-
-        code_editor_view.update(ctx, |editor, ctx| {
-            editor.reset(InitialBufferState::plain_text(&content), ctx);
-        });
-
-        LocalCodeEditorView::new(code_editor_view, ctx)
-    });
-
-    local_editor
-}
-
-/// Creates a LocalCodeEditorView with base and current content for diff testing
-#[allow(dead_code)]
-fn create_editor_with_diff(
-    app: &mut App,
-    base_content: &str,
-    current_content: &str,
-) -> ViewHandle<LocalCodeEditorView> {
-    let current = current_content.to_string();
-    let base = base_content.to_string();
-    let (_, local_editor) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-        let code_editor_view = ctx.add_typed_action_view(|ctx| {
-            CodeEditorView::new(
-                None,
-                None,
-                CodeEditorRenderOptions::new(VerticalExpansionBehavior::GrowToMaxHeight),
-                ctx,
-            )
-        });
-
-        code_editor_view.update(ctx, |editor, ctx| {
-            editor.reset(InitialBufferState::plain_text(&current), ctx);
-            editor.set_base(&base, true, ctx);
-        });
-
-        LocalCodeEditorView::new(code_editor_view, ctx)
-    });
-
-    local_editor
-}
-
-/// Creates an attached review comment with a Line target
-fn create_line_comment(
-    file_path: impl Into<PathBuf>,
-    line_number: usize,
-    line_text: &str,
-    comment_content: &str,
-) -> AttachedReviewComment {
-    let line_count = LineCount::from(line_number);
-    AttachedReviewComment {
-        id: CommentId::new(),
-        content: comment_content.to_string(),
-        target: AttachedReviewCommentTarget::Line {
-            absolute_file_path: LocalOrRemotePath::Local(file_path.into()),
-            line: EditorLineLocation::Current {
-                line_number: line_count,
-                line_range: line_count..LineCount::from(line_number + 1),
-            },
-            content: LineDiffContent {
-                content: format!("+{line_text}"),
-                lines_added: LineCount::from(1),
-                lines_removed: LineCount::from(0),
-            },
-        },
-        last_update_time: Local::now(),
-        base: None,
-        head: None,
-        outdated: false,
-        origin: CommentOrigin::Native,
-    }
-}
-
-/// Creates an attached review comment with a File target
-fn create_file_comment(
-    file_path: impl Into<PathBuf>,
-    comment_content: &str,
-) -> AttachedReviewComment {
-    AttachedReviewComment {
-        id: CommentId::new(),
-        content: comment_content.to_string(),
-        target: AttachedReviewCommentTarget::File {
-            absolute_file_path: LocalOrRemotePath::Local(file_path.into()),
-        },
-        last_update_time: Local::now(),
-        base: None,
-        head: None,
-        outdated: false,
-        origin: CommentOrigin::Native,
-    }
-}
-
-/// Creates an attached review comment with a General target
-fn create_general_comment(comment_content: &str) -> AttachedReviewComment {
-    AttachedReviewComment {
-        id: CommentId::new(),
-        content: comment_content.to_string(),
-        target: AttachedReviewCommentTarget::General,
-        last_update_time: Local::now(),
-        base: None,
-        head: None,
-        outdated: false,
-        origin: CommentOrigin::Native,
-    }
-}
-
-use crate::view_components::action_button::{ActionButton, NakedTheme};
-
 /// Test context that holds all common test state
 struct TestContext {
     repo_path: PathBuf,
-    repo_location: LocalOrRemotePath,
-    #[allow(dead_code)]
-    window_id: warpui::WindowId,
-    state: LoadedState,
     code_review_view: ViewHandle<CodeReviewView>,
 }
 
 impl TestContext {
-    /// Initialize common test state with a single file editor
-    fn new(app: &mut App, file_path: impl Into<String>, editor_content: &str) -> Self {
+    /// Initialize the code review view for selector and lifecycle tests
+    fn new(app: &mut App) -> Self {
         initialize_test_app(app);
-
-        let editor = create_editor_with_content(app, editor_content);
-        let repo_path = PathBuf::from("/repo");
-
-        let (window_id, _) = app.add_window(WindowStyle::NotStealFocus, |_| TestView);
-        let state =
-            create_loaded_state_with_editors(app, window_id, vec![(file_path.into(), editor)]);
 
         let diff_state_model = app.add_model(DiffStateModel::new_for_test);
 
-        let working_directories_model = app.add_model(|_| WorkingDirectoriesModel::new());
+        let repo_path = PathBuf::from("/repo");
+        let (window_id, _) = app.add_window(WindowStyle::NotStealFocus, |_| TestView);
         let repo_key = LocalOrRemotePath::Local(repo_path.clone());
-        let code_review_comment_batch =
-            working_directories_model.update(app, |working_directories, ctx| {
-                working_directories.get_or_create_code_review_comments(&repo_key, ctx)
-            });
-
         let code_review_view = app.add_view(window_id, |ctx| {
-            CodeReviewView::new(
-                Some(repo_key.clone()),
-                diff_state_model,
-                code_review_comment_batch,
-                None,
-                ctx,
-            )
+            CodeReviewView::new(Some(repo_key.clone()), diff_state_model, None, ctx)
         });
 
         Self {
-            repo_path: repo_path.clone(),
-            repo_location: LocalOrRemotePath::Local(repo_path),
-            window_id,
-            state,
+            repo_path,
             code_review_view,
         }
     }
 }
 
-/// Creates a minimal LoadedState with file states containing editors.
-/// Must be called within an App context.
-fn create_loaded_state_with_editors(
-    app: &mut App,
-    window_id: warpui::WindowId,
-    file_editors: Vec<(String, ViewHandle<LocalCodeEditorView>)>,
-) -> LoadedState {
-    let file_states = file_editors
-        .into_iter()
-        .map(|(file_path, editor)| {
-            let chevron_button = app.add_view(window_id, |_| ActionButton::new("", NakedTheme));
-            let open_in_tab_button = app.add_view(window_id, |_| ActionButton::new("", NakedTheme));
-            let discard_button = app.add_view(window_id, |_| ActionButton::new("", NakedTheme));
-            let copy_path_button = app.add_view(window_id, |_| ActionButton::new("", NakedTheme));
-
-            let state = FileState {
-                file_diff: FileDiff {
-                    file_path: file_path.clone(),
-                    status: GitFileStatus::Modified,
-                    hunks: Arc::new(vec![]),
-                    is_binary: false,
-                    is_autogenerated: false,
-                    max_line_number: 0,
-                    has_hidden_bidi_chars: false,
-                    size: DiffSize::Normal,
-                },
-                editor_state: Some(CodeReviewEditorState::new_loaded(editor)),
-                is_expanded: true,
-                sidebar_mouse_state: MouseStateHandle::default(),
-                header_mouse_state: MouseStateHandle::default(),
-                chevron_button,
-                open_in_tab_button,
-                discard_button,
-                copy_path_button,
-            };
-            (file_path, state)
-        })
-        .collect();
-
-    LoadedState {
-        file_states,
-        total_additions: 0,
-        total_deletions: 0,
-        files_changed: 0,
-    }
-}
-
-#[test]
-fn test_relocate_comments_empty_input() {
-    App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated =
-                CodeReviewView::relocate_comments(vec![], &ctx.state, &ctx.repo_location, view_ctx);
-
-            assert!(
-                relocated.is_empty(),
-                "Empty input should return empty output"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_general_comment_passes_through() {
-    App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        let general_comment = create_general_comment("This is a general comment");
-        let original_id = general_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![general_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(relocated.len(), 1, "Should return the comment");
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                matches!(relocated[0].target, AttachedReviewCommentTarget::General),
-                "General comment should remain General"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_file_comment_passes_through() {
-    App::test((), |mut app| async move {
-        let file_path = "test.txt";
-        let ctx = TestContext::new(&mut app, file_path, "line 1\nline 2\nline 3");
-
-        let file_comment =
-            create_file_comment(ctx.repo_path.join(file_path), "This is a file comment");
-        let original_id = file_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![file_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(relocated.len(), 1, "Should return the comment");
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                matches!(
-                    relocated[0].target,
-                    AttachedReviewCommentTarget::File { .. }
-                ),
-                "File comment should remain File"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_line_comment_no_matching_editor_marked_outdated() {
-    App::test((), |mut app| async move {
-        // Editor is for "test.txt" but comment is for "other.txt"
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        let line_comment =
-            create_line_comment("/repo/other.txt", 1, "line 1", "Comment on other file");
-        let original_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![line_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(
-                relocated.len(),
-                1,
-                "Comment with no matching editor should be kept but marked outdated"
-            );
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                relocated[0].outdated,
-                "Comment should be marked as outdated"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_multiple_comment_types() {
-    App::test((), |mut app| async move {
-        let file_path = "test.txt";
-        let ctx = TestContext::new(&mut app, file_path, "line 1\nline 2\nline 3");
-
-        let general_comment = create_general_comment("General comment");
-        let file_comment = create_file_comment(ctx.repo_path.join(file_path), "File comment");
-        let line_comment = create_line_comment("/repo/test.txt", 1, "line 1", "Line comment");
-
-        let general_id = general_comment.id;
-        let file_id = file_comment.id;
-        let line_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let comments = vec![general_comment, file_comment, line_comment];
-            let relocated = CodeReviewView::relocate_comments(
-                comments,
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(
-                relocated.len(),
-                3,
-                "Should return all comments (general, file, and line)"
-            );
-
-            // Find each comment by ID
-            let relocated_general = relocated.iter().find(|c| c.id == general_id).unwrap();
-            let relocated_file = relocated.iter().find(|c| c.id == file_id).unwrap();
-            let relocated_line = relocated.iter().find(|c| c.id == line_id).unwrap();
-
-            assert!(matches!(
-                relocated_general.target,
-                AttachedReviewCommentTarget::General
-            ));
-            assert!(matches!(
-                relocated_file.target,
-                AttachedReviewCommentTarget::File { .. }
-            ));
-            assert!(matches!(
-                relocated_line.target,
-                AttachedReviewCommentTarget::Line { .. }
-            ));
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_line_comment_with_absolute_path() {
-    App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        // Comment with absolute path matching the editor's file
-        let line_comment = create_line_comment("/repo/test.txt", 1, "line 1", "Line comment");
-        let original_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![line_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(
-                relocated.len(),
-                1,
-                "Comment with absolute path should be relocated"
-            );
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                matches!(
-                    relocated[0].target,
-                    AttachedReviewCommentTarget::Line { .. }
-                ),
-                "Line comment should remain Line"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_file_comment_no_matching_editor_marked_outdated() {
-    App::test((), |mut app| async move {
-        // Editor is for "test.txt" but comment is for "other.txt"
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        let file_comment = create_file_comment("/repo/other.txt", "Comment on other file");
-        let original_id = file_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![file_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(
-                relocated.len(),
-                1,
-                "File comment with no matching editor should be kept but marked outdated"
-            );
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                relocated[0].outdated,
-                "Comment should be marked as outdated"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_relocate_comments_line_removed_marked_outdated() {
-    App::test((), |mut app| async move {
-        // Editor has "line 1\nline 3" (line 2 was removed)
-        // Comment was attached to "line 2" which no longer exists
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 3");
-
-        // Create a comment that was attached to "line 2" at line index 1
-        let line_comment =
-            create_line_comment("/repo/test.txt", 1, "line 2", "Comment on removed line");
-        let original_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![line_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(
-                relocated.len(),
-                1,
-                "Comment should be kept even when line content is removed"
-            );
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                relocated[0].outdated,
-                "Comment should be marked as outdated when line content cannot be found"
-            );
-        });
-    });
-}
-
-/// Guards against a regression from the fix: a NATIVE comment whose content is a
-/// genuinely indented source line (leading whitespace is significant, not a diff
-/// marker) must keep using `original_text()` and still match / not be outdated.
-#[test]
-fn test_native_indented_context_comment_not_outdated() {
-    App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "fn f() {\n    let x = 1;\n}");
-
-        // Native comment on the indented line; content is the raw line (no marker).
-        let line_count = LineCount::from(1);
-        let comment = AttachedReviewComment {
-            id: CommentId::new(),
-            content: "Comment on an indented native line".to_string(),
-            target: AttachedReviewCommentTarget::Line {
-                absolute_file_path: LocalOrRemotePath::Local(PathBuf::from("/repo/test.txt")),
-                line: EditorLineLocation::Current {
-                    line_number: line_count,
-                    line_range: line_count..LineCount::from(2),
-                },
-                content: LineDiffContent {
-                    content: "    let x = 1;".to_string(),
-                    lines_added: LineCount::from(0),
-                    lines_removed: LineCount::from(0),
-                },
-            },
-            last_update_time: Local::now(),
-            base: None,
-            head: None,
-            outdated: false,
-            origin: CommentOrigin::Native,
-        };
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(relocated.len(), 1, "Comment should be relocated");
-            assert!(
-                !relocated[0].outdated,
-                "Native indented-line comment should NOT be outdated (leading whitespace is significant)"
-            );
-        });
-    });
-}
-
 #[test]
 fn test_setup_dropdown_with_branches_includes_all_items() {
     App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
+        let ctx = TestContext::new(&mut app);
 
         // Populate branches and compute targets via the selector's build method.
         let target_count = ctx.code_review_view.update(&mut app, |view, view_ctx| {
@@ -631,7 +124,7 @@ fn test_setup_dropdown_with_branches_includes_all_items() {
 #[test]
 fn test_setup_dropdown_without_branches_only_has_uncommitted_changes() {
     App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
+        let ctx = TestContext::new(&mut app);
 
         // Ensure branches are empty (simulates the bug state) and count targets.
         let target_count = ctx.code_review_view.update(&mut app, |view, view_ctx| {
@@ -651,7 +144,7 @@ fn test_setup_dropdown_without_branches_only_has_uncommitted_changes() {
 #[test]
 fn test_duplicate_single_file_discard_confirmation_is_ignored() {
     App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
+        let ctx = TestContext::new(&mut app);
 
         ctx.code_review_view.update(&mut app, |view, view_ctx| {
             view.discard_dialog_state.operation_type = DiscardOperationType::FileUncommittedChanges;
@@ -669,7 +162,7 @@ fn test_duplicate_single_file_discard_confirmation_is_ignored() {
 #[test]
 fn test_on_close_then_on_open_reinitializes_repo_state() {
     App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
+        let ctx = TestContext::new(&mut app);
         let repo_path = ctx.repo_path.clone();
 
         // Populate branches to simulate a working state
@@ -705,84 +198,6 @@ fn test_on_close_then_on_open_reinitializes_repo_state() {
                 view.repo_path().and_then(LocalOrRemotePath::to_local_path),
                 Some(repo_path.as_path()),
                 "Repo path should be preserved after on_open (set at construction)"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_handle_edit_comment_scrolls_with_buffer() {
-    App::test((), |mut app| async move {
-        let content = (0..100)
-            .map(|i| format!("line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let ctx = TestContext::new(&mut app, "test.txt", &content);
-
-        // Create a line comment targeting this file
-        let line_comment = create_line_comment("/repo/test.txt", 5, "line 5", "Review comment");
-        let comment_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |view, view_ctx| {
-            // Inject the loaded state into the view's active repo
-            if let Some(repo) = view.active_repo.as_mut() {
-                repo.state = CodeReviewViewState::Loaded(ctx.state);
-            }
-
-            // Add the comment to the active comment model so get_comment_by_id can find it
-            if let Some(model) = view.active_comment_model.clone() {
-                model.update(view_ctx, |batch, ctx| {
-                    batch.upsert_comment(line_comment, ctx);
-                });
-            }
-
-            // Record scroll offset before the edit-comment scroll
-            let offset_before = view.viewported_list_state.get_scroll_offset();
-
-            // Call handle_edit_comment — should call scroll_to_line with COMMENT_EDITOR_SCROLL_BUFFER
-            view.handle_edit_comment(&comment_id, view_ctx);
-
-            // handle_edit_comment scrolls to the comment line. The scroll offset should
-            // include COMMENT_EDITOR_SCROLL_BUFFER (200px) to account for the comment
-            // editor that opens below the line.
-            // Before the buffer fix, scroll_to_line passed buffer=0.0, so the offset
-            // would be smaller. After the fix, it passes COMMENT_EDITOR_SCROLL_BUFFER.
-            let offset_after = view.viewported_list_state.get_scroll_offset();
-            let scroll_delta = offset_after - offset_before;
-
-            // The scroll delta should include the COMMENT_EDITOR_SCROLL_BUFFER.
-            // Without the buffer fix, scroll_delta would be smaller by 200px.
-            assert!(
-                scroll_delta >= Pixels::new(COMMENT_EDITOR_SCROLL_BUFFER),
-                "Scroll delta ({scroll_delta:?}) should be >= COMMENT_EDITOR_SCROLL_BUFFER ({COMMENT_EDITOR_SCROLL_BUFFER}px) to account for the comment editor"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_active_comments_not_marked_outdated() {
-    App::test((), |mut app| async move {
-        let ctx = TestContext::new(&mut app, "test.txt", "line 1\nline 2\nline 3");
-
-        // Comment attached to "line 2" which exists in the editor
-        let line_comment =
-            create_line_comment("/repo/test.txt", 1, "line 2", "Comment on existing line");
-        let original_id = line_comment.id;
-
-        ctx.code_review_view.update(&mut app, |_view, view_ctx| {
-            let relocated = CodeReviewView::relocate_comments(
-                vec![line_comment],
-                &ctx.state,
-                &ctx.repo_location,
-                view_ctx,
-            );
-
-            assert_eq!(relocated.len(), 1, "Comment should be relocated");
-            assert_eq!(relocated[0].id, original_id, "Should preserve comment ID");
-            assert!(
-                !relocated[0].outdated,
-                "Comment should NOT be marked as outdated when line content is found"
             );
         });
     });

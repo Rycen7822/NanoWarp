@@ -55,7 +55,6 @@ mod header;
 mod hidden_section;
 mod horizontal_rule;
 mod image;
-pub mod lens_element;
 mod mermaid;
 mod ordered_list;
 mod paint;
@@ -281,10 +280,6 @@ pub trait RenderableBlock {
     }
 
     fn is_hidden_section(&self) -> bool {
-        false
-    }
-
-    fn is_embedded_comment(&self) -> bool {
         false
     }
 

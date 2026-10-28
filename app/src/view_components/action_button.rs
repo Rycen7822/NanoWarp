@@ -1094,38 +1094,6 @@ impl ActionButtonTheme for PaneHeaderTheme {
     }
 }
 
-/// The "Danger Naked" button variant.
-///
-/// [Figma Spec](https://www.figma.com/design/chk9pwt35jTJhf9KnHmZyE/Components?node-id=3628-14344&t=MQvgxvZWjcapwzkK-11).
-pub struct DangerNakedTheme;
-
-impl ActionButtonTheme for DangerNakedTheme {
-    fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        if hovered {
-            Some(
-                appearance
-                    .theme()
-                    .ansi_overlay_1(
-                        AnsiColorIdentifier::Red
-                            .to_ansi_color(&appearance.theme().terminal_colors().normal),
-                    )
-                    .into(),
-            )
-        } else {
-            None
-        }
-    }
-
-    fn text_color(
-        &self,
-        _hovered: bool,
-        _background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        appearance.theme().ansi_fg_red()
-    }
-}
-
 /// "Secondary" buttons have no fill and a border.
 ///
 /// [Figma spec](https://www.figma.com/design/chk9pwt35jTJhf9KnHmZyE/Components?node-id=3628-14344&t=L1sS5Nxu1zzpWPYp-0)

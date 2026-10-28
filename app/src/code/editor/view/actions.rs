@@ -23,10 +23,7 @@ use warpui::units::Pixels;
 use warpui::{AppContext, TypedActionView, ViewContext, WeakViewHandle};
 
 use crate::cmd_or_ctrl_shift;
-use crate::code::editor::line::EditorLineLocation;
-use crate::code::editor::model::CodeEditorModel;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorView, VimMode};
-use crate::code_review::comments::CommentId;
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
 use crate::notebooks::editor::model::word_unit;
@@ -646,13 +643,6 @@ pub enum CodeEditorViewAction {
     RevertDiffHunk {
         line_range: Range<LineCount>,
     },
-    /// Open comment line (when opening a comment on a specific line)
-    NewCommentOnLine {
-        line: EditorLineLocation,
-    },
-    RequestOpenSavedComment {
-        uuid: CommentId,
-    },
     DeleteLineLeft,
     DeleteLineRight,
     DeleteWordLeft,
@@ -786,8 +776,6 @@ impl CodeEditorViewAction {
             | Self::Escape
             | Self::HiddenSectionExpansion { .. }
             | Self::RevertDiffHunk { .. }
-            | Self::NewCommentOnLine { .. }
-            | Self::RequestOpenSavedComment { .. }
             | Self::RightMouseDown { .. } => true,
         }
     }
@@ -1043,22 +1031,6 @@ impl TypedActionView for CodeEditorView {
 
                     // Notify to re-render
                     ctx.notify();
-                }
-            }
-            NewCommentOnLine { line: line_info } => {
-                if FeatureFlag::InlineCodeReview.is_enabled() {
-                    self.model.update(ctx, |model: &mut CodeEditorModel, ctx| {
-                        model.open_comment_line(line_info, ctx);
-                    });
-                    ctx.emit(CodeEditorEvent::CommentEditorOpened);
-
-                    ctx.focus(&self.active_comment_editor);
-                    ctx.notify();
-                }
-            }
-            RequestOpenSavedComment { uuid } => {
-                if FeatureFlag::InlineCodeReview.is_enabled() {
-                    ctx.emit(CodeEditorEvent::RequestOpenComment(*uuid))
                 }
             }
             RightMouseDown { offset } => {

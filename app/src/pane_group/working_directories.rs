@@ -21,7 +21,6 @@ use warpui::{Entity, EntityId, ModelContext, ModelHandle, ViewHandle};
 
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code_review::code_review_view::CodeReviewView;
-use crate::code_review::comments::ReviewCommentBatch;
 use crate::code_review::diff_state::DiffStateModel;
 
 /// Type-safe wrapper around the map of `LocalOrRemotePath` → `DiffStateModel`.
@@ -277,10 +276,6 @@ pub struct WorkingDirectoriesModel {
     /// Since git state is inherently tied to a repository (not a pane group),
     /// this is stored globally and shared across all pane groups viewing the same repo.
     diff_state_models: DiffStateModelMap,
-    /// Global mapping from repository locations to their CommentBatch.
-    /// Like the DiffStateModel mapping, comments are inherently tied to git diffs
-    /// and are shared across all pane groups viewing the same repo.
-    comment_models: HashMap<LocalOrRemotePath, ModelHandle<ReviewCommentBatch>>,
     /// Per-pane-group mapping from repository root locations to their CodeReviewView.
     /// This allows reusing code review views across multiple requests for the same repo.
     code_review_views: HashMap<EntityId, HashMap<LocalOrRemotePath, ViewHandle<CodeReviewView>>>,
@@ -430,21 +425,6 @@ impl WorkingDirectoriesModel {
                 views.remove(&repo_key);
             }
         }
-    }
-
-    /// Get or create a ReviewCommentBatch for a specific repository.
-    /// If the model doesn't exist, it will be created.
-    pub fn get_or_create_code_review_comments(
-        &mut self,
-        repo_path: &LocalOrRemotePath,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<ReviewCommentBatch>> {
-        if let Some(existing) = self.comment_models.get(repo_path) {
-            return Some(existing.clone());
-        }
-        let model = ctx.add_model(|_ctx| ReviewCommentBatch::default());
-        self.comment_models.insert(repo_path.clone(), model.clone());
-        Some(model)
     }
 
     /// Store a CodeReviewView for a specific repository in a pane group.
@@ -946,14 +926,6 @@ impl WorkingDirectoriesModel {
         _preferred_session: Option<SessionId>,
         _ctx: &mut ModelContext<Self>,
     ) -> Option<ModelHandle<DiffStateModel>> {
-        None
-    }
-
-    pub fn get_or_create_code_review_comments(
-        &mut self,
-        _repo_path: &LocalOrRemotePath,
-        _ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<ReviewCommentBatch>> {
         None
     }
 

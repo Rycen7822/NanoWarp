@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
 pub mod code_review_view;
-pub mod comment_list_view;
 pub mod diff_size_limits;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub mod diff_state;
@@ -14,8 +12,6 @@ pub mod github_repo_model;
 mod hidden_lines;
 
 pub(crate) mod code_review_header;
-pub(crate) mod comment_rendering;
-pub mod comments;
 pub(crate) mod diff_menu;
 pub(crate) mod diff_selector;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
@@ -40,10 +36,6 @@ pub struct CodeReviewPanelArg {
     pub terminal_view: WeakViewHandle<TerminalView>,
     pub focus_new_pane: bool,
 }
-
-/// The keystroke that submits in the code review panel. Meant to mirror the keystroke for
-/// [`EditorViewEvent::CmdEnter`].
-pub const CODE_REVIEW_SUBMIT_KEYSTROKE: &str = "cmdorctrl-enter";
 
 /// Register keybindings for code review functionality.
 pub fn init(app: &mut AppContext) {
@@ -170,29 +162,4 @@ impl SingletonEntity for GlobalCodeReviewModel {}
 
 impl Entity for GlobalCodeReviewModel {
     type Event = GlobalCodeReviewEvent;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CurrentHead {
-    BranchName(String),
-    HeadlessCommitSha(String),
-}
-
-impl CurrentHead {
-    pub fn title(&self) -> String {
-        match self {
-            CurrentHead::BranchName(name) => name.clone(),
-            CurrentHead::HeadlessCommitSha(sha) => {
-                let short = sha.chars().take(7).collect::<String>();
-                format!("Commit {short}")
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DiffBase {
-    BranchName(String),
-    HeadlessCommitSha(String),
-    UncommittedChanges,
 }

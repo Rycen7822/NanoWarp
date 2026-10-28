@@ -119,9 +119,6 @@ pub enum FeatureFlag {
     /// UNIX shells running "natively" on Windows via MSYS2.
     MSYS2Shells,
 
-    /// Enables inline review comments on specific lines of code.
-    ContextLineReviewComments,
-
     /// Enables the find/replace in code editor
     CodeFindReplace,
 
@@ -158,9 +155,6 @@ pub enum FeatureFlag {
     /// Enables the one-time modal on app startup for existing users for the Code launch.
     CodeLaunchModal,
 
-    /// Enables file- and diff set-level comments in the code review header.
-    FileAndDiffSetComments,
-
     /// Enables discarding per-file and discarding all changes
     DiscardPerFileAndAllChanges,
 
@@ -172,9 +166,6 @@ pub enum FeatureFlag {
 
     /// Enables asynchronous find in terminal, running search on a background thread.
     AsyncFind,
-
-    /// Enables inline code review functionality
-    InlineCodeReview,
 
     /// Enables rendering of images in markdown files and AI responses.
     MarkdownImages,
@@ -189,9 +180,6 @@ pub enum FeatureFlag {
     /// Renders `.ipynb` (Jupyter) files as a formatted, read-only notebook in
     /// Warp's notebook viewer instead of showing the raw JSON in the code editor.
     JupyterNotebookRendering,
-
-    /// Enables embedded code review comments.
-    EmbeddedCodeReviewComments,
 
     /// Enables configuring header toolbar item order, side placement, and visibility.
     ConfigurableToolbar,

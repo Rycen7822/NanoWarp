@@ -19,7 +19,6 @@ use warp_editor::render::model::{Decoration, LineCount, LineDecoration};
 use warpui::{Entity, ModelContext};
 
 use crate::appearance::Appearance;
-use crate::code::editor::line::EditorLineLocation;
 use crate::code::editor::line_iterator::LineIterator;
 
 const OVERLAY_ALPHA: u8 = 56;
@@ -406,85 +405,6 @@ impl DiffModel {
 
         text.push('\n');
         Some(text)
-    }
-
-    /// Returns the content of a deleted line given the location of a removed line.
-    /// Returns None if the info is not for a removed line or if any lookup fails.
-    pub fn deleted_line_content(&self, info: &EditorLineLocation) -> Option<String> {
-        let index = self.deleted_line_to_base_line_index(info)?;
-        self.base_line(index)
-    }
-
-    /// Convert a deleted line location to a line index in the base version of the text.
-    pub fn deleted_line_to_base_line_index(&self, info: &EditorLineLocation) -> Option<usize> {
-        // Extract line_number and index from Removed variant
-        let (line_number, index) = match info {
-            EditorLineLocation::Removed {
-                line_number, index, ..
-            } => (line_number.as_usize(), *index),
-            _ => return None,
-        };
-
-        // First check if this is a pure deletion. Note that deletion maps to line AFTER the removed line.
-        // CODE-1638: Use line_number + 1 to align with deletion_mapping's off-by-one convention.
-        if let Some(removed_range) = self.status.deletion_mapping.get(&line_number) {
-            return Some(removed_range.start + index);
-        }
-
-        // Check if this is a replacement (change with removed lines)
-        if let Some(ChangeType::Replacement { replaced_range, .. }) =
-            self.status.change_mapping.get(&line_number)
-        {
-            return Some(replaced_range.start + index);
-        }
-
-        None
-    }
-
-    /// Convert a line index in the base version of the text to an editor line location.
-    pub fn base_line_index_to_line_location(&self, index: usize) -> Option<EditorLineLocation> {
-        for (line_range, change) in self.status.change_mapping.iter() {
-            if let ChangeType::Replacement { replaced_range, .. } = change
-                && replaced_range.contains(&index)
-            {
-                return Some(EditorLineLocation::Removed {
-                    // Subtracting 1 as the diff is currently represented as attaching to the _previous line_.
-                    line_number: LineCount::from(line_range.start),
-                    line_range: LineCount::from(line_range.start)..LineCount::from(line_range.end),
-                    index: index - replaced_range.start,
-                });
-            }
-        }
-
-        for (line_range, replaced_range) in self.status.deletion_mapping.iter() {
-            if replaced_range.contains(&index) {
-                return Some(EditorLineLocation::Removed {
-                    line_number: LineCount::from(*line_range),
-                    line_range: LineCount::from(*line_range)..LineCount::from(*line_range),
-                    index: index - replaced_range.start,
-                });
-            }
-        }
-
-        None
-    }
-
-    pub fn is_line_added_or_changed(&self, line_num: &LineCount) -> bool {
-        let line_num = line_num.as_usize();
-        self.status.change_mapping.get(&line_num).is_some()
-    }
-
-    pub fn base_line(&self, line_index: usize) -> Option<String> {
-        // Extract the line content
-        let line = self.base.as_ref()?.lines().nth(line_index)?;
-        Some(line.to_string())
-    }
-
-    pub fn base_line_count(&self) -> usize {
-        self.base
-            .as_ref()
-            .map(|base| base.lines().count())
-            .unwrap_or_default()
     }
 
     /// Returns an iterator over all the line numbers in the current buffer that are

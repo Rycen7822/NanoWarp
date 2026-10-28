@@ -304,9 +304,7 @@ pub fn init(app: &mut AppContext) {
             "Select shell command at cursor",
             EditorViewAction::SelectCommandAtCursor,
         )
-        .with_context_predicate(
-            id!("RichTextEditorView") & !id!("HasCommandSelection") & !id!("CommentEditorMode"),
-        )
+        .with_context_predicate(id!("RichTextEditorView") & !id!("HasCommandSelection"))
         .with_key_binding("escape"),
         EditableBinding::new(
             "editor_view:select_previous_command",
@@ -323,20 +321,6 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!("RichTextEditorView"))
         .with_key_binding("cmdorctrl-down"),
     ]);
-
-    // Let comment editors submit their content with Cmd/Ctrl+Enter.
-    app.register_fixed_bindings([FixedBinding::new(
-        "cmdorctrl-enter",
-        EditorViewAction::CmdEnter,
-        id!("RichTextEditorView") & id!("CommentEditorMode"),
-    )]);
-
-    // Let parent comment views dismiss the editor when no command is selected.
-    app.register_fixed_bindings([FixedBinding::new(
-        "escape",
-        EditorViewAction::ExitCommandSelection,
-        id!("RichTextEditorView") & id!("CommentEditorMode") & !id!("HasCommandSelection"),
-    )]);
 
     app.register_fixed_bindings([FixedBinding::new(
         "alt-cmdorctrl-g",
@@ -718,8 +702,6 @@ pub enum EditorViewAction {
     VimUserTyped(UserInput<String>),
     Enter,
     ShiftEnter,
-    /// Cmd/Ctrl+Enter pressed (used by comment editor mode to submit comments).
-    CmdEnter,
     Delete,
     Backspace,
     Scroll(Pixels),
@@ -908,8 +890,6 @@ fn mermaid_diagram_needs_loaded_layout(
 pub enum EditorViewEvent {
     Edited,
     Focused,
-    /// Cmd/Ctrl+Enter was pressed (emitted in comment editor mode).
-    CmdEnter,
     Navigate(NavigationKey),
     /// Open a file in the preferred editor
     OpenFile {
@@ -919,8 +899,6 @@ pub enum EditorViewEvent {
     },
     /// The text selection changed (cursor moved, selection extended, etc.).
     TextSelectionChanged,
-    /// Escape was pressed in a comment editor with no command selected.
-    EscapePressed,
 }
 
 #[derive(Default)]
@@ -1008,16 +986,6 @@ pub struct RichTextEditorView {
     has_focus_within: bool,
     gutter_width: f32,
     vertical_expansion_behavior: VerticalExpansionBehavior,
-
-    /// Comment editors use Cmd/Ctrl+Enter to submit and Escape to dismiss.
-    is_comment_editor: bool,
-
-    /// When true, the editor content is not wrapped in a Scrollable, allowing scroll events
-    /// to propagate to the parent. Used for embedded editors like comment chips.
-    disable_scrolling: bool,
-
-    /// When true, the block insertion menu (slash menu) is disabled.
-    disable_block_insertion_menu: bool,
 }
 
 #[derive(Default)]
@@ -1025,17 +993,6 @@ pub struct RichTextEditorConfig {
     pub max_width: Option<Pixels>,
     pub gutter_width: Option<f32>,
     pub vertical_expansion_behavior: Option<VerticalExpansionBehavior>,
-
-    /// Use comment submission and dismissal keybindings in an embedded editor.
-    pub is_comment_editor: Option<bool>,
-
-    /// When true, the editor content is not wrapped in a Scrollable, allowing scroll events
-    /// to propagate to the parent. Used for embedded editors like comment chips.
-    pub disable_scrolling: bool,
-
-    /// Enable or disable the block insertion menu (slash menu).
-    /// When disabled, typing "/" will not open the menu.
-    pub disable_block_insertion_menu: bool,
 }
 
 impl RichTextEditorView {
@@ -1113,14 +1070,7 @@ impl RichTextEditorView {
             has_focus_within: false,
             gutter_width: config.gutter_width.unwrap_or(GUTTER_WIDTH),
             vertical_expansion_behavior: config.vertical_expansion_behavior.unwrap_or_default(),
-            is_comment_editor: config.is_comment_editor.unwrap_or(false),
-            disable_scrolling: config.disable_scrolling,
-            disable_block_insertion_menu: config.disable_block_insertion_menu,
         }
-    }
-
-    pub(super) fn disable_block_insertion_menu(&self) -> bool {
-        self.disable_block_insertion_menu
     }
 
     fn handle_omnibar_event(
@@ -1452,10 +1402,7 @@ impl RichTextEditorView {
     /// Update the editor model with user typed content.
     pub fn user_typed(&mut self, content: &str, ctx: &mut ViewContext<Self>) {
         if self.is_editable(ctx) && self.should_handle_user_input(ctx) {
-            if !self.disable_block_insertion_menu
-                && content == "/"
-                && self.selection_is_single_cursor(ctx)
-            {
+            if content == "/" && self.selection_is_single_cursor(ctx) {
                 // Check if previous character is not a digit (i.e. writing dates)
                 let prev_char = self
                     .model
@@ -2569,21 +2516,15 @@ impl View for RichTextEditorView {
         .with_max_width(self.max_width)
         .finish_scrollable();
 
-        // When disable_scrolling is true, don't wrap in Scrollable to allow scroll events
-        // to propagate to the parent (used for embedded editors like comment chips).
-        let main_content: Box<dyn Element> = if self.disable_scrolling {
-            rich_text
-        } else {
-            Scrollable::vertical(
-                self.scroll_state.clone(),
-                rich_text,
-                SCROLLBAR_WIDTH,
-                theme.disabled_text_color(theme.background()).into(),
-                theme.main_text_color(theme.background()).into(),
-                Fill::None,
-            )
-            .finish()
-        };
+        let main_content = Scrollable::vertical(
+            self.scroll_state.clone(),
+            rich_text,
+            SCROLLBAR_WIDTH,
+            theme.disabled_text_color(theme.background()).into(),
+            theme.main_text_color(theme.background()).into(),
+            Fill::None,
+        )
+        .finish();
 
         let mut main_stack = Stack::new();
         main_stack.add_child(main_content);
@@ -2658,10 +2599,6 @@ impl View for RichTextEditorView {
             context.set.insert("HasCommandSelection");
         }
 
-        if self.is_comment_editor {
-            context.set.insert("CommentEditorMode");
-        }
-
         context
     }
 
@@ -2707,7 +2644,6 @@ impl TypedActionView for RichTextEditorView {
             }
             Enter => self.enter(ctx),
             ShiftEnter => self.shift_enter(ctx),
-            CmdEnter => ctx.emit(EditorViewEvent::CmdEnter),
             Backspace => self.backspace(ctx),
             MaybeOpenFileOrUrl {
                 offset,
@@ -2923,11 +2859,6 @@ impl TypedActionView for RichTextEditorView {
             CommandDown => self.command_down(ctx),
             ExitCommandSelection => {
                 self.close_overlays(ctx);
-                if !self.model.as_ref(ctx).has_command_selection(ctx) {
-                    // No command selection to exit (e.g. comment editors) —
-                    // emit EscapePressed so parent views can handle dismissal.
-                    ctx.emit(EditorViewEvent::EscapePressed);
-                }
                 self.model
                     .update(ctx, |model, ctx| model.exit_command_selection(ctx))
             }
@@ -3189,7 +3120,6 @@ impl TypedActionView for RichTextEditorView {
             | EditorViewAction::InsertPlaceholder
             | EditorViewAction::DismissOpenLink
             | EditorViewAction::MaybeOpenFileOrUrl { .. }
-            | EditorViewAction::CmdEnter
             | EditorViewAction::OpenFile { .. }
             | EditorViewAction::MermaidDisplayModeSelected { .. }
             | EditorViewAction::OpenMermaidDiagramLightbox { .. }

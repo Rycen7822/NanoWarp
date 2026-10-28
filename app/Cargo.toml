@@ -372,7 +372,6 @@ embed-resource = "3.0"
 [features]
 async_find = []
 clear_autosuggestion_on_escape = []
-context_line_review_comments = []
 default = [
     "osc_hyperlinks",
     "render_continuous_block_selections_with_single_border",
@@ -399,7 +398,6 @@ default = [
     "allow_ignoring_input_suggestions",
     "ui_zoom",
     "discard_per_file_and_all_changes",
-    "inline_code_review",
     "code_review_find",
     "async_find",
     "classic_completions",
@@ -434,7 +432,6 @@ default = [
 dhat_heap_profiling = ["dep:dhat"]
 editable_markdown_mermaid = []
 drag_tabs_to_windows = []
-embedded_code_review_comments = []
 default_waterfall_mode = []
 extern_plist = []
 fast_dev = []
@@ -542,8 +539,6 @@ code_launch_modal = []
 discard_per_file_and_all_changes = []
 ui_zoom = []
 code_review_find = []
-inline_code_review = []
-file_and_diff_set_comments = []
 classic_completions = []
 native_shell_completions = []
 force_classic_completions = []

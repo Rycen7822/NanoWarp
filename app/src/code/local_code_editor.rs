@@ -33,9 +33,7 @@ use warpui::{
 
 use crate::code::SaveOutcome;
 use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
-use crate::code::editor::EditorReviewComment;
 use crate::code::global_buffer_model::{BufferState, GlobalBufferModel, GlobalBufferModelEvent};
-use crate::code_review::comments::CommentId;
 use crate::settings::CodeSettings;
 
 /// How long to wait after the user stops typing before triggering a debounced
@@ -66,15 +64,6 @@ pub enum LocalCodeEditorEvent {
     DiffStatusUpdated,
     DiscardUnsavedChanges {
         path: PathBuf,
-    },
-    /// Emitted when a comment is saved. This propagates the comment content
-    /// changes to the CodeReviewView, which will update the comment model.
-    CommentSaved {
-        comment: EditorReviewComment,
-    },
-    RequestOpenComment(CommentId),
-    DeleteComment {
-        id: CommentId,
     },
     /// Emitted when the viewport is updated after layout
     ViewportUpdated,
@@ -149,17 +138,6 @@ impl LocalCodeEditorView {
             }
             CodeEditorEvent::SelectionEnd => {
                 ctx.notify();
-            }
-            CodeEditorEvent::CommentSaved { comment } => {
-                ctx.emit(LocalCodeEditorEvent::CommentSaved {
-                    comment: comment.clone(),
-                });
-            }
-            CodeEditorEvent::DeleteComment { id } => {
-                ctx.emit(LocalCodeEditorEvent::DeleteComment { id: *id });
-            }
-            CodeEditorEvent::RequestOpenComment(uuid) => {
-                ctx.emit(LocalCodeEditorEvent::RequestOpenComment(*uuid));
             }
             CodeEditorEvent::ViewportUpdated => {
                 ctx.emit(LocalCodeEditorEvent::ViewportUpdated);

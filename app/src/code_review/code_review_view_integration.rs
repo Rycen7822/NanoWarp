@@ -5,11 +5,11 @@ use warp_editor::render::model::{
     BlockItem, HitTestOptions, LineCount, Location, RenderLineLocation,
 };
 use warpui::units::Pixels;
-use warpui::{AppContext, ViewContext};
+use warpui::{AppContext, ViewContext, ViewHandle};
 
 use super::{CodeReviewView, CodeReviewViewState, FILE_HEADER_HEIGHT};
 use crate::code::buffer_location::LocalOrRemotePath;
-use crate::code::editor::line::EditorLineLocation;
+use crate::code::local_code_editor::LocalCodeEditorView;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CodeReviewVisibleAnchorForTest {
@@ -19,6 +19,28 @@ pub struct CodeReviewVisibleAnchorForTest {
 }
 
 impl CodeReviewView {
+    pub(super) fn editor_for_path(
+        &self,
+        path: &LocalOrRemotePath,
+        ctx: &AppContext,
+    ) -> Option<ViewHandle<LocalCodeEditorView>> {
+        match self.state() {
+            CodeReviewViewState::Loaded(loaded) => loaded
+                .file_states
+                .values()
+                .filter_map(|file| file.editor_state.as_ref())
+                .find_map(|state| {
+                    let editor_location = state.editor.as_ref(ctx).file_location();
+                    if editor_location == Some(path) {
+                        Some(state.editor.clone())
+                    } else {
+                        None
+                    }
+                }),
+            _ => None,
+        }
+    }
+
     pub fn visible_anchor_for_test(
         &self,
         ctx: &AppContext,
@@ -96,16 +118,18 @@ impl CodeReviewView {
 
         let editor = editor_state.editor().clone();
         let line_number = LineCount::from(line_number);
-        let line = EditorLineLocation::Current {
-            line_number,
-            line_range: line_number..line_number + LineCount::from(1),
-        };
-        let (start_offset, end_offset) = editor
-            .as_ref(ctx)
-            .editor()
-            .read(ctx, |code_editor_view, ctx| {
-                code_editor_view.line_location_to_offsets(&line, ctx)
-            });
+        let (start_offset, end_offset) =
+            editor
+                .as_ref(ctx)
+                .editor()
+                .read(ctx, |code_editor_view, ctx| {
+                    code_editor_view
+                        .model
+                        .as_ref(ctx)
+                        .render_state()
+                        .as_ref(ctx)
+                        .line_number_to_offset_range(line_number)
+                });
 
         if let Some((start_top_y, _end_bottom_y)) =
             self.get_match_character_bounds(editor_index, start_offset, end_offset, ctx)

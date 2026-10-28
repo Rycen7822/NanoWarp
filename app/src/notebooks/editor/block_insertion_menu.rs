@@ -147,10 +147,6 @@ impl RichTextEditorView {
 
     /// Renders controls for the block insertion menu.
     pub(super) fn render_block_insertion_menu(&self, stack: &mut Stack, app: &AppContext) {
-        if self.disable_block_insertion_menu() {
-            return;
-        }
-
         if self.can_edit_app(app) {
             self.render_button(stack, app);
         }
