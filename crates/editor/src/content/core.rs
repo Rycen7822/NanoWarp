@@ -69,11 +69,6 @@ impl CoreEditorAction {
         self.end_anchor_bias = anchor_side;
         self
     }
-
-    pub fn with_start_anchor_bias(mut self, anchor_side: AnchorSide) -> Self {
-        self.start_anchor_bias = anchor_side;
-        self
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -99,8 +94,6 @@ pub enum CoreEditorActionType {
     StyleBlock(BufferBlockStyle),
     StyleText(BufferTextStyle),
     UnstyleText(BufferTextStyle),
-    StyleLink(String),
-    UnstyleLink,
     /// Ensures that, if the edit range includes the end of the buffer, the buffer ends with plain
     /// text. This is a core editor action because it's difficult to know pre-edit whether or not a
     /// new text marker is needed. For example, if inserting formatted text, it depends on the
@@ -460,8 +453,6 @@ impl Buffer {
             CoreEditorActionType::StyleBlock(style) => self.style_block(action.range, style),
             CoreEditorActionType::StyleText(style) => self.style_text(action.range, style),
             CoreEditorActionType::UnstyleText(style) => self.unstyle_text(action.range, style),
-            CoreEditorActionType::StyleLink(url) => self.style_link(action.range, url),
-            CoreEditorActionType::UnstyleLink => self.unstyle_link(action.range),
             CoreEditorActionType::EnsurePlainTextMarker => self.ensure_plain_text(action.range),
         };
         log::trace!("=> Updated buffer: [{}]", self.debug());
@@ -493,11 +484,6 @@ impl Buffer {
                     insert_on_selection: true,
                 }
             }
-            CoreEditorActionType::StyleLink(_) => CoreEditorActionType::UnstyleLink,
-            CoreEditorActionType::UnstyleLink => CoreEditorActionType::StyleLink(
-                self.link_url_at_offset(range.start)
-                    .expect("url should exist"),
-            ),
             // EnsurePlainTextMarker captures whether or not a marker was added with its updated
             // range, so the reverse is to delete whatever was in that range.
             CoreEditorActionType::EnsurePlainTextMarker => CoreEditorActionType::Insert {
@@ -1095,62 +1081,6 @@ impl Buffer {
 
         CoreEditorActionResult {
             updated_range,
-            anchor_update: None,
-        }
-    }
-
-    fn style_link(&mut self, range: Range<CharOffset>, url: String) -> CoreEditorActionResult {
-        let old_content = self.content.clone();
-        let cursor = old_content.cursor::<CharOffset, StyleSummary>();
-        let mut buffer_cursor = BufferCursor::new(cursor);
-        let mut new_content = SumTree::new();
-
-        new_content.push_tree(buffer_cursor.slice_to_offset_after_markers(range.start));
-        new_content.push(BufferText::Link(LinkMarker::Start(url)));
-        new_content.push_tree(buffer_cursor.slice_to_offset_before_markers(range.end));
-        new_content.push(BufferText::Link(LinkMarker::End));
-        new_content.push_tree(buffer_cursor.suffix());
-
-        drop(buffer_cursor);
-        self.content = new_content;
-        CoreEditorActionResult {
-            updated_range: range,
-            anchor_update: None,
-        }
-    }
-
-    fn unstyle_link(&mut self, range: Range<CharOffset>) -> CoreEditorActionResult {
-        let old_content = self.content.clone();
-        let cursor = old_content.cursor::<CharOffset, StyleSummary>();
-        let mut buffer_cursor = BufferCursor::new(cursor);
-        let mut new_content = SumTree::new();
-
-        new_content.push_tree(buffer_cursor.slice_to_offset_before_markers(range.start));
-
-        let markers_before_range_start = buffer_cursor.slice_to_offset_after_markers(range.start);
-        let mut marker_cursor = markers_before_range_start.cursor::<(), ()>();
-        marker_cursor.descend_to_first_item(&markers_before_range_start, |_| true);
-        for item in marker_cursor {
-            if !matches!(item, BufferText::Link(LinkMarker::Start(_))) {
-                new_content.push(item.clone());
-            }
-        }
-
-        new_content.push_tree(buffer_cursor.slice_to_offset_before_markers(range.end));
-        let markers_after_range_end = buffer_cursor.slice_to_offset_after_markers(range.end);
-        let mut marker_cursor = markers_after_range_end.cursor::<(), ()>();
-        marker_cursor.descend_to_first_item(&markers_after_range_end, |_| true);
-        for item in marker_cursor {
-            if !matches!(item, BufferText::Link(LinkMarker::End)) {
-                new_content.push(item.clone());
-            }
-        }
-
-        new_content.push_tree(buffer_cursor.suffix());
-        drop(buffer_cursor);
-        self.content = new_content;
-        CoreEditorActionResult {
-            updated_range: range,
             anchor_update: None,
         }
     }

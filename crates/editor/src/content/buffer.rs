@@ -237,11 +237,6 @@ pub enum BufferEditAction<'a> {
     Delete(Vec1<Range<CharOffset>>),
     Style(TextStyles),
     Unstyle(TextStyles),
-    Link {
-        tag: String,
-        url: String,
-    },
-    Unlink,
     StyleBlock(BufferBlockStyle),
     Undo,
     Redo,
@@ -301,8 +296,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::InsertFormatted(_)
             | BufferEditAction::Backspace
             | BufferEditAction::Delete(_)
-            | BufferEditAction::Link { .. }
-            | BufferEditAction::Unlink
             | BufferEditAction::StyleBlock(_)
             | BufferEditAction::Undo
             | BufferEditAction::Redo
@@ -955,34 +948,10 @@ impl Buffer {
         self.content.color_at_color_count(&color_clount)
     }
 
-    /// If the offset is in a link, return the offset of the first character in the link (inclusive).
-    pub fn containing_link_start(&self, offset: CharOffset) -> Option<CharOffset> {
-        let current_link_count = self.link_count_at_offset(offset)?;
-        let mut link_cursor = self.content.cursor::<LinkCount, CharOffset>();
-        link_cursor.seek(&current_link_count, SeekBias::Left);
-        Some(*link_cursor.start())
-    }
-
-    /// If the offset is in a link, return the offset of the character after the link.
-    pub fn containing_link_end(&self, offset: CharOffset) -> Option<CharOffset> {
-        let current_link_count = self.link_count_at_offset(offset)?;
-        let mut link_cursor = self.content.cursor::<LinkCount, CharOffset>();
-        link_cursor.seek(&(current_link_count + 1), SeekBias::Left);
-        Some(*link_cursor.start())
-    }
-
     // If the offset is in a link, return the url of the link.
     pub fn link_url_at_offset(&self, offset: CharOffset) -> Option<String> {
         let current_link_count = self.link_count_at_offset(offset)?;
         self.content.url_at_link_count(&current_link_count)
-    }
-
-    pub fn link_url_at_selection_head(
-        &self,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        app: &AppContext,
-    ) -> Option<String> {
-        self.link_url_at_offset(selection_model.as_ref(app).first_selection_head())
     }
 
     /// Block style at the given character offset.
@@ -1547,10 +1516,6 @@ impl Buffer {
             BufferEditAction::Unstyle(style) => {
                 self.unstyle_internal(style, selection_model.clone(), ctx)
             }
-            BufferEditAction::Link { tag, url } => {
-                self.style_link_internal(tag, url, selection_model.clone(), ctx)
-            }
-            BufferEditAction::Unlink => self.unstyle_link_internal(selection_model.clone(), ctx),
             BufferEditAction::StyleBlock(style) => {
                 self.block_style_internal(style, selection_model.clone(), ctx)
             }
@@ -2498,212 +2463,6 @@ impl Buffer {
 
                 ActionWithSelectionDelta::new_with_offsets(
                     editor_actions,
-                    &mut buffer.internal_anchors,
-                    selection_model.selection_head(selection),
-                    selection_model.selection_tail(selection),
-                    0,
-                    AnchorSide::Right,
-                )
-            },
-            ctx,
-        )
-    }
-
-    /// Add link style with the given url on the range.
-    fn style_link_internal(
-        &mut self,
-        tag: String,
-        url: String,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let cursor = buffer.content.cursor::<CharOffset, BufferSummary>();
-                let mut buffer_cursor = BufferCursor::new(cursor);
-                buffer_cursor.seek_to_offset_after_markers(range.start);
-                let mut editor_action_set = Vec::new();
-                let mut style_reapply_actions = Vec::new();
-
-                let mut style_start = range.start;
-                let mut style_end = range.end;
-
-                while buffer_cursor.item().is_some() {
-                    let summary = buffer_cursor.start();
-                    let active_style = summary.style_summary().text_styles();
-                    let offset = buffer_cursor.offset();
-                    if offset >= range.end {
-                        break;
-                    }
-
-                    if active_style.is_link() {
-                        let start = buffer
-                            .containing_link_start(offset)
-                            .expect("Link should exist");
-                        let end = buffer
-                            .containing_link_end(offset)
-                            .expect("Link should exist");
-                        let url_content = buffer
-                            .link_url_at_offset(offset)
-                            .expect("Link should exist");
-
-                        // Unstyle any existing link range we overlap with first.
-                        editor_action_set.push(CoreEditorAction::new(
-                            start..end,
-                            CoreEditorActionType::UnstyleLink,
-                        ));
-
-                        if start < range.start {
-                            // If the url is the same, we should just extend the style range.
-                            if url_content == url {
-                                style_start = start;
-                            // If the url is not the same, we need to restyle the part that is not included
-                            // in the style range.
-                            } else {
-                                style_reapply_actions.push(CoreEditorAction::new(
-                                    start..range.start,
-                                    CoreEditorActionType::StyleLink(url_content.clone()),
-                                ));
-                            }
-                        }
-
-                        if end > range.end {
-                            // If the url is the same, we should just extend the style range.
-                            if url_content == url {
-                                style_end = end;
-                            // If the url is not the same, we need to restyle the part that is not included
-                            // in the style range.
-                            } else {
-                                style_reapply_actions.push(CoreEditorAction::new(
-                                    range.end..end,
-                                    CoreEditorActionType::StyleLink(url_content.clone()),
-                                ));
-                            }
-                        }
-
-                        buffer_cursor.seek_to_offset_after_markers(end);
-                    } else {
-                        buffer_cursor.seek_to_offset_after_markers(offset + 1);
-                    }
-                }
-                drop(buffer_cursor);
-
-                // If the replaced tag is the same as the original text, do not change its style.
-                let original_text = buffer.text_in_range(range.start..range.end).into_string();
-                if original_text != tag {
-                    editor_action_set.push(CoreEditorAction::new(
-                        range.start..range.end,
-                        CoreEditorActionType::Insert {
-                            text: convert_text_with_style_to_formatted_text(
-                                tag.as_str(),
-                                TextStyles::default(),
-                                BufferBlockStyle::PlainText,
-                            ),
-                            source: EditOrigin::UserTyped,
-                            override_next_style: false,
-                            insert_on_selection: true,
-                        },
-                    ));
-                }
-
-                // Note we need to override the anchor bias here because the following action could decorate the same
-                // range as the previous edit action. Using AnchorSide::Left for the start bias and
-                // AnchorSide::Right for the end bias ensures that the whole new text is styled, whether
-                // it's longer or shorter than the replaced text.
-                editor_action_set.push(
-                    CoreEditorAction::new(
-                        style_start..style_end,
-                        CoreEditorActionType::StyleLink(url.clone()),
-                    )
-                    .with_start_anchor_bias(AnchorSide::Left)
-                    .with_end_anchor_bias(AnchorSide::Right),
-                );
-
-                editor_action_set.extend(style_reapply_actions);
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_action_set,
-                    &mut buffer.internal_anchors,
-                    selection_model.selection_head(selection),
-                    selection_model.selection_tail(selection),
-                    0,
-                    AnchorSide::Right,
-                )
-            },
-            ctx,
-        )
-    }
-
-    /// Remove link style on the given range. It is a no-op if the range
-    /// is not decorated with the link style.
-    fn unstyle_link_internal(
-        &mut self,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let cursor = buffer.content.cursor::<CharOffset, BufferSummary>();
-                let mut buffer_cursor = BufferCursor::new(cursor);
-                buffer_cursor.seek_to_offset_after_markers(range.start);
-
-                let mut editor_action_set = Vec::new();
-                let mut style_reapply_actions = Vec::new();
-
-                while buffer_cursor.item().is_some() {
-                    let summary = buffer_cursor.start();
-                    let active_style = summary.style_summary().text_styles();
-                    let offset = summary.text.chars;
-                    if offset >= range.end {
-                        break;
-                    }
-
-                    if active_style.is_link() {
-                        let start = buffer
-                            .containing_link_start(offset)
-                            .expect("Link should exist");
-                        let end = buffer
-                            .containing_link_end(offset)
-                            .expect("Link should exist");
-                        let url_content = buffer
-                            .link_url_at_offset(offset)
-                            .expect("Link should exist");
-
-                        editor_action_set.push(CoreEditorAction::new(
-                            start..end,
-                            CoreEditorActionType::UnstyleLink,
-                        ));
-
-                        if start < range.start {
-                            // Re-apply parts that are not included in the unstyle range.
-                            style_reapply_actions.push(CoreEditorAction::new(
-                                start..range.start,
-                                CoreEditorActionType::StyleLink(url_content.clone()),
-                            ));
-                        }
-
-                        if end > range.end {
-                            // Re-apply parts that are not included in the unstyle range.
-                            style_reapply_actions.push(CoreEditorAction::new(
-                                range.end..end,
-                                CoreEditorActionType::StyleLink(url_content.clone()),
-                            ));
-                        }
-
-                        buffer_cursor.seek_to_offset_after_markers(end);
-                    } else {
-                        buffer_cursor.seek_to_offset_after_markers(offset + 1);
-                    }
-                }
-
-                drop(buffer_cursor);
-                editor_action_set.extend(style_reapply_actions);
-
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_action_set,
                     &mut buffer.internal_anchors,
                     selection_model.selection_head(selection),
                     selection_model.selection_tail(selection),
