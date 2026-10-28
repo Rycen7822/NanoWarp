@@ -35,9 +35,9 @@ use super::markdown::{BufferToFormattedText, MarkdownStyle};
 use super::selection::{Selection, TextStyleBias};
 use super::text::{
     BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
-    BufferSummary, BufferText, BufferTextStyle, Bytes, CodeBlockType, IndentBehavior, LineCount,
-    LinkCount, LinkMarker, MarkerDir, StyleSummary, SyntaxColorId, TextStyles,
-    TextStylesWithMetadata, TextSummary,
+    BufferSummary, BufferText, BufferTextStyle, Bytes, IndentBehavior, LineCount, LinkCount,
+    LinkMarker, MarkerDir, StyleSummary, SyntaxColorId, TextStyles, TextStylesWithMetadata,
+    TextSummary,
 };
 use super::undo::{NonAtomicType, UndoActionType, UndoArg, UndoStack};
 use super::validation::validate_content;
@@ -247,11 +247,6 @@ pub enum BufferEditAction<'a> {
     Unlink,
     StyleBlock(BufferBlockStyle),
     RemovePrefixAndStyleBlocks(BlockType),
-    /// Inserts placeholder text at the given location.
-    InsertPlaceholder {
-        text: &'a str,
-        location: CharOffset,
-    },
     InsertBlockAfterBlockWithOffset {
         block_type: BlockType,
         offset: CharOffset,
@@ -263,17 +258,6 @@ pub enum BufferEditAction<'a> {
         /// tabs and num_unit is 2, the action will add 2 tabs to start of line.
         num_unit: u8,
         shift: bool,
-    },
-    UpdateCodeBlockTypeAtOffset {
-        start: CharOffset,
-        code_block_type: CodeBlockType,
-    },
-    ToggleTaskListAtOffset {
-        start: CharOffset,
-    },
-    ColorCodeBlock {
-        offset: CharOffset,
-        color: &'a [(Range<ByteOffset>, ColorU)],
     },
     /// VimEvent consisting of inserting given text at a point relative
     /// to the current cursor, then repositioning the cursor by an offset.
@@ -318,10 +302,6 @@ impl BufferEditAction<'_> {
         match &self {
             BufferEditAction::Style(_)
             | BufferEditAction::Unstyle(_)
-            | BufferEditAction::InsertPlaceholder { .. }
-            | BufferEditAction::ColorCodeBlock { .. }
-            | BufferEditAction::ToggleTaskListAtOffset { .. }
-            | BufferEditAction::UpdateCodeBlockTypeAtOffset { .. }
             | BufferEditAction::InsertAtCharOffsetRanges { .. } => ShouldAutoscroll::No,
             BufferEditAction::Insert { .. }
             | BufferEditAction::InsertForEachSelection { .. }
@@ -1588,12 +1568,6 @@ impl Buffer {
             BufferEditAction::RemovePrefixAndStyleBlocks(block_type) => {
                 self.remove_prefix_and_style_blocks(block_type, selection_model.clone(), ctx)
             }
-            BufferEditAction::InsertPlaceholder { text, location } => {
-                self.insert_placeholder(location, text, selection_model.clone(), ctx)
-            }
-            BufferEditAction::ColorCodeBlock { offset, color } => {
-                self.color_code_block_ranges_internal(offset, color)
-            }
             BufferEditAction::InsertBlockItem { block_item } => {
                 self.insert_block_item(block_item, range)
             }
@@ -1617,43 +1591,6 @@ impl Buffer {
             }
             BufferEditAction::Undo => self.undo(selection_model.clone(), ctx),
             BufferEditAction::Redo => self.redo(selection_model.clone(), ctx),
-            BufferEditAction::ToggleTaskListAtOffset { start } => {
-                let end = self.containing_block_end(start + 1);
-                let block_type = self.block_type_at_point(start + 1);
-
-                if let BlockType::Text(BufferBlockStyle::TaskList {
-                    indent_level,
-                    complete,
-                }) = block_type
-                {
-                    self.block_style_range(
-                        (start + 1)..(end - 1),
-                        BufferBlockStyle::TaskList {
-                            indent_level,
-                            complete: !complete,
-                        },
-                        selection_model.clone(),
-                        ctx,
-                    )
-                } else {
-                    EditResult::default()
-                }
-            }
-            BufferEditAction::UpdateCodeBlockTypeAtOffset {
-                start,
-                code_block_type,
-            } => {
-                // We start the range at the start offset + 1 since the first index is
-                // a marker indicating this is a code block. We need a -1 at the end since
-                // `containing_block_end` is exclusive
-                let end = self.containing_block_end(start + 1);
-                self.block_style_range(
-                    (start + 1)..(end - 1),
-                    BufferBlockStyle::CodeBlock { code_block_type },
-                    selection_model.clone(),
-                    ctx,
-                )
-            }
             BufferEditAction::VimEvent {
                 text,
                 insert_point,
@@ -2820,22 +2757,6 @@ impl Buffer {
             },
             ctx,
         )
-    }
-
-    /// Decorate the given range in the buffer with the provided block style.
-    pub(super) fn block_style_range(
-        &mut self,
-        range: Range<CharOffset>,
-        style: BufferBlockStyle,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        let editor_actions = self.block_style_editor_actions(range, style);
-        let update = self.apply_core_edit_actions(editor_actions);
-        selection_model.update(ctx, |selection_model, _ctx| {
-            selection_model.update_anchors(update.anchor_updates.clone());
-        });
-        update
     }
 
     /// Add link style with the given url on the range.
@@ -4288,21 +4209,6 @@ impl Buffer {
         )
     }
 
-    pub fn color_code_block_ranges(
-        &mut self,
-        offset: CharOffset,
-        color: &[(Range<ByteOffset>, ColorU)],
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.update_content(
-            BufferEditAction::ColorCodeBlock { offset, color },
-            EditOrigin::SystemEdit,
-            selection_model,
-            ctx,
-        );
-    }
-
     pub(super) fn color_code_block_ranges_internal(
         &mut self,
         style_start: CharOffset,
@@ -4435,78 +4341,6 @@ impl Buffer {
         BufferSnapshot {
             content: self.content.clone(),
             byte_len: self.content.extent::<ByteOffset>(),
-        }
-    }
-
-    fn insert_placeholder(
-        &mut self,
-        at: CharOffset,
-        text: impl Into<String>,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        let buffer_end = self.max_charoffset();
-        debug_assert!(
-            at <= buffer_end,
-            "Tried to insert a placeholder at {at}, but max char offset is {buffer_end}"
-        );
-
-        // At the content level, the placeholder occupies 1 character.
-        // See Buffer::apply_core_edit_actions on the need for `.min(buffer_end)`
-        let old_range = self.block_or_line_start(at)..self.block_or_line_end(at).min(buffer_end);
-        let replaced_points = self.offset_range_to_point_range(at..at);
-
-        // Placeholder is non-text; compute byte info before content modification.
-        let byte_at = at.to_buffer_byte_offset(self);
-
-        self.content = {
-            let cursor = self.content.cursor::<CharOffset, ()>();
-            let mut buffer_cursor = BufferCursor::new(cursor);
-            let mut new_content = buffer_cursor.slice_to_offset_before_markers(at);
-            new_content.push(BufferText::Placeholder {
-                content: text.into(),
-            });
-            new_content.push_tree(buffer_cursor.suffix());
-            new_content
-        };
-
-        // Placeholders do not split blocks (just like non-newline characters). Therefore, inserting
-        // a placeholder doesn't change which blocks are affected, it only makes the affected block
-        // 1 character longer. Instead of re-seeking in the content SumTree, we can adjust the
-        // original range.
-        let new_range = old_range.start..old_range.end + 1;
-        let anchor_update = AnchorUpdate {
-            start: at,
-            old_character_count: 0,
-            new_character_count: 1,
-            clamp: false,
-        };
-        self.internal_anchors.update(anchor_update);
-        selection_model.update(ctx, |selection, _| {
-            selection.update_anchors(vec![anchor_update]);
-        });
-
-        // Placeholder occupies 1 CharOffset and 1 ByteOffset.
-        let new_byte_length = 1;
-        let new_end_point = (at + 1).to_buffer_point(self);
-
-        EditResult {
-            undo_item: None,
-            delta: Some(EditDelta {
-                precise_deltas: vec![PreciseDelta {
-                    replaced_range: at..at,
-                    replaced_points,
-                    resolved_range: at..at + 1,
-                    replaced_byte_range: byte_at..byte_at,
-                    new_byte_length,
-                    new_end_point,
-                }],
-                old_offset: old_range,
-                new_lines: Arc::new(
-                    self.styled_blocks_in_range(new_range, StyledBlockBoundaryBehavior::Exclusive),
-                ),
-            }),
-            anchor_updates: vec![anchor_update],
         }
     }
 

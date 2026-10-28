@@ -131,6 +131,21 @@ impl Buffer {
         self.style_link_internal(text, url, selection_model, ctx)
     }
 
+    pub(in crate::content) fn apply_block_style_fixture(
+        &mut self,
+        range: Range<CharOffset>,
+        style: BufferBlockStyle,
+        selection_model: ModelHandle<BufferSelectionModel>,
+        ctx: &mut ModelContext<Self>,
+    ) -> EditResult {
+        let actions = self.block_style_editor_actions(range, style);
+        let update = self.apply_core_edit_actions(actions);
+        selection_model.update(ctx, |selection, _| {
+            selection.update_anchors(update.anchor_updates.clone());
+        });
+        update
+    }
+
     pub(in crate::content) fn apply_formatted_edit_fixture(
         &mut self,
         range: Range<CharOffset>,
@@ -680,7 +695,7 @@ fn test_text_styling() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(5),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -1689,7 +1704,7 @@ fn test_block_style() {
 
             // Styling s in test to a runnable code block.
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(3)..CharOffset::from(4),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -1751,7 +1766,7 @@ fn test_block_style() {
 
             // Styling li in line to a runnable code block.
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(8)..CharOffset::from(10),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -1796,7 +1811,7 @@ fn test_block_style() {
 
             // Styling t in test to a runnable code block.
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(4)..CharOffset::from(7),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -1839,7 +1854,7 @@ fn test_block_style() {
 
             // Styling the last line to a runnable code block.
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(14)..CharOffset::from(20),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -1873,7 +1888,7 @@ fn test_block_style() {
 
             // Styling the line right after a code block should create a new code block.
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(11)..CharOffset::from(12),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -1933,7 +1948,7 @@ fn test_containing_block_start() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 6.into()..10.into(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -1972,7 +1987,7 @@ fn test_style_unstyle_block_overlapping() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(2)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -1986,7 +2001,7 @@ fn test_style_unstyle_block_overlapping() {
             );
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(1)..CharOffset::from(4),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -2027,7 +2042,7 @@ fn test_style_unstyle_block_overlapping() {
                 }),]
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(12),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -2041,7 +2056,7 @@ fn test_style_unstyle_block_overlapping() {
             );
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(6)..CharOffset::from(7),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -2074,7 +2089,7 @@ fn test_style_unstyle_block_overlapping() {
             );
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(13)..CharOffset::from(15),
                     BufferBlockStyle::CodeBlock {
                         code_block_type: Default::default(),
@@ -2118,7 +2133,7 @@ fn test_style_unstyle_block_overlapping() {
             );
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(3)..CharOffset::from(5),
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -2160,7 +2175,7 @@ fn test_style_unstyle_block_overlapping() {
             );
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     CharOffset::from(8)..CharOffset::from(11),
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -2221,7 +2236,7 @@ fn test_containing_code_block() {
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
             // Styling s in test to a runnable code block.
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -2230,7 +2245,7 @@ fn test_containing_code_block() {
                 ctx,
             );
             // Styling 'line\ns' to a runnable code block.
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(14),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -2371,7 +2386,7 @@ fn test_delete_unpaired_block_style_marker() {
 
             // Styling s in test to a runnable code block.
             // <text>te<code:Shell>s<text>t
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -2410,7 +2425,7 @@ fn test_delete_unpaired_block_style_marker() {
 
             // Styling s in tesst to a runnable code block.
             // <text>te<code:Shell>s<text>s\nt
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -2708,7 +2723,7 @@ fn test_remove_prefix_and_insert_block_item() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(8),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -2717,7 +2732,7 @@ fn test_remove_prefix_and_insert_block_item() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(11)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -3067,7 +3082,7 @@ fn test_styled_runs_blocks() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(8),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3261,35 +3276,35 @@ fn test_export_markdown_sublists() {
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(5),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(11),
                 BufferBlockStyle::ordered_list(ListIndentLevel::Two),
                 selection.clone(),
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(12)..CharOffset::from(18),
                 BufferBlockStyle::ordered_list(ListIndentLevel::Three),
                 selection.clone(),
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(19)..CharOffset::from(24),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(25)..CharOffset::from(29),
                 BufferBlockStyle::ordered_list(ListIndentLevel::Two),
                 selection.clone(),
@@ -3299,35 +3314,6 @@ fn test_export_markdown_sublists() {
             assert_eq!(
                 buffer.debug(),
                 "<ol0>Line<ol1>First<ol2>Second<ol0>Third<ol1>Last<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_markdown_omits_placeholders() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "markdown",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.insert_placeholder(3.into(), "placeholder", selection.clone(), ctx);
-            buffer.set_selection(
-                CharOffset::from(1)..CharOffset::from(7),
-                selection.clone(),
-                ctx,
-            );
-            buffer.style_internal(TextStyles::default().italic(), selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<text><i_s>ma<placeholder_s>placeholder<placeholder_e>rkd<i_e>own"
             );
         });
     });
@@ -3347,7 +3333,7 @@ fn test_markdown_escapes() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(23)..CharOffset::from(39),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3467,7 +3453,7 @@ fn test_unstyle_block_noop() {
             // Set a selection so we can confirm it's unaffected.
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range,
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -3494,7 +3480,7 @@ fn test_unstyle_block_partial_left() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(6),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3509,7 +3495,7 @@ fn test_unstyle_block_partial_left() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range,
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -3581,7 +3567,7 @@ fn test_unstyle_block_partial_right() {
                 ctx,
             );
             // Make "World" a runnable command.
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(13)..CharOffset::from(18),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3599,7 +3585,7 @@ fn test_unstyle_block_partial_right() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range,
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -3676,7 +3662,7 @@ fn test_unstyle_block_multi_line() {
             );
 
             // Style Text to a runnable command and back again.
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(19),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3689,7 +3675,7 @@ fn test_unstyle_block_multi_line() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range.clone(),
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -3759,7 +3745,7 @@ fn test_edit_to_unstyle_block_multi_line() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(7),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -3767,7 +3753,7 @@ fn test_edit_to_unstyle_block_multi_line() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(19),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3849,7 +3835,7 @@ fn test_unstyle_block_exact() {
             // Style Text to a runnable command and back again.
             let selection_range = CharOffset::from(8)..CharOffset::from(12);
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 selection_range.clone(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3860,7 +3846,7 @@ fn test_unstyle_block_exact() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range.clone(),
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -3912,7 +3898,7 @@ fn test_unstyle_block_within() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(7)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -3930,7 +3916,7 @@ fn test_unstyle_block_within() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range,
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -4024,7 +4010,7 @@ fn test_unstyle_block_surrounded() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(13),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -4038,7 +4024,7 @@ fn test_unstyle_block_surrounded() {
             buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
 
             let delta = buffer
-                .block_style_range(
+                .apply_block_style_fixture(
                     selection_range.clone(),
                     BufferBlockStyle::PlainText,
                     selection.clone(),
@@ -4418,7 +4404,7 @@ fn test_enter_after_empty_block() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(13),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -4426,7 +4412,7 @@ fn test_enter_after_empty_block() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(5)..CharOffset::from(6),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -4465,7 +4451,7 @@ fn test_undo_enter_at_buffer_start() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 1.into()..6.into(),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -4612,7 +4598,7 @@ fn test_insert_formatted_text() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(13),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -4860,135 +4846,6 @@ fn test_insert_code_block_in_text_lines() {
 }
 
 #[test]
-fn test_placeholder_insertion() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "sometext",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            selection.update(ctx, |selection, _| {
-                selection.set_single_cursor(5.into());
-            });
-            let delta = buffer
-                .insert_placeholder(5.into(), "placeholder", selection.clone(), ctx)
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>some<placeholder_s>placeholder<placeholder_e>text"
-            );
-            // Inserting a placeholder should re-render the line.
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(9));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "some".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "placeholder".into(),
-                            text_styles: TextStylesWithMetadata::default().for_placeholder(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "text".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                    ],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(9)
-                })]
-            );
-
-            // The placeholder was inserted at the cursor, so it should move back.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(6)..CharOffset::from(6)
-            );
-        });
-    });
-}
-
-#[test]
-fn test_placeholder_inherits_styles() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "sometext",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.insert_placeholder(5.into(), "placeholder", selection.clone(), ctx);
-            buffer.set_selection(
-                CharOffset::from(3)..CharOffset::from(8),
-                selection.clone(),
-                ctx,
-            );
-            let delta = buffer
-                .style_internal(TextStyles::default().bold(), selection.clone(), ctx)
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>so<b_s>me<placeholder_s>placeholder<placeholder_e>te<b_e>xt"
-            );
-
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "so".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "me".into(),
-                            text_styles: TextStylesWithMetadata::default().bold(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "placeholder".into(),
-                            text_styles: TextStylesWithMetadata::default().bold().for_placeholder(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "te".into(),
-                            text_styles: TextStylesWithMetadata::default().bold(),
-                            block_style: BufferBlockStyle::PlainText
-                        },
-                        StyledBufferRun {
-                            run: "xt".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }
-                    ],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(9)
-                })]
-            );
-        });
-    });
-}
-
-#[test]
 fn test_embedded_item_as_plain_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
@@ -5208,7 +5065,7 @@ fn test_undo_redo_block() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(7)..CharOffset::from(9),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5371,7 +5228,7 @@ fn test_undo_redo_multi_block_deletion() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5460,7 +5317,7 @@ fn test_undo_redo_multi_block_deletion() {
             let _ = buffer.undo(selection.clone(), ctx);
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(11)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5569,7 +5426,7 @@ fn test_styling_mixed_block_types_exact() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5583,7 +5440,7 @@ fn test_styling_mixed_block_types_exact() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(11)..CharOffset::from(17),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -5653,7 +5510,7 @@ fn test_styling_mixed_block_types_surrounded() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5667,7 +5524,7 @@ fn test_styling_mixed_block_types_surrounded() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(17),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -5774,7 +5631,7 @@ fn test_styling_mixed_block_types_overlapping() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5788,7 +5645,7 @@ fn test_styling_mixed_block_types_overlapping() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(15),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -5895,7 +5752,7 @@ fn test_styling_mixed_block_types_within() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(17),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -5909,7 +5766,7 @@ fn test_styling_mixed_block_types_within() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(8)..CharOffset::from(12),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -6019,7 +5876,7 @@ fn test_unstyle_unordered_list_partial() {
                 ctx,
             );
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(4),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -6029,7 +5886,7 @@ fn test_unstyle_unordered_list_partial() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(2)..CharOffset::from(4),
                 BufferBlockStyle::PlainText,
                 selection.clone(),
@@ -6099,7 +5956,7 @@ fn test_edit_in_header() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -6242,7 +6099,7 @@ fn test_insert_formatted_text_header() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -6477,7 +6334,7 @@ fn test_linebreak_in_unordered_list() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -6632,7 +6489,7 @@ fn test_enter_in_list_at_buffer_end() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
@@ -6693,7 +6550,7 @@ fn test_backspace_on_block_marker() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -6763,7 +6620,7 @@ fn test_nonatomic_undo_insertion() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -8056,7 +7913,7 @@ fn test_code_tab_indent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(14),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Code {
@@ -8134,7 +7991,7 @@ fn test_indent_with_tab_unit() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(14),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Code {
@@ -8220,7 +8077,7 @@ fn test_code_tab_within_line() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(8),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -8279,7 +8136,7 @@ fn test_code_unindent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 1.into()..buffer.max_charoffset(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -8339,7 +8196,7 @@ fn test_code_backspace_unindent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 1.into()..buffer.max_charoffset(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Code {
@@ -8437,7 +8294,7 @@ fn test_list_tab_behavior() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -8591,7 +8448,7 @@ fn test_ordered_list_tab_behavior() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
@@ -8686,7 +8543,7 @@ fn test_task_list_tab_behavior() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::TaskList {
                     indent_level: ListIndentLevel::One,
@@ -8782,7 +8639,7 @@ fn test_ordered_list_numbering_export() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 1.into()..6.into(),
                 BufferBlockStyle::OrderedList {
                     number: Some(4),
@@ -8791,14 +8648,14 @@ fn test_ordered_list_numbering_export() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 7.into()..13.into(),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
                 ctx,
             );
             // This tests starting a new, nested, list with different numbering.
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 14.into()..15.into(),
                 BufferBlockStyle::OrderedList {
                     number: Some(3),
@@ -8807,14 +8664,14 @@ fn test_ordered_list_numbering_export() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 16.into()..17.into(),
                 BufferBlockStyle::ordered_list(ListIndentLevel::Two),
                 selection.clone(),
                 ctx,
             );
             // This tests going back to automatic numbering at a different indent level.
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 18.into()..23.into(),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
@@ -8842,7 +8699,7 @@ fn test_code_block_text_styling() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(7)..CharOffset::from(12),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -9009,7 +8866,7 @@ fn test_code_block_styling_over_styled_text() {
             assert_eq!(buffer.content.debug(), "<text><b_s>bl<i_s>o<b_e>ck<i_e>");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -9291,13 +9148,13 @@ fn test_export_markdown_multiple_indentation_level() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(5),
                 BufferBlockStyle::ordered_list(ListIndentLevel::One),
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::ordered_list(ListIndentLevel::Three),
                 selection.clone(),
@@ -9916,7 +9773,7 @@ fn test_block_styling_around_block_item() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(5),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -9939,7 +9796,7 @@ fn test_block_styling_around_block_item() {
             assert_eq!(buffer.content.debug(), "<header1>Test<hr><text>Line");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(7)..CharOffset::from(11),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header2,
@@ -10007,7 +9864,7 @@ fn test_block_styling_overlapping_block_item() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(15),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -10147,7 +10004,7 @@ fn test_insert_block_item_after_block() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(12)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10201,7 +10058,7 @@ fn test_insert_block_item_before_non_text_block() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10484,7 +10341,7 @@ fn test_style_on_consecutive_block_items() {
             assert_eq!(buffer.content.debug(), "<text>Test<hr><hr><text>Line");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(12),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10532,7 +10389,7 @@ fn test_color_code_block() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(11),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10541,7 +10398,7 @@ fn test_color_code_block() {
                         ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(17)..CharOffset::from(22),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10685,7 +10542,7 @@ fn test_remove_coloring_in_middle_of_block() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(11),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10749,7 +10606,7 @@ fn test_edit_colored_code_block() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10821,7 +10678,7 @@ fn test_unstyling_code_block_do_not_leak_syntax_color() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10848,7 +10705,7 @@ fn test_unstyling_code_block_do_not_leak_syntax_color() {
                 "<text>Test<code:Shell><c_#ffffff>Block<c>\\n<c_#000000>Line<c><text>Block"
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(8),
                 BufferBlockStyle::PlainText,
                 selection.clone(),
@@ -10861,7 +10718,7 @@ fn test_unstyling_code_block_do_not_leak_syntax_color() {
                 "<text>Test\\nBl<code:Shell>ock\\nLine<text>Block"
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(9)..CharOffset::from(17),
                 BufferBlockStyle::PlainText,
                 selection.clone(),
@@ -10893,7 +10750,7 @@ fn test_undo_should_not_leak_syntax_color() {
             );
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.block_style_range(
+            let edit_result = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -10987,7 +10844,7 @@ fn test_deletion_range_include_block_marker_should_not_leak_style() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(5)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -11114,7 +10971,7 @@ fn test_styled_blocks_from_buffer_start() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(2),
                 BufferBlockStyle::Header {
                     header_size: BlockHeaderSize::Header1,
@@ -11172,7 +11029,7 @@ fn test_styled_block_default_boundaries() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 1.into()..5.into(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -11294,7 +11151,7 @@ fn test_styled_block_alternate_boundaries() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 7.into()..17.into(),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -11302,7 +11159,7 @@ fn test_styled_block_alternate_boundaries() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 18.into()..30.into(),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -11507,7 +11364,7 @@ fn test_deleting_range_with_trailing_block_marker() {
                 ctx,
             );
 
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(3)..CharOffset::from(4),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Shell,
@@ -12099,7 +11956,7 @@ fn test_multiselect_backspace_on_block_marker() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.block_style_range(
+            let _ = buffer.apply_block_style_fixture(
                 CharOffset::from(6)..CharOffset::from(10),
                 BufferBlockStyle::UnorderedList {
                     indent_level: ListIndentLevel::One,
@@ -12470,7 +12327,7 @@ fn test_multiselect_indent_unindent() {
         );
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(21)..CharOffset::from(30),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: CodeBlockType::Code {

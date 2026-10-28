@@ -40,7 +40,7 @@ fn test_block_at_start() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(1)..CharOffset::from(6),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -79,7 +79,7 @@ fn test_block_at_end() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(5)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -118,7 +118,7 @@ fn test_multiple_blocks() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(14)..CharOffset::from(20),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -126,7 +126,7 @@ fn test_multiple_blocks() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(5)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -178,7 +178,7 @@ fn test_adjacent_blocks() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(10)..CharOffset::from(16),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
@@ -186,7 +186,7 @@ fn test_adjacent_blocks() {
                 selection.clone(),
                 ctx,
             );
-            buffer.block_style_range(
+            buffer.apply_block_style_fixture(
                 CharOffset::from(5)..CharOffset::from(10),
                 BufferBlockStyle::CodeBlock {
                     code_block_type: Default::default(),
