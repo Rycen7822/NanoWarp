@@ -239,16 +239,6 @@ impl BufferSelectionModel {
         self.selections.len() == 1
     }
 
-    /// Query for the set of text styles that are fully active over the current
-    /// selection.
-    pub fn selection_text_styles(&self, ctx: &AppContext) -> TextStylesWithMetadata {
-        self.selections_to_offset_ranges()
-            .into_iter()
-            .map(|range| self.buffer.as_ref(ctx).range_text_styles(range))
-            .reduce(|style1, style2| style1.mutual_styles(style2))
-            .expect("At least one selection style should exist")
-    }
-
     pub fn active_block_type_at_selection(
         &self,
         selection: &Selection,

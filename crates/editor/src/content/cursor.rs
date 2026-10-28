@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use arrayvec::ArrayString;
 use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
@@ -284,12 +282,6 @@ pub trait BufferSumTree {
     /// Returns the color with the given color count if there is a decorated syntax color.
     fn color_at_color_count(&self, color_count: &SyntaxColorId) -> Option<ColorU>;
 
-    /// Iterate over items in the given character range.
-    fn items_in_range<'a, U: sum_tree::Dimension<'a, BufferSummary>>(
-        &'a self,
-        range: Range<CharOffset>,
-    ) -> BoundedCursor<'a, U>;
-
     /// Append a new str to the end of the SumTree. If the last item in the tree is a Text
     /// fragment and it has extra byte size left, fill that text fragment first before creating
     /// a new one.
@@ -310,19 +302,6 @@ impl BufferSumTree for SumTree<BufferText> {
         new_tree.push_tree(buffer_cursor.suffix());
         drop(buffer_cursor);
         *self = new_tree;
-    }
-
-    fn items_in_range<'a, U: sum_tree::Dimension<'a, BufferSummary>>(
-        &'a self,
-        range: Range<CharOffset>,
-    ) -> BoundedCursor<'a, U> {
-        let inner = self.cursor::<CharOffset, U>();
-        let mut buffer_cursor = BufferCursor::new(inner);
-        buffer_cursor.seek_to_offset_after_markers(range.start);
-        BoundedCursor {
-            inner: buffer_cursor,
-            end: range.end,
-        }
     }
 
     fn url_at_link_count(&self, link_count: &LinkCount) -> Option<String> {
@@ -417,40 +396,6 @@ impl BufferSumTree for SumTree<BufferText> {
             }
         }
         self.extend(new_fragments);
-    }
-}
-
-/// A [`Cursor`] that limits itself to only consuming a maximum number of characters.
-/// Use this as a building block for range-based iteration.
-pub struct BoundedCursor<'a, U: Dimension<'a, BufferSummary>> {
-    inner: BufferCursor<'a, U>,
-    end: CharOffset,
-}
-
-impl<'a, U> BoundedCursor<'a, U>
-where
-    U: sum_tree::Dimension<'a, BufferSummary>,
-{
-    /// Summary at the start of the current cursor position (see [`Cursor::start`]).
-    pub fn start(&self) -> &U {
-        self.inner.start()
-    }
-}
-
-impl<'a, U> Iterator for BoundedCursor<'a, U>
-where
-    U: sum_tree::Dimension<'a, BufferSummary>,
-{
-    type Item = &'a BufferText;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.inner.offset() >= self.end {
-            None
-        } else {
-            let item = self.inner.item()?;
-            self.inner.next();
-            Some(item)
-        }
     }
 }
 

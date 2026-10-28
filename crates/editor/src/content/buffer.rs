@@ -23,7 +23,6 @@ use vec1::{Vec1, vec1};
 use warp_core::platform::SessionPlatform;
 use warp_util::content_version::ContentVersion;
 use warpui_core::elements::ListIndentLevel;
-use warpui_core::fonts::Weight;
 use warpui_core::text::point::Point;
 use warpui_core::text::{TextBuffer, char_slice};
 use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
@@ -893,19 +892,6 @@ impl Buffer {
         *cursor.start() + CharOffset::from(1)
     }
 
-    // Note that link marker is slightly different from block markers as they have both start and end.
-    // To get to the end of a link, we just need to increment the current link count by one.
-    fn link_count_at_offset(&self, offset: CharOffset) -> Option<LinkCount> {
-        let mut cursor = self.content.cursor::<CharOffset, LinkCount>();
-
-        let summary = cursor.summary::<BufferSummary>(&offset, SeekBias::Right);
-        if !summary.style_summary().text_styles().is_link() {
-            return None;
-        }
-
-        Some(*cursor.start())
-    }
-
     fn color_count_at_offset(&self, offset: CharOffset) -> Option<SyntaxColorId> {
         let mut cursor = self.content.cursor::<CharOffset, SyntaxColorId>();
 
@@ -920,12 +906,6 @@ impl Buffer {
     pub fn color_at_offset(&self, offset: CharOffset) -> Option<ColorU> {
         let color_clount = self.color_count_at_offset(offset)?;
         self.content.color_at_color_count(&color_clount)
-    }
-
-    // If the offset is in a link, return the url of the link.
-    pub fn link_url_at_offset(&self, offset: CharOffset) -> Option<String> {
-        let current_link_count = self.link_count_at_offset(offset)?;
-        self.content.url_at_link_count(&current_link_count)
     }
 
     /// Block style at the given character offset.
@@ -1959,67 +1939,6 @@ impl Buffer {
 
     pub(super) fn offset_range_to_point_range(&self, range: Range<CharOffset>) -> Range<Point> {
         range.start.to_buffer_point(self)..range.end.to_buffer_point(self)
-    }
-
-    /// Whether the provided ranges of character offset is fully decorated with the style.
-    pub fn ranges_fully_styled(
-        &self,
-        ranges: Vec1<Range<CharOffset>>,
-        text_style: TextStyles,
-    ) -> bool {
-        for range in ranges {
-            let items = self.content.items_in_range::<StyleSummary>(range);
-            let prefix_styling = items.start().text_styles();
-
-            // If the first character is not fully decorated with the style, return false.
-            for style in all::<BufferTextStyle>() {
-                if text_style.exact_match_style(&style) && !prefix_styling.exact_match_style(&style)
-                {
-                    return false;
-                }
-            }
-
-            for item in items {
-                if let BufferText::Marker { marker_type, .. } = item
-                    && text_style.exact_match_style(marker_type)
-                {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
-    /// Query for the set of text styles that are all fully active over a range.
-    /// A style is fully active if it applies to every character in the range.
-    /// This is a counterpart to [`Self::range_fully_styled`].
-    pub(super) fn range_text_styles(&self, range: Range<CharOffset>) -> TextStylesWithMetadata {
-        let items = self.content.items_in_range::<StyleSummary>(range.clone());
-        let mut range_styles = items.start().text_styles();
-        for item in items {
-            if let BufferText::Marker { marker_type, .. } = item {
-                if let Some(mut_style) = range_styles.style_mut(marker_type) {
-                    *mut_style = false;
-                } else {
-                    range_styles.set_weight(Weight::Normal);
-                }
-            }
-
-            if let BufferText::Link(_) = item {
-                *range_styles.link_mut() = false;
-            }
-        }
-
-        if range_styles.is_link() {
-            TextStylesWithMetadata::from_text_styles(
-                range_styles,
-                self.link_url_at_offset(range.start),
-                None, // Syntax color should not be read for user actions.
-            )
-        } else {
-            TextStylesWithMetadata::from_text_styles(range_styles, None, None)
-        }
     }
 
     /// Return the text style at the given offset.

@@ -1143,10 +1143,6 @@ impl TextStyles {
         }
     }
 
-    pub fn link_mut(&mut self) -> &mut bool {
-        &mut self.link
-    }
-
     pub fn is_inline_code(&self) -> bool {
         self.inline_code
     }
