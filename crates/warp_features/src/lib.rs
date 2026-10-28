@@ -49,7 +49,7 @@ pub enum FeatureFlag {
     /// Feature flag for cursor reflow fix (fixes part of the Alacritty resizing logic).
     ResizeFix,
 
-    /// Enable multiselect in Notebooks and Warp Text.
+    /// Enables Alt-modified multiple selection in the basic text editor.
     RichTextMultiselect,
 
     /// If enabled, the default input mode is set to waterfall for new users.
@@ -158,9 +158,6 @@ pub enum FeatureFlag {
     /// Enables pluggable notifications via OSC 9 and OSC 777 escape sequences.
     /// External programs can trigger system and in-app notifications.
     PluggableNotifications,
-
-    /// When enabled, we expose LSP as a tool to the agent
-    LSPAsATool,
 
     /// Updated tab styling (background colors, border, close button positioning, margins).
     NewTabStyling,

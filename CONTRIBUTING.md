@@ -50,6 +50,7 @@ export CARGO_HOME="$PWD/.work/cargo-home" RUSTUP_HOME="$PWD/.work/rustup"
 export CARGO_TARGET_DIR="$PWD/.work/target" TMPDIR="$PWD/.work/tmp"
 export SCCACHE_DIR="$PWD/.work/sccache" NANOWARP_DATA_DIR="$PWD/.work/runtime/dev"
 export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 RAYON_NUM_THREADS=2
+export GIT_RELEASE_TAG=v0.1.0
 mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR" "$SCCACHE_DIR" "$NANOWARP_DATA_DIR"
 ```
 
@@ -57,7 +58,10 @@ mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR" "$SCCACHE_DI
 
 The Windows GUI build uses the existing binary name `warp-oss`:
 
+Set `GIT_RELEASE_TAG` to the product version before building (`v0.1.0` for the current checkout). This compile-time value supplies the application's version string.
+
 ```powershell
+$env:GIT_RELEASE_TAG = 'v0.1.0'
 cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features release_bundle,gui
 & .\.work\target\debug\warp-oss.exe
 ```

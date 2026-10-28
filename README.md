@@ -16,6 +16,7 @@ This fork is under active development. Cross-platform runtime and packaging acce
 Start with [Development Setup](CONTRIBUTING.md#development-setup) for prerequisites, local cache/data directories, and resource limits. From the repository root, the Windows GUI build command is:
 
 ```powershell
+$env:GIT_RELEASE_TAG = 'v0.1.0'
 cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features release_bundle,gui
 ```
 
