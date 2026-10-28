@@ -1554,24 +1554,6 @@ impl Buffer {
         });
     }
 
-    /// Whether or not the current selection is a single cursor that's within a block type that
-    /// allows formatting.
-    pub fn can_format_at_cursor(
-        &self,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &AppContext,
-    ) -> bool {
-        let allows_formatting =
-            match self.active_block_type_at_first_selection(selection_model.as_ref(ctx)) {
-                BlockType::Item(_) => false,
-                BlockType::Text(style) => style.allows_formatting(),
-            };
-        selection_model
-            .as_ref(ctx)
-            .first_selection_is_single_cursor()
-            && allows_formatting
-    }
-
     // Returns the content from the start of block to start of the selection.
     pub fn content_from_block_start_to_selection_start(&self, start: CharOffset) -> String {
         self.text_in_range(self.block_or_line_start(start)..start)
@@ -3117,23 +3099,6 @@ impl Buffer {
     ) -> BlockType {
         let range = selection_model.selection_to_offset_range(selection);
         self.block_type_at_point(range.start)
-    }
-
-    /// Check whether the block type for every selection allow formatting.
-    pub fn all_selections_allow_formatting(
-        &self,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &AppContext,
-    ) -> bool {
-        let selection_model = selection_model.as_ref(ctx);
-        selection_model.selections().iter().all(|selection| {
-            match self.active_block_type_at_selection(selection, selection_model) {
-                BlockType::Text(block_style) => block_style.allows_formatting(),
-                // If pasting content directly after a rich block item, we should keep the content's original
-                // styling.
-                BlockType::Item(_) => true,
-            }
-        })
     }
 
     pub(super) fn modify_first_selection(

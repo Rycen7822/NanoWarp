@@ -239,27 +239,6 @@ impl BufferSelectionModel {
         self.selections.len() == 1
     }
 
-    pub fn active_block_type_at_selection(
-        &self,
-        selection: &Selection,
-        ctx: &AppContext,
-    ) -> BlockType {
-        let range = self.selection_to_offset_range(selection);
-        self.buffer.as_ref(ctx).block_type_at_point(range.start)
-    }
-
-    /// Check whether the block type for every selection allow formatting.
-    pub fn all_selections_allow_formatting(&self, ctx: &AppContext) -> bool {
-        self.selections.iter().all(|selection| {
-            match self.active_block_type_at_selection(selection, ctx) {
-                BlockType::Text(block_style) => block_style.allows_formatting(),
-                // If pasting content directly after a rich block item, we should keep the content's original
-                // styling.
-                BlockType::Item(_) => true,
-            }
-        })
-    }
-
     // Todo: kc (CLD1018) Temporary until multiselect is implemented.
     pub fn first_selection_is_single_cursor(&self) -> bool {
         // Selection should always be valid when we have single selections.
