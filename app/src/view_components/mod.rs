@@ -3,7 +3,6 @@
 pub mod action_button;
 mod dismissible_toast;
 pub mod dropdown;
-mod feature_popup;
 mod filterable_dropdown;
 pub mod find;
 pub(crate) mod inline_action_header;
@@ -12,6 +11,5 @@ mod submittable_text_input;
 
 pub use dismissible_toast::*;
 pub use dropdown::{Dropdown, DropdownItem, DropdownItemAction};
-pub use feature_popup::*;
 pub use filterable_dropdown::FilterableDropdown;
 pub use submittable_text_input::*;

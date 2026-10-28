@@ -2,20 +2,18 @@ use std::fmt::Debug;
 
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
-use warp_core::features::FeatureFlag;
-use warp_core::settings::Setting;
 use warp_errors::report_error;
 use warpui::elements::{
     AcceptedByDropTarget, Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container,
-    CornerRadius, CrossAxisAlignment, Dismiss, Draggable, DraggableState, Empty, Flex, Hoverable,
-    Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    CornerRadius, CrossAxisAlignment, Draggable, DraggableState, Empty, Flex, Hoverable, Icon,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds,
-    Radius, SavePosition, Shrinkable, Stack, Text,
+    Radius, Shrinkable, Stack, Text,
 };
 use warpui::presenter::ChildView;
 use warpui::{
-    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
+    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 
 use super::PaneDropTargetData;
@@ -26,15 +24,11 @@ use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::view::StandardHeader;
 use crate::pane_group::pane::{
     ActionOrigin, PaneConfiguration, PaneConfigurationEvent, PaneStack, PaneStackEvent,
-    ToolbeltButton,
 };
 use crate::pane_group::{
     BackingView, Direction, PaneDragDropLocation, PaneId, TabBarAxis, TabBarHoverIndex,
 };
-use crate::settings::CodeSettings;
 use crate::tab::tab_position_id;
-use crate::terminal::view::TerminalAction;
-use crate::view_components::{FeaturePopup, NewFeaturePopupEvent, NewFeaturePopupLabel};
 use crate::workspace::{TabBarDropTargetData, TabBarLocation, VerticalTabsPaneDropTargetData};
 
 pub(crate) mod components;
@@ -121,10 +115,8 @@ pub struct PaneHeader<P: BackingView> {
     mouse_state_handles: MouseStateHandles,
     overflow_menu:
         ViewHandle<Menu<PaneHeaderAction<P::PaneHeaderOverflowMenuAction, P::CustomAction>>>,
-    toolbelt_buttons: Vec<ToolbeltButton>,
     open_overlay: OpenOverlay,
     is_visible_in_pane_group: bool, // If this pane header is being dragged along the tab bar, then it is not visible in the pane group
-    toolbelt_feature_popup: ViewHandle<FeaturePopup>,
 }
 
 impl<P: BackingView> PaneHeader<P> {
@@ -138,15 +130,6 @@ impl<P: BackingView> PaneHeader<P> {
             me.handle_overflow_menu_action(event, ctx);
         });
 
-        let toolbelt_feature_popup = ctx.add_view(|_| {
-            FeaturePopup::new_feature(NewFeaturePopupLabel::FromString(
-                "Open files and review code diffs".to_string(),
-            ))
-        });
-        ctx.subscribe_to_view(&toolbelt_feature_popup, move |me, _, event, ctx| {
-            me.handle_toolbelt_feature_popup_event(event, ctx);
-        });
-
         ctx.subscribe_to_model(&pane_configuration, Self::handle_pane_state_event);
         ctx.subscribe_to_model(&pane_stack, Self::handle_pane_stack_event);
 
@@ -157,9 +140,7 @@ impl<P: BackingView> PaneHeader<P> {
             mouse_state_handles: Default::default(),
             overflow_menu,
             open_overlay: Default::default(),
-            toolbelt_buttons: Default::default(),
             is_visible_in_pane_group: true,
-            toolbelt_feature_popup,
         }
     }
 
@@ -223,24 +204,6 @@ impl<P: BackingView> PaneHeader<P> {
         }
     }
 
-    fn handle_toolbelt_feature_popup_event(
-        &mut self,
-        event: &NewFeaturePopupEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            NewFeaturePopupEvent::Dismissed => {
-                // Update the setting to mark the popup as dismissed
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx);
-                });
-                ctx.notify();
-            }
-        }
-    }
-
     /// Close the open overlay menu.
     fn close_overlay(&mut self, ctx: &mut ViewContext<Self>) {
         self.open_overlay = OpenOverlay::None;
@@ -295,15 +258,6 @@ impl<P: BackingView> PaneHeader<P> {
                 ctx,
             );
         });
-        ctx.notify();
-    }
-
-    pub fn set_toolbelt_buttons(
-        &mut self,
-        buttons: Vec<ToolbeltButton>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.toolbelt_buttons = buttons;
         ctx.notify();
     }
 
@@ -400,60 +354,6 @@ impl<P: BackingView> PaneHeader<P> {
             "pane_header_overflow_button:{}",
             self.pane_configuration.id()
         )
-    }
-
-    fn render_toolbelt_buttons(&self, app: &AppContext) -> Box<dyn Element> {
-        let mut flex = Flex::row();
-        for toolbelt_button in &self.toolbelt_buttons {
-            flex.add_child(
-                SavePosition::new(
-                    ChildView::new(&toolbelt_button.action_button).finish(),
-                    &toolbelt_button_position_id(
-                        &self.pane_configuration,
-                        toolbelt_button.action_button.id(),
-                    ),
-                )
-                .finish(),
-            );
-        }
-        let container = Container::new(flex.finish()).with_margin_left(2.).finish();
-
-        // Create Stack with the container as the first child
-        let mut stack = Stack::new().with_child(container);
-
-        // Check if tooltip has been dismissed already.
-        // We should only trigger this if we are in a git repository,
-        // but the pane header will only render if we are already in one.
-        let should_show_tooltip = FeatureFlag::CodeLaunchModal.is_enabled()
-            && !*CodeSettings::as_ref(app)
-                .dismissed_code_toolbelt_new_feature_popup
-                .value()
-                // We should not render the tooltip if no code toolbelt buttons are present.
-                && !self.toolbelt_buttons.is_empty();
-
-        if should_show_tooltip {
-            // Position the FeaturePopup tooltip below the header
-            stack.add_positioned_overlay_child(
-                Dismiss::new(ChildView::new(&self.toolbelt_feature_popup).finish())
-                    .on_dismiss(|ctx, _app| {
-                        ctx.dispatch_typed_action(
-                            PaneHeaderAction::<TerminalAction, TerminalAction>::CustomAction(
-                                TerminalAction::DismissCodeToolbeltTooltip,
-                            ),
-                        );
-                        ctx.notify();
-                    })
-                    .finish(),
-                OffsetPositioning::offset_from_parent(
-                    vec2f(0., 4.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::BottomLeft,
-                    ChildAnchor::TopLeft,
-                ),
-            );
-        }
-
-        stack.finish()
     }
 }
 
@@ -643,13 +543,11 @@ impl<P: BackingView> PaneHeader<P> {
                         .add_child(Container::new(right_element).with_margin_left(4.).finish());
                 }
 
-                // Build the left column with toolbelt buttons.
-                let mut left_justified_row = Flex::row()
+                // Keep balanced side columns around the title.
+                let left_justified_row = Flex::row()
                     .with_main_axis_alignment(MainAxisAlignment::Start)
                     .with_cross_axis_alignment(CrossAxisAlignment::Center)
                     .with_main_axis_size(MainAxisSize::Min);
-
-                left_justified_row.add_child(self.render_toolbelt_buttons(app));
 
                 let header_left_inset = self.pane_configuration.as_ref(app).header_left_inset;
                 let left_justified_container = Container::new(left_justified_row.finish())
@@ -939,17 +837,6 @@ fn add_active_pane_indicator_to_stack(stack: &mut Stack, appearance: &Appearance
             ChildAnchor::TopLeft,
         ),
     );
-}
-
-pub fn toolbelt_button_position_id(
-    pane_configuration: &ModelHandle<PaneConfiguration>,
-    button_view_id: EntityId,
-) -> String {
-    format!(
-        "pane_header_toolbelt_button:{}:{}",
-        pane_configuration.id(),
-        button_view_id,
-    )
 }
 
 /// Wraps the given element in a Draggable that implements drag/drop pane behavior to change pane

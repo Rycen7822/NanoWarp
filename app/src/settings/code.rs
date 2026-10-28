@@ -10,13 +10,6 @@ define_settings_group!(CodeSettings, settings: [
         toml_path: "code.editor.use_warp_as_default_editor",
         description: "Whether Warp is used as the default code editor.",
     }
-    // Whether or not the user has manually dismissed the code toolbelt new feature popup.
-    dismissed_code_toolbelt_new_feature_popup: DismissedCodeToolbeltNewFeaturePopup {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: true,
-    },
     // Controls whether the Warp text editor automatically saves file changes as the
     // user types (debounced) and when the editor loses focus. Only applies to the
     // Warp text editor, not the command line.

@@ -86,49 +86,25 @@ pub fn test_private_public_settings_routing_with_flag_enabled() -> Builder {
                     )
                 }),
         )
-        // Step 4: Set a second pair — public CodeAsDefaultEditor, private
-        // DismissedCodeToolbeltNewFeaturePopup.
+        // Step 4: Set a public preference from another settings group.
         .with_step(
-            TestStep::new("Set second pair of settings").with_action(|app, _, _| {
+            TestStep::new("Set code editor preference").with_action(|app, _, _| {
                 CodeSettings::handle(app).update(app, |settings, ctx| {
                     settings
                         .code_as_default_editor
                         .set_value(true, ctx)
                         .expect("should set code editor");
-                    settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx)
-                        .expect("should set dismissed popup");
                 });
             }),
         )
-        // Step 5: Verify second public setting is in TOML, second private is
-        // in JSON.
+        // Step 5: Verify the second public setting is in TOML.
         .with_step(
-            new_step_with_default_assertions("Verify second pair routing")
+            new_step_with_default_assertions("Verify code editor preference routing")
                 .add_named_assertion("CodeAsDefaultEditor in TOML", |_, _| {
                     let toml = read_toml_file();
                     async_assert!(
                         toml.contains("use_warp_as_default_editor"),
                         "TOML should contain CodeAsDefaultEditor"
-                    )
-                })
-                .add_named_assertion(
-                    "DismissedCodeToolbeltNewFeaturePopup not in TOML",
-                    |_, _| {
-                        let toml = read_toml_file();
-                        async_assert!(
-                            !toml.contains("DismissedCodeToolbeltNewFeaturePopup")
-                                && !toml.contains("dismissed_code_toolbelt_new_feature_popup"),
-                            "TOML should not contain the private popup setting"
-                        )
-                    },
-                )
-                .add_named_assertion("DismissedCodeToolbeltNewFeaturePopup in JSON", |_, _| {
-                    let json = read_json_prefs_file();
-                    async_assert!(
-                        json.contains("DismissedCodeToolbeltNewFeaturePopup"),
-                        "JSON prefs should contain the private popup setting"
                     )
                 }),
         )
@@ -143,13 +119,7 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
 
     // Pre-populate private settings in the JSON prefs file (the private
     // backend for integration tests).
-    let user_defaults = HashMap::from([
-        ("IsShellDebugModeEnabled".to_owned(), "true".to_owned()),
-        (
-            "DismissedCodeToolbeltNewFeaturePopup".to_owned(),
-            "true".to_owned(),
-        ),
-    ]);
+    let user_defaults = HashMap::from([("IsShellDebugModeEnabled".to_owned(), "true".to_owned())]);
 
     new_builder()
         .with_user_defaults(user_defaults)
@@ -163,14 +133,6 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                             .is_shell_debug_mode_enabled
                             .value();
                         async_assert_eq!(*val, true, "preloaded debug mode should be true")
-                    })
-                })
-                .add_named_assertion("DismissedCodeToolbeltNewFeaturePopup is true", |app, _| {
-                    app.read(|ctx| {
-                        let val = CodeSettings::as_ref(ctx)
-                            .dismissed_code_toolbelt_new_feature_popup
-                            .value();
-                        async_assert_eq!(*val, true, "preloaded popup dismissed should be true")
                     })
                 }),
         )
@@ -187,7 +149,7 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                 },
             ),
         )
-        // Step 3: Verify TOML has the public setting but not the private ones.
+        // Step 3: Verify TOML has the public setting but not the private one.
         .with_step(
             new_step_with_default_assertions("TOML has public, not private")
                 .add_named_assertion("FontSize in TOML", |_, _| {
@@ -201,23 +163,20 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                     let toml = read_toml_file();
                     async_assert!(
                         !toml.contains("IsShellDebugModeEnabled")
-                            && !toml.contains("is_shell_debug_mode_enabled")
-                            && !toml.contains("DismissedCodeToolbeltNewFeaturePopup")
-                            && !toml.contains("dismissed_code_toolbelt_new_feature_popup"),
+                            && !toml.contains("is_shell_debug_mode_enabled"),
                         "TOML should not contain any private setting keys"
                     )
                 }),
         )
-        // Step 4: Verify JSON prefs still have both private settings.
+        // Step 4: Verify JSON prefs still have the private setting.
         .with_step(
-            new_step_with_default_assertions("JSON has both private settings").add_named_assertion(
-                "Private settings in JSON",
+            new_step_with_default_assertions("JSON has private setting").add_named_assertion(
+                "Private setting in JSON",
                 |_, _| {
                     let json = read_json_prefs_file();
                     async_assert!(
-                        json.contains("IsShellDebugModeEnabled")
-                            && json.contains("DismissedCodeToolbeltNewFeaturePopup"),
-                        "JSON prefs should contain both private settings"
+                        json.contains("IsShellDebugModeEnabled"),
+                        "JSON prefs should contain the private setting"
                     )
                 },
             ),

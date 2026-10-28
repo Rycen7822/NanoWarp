@@ -171,7 +171,7 @@ use crate::settings::import::model::ImportedConfigModel;
 use crate::settings::import::view::{SettingsImportEvent, SettingsImportView};
 use crate::settings::{
     AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
-    BlockVisibilitySettingsChangedEvent, CodeSettings, DebugSettings, DebugSettingsChangedEvent,
+    BlockVisibilitySettingsChangedEvent, DebugSettings, DebugSettingsChangedEvent,
     EmacsBindingsSettings, FontSettings, FontSettingsChangedEvent, InputModeSettings,
     InputModeSettingsChangedEvent, InputSettings, PaneSettings, PaneSettingsChangedEvent,
     SelectionSettings, VimBannerSettings,
@@ -12149,7 +12149,6 @@ impl TypedActionView for TerminalView {
             | StartFileDropTarget
             | StopFileDropTarget
             | RunNativeShellCompletions { .. }
-            | DismissCodeToolbeltTooltip
             | ToggleSessionRecording
             | Osc52AllowBlockedClipboardOperation => Empty,
         }
@@ -12444,19 +12443,6 @@ impl TypedActionView for TerminalView {
                 ctx.dispatch_typed_action(&WorkspaceAction::OpenRepository { path: None });
             }
             OpenFilesPalette { source } => ctx.emit(Event::OpenFilesPalette { source: *source }),
-            DismissCodeToolbeltTooltip => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    if let Err(e) = settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx)
-                    {
-                        log::warn!(
-                            "Failed to mark code toolbelt new feature popup as dismissed: {e}"
-                        );
-                    }
-                });
-                ctx.notify();
-            }
             ToggleSessionRecording => {
                 self.pty_recorder.update(ctx, |recorder, ctx| {
                     recorder.toggle_recording(ctx);

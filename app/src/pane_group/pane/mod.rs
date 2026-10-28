@@ -33,7 +33,6 @@ use crate::settings::PaneSettings;
 use crate::settings_view::SettingsView;
 use crate::terminal::TerminalView;
 use crate::terminal::available_shells::AvailableShell;
-use crate::view_components::action_button::ActionButton;
 
 /// The opaque identifier for an arbitrary pane. Consumers
 /// should not be concerned with the internal IDs that are used;
@@ -647,11 +646,6 @@ impl<P: BackingView> PaneStack<P> {
     }
 }
 
-/// Toolbelt buttons appear in a group together on the left-hand side of the pane header.
-pub struct ToolbeltButton {
-    pub action_button: ViewHandle<ActionButton>,
-}
-
 /// The view that is rendered as the pane's contents.
 pub trait BackingView: View {
     type PaneHeaderOverflowMenuAction: Action + Clone;
@@ -695,11 +689,6 @@ pub trait BackingView: View {
         &self,
         _ctx: &AppContext,
     ) -> Vec<MenuItem<Self::PaneHeaderOverflowMenuAction>> {
-        vec![]
-    }
-
-    /// Action buttons rendered on the left side of the pane header in the returned order in the vec.
-    fn pane_header_toolbelt_buttons(&self, _ctx: &AppContext) -> Vec<ToolbeltButton> {
         vec![]
     }
 

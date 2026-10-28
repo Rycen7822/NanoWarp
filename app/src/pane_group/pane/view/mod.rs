@@ -191,12 +191,6 @@ impl<P: BackingView> PaneView<P> {
             header.set_overflow_menu_items(items, ctx);
         });
 
-        // Refresh toolbelt buttons from the new active view.
-        let buttons = new_child.read(ctx, |view, ctx| view.pane_header_toolbelt_buttons(ctx));
-        self.header.update(ctx, |header, ctx| {
-            header.set_toolbelt_buttons(buttons, ctx);
-        });
-
         // Focus the new active child.
         new_child.update(ctx, |child, ctx| child.focus_contents(ctx));
 
@@ -218,10 +212,6 @@ impl<P: BackingView> PaneView<P> {
                 let items = child.read(ctx, |view, ctx| view.pane_header_overflow_menu_items(ctx));
                 self.header.update(ctx, |header, ctx| {
                     header.set_overflow_menu_items(items, ctx);
-                });
-                let buttons = child.read(ctx, |view, ctx| view.pane_header_toolbelt_buttons(ctx));
-                self.header.update(ctx, |header, ctx| {
-                    header.set_toolbelt_buttons(buttons, ctx);
                 });
                 ctx.notify();
             }

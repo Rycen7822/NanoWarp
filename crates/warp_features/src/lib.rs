@@ -146,9 +146,6 @@ pub enum FeatureFlag {
     /// Enables ignoring input suggestions.
     AllowIgnoringInputSuggestions,
 
-    /// Enables the one-time modal on app startup for existing users for the Code launch.
-    CodeLaunchModal,
-
     /// Enables UI zoom support (scaling the entire UI by a given percentage).
     UIZoom,
 

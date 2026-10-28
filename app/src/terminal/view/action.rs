@@ -222,7 +222,6 @@ pub enum TerminalAction {
     OpenFilesPalette {
         source: PaletteSource,
     },
-    DismissCodeToolbeltTooltip,
     /// Toggle PTY recording for this session.
     ToggleSessionRecording,
     /// Allow the blocked clipboard operation by adjusting the OSC 52 clipboard access setting.
@@ -389,7 +388,6 @@ impl fmt::Debug for TerminalAction {
             ShowWarpifySettings => write!(f, "ShowWarpifySettings"),
             PickRepoToOpen => write!(f, "PickRepoToOpen"),
             OpenFilesPalette { .. } => write!(f, "OpenFilesPalette"),
-            DismissCodeToolbeltTooltip => write!(f, "DismissCodeToolbeltTooltip"),
 
             ToggleSessionRecording => write!(f, "ToggleSessionRecording"),
             Osc52AllowBlockedClipboardOperation => {

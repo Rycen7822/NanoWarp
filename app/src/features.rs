@@ -91,8 +91,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::AllowOpeningFileLinksUsingEditorEnv,
         #[cfg(feature = "allow_ignoring_input_suggestions")]
         FeatureFlag::AllowIgnoringInputSuggestions,
-        #[cfg(feature = "code_launch_modal")]
-        FeatureFlag::CodeLaunchModal,
         #[cfg(feature = "ui_zoom")]
         FeatureFlag::UIZoom,
         #[cfg(feature = "configurable_toolbar")]

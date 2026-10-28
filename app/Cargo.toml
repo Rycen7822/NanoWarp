@@ -362,7 +362,6 @@ default = [
     "allow_opening_file_links_using_editor_env",
     "undo_closed_panes",
     "vim_code_editor",
-    "code_launch_modal",
     "allow_ignoring_input_suggestions",
     "ui_zoom",
     "async_find",
@@ -490,7 +489,6 @@ tabbed_editor_view = []
 vim_code_editor = []
 allow_opening_file_links_using_editor_env = []
 undo_closed_panes = []
-code_launch_modal = []
 ui_zoom = []
 classic_completions = []
 native_shell_completions = []
