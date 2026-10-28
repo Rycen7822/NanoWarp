@@ -103,17 +103,6 @@ impl CodeSource {
         }
     }
 
-    pub fn path(&self) -> Option<PathBuf> {
-        match self {
-            Self::New { .. } => None,
-            Self::CommandPalette { location, .. } => match location {
-                LocalOrRemotePath::Local(path) => Some(path.clone()),
-                LocalOrRemotePath::Remote(_) => None,
-            },
-            Self::Link { path, .. } | Self::Finder { path } => Some(path.clone()),
-        }
-    }
-
     /// Returns the `LocalOrRemotePath` for command palette sources.
     pub fn file_location(&self) -> Option<&LocalOrRemotePath> {
         match self {
@@ -124,9 +113,7 @@ impl CodeSource {
 
     /// Returns the `LocalOrRemotePath` for any source that has a backing file.
     ///
-    /// Unlike `path()` (which only returns local paths) and `file_location()`
-    /// (which only covers `CommandPalette`), this covers every variant that maps to
-    /// a file — local or remote.
+    /// Covers every variant that maps to a file — local or remote.
     pub fn location(&self) -> Option<LocalOrRemotePath> {
         match self {
             Self::New { .. } => None,

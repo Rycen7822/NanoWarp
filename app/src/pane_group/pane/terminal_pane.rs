@@ -435,12 +435,6 @@ fn handle_terminal_view_event(
                 ctx.emit(pane_group::Event::OpenPromptEditor);
             }
             #[cfg(feature = "local_fs")]
-            Event::PreviewCodeInWarp { source } => {
-                ctx.emit(pane_group::Event::PreviewCodeInWarp {
-                    source: source.clone(),
-                });
-            }
-            #[cfg(feature = "local_fs")]
             Event::OpenCodeInWarp { source, layout } => {
                 ctx.emit(pane_group::Event::OpenCodeInWarp {
                     source: source.clone(),

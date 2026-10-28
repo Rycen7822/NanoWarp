@@ -390,10 +390,6 @@ pub enum Event {
         layout: crate::util::file::external_editor::settings::EditorLayout,
         line_col: Option<LineAndColumnArg>,
     },
-    #[cfg(feature = "local_fs")]
-    PreviewCodeInWarp {
-        source: CodeSource,
-    },
     /// Dirty the workspace so the tab indicator shows.
     MaximizePaneToggled,
     /// Refresh the workspace-level active session state.

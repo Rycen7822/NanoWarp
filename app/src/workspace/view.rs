@@ -3004,8 +3004,7 @@ impl Workspace {
                 crate::util::file::open_file_path_in_external_editor(line_col, path.clone(), ctx);
             }
             FileTarget::CodeEditor(layout) => {
-                let open_as_preview = false;
-                self.open_code(code_source, layout, line_col, open_as_preview, ctx);
+                self.open_code(code_source, layout, line_col, ctx);
             }
             FileTarget::ExternalEditor(editor) => {
                 crate::util::file::open_file_path_with_editor(
@@ -4357,7 +4356,6 @@ impl Workspace {
         source: CodeSource,
         layout: EditorLayout,
         line_col: Option<LineAndColumnArg>,
-        preview: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         if let Some(LocalOrRemotePath::Local(path)) = source.location() {
@@ -4391,30 +4389,11 @@ impl Workspace {
             // If the tabbed editor view is enabled and there is an existing CodeView, we should group the newly opened file into this view.
             if let (Some(location), Some((pane_id, code_view))) = (source.location(), code_view) {
                 code_view.update(ctx, |code_view, ctx| {
-                    // Preview (single-click = light open, double-click = promote to
-                    // full tab) is only supported for local files because it relies
-                    // on `open_in_preview_or_promote` which takes a local `PathBuf`.
-                    // Remote files skip preview and open normally.
-                    if preview {
-                        if let Some(path) = location.to_local_path() {
-                            code_view.open_in_preview_or_promote_and_jump(
-                                path.to_path_buf(),
-                                line_col,
-                                ctx,
-                            );
-                        } else {
-                            code_view.open_or_focus_existing(Some(location.clone()), line_col, ctx);
-                        }
-                    } else {
-                        code_view.open_or_focus_existing(Some(location.clone()), line_col, ctx);
-                    }
+                    code_view.open_or_focus_existing(Some(location.clone()), line_col, ctx);
                 });
-                // Only focus the pane for non-preview opens
-                if !preview {
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.focus_pane(pane_id, true, ctx);
-                    });
-                }
+                self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
+                    pane_group.focus_pane(pane_id, true, ctx);
+                });
                 return;
             }
         } else {
@@ -4434,28 +4413,11 @@ impl Workspace {
                             pane_group.code_view_from_pane_id(locator.pane_id, ctx)
                         {
                             code_view.update(ctx, |code_view, ctx| {
-                                // Preview is local-only (see comment above).
-                                if preview {
-                                    if let Some(path) = location.to_local_path() {
-                                        code_view.open_in_preview_or_promote_and_jump(
-                                            path.to_path_buf(),
-                                            line_col,
-                                            ctx,
-                                        );
-                                    } else {
-                                        code_view.open_or_focus_existing(
-                                            Some(location.clone()),
-                                            line_col,
-                                            ctx,
-                                        );
-                                    }
-                                } else {
-                                    code_view.open_or_focus_existing(
-                                        Some(location.clone()),
-                                        line_col,
-                                        ctx,
-                                    );
-                                }
+                                code_view.open_or_focus_existing(
+                                    Some(location.clone()),
+                                    line_col,
+                                    ctx,
+                                );
                             });
                         }
                     });
@@ -4465,11 +4427,7 @@ impl Workspace {
             }
         }
 
-        let pane = if preview {
-            CodePane::new_preview(source, ctx)
-        } else {
-            CodePane::new(source, line_col, ctx)
-        };
+        let pane = CodePane::new(source, line_col, ctx);
 
         match layout {
             EditorLayout::NewTab => {
@@ -4483,7 +4441,7 @@ impl Workspace {
                     pane_group.add_pane_with_direction(
                         Direction::Right,
                         pane,
-                        !preview, /* focus_new_pane */
+                        true, /* focus_new_pane */
                         ctx,
                     );
                 });
@@ -6929,7 +6887,6 @@ impl Workspace {
                         code_source,
                         *EditorSettings::as_ref(ctx).open_file_layout.value(),
                         *line_and_column_arg,
-                        false, // preview
                         ctx,
                     );
                 }
@@ -7079,17 +7036,7 @@ impl Workspace {
                 layout,
                 line_col,
             } => {
-                self.open_code(source.clone(), *layout, *line_col, false, ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::PreviewCodeInWarp { source } => {
-                self.open_code(
-                    source.clone(),
-                    EditorLayout::SplitPane, // preview always uses split pane
-                    None,                    // no line/column for preview
-                    true,                    // preview
-                    ctx,
-                );
+                self.open_code(source.clone(), *layout, *line_col, ctx);
             }
             pane_group::Event::MaximizePaneToggled => {
                 ctx.notify();
@@ -11447,12 +11394,6 @@ impl TypedActionView for Workspace {
                     settings.scroll_to_settings_widget(*page, widget_id, ctx);
                 });
                 ctx.notify();
-            }
-            OpenFileInNewTab {
-                full_path,
-                line_and_column,
-            } => {
-                self.add_tab_for_code_file(full_path.clone(), *line_and_column, ctx);
             }
             OpenRepository { path } => {
                 self.open_repository(path.as_deref(), ctx);

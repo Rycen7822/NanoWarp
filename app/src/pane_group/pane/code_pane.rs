@@ -37,12 +37,6 @@ impl CodePane {
         Self::from_view(view, ctx)
     }
 
-    #[cfg(feature = "local_fs")]
-    pub fn new_preview<V: View>(source: CodeSource, ctx: &mut ViewContext<V>) -> Self {
-        let view = ctx.add_typed_action_view(move |ctx| CodeView::new_preview(source, ctx));
-        Self::from_view(view, ctx)
-    }
-
     pub fn file_view(&self, ctx: &AppContext) -> ViewHandle<CodeView> {
         self.view.as_ref(ctx).child(ctx)
     }

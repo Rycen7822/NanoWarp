@@ -7,8 +7,15 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use super::sqlite::{encode_path, init_db};
 use super::{PersistenceScope, schema};
 
-/// Sets the path in a code restoration fixture using this platform's encoding.
+/// Sets a portable path and matching restorable source in the code restoration fixture.
 pub fn set_path_for_restored_code_pane(path: PathBuf) {
+    let source = crate::code::editor_management::CodeSource::Link {
+        path: path.clone(),
+        range_start: None,
+        range_end: None,
+    };
+    let source_data =
+        serde_json::to_string(&source).expect("Failed to encode restored code source.");
     let path = encode_path(path);
     let mut conn =
         init_db(&PersistenceScope::App).expect("Should be able to establish sqlite connection.");
@@ -17,6 +24,11 @@ pub fn set_path_for_restored_code_pane(path: PathBuf) {
         .set(schema::code_pane_tabs::local_path.eq(&path))
         .execute(&mut conn)
         .expect("Failed to set the restored code file path.");
+
+    diesel::update(schema::code_panes::table)
+        .set(schema::code_panes::source_data.eq(Some(source_data)))
+        .execute(&mut conn)
+        .expect("Failed to set the restored code source.");
 }
 
 /// Updates the 'user' and 'host' columns for stored blocks to the given values.

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use ui_components::lightbox;
-use warp_util::path::LineAndColumnArg;
 use warpui::EntityId;
 use warpui::accessibility::AccessibilityVerbosity;
 use warpui::geometry::rect::RectF;
@@ -364,11 +363,6 @@ pub enum WorkspaceAction {
     },
     /// Focus a specific pane by its locator (pane_group_id and pane_id).
     FocusPane(PaneViewLocator),
-    /// Open a file in a new tab with a code pane
-    OpenFileInNewTab {
-        full_path: PathBuf,
-        line_and_column: Option<LineAndColumnArg>,
-    },
     ScrollToSettingsWidget {
         page: SettingsSection,
         widget_id: &'static str,
@@ -498,7 +492,6 @@ impl WorkspaceAction {
             | AddWindowWithShell { .. }
             | CloseWindow
             | ScrollToSettingsWidget { .. }
-            | OpenFileInNewTab { .. }
             | NewCodeFile
             | OpenRepository { .. }
             | SelectTabConfig(_)

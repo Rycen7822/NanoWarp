@@ -18,7 +18,7 @@ use warpui::elements::{
     OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect,
     SavePosition, Shrinkable, Stack, Text,
 };
-use warpui::fonts::{Properties, Style, Weight};
+use warpui::fonts::{Properties, Weight};
 use warpui::keymap::EditableBinding;
 use warpui::text_layout::ClipConfig;
 use warpui::ui_components::components::UiComponent;
@@ -176,7 +176,6 @@ pub struct TabData {
     location: Option<LocalOrRemotePath>,
     editor_view: ViewHandle<LocalCodeEditorView>,
     mouse_state_handles: TabDataMouseStateHandles,
-    preview: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -248,7 +247,7 @@ impl CodeView {
         let mut view = Self::new_internal(source, ctx);
         for tab_snapshot in tabs {
             let location = tab_snapshot.path.clone().map(LocalOrRemotePath::Local);
-            let tab_data = view.build_tab_data(location, false, ctx);
+            let tab_data = view.build_tab_data(location, ctx);
             view.tab_group.push(tab_data);
         }
         let clamped_index = if view.tab_group.is_empty() {
@@ -257,34 +256,8 @@ impl CodeView {
             active_tab_index.min(view.tab_group.len() - 1)
         };
         view.active_tab_index = clamped_index;
+        view.set_title(false, ctx);
         view
-    }
-
-    /// Create a new "preview" code view for when a user is exploring the file tree.
-    /// There is only one preview active at a time
-    pub fn new_preview(source: CodeSource, ctx: &mut ViewContext<Self>) -> Self {
-        let path = source.path();
-        let mut view = Self::new_internal(source, ctx);
-
-        if let Some(path) = path {
-            view.open_in_preview_or_promote(path, ctx);
-        } else {
-            log::warn!("Preview CodeView constructed with no path");
-        }
-        view
-    }
-
-    /// If a tab is a preview, promote it and emit "FileOpened"
-    fn promote_if_preview(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(tab) = self.tab_group.get_mut(self.active_tab_index)
-            && tab.preview
-        {
-            tab.preview = false;
-            self.set_title_after_content_update(ctx);
-            self.update_tab_bar_state(ctx);
-            self.focus_contents(ctx);
-            ctx.notify();
-        }
     }
 
     /// Construct an editor backed by the global shared buffer for the given location.
@@ -345,7 +318,6 @@ impl CodeView {
     fn build_tab_data(
         &mut self,
         location: Option<LocalOrRemotePath>,
-        preview: bool,
         ctx: &mut ViewContext<Self>,
     ) -> TabData {
         let (code_editor, tab_location) = match location {
@@ -360,7 +332,6 @@ impl CodeView {
 
         ctx.subscribe_to_view(&editor, |me, _, event, ctx| match event {
             CodeEditorEvent::Focused => {
-                me.promote_if_preview(ctx);
                 ctx.emit(CodeViewEvent::Pane(PaneEvent::FocusSelf));
             }
             CodeEditorEvent::ContentChanged { .. } => {
@@ -423,7 +394,6 @@ impl CodeView {
             location: tab_location,
             editor_view: code_editor,
             mouse_state_handles: Default::default(),
-            preview,
         }
     }
 
@@ -463,66 +433,6 @@ impl CodeView {
         }
     }
 
-    fn preview_tab(&mut self) -> Option<(usize, &mut TabData)> {
-        self.tab_group
-            .iter_mut()
-            .enumerate()
-            .find(|(_, tab)| tab.preview)
-    }
-
-    /// Open a local file as a "preview" or if it's already being previewed, promote it to "open", making it
-    /// active and editable.
-    pub fn open_in_preview_or_promote(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        // If the file already is open, set the active tab to the existing tab and return.
-        if let Some(existing_index) = self
-            .tab_group
-            .iter()
-            .position(|tab| tab.location.as_ref() == Some(&LocalOrRemotePath::Local(path.clone())))
-        {
-            self.set_active_tab_index(existing_index, ctx);
-            self.promote_if_preview(ctx);
-            return;
-        }
-
-        // Find the existing preview tab (if any) and replace it with a new GlobalBuffer-backed editor
-        if let Some((preview_index, _)) = self.preview_tab() {
-            let new_tab =
-                self.build_tab_data(Some(LocalOrRemotePath::Local(path.clone())), true, ctx);
-            self.tab_group[preview_index] = new_tab;
-
-            GlobalBufferModel::handle(ctx).update(ctx, |model, ctx| {
-                model.remove_deallocated_buffers(ctx);
-            });
-
-            self.set_active_tab_index(preview_index, ctx);
-            return;
-        }
-
-        // Create a new preview tab
-        let new_tab = self.build_tab_data(Some(LocalOrRemotePath::Local(path.clone())), true, ctx);
-
-        self.tab_group.push(new_tab);
-        let active_tab_index = self.tab_group.len() - 1;
-        self.set_active_tab_index(active_tab_index, ctx);
-
-        ctx.emit(CodeViewEvent::FileOpened {
-            location: LocalOrRemotePath::Local(path),
-            tab_index: self.active_tab_index,
-        });
-    }
-
-    pub fn open_in_preview_or_promote_and_jump(
-        &mut self,
-        path: PathBuf,
-        line_col: Option<LineAndColumnArg>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.open_in_preview_or_promote(path, ctx);
-        if let Some(line_col) = line_col {
-            self.jump_to_line_col_in_active_tab(line_col, ctx);
-        }
-    }
-
     pub fn open_or_focus_existing(
         &mut self,
         location: Option<LocalOrRemotePath>,
@@ -554,14 +464,6 @@ impl CodeView {
         Some(existing_index)
     }
 
-    fn jump_to_line_col_in_active_tab(
-        &self,
-        line_col: LineAndColumnArg,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.jump_to_line_col_in_tab(self.active_tab_index, line_col, ctx);
-    }
-
     fn jump_to_line_col_in_tab(
         &self,
         tab_index: usize,
@@ -583,7 +485,7 @@ impl CodeView {
         line_col: Option<LineAndColumnArg>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let new_tab = self.build_tab_data(location.clone(), false, ctx);
+        let new_tab = self.build_tab_data(location.clone(), ctx);
         self.tab_group.push(new_tab);
         let active_tab_index = self.tab_group.len() - 1;
 
@@ -1220,11 +1122,7 @@ impl CodeView {
             )
         }
 
-        let style = if tab_data.preview {
-            Properties::default().style(Style::Italic)
-        } else {
-            Properties::default().weight(Weight::Semibold)
-        };
+        let style = Properties::default().weight(Weight::Semibold);
         let file_name_text = Text::new_inline(
             file_name.clone(),
             appearance.ui_font_family(),
@@ -1770,11 +1668,7 @@ impl CodeView {
                         active_tab_index = index;
                     }
                 } else {
-                    // Unset preview on merged tabs
-                    let mut new_data = tab_data.clone();
-                    new_data.preview = false;
-
-                    to_extend.push(new_data);
+                    to_extend.push(tab_data.clone());
                     // If the newly added tab is the active tab in the source CodeView, update the active tab index to point to it.
                     if i == source_code_view.active_tab_index() {
                         active_tab_index = self.tab_group.len() + to_extend.len() - 1;

@@ -1057,10 +1057,6 @@ pub enum Event {
         source: CodeSource,
         layout: EditorLayout,
     },
-    #[cfg(feature = "local_fs")]
-    PreviewCodeInWarp {
-        source: CodeSource,
-    },
     CloseRequested,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
