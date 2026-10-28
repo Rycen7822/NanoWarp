@@ -1,14 +1,13 @@
 //! End-to-end editor tests.
 
 use string_offset::CharOffset;
-use vec1::vec1;
 use warpui_core::{App, ModelHandle, ReadModel};
 
 use super::model::test_utils::{TEST_STYLES, init_logging};
 use super::model::{RenderEvent, RenderState};
 use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
-    SelectionOffsets, ShouldAutoscroll,
+    ShouldAutoscroll,
 };
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{IndentBehavior, TextStyles};
@@ -18,7 +17,7 @@ use crate::content::version::BufferVersion;
 fn test_simple_edit() {
     init_logging();
     App::test((), |mut app| async move {
-        let state = TestState::new(&mut app);
+        let state = TestState::new("", &mut app).await;
 
         state
             .edit(
@@ -48,12 +47,9 @@ Paragraph (2 characters, 1 lines, 24.00px tall)
 fn test_edit_many_lines() {
     init_logging();
     App::test((), |mut app| async move {
-        let state = TestState::new(&mut app);
-
         // Initialize with several lines of Markdown at once.
-        state
-            .markdown(
-                r#"a
+        let state = TestState::new(
+            r#"a
 bb
 ccc
 dddd
@@ -79,9 +75,9 @@ wwwwwwwwwwwwwwwwwwwwwww
 xxxxxxxxxxxxxxxxxxxxxxxx
 yyyyyyyyyyyyyyyyyyyyyyyyy
 zzzzzzzzzzzzzzzzzzzzzzzzzz"#,
-                &mut app,
-            )
-            .await;
+            &mut app,
+        )
+        .await;
 
         // Assert that paragraphs are laid out in the correct order.
         state.assert_rendered(
@@ -149,8 +145,7 @@ fn test_enter_before_horizontal_rule() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new(app);
-        state.markdown("First line\n---\nSecond line", app).await;
+        let state = TestState::new("First line\n---\nSecond line", app).await;
         state.set_cursor(11, app); // At the end of "First line".
 
         state
@@ -184,8 +179,7 @@ fn test_enter_after_horizontal_rule() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new(app);
-        state.markdown("First line\n---\nSecond line", app).await;
+        let state = TestState::new("First line\n---\nSecond line", app).await;
         state.set_cursor(13, app); // At the end of "First line".
 
         state
@@ -219,8 +213,7 @@ fn test_edit_at_horizontal_rule_end() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new(app);
-        state.markdown("First line\n---\nSecond line", app).await;
+        let state = TestState::new("First line\n---\nSecond line", app).await;
         state.set_cursor(12, app); // At the end of "First line".
 
         state
@@ -255,10 +248,7 @@ fn test_edit_after_style() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new(app);
-        state
-            .markdown("Some **styled** text\nAnd `more`", app)
-            .await;
+        let state = TestState::new("Some **styled** text\nAnd `more`", app).await;
 
         // Set the cursor to just after the bold text.
         state.set_cursor(12, app);
@@ -294,10 +284,7 @@ fn test_undo_at_block_boundary() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new(app);
-        state
-            .markdown("- [x] A\n- [x] B\n- [ ] C\n- [ ] D", app)
-            .await;
+        let state = TestState::new("- [x] A\n- [x] B\n- [ ] C\n- [ ] D", app).await;
         state.assert_buffer(app, "<cl0:true>A<cl0:true>B<cl0:false>C<cl0:false>D<text>");
 
         // Select from the start of item C up through A and B.
@@ -353,9 +340,13 @@ struct TestState {
 }
 
 impl TestState {
-    fn new(app: &mut App) -> Self {
-        let content = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(content.clone()));
+    async fn new(markdown: &str, app: &mut App) -> Self {
+        let (content, selection) = Buffer::mock_from_markdown(
+            markdown,
+            None,
+            Box::new(|_, _| IndentBehavior::Ignore),
+            app,
+        );
         let render = app.add_model(|ctx| RenderState::new(TEST_STYLES, false, None, ctx));
 
         let (layout_tx, layout_rx) = async_channel::unbounded();
@@ -391,12 +382,26 @@ impl TestState {
             });
         });
 
-        Self {
+        let state = Self {
             content,
             selection,
             render,
             layout_updates: layout_rx,
+        };
+        if !markdown.is_empty() {
+            let delta = state
+                .content
+                .read(app, |buffer, _| buffer.invalidate_layout());
+            state.render.update(app, |render, _| {
+                render.add_pending_edit(delta, BufferVersion::new());
+            });
+            state
+                .layout_updates
+                .recv()
+                .await
+                .expect("Layout channel should not be closed");
         }
+        state
     }
 
     /// Move the cursor to an offset.
@@ -430,25 +435,6 @@ impl TestState {
             .recv()
             .await
             .expect("Layout channel should not be closed");
-    }
-
-    /// Initialize a fresh buffer with the given Markdown fixture.
-    async fn markdown(&self, markdown: &str, app: &mut App) {
-        let text =
-            markdown_parser::parse_markdown(markdown).expect("Markdown fixture should parse");
-        // Replace the initial marker so the fixture starts with its own block style.
-        self.selection.update(app, |selection, _| {
-            selection.set_selection_offsets(vec1![SelectionOffsets {
-                head: CharOffset::from(1),
-                tail: CharOffset::zero(),
-            }]);
-        });
-        self.edit(
-            BufferEditAction::InsertFormatted(text),
-            EditOrigin::SystemEdit,
-            app,
-        )
-        .await
     }
 
     /// Assert that the render state has the expected contents, as produced by describing its

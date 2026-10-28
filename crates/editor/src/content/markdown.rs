@@ -1,25 +1,16 @@
 use std::collections::VecDeque;
-use std::ops::Range;
 
 use markdown_parser::{
     CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
     FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     OrderedFormattedIndentTextInline,
 };
-use string_offset::CharOffset;
-use warpui_core::elements::ListIndentLevel;
-use warpui_core::{AppContext, ModelContext, ModelHandle};
+use warpui_core::AppContext;
 
-use super::buffer::{
-    ActionWithSelectionDelta, Buffer, EditOrigin, EditResult, StyledBufferBlock,
-    StyledBufferBlocks, StyledBufferRun,
-};
-use super::core::{CoreEditorAction, CoreEditorActionType};
-use super::text::{BlockHeaderSize, BlockType, BufferBlockStyle};
-use crate::content::anchor::AnchorSide;
-use crate::content::selection_model::BufferSelectionModel;
+use super::buffer::{StyledBufferBlock, StyledBufferBlocks, StyledBufferRun};
+use super::text::BufferBlockStyle;
 
-/// A Markdown format to serialize a [`Buffer`] into.
+/// A Markdown format to serialize a [`Buffer`](super::buffer::Buffer) into.
 #[derive(Clone, Copy)]
 pub enum MarkdownStyle<'a> {
     /// The internal Markdown format used in Warp Drive. References are normalized, so the Markdown
@@ -154,121 +145,5 @@ impl StyledBufferRun {
             text,
             styles: self.text_styles.clone().into(),
         }
-    }
-}
-
-impl Buffer {
-    pub(super) fn insert_formatted_text_at_selections(
-        &mut self,
-        text: FormattedText,
-        origin: EditOrigin,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let text = text.clone();
-                buffer.edits_for_formatted_text(range, text, origin)
-            },
-            ctx,
-        )
-    }
-
-    pub(super) fn edits_for_formatted_text(
-        &mut self,
-        range: Range<CharOffset>,
-        text: FormattedText,
-        origin: EditOrigin,
-    ) -> ActionWithSelectionDelta {
-        let mut editor_action_set = vec![];
-        // When replacing text in-place for a subset of the document, we may
-        // need to adjust the block style based on the first line of the
-        // replacement. However, for full-buffer replacements (the entire
-        // document body), we rely on the inserted formatted text alone and do
-        // not emit a separate StyleBlock action, to avoid introducing extra
-        // empty headings or markers.
-        let is_full_buffer_replacement =
-            range.start == CharOffset::from(1) && range.end == self.max_charoffset();
-
-        if range.start != CharOffset::zero()
-            && !is_full_buffer_replacement
-            && range.start == self.containing_line_start(range.start)
-            && range.end == self.containing_line_end(range.end) - 1
-        {
-            let new_block_style = text
-                .lines
-                .front()
-                .and_then(formatted_text_line_to_block_style);
-
-            let active_block_type = self.block_type_at_point(range.start);
-
-            if let BlockType::Text(active_block_style) = active_block_type {
-                match new_block_style {
-                    Some(block_style)
-                        if block_style != active_block_style
-                            && active_block_style == BufferBlockStyle::PlainText =>
-                    {
-                        editor_action_set.push(CoreEditorAction::new(
-                            range.clone(),
-                            CoreEditorActionType::StyleBlock(block_style),
-                        ));
-                    }
-                    _ => (),
-                }
-            }
-        }
-
-        editor_action_set.push(CoreEditorAction::new(
-            range.clone(),
-            CoreEditorActionType::Insert {
-                text,
-                source: origin,
-                override_next_style: false,
-                insert_on_selection: true,
-            },
-        ));
-        editor_action_set.push(self.update_buffer_end(range.end));
-        ActionWithSelectionDelta::new_with_offsets(
-            editor_action_set,
-            &mut self.internal_anchors,
-            range.end,
-            range.end,
-            0,
-            AnchorSide::Right,
-        )
-    }
-}
-
-fn formatted_text_line_to_block_style(line: &FormattedTextLine) -> Option<BufferBlockStyle> {
-    match line {
-        FormattedTextLine::Heading(header) => Some(BufferBlockStyle::Header {
-            header_size: header
-                .heading_size
-                .try_into()
-                .unwrap_or(BlockHeaderSize::Header1),
-        }),
-        FormattedTextLine::CodeBlock(text) => Some(BufferBlockStyle::CodeBlock {
-            code_block_type: text.into(),
-        }),
-        FormattedTextLine::UnorderedList(list) => Some(BufferBlockStyle::UnorderedList {
-            indent_level: ListIndentLevel::from_usize(list.indent_level),
-        }),
-        FormattedTextLine::TaskList(list) => Some(BufferBlockStyle::TaskList {
-            indent_level: ListIndentLevel::from_usize(list.indent_level),
-            complete: list.complete,
-        }),
-        FormattedTextLine::OrderedList(list) => Some(BufferBlockStyle::OrderedList {
-            indent_level: ListIndentLevel::from_usize(list.indented_text.indent_level),
-            number: list.number,
-        }),
-        FormattedTextLine::Line(_) => Some(BufferBlockStyle::PlainText),
-        FormattedTextLine::LineBreak => None,
-        FormattedTextLine::HorizontalRule => Some(BufferBlockStyle::PlainText),
-        // TODO(kevin): handle embedded objects in buffer.
-        FormattedTextLine::Embedded(_) => None,
-        // Images are block items, not block styles
-        FormattedTextLine::Image(_) => None,
     }
 }

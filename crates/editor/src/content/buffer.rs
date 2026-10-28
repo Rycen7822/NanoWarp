@@ -224,7 +224,6 @@ pub enum BufferEditAction<'a> {
         force_newline: bool,
         style: TextStyles,
     },
-    InsertFormatted(FormattedText),
     TogglePrefixForLines {
         lines: Vec1<usize>,
         prefix: &'a str,
@@ -234,7 +233,6 @@ pub enum BufferEditAction<'a> {
     /// Delete a character range. Unlike `Backspace`, this will not remove block styles if deleting
     /// at the start of a block. Instead, it's used for word- or line-based deletion.
     Delete(Vec1<Range<CharOffset>>),
-    StyleBlock(BufferBlockStyle),
     Undo,
     Redo,
     Indent {
@@ -288,10 +286,8 @@ impl BufferEditAction<'_> {
             BufferEditAction::Insert { .. }
             | BufferEditAction::InsertForEachSelection { .. }
             | BufferEditAction::Enter { .. }
-            | BufferEditAction::InsertFormatted(_)
             | BufferEditAction::Backspace
             | BufferEditAction::Delete(_)
-            | BufferEditAction::StyleBlock(_)
             | BufferEditAction::Undo
             | BufferEditAction::Redo
             | BufferEditAction::Indent { .. }
@@ -1458,15 +1454,6 @@ impl Buffer {
                     self.decorate_lines_with_prefix(lines, prefix, selection_model.clone(), ctx)
                 }
             }
-            BufferEditAction::InsertFormatted(text) => self.insert_formatted_text_at_selections(
-                text,
-                EditOrigin::UserInitiated,
-                selection_model.clone(),
-                ctx,
-            ),
-            BufferEditAction::StyleBlock(style) => {
-                self.block_style_internal(style, selection_model.clone(), ctx)
-            }
             BufferEditAction::Indent {
                 num_unit: unit,
                 shift,
@@ -2332,33 +2319,6 @@ impl Buffer {
 
         editor_action_set.extend(style_reapply_actions);
         editor_action_set
-    }
-
-    /// Decorate all selections in the buffer with the provided block style.
-    pub(super) fn block_style_internal(
-        &mut self,
-        style: BufferBlockStyle,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let editor_actions =
-                    buffer.block_style_editor_actions(range.clone(), style.clone());
-
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_actions,
-                    &mut buffer.internal_anchors,
-                    selection_model.selection_head(selection),
-                    selection_model.selection_tail(selection),
-                    0,
-                    AnchorSide::Right,
-                )
-            },
-            ctx,
-        )
     }
 
     /// Remove the provided `text_style` from the given range in the buffer.

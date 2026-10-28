@@ -2,11 +2,9 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::{
-    CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
-    FormattedTextFragment, FormattedTextHeader, FormattedTextLine, FormattedTextStyles,
-    parse_markdown,
+    CodeBlockText, FormattedIndentTextInline, FormattedText, FormattedTextFragment,
+    FormattedTextLine, FormattedTextStyles, parse_markdown,
 };
 use pathfinder_color::ColorU;
 use rand::SeedableRng;
@@ -20,10 +18,12 @@ use warpui_core::text::point::Point;
 use warpui_core::{App, AppContext, ModelContext, ModelHandle};
 
 use super::{BufferEvent, EditResult, ToBufferCharOffset};
+use crate::content::anchor::AnchorSide;
 use crate::content::buffer::{
-    AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin,
-    EmbeddedItemConversion, SelectionOffsets, StyledBlockBoundaryBehavior, StyledBufferBlock,
-    StyledBufferRun, StyledTextBlock, TabIndentation, ToBufferByteOffset, ToBufferPoint,
+    ActionWithSelectionDelta, AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction,
+    EditOrigin, EmbeddedItemConversion, SelectionOffsets, StyledBlockBoundaryBehavior,
+    StyledBufferBlock, StyledBufferRun, StyledTextBlock, TabIndentation, ToBufferByteOffset,
+    ToBufferPoint,
 };
 use crate::content::core::{CoreEditorAction, CoreEditorActionType};
 use crate::content::cursor::BufferSumTree;
@@ -142,7 +142,26 @@ impl Buffer {
         selection_model: ModelHandle<BufferSelectionModel>,
         ctx: &mut ModelContext<Self>,
     ) -> EditResult {
-        let edit = self.edits_for_formatted_text(range, text, origin);
+        let actions = vec![
+            CoreEditorAction::new(
+                range.clone(),
+                CoreEditorActionType::Insert {
+                    text,
+                    source: origin,
+                    override_next_style: false,
+                    insert_on_selection: true,
+                },
+            ),
+            self.update_buffer_end(range.end),
+        ];
+        let edit = ActionWithSelectionDelta::new_with_offsets(
+            actions,
+            &mut self.internal_anchors,
+            range.end,
+            range.end,
+            0,
+            AnchorSide::Right,
+        );
         self.modify_first_selection(selection_model, edit, ctx)
     }
 
@@ -3798,61 +3817,11 @@ fn test_insert_formatted_text() {
                 ctx,
             );
 
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![FormattedTextFragment::bold("test text")])]);
-            buffer.apply_formatted_edit_fixture(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before<b_s>test text<b_e><code:Shell>Block<text>After"
-            );
-
-            let formatted_text =
-                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 1\nblock 2".to_string() }), FormattedTextLine::Line(vec![FormattedTextFragment::plain_text(" other ")]), FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 3".to_string() })]);
-            buffer.apply_formatted_edit_fixture(CharOffset::from(1)..CharOffset::from(16), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>block 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
-            );
-
-            // Inserting block style into an already active block with the same style should be the same as inserting plain text.
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block content".to_string() })]);
-            buffer.apply_formatted_edit_fixture(CharOffset::from(1)..CharOffset::from(1), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>block contentblock 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
-            );
-
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("abc")] }), FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("def")] })]);
-            buffer.apply_formatted_edit_fixture(CharOffset::from(3)..CharOffset::from(3), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>blabc<ul0>def<code:Shell>ock contentblock 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_insert_code_block_with_language() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let formatted_text =
-                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText {
-                    lang: "jsx".to_string(),
-                    code: "Some code".to_string(),
-                })]);
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![
+                FormattedTextFragment::bold("test text"),
+            ])]);
             buffer.apply_formatted_edit_fixture(
-                CharOffset::from(8)..CharOffset::from(8),
+                CharOffset::from(7)..CharOffset::from(7),
                 formatted_text,
                 EditOrigin::UserInitiated,
                 selection.clone(),
@@ -3860,7 +3829,7 @@ fn test_insert_code_block_with_language() {
             );
             assert_eq!(
                 buffer.content.debug(),
-                "<text>Before<code:JavaScript>Some code<text>"
+                "<text>Before<b_s>test text<b_e><code:Shell>Block<text>After"
             );
         });
     });
@@ -3913,124 +3882,6 @@ fn test_insert_formatted_text_empty_buffer() {
                         content_length: CharOffset::from(6)
                     }),
                 ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_insert_code_block_in_text_lines() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nLine\nAfter\nSecond\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let formatted_text =
-                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText {
-                    lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(),
-                    code: "block".to_string(),
-                })]);
-            // Inserting code block in between plain text line should split it in half.
-            let delta = buffer
-                .apply_formatted_edit_fixture(
-                    CharOffset::from(3)..CharOffset::from(3),
-                    formatted_text.clone(),
-                    EditOrigin::UserInitiated,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Beblockfore\\nLine\\nAfter\\nSecond\\n"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "Beblockfore\n".into(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    },],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(12)
-                }),]
-            );
-
-            // Inserting code block before a new plain text line should replace the starting block marker.
-            let delta = buffer
-                .apply_formatted_edit_fixture(
-                    CharOffset::from(13)..CharOffset::from(17),
-                    formatted_text.clone(),
-                    EditOrigin::UserInitiated,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Beblockfore<code:Shell>block<text>After\\nSecond\\n"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(13)..CharOffset::from(18));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "block\n".into(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    content_length: CharOffset::from(6)
-                }),]
-            );
-
-            // Inserting code block at the end of the buffer should add a trailing newline.
-            let delta = buffer
-                .apply_formatted_edit_fixture(
-                    CharOffset::from(32)..CharOffset::from(32),
-                    formatted_text,
-                    EditOrigin::UserInitiated,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Beblockfore<code:Shell>block<text>After\\nSecond<code:Shell>block<text>"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(32)..CharOffset::from(32));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "block\n".into(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    content_length: CharOffset::from(6)
-                }),]
             );
         });
     });
@@ -5271,53 +5122,6 @@ fn test_edit_in_header() {
             assert_eq!(
                 buffer.content.debug(),
                 "<text>test<header1>li<text>morene\\nsecond"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_insert_formatted_text_header() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<code:Shell>line<text>");
-
-            let formatted_text = parse_markdown("## New Header\n### Subheader").expect("Should parse");
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(11)..CharOffset::from(11),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<header2>New Header<header3>Subheader<text>"
-            );
-
-            buffer.apply_formatted_edit_fixture(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>lNew Header<header3>Subheader<code:Shell>ine<header2>New Header<header3>Subheader<text>"
             );
         });
     });
@@ -6953,126 +6757,6 @@ fn test_insert_link_at_end_of_line() {
     });
 }
 
-#[test]
-fn test_copy_paste_behavior() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\n");
-
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::Heading(FormattedTextHeader { heading_size: 2, text: vec![FormattedTextFragment::plain_text("New Header")] })]);
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(11)..CharOffset::from(11),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            // Scenario 1: When inserting a non-plain text block at an empty newline, we should replace that newline
-            // with the pasted block style.
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test\\nline<header2>New Header<text>"
-            );
-
-            // Scenario 2: When inserting a non-plain text block in the middle of a line, we should keep the existing styling
-            // instead of replacing it.
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(10)..CharOffset::from(10),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test\\nlineNew Header<header2>New Header<text>"
-            );
-
-            // Scenario 3: When inserting a non-plain text block to replace an entire line, we should replace that newline
-            // with the pasted block style.
-            buffer.apply_formatted_edit_fixture(CharOffset::from(6)..CharOffset::from(20), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header2>New Header<header2>New Header<text>"
-            );
-
-            let formatted_text =
-                FormattedText::new(vec![FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("list")] }), FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 1, text: vec![FormattedTextFragment::plain_text("sublist")] })]);
-
-            // Scenario 4: When inserting a multi-line non-plain text block in the middle of a line, we should keep the original
-            // line's format for the first line. For the second line onwards, we will keep the pasted block style.
-            buffer.apply_formatted_edit_fixture(CharOffset::from(5)..CharOffset::from(5), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>testlist<ul1>sublist<header2>New Header<header2>New Header<text>"
-            );
-
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("start")])]);
-
-            // Scenario 5: When inserting a plain text block to replace a non-plain text line, we should keep the original
-            // line's block style.
-            buffer.apply_formatted_edit_fixture(CharOffset::from(10)..CharOffset::from(17), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>testlist<ul1>start<header2>New Header<header2>New Header<text>"
-            );
-
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "first\nsecond".to_string() })]);
-
-            // Scenario 6: When inserting a multi-line code block in a non-plain text block, we should keep the original
-            // line's format and treat it as inserting a multi-line plain text.
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(15)..CharOffset::from(15),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>testlist<ul1>startfirst<ul1>second<header2>New Header<header2>New Header<text>"
-            );
-
-            // Scenario 7: When inserting a multi-line code block to replace a plain text line, we should keep the code block format.
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(1)..CharOffset::from(9),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>first\\nsecond<ul1>startfirst<ul1>second<header2>New Header<header2>New Header<text>"
-            );
-
-            // Scenario 8: When inserting a multi-line code block into a multi-line code block, we should keep it as one code block.
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(7)..CharOffset::from(7),
-                formatted_text.clone(),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>first\\nfirst\\nsecondsecond<ul1>startfirst<ul1>second<header2>New Header<header2>New Header<text>"
-            );
-        });
-    });
-}
-
 // Regression test for CLD-771.
 #[test]
 fn test_invalidate_content() {
@@ -7171,50 +6855,15 @@ fn test_multi_linebreak_paste() {
                 ctx,
             );
 
-            buffer.apply_formatted_edit_fixture(
+            buffer.edit_internal_first_selection(
                 CharOffset::from(3)..CharOffset::from(3),
-                FormattedText::new([FormattedTextLine::LineBreak, FormattedTextLine::LineBreak]),
-                EditOrigin::UserInitiated,
+                "\n\n",
+                TextStyles::default(),
                 selection.clone(),
                 ctx,
             );
 
             assert_eq!(buffer.content.debug(), "<text>te\\n\\nxt");
-        });
-    });
-}
-
-#[test]
-fn test_mixed_linebreak_paste() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "te\n\nxt",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(4)..CharOffset::from(4),
-                FormattedText::new([
-                    FormattedTextLine::UnorderedList(FormattedIndentTextInline {
-                        indent_level: 0,
-                        text: vec![FormattedTextFragment::plain_text("abc")],
-                    }),
-                    FormattedTextLine::LineBreak,
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("def")]),
-                ]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>te<ul0>abc<text>\\ndef\\nxt");
         });
     });
 }
@@ -7424,42 +7073,6 @@ fn test_selection_bias_with_mouse_movement() {
             assert_eq!(
                 selection.as_ref(ctx).first_selection_head(),
                 CharOffset::from(10)
-            );
-        });
-    });
-}
-
-#[test]
-fn test_insert_tasklist_on_plain_text() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\n\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let formatted_text =
-                FormattedText::new(vec![FormattedTextLine::TaskList(FormattedTaskList {
-                    complete: false,
-                    indent_level: 0,
-                    text: vec![FormattedTextFragment::plain_text("test text")],
-                })]);
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(9)..CharOffset::from(9),
-                formatted_text,
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before\\n<cl0:false>test text<text>"
             );
         });
     });
@@ -10231,45 +9844,6 @@ fn test_indent_with_multiple_units() {
             assert_eq!(
                 buffer.content.debug(),
                 "<text>        text\\n        line\\n            test"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiselect_insert_formatted_text() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "First\nSecond\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![
-                FormattedTextFragment::bold("test text"),
-            ])]);
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1, 7..7]);
-            });
-            buffer.insert_formatted_text_at_selections(
-                formatted_text,
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>test text<b_e>First\\n<b_s>test text<b_e>Second\\nAfter"
-            );
-            assert_eq!(
-                selection.as_ref(ctx).selections_to_offset_ranges(),
-                vec1![10.into()..10.into(), 25.into()..25.into()]
             );
         });
     });
