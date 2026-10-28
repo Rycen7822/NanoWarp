@@ -11,7 +11,6 @@ use warpui_core::{App, ModelHandle};
 const EDIT_SAMPLE_SIZE: usize = 10;
 const MAX_EDIT_REPLACEMENT_LENGTH: usize = 20;
 const MAX_INSERTED_TEXT_LENGTH: usize = 10;
-const MAX_STYLE_TEXT_LENGTH: usize = 20;
 
 fn mock_buffer(
     text: String,
@@ -64,27 +63,6 @@ fn edit_text(text: String) {
     });
 }
 
-fn style_text(text: String) {
-    // Disabled: random_style requires ModelHandle and ModelContext which are complex for benchmarks
-    // let mut seed = StdRng::seed_from_u64(50);
-    // buffer.random_style(EDIT_SAMPLE_SIZE, &mut seed, MAX_STYLE_TEXT_LENGTH, selection_model, ctx);
-    App::test((), |mut app| async move {
-        let (buffer, selection_model) = mock_buffer(text, &mut app);
-        buffer.read(&app, |buffer, _| buffer.text().into_string());
-
-        let mut seed = StdRng::seed_from_u64(50);
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.random_style(
-                EDIT_SAMPLE_SIZE,
-                &mut seed,
-                MAX_STYLE_TEXT_LENGTH,
-                selection_model,
-                ctx,
-            );
-        });
-    });
-}
-
 fn criterion_benchmark(c: &mut Criterion) {
     let text = fs::read_to_string("test_data/test_rust_file.rs").expect("Should work");
     c.bench_function("initiate_buffer", |b| {
@@ -92,7 +70,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
     c.bench_function("read_text", |b| b.iter(|| read_text(text.clone())));
     c.bench_function("edit_text", |b| b.iter(|| edit_text(text.clone())));
-    c.bench_function("style_text", |b| b.iter(|| style_text(text.clone())));
 }
 
 criterion_group!(

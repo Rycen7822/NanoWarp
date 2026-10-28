@@ -235,8 +235,6 @@ pub enum BufferEditAction<'a> {
     /// Delete a character range. Unlike `Backspace`, this will not remove block styles if deleting
     /// at the start of a block. Instead, it's used for word- or line-based deletion.
     Delete(Vec1<Range<CharOffset>>),
-    Style(TextStyles),
-    Unstyle(TextStyles),
     StyleBlock(BufferBlockStyle),
     Undo,
     Redo,
@@ -287,9 +285,7 @@ impl BufferEditAction<'_> {
         }
 
         match &self {
-            BufferEditAction::Style(_)
-            | BufferEditAction::Unstyle(_)
-            | BufferEditAction::InsertAtCharOffsetRanges { .. } => ShouldAutoscroll::No,
+            BufferEditAction::InsertAtCharOffsetRanges { .. } => ShouldAutoscroll::No,
             BufferEditAction::Insert { .. }
             | BufferEditAction::InsertForEachSelection { .. }
             | BufferEditAction::Enter { .. }
@@ -575,28 +571,6 @@ impl Buffer {
                 selection_model.clone(),
                 ctx,
             );
-        }
-    }
-
-    pub fn random_style<R: Rng>(
-        &mut self,
-        num: usize,
-        seed: &mut R,
-        decoration_max_length: usize,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        for _ in 0..num {
-            let text_len = self.len().as_usize();
-            let position = seed.gen_range(0..text_len);
-            let length = seed.gen_range(0..decoration_max_length.max(text_len - position));
-            selection_model.update(ctx, |selection_model, _ctx| {
-                selection_model.set_selection_offsets(vec1![SelectionOffsets {
-                    tail: CharOffset::from(position),
-                    head: CharOffset::from(position + length),
-                }])
-            });
-            self.style_internal(TextStyles::default().bold(), selection_model.clone(), ctx);
         }
     }
 
@@ -1510,12 +1484,6 @@ impl Buffer {
                 selection_model.clone(),
                 ctx,
             ),
-            BufferEditAction::Style(style) => {
-                self.style_internal(style, selection_model.clone(), ctx)
-            }
-            BufferEditAction::Unstyle(style) => {
-                self.unstyle_internal(style, selection_model.clone(), ctx)
-            }
             BufferEditAction::StyleBlock(style) => {
                 self.block_style_internal(style, selection_model.clone(), ctx)
             }
@@ -2474,103 +2442,6 @@ impl Buffer {
         )
     }
 
-    /// Decorate the given range in the buffer with the provided `text_style`.
-    /// This is a no-op if the given range is already decorated with `text_style`.
-    fn style_internal(
-        &mut self,
-        text_style: TextStyles,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let mut editor_action_set = Vec::new();
-
-                let mut handled_weight = false;
-                for style in all::<BufferTextStyle>() {
-                    let is_weight = style.has_custom_weight();
-                    if is_weight && handled_weight {
-                        continue;
-                    }
-                    if text_style.exact_match_style(&style) {
-                        handled_weight |= is_weight;
-                        // We only want to style the sub-ranges that has not yet been styled with the target text style.
-                        let cursor = buffer.content.cursor::<CharOffset, BufferSummary>();
-                        let mut buffer_cursor = BufferCursor::new(cursor);
-                        buffer_cursor.seek_to_offset_after_markers(range.start);
-                        let mut style_range_start = None;
-
-                        while buffer_cursor.item().is_some() {
-                            let summary = buffer_cursor.start();
-                            let active_style = summary.style_summary().text_styles();
-                            let offset = buffer_cursor.offset();
-
-                            let active_block_type = buffer.block_type_at_point(offset);
-                            let allows_formatting = match active_block_type {
-                                BlockType::Item(_) => false,
-                                BlockType::Text(block_style) => block_style.allows_formatting(),
-                            };
-
-                            // If the active block does not permit text formatting, push the active styling range and
-                            // jump to the end of the block.
-                            if !allows_formatting {
-                                if let Some(start) = style_range_start.take() {
-                                    let offset_before_marker =
-                                        offset.saturating_sub(&CharOffset::from(1));
-                                    if start < offset_before_marker {
-                                        editor_action_set.push(CoreEditorAction::new(
-                                            start..offset_before_marker,
-                                            CoreEditorActionType::StyleText(style),
-                                        ))
-                                    }
-                                }
-
-                                let block_end = buffer.containing_block_end(offset);
-                                buffer_cursor.seek_to_offset_after_markers(block_end);
-                                continue;
-                            }
-
-                            if offset >= range.end {
-                                break;
-                            }
-
-                            if active_style.exact_match_style(&style) {
-                                if let Some(start) = style_range_start.take() {
-                                    editor_action_set.push(CoreEditorAction::new(
-                                        start..offset,
-                                        CoreEditorActionType::StyleText(style),
-                                    ))
-                                }
-                            } else if style_range_start.is_none() {
-                                style_range_start = Some(offset);
-                            }
-
-                            buffer_cursor.seek_to_offset_after_markers(offset + 1);
-                        }
-
-                        if let Some(start) = style_range_start.take() {
-                            editor_action_set.push(CoreEditorAction::new(
-                                start..range.end,
-                                CoreEditorActionType::StyleText(style),
-                            ))
-                        }
-                    }
-                }
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_action_set,
-                    &mut buffer.internal_anchors,
-                    selection_model.selection_head(selection),
-                    selection_model.selection_tail(selection),
-                    0,
-                    AnchorSide::Right,
-                )
-            },
-            ctx,
-        )
-    }
-
     /// Remove the provided `text_style` from the given range in the buffer.
     /// This is a no-op if the given range is not decorated with `text_style`.
     fn unstyle_internal_editor_actions(
@@ -2627,31 +2498,6 @@ impl Buffer {
         }
 
         editor_action_set
-    }
-
-    fn unstyle_internal(
-        &mut self,
-        text_style: TextStyles,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let range = selection_model.selection_to_offset_range(selection);
-                let editor_action_set = buffer.unstyle_internal_editor_actions(range, text_style);
-
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_action_set,
-                    &mut buffer.internal_anchors,
-                    selection_model.selection_head(selection),
-                    selection_model.selection_tail(selection),
-                    0,
-                    AnchorSide::Right,
-                )
-            },
-            ctx,
-        )
     }
 
     /// Indents all lines in the given range. This will follow each block's [`IndentBehavior`].
