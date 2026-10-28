@@ -1,215 +1,93 @@
-# Contributing to Warp
+# Contributing to NanoWarp
 
-Thanks for helping improve Warp! This guide explains how to open issues, propose changes, and get your work reviewed.
+Keep contributions focused on NanoWarp's local terminal scope. Search [existing issues](https://github.com/Rycen7822/NanoWarp/issues) before proposing work, and discuss substantial behavior or architecture changes before implementing them.
 
-> [!TIP]
-> **Chat with us in Slack.** Connect with other contributors and the Warp team in the [`#oss-contributors`](https://warpcommunity.slack.com/archives/C0B0LM8N4DB) channel — a good place for ad-hoc questions, design discussion, and pairing with maintainers as you work through an issue or PR. New here? [Join the Warp Slack community](https://go.warp.dev/join-preview) first, then hop into `#oss-contributors`.
+## Issues and Pull Requests
 
-## TL;DR
+Bug reports should include the NanoWarp version, OS, reproduction steps, expected and actual behavior, and relevant diagnostics with secrets removed. Feature requests should explain the user problem and constraints.
 
-- Bug fixes are welcome once the report is actionable from the provided details or maintainer triage.
-- Feature requests must be marked `ready-to-spec` or `ready-to-implement` before PRs are accepted.
-- Issues marked `warp:reserved-internal` are being handled by the Warp team and are not open for contributor PRs.
-- Specs are the place where technical and design discussion on larger issues happen.
-- Oz automatically triages incoming issues and reviews open PRs.
-- Implementation PRs must include proof of manual testing.
+Branch from `main` and keep each PR to one logical change. Use the [PR template](.github/pull_request_template.md): explain the problem and resulting behavior, link an issue when applicable, and record actual validation and anything unverified. Screenshots or a short recording are useful when they demonstrate a visible change.
 
-## How Contributing to Warp Works
-
-Warp's contribution model is shaped by [Oz](https://oz.warp.dev), an agent that automates parts of triage, spec writing, implementation, and review. Compared with a typical open-source repository, a few things work differently here:
-
-- **Issues are the starting point for everything.** Discussion, scoping, and design happen on the issue before any PR is opened.
-- **Feature requests differ from bug fixes:**
-  - Features are gated by readiness labels — `ready-to-spec`, then `ready-to-implement` once the design is settled — that signal when contributors can pick up the work. Discussion alone is not approval to begin work.
-  - Feature work needs a written spec first: feature requests go through a spec PR (a *product spec* + *tech spec* committed under [`specs/`](specs/)) before any code is written.
-  - Bug fixes can go straight to a code PR once the report is reproducible or otherwise actionable; they do not require spec PRs unless the scope or design is unclear.
-- **Review is largely automated.** When you open a PR, Oz is auto-assigned and produces an initial review. Once Oz approves, it automatically requests a follow-up review from a Warp team subject-matter expert — you do not need to assign human reviewers yourself.
-
-### Readiness labels
-
-The Warp team applies one of the following labels when an issue is ready for contribution:
-
-- **`ready-to-spec`** — The problem is understood but the design is open. Open a spec PR with a *product spec* (`product.md`) and a *tech spec* (`tech.md`) under [`specs/`](specs/) — see [Opening a Spec PR](#opening-a-spec-pr) for what goes in each. This label is **reserved for feature requests**.
-- **`ready-to-implement`** — The issue is ready for a code PR. For bugs, this means the report is sufficiently reproducible or actionable and the likely fix does not need a spec, mocks, or deeper investigation.
-- **`needs-mocks`** — Design mocks are required before implementation can begin. Wait for the Warp team to land them.
-- **`warp:reserved-internal`** — The Warp team is reserving this work for internal implementation or alignment. Do not open a spec or code PR for issues with this label; Oz will reject contributor PRs linked to them with an explanatory comment.
-
-Anyone can pick up a ready issue — readiness labels are not assignments, and the best implementation wins through normal review. If an issue has been sitting un-triaged or you'd like readiness re-evaluated, mention **@oss-maintainers** in a comment to flag it for the team.
-
-## Contribution Flow
-
-Steps owned by you (the contributor) are shown in yellow; steps owned by the Warp team or Oz are shown in blue.
-
-```mermaid
-flowchart TD
-    A[File an issue] --> B{Warp team triages}
-    B -- ready-to-spec<br/>(feature requests) --> C[Open spec PR<br/>product.md + tech.md]
-    B -- needs-mocks --> D[Design mocks produced]
-    D --> E[Open code PR]
-    C -- specs approved --> E
-    B -- ready-to-implement<br/>(actionable bugs or settled designs) --> E
-    E --> F[Oz review → SME review → CI → merge]
-
-    classDef contributor fill:#fef3c7,stroke:#b45309,color:#78350f;
-    classDef warpTeam fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a;
-    class A,C,E contributor;
-    class B,D,F warpTeam;
-```
-
-## Filing a Good Issue
-
-Search [existing issues](https://github.com/warpdotdev/warp/issues) before filing to avoid duplicates. Use the issue templates when filing.
-
-If you're already running Warp, the fastest way to file is the `/feedback` command — it opens a public GitHub issue with relevant context (logs, environment details) automatically attached.
-
-### Bug reports
-
-A good bug report includes:
-
-- A clear title and a one-paragraph summary of the problem.
-- Steps to reproduce (with a minimal example where possible).
-- Expected vs. actual behavior.
-- Warp version and OS (see `Settings → About`).
-- Logs, screenshots, or screen recordings when relevant.
-
-Once an issue is triaged as an actionable bug (by Oz's triage agent or a maintainer), it may be labeled **`ready-to-implement`** so you can pick it up and open a code PR.
-
-### Feature requests
-
-A good feature request describes the user-facing problem before any proposed implementation. Include:
-
-- The user need or pain point, and who experiences it.
-- The current behavior and why it falls short.
-- A sketch of the desired behavior or workflow (a short example or mock is helpful but not required).
-- Any relevant constraints (compatibility, related features, prior art, etc.).
-
-Feature requests are the path that goes through the spec flow: a maintainer applies **`ready-to-spec`** when the problem is understood and the design is open for contributors. From there, the next step is a spec PR — not a code PR.
-
-Automated triage may add informational labels (`area:*`, `repro:*`, etc.). Those do not affect readiness.
-
-## Opening a Spec PR
-
-Issues labeled `ready-to-spec` need a spec before code can begin. A spec consists of two short documents committed under [`specs/GH<issue-number>/`](specs/):
-
-- **`product.md`** (the *product spec*) — Defines the desired behavior from the consumer's perspective (the user, an API caller, a CLI user, etc.) and stays out of implementation detail. The core is a numbered list of **testable behavior invariants** covering the happy path, user-visible states, inputs and responses, and edge cases (empty / error / loading, cancellation, offline, permission denied, races, accessibility). Optional sections: problem statement, goals / non-goals, Figma link, open questions.
-- **`tech.md`** (the *tech spec*) — The implementation plan, grounded in this codebase. Required sections: **Context** (the current system and relevant files with line references), **Proposed changes** (modules touched, new types / APIs / state, data flow, tradeoffs), and **Testing and validation** (how each invariant from the product spec will be verified). Optional: end-to-end flow, Mermaid diagrams, risks, parallelization, follow-ups.
-
-The spec-writing skills are sourced from [`warpdotdev/common-skills`](https://github.com/warpdotdev/common-skills), not authored directly in this repository. This checkout pins the expected versions in [`skills-lock.json`](skills-lock.json), and the bootstrap scripts can restore them for you:
-
-- `./script/bootstrap` installs or updates common skills by default and prompts for a project-local or global install target when needed.
-- `./script/bootstrap --install-common-skills-in-repo` installs the pinned common skills into this checkout's `.agents/skills/`.
-- `./script/bootstrap --install-common-skills-globally` installs the pinned common skills into `~/.agents/skills/`.
-- `WARP_COMMON_SKILLS_INSTALL_TARGET=project ./script/bootstrap` and `WARP_COMMON_SKILLS_INSTALL_TARGET=global ./script/bootstrap` select the same targets non-interactively.
-- `./script/bootstrap --skip-common-skills` leaves common skills untouched if you are managing them separately.
-
-To open a spec PR:
-
-1. Add `specs/GH<issue-number>/product.md` and `specs/GH<issue-number>/tech.md`. See [`specs/GH408/`](specs/GH408/), [`specs/GH1063/`](specs/GH1063/), and [`specs/GH1066/`](specs/GH1066/) for examples of well-structured specs, and browse the rest of [`specs/`](specs/) for more. After common skills are installed, the `/write-product-spec` and `/write-tech-spec` skills are available to scaffold these for you.
-2. Use the PR as the home for product and technical discussion.
-3. Once the specs are approved, implementation generally continues on the same PR. In rarer cases — for example, if a large spec is merged on its own so the implementation can be broken up — it can move to a linked follow-up PR.
-
-## Opening a Code PR
-
-For issues labeled `ready-to-implement`:
-
-1. Branch from `master`.
-2. Implement the change and add tests (see [Testing](#testing)).
-3. Run `./script/presubmit` and fix any failures before pushing.
-4. Open a PR using the [pull request template](.github/pull_request_template.md) and add a changelog entry (`CHANGELOG-NEW-FEATURE`, `CHANGELOG-IMPROVEMENT`, or `CHANGELOG-BUG-FIX`); omit only for docs-only or refactoring-only changes.
-5. Keep the PR focused on a single logical change and merge `master` in before the PR enters review.
-
-You **do not need to manually request reviewers**. Oz is auto-assigned to PRs that target a ready issue and produces an initial review. After Oz approves, it automatically requests a follow-up review from the appropriate Warp team subject-matter expert.
-
-After you push changes that address Oz's feedback, comment `/warp-agent-review` on the PR to request a re-review — you can do this up to **three times** per PR. If something looks stuck or you need more reviews than that, mention **@oss-maintainers** on the PR to escalate to the team.
-
-**You must include proof of [manual testing](#manual-testing)**. For small, isolated, and visual changes, you should include **before and after screenshots**. For larger, broad, or interactive changes, you should also include a **narrated screen recording**.
-
-If a maintainer requests changes to your PR, you will need to request `/warp-agent-review` again and pass it before a re-review can be requested. Oz will request the re-review for you automatically once you pass its reviews.
-
-### PRs opened without a linked issue
-
-We require PRs to be linked to an associated issue. This is where problems get scoped, [readiness labels](#readiness-labels) get applied, and some features go through a [spec phase](#opening-a-spec-pr) before any code is written. See the [Contribution Flow](#contribution-flow) for the full picture.
-
-That said, if you open a PR ahead of the standard issue workflow, here's what we recommend:
-
-First, **search for a related issue.** Due to the volume of issues we receive, there's often an existing issue for a given feature or bug fix. If you find one, link it in your PR description. Ideally, this issue will have been reviewed by a maintainer with a [readiness label](#readiness-labels) applied. If you do not find a related issue, file an issue describing what your PR resolves. Once a maintainer has reviewed the issue and associated PR, we can apply a readiness label to unblock final checks.
-
-Then, **ensure your PR passes code review and includes relevant tests** per our [Opening a Code PR guide.](#opening-a-code-pr) If code review passes and relevant tests are present, that's high signal for us to review your work sooner.
-
-## Using a Coding Agent
-
-You can use **any coding agent** to implement a contribution — for example, Warp's built-in agent, Claude Code, Codex, Gemini CLI, or others — or no agent at all. This repository ships agent-readable context (skills under [`.agents/skills/`](.agents/skills/), specs under [`specs/`](specs/), and [`AGENTS.md`](AGENTS.md)) that any harness supporting these formats can pick up.
-
-If you'd rather have an **Oz cloud agent** implement a ready issue for you, mention **@oss-maintainers** on the issue to request it. Approved requests run **for free** on complimentary Oz credits — you don't need to set up your own Oz account or pay for compute.
-
-While you can use coding agents for implementation, we expect contributors to **collaborate with us personally**. This means that you should not be using agents like OpenClaw to engage in conversation with our team. Our maintainers will always talk to you as a human, so please talk to us as a human as well.
-
-## Code Review
-
-All pull requests go through a two-stage review process:
-
-1. **Oz review** — When you open a PR, [Oz](https://warp.dev/oz) is automatically assigned and produces the first review. Oz checks for correctness, style, test coverage, and alignment with the linked issue and any associated specs.
-2. **Warp team review** — Only after Oz has **approved** the PR is it routed to a Warp team subject-matter expert for a final human review. PRs that have not yet been approved by Oz will not be assigned to a team member.
-
-You do not need to manually request reviewers at any stage. After pushing changes that address Oz's feedback, comment `/warp-agent-review` on the PR to request a re-review — you can do this up to **three times** per PR. If something looks stuck or you need additional reviews, mention **@oss-maintainers** on the PR to escalate to the team.
-
-### Stale PRs with requested changes
-
-If a review (from Oz or a maintainer) leaves your PR with **changes requested** and it then goes quiet, automation follows up and eventually closes it so the review queue stays current. This applies only to external-contributor PRs with an active requested-changes review.
-
-- **Reminders** are posted at **7** and **10** days of inactivity, with the **day-10 reminder serving as the final warning**.
-- The PR is **automatically closed at ~14 days** of inactivity — but only after that final warning, so you always get a heads-up first.
-- Only **your** activity resets the timer: pushing to your branch (including a force-push) or commenting on the PR. Maintainer comments don't reset it, since the PR is waiting on you.
-- To keep a PR open, just push updates or reply. A closed PR can be reopened when you're ready to continue (reopen it and push, or ask a maintainer to reopen).
-- Maintainers can apply the **`no-autoclose`** label to exempt a PR that should stay open (for example, when it's blocked on us).
+Use concise, descriptive commit subjects such as `fix: preserve terminal selection` or `docs: clarify source builds`. Explain non-obvious reasons in the commit body. Small fixes do not need a separate specification PR; for larger changes, agree on a short design and acceptance criteria first.
 
 ## Development Setup
 
-See [README.md](README.md) and [AGENTS.md](AGENTS.md) for the full engineering guide. Quick start:
+Run development and build commands from the repository root. Use the Rust version pinned in [rust-toolchain.toml](rust-toolchain.toml), currently `1.92.0`, and keep `Cargo.lock` unchanged unless a dependency change requires it.
 
-```bash
-./script/bootstrap   # platform-specific setup
-cargo run            # build and run Warp
-./script/presubmit   # fmt, clippy, and tests
+Native prerequisites include Git with Git LFS, Rust/rustup, CMake, Protobuf, and libclang. Windows also needs the MSVC C++ build tools and Windows SDK; macOS needs Xcode. The platform scripts list additional dependencies:
+
+- [Windows bootstrap](script/windows/bootstrap.ps1)
+- [macOS bootstrap](script/macos/bootstrap)
+- [Linux bootstrap](script/linux/bootstrap)
+
+Bootstrap installs or updates system tools and is not a routine build step. Read the relevant script before running it; an already configured machine does not need to rerun it. Fetch tracked assets with `git lfs install --local` and `git lfs pull` when setting up a new checkout.
+
+### Local Directories and Resource Limits
+
+Keep temporary scripts, reports, runtime data, and reusable build caches under the ignored `.work/` directory. On Windows, use a checkout on D: and configure these paths before downloading a toolchain or building:
+
+```powershell
+$work = Join-Path (Get-Location).Path '.work'
+$env:CARGO_HOME = Join-Path $work 'cargo-home'
+$env:RUSTUP_HOME = Join-Path $work 'rustup'
+$env:CARGO_TARGET_DIR = Join-Path $work 'target'
+$env:TEMP = Join-Path $work 'tmp'
+$env:TMP = $env:TEMP
+$env:SCCACHE_DIR = Join-Path $work 'sccache'
+$env:NANOWARP_DATA_DIR = Join-Path $work 'runtime/dev'
+$env:CARGO_BUILD_JOBS = '2'
+$env:RUST_TEST_THREADS = '1'
+$env:RAYON_NUM_THREADS = '2'
+New-Item -ItemType Directory -Force -Path $env:CARGO_HOME, $env:RUSTUP_HOME, $env:CARGO_TARGET_DIR, $env:TEMP, $env:SCCACHE_DIR, $env:NANOWARP_DATA_DIR | Out-Null
 ```
 
-## Testing
+Keep the Rust launchers on `PATH` and install the pinned toolchain into the configured Rust home. A fresh local cache needs its dependencies downloaded before offline builds can work. Do not copy another build cache or read/import an existing Warp profile.
 
-Tests are required for most code changes:
+In a macOS/Linux shell, set the equivalent environment before setup or builds:
 
-### Manual Testing
-Manual testing is required for changes that can be manually tested, and almost all changes can be manually tested. For small, isolated, and visual changes, you should include **before and after screenshots**. For larger, broad, or interactive changes, you should also include a **narrated screen recording**.
+```bash
+export CARGO_HOME="$PWD/.work/cargo-home" RUSTUP_HOME="$PWD/.work/rustup"
+export CARGO_TARGET_DIR="$PWD/.work/target" TMPDIR="$PWD/.work/tmp"
+export SCCACHE_DIR="$PWD/.work/sccache" NANOWARP_DATA_DIR="$PWD/.work/runtime/dev"
+export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 RAYON_NUM_THREADS=2
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR" "$SCCACHE_DIR" "$NANOWARP_DATA_DIR"
+```
 
-You can run the app locally using `./script/run` - see [AGENTS.md](AGENTS.md) for more details on how to get set up.
+### Build and Run
 
-### Automated Tests
-- **Bug fixes** should include a regression test that would have caught the bug.
-- **Algorithmic or non-trivial logic** needs unit tests.
-- **User-facing flows** should have end-to-end coverage under [`crates/integration/`](crates/integration/) whenever the behavior can be exercised that way. The bar is high-quality coverage of the changes you ship — with agent-driven development the expectation is more integration tests, not just coverage of P0 paths. If a flow is worth shipping, it's usually worth an integration test.
+The Windows GUI build uses the existing binary name `warp-oss`:
 
-Run unit tests with `cargo nextest run`.
+```powershell
+cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features release_bundle,gui
+& .\.work\target\debug\warp-oss.exe
+```
 
-## Code Style
+For macOS/Linux, [`./script/run`](script/run) selects the native runner: a macOS app bundle or a Linux `warp-oss` GUI process. Run it in the configured environment above. Platform build success and actual runtime acceptance must be reported separately.
 
-- `./script/format --check` and `cargo clippy --workspace --all-targets --all-features --tests -- -D warnings` must pass.
-- Prefer imports over path qualifiers, inline format args (`println!("{x}")`), and exhaustive `match` over `_` wildcards.
-- See [AGENTS.md](AGENTS.md) for the full style guide, including WarpUI patterns and terminal model locking rules.
+Use `--locked` for Cargo commands, and add `--offline` only when the required dependencies are already cached. Run one Cargo command at a time; keep compilation to two jobs and tests to one thread.
 
-## Commit and Branch Conventions
+## Testing and Style
 
-- Branch names should be prefixed with your handle (e.g. `alice/fix-parser`).
-- Commit messages should explain *what* and *why*, not just *what*.
+Read the affected source and existing tests first. Run the smallest existing checks that cover the change. Add a focused test only when changed behavior is not already covered; do not introduce a new framework or expand unrelated coverage.
 
-## Code of Conduct
+For an editor change, an example of an existing package test command is:
 
-This project adopts the [Contributor Covenant](https://www.contributor-covenant.org/) (v2.1) as its code of conduct. All contributors and maintainers are expected to follow it in every project space. See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for the full text, or report violations to warp-coc at warp.dev.
+```text
+cargo +1.92.0 test --locked -j 2 -p warp_editor --lib -- --test-threads=1
+```
 
-## Reporting Security Issues
+Follow nearby Rust style and [.rustfmt.toml](.rustfmt.toml). Format only affected files while developing. [`script/format --check`](script/format) checks repository Rust formatting; [`script/presubmit`](script/presubmit) runs broader formatting, lint, and test checks. [CI](.github/workflows/ci.yml) defines platform checks and change filtering; do not weaken gates to make a change pass.
 
-See [`SECURITY.md`](SECURITY.md) for our security disclosure policy and private reporting channels. **Do not open public issues for security vulnerabilities.**
+Prefer scripts and commands for verification. Use desktop interaction only when it resolves a remaining UI evidence gap. Document commands, results, and untested platforms accurately. Documentation-only changes do not need unrelated Rust builds or runtime tests.
 
-## Getting Help
+## Development Assistants and Historical Specs
 
-- Chat with other contributors and the Warp team in [`#oss-contributors`](https://warpcommunity.slack.com/archives/C0B0LM8N4DB) on the [Warp Slack community](https://go.warp.dev/join-preview) (join the workspace first if you're new).
-- Browse the [Warp docs](https://docs.warp.dev/).
-- Open a [GitHub issue](https://github.com/warpdotdev/warp/issues) for bugs or feature requests.
+External coding assistants are optional contributor tools. The checked-in [skills](.agents/skills/) describe development workflows; they are not NanoWarp runtime features. [`specs/`](specs/) contains historical designs and may describe removed upstream behavior, so verify proposals against current source and product scope.
+
+Contributors remain responsible for reviewing generated changes and reporting real validation results. This fork does not promise upstream Oz triage, cloud credits, automatic agent reviews, or Warp team review routing.
+
+## Conduct, Security, and Help
+
+Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Read [SECURITY.md](SECURITY.md) before reporting a vulnerability; do not publish sensitive details in an issue or PR.
+
+Use [NanoWarp issues](https://github.com/Rycen7822/NanoWarp/issues) for ordinary bugs, feature discussions, and development questions.
