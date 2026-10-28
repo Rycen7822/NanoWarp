@@ -14,8 +14,6 @@ use crate::code::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEve
 use crate::tab_configs::PickerStyle;
 use crate::view_components::{DropdownItem, FilterableDropdown};
 
-const DEFAULT_DROPDOWN_WIDTH: f32 = 380.;
-
 /// Label for the sticky "Add new repo..." footer at the bottom of the picker.
 const ADD_NEW_REPO_LABEL: &str = "+ Add new repo...";
 
@@ -45,17 +43,9 @@ pub enum RepoPickerEvent {
 }
 
 impl RepoPicker {
-    /// Creates a new picker pre-populated with all known projects.
-    ///
-    /// `default_value` is pre-selected if it appears in the project list (or is
-    /// added as an extra entry if it doesn't).
-    pub fn new(default_value: Option<String>, ctx: &mut ViewContext<Self>) -> Self {
-        Self::new_with_style(default_value, None, ctx)
-    }
-
-    pub fn new_with_style(
+    pub fn new(
         default_value: Option<String>,
-        style: Option<PickerStyle>,
+        style: PickerStyle,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         // Subscribe to PersistedWorkspace so the list refreshes when the user
@@ -66,8 +56,8 @@ impl RepoPicker {
             me.refresh_items(Some(&path_str), ctx);
         });
 
-        let width = style.as_ref().map_or(DEFAULT_DROPDOWN_WIDTH, |s| s.width);
-        let bg = style.and_then(|s| s.background);
+        let width = style.width;
+        let bg = style.background;
         let dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
             dropdown.set_top_bar_max_width(width);
@@ -172,9 +162,8 @@ impl RepoPicker {
 
         // Mirror the raw path into `self.selected` so `selected_value()`
         // returns a real filesystem path even before the user explicitly
-        // picks something. Load-bearing for `new_worktree_modal::on_open`,
-        // which reads `repo_picker.selected_value()` at modal-open time when
-        // its own `selected_repo` is still `None`.
+        // picks something. The params modal can read the initial default selection
+        // before the user explicitly chooses a repo.
         if let Some(ref raw) = raw_to_select {
             self.selected = Some(raw.clone());
         }
@@ -190,13 +179,6 @@ impl RepoPicker {
         });
 
         ctx.notify();
-    }
-
-    pub fn toggle_dropdown(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        self.dropdown.update(ctx, |dropdown, ctx| {
-            dropdown.toggle_expanded(ctx);
-        });
-        self.dropdown.as_ref(ctx).is_expanded()
     }
 
     /// Returns the currently shown selected repo path (raw absolute path).

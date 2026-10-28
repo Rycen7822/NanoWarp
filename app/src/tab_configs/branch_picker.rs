@@ -11,7 +11,6 @@ use crate::util::git::{
 };
 use crate::view_components::{DropdownItem, FilterableDropdown};
 
-const DEFAULT_DROPDOWN_WIDTH: f32 = 380.;
 /// Placeholder text shown in the dropdown top bar while branches are loading.
 const LOADING_PLACEHOLDER: &str = "Fetching branches\u{2026}";
 
@@ -44,25 +43,14 @@ pub struct BranchPicker {
 }
 
 impl BranchPicker {
-    /// Creates a new picker and immediately spawns an async fetch for the
-    /// branches of the repo at `cwd`. `default_value` is pre-selected once
-    /// the list arrives (if it appears in the list).
     pub fn new(
         cwd: Option<PathBuf>,
         default_value: Option<String>,
+        style: PickerStyle,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
-        Self::new_with_style(cwd, default_value, None, ctx)
-    }
-
-    pub fn new_with_style(
-        cwd: Option<PathBuf>,
-        default_value: Option<String>,
-        style: Option<PickerStyle>,
-        ctx: &mut ViewContext<Self>,
-    ) -> Self {
-        let width = style.as_ref().map_or(DEFAULT_DROPDOWN_WIDTH, |s| s.width);
-        let bg = style.and_then(|s| s.background);
+        let width = style.width;
+        let bg = style.background;
         let dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
             dropdown.set_top_bar_max_width(width);
@@ -250,13 +238,6 @@ impl BranchPicker {
         self.fetch_branches(new_cwd, ctx);
     }
 
-    pub fn toggle_dropdown(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        self.dropdown.update(ctx, |dropdown, ctx| {
-            dropdown.toggle_expanded(ctx);
-        });
-        self.dropdown.as_ref(ctx).is_expanded()
-    }
-
     pub fn selected_value(&self, app: &AppContext) -> Option<String> {
         // While loading, the dropdown shows a placeholder label
         // ("Fetching branches…") that must not be treated as a real
@@ -265,11 +246,6 @@ impl BranchPicker {
             return None;
         }
         self.dropdown.as_ref(app).selected_item_label()
-    }
-
-    /// Returns `true` while an async branch fetch is in-flight.
-    pub fn is_loading(&self) -> bool {
-        self.is_loading
     }
 }
 

@@ -1,7 +1,6 @@
 //! This module is meant to house the app's reusable Views
 
 pub mod action_button;
-pub mod callout_bubble;
 mod compact_dropdown;
 mod dismissible_toast;
 pub mod dropdown;

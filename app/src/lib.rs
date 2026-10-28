@@ -954,7 +954,6 @@ pub(crate) fn initialize_app(
     crate::view_components::find::init(ctx);
     prompt::editor_modal::init(ctx);
     undo_close::init(ctx);
-    tab_configs::new_worktree_modal::init(ctx);
     tab_configs::params_modal::init(ctx);
     context_chips::display_menu::init(ctx);
     context_chips::node_version_popup::init(ctx);

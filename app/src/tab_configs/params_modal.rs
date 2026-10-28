@@ -235,7 +235,7 @@ impl TabConfigParamsModal {
                         background: picker_style.background,
                     };
                     let picker = ctx.add_typed_action_view(move |ctx| {
-                        BranchPicker::new_with_style(branch_cwd, default_value, Some(style), ctx)
+                        BranchPicker::new(branch_cwd, default_value, style, ctx)
                     });
                     ctx.subscribe_to_view(&picker, move |me, _, value, ctx| {
                         if let Some((_, _, ParamField::Branch { selected, .. })) =
@@ -257,7 +257,7 @@ impl TabConfigParamsModal {
                         background: picker_style.background,
                     };
                     let picker = ctx.add_typed_action_view(move |ctx| {
-                        RepoPicker::new_with_style(default_value, Some(style), ctx)
+                        RepoPicker::new(default_value, style, ctx)
                     });
                     ctx.subscribe_to_view(&picker, move |me, _, event, ctx| match event {
                         RepoPickerEvent::Selected(value) => {

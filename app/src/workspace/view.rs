@@ -35,8 +35,6 @@ use lazy_static::lazy_static;
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
-#[cfg(feature = "local_fs")]
-use repo_metadata::repositories::DetectedRepositories;
 use serde_json;
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
@@ -45,7 +43,6 @@ use warp_core::ui::Icon;
 use warp_core::ui::color::coloru_with_opacity;
 use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::theme::{AnsiColors, Fill};
-use warp_editor::editor::NavigationKey;
 use warp_errors::{report_error, report_if_error};
 use warp_util::path::{LineAndColumnArg, user_friendly_path};
 use warpui::accessibility::{
@@ -115,15 +112,11 @@ use crate::code::editor_management::CodeSource;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::ChipRuntimeCapabilities;
 use crate::default_terminal::DefaultTerminal;
-use crate::editor::{
-    EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
-    TextOptions,
-};
+use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
 use crate::launch_configs::launch_config::WindowTemplate;
 use crate::launch_configs::save_modal::{LaunchConfigModalEvent, LaunchConfigSaveModal};
 use crate::menu::{
-    Event as MenuEvent, MENU_VERTICAL_PADDING, Menu, MenuItem, MenuItemFields, MenuSelectionSource,
-    MenuVariant,
+    Event as MenuEvent, MENU_VERTICAL_PADDING, Menu, MenuItem, MenuItemFields, MenuVariant,
 };
 use crate::modal::{Modal, ModalEvent, ModalViewState};
 use crate::network::{NetworkStatus, NetworkStatusEvent};
@@ -174,9 +167,7 @@ use crate::tab_configs::remove_confirmation_dialog::{
     RemoveTabConfigConfirmationDialog, RemoveTabConfigConfirmationEvent,
 };
 use crate::tab_configs::session_config_modal::{SessionConfigModal, SessionConfigModalEvent};
-use crate::tab_configs::{
-    NewWorktreeModal, NewWorktreeModalEvent, TabConfigParamsModal, TabConfigParamsModalEvent,
-};
+use crate::tab_configs::{TabConfigParamsModal, TabConfigParamsModalEvent};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::available_shells::AvailableShell;
 #[cfg(target_os = "windows")]
@@ -214,11 +205,7 @@ use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 use crate::undo_close::UndoCloseStack;
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 #[cfg(feature = "local_fs")]
-use crate::user_config::{
-    ensure_default_worktree_config, find_unused_tab_config_path, find_unused_toml_path,
-    find_unused_worktree_config_path, materialize_default_worktree_config, sanitize_toml_base_name,
-    tab_configs_dir,
-};
+use crate::user_config::{find_unused_tab_config_path, tab_configs_dir};
 use crate::util::bindings::{keybinding_name_to_display_string, keybinding_name_to_keystroke};
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::Editor;
@@ -317,18 +304,12 @@ const NEW_SESSION_MENU_VERTICAL_BUTTON_OFFSET_Y: f32 = 4.;
 const NEW_SESSION_MENU_BORDER_WIDTH: f32 = 1.;
 const NEW_SESSION_MENU_CHROME_HEIGHT: f32 =
     MENU_VERTICAL_PADDING * 2. + NEW_SESSION_MENU_BORDER_WIDTH * 2.;
-const NEW_SESSION_SIDECAR_WIDTH: f32 = 300.;
 
 /// Shared position ID for the move-to-group sidecar overlay, used by both the
 /// `SavePosition` wrapper and the safe-zone rect lookup on the parent
 /// right-click menu.
 const MOVE_TO_GROUP_SIDECAR_POSITION_ID: &str = "move_to_group_sidecar";
 const MOVE_TO_GROUP_SIDECAR_WIDTH: f32 = 200.;
-const NEW_SESSION_SIDECAR_SEARCH_BOX_HEIGHT: f32 = 32.;
-const NEW_SESSION_SIDECAR_SEARCH_BOX_HORIZONTAL_PADDING: f32 = 12.;
-const NEW_SESSION_SIDECAR_SEARCH_BOX_VERTICAL_PADDING: f32 = 6.;
-const NEW_SESSION_SIDECAR_FOOTER_HORIZONTAL_PADDING: f32 = 16.;
-const NEW_SESSION_SIDECAR_FOOTER_VERTICAL_PADDING: f32 = 8.;
 const SHOW_SETTINGS_KEYBINDING_NAME: &str = "workspace:show_settings";
 pub const TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME: &str = "workspace:toggle_command_palette";
 
@@ -427,14 +408,8 @@ type RemoteUploadId = (TerminalPaneId, FileUploadId);
 type WorkspaceMenuHandles = (
     ViewHandle<Menu<WorkspaceAction>>,
     ViewHandle<Menu<WorkspaceAction>>,
-    ViewHandle<Menu<NewSessionSidecarSelection>>,
     ViewHandle<Menu<WorkspaceAction>>,
 );
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum NewSessionSidecarSelection {
-    OpenWorktreeRepo { repo_path: String },
-}
 
 #[derive(Debug, Default)]
 struct FileUploadSessions {
@@ -475,12 +450,6 @@ struct WorkspaceBannerFields {
     button: Option<WorkspaceBannerButtonDetails>,
 }
 
-/// Context saved when the session config modal triggers `open_tab_config` and
-/// the tab config has params (worktree). The params modal opens asynchronously,
-/// so we store what we need to finish the tab replacement when it completes.
-struct PendingSessionConfigReplacement {
-    old_pane_group_id: EntityId,
-}
 /// Snapshot of a tab used to move it between workspaces or into a new window.
 /// Built by `Workspace::tab_transfer_info_at_index` and consumed by
 /// `insert_transferred_tab_at_index`. Captures the pane group handle, visual
@@ -565,8 +534,6 @@ pub struct Workspace {
     launch_config_save_modal: ModalViewState<LaunchConfigSaveModal>,
     tab_config_params_modal: ModalViewState<Modal<TabConfigParamsModal>>,
     session_config_modal: ModalViewState<Modal<SessionConfigModal>>,
-    pending_session_config_replacement: Option<PendingSessionConfigReplacement>,
-    new_worktree_modal: ModalViewState<Modal<NewWorktreeModal>>,
     resource_center_view: ViewHandle<ResourceCenterView>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
@@ -608,18 +575,6 @@ pub struct Workspace {
     /// for a multi-tab cross-window drag. Reduces chrome (e.g. hides traffic
     /// lights). Cleared when the preview is promoted or hands off its tab.
     is_tab_drag_preview: bool,
-    /// Sidecar menu for submenu-parent items (Terminal, New worktree config) in the
-    /// new-session dropdown. Shown as a positioned overlay next to the hovered
-    /// parent item, following the model picker sidecar pattern.
-    new_session_sidecar_menu: ViewHandle<Menu<NewSessionSidecarSelection>>,
-    show_new_session_sidecar: bool,
-    worktree_sidecar_active: bool,
-    worktree_sidecar_search_editor: ViewHandle<EditorView>,
-    worktree_sidecar_search_query: String,
-    new_session_sidecar_add_repo_mouse_state: MouseStateHandle,
-    /// Sidecar menu rendered next to the tab more options menu when the user
-    /// hovers "Move to group". Populated with one item per other available
-    /// tab group; each selection dispatches `WorkspaceAction::MoveTabToGroup`.
     move_to_group_sidecar_menu: ViewHandle<Menu<WorkspaceAction>>,
     show_move_to_group_sidecar: bool,
     tab_config_action_sidecar_item: Option<SidecarItemKind>,
@@ -653,147 +608,14 @@ impl Workspace {
         }
     }
 
-    /// Clears the worktree sidecar state and hides the sidecar.
-    fn clear_worktree_sidecar_state(&mut self, ctx: &mut ViewContext<Self>) {
-        self.show_new_session_sidecar = false;
-        self.worktree_sidecar_active = false;
-        self.worktree_sidecar_search_query.clear();
-        self.worktree_sidecar_search_editor
-            .update(ctx, |editor, ctx| {
-                editor.clear_buffer(ctx);
-            });
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            menu.clear_pinned_header_builder();
-            menu.clear_pinned_footer_builder();
-            menu.set_content_padding_overrides(None, None);
-            menu.reset_selection(view_ctx);
-        });
-    }
-
     fn close_new_session_dropdown_menu(&mut self, ctx: &mut ViewContext<Self>) {
         self.show_new_session_dropdown_menu = None;
         self.tab_config_action_sidecar_item = None;
-        self.clear_worktree_sidecar_state(ctx);
         self.new_session_dropdown_menu.update(ctx, |menu, _| {
             menu.set_safe_zone_target(None);
             menu.set_submenu_being_shown_for_item_index(None);
         });
         ctx.notify();
-    }
-
-    fn select_first_worktree_sidecar_repo(&mut self, ctx: &mut ViewContext<Self>) {
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            if menu.items_len() > 1 {
-                menu.set_selected_by_index(1, view_ctx);
-            } else {
-                menu.reset_selection(view_ctx);
-            }
-        });
-    }
-
-    fn reset_worktree_sidecar_repo_selection(&mut self, ctx: &mut ViewContext<Self>) {
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            menu.reset_selection(view_ctx);
-        });
-    }
-
-    fn navigate_worktree_sidecar_selection(
-        &mut self,
-        select_next: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            let items_len = menu.items_len();
-            if items_len <= 1 {
-                return;
-            }
-
-            match menu.selected_index() {
-                Some(_) if select_next => menu.select_next(view_ctx),
-                Some(_) => menu.select_previous(view_ctx),
-                None if select_next => menu.set_selected_by_index(1, view_ctx),
-                None => menu.set_selected_by_index(items_len.saturating_sub(1), view_ctx),
-            }
-        });
-    }
-
-    fn confirm_worktree_sidecar_selection(&mut self, ctx: &mut ViewContext<Self>) {
-        let selected_selection = self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            if menu.items_len() <= 1 {
-                return None;
-            }
-
-            if menu.selected_index().is_none() {
-                menu.set_selected_by_index(1, view_ctx);
-            }
-
-            menu.selected_item().and_then(|item| match item {
-                MenuItem::Item(fields) => fields.on_select_action().cloned(),
-                _ => None,
-            })
-        });
-
-        if let Some(selection) = selected_selection {
-            self.execute_new_session_sidecar_selection(selection, ctx);
-            self.close_new_session_dropdown_menu(ctx);
-        }
-    }
-
-    fn sync_new_session_sidecar_selection_to_hover(&mut self, ctx: &mut ViewContext<Self>) {
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            let Some(hovered_index) = menu.hovered_index() else {
-                return;
-            };
-            let hovered_item_has_action = menu
-                .items()
-                .get(hovered_index)
-                .and_then(MenuItem::item_on_select_action)
-                .is_some();
-
-            if hovered_item_has_action && menu.selected_index() != Some(hovered_index) {
-                menu.set_selected_by_index(hovered_index, view_ctx);
-            }
-        });
-    }
-
-    fn build_worktree_sidecar_search_input(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
-        let editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let mut editor = EditorView::single_line(
-                SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(appearance.ui_font_size()), appearance),
-                    select_all_on_focus: true,
-                    clear_selections_on_blur: true,
-                    propagate_and_no_op_vertical_navigation_keys:
-                        PropagateAndNoOpNavigationKeys::Always,
-                    ..Default::default()
-                },
-                ctx,
-            );
-            editor.set_placeholder_text("Search repos", ctx);
-            editor
-        });
-        ctx.subscribe_to_view(&editor, |me, editor_view, event, ctx| match event {
-            EditorEvent::Edited(_) => {
-                me.worktree_sidecar_search_query = editor_view.as_ref(ctx).buffer_text(ctx);
-                me.refresh_worktree_sidecar_if_active(ctx);
-                ctx.notify();
-            }
-            EditorEvent::Escape => {
-                me.close_new_session_dropdown_menu(ctx);
-            }
-            EditorEvent::Navigate(NavigationKey::Up) => {
-                me.navigate_worktree_sidecar_selection(false, ctx);
-            }
-            EditorEvent::Navigate(NavigationKey::Down) => {
-                me.navigate_worktree_sidecar_selection(true, ctx);
-            }
-            EditorEvent::Enter => {
-                me.confirm_worktree_sidecar_selection(ctx);
-            }
-            _ => {}
-        });
-        editor
     }
 
     fn vertical_tabs_search_input(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
@@ -1149,18 +971,6 @@ impl Workspace {
             me.handle_new_session_menu_event(event, ctx);
         });
 
-        let new_session_sidecar = ctx.add_typed_action_view(|_ctx| {
-            let mut menu = Menu::new()
-                .without_item_action_dispatch()
-                .with_width(NEW_SESSION_SIDECAR_WIDTH)
-                .with_menu_variant(MenuVariant::scrollable());
-            menu.set_height(400.);
-            menu
-        });
-        ctx.subscribe_to_view(&new_session_sidecar, move |me, _, event, ctx| {
-            me.handle_new_session_sidecar_event(event, ctx);
-        });
-
         // The move-to-group sidecar dispatches `MoveTabToGroup` directly when
         // a group item is clicked.
         let move_to_group_sidecar = ctx.add_typed_action_view(|_ctx| {
@@ -1178,7 +988,6 @@ impl Workspace {
         (
             tab_right_click_menu,
             new_session_menu,
-            new_session_sidecar,
             move_to_group_sidecar,
         )
     }
@@ -1252,41 +1061,6 @@ impl Workspace {
             if matches!(event, ModalEvent::Close) {
                 me.close_session_config_modal(ctx);
             }
-        });
-        ModalViewState::new(modal)
-    }
-
-    fn build_new_worktree_modal(
-        ctx: &mut ViewContext<Self>,
-    ) -> ModalViewState<Modal<NewWorktreeModal>> {
-        let body = ctx.add_typed_action_view(NewWorktreeModal::new);
-        ctx.subscribe_to_view(&body, |me, _, event, ctx| {
-            me.handle_new_worktree_modal_body_event(event, ctx);
-        });
-        let modal = ctx.add_typed_action_view(|ctx| {
-            // We intentionally pass `None` for the title so the Modal renders
-            // no built-in header — the body view renders its own header to
-            // match the Figma mock exactly (bold title + X close + ESC badge).
-            Modal::new(None, body, ctx)
-                .with_modal_style(UiComponentStyles {
-                    width: Some(460.),
-                    height: Some(480.),
-                    ..Default::default()
-                })
-                .with_body_style(UiComponentStyles {
-                    padding: Some(Coords {
-                        top: 0.,
-                        bottom: 0.,
-                        left: 0.,
-                        right: 0.,
-                    }),
-                    height: Some(480.),
-                    background: Some(ElementFill::None),
-                    ..Default::default()
-                })
-        });
-        ctx.subscribe_to_view(&modal, |me, _, event, ctx| {
-            me.handle_new_worktree_modal_event(event, ctx);
         });
         ModalViewState::new(modal)
     }
@@ -1387,14 +1161,9 @@ impl Workspace {
         use crate::tab_configs::session_config::{build_tab_config, write_tab_config};
 
         // Build a TabConfig.
-        let config = build_tab_config(
-            &selection.directory,
-            selection.enable_worktree,
-            selection.autogenerate_worktree_branch_name,
-        );
+        let config = build_tab_config(&selection.directory);
 
         let old_pane_group_id = self.active_tab_pane_group().id();
-        let has_params = !config.params.is_empty();
 
         // Save and open the tab config. The user's `default_session_mode`
         // is intentionally left untouched: creating a tab config should not
@@ -1404,24 +1173,9 @@ impl Workspace {
             log::warn!("Failed to write startup tab config: {e:?}");
         }
 
-        if has_params {
-            // When the config has params (worktree), open_tab_config shows the
-            // params modal instead of creating the tab immediately.
-            // Store the replacement context so we can finish when the modal completes.
-            self.pending_session_config_replacement =
-                Some(PendingSessionConfigReplacement { old_pane_group_id });
-            self.open_tab_config(config, ctx);
-        } else {
-            let worktree_branch_name = self.maybe_generate_worktree_name(&config);
-            let param_values = config.default_param_values();
-            self.open_tab_config_with_params(
-                config,
-                param_values,
-                worktree_branch_name.as_deref(),
-                ctx,
-            );
-            self.remove_tab_by_pane_group_id(old_pane_group_id, ctx);
-        }
+        let param_values = config.default_param_values();
+        self.open_tab_config_with_params(config, param_values, None, ctx);
+        self.remove_tab_by_pane_group_id(old_pane_group_id, ctx);
     }
 
     #[cfg(not(feature = "local_fs"))]
@@ -1433,13 +1187,6 @@ impl Workspace {
     }
 
     pub(crate) fn show_session_config_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.session_config_modal.view.update(ctx, |modal, ctx| {
-            modal.body().update(ctx, |body, ctx| {
-                body.configure();
-                ctx.notify();
-            });
-        });
-
         self.session_config_modal.open();
         self.current_workspace_state.is_session_config_modal_open = true;
         ctx.focus(&self.session_config_modal.view);
@@ -1640,12 +1387,8 @@ impl Workspace {
 
         terminal::platform::init().expect("Terminal platform initialized");
 
-        let (
-            tab_right_click_menu,
-            new_session_dropdown_menu,
-            new_session_sidecar_menu,
-            move_to_group_sidecar_menu,
-        ) = Self::build_menus(ctx);
+        let (tab_right_click_menu, new_session_dropdown_menu, move_to_group_sidecar_menu) =
+            Self::build_menus(ctx);
 
         // Subscribe to network changes
         ctx.subscribe_to_model(
@@ -1701,7 +1444,6 @@ impl Workspace {
         let launch_config_save_modal = Self::build_launch_config_save_modal(ctx);
 
         let tab_config_params_modal = Self::build_tab_config_params_modal(ctx);
-        let new_worktree_modal = Self::build_new_worktree_modal(ctx);
 
         let session_config_modal = Self::build_session_config_modal(ctx);
 
@@ -1786,8 +1528,6 @@ impl Workspace {
             launch_config_save_modal,
             tab_config_params_modal,
             session_config_modal,
-            pending_session_config_replacement: None,
-            new_worktree_modal,
             resource_center_view,
             command_search_view,
             settings_file_error,
@@ -1816,12 +1556,6 @@ impl Workspace {
             pending_pane_group_transfer: false,
             suppress_detach_panes_on_window_close: false,
             is_tab_drag_preview: false,
-            new_session_sidecar_menu,
-            show_new_session_sidecar: false,
-            worktree_sidecar_active: false,
-            worktree_sidecar_search_editor: Self::build_worktree_sidecar_search_input(ctx),
-            worktree_sidecar_search_query: String::new(),
-            new_session_sidecar_add_repo_mouse_state: Default::default(),
             move_to_group_sidecar_menu,
             show_move_to_group_sidecar: false,
             tab_config_action_sidecar_item: None,
@@ -3366,7 +3100,7 @@ impl Workspace {
     /// Builds the unified new-session menu items
     /// tab bar chevron and the vertical tab bar `+` button.
     ///
-    /// Order: Terminal (sidecar) → [tab configs] → separator → New worktree config (sidecar) → New tab config → separator → Reopen closed session.
+    /// Order: Terminal → [tab configs] → separator → New tab config → separator → Reopen closed session.
     fn unified_new_session_menu_items(
         &self,
         ctx: &mut ViewContext<Self>,
@@ -3482,15 +3216,9 @@ impl Workspace {
             }
         }
 
-        // 5. Separator + worktree config entry + new tab config
+        // 5. Separator + new tab config
         if FeatureFlag::TabConfigs.is_enabled() {
             menu_items.push(MenuItem::Separator);
-            menu_items.push(
-                MenuItemFields::new_submenu("New worktree config")
-                    .with_icon(icons::Icon::Dataflow02)
-                    .into_item(),
-            );
-
             // 6. New tab config — V0: opens the TOML template.
             menu_items.push(
                 MenuItemFields::new("New tab config")
@@ -4971,30 +4699,6 @@ impl Workspace {
         self.vertical_tabs_panel.show_settings_popup = false;
     }
 
-    fn selected_new_session_sidecar_selection(
-        &self,
-        ctx: &AppContext,
-    ) -> Option<NewSessionSidecarSelection> {
-        self.new_session_sidecar_menu.read(ctx, |menu, _| {
-            menu.selected_item().and_then(|item| match item {
-                MenuItem::Item(fields) => fields.on_select_action().cloned(),
-                _ => None,
-            })
-        })
-    }
-
-    fn execute_new_session_sidecar_selection(
-        &mut self,
-        selection: NewSessionSidecarSelection,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match selection {
-            NewSessionSidecarSelection::OpenWorktreeRepo { repo_path } => {
-                self.open_worktree_in_repo(repo_path, ctx);
-            }
-        }
-    }
-
     pub fn toggle_keybindings_page(&mut self, ctx: &mut ViewContext<Self>) {
         let current_page = self
             .resource_center_view
@@ -5361,234 +5065,12 @@ impl Workspace {
                 self.close_new_session_dropdown_menu(ctx);
             }
             MenuEvent::ItemHovered => {
-                self.update_new_session_sidecar(ctx);
+                self.update_new_session_action_sidecar(ctx);
             }
             MenuEvent::ItemSelected => {
-                self.update_new_session_sidecar(ctx);
+                self.update_new_session_action_sidecar(ctx);
             }
         }
-    }
-
-    fn handle_new_session_sidecar_event(&mut self, event: &MenuEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            MenuEvent::Close { via_select_item } => {
-                let selection = if *via_select_item {
-                    self.selected_new_session_sidecar_selection(ctx)
-                } else {
-                    None
-                };
-                log::info!(
-                    "New-session sidecar closed: worktree_active={}, via_select_item={via_select_item}",
-                    self.worktree_sidecar_active
-                );
-                if let Some(selection) = selection {
-                    self.execute_new_session_sidecar_selection(selection, ctx);
-                }
-                if *via_select_item {
-                    // Item clicked in sidecar — also close the main menu.
-                    self.show_new_session_dropdown_menu = None;
-                }
-                self.clear_worktree_sidecar_state(ctx);
-                self.new_session_dropdown_menu.update(ctx, |menu, _| {
-                    menu.set_safe_zone_target(None);
-                    menu.set_submenu_being_shown_for_item_index(None);
-                });
-                ctx.notify();
-            }
-            MenuEvent::ItemSelected => {}
-            MenuEvent::ItemHovered => {
-                self.sync_new_session_sidecar_selection_to_hover(ctx);
-            }
-        }
-    }
-
-    fn should_include_worktree_sidecar_repo(repo_path: &Path, ctx: &AppContext) -> bool {
-        #[cfg(not(feature = "local_fs"))]
-        {
-            let _ = (repo_path, ctx);
-            true
-        }
-
-        #[cfg(feature = "local_fs")]
-        {
-            // This performs one repo-metadata lookup per persisted workspace while the
-            // sidecar items are rebuilt. That's acceptable for now given the expected
-            // repo counts here, and it keeps linked-worktree filtering scoped to the
-            // only UI that currently needs it.
-            let Some(repository) =
-                DetectedRepositories::as_ref(ctx).get_local_watched_repo_for_path(repo_path, ctx)
-            else {
-                return true;
-            };
-            // Linked worktrees (and submodules) have an external gitdir; exclude
-            // them so only primary repository checkouts appear in the list.
-
-            repository.as_ref(ctx).external_git_directory().is_none()
-        }
-    }
-
-    fn build_worktree_sidecar_items(
-        &self,
-        ctx: &AppContext,
-    ) -> Vec<MenuItem<NewSessionSidecarSelection>> {
-        let search_editor = self.worktree_sidecar_search_editor.clone();
-        let search_item = MenuItemFields::new_with_custom_label(
-            Arc::new(move |_, _, appearance, _| {
-                let theme = appearance.theme();
-                let search_icon = ConstrainedBox::new(
-                    icons::Icon::SearchSmall
-                        .to_warpui_icon(theme.sub_text_color(theme.surface_2()))
-                        .finish(),
-                )
-                .with_width(16.)
-                .with_height(16.)
-                .finish();
-                let search_row = Flex::row()
-                    .with_child(Container::new(search_icon).with_margin_right(8.).finish())
-                    .with_child(
-                        Shrinkable::new(1., ChildView::new(&search_editor).finish()).finish(),
-                    )
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_main_axis_size(MainAxisSize::Max)
-                    .finish();
-
-                ConstrainedBox::new(
-                    Container::new(search_row)
-                        .with_padding_left(NEW_SESSION_SIDECAR_SEARCH_BOX_HORIZONTAL_PADDING)
-                        .with_padding_right(NEW_SESSION_SIDECAR_SEARCH_BOX_HORIZONTAL_PADDING)
-                        .with_padding_top(NEW_SESSION_SIDECAR_SEARCH_BOX_VERTICAL_PADDING)
-                        .with_padding_bottom(NEW_SESSION_SIDECAR_SEARCH_BOX_VERTICAL_PADDING)
-                        .with_border(Border::all(1.).with_border_fill(theme.surface_3()))
-                        .with_corner_radius(CornerRadius::with_top(Radius::Pixels(4.)))
-                        .finish(),
-                )
-                .with_height(NEW_SESSION_SIDECAR_SEARCH_BOX_HEIGHT)
-                .finish()
-            }),
-            Some("Search repos".to_string()),
-        )
-        .with_no_interaction_on_hover()
-        .no_highlight_on_hover()
-        .with_padding_override(0., 0.)
-        .into_item();
-        let query = self.worktree_sidecar_search_query.trim().to_lowercase();
-        let home = dirs::home_dir().map(|p| p.display().to_string());
-        let mut items = vec![search_item];
-        items.extend(
-            PersistedWorkspace::as_ref(ctx)
-                .workspaces()
-                .filter(|ws| ws.path.exists())
-                .filter(|ws| Self::should_include_worktree_sidecar_repo(&ws.path, ctx))
-                .filter(|ws| {
-                    if query.is_empty() {
-                        true
-                    } else {
-                        ws.path
-                            .to_string_lossy()
-                            .to_lowercase()
-                            .contains(query.as_str())
-                    }
-                })
-                .map(|ws| {
-                    let path_str = ws.path.to_string_lossy().into_owned();
-                    let display = user_friendly_path(&path_str, home.as_deref()).into_owned();
-                    MenuItemFields::new(display)
-                        .with_on_select_action(NewSessionSidecarSelection::OpenWorktreeRepo {
-                            repo_path: path_str.clone(),
-                        })
-                        .with_icon(icons::Icon::Folder)
-                        .with_clip_config(ClipConfig::start())
-                        .with_tooltip(path_str)
-                        .into_item()
-                })
-                .collect::<Vec<_>>(),
-        );
-        items
-    }
-
-    fn configure_worktree_new_session_sidecar(
-        &mut self,
-        hovered_index: usize,
-        auto_select_first_repo: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let items = self.build_worktree_sidecar_items(ctx);
-        let repo_count = items.len().saturating_sub(1);
-        log::info!(
-            "Configuring worktree sidecar: hovered_index={hovered_index}, query={:?}, repo_count={repo_count}",
-            self.worktree_sidecar_search_query
-        );
-        let add_repo_mouse_state = self.new_session_sidecar_add_repo_mouse_state.clone();
-
-        self.new_session_sidecar_menu.update(ctx, |menu, view_ctx| {
-            menu.set_items(items, view_ctx);
-            menu.clear_pinned_header_builder();
-            menu.set_content_padding_overrides(Some(0.), None);
-            menu.set_pinned_footer_builder(move |app| {
-                let appearance = Appearance::as_ref(app);
-                let theme = appearance.theme();
-                let font_family = appearance.ui_font_family();
-                let font_size = appearance.ui_font_size();
-                let border_fill = theme.outline();
-                let mouse_state = add_repo_mouse_state.clone();
-                Hoverable::new(mouse_state, move |state| {
-                    let bg = if state.is_hovered() {
-                        theme.accent_button_color()
-                    } else {
-                        theme.surface_2()
-                    };
-                    let text_color = theme.main_text_color(bg);
-                    ConstrainedBox::new(
-                        Container::new(
-                            Flex::row()
-                                .with_main_axis_size(MainAxisSize::Max)
-                                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                                .with_child(
-                                    Text::new_inline(" + Add new repo", font_family, font_size)
-                                        .with_color(text_color.into())
-                                        .finish(),
-                                )
-                                .finish(),
-                        )
-                        .with_padding_left(NEW_SESSION_SIDECAR_FOOTER_HORIZONTAL_PADDING)
-                        .with_padding_right(NEW_SESSION_SIDECAR_FOOTER_HORIZONTAL_PADDING)
-                        .with_padding_top(NEW_SESSION_SIDECAR_FOOTER_VERTICAL_PADDING)
-                        .with_padding_bottom(NEW_SESSION_SIDECAR_FOOTER_VERTICAL_PADDING)
-                        .with_background(bg)
-                        .with_border(Border::top(1.).with_border_fill(border_fill))
-                        .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(5.)))
-                        .finish(),
-                    )
-                    .with_width(NEW_SESSION_SIDECAR_WIDTH)
-                    .finish()
-                })
-                .with_cursor(Cursor::PointingHand)
-                .on_click(|ctx: &mut warpui::elements::EventContext, _, _| {
-                    ctx.dispatch_typed_action(WorkspaceAction::OpenWorktreeAddRepoPicker);
-                    ctx.dispatch_typed_action(crate::menu::MenuAction::Close(true));
-                })
-                .finish()
-            });
-        });
-        if auto_select_first_repo {
-            self.select_first_worktree_sidecar_repo(ctx);
-        } else {
-            self.reset_worktree_sidecar_repo_selection(ctx);
-        }
-
-        self.worktree_sidecar_active = true;
-        self.show_new_session_sidecar = true;
-        let sidecar_rect = ctx
-            .element_position_by_id_at_last_frame(self.window_id, NEW_SESSION_SIDECAR_POSITION_ID);
-        log::info!(
-            "Worktree sidecar safe-zone target from previous frame available: {}",
-            sidecar_rect.is_some()
-        );
-        self.new_session_dropdown_menu.update(ctx, |menu, _| {
-            menu.set_safe_zone_target(sidecar_rect);
-            menu.set_submenu_being_shown_for_item_index(Some(hovered_index));
-        });
-        ctx.focus(&self.worktree_sidecar_search_editor);
     }
 
     fn configure_action_sidecar_for_hovered_item(
@@ -5670,23 +5152,8 @@ impl Workspace {
         }
     }
 
-    fn refresh_worktree_sidecar_if_active(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.worktree_sidecar_active {
-            return;
-        }
-        let Some(hovered_index) = self
-            .new_session_dropdown_menu
-            .read(ctx, |menu, _| menu.hovered_index())
-        else {
-            return;
-        };
-        self.configure_worktree_new_session_sidecar(hovered_index, true, ctx);
-    }
-
-    /// Updates the sidecar menu based on which item is hovered in the main
-    /// new-session dropdown. If the hovered item is a submenu parent (Terminal
-    /// or New worktree config), populates the sidecar with the appropriate items.
-    fn update_new_session_sidecar(&mut self, ctx: &mut ViewContext<Self>) {
+    /// Updates the action sidecar for the hovered terminal or user tab config.
+    fn update_new_session_action_sidecar(&mut self, ctx: &mut ViewContext<Self>) {
         // Use hovered_index (not selected_index) as the source of truth.
         // hovered_row_index accurately tracks the mouse position and survives
         // reset_selection (which only clears selected_row/item indices).
@@ -5710,49 +5177,24 @@ impl Workspace {
             })
         });
 
-        // Separator or non-labeled item — hide sidecar.
         let Some(label) = hovered_label else {
-            if self.show_new_session_sidecar {
-                self.show_new_session_sidecar = false;
-                self.new_session_dropdown_menu.update(ctx, |menu, _| {
-                    menu.set_safe_zone_target(None);
-                    menu.set_submenu_being_shown_for_item_index(None);
-                });
-                ctx.notify();
-            }
+            self.tab_config_action_sidecar_item = None;
+            self.new_session_dropdown_menu.update(ctx, |menu, _| {
+                menu.set_safe_zone_target(None);
+                menu.set_submenu_being_shown_for_item_index(None);
+            });
+            ctx.notify();
             return;
         };
 
-        match label.as_str() {
-            "New worktree config" => {
-                self.tab_config_action_sidecar_item = None;
-                let auto_select_first_repo = self.new_session_dropdown_menu.read(ctx, |menu, _| {
-                    menu.last_selection_source() != Some(MenuSelectionSource::Pointer)
-                });
-                self.configure_worktree_new_session_sidecar(
-                    hovered_index,
-                    auto_select_first_repo,
-                    ctx,
-                );
-            }
-            // Items that don't get any sidecar.
-            "New tab config" => {
-                self.tab_config_action_sidecar_item = None;
-                if self.show_new_session_sidecar {
-                    self.show_new_session_sidecar = false;
-                    self.worktree_sidecar_active = false;
-                    self.new_session_dropdown_menu.update(ctx, |menu, _| {
-                        menu.set_safe_zone_target(None);
-                        menu.set_submenu_being_shown_for_item_index(None);
-                    });
-                }
-            }
-            // All other actionable items get the action sidecar.
-            _ => {
-                self.show_new_session_sidecar = false;
-                self.worktree_sidecar_active = false;
-                self.configure_action_sidecar_for_hovered_item(&label, hovered_index, ctx);
-            }
+        if label == "New tab config" {
+            self.tab_config_action_sidecar_item = None;
+            self.new_session_dropdown_menu.update(ctx, |menu, _| {
+                menu.set_safe_zone_target(None);
+                menu.set_submenu_being_shown_for_item_index(None);
+            });
+        } else {
+            self.configure_action_sidecar_for_hovered_item(&label, hovered_index, ctx);
         }
 
         ctx.notify();
@@ -5804,16 +5246,9 @@ impl Workspace {
     ) {
         match event {
             ModalEvent::Close => {
-                self.cancel_tab_config_params_modal(ctx);
+                self.close_tab_config_params_modal(ctx);
             }
         }
-    }
-
-    /// Cleans up pending state and closes the tab-config params modal without
-    /// creating a tab config. Used when the modal is dismissed or cancelled.
-    fn cancel_tab_config_params_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.pending_session_config_replacement = None;
-        self.close_tab_config_params_modal(ctx);
     }
 
     fn handle_tab_config_params_modal_body_event(
@@ -5831,10 +5266,9 @@ impl Workspace {
                     ctx,
                 );
                 self.close_tab_config_params_modal(ctx);
-                self.complete_pending_session_config_replacement(ctx);
             }
             TabConfigParamsModalEvent::Close => {
-                self.cancel_tab_config_params_modal(ctx);
+                self.close_tab_config_params_modal(ctx);
             }
             TabConfigParamsModalEvent::PickNewRepo { param_index } => {
                 ctx.dispatch_typed_action_deferred(WorkspaceAction::OpenTabConfigRepoPicker {
@@ -5844,18 +5278,9 @@ impl Workspace {
         }
     }
 
-    /// Finishes the tab replacement that was deferred while the params modal
-    /// was open (worktree flow from the session config modal).
-    fn complete_pending_session_config_replacement(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(pending) = self.pending_session_config_replacement.take() else {
-            return;
-        };
-
-        self.remove_tab_by_pane_group_id(pending.old_pane_group_id, ctx);
-    }
-
     /// Removes the tab whose pane group matches `pane_group_id`, if it exists
     /// and there is more than one tab.
+    #[cfg(feature = "local_fs")]
     fn remove_tab_by_pane_group_id(
         &mut self,
         pane_group_id: EntityId,
@@ -5916,44 +5341,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn handle_new_worktree_modal_event(&mut self, event: &ModalEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            ModalEvent::Close => self.close_new_worktree_modal(ctx),
-        }
-    }
-
-    fn handle_new_worktree_modal_body_event(
-        &mut self,
-        event: &NewWorktreeModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            NewWorktreeModalEvent::Close => self.close_new_worktree_modal(ctx),
-            NewWorktreeModalEvent::Submit {
-                repo,
-                branch,
-                worktree_branch_name,
-            } => {
-                self.handle_new_worktree_submit(repo, branch, worktree_branch_name.as_deref(), ctx);
-                self.close_new_worktree_modal(ctx);
-            }
-            NewWorktreeModalEvent::PickNewRepo => {
-                ctx.dispatch_typed_action_deferred(WorkspaceAction::OpenNewWorktreeRepoPicker);
-            }
-        }
-    }
-
-    fn close_new_worktree_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.current_workspace_state.is_new_worktree_modal_open = false;
-        self.new_worktree_modal.close();
-        self.new_worktree_modal.view.update(ctx, |modal, ctx| {
-            modal.body().update(ctx, |body, ctx| {
-                body.on_close(ctx);
-            });
-        });
-        ctx.notify();
-    }
-
     /// Checks whether the tab config references the special-cased
     /// `autogenerated_branch_name` template var. If so, fetches existing
     /// branches and generates a unique themed name.
@@ -5978,205 +5365,6 @@ impl Workspace {
         Some(warp_util::worktree_names::generate_worktree_branch_name(
             &branch_refs,
         ))
-    }
-
-    /// Generates a worktree tab config TOML, writes it to `~/.warp/tab_configs/`,
-    /// and opens the resulting config as a new tab.
-    ///
-    /// When `worktree_branch_name` is `None` (autogenerate), the TOML stores
-    /// commands with `{autogenerated_branch_name}` template variables that get
-    /// substituted with a fresh name on every open.
-    /// When `Some(name)` (manual naming), the commands are baked in and a
-    /// `worktree_branch_name` param is added so re-opens show the params modal.
-    #[cfg(feature = "local_fs")]
-    fn handle_new_worktree_submit(
-        &mut self,
-        repo: &str,
-        base_branch: &str,
-        worktree_branch_name: Option<&str>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let repo_display_name = Path::new(repo)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo.to_string());
-        let config_name = match worktree_branch_name {
-            Some(name) if !name.is_empty() => {
-                format!("New worktree: {repo_display_name}, {name}")
-            }
-            _ if !base_branch.is_empty() => {
-                format!("New worktree: {repo_display_name}, {base_branch}")
-            }
-            _ => format!("New worktree: {repo_display_name}"),
-        };
-
-        let filename_hint = if let Some(name) = worktree_branch_name {
-            name.to_string()
-        } else {
-            let branches = crate::util::git::list_local_branches_sync(Path::new(repo));
-            let branch_refs: HashSet<&str> = branches.iter().map(|s| s.as_str()).collect();
-            warp_util::worktree_names::generate_worktree_branch_name(&branch_refs)
-        };
-
-        let toml_content = crate::tab_configs::build_worktree_config_toml(
-            &config_name,
-            repo,
-            base_branch,
-            worktree_branch_name,
-        );
-
-        let dir = tab_configs_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            log::warn!("Failed to create tab_configs dir: {e:?}");
-            return;
-        }
-
-        let path = find_unused_worktree_config_path(&dir, &filename_hint);
-        if let Err(e) = std::fs::write(&path, &toml_content) {
-            log::warn!("Failed to write worktree tab config: {e:?}");
-            return;
-        }
-
-        match toml::from_str::<crate::tab_configs::TabConfig>(&toml_content) {
-            Ok(tab_config) => {
-                if let Some(name) = worktree_branch_name {
-                    // First open with manual name — bypass the params modal.
-                    let mut param_values = HashMap::new();
-                    param_values.insert("worktree_branch_name".to_string(), name.to_string());
-                    self.open_tab_config_with_params(tab_config, param_values, None, ctx);
-                } else {
-                    // Autogenerate — open with the name we just generated.
-                    let param_values = tab_config.default_param_values();
-                    self.open_tab_config_with_params(
-                        tab_config,
-                        param_values,
-                        Some(&filename_hint),
-                        ctx,
-                    );
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to parse generated worktree config: {e:?}");
-            }
-        }
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn handle_new_worktree_submit(
-        &mut self,
-        _repo: &str,
-        _base_branch: &str,
-        _worktree_branch_name: Option<&str>,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    fn open_repo_picker_for_new_worktree_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        let modal_view = self.new_worktree_modal.view.clone();
-        ctx.open_file_picker(
-            move |result, ctx| {
-                let Ok(paths) = result else { return };
-                let Some(path) = paths.into_iter().next() else {
-                    return;
-                };
-                let path_buf: PathBuf = path.clone().into();
-                PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                    persisted.user_added_workspace(path_buf.clone(), ctx);
-                });
-                modal_view.update(ctx, |modal, ctx| {
-                    modal.body().update(ctx, |body, ctx| {
-                        body.on_new_repo_selected(path_buf, ctx);
-                    });
-                });
-            },
-            warpui::platform::FilePickerConfiguration::new().folders_only(),
-        );
-    }
-
-    /// Opens a worktree in the given repo using the default worktree tab config,
-    /// saving the materialized config to `~/.warp/tab_configs/` first.
-    /// The branch name is auto-generated.
-    #[cfg(feature = "local_fs")]
-    fn open_worktree_in_repo(&mut self, repo_path: String, ctx: &mut ViewContext<Self>) {
-        log::info!("open_worktree_in_repo requested: repo_path={repo_path:?}");
-        let config_path = ensure_default_worktree_config();
-        log::info!("Reading default worktree config from {config_path:?}");
-        let template_toml = match std::fs::read_to_string(&config_path) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("Failed to read default worktree config from {config_path:?}: {e:?}");
-                return;
-            }
-        };
-        let branches = crate::util::git::list_local_branches_sync(Path::new(&repo_path));
-        let branch_refs: HashSet<&str> = branches.iter().map(|s| s.as_str()).collect();
-        let branch_name = warp_util::worktree_names::generate_worktree_branch_name(&branch_refs);
-        let repo_display_name = Path::new(&repo_path)
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.clone());
-        let config_name = format!("Worktree: {repo_display_name}");
-        log::info!(
-            "Materializing default worktree config: repo_path={repo_path:?}, branch_name={branch_name:?}, pane_type=terminal"
-        );
-
-        let (toml_content, tab_config) = match materialize_default_worktree_config(
-            &template_toml,
-            &config_name,
-            &repo_path,
-            "terminal",
-        ) {
-            Ok(materialized) => materialized,
-            Err(e) => {
-                log::warn!(
-                    "Failed to materialize default worktree config from {config_path:?}: {e}"
-                );
-                return;
-            }
-        };
-
-        let dir = tab_configs_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            log::warn!("Failed to create tab_configs dir: {e:?}");
-            return;
-        }
-
-        let saved_config_path =
-            find_unused_toml_path(&dir, &sanitize_toml_base_name(&repo_display_name));
-        if let Err(e) = std::fs::write(&saved_config_path, &toml_content) {
-            log::warn!("Failed to write worktree tab config to {saved_config_path:?}: {e:?}");
-            return;
-        }
-
-        log::info!(
-            "Saved default worktree config to {saved_config_path:?}: config_name={:?}",
-            tab_config.name
-        );
-
-        let param_values = tab_config.default_param_values();
-        log::info!("Opening tab from saved worktree config");
-        self.open_tab_config_with_params(tab_config, param_values, Some(&branch_name), ctx);
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn open_worktree_in_repo(&mut self, _repo_path: String, _ctx: &mut ViewContext<Self>) {}
-
-    /// Opens a native folder picker to add a new repo to PersistedWorkspace,
-    /// triggered from the "+ Add new repo..." item in the New worktree config submenu.
-    fn open_folder_picker_for_worktree_submenu(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.open_file_picker(
-            move |result, ctx| {
-                let Ok(paths) = result else { return };
-                let Some(path) = paths.into_iter().next() else {
-                    return;
-                };
-                let path_buf: PathBuf = path.into();
-                PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                    persisted.user_added_workspace(path_buf, ctx);
-                });
-            },
-            warpui::platform::FilePickerConfiguration::new().folders_only(),
-        );
     }
 
     fn handle_welcome_tips_event(&mut self, event: &TipsEvent, ctx: &mut ViewContext<Self>) {
@@ -11932,23 +11120,6 @@ impl TypedActionView for Workspace {
             SelectTabConfig(tab_config) => {
                 self.open_tab_config(tab_config.clone(), ctx);
             }
-            OpenNewWorktreeModal => {
-                let cwd = self
-                    .active_session_view(ctx)
-                    .and_then(|view| view.as_ref(ctx).pwd())
-                    .map(PathBuf::from);
-                self.new_worktree_modal.view.update(ctx, |modal, ctx| {
-                    modal.body().update(ctx, |body, ctx| {
-                        body.on_open(cwd, ctx);
-                    });
-                });
-                self.new_worktree_modal.open();
-                self.current_workspace_state.is_new_worktree_modal_open = true;
-                ctx.notify();
-            }
-            OpenNewWorktreeRepoPicker => {
-                self.open_repo_picker_for_new_worktree_modal(ctx);
-            }
             OpenTabConfigErrorFile {
                 #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
                 path,
@@ -12044,13 +11215,6 @@ impl TypedActionView for Workspace {
             OpenSettingsFile => {
                 let path = crate::settings::user_preferences_toml_file_path();
                 self.add_tab_for_code_file(path, None, ctx);
-            }
-            OpenWorktreeInRepo { repo_path } => {
-                self.open_worktree_in_repo(repo_path.clone(), ctx);
-            }
-            OpenWorktreeAddRepoPicker => {
-                self.close_new_session_dropdown_menu(ctx);
-                self.open_folder_picker_for_worktree_submenu(ctx);
             }
             CopyVersion(version) => self.copy_version(version, ctx),
             ConfigureKeybindingSettings { keybinding_name } => {
@@ -13048,56 +12212,6 @@ impl View for Workspace {
                 }
             }
 
-            // Sidecar menu for submenu parents (New worktree config).
-            if self.show_new_session_sidecar {
-                let anchor_label = self.new_session_dropdown_menu.read(app, |menu, _| {
-                    menu.hovered_index().and_then(|idx| {
-                        menu.items().get(idx).and_then(|item| match item {
-                            MenuItem::Item(fields) => Some(fields.label().to_string()),
-                            _ => None,
-                        })
-                    })
-                });
-
-                if let Some(anchor_label) = anchor_label {
-                    let sidecar_element = SavePosition::new(
-                        ChildView::new(&self.new_session_sidecar_menu).finish(),
-                        NEW_SESSION_SIDECAR_POSITION_ID,
-                    )
-                    .finish();
-
-                    let render_left = self.should_render_sidecar_left(
-                        &anchor_label,
-                        NEW_SESSION_SIDECAR_WIDTH,
-                        app,
-                    );
-                    let (offset, parent_anchor, child_anchor) = if render_left {
-                        (
-                            vec2f(-4., 0.),
-                            PositionedElementAnchor::TopLeft,
-                            ChildAnchor::TopRight,
-                        )
-                    } else {
-                        (
-                            vec2f(4., 0.),
-                            PositionedElementAnchor::TopRight,
-                            ChildAnchor::TopLeft,
-                        )
-                    };
-
-                    stack.add_positioned_overlay_child(
-                        sidecar_element,
-                        OffsetPositioning::offset_from_save_position_element(
-                            anchor_label,
-                            offset,
-                            PositionedElementOffsetBounds::WindowByPosition,
-                            parent_anchor,
-                            child_anchor,
-                        ),
-                    );
-                }
-            }
-
             // Action sidecar for actionable items (Terminal, Agent, tab configs).
             if let Some(sidecar_item) = &self.tab_config_action_sidecar_item {
                 let anchor_label = self.new_session_dropdown_menu.read(app, |menu, _| {
@@ -13236,10 +12350,6 @@ impl View for Workspace {
 
         if self.session_config_modal.is_open() {
             stack.add_child(self.session_config_modal.render());
-        }
-
-        if self.new_worktree_modal.is_open() {
-            stack.add_child(self.new_worktree_modal.render());
         }
 
         if self.current_workspace_state.is_prompt_editor_open {

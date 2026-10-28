@@ -15,7 +15,7 @@ use warpui::{
     ViewHandle,
 };
 
-use super::session_config::{SessionConfigSelection, is_git_repo};
+use super::session_config::SessionConfigSelection;
 use super::session_config_rendering;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
@@ -37,8 +37,6 @@ const SECTION_GAP: f32 = 16.;
 pub enum SessionConfigModalAction {
     OpenDirectoryPicker,
     DirectorySelected(Result<String, warpui::platform::file_picker::FilePickerError>),
-    ToggleWorktree,
-    ToggleAutogenerateWorktreeBranchName,
     Submit,
     Dismiss,
 }
@@ -50,14 +48,7 @@ pub enum SessionConfigModalEvent {
 
 pub struct SessionConfigModal {
     selected_directory: PathBuf,
-    is_git_repo: bool,
-    enable_worktree: bool,
-    autogenerate_worktree_branch_name: bool,
     directory_button_mouse_state: MouseStateHandle,
-    worktree_checkbox_mouse_state: MouseStateHandle,
-    autogenerate_worktree_branch_name_checkbox_mouse_state: MouseStateHandle,
-    autogenerate_tooltip_mouse_state: MouseStateHandle,
-    worktree_tooltip_mouse_state: MouseStateHandle,
     close_button: ViewHandle<ActionButton>,
     submit_button: ViewHandle<ActionButton>,
 }
@@ -88,38 +79,20 @@ impl SessionConfigModal {
         });
 
         Self {
-            selected_directory: home.clone(),
-            is_git_repo: is_git_repo(&home),
-            enable_worktree: false,
-            autogenerate_worktree_branch_name: false,
+            selected_directory: home,
             directory_button_mouse_state: MouseStateHandle::default(),
-            worktree_checkbox_mouse_state: MouseStateHandle::default(),
-            autogenerate_worktree_branch_name_checkbox_mouse_state: MouseStateHandle::default(),
-            autogenerate_tooltip_mouse_state: MouseStateHandle::default(),
-            worktree_tooltip_mouse_state: MouseStateHandle::default(),
             close_button,
             submit_button,
         }
     }
 
-    pub fn configure(&mut self) {
-        self.is_git_repo = is_git_repo(&self.selected_directory);
-    }
-
     fn update_directory(&mut self, path: PathBuf) {
-        self.is_git_repo = is_git_repo(&path);
-        if !self.is_git_repo {
-            self.enable_worktree = false;
-            self.autogenerate_worktree_branch_name = false;
-        }
         self.selected_directory = path;
     }
 
     fn submit(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.emit(SessionConfigModalEvent::Completed(SessionConfigSelection {
             directory: self.selected_directory.clone(),
-            enable_worktree: self.enable_worktree,
-            autogenerate_worktree_branch_name: self.autogenerate_worktree_branch_name,
         }));
     }
 
@@ -138,7 +111,7 @@ impl SessionConfigModal {
         .finish();
 
         let subtitle_text = "Set up a reusable starting point for your tabs. \
-             Pick a repo, optionally attach a worktree, and \
+             Pick a directory and \
              use it whenever you want to open a new tab with this setup.";
         let subtitle =
             FormattedTextElement::from_str(subtitle_text, appearance.ui_font_family(), 14.)
@@ -158,38 +131,6 @@ impl SessionConfigModal {
             self.directory_button_mouse_state.clone(),
             |ctx, _| {
                 ctx.dispatch_typed_action(SessionConfigModalAction::OpenDirectoryPicker);
-            },
-            appearance,
-        )
-    }
-
-    fn render_checkboxes(&self, appearance: &Appearance) -> Box<dyn Element> {
-        session_config_rendering::render_worktree_checkbox(
-            self.enable_worktree,
-            self.is_git_repo,
-            self.worktree_checkbox_mouse_state.clone(),
-            self.worktree_tooltip_mouse_state.clone(),
-            |ctx, _| {
-                ctx.dispatch_typed_action(SessionConfigModalAction::ToggleWorktree);
-            },
-            appearance,
-        )
-    }
-
-    fn render_autogenerate_worktree_branch_name_checkbox(
-        &self,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        session_config_rendering::render_autogenerate_worktree_branch_name_checkbox(
-            self.autogenerate_worktree_branch_name,
-            self.enable_worktree,
-            self.autogenerate_worktree_branch_name_checkbox_mouse_state
-                .clone(),
-            self.autogenerate_tooltip_mouse_state.clone(),
-            |ctx, _| {
-                ctx.dispatch_typed_action(
-                    SessionConfigModalAction::ToggleAutogenerateWorktreeBranchName,
-                );
             },
             appearance,
         )
@@ -219,17 +160,6 @@ impl View for SessionConfigModal {
         form.add_child(
             Container::new(self.render_directory_section(appearance))
                 .with_margin_top(SECTION_GAP)
-                .finish(),
-        );
-
-        form.add_child(
-            Container::new(self.render_checkboxes(appearance))
-                .with_margin_top(SECTION_GAP)
-                .finish(),
-        );
-        form.add_child(
-            Container::new(self.render_autogenerate_worktree_branch_name_checkbox(appearance))
-                .with_margin_top(8.)
                 .finish(),
         );
 
@@ -297,22 +227,6 @@ impl TypedActionView for SessionConfigModal {
                     log::warn!("File picker error in session config modal: {err}");
                 }
             },
-            SessionConfigModalAction::ToggleWorktree => {
-                if self.is_git_repo {
-                    self.enable_worktree = !self.enable_worktree;
-                    if !self.enable_worktree {
-                        self.autogenerate_worktree_branch_name = false;
-                    }
-                    ctx.notify();
-                }
-            }
-            SessionConfigModalAction::ToggleAutogenerateWorktreeBranchName => {
-                if self.enable_worktree {
-                    self.autogenerate_worktree_branch_name =
-                        !self.autogenerate_worktree_branch_name;
-                    ctx.notify();
-                }
-            }
             SessionConfigModalAction::Submit => {
                 self.submit(ctx);
             }

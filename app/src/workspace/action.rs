@@ -406,18 +406,6 @@ pub enum WorkspaceAction {
         image: lightbox::LightboxImage,
     },
     ShowSessionConfigModal,
-    /// Open the "New worktree" modal for creating a reusable worktree tab config.
-    OpenNewWorktreeModal,
-    /// Open the native folder picker for the repo field in the new-worktree modal.
-    OpenNewWorktreeRepoPicker,
-    /// Create a new worktree in the given repo using the default worktree tab config.
-    /// The branch name is auto-generated.
-    OpenWorktreeInRepo {
-        repo_path: String,
-    },
-    /// Open a folder picker to add a new repo to PersistedWorkspace (from the
-    /// "New worktree config" submenu's "+ Add new repo..." item).
-    OpenWorktreeAddRepoPicker,
     SaveCurrentTabAsNewConfig(usize),
     SyncTrafficLights,
     /// Opens a tab config file in the editor and dismisses the associated error toast.
@@ -580,10 +568,6 @@ impl WorkspaceAction {
             | CopyTextToClipboard(_)
             | CopyCurrentPath
             | OpenTabConfigRepoPicker { .. }
-            | OpenNewWorktreeModal
-            | OpenNewWorktreeRepoPicker
-            | OpenWorktreeInRepo { .. }
-            | OpenWorktreeAddRepoPicker
             | Panic
             | DumpHeapProfile
             | OpenViewTreeDebugWindow

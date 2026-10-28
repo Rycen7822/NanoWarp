@@ -3,15 +3,12 @@ use std::sync::Arc;
 
 use pane_group::{FilePane, PaneState, SplitPaneState, TerminalPaneId};
 #[cfg(feature = "local_fs")]
-use repo_metadata::CanonicalizedPath;
-#[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
 #[cfg(feature = "local_fs")]
 use tempfile::TempDir;
 use terminal::view::ActiveSessionState;
-use warp_editor::editor::NavigationKey;
 #[cfg(feature = "local_fs")]
 use warp_files::FileModel;
 use warpui::platform::WindowStyle;
@@ -36,8 +33,6 @@ use crate::terminal::history::History;
 use crate::terminal::local_tty::spawner::PtySpawner;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseSettings;
-#[cfg(feature = "local_fs")]
-use crate::user_config::tab_configs_dir;
 #[cfg(windows)]
 use crate::util::traffic_lights::windows::RendererState;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
@@ -200,200 +195,6 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
     });
 }
 
-#[cfg(feature = "local_fs")]
-fn open_worktree_sidecar(workspace: &ViewHandle<Workspace>, app: &mut App) {
-    workspace.update(app, |workspace, ctx| {
-        workspace.open_new_session_dropdown_menu(
-            crate::workspace::action::NewSessionMenuAnchor::AddTabButton(Vector2F::zero()),
-            ctx,
-        );
-
-        let worktree_index = workspace
-            .new_session_dropdown_menu
-            .read(ctx, |menu, _| {
-                menu.items().iter().position(|item| {
-                    matches!(
-                        item,
-                        MenuItem::Item(fields) if fields.label() == "New worktree config"
-                    )
-                })
-            })
-            .expect("expected new worktree config item in new-session menu");
-
-        workspace
-            .new_session_dropdown_menu
-            .update(ctx, |menu, view_ctx| {
-                menu.set_selected_by_index(worktree_index, view_ctx);
-            });
-    });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_hover_takes_precedence_over_selection() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let alpha_repo = temp_root.path().join("alpha-repo");
-        let beta_repo = temp_root.path().join("beta-repo");
-        std::fs::create_dir_all(&alpha_repo).expect("failed to create alpha repo dir");
-        std::fs::create_dir_all(&beta_repo).expect("failed to create beta repo dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(alpha_repo.clone(), ctx);
-                persisted.user_added_workspace(beta_repo.clone(), ctx);
-            });
-        });
-
-        open_worktree_sidecar(&workspace, &mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .new_session_sidecar_menu
-                .update(ctx, |menu, view_ctx| {
-                    menu.set_selected_by_index(1, view_ctx);
-                    menu.handle_action(
-                        &crate::menu::MenuAction::HoverSubmenuLeafNode {
-                            depth: 0,
-                            row_index: 2,
-                            position: Vector2F::zero(),
-                        },
-                        view_ctx,
-                    );
-                });
-
-            workspace.handle_new_session_sidecar_event(&MenuEvent::ItemHovered, ctx);
-        });
-
-        workspace.read(&app, |workspace, ctx| {
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                Some(2)
-            );
-        });
-    });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_pointer_entry_does_not_select_top_repo() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let alpha_repo = temp_root.path().join("alpha-repo");
-        let beta_repo = temp_root.path().join("beta-repo");
-        std::fs::create_dir_all(&alpha_repo).expect("failed to create alpha repo dir");
-        std::fs::create_dir_all(&beta_repo).expect("failed to create beta repo dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(alpha_repo.clone(), ctx);
-                persisted.user_added_workspace(beta_repo.clone(), ctx);
-            });
-        });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace.open_new_session_dropdown_menu(
-                crate::workspace::action::NewSessionMenuAnchor::AddTabButton(Vector2F::zero()),
-                ctx,
-            );
-
-            let worktree_index = workspace
-                .new_session_dropdown_menu
-                .read(ctx, |menu, _| {
-                    menu.items().iter().position(|item| {
-                        matches!(
-                            item,
-                            MenuItem::Item(fields) if fields.label() == "New worktree config"
-                        )
-                    })
-                })
-                .expect("expected new worktree config item in new-session menu");
-
-            workspace
-                .new_session_dropdown_menu
-                .update(ctx, |menu, view_ctx| {
-                    menu.handle_action(
-                        &crate::menu::MenuAction::HoverSubmenuWithChildren(
-                            0,
-                            crate::menu::SelectAction::Index {
-                                row: worktree_index,
-                                item: 0,
-                            },
-                        ),
-                        view_ctx,
-                    );
-                });
-            workspace.update_new_session_sidecar(ctx);
-        });
-
-        workspace.read(&app, |workspace, ctx| {
-            assert!(workspace.show_new_session_sidecar);
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                None
-            );
-        });
-    });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_close_via_select_item_executes_from_workspace() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        let _cleanup = TabConfigCleanupGuard::new("alpha-repo");
-
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let alpha_repo = temp_root.path().join("alpha-repo");
-        std::fs::create_dir_all(&alpha_repo).expect("failed to create alpha repo dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(alpha_repo.clone(), ctx);
-            });
-        });
-
-        open_worktree_sidecar(&workspace, &mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .new_session_sidecar_menu
-                .update(ctx, |menu, view_ctx| {
-                    menu.set_selected_by_index(1, view_ctx);
-                });
-            workspace.handle_new_session_sidecar_event(
-                &MenuEvent::Close {
-                    via_select_item: true,
-                },
-                ctx,
-            );
-            workspace.handle_new_session_sidecar_event(&MenuEvent::ItemSelected, ctx);
-        });
-
-        workspace.read(&app, |workspace, _| {
-            assert_eq!(workspace.tab_count(), 2);
-        });
-    });
-}
-
 /// File-opening events preserve the requested line in the code source.
 #[cfg(feature = "local_fs")]
 #[test]
@@ -445,82 +246,6 @@ fn test_open_file_with_target_event_preserves_requested_line() {
             );
         });
     });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_search_editor_enter_executes_selection() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        let _cleanup = TabConfigCleanupGuard::new("alpha-repo");
-
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let alpha_repo = temp_root.path().join("alpha-repo");
-        std::fs::create_dir_all(&alpha_repo).expect("failed to create alpha repo dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(alpha_repo.clone(), ctx);
-            });
-        });
-
-        open_worktree_sidecar(&workspace, &mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .worktree_sidecar_search_editor
-                .update(ctx, |_, ctx| {
-                    ctx.emit(Event::Enter);
-                });
-        });
-
-        workspace.read(&app, |workspace, _| {
-            assert_eq!(workspace.tab_count(), 2);
-            assert!(workspace.show_new_session_dropdown_menu.is_none());
-        });
-    });
-}
-
-/// RAII guard that removes tab config TOML files whose name starts with
-/// `prefix` from `~/.warp/tab_configs/` on drop. Because `Drop` runs even
-/// when a test panics, this prevents stale worktree configs from leaking
-/// into Warp dev.
-#[cfg(feature = "local_fs")]
-struct TabConfigCleanupGuard {
-    prefix: &'static str,
-}
-
-#[cfg(feature = "local_fs")]
-impl TabConfigCleanupGuard {
-    fn new(prefix: &'static str) -> Self {
-        // Eagerly clean up leftovers from any previously-crashed run.
-        Self::clean(prefix);
-        Self { prefix }
-    }
-
-    fn clean(prefix: &str) {
-        let dir = tab_configs_dir();
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if name.starts_with(prefix) && name.ends_with(".toml") {
-                    let _ = std::fs::remove_file(entry.path());
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "local_fs")]
-impl Drop for TabConfigCleanupGuard {
-    fn drop(&mut self) {
-        Self::clean(self.prefix);
-    }
 }
 
 fn get_newly_created_pane_id(panes: &PaneGroup, existing_ids: &[PaneId]) -> PaneId {
@@ -2181,7 +1906,7 @@ fn test_toggle_tab_configs_menu_does_not_change_vertical_tabs_panel_in_horizonta
 }
 
 #[test]
-fn test_unified_new_session_menu_uses_new_worktree_config_label_and_order() {
+fn test_unified_new_session_menu_preserves_new_tab_config_order() {
     let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
 
     App::test((), |mut app| async move {
@@ -2196,8 +1921,6 @@ fn test_unified_new_session_menu_uses_new_worktree_config_label_and_order() {
                 .map(new_session_menu_label)
                 .collect::<Vec<_>>();
 
-            assert!(!labels.iter().any(|label| label == "Worktree in"));
-
             let separator_index = labels
                 .iter()
                 .position(|label| label == "---")
@@ -2205,10 +1928,6 @@ fn test_unified_new_session_menu_uses_new_worktree_config_label_and_order() {
 
             assert_eq!(
                 labels.get(separator_index + 1),
-                Some(&"New worktree config".to_string())
-            );
-            assert_eq!(
-                labels.get(separator_index + 2),
                 Some(&"New tab config".to_string())
             );
         });
@@ -2242,205 +1961,6 @@ fn test_unified_new_session_menu_includes_reopen_closed_session() {
             let menu_items = workspace.unified_new_session_menu_items(ctx);
             let reopen_item = reopen_closed_session_menu_item(&menu_items);
             assert!(!reopen_item.is_disabled());
-        });
-    });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_search_editor_proxies_navigation_and_escape() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let alpha_repo = temp_root.path().join("alpha-repo");
-        let beta_repo = temp_root.path().join("beta-repo");
-        std::fs::create_dir_all(&alpha_repo).expect("failed to create alpha repo dir");
-        std::fs::create_dir_all(&beta_repo).expect("failed to create beta repo dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(alpha_repo.clone(), ctx);
-                persisted.user_added_workspace(beta_repo.clone(), ctx);
-            });
-        });
-
-        open_worktree_sidecar(&workspace, &mut app);
-
-        workspace.read(&app, |workspace, ctx| {
-            assert!(workspace.show_new_session_sidecar);
-            assert!(workspace.worktree_sidecar_search_editor.is_focused(ctx));
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                Some(1)
-            );
-        });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .worktree_sidecar_search_editor
-                .update(ctx, |_, ctx| {
-                    ctx.emit(Event::Navigate(NavigationKey::Down));
-                });
-        });
-        workspace.read(&app, |workspace, ctx| {
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                Some(2)
-            );
-        });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .worktree_sidecar_search_editor
-                .update(ctx, |_, ctx| {
-                    ctx.emit(Event::Navigate(NavigationKey::Up));
-                });
-        });
-        workspace.read(&app, |workspace, ctx| {
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                Some(1)
-            );
-        });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .worktree_sidecar_search_editor
-                .update(ctx, |editor, ctx| {
-                    editor.set_buffer_text("beta", ctx);
-                });
-        });
-        workspace.read(&app, |workspace, ctx| {
-            assert_eq!(workspace.worktree_sidecar_search_query, "beta");
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.items_len()),
-                2
-            );
-            assert_eq!(
-                workspace
-                    .new_session_sidecar_menu
-                    .read(ctx, |menu, _| menu.selected_index()),
-                Some(1)
-            );
-        });
-
-        workspace.update(&mut app, |workspace, ctx| {
-            workspace
-                .worktree_sidecar_search_editor
-                .update(ctx, |_, ctx| {
-                    ctx.emit(Event::Escape);
-                });
-        });
-        workspace.read(&app, |workspace, ctx| {
-            assert!(workspace.show_new_session_dropdown_menu.is_none());
-            assert!(!workspace.show_new_session_sidecar);
-            assert!(workspace.worktree_sidecar_search_query.is_empty());
-            assert!(
-                workspace
-                    .worktree_sidecar_search_editor
-                    .as_ref(ctx)
-                    .buffer_text(ctx)
-                    .is_empty()
-            );
-        });
-    });
-}
-
-#[cfg(feature = "local_fs")]
-#[test]
-fn test_worktree_sidecar_hides_linked_worktrees_from_repo_list() {
-    let _tab_configs_guard = FeatureFlag::TabConfigs.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-        let temp_root = TempDir::new().expect("failed to create temp dir");
-        let main_repo = temp_root.path().join("main-repo");
-        let linked_worktree = temp_root.path().join("linked-worktree");
-        let external_git_dir = main_repo
-            .join(".git")
-            .join("worktrees")
-            .join("linked-worktree");
-
-        std::fs::create_dir_all(&main_repo).expect("failed to create main repo dir");
-        std::fs::create_dir_all(&linked_worktree).expect("failed to create linked worktree dir");
-        std::fs::create_dir_all(&external_git_dir).expect("failed to create external git dir");
-
-        workspace.update(&mut app, |_, ctx| {
-            PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                persisted.user_added_workspace(main_repo.clone(), ctx);
-                persisted.user_added_workspace(linked_worktree.clone(), ctx);
-            });
-
-            let main_repo_canon =
-                CanonicalizedPath::try_from(main_repo.as_path()).expect("canonical main repo");
-            let linked_worktree_canon = CanonicalizedPath::try_from(linked_worktree.as_path())
-                .expect("canonical linked worktree");
-            let external_git_dir_canon = CanonicalizedPath::try_from(external_git_dir.as_path())
-                .expect("canonical external git dir");
-
-            let main_repo_std: warp_util::standardized_path::StandardizedPath =
-                main_repo_canon.into();
-            let linked_worktree_std: warp_util::standardized_path::StandardizedPath =
-                linked_worktree_canon.into();
-            let external_git_dir_std: warp_util::standardized_path::StandardizedPath =
-                external_git_dir_canon.into();
-
-            DetectedRepositories::handle(ctx).update(ctx, |repos, _ctx| {
-                repos.insert_test_repo_root(main_repo_std.clone());
-                repos.insert_test_repo_root(linked_worktree_std.clone());
-            });
-
-            DirectoryWatcher::handle(ctx).update(ctx, |watcher, ctx| {
-                watcher
-                    .add_directory_with_git_dir(main_repo_std, None, ctx)
-                    .expect("register main repo");
-                watcher
-                    .add_directory_with_git_dir(
-                        linked_worktree_std,
-                        Some(external_git_dir_std),
-                        ctx,
-                    )
-                    .expect("register linked worktree");
-            });
-        });
-
-        open_worktree_sidecar(&workspace, &mut app);
-
-        workspace.read(&app, |workspace, ctx| {
-            let labels = workspace.new_session_sidecar_menu.read(ctx, |menu, _| {
-                menu.items()
-                    .iter()
-                    .filter_map(|item| match item {
-                        MenuItem::Item(fields) => Some(fields.label().to_string()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            let home = dirs::home_dir().map(|path| path.display().to_string());
-            let main_repo_label =
-                user_friendly_path(&main_repo.to_string_lossy(), home.as_deref()).into_owned();
-            let linked_worktree_label =
-                user_friendly_path(&linked_worktree.to_string_lossy(), home.as_deref())
-                    .into_owned();
-
-            assert!(labels.iter().any(|label| label == "Search repos"));
-            assert!(labels.iter().any(|label| label == &main_repo_label));
-            assert!(!labels.iter().any(|label| label == &linked_worktree_label));
         });
     });
 }
