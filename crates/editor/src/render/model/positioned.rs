@@ -1,8 +1,6 @@
 //! Utilities for traversing laid-out blocks along with their positioning
 //! information.
 
-use std::sync::Arc;
-
 use string_offset::CharOffset;
 use sum_tree::{Cursor, Dimension};
 use warpui_core::geometry::vector::Vector2F;
@@ -10,8 +8,8 @@ use warpui_core::text_layout::Line;
 use warpui_core::units::{IntoPixels, Pixels};
 
 use super::{
-    BlockItem, BlockSpacing, HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem,
-    LayoutSummary, LineCount, Paragraph, ParagraphBlock, RenderContext, bounds,
+    BlockItem, BlockSpacing, HorizontalRuleConfig, ImageBlockConfig, LayoutSummary, LineCount,
+    Paragraph, ParagraphBlock, RenderContext, bounds,
 };
 use crate::render::layout::line_height;
 
@@ -119,17 +117,6 @@ impl<'a> Positioned<'a, BlockItem> {
             "Must be a temporary block"
         );
         self.position(block)
-    }
-
-    pub fn embedded(
-        &self,
-        embedded_item: &'a Arc<dyn LaidOutEmbeddedItem>,
-    ) -> Positioned<'a, Arc<dyn LaidOutEmbeddedItem>> {
-        debug_assert!(
-            matches!(self.item, BlockItem::Embedded(_)),
-            "Must be an embedded object"
-        );
-        self.position(embedded_item)
     }
 
     pub fn task_list(&self, paragraph: &'a Paragraph) -> Positioned<'a, Paragraph> {

@@ -19,7 +19,6 @@ fn test_search_inline_styles() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "The **first** word, last `word`",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -45,7 +44,6 @@ fn test_search_across_link() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "visit [our website](https://warp.dev) for more",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -70,7 +68,6 @@ fn test_search_longest_match() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "git pull && git log",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -93,12 +90,8 @@ fn test_search_longest_match() {
 #[test]
 fn test_end_of_buffer() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "abc",
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
+        let (buffer, _selection) =
+            Buffer::mock_from_markdown("abc", Box::new(|_, _| IndentBehavior::Ignore), &mut app);
         buffer.read(&app, |buffer, _| {
             assert_matches(
                 buffer,
@@ -144,7 +137,6 @@ fn test_search_non_ascii() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "你好aaaaa\n再見你好",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -190,7 +182,6 @@ fn test_search_non_ascii_case_insensitive() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "CAFÉ café",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -212,7 +203,6 @@ fn test_word_boundaries() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "a cat\nlala\npizza\n***\n* A\n* B",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -242,7 +232,6 @@ fn test_no_match_across_block_items() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "word\n***\nword",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -279,7 +268,6 @@ fn test_block_boundaries_as_whitespace() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "nee\ndle nee\n1. dle\n```rust\nnee\n```\n```sh\ndle\n```",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -338,7 +326,6 @@ fn test_anchors() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "word\nsword\nword\nwords\nword",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );

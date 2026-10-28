@@ -9,7 +9,6 @@ pub mod markdown_parser;
 pub mod weight;
 use itertools::Itertools;
 pub use markdown_parser::{parse_image_prefix, parse_image_run_line, parse_markdown};
-use serde_yaml::Mapping;
 use weight::CustomWeight;
 
 /// Trait for an "action" that can be dispatched via a hyperlink click handler.
@@ -89,7 +88,6 @@ pub enum FormattedTextLine {
     TaskList(FormattedTaskList),
     LineBreak,
     HorizontalRule,
-    Embedded(Mapping),
     Image(FormattedImage),
 }
 
@@ -119,7 +117,7 @@ impl FormattedTextLine {
                 .iter()
                 .map(|fragment| fragment.raw_text())
                 .join(""),
-            Self::LineBreak | Self::HorizontalRule | Self::Embedded(_) => "\n".to_string(),
+            Self::LineBreak | Self::HorizontalRule => "\n".to_string(),
             Self::Image(image) => format!("{}\n", image.alt_text),
         };
         // Each `FormattedTextLine` unit represents a complete line. If it doesn't already end in
@@ -157,11 +155,7 @@ impl FormattedTextLine {
                     fragment.styles.weight = weight;
                 }
             }
-            Self::CodeBlock(_)
-            | Self::LineBreak
-            | Self::HorizontalRule
-            | Self::Embedded(_)
-            | Self::Image(_) => {}
+            Self::CodeBlock(_) | Self::LineBreak | Self::HorizontalRule | Self::Image(_) => {}
         }
         self
     }
@@ -176,7 +170,6 @@ impl FormattedTextLine {
             FormattedTextLine::CodeBlock(_)
             | FormattedTextLine::LineBreak
             | FormattedTextLine::HorizontalRule
-            | FormattedTextLine::Embedded(_)
             | FormattedTextLine::Image(_) => None,
         }
     }
@@ -215,7 +208,6 @@ impl LineCount for FormattedTextLine {
             Self::TaskList(_) => 1,
             Self::LineBreak => 0,
             Self::HorizontalRule => 0,
-            Self::Embedded(_) => 1,
             Self::Image(_) => 1,
         }
     }

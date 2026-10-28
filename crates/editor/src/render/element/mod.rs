@@ -47,7 +47,6 @@ use super::model::{
 use crate::content::version::BufferVersion;
 use crate::editor::EditorView;
 
-pub mod broken_embedding;
 mod empty;
 mod header;
 mod hidden_section;
@@ -906,11 +905,6 @@ impl<V: EditorView> RichTextElement<V> {
                             ctx,
                         )
                         .finish()
-                    }
-                    BlockItem::Embedded(embed) => {
-                        let start_offset = item.block_offset;
-                        let child_model = parent.embedded_item_at(start_offset, ctx);
-                        embed.element(model, item, child_model, ctx)
                     }
                 };
 

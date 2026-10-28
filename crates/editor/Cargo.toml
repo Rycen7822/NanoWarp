@@ -36,7 +36,6 @@ regex-automata.workspace = true
 regex-syntax = "0.8.2"
 urlocator.workspace = true
 serde.workspace = true
-serde_yaml.workspace = true
 string-offset.workspace = true
 sum_tree.workspace = true
 thiserror.workspace = true

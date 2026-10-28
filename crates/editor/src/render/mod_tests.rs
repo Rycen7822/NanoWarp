@@ -341,12 +341,8 @@ struct TestState {
 
 impl TestState {
     async fn new(markdown: &str, app: &mut App) -> Self {
-        let (content, selection) = Buffer::mock_from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            app,
-        );
+        let (content, selection) =
+            Buffer::mock_from_markdown(markdown, Box::new(|_, _| IndentBehavior::Ignore), app);
         let render = app.add_model(|ctx| RenderState::new(TEST_STYLES, false, None, ctx));
 
         let (layout_tx, layout_rx) = async_channel::unbounded();

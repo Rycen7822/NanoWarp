@@ -2,13 +2,12 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Range, Sub, SubAssign};
-use std::sync::Arc;
 
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
 use lazy_static::lazy_static;
 use markdown_parser::markdown_parser::{
-    CODE_BLOCK_DEFAULT_MARKDOWN_LANG, EMBED_BLOCK_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
+    CODE_BLOCK_DEFAULT_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
 };
 use markdown_parser::weight::CustomWeight;
 use markdown_parser::{
@@ -26,7 +25,6 @@ use warpui_core::text::point::Point;
 
 use super::buffer::Buffer;
 use super::core::CursorType;
-use crate::render::model::EmbeddedItem;
 
 pub const CODE_BLOCK_DEFAULT_DISPLAY_LANG: &str = "Code";
 pub const CODE_BLOCK_SHELL_DISPLAY_LANG: &str = "Shell";
@@ -202,9 +200,6 @@ pub enum BlockType {
 #[derive(Clone, Debug)]
 pub enum BufferBlockItem {
     HorizontalRule,
-    Embedded {
-        item: Arc<dyn EmbeddedItem>,
-    },
     Image {
         alt_text: String,
         source: String,
@@ -219,9 +214,6 @@ impl Eq for BufferBlockItem {}
 impl PartialEq for BufferBlockItem {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Embedded { item: left }, Self::Embedded { item: right }) => {
-                left.hashed_id() == right.hashed_id()
-            }
             (Self::HorizontalRule, Self::HorizontalRule) => true,
             (
                 Self::Image {
@@ -243,29 +235,19 @@ impl PartialEq for BufferBlockItem {
 impl BufferBlockItem {
     pub fn content_length(&self) -> usize {
         match self {
-            Self::HorizontalRule | Self::Embedded { .. } | Self::Image { .. } => 1,
+            Self::HorizontalRule | Self::Image { .. } => 1,
         }
     }
 
     pub fn line_count(&self) -> u32 {
         match self {
-            Self::HorizontalRule | Self::Embedded { .. } | Self::Image { .. } => 1,
+            Self::HorizontalRule | Self::Image { .. } => 1,
         }
     }
 
     pub fn as_markdown(&self) -> Cow<'_, str> {
         match &self {
             Self::HorizontalRule => "***".into(),
-            Self::Embedded { item } => {
-                let mapping = item.to_mapping();
-                format!(
-                    "```{}\n{}\n```",
-                    EMBED_BLOCK_MARKDOWN_LANG,
-                    serde_yaml::to_string(&mapping)
-                        .expect("Serde YAML mapping should convert to string")
-                )
-                .into()
-            }
             Self::Image {
                 alt_text,
                 source,
@@ -277,7 +259,6 @@ impl BufferBlockItem {
     pub fn to_formatted_text_line(&self) -> FormattedTextLine {
         match self {
             BufferBlockItem::HorizontalRule => FormattedTextLine::HorizontalRule,
-            BufferBlockItem::Embedded { item } => FormattedTextLine::Embedded(item.to_mapping()),
             BufferBlockItem::Image {
                 alt_text,
                 source,
@@ -292,7 +273,7 @@ impl BufferBlockItem {
 
     pub fn as_plain_text(&self) -> String {
         match self {
-            Self::HorizontalRule | Self::Embedded { .. } | Self::Image { .. } => "\n".to_string(),
+            Self::HorizontalRule | Self::Image { .. } => "\n".to_string(),
         }
     }
 
@@ -395,7 +376,6 @@ impl Display for BufferText {
             Self::BlockItem { item_type } => {
                 let name = match item_type {
                     BufferBlockItem::HorizontalRule => "hr".to_string(),
-                    BufferBlockItem::Embedded { item } => format!("embed_{}", item.hashed_id()),
                     BufferBlockItem::Image {
                         alt_text,
                         source,

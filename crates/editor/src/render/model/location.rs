@@ -184,11 +184,6 @@ impl<'a> Positioned<'a, BlockItem> {
             BlockItem::Header { paragraph, .. } => self
                 .header(paragraph)
                 .coordinate_to_location(self.unpad_x(x), y),
-            BlockItem::Embedded(_) => Location::Block {
-                start_offset: self.start_char_offset,
-                end_offset: self.end_char_offset(),
-                block_type: HitTestBlockType::Embedding,
-            },
             BlockItem::HorizontalRule { .. }
             | BlockItem::Image { .. }
             | BlockItem::TrailingNewLine(_)

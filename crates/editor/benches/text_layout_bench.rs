@@ -65,8 +65,6 @@ fn benchmark_styles(font_family: FamilyId) -> RichTextStyles {
             ..paragraph
         },
         code_background: Fill::None,
-        embedding_background: Fill::None,
-        embedding_text: paragraph,
         code_border: Border::new(0.),
         placeholder_color: white,
         selection_fill: Fill::None,
@@ -116,8 +114,8 @@ fn benchmark_delta(texts: impl IntoIterator<Item = String>) -> (EditDelta, usize
     )
 }
 
-fn layout_delta(delta: &EditDelta, text_layout: &TextLayout<'_>, app: &warpui_core::AppContext) {
-    black_box(delta.layout_delta(text_layout, None, None, app));
+fn layout_delta(delta: &EditDelta, text_layout: &TextLayout<'_>) {
+    black_box(delta.layout_delta(text_layout, None, None));
 }
 
 fn text_layout_benchmarks(criterion: &mut Criterion) {
@@ -149,7 +147,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                 &test_styles,
                 f32::MAX,
             );
-            layout_delta(&test_delta, &test_text_layout, ctx);
+            layout_delta(&test_delta, &test_text_layout);
             #[cfg(target_os = "macos")]
             {
                 let core_text_layout = TextLayout::new(
@@ -157,7 +155,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                     &core_text_styles,
                     f32::MAX,
                 );
-                layout_delta(&core_text_delta, &core_text_layout, ctx);
+                layout_delta(&core_text_delta, &core_text_layout);
             }
             {
                 let mut group = criterion.benchmark_group("editor_text_layout/test_backend");
@@ -169,7 +167,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                             &test_styles,
                             f32::MAX,
                         );
-                        layout_delta(&test_delta, &text_layout, ctx)
+                        layout_delta(&test_delta, &text_layout)
                     })
                 });
                 group.finish();
@@ -185,7 +183,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                             &core_text_styles,
                             f32::MAX,
                         );
-                        layout_delta(&core_text_delta, &text_layout, ctx)
+                        layout_delta(&core_text_delta, &text_layout)
                     })
                 });
                 group.finish();

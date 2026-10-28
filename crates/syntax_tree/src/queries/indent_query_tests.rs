@@ -52,7 +52,6 @@ fn test_indent_query() {
         buffer_handle.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 text_content,
-                None,
                 Box::new(|_, _| IndentBehavior::Ignore),
                 selection,
                 ctx,
@@ -149,7 +148,6 @@ fn test_indent_query_on_go() {
         buffer_handle.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 text_content,
-                None,
                 Box::new(|_, _| IndentBehavior::Ignore),
                 selection,
                 ctx,

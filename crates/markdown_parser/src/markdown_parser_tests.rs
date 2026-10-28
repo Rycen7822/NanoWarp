@@ -1,6 +1,5 @@
 use nom::Finish;
 use nom::error::{VerboseError, convert_error};
-use serde_yaml::Mapping;
 
 use super::*;
 use crate::{CustomWeight, FormattedTextStyles};
@@ -1879,29 +1878,7 @@ fn test_parse_escapes_inline() {
 }
 
 #[test]
-fn test_parse_embedded() {
-    assert_eq!(
-        test_parse_markdown("```warp-embedded-object\nid: workflow-123\n```"),
-        vec![FormattedTextLine::Embedded(Mapping::from_iter([(
-            Value::String("id".to_string()),
-            Value::String("workflow-123".to_string())
-        )]))]
-    );
-
-    assert_eq!(
-        test_parse_markdown("```warp-embedded-object\nid: notebook-123\ntype: notebook\n```"),
-        vec![FormattedTextLine::Embedded(Mapping::from_iter([
-            (
-                Value::String("id".to_string()),
-                Value::String("notebook-123".to_string())
-            ),
-            (
-                Value::String("type".to_string()),
-                Value::String("notebook".to_string())
-            )
-        ]))]
-    );
-
+fn test_parse_unknown_code_fence() {
     // Fallback to code block.
     assert_eq!(
         test_parse_markdown("```warp-embedded-object\ncargo run --features abc\n```"),

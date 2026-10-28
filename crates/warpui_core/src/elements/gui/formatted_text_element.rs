@@ -1635,7 +1635,6 @@ impl From<&FormattedTextLine> for LineType {
             FormattedTextLine::CodeBlock(_) => LineType::CodeBlock,
             FormattedTextLine::LineBreak
             | FormattedTextLine::HorizontalRule
-            | FormattedTextLine::Embedded(_)
             | FormattedTextLine::Image(_) => LineType::LineBreak,
         }
     }
@@ -1711,7 +1710,6 @@ impl Element for FormattedTextElement {
                 }
                 FormattedTextLine::LineBreak
                 | FormattedTextLine::HorizontalRule
-                | FormattedTextLine::Embedded(_)
                 | FormattedTextLine::Image(_) => (self.font_size, &res, 0, LineType::LineBreak),
             };
 

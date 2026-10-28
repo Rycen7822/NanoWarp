@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use rangemap::RangeSet;
 use string_offset::CharOffset;
 use warp_editor::content::version::BufferVersion;
-use warp_editor::editor::{EmbeddedItemModel, RunnableCommandModel, TextDecoration};
+use warp_editor::editor::{RunnableCommandModel, TextDecoration};
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
 use warp_editor::render::element::RichTextAction;
 use warp_editor::render::model::{ExpansionType, LineCount, Location};
@@ -1018,14 +1018,6 @@ impl warp_editor::editor::EditorView for CodeEditorView {
         _block_offset: CharOffset,
         _ctx: &'a AppContext,
     ) -> Option<&'a dyn RunnableCommandModel> {
-        None
-    }
-
-    fn embedded_item_at<'a>(
-        &self,
-        _block_offset: CharOffset,
-        _ctx: &'a AppContext,
-    ) -> Option<&'a dyn EmbeddedItemModel> {
         None
     }
 

@@ -116,7 +116,6 @@ impl Describe for BlockItem {
             BlockItem::HorizontalRule(_) => f.write_str("Horizontal Rule")?,
             BlockItem::Image { alt_text, .. } => write!(f, "Image: {alt_text}")?,
             BlockItem::TrailingNewLine(_) => f.write_str("Trailing Newline")?,
-            BlockItem::Embedded(_) => f.write_str("Embedded Item")?,
             BlockItem::Hidden { .. } => f.write_str("Hidden")?,
         }
 

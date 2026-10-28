@@ -9,21 +9,19 @@ use markdown_parser::{
 use pathfinder_color::ColorU;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use serde_yaml::{Mapping, Value};
 use string_offset::{ByteOffset, CharOffset};
 use vec1::{Vec1, vec1};
 use warp_util::content_version::ContentVersion;
 use warpui_core::elements::ListIndentLevel;
 use warpui_core::text::point::Point;
-use warpui_core::{App, AppContext, ModelContext, ModelHandle};
+use warpui_core::{App, ModelContext, ModelHandle};
 
 use super::{BufferEvent, EditResult, ToBufferCharOffset};
 use crate::content::anchor::AnchorSide;
 use crate::content::buffer::{
     ActionWithSelectionDelta, AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction,
-    EditOrigin, EmbeddedItemConversion, SelectionOffsets, StyledBlockBoundaryBehavior,
-    StyledBufferBlock, StyledBufferRun, StyledTextBlock, TabIndentation, ToBufferByteOffset,
-    ToBufferPoint,
+    EditOrigin, SelectionOffsets, StyledBlockBoundaryBehavior, StyledBufferBlock, StyledBufferRun,
+    StyledTextBlock, TabIndentation, ToBufferByteOffset, ToBufferPoint,
 };
 use crate::content::core::{CoreEditorAction, CoreEditorActionType};
 use crate::content::cursor::BufferSumTree;
@@ -37,31 +35,7 @@ use crate::content::text::{
 use crate::content::undo::{
     NonAtomicType, ReversibleEditorActions, ReversibleSelectionState, UndoActionType, UndoArg,
 };
-use crate::render::layout::TextLayout;
-use crate::render::model::{EmbeddedItem, LaidOutEmbeddedItem, RenderedSelectionSet};
-
-#[derive(Debug)]
-pub struct TestEmbeddedItem {
-    pub(crate) id: String,
-}
-
-impl EmbeddedItem for TestEmbeddedItem {
-    // We don't need to implement this for testing.
-    fn layout(&self, _: &TextLayout, _: &AppContext) -> Box<dyn LaidOutEmbeddedItem> {
-        unimplemented!()
-    }
-
-    fn to_mapping(&self) -> Mapping {
-        Mapping::from_iter([(
-            Value::String("id".to_string()),
-            Value::String(self.hashed_id().to_string()),
-        )])
-    }
-
-    fn hashed_id(&self) -> &str {
-        self.id.as_str()
-    }
-}
+use crate::render::model::RenderedSelectionSet;
 
 fn set_selections<T: Into<CharOffset>>(
     selection_model: &mut BufferSelectionModel,
@@ -158,7 +132,6 @@ impl Buffer {
 
     pub fn mock_from_markdown(
         markdown: &str,
-        embedded_item_conversion: Option<EmbeddedItemConversion>,
         tab_indentation: TabIndentation,
         ctx: &mut App,
     ) -> (ModelHandle<Self>, ModelHandle<BufferSelectionModel>) {
@@ -167,7 +140,6 @@ impl Buffer {
         let selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(ctx, |buffer, ctx| {
-            buffer.embedded_item_conversion = embedded_item_conversion;
             if !text.lines.is_empty() {
                 buffer.apply_formatted_edit_fixture(
                     CharOffset::zero()..CharOffset::from(1),
@@ -2565,7 +2537,6 @@ fn test_empty_plain_text_initialization_and_replace_all() {
         buffer.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 "",
-                None,
                 Box::new(|_, _| IndentBehavior::Ignore),
                 selection.clone(),
                 ctx,
@@ -2598,7 +2569,6 @@ fn test_empty_plain_text_initialization_and_replace_all() {
         buffer.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 "has text",
-                None,
                 Box::new(|_, _| IndentBehavior::Ignore),
                 selection.clone(),
                 ctx,
@@ -3270,7 +3240,6 @@ fn test_enter_at_block_start() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "Text\n3. List\nText\n# Heading",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3352,7 +3321,6 @@ fn test_enter_at_code_block_start() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "```\nThis is code\nMore code\n```\nText",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3436,7 +3404,6 @@ fn test_enter_at_starting_styled_block() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "# Initial heading\nText",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3494,7 +3461,6 @@ fn test_enter_at_starting_plain_text() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "example",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3557,7 +3523,6 @@ fn test_enter_at_start_of_empty_text() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "* list\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3706,7 +3671,6 @@ fn test_newline_at_empty_list() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "* First\n    * \n* Second",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -3748,7 +3712,6 @@ fn test_newline_at_code_block_start() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "Test\n```\necho hello\n```\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -6675,7 +6638,6 @@ fn test_insert_link_at_end_of_line() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "* [test](link)\n```\nabc\n```\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -6694,7 +6656,6 @@ fn test_invalidate_content() {
     App::test((), |mut app| async move {
         let (buffer, _selection) = Buffer::mock_from_markdown(
             "* \nabc",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -8085,90 +8046,6 @@ fn test_deletion_range_include_block_marker_should_not_leak_style() {
 }
 
 #[test]
-fn test_insert_embedding() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "",
-            Some(
-                |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
-                    Some(Value::String(hashed_id)) => {
-                        Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
-                    }
-                    _ => None,
-                },
-            ),
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_formatted_edit_fixture(
-                CharOffset::from(7)..CharOffset::from(7),
-                FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
-                    Value::String("id".to_string()),
-                    Value::String("workflow-123".to_string()),
-                )]))]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before<embed_workflow-123><text>After"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Before\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(7)
-                    }),
-                    StyledBufferBlock::Item(BufferBlockItem::Embedded {
-                        item: Arc::new(TestEmbeddedItem {
-                            id: "workflow-123".to_string()
-                        })
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Before\\nAfter");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before<embed_workflow-123><text>After"
-            );
-        });
-    });
-}
-
-#[test]
 fn test_styled_blocks_from_buffer_start() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
@@ -8896,7 +8773,6 @@ fn test_multiselect_enter_at_block_start() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "Text\n3. List\n4. Next\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -8922,7 +8798,6 @@ fn test_multiselect_enter_at_code_block_start() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "```\nThis is code\n```\n```\nMore code\n```",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -8952,7 +8827,6 @@ fn test_multiselect_enter_at_code_block() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "* Hey\n```\nThis is code\n```\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -8984,7 +8858,6 @@ fn test_multiselect_enter_in_code_block_and_list() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "* Hey\n```\nThis is code\n```\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -9091,7 +8964,6 @@ fn test_multiselect_copy_blocks() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "* Hey\n* You\n* Guys\nText\n```\nThis is code\n```\n",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -9129,7 +9001,6 @@ fn test_multiselect_indent_unindent() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "hey\nthere\n- hey\n- there\nhey\nthere",
-            None,
             Box::new(|block_style, shift| match block_style {
                 BufferBlockStyle::UnorderedList { indent_level } if !shift => {
                     IndentBehavior::Restyle(BufferBlockStyle::UnorderedList {
@@ -9194,7 +9065,6 @@ fn test_selection_collapsing() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "hey\nthere\nyou",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -9345,7 +9215,6 @@ fn test_update_selection_same_range() {
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "hello world",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -10101,7 +9970,6 @@ fn test_from_plain_text() {
         buffer.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 "Hello\nWorld",
-                None,
                 Box::new(|_, _| IndentBehavior::Ignore),
                 selection.clone(),
                 ctx,

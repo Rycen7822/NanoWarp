@@ -1,5 +1,4 @@
 use core::slice;
-use std::any::Any;
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
@@ -13,7 +12,6 @@ use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
 use rangemap::RangeSet;
 use serde::{Deserialize, Serialize};
-use serde_yaml::Mapping;
 use string_offset::{CharOffset, impl_offset};
 use sum_tree::{SeekBias, SumTree};
 use vec1::Vec1;
@@ -49,7 +47,6 @@ use self::viewport::{
     ScrollPositionSnapshot, SizeInfo, ViewportItem, ViewportIterator, ViewportState,
 };
 use super::BLOCK_FOOTER_HEIGHT;
-use super::element::broken_embedding::RenderableBrokenEmbedding;
 use super::element::{CursorData, RenderContext, RenderableBlock};
 use super::layout::{TextLayout, line_height};
 use crate::content::edit::{
@@ -58,7 +55,6 @@ use crate::content::edit::{
 use crate::content::hidden_lines_model::HiddenLinesModel;
 use crate::content::text::{BlockHeaderSize, BufferBlockStyle, CodeBlockType};
 use crate::content::version::BufferVersion;
-use crate::editor::EmbeddedItemModel;
 use crate::render::model::debug::Describe;
 
 pub mod bounds;
@@ -84,8 +80,6 @@ const AUTO_SCROLL_MARGIN: f32 = 12.;
 /// The minimum height of a paragraph, not including padding or margins.
 pub const PARAGRAPH_MIN_HEIGHT: Pixels = Pixels::new(24.);
 
-pub const EMBEDDED_ITEM_FIRST_LINE_HEIGHT: f32 = 24.;
-
 pub const TEXT_SPACING: BlockSpacing = BlockSpacing {
     margin: Margin::uniform(0.).with_right(16.),
     padding: Padding::uniform(0.),
@@ -102,19 +96,6 @@ pub const COMMAND_SPACING: BlockSpacing = BlockSpacing {
         .with_top(16.)
         // Reserve space for the buttons.
         .with_bottom(BLOCK_FOOTER_HEIGHT),
-};
-
-pub const BROKEN_LINK_SPACING: BlockSpacing = BlockSpacing {
-    margin: Margin::uniform(0.)
-        .with_top(8.)
-        .with_left(4.)
-        .with_bottom(8.)
-        .with_right(16.),
-    padding: Padding::uniform(0.)
-        .with_left(12.)
-        .with_top(18.)
-        .with_bottom(18.)
-        .with_right(8.),
 };
 
 pub const HEADER_SPACING: BlockSpacing = BlockSpacing {
@@ -176,7 +157,6 @@ pub enum WidthSetting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HitTestBlockType {
     Code,
-    Embedding,
 }
 
 #[derive(Debug)]
@@ -366,10 +346,6 @@ pub struct RichTextStyles {
     pub code_text: ParagraphStyles,
     /// The background fill to use for code blocks.
     pub code_background: Fill,
-    /// The background fill to use for embeddings.
-    pub embedding_background: Fill,
-    /// The text styles to use for embeddings.
-    pub embedding_text: ParagraphStyles,
     /// The border to use for code blocks.
     pub code_border: Border,
     /// The color to use for placeholder text.
@@ -623,7 +599,6 @@ pub enum BlockItem {
         header_size: BlockHeaderSize,
         paragraph: Paragraph,
     },
-    Embedded(Arc<dyn LaidOutEmbeddedItem>),
     HorizontalRule(HorizontalRuleConfig),
     Image {
         alt_text: String,
@@ -633,30 +608,6 @@ pub enum BlockItem {
     },
     TrailingNewLine(Cursor),
     Hidden(HiddenBlockConfig),
-}
-
-pub trait EmbeddedItem: std::fmt::Debug + Send + Sync {
-    // Layout the embedded item with the current text layout context.
-    fn layout(&self, text_layout: &TextLayout, app: &AppContext) -> Box<dyn LaidOutEmbeddedItem>;
-    fn hashed_id(&self) -> &str;
-    /// Serializes this item as YAML, using IDs for references.
-    fn to_mapping(&self) -> Mapping;
-}
-
-pub trait LaidOutEmbeddedItem: std::fmt::Debug + Send + Sync {
-    fn height(&self) -> Pixels;
-    fn size(&self) -> Vector2F;
-    fn first_line_bound(&self) -> Vector2F;
-    fn element(
-        &self,
-        state: &RenderState,
-        viewport_item: ViewportItem,
-        model: Option<&dyn EmbeddedItemModel>,
-        ctx: &AppContext,
-    ) -> Box<dyn RenderableBlock>;
-    fn spacing(&self) -> BlockSpacing;
-    /// Returns this object as a ref to the Any type.  Needed for typecasts.
-    fn as_any(&self) -> &dyn Any;
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -1675,7 +1626,6 @@ impl RenderState {
             &layout_context,
             self.document_path.as_deref(),
             hidden_ranges.clone(),
-            app,
         );
         self.layout_pending_edit(laid_out_edit, hidden_ranges);
     }
@@ -2553,9 +2503,6 @@ impl RichTextStyles {
         self.base_text.requires_relayout(&new_styles.base_text)
             || self.code_text.requires_relayout(&new_styles.code_text)
             || self
-                .embedding_text
-                .requires_relayout(&new_styles.embedding_text)
-            || self
                 .inline_code_style
                 .requires_relayout(&new_styles.inline_code_style)
             || self.minimum_paragraph_height != new_styles.minimum_paragraph_height
@@ -2636,7 +2583,6 @@ impl BlockItem {
             BlockItem::TrailingNewLine(cursor) => cursor.height.as_f32(),
             BlockItem::HorizontalRule(config) => config.line_height.as_f32(),
             BlockItem::Image { config, .. } => config.height.as_f32(),
-            BlockItem::Embedded(embedded_item) => embedded_item.height().as_f32(),
             BlockItem::Hidden(config) => config.height().as_f32(),
         }
     }
@@ -2658,7 +2604,6 @@ impl BlockItem {
             BlockItem::TrailingNewLine(cursor) => cursor.spacing(),
             BlockItem::HorizontalRule(config) => config.spacing,
             BlockItem::Image { config, .. } => config.spacing,
-            BlockItem::Embedded(embedded_item) => embedded_item.spacing(),
             BlockItem::Hidden { .. } => BlockSpacing::default(),
         }
     }
@@ -2690,7 +2635,6 @@ impl BlockItem {
                 }
                 height
             }
-            BlockItem::Embedded(embedded_item) => embedded_item.height(),
             BlockItem::HorizontalRule(rule) => rule.line_height,
             BlockItem::Image { config, .. } => config.height,
             BlockItem::Hidden(config) => config.height(),
@@ -2712,7 +2656,6 @@ impl BlockItem {
                 paragraph_block, ..
             } => paragraph_block.width(),
             BlockItem::TrailingNewLine(cursor) => cursor.width,
-            BlockItem::Embedded(object) => object.size().x().into_pixels(),
             BlockItem::HorizontalRule(rule) => rule.width,
             BlockItem::Image { config, .. } => config.width,
             BlockItem::Hidden(_) => MIN_HIDDEN_BLOCK_WIDTH,
@@ -2741,7 +2684,6 @@ impl BlockItem {
             } => paragraph_block.content_length(),
             BlockItem::TemporaryBlock { .. } => CharOffset::zero(),
             BlockItem::TrailingNewLine(_)
-            | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. } => CharOffset::from(1),
             BlockItem::Hidden(config) => config.content_length(),
@@ -2761,7 +2703,6 @@ impl BlockItem {
             } => paragraph_block.lines(),
             BlockItem::TemporaryBlock { .. } => LineCount(0),
             BlockItem::TrailingNewLine(_)
-            | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. } => LineCount(1),
             BlockItem::Hidden(config) => config.line_count(),
@@ -2781,9 +2722,8 @@ impl BlockItem {
             BlockItem::RunnableCodeBlock {
                 paragraph_block, ..
             } => paragraph_block.is_empty(),
-            // Embeds, images, and horizontal rules are never empty.
-            BlockItem::Embedded(_)
-            | BlockItem::HorizontalRule(_)
+            // Images and horizontal rules are never empty.
+            BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. } => false,
             // The trailing newline placeholder and hidden blocks are always considered empty.
@@ -2839,7 +2779,6 @@ impl Positioned<'_, BlockItem> {
                     })
             }
             BlockItem::TrailingNewLine(_)
-            | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. }
@@ -2887,7 +2826,6 @@ impl Positioned<'_, BlockItem> {
                     )
             }
             BlockItem::TrailingNewLine(_)
-            | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
             | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. }
@@ -2943,10 +2881,6 @@ impl Positioned<'_, BlockItem> {
                     vec2f(config.width.as_f32(), config.height.as_f32()),
                 ))
             }
-            BlockItem::Embedded(embedded_item) => {
-                let origin = self.content_origin();
-                Some(RectF::new(origin, embedded_item.size()))
-            }
             BlockItem::TemporaryBlock { .. } | BlockItem::Hidden { .. } => None,
         }
     }
@@ -2986,10 +2920,6 @@ impl Positioned<'_, BlockItem> {
             BlockItem::Image { config, .. } => {
                 let origin = self.content_origin();
                 RectF::new(origin, vec2f(config.width.as_f32(), config.height.as_f32()))
-            }
-            BlockItem::Embedded(embedded_item) => {
-                let origin = self.visible_origin();
-                RectF::new(origin, embedded_item.first_line_bound())
             }
             BlockItem::TemporaryBlock { .. } | BlockItem::Hidden { .. } => return None,
         };
@@ -3841,58 +3771,6 @@ impl Decoration {
 
     pub fn with_dashed_underline(mut self, color: ColorU) -> Self {
         self.dashed_underline = Some(color);
-        self
-    }
-}
-
-#[derive(Debug)]
-pub struct BrokenBlockEmbedding {
-    width: Pixels,
-    height: Pixels,
-}
-
-impl BrokenBlockEmbedding {
-    pub fn new(width: Pixels, font_size: f32) -> Self {
-        Self {
-            width,
-            height: (font_size + 2.).into_pixels(),
-        }
-    }
-}
-
-impl LaidOutEmbeddedItem for BrokenBlockEmbedding {
-    fn height(&self) -> Pixels {
-        self.height
-    }
-
-    fn size(&self) -> Vector2F {
-        vec2f(self.width.as_f32(), self.height().as_f32())
-    }
-
-    fn first_line_bound(&self) -> Vector2F {
-        vec2f(self.width.as_f32(), EMBEDDED_ITEM_FIRST_LINE_HEIGHT)
-    }
-
-    fn element(
-        &self,
-        state: &RenderState,
-        viewport_item: ViewportItem,
-        model: Option<&dyn EmbeddedItemModel>,
-        ctx: &AppContext,
-    ) -> Box<dyn RenderableBlock> {
-        Box::new(RenderableBrokenEmbedding::new(
-            viewport_item,
-            state.styles(),
-            model,
-            ctx,
-        ))
-    }
-
-    fn spacing(&self) -> BlockSpacing {
-        BROKEN_LINK_SPACING
-    }
-
-    fn as_any(&self) -> &dyn Any {
         self
     }
 }

@@ -265,7 +265,6 @@ fn test_layout_delta_never_takes_ownership_of_new_lines_with_multiple_owners() {
                 &text_layout,
                 None,
                 None,
-                ctx,
             );
             assert_eq!(laid_out_a.laid_out_line.len(), 1);
             assert_eq!(
@@ -278,7 +277,6 @@ fn test_layout_delta_never_takes_ownership_of_new_lines_with_multiple_owners() {
                 &text_layout,
                 None,
                 None,
-                ctx,
             );
             assert_eq!(laid_out_b.laid_out_line.len(), 1);
             assert_eq!(
@@ -634,7 +632,7 @@ fn test_layout_delta_chunk_boundary_preserves_order_hidden_collapsing_and_traili
                 ..Default::default()
             };
 
-            let laid_out = delta.layout_delta(&text_layout, None, Some(hidden_ranges), ctx);
+            let laid_out = delta.layout_delta(&text_layout, None, Some(hidden_ranges));
 
             // The contiguous hidden run should collapse into exactly one BlockItem::Hidden.
             let expected_len = HIDDEN_START + 1 + (TOTAL_BLOCKS - HIDDEN_END);
@@ -711,7 +709,7 @@ fn test_layout_delta_single_chunk_matches_direct_layout() {
                 ..Default::default()
             };
 
-            let laid_out = delta.layout_delta(&text_layout, None, None, ctx);
+            let laid_out = delta.layout_delta(&text_layout, None, None);
 
             assert_eq!(laid_out.laid_out_line.len(), 3);
             assert_eq!(
@@ -815,7 +813,6 @@ fn test_layout_delta_block_location_is_global_across_chunk_boundaries() {
                 &text_layout,
                 None,
                 Some(hidden_ranges),
-                ctx,
             );
 
             // No collapsing occurred, so output indices line up with input indices.
@@ -915,7 +912,6 @@ fn test_layout_delta_trailing_newline_carries_over_when_final_chunk_fully_fails(
                 &text_layout,
                 None,
                 None,
-                ctx,
             );
 
             // Every task in the final chunk failed and was dropped.

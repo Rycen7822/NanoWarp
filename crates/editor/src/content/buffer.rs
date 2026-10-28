@@ -16,7 +16,6 @@ use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
-use serde_yaml::Mapping;
 use string_offset::{ByteOffset, CharOffset};
 use sum_tree::{SeekBias, SumTree};
 use vec1::{Vec1, vec1};
@@ -49,9 +48,7 @@ use crate::content::text::{ColorMarker, IndentUnit};
 use crate::content::undo::{ReversibleEditorActions, ReversibleSelectionState};
 use crate::content::version::BufferVersion;
 use crate::multiline::{self, AnyMultilineString, LF, MultilineString};
-use crate::render::model::{
-    EmbeddedItem, RenderedSelection, RenderedSelectionBias, RenderedSelectionSet,
-};
+use crate::render::model::{RenderedSelection, RenderedSelectionBias, RenderedSelectionSet};
 
 #[derive(Default, Clone, Debug)]
 pub enum AutoScrollBehavior {
@@ -393,7 +390,6 @@ impl ActionWithSelectionDelta {
     }
 }
 
-type EmbeddedItemConversion = fn(mapping: Mapping) -> Option<Arc<dyn EmbeddedItem>>;
 type TabIndentation = Box<dyn Fn(&BufferBlockStyle, bool) -> IndentBehavior>;
 
 /// An immutable, cheaply cloneable snapshot of a buffer's content at a point in time.
@@ -435,7 +431,6 @@ pub struct Buffer {
     /// of the buffer module.
     pub(super) internal_anchors: Anchors,
     pub(super) undo_stack: UndoStack,
-    pub(super) embedded_item_conversion: Option<EmbeddedItemConversion>,
     pub(super) tab_indentation: TabIndentation,
     /// Note that content_version is different from buffer_version. Content version is used to uniquely
     /// track each user edited buffer content version. Whereas buffer version represent a unique buffer state
@@ -466,7 +461,6 @@ impl Default for Buffer {
             undo_stack: UndoStack::new(30, version),
             internal_anchors: Anchors::new(),
             content,
-            embedded_item_conversion: None,
             tab_indentation: Box::new(|_, _| IndentBehavior::Ignore),
             content_version: version,
             version: BufferVersion::new(),
@@ -510,21 +504,6 @@ impl Buffer {
         }
 
         delta == prefix_char_count
-    }
-
-    pub fn with_embedded_item_conversion(
-        mut self,
-        embedded_item_conversion: EmbeddedItemConversion,
-    ) -> Self {
-        self.embedded_item_conversion = Some(embedded_item_conversion);
-        self
-    }
-
-    pub fn set_embedded_item_conversion(
-        &mut self,
-        embedded_item_conversion: EmbeddedItemConversion,
-    ) {
-        self.embedded_item_conversion = Some(embedded_item_conversion);
     }
 
     pub fn set_tab_indentation(&mut self, tab_indentation: TabIndentation) {
@@ -622,7 +601,6 @@ impl Buffer {
         Self {
             content,
             undo_stack: UndoStack::new(30, version),
-            embedded_item_conversion: None,
             tab_indentation: Box::new(|_, _| IndentBehavior::Ignore),
             content_version: version,
             internal_anchors: Anchors::new(),
@@ -645,13 +623,11 @@ impl Buffer {
 
     pub fn from_plain_text(
         text: &str,
-        embedded_item_conversion: Option<EmbeddedItemConversion>,
         tab_indentation: TabIndentation,
         selection_model: ModelHandle<BufferSelectionModel>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         let mut buffer = Buffer::new(tab_indentation);
-        buffer.embedded_item_conversion = embedded_item_conversion;
 
         // If the text is empty, keep the default buffer state - empty buffers are invalid.
         if !text.is_empty() {

@@ -862,22 +862,6 @@ impl Buffer {
                         None,
                     );
                 }
-                FormattedTextLine::Embedded(metadata) => {
-                    // TODO(kevin): Render broken embedded item state instead of skipping.
-                    if let Some(item) = self
-                        .embedded_item_conversion
-                        .as_ref()
-                        .and_then(|conversion| (conversion)(metadata))
-                    {
-                        end_all_active_text_styles(&mut new_content);
-                        update_content_after_block_item(
-                            &mut new_content,
-                            &mut previous_block_type,
-                            BlockType::Item(BufferBlockItem::Embedded { item }),
-                            None,
-                        );
-                    }
-                }
             }
             edit_cursor = CursorType::NewLineStart;
             inherit_styling = false;

@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use serde_yaml::Value;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use vec1::vec1;
@@ -9,7 +6,6 @@ use warpui_core::units::IntoPixels;
 use warpui_core::{App, ModelAsRef};
 
 use super::{SelectionModel, TextDirection, TextUnit};
-use crate::content::buffer::tests::TestEmbeddedItem;
 use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin, SelectionOffsets,
 };
@@ -152,23 +148,7 @@ fn test_vertical_movement_with_goal() {
 fn test_word_and_line_boundary_movement_with_block_item() {
     App::test((), |mut app| async move {
         let (buffer, buffer_selection) = Buffer::mock_from_markdown(
-            r#"text
-```warp-embedded-object
-id: workflow-123
-```
-```warp-embedded-object
-id: workflow-123
-type: workflow
-author: kevin
-```"#,
-            Some(
-                |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
-                    Some(Value::String(hashed_id)) => {
-                        Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
-                    }
-                    _ => None,
-                },
-            ),
+            "text\n***\n***\n",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -228,7 +208,6 @@ fn test_paragraph_navigation() {
     App::test((), |mut app| async move {
         let (buffer, buffer_selection) = Buffer::mock_from_markdown(
             "Line one\nLine two\n```\nfirst code\nsecond code\n```\n* list\n* list",
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -273,7 +252,6 @@ fn test_indented_code_line_boundaries() {
     App::test((), |mut app| async move {
         let (buffer, buffer_selection) = Buffer::mock_from_markdown(
             "```\n    test\n```",
-            None,
             Box::new(|block_style, _| match block_style {
                 BufferBlockStyle::CodeBlock { .. } => {
                     IndentBehavior::TabIndent(IndentUnit::Space(4))
@@ -664,7 +642,6 @@ fn test_drag_semantic_selection() {
             buffer.update(ctx, |buffer, ctx| {
                 *buffer = Buffer::from_plain_text(
                     "First\nSecond\nThird\nFourth",
-                    None,
                     Box::new(|_, _| IndentBehavior::Ignore),
                     buffer_selection.clone(),
                     ctx,
@@ -734,7 +711,6 @@ fn test_end_semantic_selection() {
             buffer.update(ctx, |buffer, ctx| {
                 *buffer = Buffer::from_plain_text(
                     "First Second Third Fourth",
-                    None,
                     Box::new(|_, _| IndentBehavior::Ignore),
                     buffer_selection.clone(),
                     ctx,

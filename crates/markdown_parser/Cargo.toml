@@ -13,5 +13,4 @@ anyhow.workspace = true
 enum-iterator.workspace = true
 itertools.workspace = true
 nom.workspace = true
-serde_yaml.workspace = true
 thiserror.workspace = true

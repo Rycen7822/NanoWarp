@@ -34,12 +34,6 @@ where
         ctx: &'a AppContext,
     ) -> Option<&'a dyn RunnableCommandModel>;
 
-    fn embedded_item_at<'a>(
-        &self,
-        block_offset: CharOffset,
-        ctx: &'a AppContext,
-    ) -> Option<&'a dyn EmbeddedItemModel>;
-
     /// Returns text decorations (e.g., syntax highlighting, underlines) for the given viewport ranges.
     ///
     /// The lifetime `'a` must be tied to both `&'a self` and `&'a AppContext` because:
@@ -115,14 +109,6 @@ impl<'a> TextDecoration<'a> {
             None => RangeMap::default(),
         }
     }
-}
-
-pub trait EmbeddedItemModel {
-    fn render_item_footer(&self, ctx: &AppContext) -> Option<Box<dyn Element>>;
-
-    fn border(&self, app: &AppContext) -> Option<Border>;
-
-    fn render_remove_embedding_button(&self, ctx: &AppContext) -> Option<Box<dyn Element>>;
 }
 
 /// API for the logical editor model backing a runnable command block.

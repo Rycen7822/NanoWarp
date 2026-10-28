@@ -22,7 +22,6 @@ fn mock_buffer(
     buffer.update(app, |buffer, ctx| {
         *buffer = Buffer::from_plain_text(
             &text,
-            None,
             Box::new(|_, _| IndentBehavior::Ignore),
             selection.clone(),
             ctx,

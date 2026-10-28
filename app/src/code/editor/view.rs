@@ -1401,11 +1401,6 @@ pub fn code_text_styles(appearance: &Appearance) -> RichTextStyles {
         base_text,
         code_text: base_text,
         code_background: theme.background().into(),
-        embedding_background: theme.surface_2().into(),
-        embedding_text: ParagraphStyles {
-            text_color: theme.main_text_color(theme.surface_2()).into_solid(),
-            ..base_text
-        },
         code_border: Border::all(1.).with_border_fill(theme.surface_3()),
         placeholder_color: theme.hint_text_color(theme.background()).into_solid(),
         selection_fill: theme.text_selection_color().into(),

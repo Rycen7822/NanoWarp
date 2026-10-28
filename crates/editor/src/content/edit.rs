@@ -14,7 +14,6 @@ use urlocator::{UrlLocation, UrlLocator};
 use vec1::Vec1;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_errors::report_error;
-use warpui_core::AppContext;
 use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::text::char_slice;
 use warpui_core::text::point::Point;
@@ -27,8 +26,8 @@ use crate::parallel_util::Last;
 use crate::render::layout::{TextLayout, add_link_to_style_and_font};
 use crate::render::model::{
     BlockItem, BlockLocation, Cursor, Decoration, FrameOffset, HiddenBlockConfig,
-    HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem, LineCount, OffsetMap, Paragraph,
-    ParagraphBlock, ParagraphStyles, SelectableTextRun, gutter_expansion_button_types,
+    HorizontalRuleConfig, ImageBlockConfig, LineCount, OffsetMap, Paragraph, ParagraphBlock,
+    ParagraphStyles, SelectableTextRun, gutter_expansion_button_types,
 };
 
 #[cfg(test)]
@@ -441,7 +440,6 @@ impl EditDelta {
         layout: &TextLayout,
         document_path: Option<&Path>,
         hidden_ranges: Option<RangeSet<CharOffset>>,
-        app: &AppContext,
     ) -> LaidOutRenderDelta {
         let hidden_ranges = hidden_ranges.unwrap_or_default();
 
@@ -460,7 +458,7 @@ impl EditDelta {
                 if content_length == CharOffset::zero() {
                     None
                 } else {
-                    let task = LayoutTask::from_styled_block(block, layout, app, document_path);
+                    let task = LayoutTask::from_styled_block(block, layout, document_path);
                     let is_hidden = hidden_ranges.contains(&current_offset);
                     current_offset += content_length;
                     Some((task, is_hidden, content_length.as_usize()))
@@ -618,9 +616,6 @@ pub fn layout_temporary_blocks(
 /// rather than owning them, so building the set of layout tasks for a delta never requires
 /// cloning the (potentially file-sized) block list.
 enum LayoutTask<'a> {
-    /// An embedded item, which is laid out on the main thread so that it can access
-    /// [`AppContext`].
-    Embed(Box<dyn LaidOutEmbeddedItem>),
     /// A text block, which will be laid out in parallel.
     Text(&'a StyledTextBlock),
     /// A horizontal rule, which requires no layout.
@@ -645,7 +640,6 @@ impl<'a> LayoutTask<'a> {
     fn from_styled_block(
         content: &'a StyledBufferBlock,
         layout: &TextLayout,
-        app: &AppContext,
         document_path: Option<&Path>,
     ) -> Self {
         match content {
@@ -688,12 +682,6 @@ impl<'a> LayoutTask<'a> {
                         document_path: document_path.map(|p| p.to_path_buf()),
                     }
                 }
-                BufferBlockItem::Embedded { item } => {
-                    // Lay out the embedded object synchronously.
-                    // TODO: We _could_ adapt the embed API to support parallel layout, but it's
-                    // likely not worth the effort.
-                    Self::Embed(item.layout(layout, app))
-                }
             },
             StyledBufferBlock::Text(text_block) => Self::Text(text_block),
         }
@@ -720,7 +708,6 @@ impl<'a> LayoutTask<'a> {
         is_hidden: bool,
     ) -> Result<(BlockItem, bool)> {
         match self {
-            Self::Embed(item) => Ok((BlockItem::Embedded(item.into()), true)),
             Self::HorizontalRule(config) => Ok((BlockItem::HorizontalRule(config), true)),
             Self::Image {
                 alt_text,
