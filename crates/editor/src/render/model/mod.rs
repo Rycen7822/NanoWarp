@@ -1,7 +1,7 @@
 use core::slice;
 use std::any::Any;
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 use std::sync::Arc;
 use std::{fmt, mem};
@@ -180,14 +180,7 @@ pub enum WidthSetting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HitTestBlockType {
     Code,
-    MermaidDiagram,
     Embedding,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RenderLayoutOptions {
-    pub render_mermaid_diagrams: bool,
-    pub mermaid_render_offsets: HashSet<CharOffset>,
 }
 
 #[derive(Debug)]
@@ -289,41 +282,6 @@ impl<'a> RenderContentTreeRef<'a> {
         }
     }
 
-    pub fn is_entire_range_of_type(
-        &self,
-        range: &Range<CharOffset>,
-        mut matches_type: impl FnMut(&BlockItem) -> bool,
-    ) -> bool {
-        if range.start >= range.end {
-            return false;
-        }
-
-        let Some(block) = self.block_at_offset(range.start) else {
-            return false;
-        };
-
-        block.start_char_offset == range.start
-            && block.end_char_offset() == range.end
-            && matches_type(block.item)
-    }
-
-    pub fn mermaid_block_ranges(&self) -> Vec<Range<CharOffset>> {
-        let mut cursor = self.0.cursor::<(), LayoutSummary>();
-        cursor.descend_to_first_item(&self.0, |_| true);
-
-        let mut ranges = Vec::new();
-        while let Some(item) = cursor.item() {
-            if matches!(item, BlockItem::MermaidDiagram { .. }) {
-                let start = cursor.start().content_length;
-                let end = start + item.content_length();
-                ranges.push(start..end);
-            }
-            cursor.next();
-        }
-
-        ranges
-    }
-
     /// Returns the cumulative Y offset (in content-space pixels) at the given line.
     ///
     /// When `line >= total_lines`, returns the total content height.
@@ -385,7 +343,6 @@ pub struct RenderState {
 
     pending_edits: Mutex<Vec<PendingLayout>>,
     pending_selection_change: Mutex<Option<PendingSelectionUpdate>>,
-    layout_options: RenderLayoutOptions,
 
     /// Optional path to the document being rendered, used for resolving relative paths
     /// (e.g. relative image paths in markdown).
@@ -678,16 +635,6 @@ pub enum BlockItem {
     RunnableCodeBlock {
         paragraph_block: ParagraphBlock,
         code_block_type: CodeBlockType,
-        /// For Mermaid code blocks that are currently rendered in code-block view because the
-        /// Mermaid source is not yet available as a rendered diagram, this carries the asset
-        /// source that the view layer can watch. Once the asset transitions to a successful
-        /// load, the layout will re-run and emit [`BlockItem::MermaidDiagram`] instead.
-        pending_mermaid_asset: Option<AssetSource>,
-    },
-    MermaidDiagram {
-        content_length: CharOffset,
-        asset_source: AssetSource,
-        config: ImageBlockConfig,
     },
     TaskList {
         indent_level: ListIndentLevel,
@@ -1696,7 +1643,6 @@ impl RenderState {
             #[cfg(any(test, feature = "test-util"))]
             outstanding_layouts: Default::default(),
             pending_selection_change: Mutex::new(None),
-            layout_options: Default::default(),
             document_path: None,
             hidden_lines,
         }
@@ -1777,27 +1723,6 @@ impl RenderState {
         matches!(self.width_setting, WidthSetting::InfiniteWidth)
     }
 
-    pub fn layout_options(&self) -> RenderLayoutOptions {
-        self.layout_options.clone()
-    }
-
-    pub fn set_render_mermaid_diagrams(&mut self, render_mermaid_diagrams: bool) -> bool {
-        if self.layout_options.render_mermaid_diagrams == render_mermaid_diagrams {
-            return false;
-        }
-
-        self.layout_options.render_mermaid_diagrams = render_mermaid_diagrams;
-        true
-    }
-
-    pub fn set_mermaid_render_offsets(&mut self, offsets: HashSet<CharOffset>) -> bool {
-        if self.layout_options.mermaid_render_offsets == offsets {
-            return false;
-        }
-        self.layout_options.mermaid_render_offsets = offsets;
-        true
-    }
-
     pub fn set_show_final_trailing_newline_when_non_empty(&mut self, show: bool) {
         if self.show_final_trailing_newline_when_non_empty == show {
             return;
@@ -1835,14 +1760,6 @@ impl RenderState {
     #[cfg(any(test, feature = "test-util"))]
     pub fn blocks(&self) -> usize {
         self.content().block_items().count()
-    }
-
-    pub fn is_entire_range_of_type(
-        &self,
-        range: &Range<CharOffset>,
-        matches_type: impl FnMut(&BlockItem) -> bool,
-    ) -> bool {
-        self.content().is_entire_range_of_type(range, matches_type)
     }
 
     /// The max offset in the laid out content. Note that we minus one in the end
@@ -2274,7 +2191,6 @@ impl RenderState {
         let laid_out_edit = delta.layout_delta(
             &layout_context,
             self.document_path.as_deref(),
-            &self.layout_options,
             hidden_ranges.clone(),
             app,
         );
@@ -3289,7 +3205,6 @@ impl BlockItem {
             | BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.first_line_height(),
-            BlockItem::MermaidDiagram { config, .. } => config.height.as_f32(),
             BlockItem::TrailingNewLine(cursor) => cursor.height.as_f32(),
             BlockItem::HorizontalRule(config) => config.line_height.as_f32(),
             BlockItem::Image { config, .. } => config.height.as_f32(),
@@ -3313,7 +3228,6 @@ impl BlockItem {
             | BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.spacing(),
-            BlockItem::MermaidDiagram { config, .. } => config.spacing,
             BlockItem::TrailingNewLine(cursor) => cursor.spacing(),
             BlockItem::HorizontalRule(config) => config.spacing,
             BlockItem::Image { config, .. } => config.spacing,
@@ -3343,7 +3257,6 @@ impl BlockItem {
             | BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.height(),
-            BlockItem::MermaidDiagram { config, .. } => config.height,
             BlockItem::TrailingNewLine(cursor) => {
                 let mut height = cursor.height;
                 if let Some(minimum_height) = cursor.minimum_height {
@@ -3373,7 +3286,6 @@ impl BlockItem {
             | BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.width(),
-            BlockItem::MermaidDiagram { config, .. } => config.width,
             BlockItem::TrailingNewLine(cursor) => cursor.width,
             BlockItem::Embedded(object) => object.size().x().into_pixels(),
             BlockItem::HorizontalRule(rule) => rule.width,
@@ -3404,7 +3316,6 @@ impl BlockItem {
                 paragraph_block, ..
             } => paragraph_block.content_length(),
             BlockItem::TemporaryBlock { .. } => CharOffset::zero(),
-            BlockItem::MermaidDiagram { content_length, .. } => *content_length,
             BlockItem::TrailingNewLine(_)
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
@@ -3426,7 +3337,6 @@ impl BlockItem {
                 paragraph_block, ..
             } => paragraph_block.lines(),
             BlockItem::TemporaryBlock { .. } => LineCount(0),
-            BlockItem::MermaidDiagram { .. } => LineCount(1),
             BlockItem::TrailingNewLine(_)
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
@@ -3449,7 +3359,6 @@ impl BlockItem {
             BlockItem::RunnableCodeBlock {
                 paragraph_block, ..
             } => paragraph_block.is_empty(),
-            BlockItem::MermaidDiagram { .. } => false,
             // Embeds, images, tables, and horizontal rules are never empty.
             BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
@@ -3508,7 +3417,6 @@ impl Positioned<'_, BlockItem> {
                         paragraph.softwrap_point_to_offset(point)
                     })
             }
-            BlockItem::MermaidDiagram { .. } => self.start_char_offset,
             BlockItem::TrailingNewLine(_)
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
@@ -3571,9 +3479,6 @@ impl Positioned<'_, BlockItem> {
                         |paragraph| paragraph.offset_to_softwrap_point(offset),
                     )
             }
-            BlockItem::MermaidDiagram { .. } => {
-                SoftWrapPoint::new(self.start_line.as_u32(), Pixels::zero())
-            }
             BlockItem::TrailingNewLine(_)
             | BlockItem::Embedded(_)
             | BlockItem::HorizontalRule(_)
@@ -3624,13 +3529,6 @@ impl Positioned<'_, BlockItem> {
                     .paragraphs()
                     .find_or_last(|paragraph| paragraph.end_char_offset() > offset)
                     .and_then(|paragraph| paragraph.character_bounds(offset))
-            }
-            BlockItem::MermaidDiagram { config, .. } => {
-                let origin = self.content_origin();
-                Some(RectF::new(
-                    origin,
-                    vec2f(config.width.as_f32(), config.height.as_f32()),
-                ))
             }
             BlockItem::TrailingNewLine(cursor) => {
                 let origin = self.content_origin();
@@ -3686,10 +3584,6 @@ impl Positioned<'_, BlockItem> {
                 // For code blocks, we treat the top padding as the first line.
                 let first_line = self.code_block(paragraph_block).first_line_bounds()?;
                 RectF::from_points(self.visible_origin(), first_line.upper_right())
-            }
-            BlockItem::MermaidDiagram { config, .. } => {
-                let origin = self.visible_origin();
-                RectF::new(origin, vec2f(config.width.as_f32(), config.height.as_f32()))
             }
             BlockItem::TrailingNewLine(cursor) => {
                 let origin = self.trailing_newline(cursor).content_origin();

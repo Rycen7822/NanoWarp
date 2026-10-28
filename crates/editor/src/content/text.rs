@@ -25,7 +25,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use warp_core::features::FeatureFlag;
 use warpui_core::AppContext;
 use warpui_core::elements::ListIndentLevel;
 use warpui_core::fonts::{Properties, Style, Weight};
@@ -680,7 +679,6 @@ impl fmt::Display for CodeBlockType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CodeBlockType::Shell => write!(f, "{CODE_BLOCK_SHELL_DISPLAY_LANG}"),
-            CodeBlockType::Mermaid => write!(f, "Mermaid"),
             CodeBlockType::Code { lang } if lang == "text" => {
                 write!(f, "{CODE_BLOCK_DEFAULT_DISPLAY_LANG}")
             }
@@ -693,7 +691,6 @@ impl fmt::Display for CodeBlockType {
 pub enum CodeBlockType {
     #[default]
     Shell,
-    Mermaid,
     Code {
         lang: String,
     },
@@ -726,10 +723,6 @@ impl From<&CodeBlockText> for CodeBlockType {
 
         if MARKDOWN_SHELL_LANGUAGES.contains(lang.as_str()) {
             CodeBlockType::Shell
-        } else if FeatureFlag::MarkdownMermaid.is_enabled()
-            && mermaid_to_svg::is_mermaid_diagram(code_block_text.lang.as_str())
-        {
-            CodeBlockType::Mermaid
         } else {
             // Parse all the recognized languages supported by the code block.
             let recognized_lang = match lang.as_str() {
@@ -763,7 +756,6 @@ impl CodeBlockType {
         // TODO: This should include all supported languages
         [
             CodeBlockType::Shell,
-            CodeBlockType::Mermaid,
             CodeBlockType::Code {
                 lang: "PowerShell".to_owned(),
             },
@@ -831,7 +823,6 @@ impl CodeBlockType {
     pub fn to_markdown_representation(&self, style: MarkdownStyle) -> &str {
         match self {
             CodeBlockType::Shell => RUNNABLE_BLOCK_MARKDOWN_LANG,
-            CodeBlockType::Mermaid => "mermaid",
             CodeBlockType::Code { lang } => match style {
                 MarkdownStyle::Internal => lang,
                 MarkdownStyle::Export { .. } => {

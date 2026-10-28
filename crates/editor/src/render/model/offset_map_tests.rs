@@ -89,7 +89,7 @@ fn test_end_to_end() {
     use crate::render::model::test_utils::TEST_BASELINE_OFFSET;
     use crate::render::model::{
         BlockItem, BrokenLinkStyle, CheckBoxStyle, HorizontalRuleStyle, InlineCodeStyle,
-        PARAGRAPH_MIN_HEIGHT, ParagraphStyles, RenderLayoutOptions, RichTextStyles, TableStyle,
+        PARAGRAPH_MIN_HEIGHT, ParagraphStyles, RichTextStyles, TableStyle,
     };
 
     App::test((), |mut app| async move {
@@ -201,13 +201,7 @@ fn test_end_to_end() {
         let layout = app.read(|ctx| {
             let delta = buffer_handle.as_ref(ctx).invalidate_layout();
             let text_layout = TextLayout::new(font_cache.text_layout_system(), &styles, 1000.);
-            delta.layout_delta(
-                &text_layout,
-                None,
-                &RenderLayoutOptions::default(),
-                None,
-                ctx,
-            )
+            delta.layout_delta(&text_layout, None, None, ctx)
         });
         let paragraph = match &layout.laid_out_line[..] {
             [BlockItem::Paragraph(paragraph)] => paragraph,

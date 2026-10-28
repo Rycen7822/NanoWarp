@@ -155,11 +155,6 @@ pub enum FeatureFlag {
     /// Enables asynchronous find in terminal, running search on a background thread.
     AsyncFind,
 
-    /// Enables rendering Mermaid diagrams in markdown notebooks.
-    MarkdownMermaid,
-    /// Enables editable Mermaid diagrams to behave atomically in notebook and plan editors.
-    EditableMarkdownMermaid,
-
     /// Enables rendering markdown tables in notebooks.
     MarkdownTables,
 

@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use num_traits::SaturatingSub;
 use string_offset::CharOffset;
 use vec1::Vec1;
@@ -15,7 +13,7 @@ use crate::content::buffer::{
 };
 use crate::content::hidden_lines_model::HiddenLinesModel;
 use crate::content::selection_model::BufferSelectionModel;
-use crate::content::text::{BlockType, BufferBlockStyle, CodeBlockType};
+use crate::content::text::BlockType;
 use crate::render::model::{RenderState, SoftWrapPoint};
 
 #[cfg(test)]
@@ -132,284 +130,6 @@ impl SelectionModel {
         self.allow_hidden_navigation
     }
 
-    fn rendered_mermaid_ranges(&self, ctx: &impl ModelAsRef) -> Vec<Range<CharOffset>> {
-        self.render.as_ref(ctx).content().mermaid_block_ranges()
-    }
-
-    fn has_rendered_mermaid(&self, ctx: &impl ModelAsRef) -> bool {
-        !self.rendered_mermaid_ranges(ctx).is_empty()
-    }
-
-    fn is_mermaid_code_block_offset(&self, offset: CharOffset, ctx: &impl ModelAsRef) -> bool {
-        matches!(
-            self.content.as_ref(ctx).block_type_at_point(offset),
-            BlockType::Text(BufferBlockStyle::CodeBlock {
-                code_block_type: CodeBlockType::Mermaid,
-            })
-        )
-    }
-
-    fn normalize_line_navigation_offset(
-        &self,
-        _start: CharOffset,
-        direction: TextDirection,
-        offset: CharOffset,
-        ctx: &impl ModelAsRef,
-    ) -> CharOffset {
-        if !self.has_rendered_mermaid(ctx) {
-            return offset;
-        }
-
-        let content = self.content.as_ref(ctx);
-        let max_offset = content.max_charoffset();
-
-        match direction {
-            TextDirection::Forwards
-                if offset < max_offset && self.is_mermaid_code_block_offset(offset, ctx) =>
-            {
-                content.block_or_line_end(offset).min(max_offset)
-            }
-            TextDirection::Backwards
-                if offset > CharOffset::from(1)
-                    && self.is_mermaid_code_block_offset(offset, ctx) =>
-            {
-                content.block_or_line_start(offset)
-            }
-            _ => offset,
-        }
-    }
-
-    fn normalize_selection_offsets(
-        &self,
-        selection: SelectionOffsets,
-        direction: Option<TextDirection>,
-        mermaid_ranges: &[Range<CharOffset>],
-    ) -> SelectionOffsets {
-        if mermaid_ranges.is_empty() {
-            return selection;
-        }
-
-        if selection.head == selection.tail {
-            let offset = Self::normalize_cursor_offset(selection.head, direction, mermaid_ranges);
-            return SelectionOffsets {
-                head: offset,
-                tail: offset,
-            };
-        }
-
-        let head_is_end = selection.head > selection.tail;
-        let mut start = selection.head.min(selection.tail);
-        let mut end = selection.head.max(selection.tail);
-        let first_intersecting = mermaid_ranges.partition_point(|range| range.end <= start);
-        for range in &mermaid_ranges[first_intersecting..] {
-            if range.start >= end {
-                break;
-            }
-            if start < range.end && range.start < end {
-                start = start.min(range.start);
-                end = end.max(range.end);
-            }
-        }
-
-        if head_is_end {
-            SelectionOffsets {
-                head: end,
-                tail: start,
-            }
-        } else {
-            SelectionOffsets {
-                head: start,
-                tail: end,
-            }
-        }
-    }
-
-    fn normalize_cursor_offset(
-        offset: CharOffset,
-        direction: Option<TextDirection>,
-        mermaid_ranges: &[Range<CharOffset>],
-    ) -> CharOffset {
-        let containing_range = mermaid_ranges.partition_point(|range| range.end <= offset);
-        let Some(range) = mermaid_ranges
-            .get(containing_range)
-            .filter(|range| range.start < offset)
-        else {
-            return offset;
-        };
-
-        match direction {
-            Some(TextDirection::Backwards) => range.start,
-            Some(TextDirection::Forwards) => range.end,
-            None => {
-                let distance_to_start = offset - range.start;
-                let distance_to_end = range.end - offset;
-                if distance_to_start <= distance_to_end {
-                    range.start
-                } else {
-                    range.end
-                }
-            }
-        }
-    }
-
-    fn normalize_selections(
-        &self,
-        selections: Vec1<SelectionOffsets>,
-        direction: Option<TextDirection>,
-        ctx: &impl ModelAsRef,
-    ) -> Vec1<SelectionOffsets> {
-        let mermaid_ranges = self.rendered_mermaid_ranges(ctx);
-        selections.mapped(|selection| {
-            self.normalize_selection_offsets(selection, direction, &mermaid_ranges)
-        })
-    }
-
-    fn normalize_character_selection_offsets(
-        &self,
-        selection: SelectionOffsets,
-        action: &BufferSelectAction,
-        direction: TextDirection,
-        max_offset: CharOffset,
-        mermaid_ranges: &[Range<CharOffset>],
-    ) -> SelectionOffsets {
-        match action {
-            BufferSelectAction::MoveLeft => {
-                let offset = if selection.head == selection.tail {
-                    selection
-                        .head
-                        .saturating_sub(&CharOffset::from(1))
-                        .max(1.into())
-                } else {
-                    selection.head.min(selection.tail)
-                };
-                let offset = Self::normalize_cursor_offset(offset, Some(direction), mermaid_ranges);
-                SelectionOffsets {
-                    head: offset,
-                    tail: offset,
-                }
-            }
-            BufferSelectAction::MoveRight => {
-                let offset = if selection.head == selection.tail {
-                    (selection.head + CharOffset::from(1)).min(max_offset)
-                } else {
-                    selection.head.max(selection.tail)
-                };
-                let offset = Self::normalize_cursor_offset(offset, Some(direction), mermaid_ranges);
-                SelectionOffsets {
-                    head: offset,
-                    tail: offset,
-                }
-            }
-            BufferSelectAction::ExtendLeft => {
-                let head = selection
-                    .head
-                    .saturating_sub(&CharOffset::from(1))
-                    .max(1.into());
-                let head = Self::normalize_cursor_offset(head, Some(direction), mermaid_ranges);
-                SelectionOffsets {
-                    head,
-                    tail: selection.tail,
-                }
-            }
-            BufferSelectAction::ExtendRight => {
-                let head = (selection.head + CharOffset::from(1)).min(max_offset);
-                let head = Self::normalize_cursor_offset(head, Some(direction), mermaid_ranges);
-                SelectionOffsets {
-                    head,
-                    tail: selection.tail,
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-    fn normalized_character_action(
-        &self,
-        action: &BufferSelectAction,
-        ctx: &impl ModelAsRef,
-    ) -> Option<BufferSelectAction> {
-        let direction = match action {
-            BufferSelectAction::MoveLeft | BufferSelectAction::ExtendLeft => {
-                TextDirection::Backwards
-            }
-            BufferSelectAction::MoveRight | BufferSelectAction::ExtendRight => {
-                TextDirection::Forwards
-            }
-            _ => return None,
-        };
-
-        let max_offset = self.content.as_ref(ctx).max_charoffset();
-        let selections = self.selections(ctx);
-        let mermaid_ranges = self.rendered_mermaid_ranges(ctx);
-        let raw = selections.clone().mapped(|selection| match action {
-            BufferSelectAction::MoveLeft => {
-                let offset = if selection.head == selection.tail {
-                    selection
-                        .head
-                        .saturating_sub(&CharOffset::from(1))
-                        .max(1.into())
-                } else {
-                    selection.head.min(selection.tail)
-                };
-                SelectionOffsets {
-                    head: offset,
-                    tail: offset,
-                }
-            }
-            BufferSelectAction::MoveRight => {
-                let offset = if selection.head == selection.tail {
-                    (selection.head + CharOffset::from(1)).min(max_offset)
-                } else {
-                    selection.head.max(selection.tail)
-                };
-                SelectionOffsets {
-                    head: offset,
-                    tail: offset,
-                }
-            }
-            BufferSelectAction::ExtendLeft => SelectionOffsets {
-                head: selection
-                    .head
-                    .saturating_sub(&CharOffset::from(1))
-                    .max(1.into()),
-                tail: selection.tail,
-            },
-            BufferSelectAction::ExtendRight => SelectionOffsets {
-                head: (selection.head + CharOffset::from(1)).min(max_offset),
-                tail: selection.tail,
-            },
-            _ => unreachable!(),
-        });
-        let normalized = selections.mapped(|selection| {
-            self.normalize_character_selection_offsets(
-                selection,
-                action,
-                direction,
-                max_offset,
-                &mermaid_ranges,
-            )
-        });
-
-        (normalized != raw).then_some(BufferSelectAction::UpdateSelectionOffsets {
-            selections: normalized,
-        })
-    }
-
-    fn normalize_select_action(
-        &self,
-        action: BufferSelectAction,
-        ctx: &impl ModelAsRef,
-    ) -> BufferSelectAction {
-        if let Some(action) = self.normalized_character_action(&action, ctx) {
-            return action;
-        }
-        let current_selections = self.selections(ctx);
-        if let Some(selections) = action.selection_offsets(Some(&current_selections)) {
-            action.with_selection_offsets(self.normalize_selections(selections, None, ctx))
-        } else {
-            action
-        }
-    }
-
     fn validate_select_action(&self, action: &BufferSelectAction, ctx: &AppContext) -> bool {
         if self.allow_hidden_navigation() {
             return true;
@@ -463,7 +183,6 @@ impl SelectionModel {
         autoscroll: AutoScrollBehavior,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
-        let action = self.normalize_select_action(action, ctx);
         if !self.validate_select_action(&action, ctx) {
             return false;
         }
@@ -570,11 +289,6 @@ impl SelectionModel {
                 }
             }
         };
-        let offsets = self
-            .normalize_selections(Vec1::new(offsets), None, ctx)
-            .into_iter()
-            .next()
-            .expect("single selection should exist");
 
         self.pending_selection = Some(PendingSelection {
             mode,
@@ -755,11 +469,6 @@ impl SelectionModel {
                     tail: selection.tail,
                 };
                 let new_goal_x = result.goal_x;
-                let new_selection = model
-                    .normalize_selections(Vec1::new(new_selection), Some(direction), ctx)
-                    .into_iter()
-                    .next()
-                    .expect("single selection should exist");
                 (new_goal_x, new_selection)
             },
             ctx,
@@ -790,11 +499,6 @@ impl SelectionModel {
                     tail: result.offset,
                 };
                 let new_goal_x = result.goal_x;
-                let new_selection = model
-                    .normalize_selections(Vec1::new(new_selection), Some(direction), ctx)
-                    .into_iter()
-                    .next()
-                    .expect("single selection should exist");
                 (new_goal_x, new_selection)
             },
             ctx,
@@ -921,7 +625,6 @@ impl SelectionModel {
         };
         let goal_point = SoftWrapPoint::new(next_point.row(), goal_column);
         let next_offset = render.softwrap_point_to_offset(goal_point) + 1;
-        let next_offset = self.normalize_line_navigation_offset(start, direction, next_offset, ctx);
         NavigationResult::for_offset_and_goal(next_offset, Some(goal_column))
     }
 

@@ -11,7 +11,7 @@ use warp_editor::content::text::{BufferBlockStyle, TextStylesWithMetadata};
 use warp_editor::render::layout::TextLayout;
 use warp_editor::render::model::{
     BrokenLinkStyle, CheckBoxStyle, HorizontalRuleStyle, InlineCodeStyle, ParagraphStyles,
-    RenderLayoutOptions, RichTextStyles, TableStyle,
+    RichTextStyles, TableStyle,
 };
 #[cfg(target_os = "macos")]
 use warpui::platform::mac::FontDB as MacFontDB;
@@ -132,13 +132,8 @@ fn benchmark_delta(texts: impl IntoIterator<Item = String>) -> (EditDelta, usize
     )
 }
 
-fn layout_delta(
-    delta: &EditDelta,
-    text_layout: &TextLayout<'_>,
-    layout_options: &RenderLayoutOptions,
-    app: &warpui_core::AppContext,
-) {
-    black_box(delta.layout_delta(text_layout, None, layout_options, None, app));
+fn layout_delta(delta: &EditDelta, text_layout: &TextLayout<'_>, app: &warpui_core::AppContext) {
+    black_box(delta.layout_delta(text_layout, None, None, app));
 }
 
 fn text_layout_benchmarks(criterion: &mut Criterion) {
@@ -150,7 +145,6 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
         (0..BLOCK_COUNT).map(|index| format!("{SHAPING_TEXT} test-backend-block-{index:04}\n")),
     );
     let test_styles = benchmark_styles(FamilyId(0));
-    let layout_options = RenderLayoutOptions::default();
     #[cfg(target_os = "macos")]
     let (core_text_font_cache, core_text_styles, core_text_delta, core_text_chars) = {
         let mut font_cache = FontCache::new(Box::new(MacFontDB::new()));
@@ -171,7 +165,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                 &test_styles,
                 f32::MAX,
             );
-            layout_delta(&test_delta, &test_text_layout, &layout_options, ctx);
+            layout_delta(&test_delta, &test_text_layout, ctx);
             #[cfg(target_os = "macos")]
             {
                 let core_text_layout = TextLayout::new(
@@ -179,7 +173,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                     &core_text_styles,
                     f32::MAX,
                 );
-                layout_delta(&core_text_delta, &core_text_layout, &layout_options, ctx);
+                layout_delta(&core_text_delta, &core_text_layout, ctx);
             }
             {
                 let mut group = criterion.benchmark_group("editor_text_layout/test_backend");
@@ -191,7 +185,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                             &test_styles,
                             f32::MAX,
                         );
-                        layout_delta(&test_delta, &text_layout, &layout_options, ctx)
+                        layout_delta(&test_delta, &text_layout, ctx)
                     })
                 });
                 group.finish();
@@ -207,7 +201,7 @@ fn text_layout_benchmarks(criterion: &mut Criterion) {
                             &core_text_styles,
                             f32::MAX,
                         );
-                        layout_delta(&core_text_delta, &text_layout, &layout_options, ctx)
+                        layout_delta(&core_text_delta, &text_layout, ctx)
                     })
                 });
                 group.finish();

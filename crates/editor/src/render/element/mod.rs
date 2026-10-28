@@ -32,7 +32,6 @@ use self::header::RenderableHeader;
 use self::hidden_section::RenderableHiddenSection;
 use self::horizontal_rule::HorizontalRule;
 use self::image::RenderableImage;
-use self::mermaid::RenderableMermaidDiagram;
 use self::ordered_list::RenderableOrderedListItem;
 pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
 use self::paragraph::RenderableParagraph;
@@ -55,7 +54,6 @@ mod header;
 mod hidden_section;
 mod horizontal_rule;
 mod image;
-mod mermaid;
 mod ordered_list;
 mod paint;
 mod paragraph;
@@ -882,17 +880,6 @@ impl<V: EditorView> RichTextElement<V> {
                         let start_offset = item.block_offset;
                         let runnable_command = parent.runnable_command_at(start_offset, ctx);
                         RenderableRunnableCommand::new(
-                            item,
-                            runnable_command,
-                            self.display_options.focused,
-                            ctx,
-                        )
-                        .finish()
-                    }
-                    BlockItem::MermaidDiagram { .. } => {
-                        let start_offset = item.block_offset;
-                        let runnable_command = parent.runnable_command_at(start_offset, ctx);
-                        RenderableMermaidDiagram::new(
                             item,
                             runnable_command,
                             self.display_options.focused,

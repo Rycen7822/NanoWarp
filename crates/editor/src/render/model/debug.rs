@@ -96,7 +96,6 @@ impl Describe for BlockItem {
             BlockItem::RunnableCodeBlock {
                 code_block_type, ..
             } => write!(f, "Code Block - {code_block_type}",)?,
-            BlockItem::MermaidDiagram { .. } => f.write_str("Mermaid Diagram")?,
             BlockItem::TemporaryBlock { .. } => f.write_str("Temporary Paragraph")?,
             BlockItem::TaskList {
                 indent_level,

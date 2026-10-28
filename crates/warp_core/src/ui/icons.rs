@@ -335,7 +335,6 @@ pub enum Icon {
     Aws,
     GeminiEnterpriseAgentPlatform,
     // Language-specific icons for the code block dropdown
-    MermaidLang,
     GoLang,
     CppLang,
     JavaScriptLang,
@@ -670,7 +669,6 @@ impl From<Icon> for &'static str {
             Icon::GeminiEnterpriseAgentPlatform => {
                 "bundled/svg/gemini-enterprise-agent-platform.svg"
             }
-            Icon::MermaidLang => "bundled/svg/file_type/mermaid.svg",
             Icon::GoLang => "bundled/svg/file_type/go.svg",
             Icon::CppLang => "bundled/svg/file_type/cpp.svg",
             Icon::JavaScriptLang => "bundled/svg/file_type/javascript.svg",

@@ -181,14 +181,6 @@ impl<'a> Positioned<'a, BlockItem> {
                     }
                 }
             }
-            BlockItem::MermaidDiagram { .. } => {
-                let _ = options;
-                Location::Block {
-                    start_offset: self.start_char_offset,
-                    end_offset: self.end_char_offset(),
-                    block_type: HitTestBlockType::MermaidDiagram,
-                }
-            }
             BlockItem::Header { paragraph, .. } => self
                 .header(paragraph)
                 .coordinate_to_location(self.unpad_x(x), y),

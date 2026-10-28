@@ -73,10 +73,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::UseTantivySearch,
         #[cfg(feature = "markdown_tables")]
         FeatureFlag::MarkdownTables,
-        #[cfg(feature = "markdown_mermaid")]
-        FeatureFlag::MarkdownMermaid,
-        #[cfg(feature = "editable_markdown_mermaid")]
-        FeatureFlag::EditableMarkdownMermaid,
         #[cfg(feature = "msys2_shells")]
         FeatureFlag::MSYS2Shells,
         #[cfg(feature = "code_find_replace")]

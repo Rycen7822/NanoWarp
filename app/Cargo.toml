@@ -375,7 +375,6 @@ default = [
     "kitty_keyboard_protocol",
     "github_pr_prompt_chip",
     "markdown_tables",
-    "markdown_mermaid",
     "warpify_footer",
     "configurable_toolbar",
     "vertical_tabs",
@@ -394,7 +393,6 @@ default = [
 # Enable this feature to automatically perform heap profiling.  NOTE: This will
 # substantially slow down program execution.
 dhat_heap_profiling = ["dep:dhat"]
-editable_markdown_mermaid = []
 drag_tabs_to_windows = []
 default_waterfall_mode = []
 extern_plist = []
@@ -439,7 +437,6 @@ local_fs = [
     "warp_terminal/local_fs",
 ]
 markdown_tables = []
-markdown_mermaid = []
 # Remote-backed tty that connects to a PTY-like interface via a server.
 remote_tty = ["warp_terminal/remote_tty"]
 # Fix for cursor reflow bug during window resize, from Alacritty resizing logic.

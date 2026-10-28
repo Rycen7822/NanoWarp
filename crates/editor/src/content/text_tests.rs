@@ -1,5 +1,4 @@
 use markdown_parser::{CodeBlockText, FormattedTable};
-use warp_core::features::FeatureFlag;
 use warpui_core::fonts::Weight;
 
 use super::{
@@ -97,24 +96,18 @@ fn test_formatted_table_empty_input() {
 }
 
 #[test]
-fn test_mermaid_code_block_type_respects_feature_flag() {
+fn test_mermaid_code_block_is_plain_code() {
     let markdown = CodeBlockText {
         lang: "mermaid".to_string(),
         code: "graph TD\nA --> B\n".to_string(),
     };
 
-    let _disabled = FeatureFlag::MarkdownMermaid.override_enabled(false);
     assert_eq!(
         CodeBlockType::from(&markdown),
         CodeBlockType::Code {
             lang: "mermaid".to_string(),
         }
     );
-
-    drop(_disabled);
-
-    let _enabled = FeatureFlag::MarkdownMermaid.override_enabled(true);
-    assert_eq!(CodeBlockType::from(&markdown), CodeBlockType::Mermaid);
 }
 
 #[test]

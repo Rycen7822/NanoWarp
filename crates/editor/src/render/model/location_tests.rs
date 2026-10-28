@@ -4,7 +4,6 @@ use std::sync::Arc;
 use pathfinder_color::ColorU;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::fonts::FamilyId;
 use warpui_core::text_layout::{CaretPosition, TextFrame};
 use warpui_core::units::IntoPixels;
@@ -17,8 +16,8 @@ use crate::render::model::test_utils::{
     TEST_STYLES, laid_out_paragraph, laid_out_unordered_lists, layout_paragraphs,
 };
 use crate::render::model::{
-    BlockItem, COMMAND_SPACING, CellLayout, ImageBlockConfig, LaidOutTable, Location,
-    ParagraphBlock, RenderState, TableBlockConfig, TableStyle, table_offset_map,
+    BlockItem, COMMAND_SPACING, CellLayout, LaidOutTable, Location, ParagraphBlock, RenderState,
+    TableBlockConfig, TableStyle, table_offset_map,
 };
 
 fn test_table_layout() -> LaidOutTable {
@@ -167,72 +166,6 @@ fn test_table_hit_testing_accounts_for_horizontal_scroll() {
             wrap_direction: WrapDirection::Down,
             block_start: CharOffset::zero(),
             link: None,
-        }
-    );
-}
-
-#[test]
-fn test_hit_mermaid_block_uses_block_locations_even_with_forced_text_selection() {
-    let width = 200.;
-    let mut model = RenderState::new_for_test(
-        TEST_STYLES.clone(),
-        width.into_pixels(),
-        160.0.into_pixels(),
-    );
-    let mermaid = BlockItem::MermaidDiagram {
-        content_length: 14.into(),
-        asset_source: AssetSource::Bundled {
-            path: "bundled/svg/test.svg",
-        },
-        config: ImageBlockConfig {
-            width: 120.0.into_pixels(),
-            height: 40.0.into_pixels(),
-            spacing: COMMAND_SPACING,
-        },
-    };
-    let mermaid_height = mermaid.height().as_f32();
-    model.set_content(SumTree::from_item(mermaid));
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            40.0.into_pixels(),
-            (mermaid_height / 2.0).into_pixels(),
-            &Default::default()
-        ),
-        Location::Block {
-            start_offset: 0.into(),
-            end_offset: 14.into(),
-            block_type: HitTestBlockType::MermaidDiagram,
-        }
-    );
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            40.0.into_pixels(),
-            1.0.into_pixels(),
-            &HitTestOptions {
-                force_text_selection: true,
-            }
-        ),
-        Location::Block {
-            start_offset: 0.into(),
-            end_offset: 14.into(),
-            block_type: HitTestBlockType::MermaidDiagram,
-        }
-    );
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            40.0.into_pixels(),
-            (mermaid_height - 1.0).into_pixels(),
-            &HitTestOptions {
-                force_text_selection: true,
-            }
-        ),
-        Location::Block {
-            start_offset: 0.into(),
-            end_offset: 14.into(),
-            block_type: HitTestBlockType::MermaidDiagram,
         }
     );
 }
@@ -580,7 +513,6 @@ fn test_hit_code_block() {
                 width - COMMAND_SPACING.x_axis_offset().as_f32(),
             )),
             code_block_type: Default::default(),
-            pending_mermaid_asset: None,
         },
     ]);
     model.set_content(tree);

@@ -6,7 +6,6 @@ use rangemap::RangeSet;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use vec1::{Vec1, vec1};
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::color::ColorU;
 use warpui_core::elements::ListIndentLevel;
 use warpui_core::fonts::FamilyId;
@@ -18,9 +17,8 @@ use warpui_core::units::{IntoPixels, Pixels};
 use super::debug::Describe;
 use super::test_utils::{layout_paragraph, layout_paragraphs};
 use super::{
-    BlockItem, BlockLocation, COMMAND_SPACING, CellLayout, DEFAULT_BLOCK_SPACINGS,
-    HiddenBlockConfig, ImageBlockConfig, LaidOutTable, ParagraphBlock, RenderState,
-    TableBlockConfig, TableStyle, table_offset_map,
+    BlockItem, BlockLocation, CellLayout, DEFAULT_BLOCK_SPACINGS, HiddenBlockConfig, LaidOutTable,
+    ParagraphBlock, RenderState, TableBlockConfig, TableStyle, table_offset_map,
 };
 use crate::content::edit::ParsedUrl;
 use crate::content::text::{
@@ -70,53 +68,6 @@ fn test_height() {
             width: (17.).into_pixels(),
             lines: LineCount(4),
         }
-    );
-}
-
-#[test]
-fn test_is_entire_range_of_type_matches_exact_block_ranges() {
-    let mut model = RenderState::new_for_test(
-        TEST_STYLES.clone(),
-        200.0.into_pixels(),
-        160.0.into_pixels(),
-    );
-    let mut content = SumTree::new();
-    content.push(laid_out_paragraph("Before\n", &TEST_STYLES, 200.0));
-    let mermaid_start = content.extent::<CharOffset>();
-    content.push(BlockItem::MermaidDiagram {
-        content_length: 14.into(),
-        asset_source: AssetSource::Bundled {
-            path: "bundled/svg/test.svg",
-        },
-        config: ImageBlockConfig {
-            width: 120.0.into_pixels(),
-            height: 40.0.into_pixels(),
-            spacing: COMMAND_SPACING,
-        },
-    });
-    let mermaid_end = content.extent::<CharOffset>();
-    content.push(laid_out_paragraph("After\n", &TEST_STYLES, 200.0));
-    model.set_content(content);
-
-    assert!(
-        model.is_entire_range_of_type(&(mermaid_start..mermaid_end), |item| matches!(
-            item,
-            BlockItem::MermaidDiagram { .. }
-        ),)
-    );
-    assert!(!model.is_entire_range_of_type(
-        &(mermaid_start + CharOffset::from(1)..mermaid_end),
-        |item| matches!(item, BlockItem::MermaidDiagram { .. }),
-    ));
-    assert!(!model.is_entire_range_of_type(
-        &(mermaid_start..mermaid_end - CharOffset::from(1)),
-        |item| matches!(item, BlockItem::MermaidDiagram { .. }),
-    ));
-    assert!(
-        !model.is_entire_range_of_type(&(CharOffset::zero()..mermaid_end), |item| matches!(
-            item,
-            BlockItem::MermaidDiagram { .. }
-        ),)
     );
 }
 
@@ -328,7 +279,6 @@ fn test_non_empty_content_can_hide_final_trailing_newline() {
             model.viewport.width().as_f32(),
         )),
         code_block_type: Default::default(),
-        pending_mermaid_asset: None,
     });
     model.set_content(content);
 
@@ -605,7 +555,6 @@ fn test_first_line_bounds() {
             model.viewport.width().as_f32(),
         )),
         code_block_type: Default::default(),
-        pending_mermaid_asset: None,
     });
     model.set_content(content);
 

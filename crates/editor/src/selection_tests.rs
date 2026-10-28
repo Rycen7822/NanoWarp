@@ -4,8 +4,6 @@ use serde_yaml::Value;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use vec1::vec1;
-use warp_core::features::FeatureFlag;
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::text::word_boundaries::WordBoundariesPolicy;
 use warpui_core::units::IntoPixels;
 use warpui_core::{App, ModelAsRef};
@@ -18,8 +16,8 @@ use crate::content::buffer::{
 };
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{BufferBlockStyle, IndentBehavior, IndentUnit};
+use crate::render::model::RenderState;
 use crate::render::model::test_utils::{TEST_STYLES, laid_out_paragraph};
-use crate::render::model::{BlockItem, COMMAND_SPACING, ImageBlockConfig, RenderState};
 use crate::selection::SelectionMode;
 
 impl SelectionModel {
@@ -30,196 +28,6 @@ impl SelectionModel {
             .selection_to_first_offset_range()
             .end
     }
-}
-
-fn selection_model_with_rendered_mermaid(
-    app: &mut App,
-) -> warpui_core::ModelHandle<SelectionModel> {
-    app.add_model(|ctx| {
-        let buffer = ctx.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let buffer_selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(ctx, |buffer, ctx| {
-            buffer.update_content(
-                BufferEditAction::Insert {
-                    text: "AA\n12345CC\n",
-                    style: Default::default(),
-                    override_text_style: None,
-                },
-                EditOrigin::UserTyped,
-                buffer_selection.clone(),
-                ctx,
-            );
-        });
-
-        let render = ctx.add_model(|_| {
-            let mut render = RenderState::new_for_test(
-                TEST_STYLES,
-                f32::MAX.into_pixels(),
-                f32::MAX.into_pixels(),
-            );
-
-            let mut content = SumTree::new();
-            content.push(laid_out_paragraph("AA\n", &TEST_STYLES, f32::MAX));
-            content.push(BlockItem::MermaidDiagram {
-                content_length: 5.into(),
-                asset_source: AssetSource::Bundled {
-                    path: "bundled/svg/test.svg",
-                },
-                config: ImageBlockConfig {
-                    width: 120.0.into_pixels(),
-                    height: 40.0.into_pixels(),
-                    spacing: COMMAND_SPACING,
-                },
-            });
-            content.push(laid_out_paragraph("CC\n", &TEST_STYLES, f32::MAX));
-            render.set_content(content);
-            render
-        });
-        SelectionModel::new(buffer, render, buffer_selection, None, ctx)
-    })
-}
-
-#[test]
-fn test_move_right_skips_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(3.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::MoveRight,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(selection.cursor(ctx), 8.into());
-        });
-    });
-}
-
-#[test]
-fn test_extend_right_expands_across_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(3.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::ExtendRight,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(
-                selection.selections(ctx),
-                vec1![SelectionOffsets {
-                    head: 8.into(),
-                    tail: 3.into(),
-                }]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_move_left_skips_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(8.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::MoveLeft,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(selection.cursor(ctx), 3.into());
-        });
-    });
-}
-
-#[test]
-fn test_extend_left_expands_across_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(8.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::ExtendLeft,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(
-                selection.selections(ctx),
-                vec1![SelectionOffsets {
-                    head: 3.into(),
-                    tail: 8.into(),
-                }]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_extend_left_reverses_shift_selection_across_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(3.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::ExtendRight,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            selection.update_selection(
-                BufferSelectAction::ExtendLeft,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(
-                selection.selections(ctx),
-                vec1![SelectionOffsets {
-                    head: 3.into(),
-                    tail: 3.into(),
-                }]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_extend_right_reverses_shift_selection_across_rendered_mermaid_block() {
-    App::test((), |mut app| async move {
-        let _flag = FeatureFlag::EditableMarkdownMermaid.override_enabled(true);
-        let selection = selection_model_with_rendered_mermaid(&mut app);
-
-        selection.update(&mut app, |selection, ctx| {
-            selection.set_cursor(8.into(), ctx);
-            selection.update_selection(
-                BufferSelectAction::ExtendLeft,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            selection.update_selection(
-                BufferSelectAction::ExtendRight,
-                AutoScrollBehavior::Selection,
-                ctx,
-            );
-            assert_eq!(
-                selection.selections(ctx),
-                vec1![SelectionOffsets {
-                    head: 8.into(),
-                    tail: 8.into(),
-                }]
-            );
-        });
-    });
 }
 
 #[test]
