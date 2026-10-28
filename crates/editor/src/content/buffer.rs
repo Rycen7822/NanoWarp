@@ -31,9 +31,7 @@ use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 use super::anchor::{Anchor, AnchorSide, Anchors};
 use super::cursor::BufferCursor;
 use super::edit::EditDelta;
-use super::markdown::{
-    BufferMarkdownParser, BufferToFormattedText, ExportedBufferBlocks, MarkdownStyle,
-};
+use super::markdown::{BufferMarkdownParser, BufferToFormattedText, MarkdownStyle};
 use super::selection::{Selection, TextStyleBias};
 use super::text::{
     BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
@@ -939,34 +937,6 @@ impl Buffer {
             }),
             anchor_updates,
         }
-    }
-
-    /// Exports a range of the buffer as HTML.
-    pub fn ranges_as_html(
-        &self,
-        ranges: Vec1<Range<CharOffset>>,
-        app: &AppContext,
-    ) -> Option<String> {
-        let blocks = ExportedBufferBlocks {
-            blocks: self
-                .styled_blocks_in_ranges(ranges, StyledBlockBoundaryBehavior::InclusiveBlockItems),
-            context: app,
-        };
-        blocks.serialize_styled_blocks().ok()
-    }
-
-    pub fn selected_text_as_html(
-        &self,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        app: &AppContext,
-    ) -> Option<String> {
-        let selected_ranges = selection_model.as_ref(app).selections_to_offset_ranges();
-        let full_ranges: Vec<Range<CharOffset>> = selected_ranges
-            .into_iter()
-            .filter(|range| !self.range_has_partial_table_selection(range.clone()))
-            .collect();
-        let full_ranges = Vec1::try_from_vec(full_ranges).ok()?;
-        self.ranges_as_html(full_ranges, app)
     }
 
     pub fn selected_text_as_plain_text(
@@ -2428,28 +2398,6 @@ impl Buffer {
             }
         }
         text
-    }
-
-    fn range_has_partial_table_selection(&self, range: Range<CharOffset>) -> bool {
-        let mut offset = range.start;
-
-        while offset < range.end {
-            let block_start = self.containing_block_start(offset);
-            let block_end = self.containing_block_end(offset);
-            let segment_end = range.end.min(block_end);
-
-            if matches!(
-                self.block_type_at_point(offset),
-                BlockType::Text(BufferBlockStyle::Table { .. })
-            ) && (offset > block_start || segment_end < block_end)
-            {
-                return true;
-            }
-
-            offset = segment_end;
-        }
-
-        false
     }
 
     pub fn text_in_ranges_with_expanded_embedded_items(

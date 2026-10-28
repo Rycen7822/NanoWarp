@@ -668,25 +668,14 @@ pub enum BlockItem {
     Hidden(HiddenBlockConfig),
 }
 
-pub struct EmbeddedItemHTMLRepresentation<'a> {
-    pub element_name: &'a str,
-    pub content: String,
-    pub attributes: HashMap<&'a str, &'a str>,
-}
-
-pub struct EmbeddedItemRichFormat<'a> {
-    pub html: EmbeddedItemHTMLRepresentation<'a>,
-    pub plain_text: String,
-}
-
 pub trait EmbeddedItem: std::fmt::Debug + Send + Sync {
     // Layout the embedded item with the current text layout context.
     fn layout(&self, text_layout: &TextLayout, app: &AppContext) -> Box<dyn LaidOutEmbeddedItem>;
     fn hashed_id(&self) -> &str;
     /// Serializes this item as YAML.
     fn to_mapping(&self, style: MarkdownStyle) -> Mapping;
-    // Returns the rich format of the embedded item used for copy & pasting.
-    fn to_rich_format(&self, app: &AppContext) -> EmbeddedItemRichFormat<'_>;
+    // Returns the plain text of the embedded item used for copying.
+    fn to_plain_text(&self, app: &AppContext) -> String;
 }
 
 pub trait LaidOutEmbeddedItem: std::fmt::Debug + Send + Sync {

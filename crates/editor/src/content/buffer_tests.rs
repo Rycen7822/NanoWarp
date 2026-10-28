@@ -39,10 +39,7 @@ use crate::content::undo::{
     NonAtomicType, ReversibleEditorActions, ReversibleSelectionState, UndoActionType, UndoArg,
 };
 use crate::render::layout::TextLayout;
-use crate::render::model::{
-    EmbeddedItem, EmbeddedItemHTMLRepresentation, EmbeddedItemRichFormat, LaidOutEmbeddedItem,
-    RenderedSelectionSet,
-};
+use crate::render::model::{EmbeddedItem, LaidOutEmbeddedItem, RenderedSelectionSet};
 
 #[derive(Debug)]
 pub struct TestEmbeddedItem {
@@ -70,15 +67,8 @@ impl EmbeddedItem for TestEmbeddedItem {
         self.id.as_str()
     }
 
-    fn to_rich_format(&self, _app: &AppContext) -> EmbeddedItemRichFormat<'_> {
-        EmbeddedItemRichFormat {
-            plain_text: self.hashed_id().to_string(),
-            html: EmbeddedItemHTMLRepresentation {
-                element_name: "pre",
-                content: self.hashed_id().to_string(),
-                attributes: Default::default(),
-            },
-        }
+    fn to_plain_text(&self, _app: &AppContext) -> String {
+        self.hashed_id().to_string()
     }
 }
 
@@ -116,11 +106,6 @@ impl Buffer {
             action,
             self.content_version,
         );
-    }
-
-    // Helper function to get the html for one range.
-    fn range_as_html(&self, range: Range<CharOffset>, ctx: &AppContext) -> Option<String> {
-        self.ranges_as_html(vec1![range], ctx)
     }
 
     // Helper function to set a single selection range.
@@ -5252,342 +5237,7 @@ fn test_placeholder_inherits_styles() {
 }
 
 #[test]
-fn test_read_html() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nBlock\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.block_style_range(
-                CharOffset::from(8)..CharOffset::from(13),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.set_selection(CharOffset::from(3)..CharOffset::from(7), selection.clone(), ctx);
-            buffer.style_internal(TextStyles::default().bold(), selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Be<b_s>fore<b_e><code:Shell>Block<text>After"
-            );
-
-            buffer.set_selection(CharOffset::from(3)..CharOffset::from(5), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some("<p><strong>fo</strong></p>".to_string())
-            );
-
-            buffer.set_selection(CharOffset::from(8)..CharOffset::from(11), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some(
-                    "<pre><code class=\"language-warp-runnable-command\">Blo</code></pre>".to_string()
-                )
-            );
-
-            buffer.set_selection(CharOffset::from(4)..CharOffset::from(11), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some("<p><strong>ore</strong></p><pre><code class=\"language-warp-runnable-command\">Blo</code></pre>".to_string())
-            );
-
-            buffer.set_selection(CharOffset::from(11)..CharOffset::from(16), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some(
-                    "<pre><code class=\"language-warp-runnable-command\">ck</code></pre><p>Af</p>"
-                        .to_string()
-                )
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(14)..CharOffset::from(19),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.set_selection(CharOffset::from(15)..CharOffset::from(16), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some("<h1>f</h1>".to_string())
-            );
-
-            buffer.set_selection(CharOffset::from(11)..CharOffset::from(19), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some(
-                    "<pre><code class=\"language-warp-runnable-command\">ck</code></pre><h1>After</h1>"
-                        .to_string()
-                )
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(14)..CharOffset::from(19),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.set_selection(CharOffset::from(14)..CharOffset::from(19), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some("<ul><li>After</li></ul>".to_string())
-            );
-        });
-    });
-}
-
-#[test]
-fn test_read_html_nested_list() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nBlock\nAfter\nLine",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(1)..CharOffset::from(7),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(8)..CharOffset::from(13),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Two,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(14)..CharOffset::from(19),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Three,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(20)..CharOffset::from(24),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<ul0>Before<ul1>Block<ul2>After<ul0>Line<text>"
-            );
-
-            buffer.set_selection(CharOffset::from(1)..CharOffset::from(24), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some(
-                    "<ul><li>Before<ul><li>Block<ul><li>After</li></ul></li></ul></li><li>Line</li></ul>"
-                        .to_string()
-                )
-            );
-        });
-    });
-}
-
-#[test]
-fn test_copy_partial_list() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            // If part of a list is copied, make sure we still close it.
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "a\nb\ncone\ntwo\nthree",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.block_style_range(
-                CharOffset::from(1)..CharOffset::from(6),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.block_style_range(
-                CharOffset::from(7)..CharOffset::from(20),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<ul0>a<ul0>b<ul0>c<ol0>one<ol0>two<ol0>three<text>"
-            );
-
-            assert_eq!(
-                buffer
-                    .range_as_html(CharOffset::from(3)..CharOffset::from(6), ctx)
-                    .expect("Can serialize to HTML"),
-                "<ul><li>b</li><li>c</li></ul>"
-            );
-
-            assert_eq!(
-                buffer
-                    .range_as_html(CharOffset::from(11)..CharOffset::from(14), ctx)
-                    .expect("Can serialize HTML"),
-                "<ol><li>two</li></ol>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_read_html_nested_task_list() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nBlock\nAfter\nLine",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(1)..CharOffset::from(7),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::One,
-                    complete: true,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(8)..CharOffset::from(13),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::Two,
-                    complete: false,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(14)..CharOffset::from(19),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::Three,
-                    complete: true,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.block_style_range(
-                CharOffset::from(20)..CharOffset::from(24),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::One,
-                    complete: false,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<cl0:true>Before<cl1:false>Block<cl2:true>After<cl0:false>Line<text>"
-            );
-
-            buffer.set_selection(CharOffset::from(1)..CharOffset::from(24), selection.clone(), ctx);
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some(
-                    "<ul><li><input type=\"checkbox\" checked=\"\">Before<ul><li><input type=\"checkbox\">Block<ul><li><input type=\"checkbox\" checked=\"\">After</li></ul></li></ul></li><li><input type=\"checkbox\">Line</li></ul>"
-                        .to_string()
-                )
-            );
-        });
-    });
-}
-
-#[test]
-fn test_adjacent_lists_as_html() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Start\nOne\nTwo\nThree\nFour\nEnd",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.block_style_range(
-                CharOffset::from(7)..CharOffset::from(14),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            buffer.block_style_range(
-                CharOffset::from(15)..CharOffset::from(25),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<text>Start<ol0>One<ol0>Two<ul0>Three<ul0>Four<text>End"
-            );
-
-            // This test makes sure that we start and end ul/ol elements appropriately.
-            buffer.set_selection(CharOffset::zero()..buffer.max_charoffset(), selection.clone(), ctx);
-            assert_eq!(
-                buffer
-                    .selected_text_as_html(selection.clone(), ctx)
-                    .expect("Should convert to HTML"),
-                "<p>Start</p><ol><li>One</li><li>Two</li></ol><ul><li>Three</li><li>Four</li></ul><p>End</p>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_embedded_item_as_html() {
+fn test_embedded_item_as_plain_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
             Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)).with_embedded_item_conversion(
@@ -5635,18 +5285,6 @@ fn test_embedded_item_as_html() {
                 buffer.content.debug(),
                 "<text>Before<embed_workflow-123><embed_workflow-234><text>After"
             );
-            buffer.set_selection(
-                CharOffset::from(1)..buffer.max_charoffset(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer
-                    .selected_text_as_html(selection.clone(), ctx)
-                    .expect("Should convert to HTML"),
-                "<p>Before</p><pre>workflow-123</pre><pre>workflow-234</pre><p>After</p>"
-            );
-
             assert_eq!(
                 buffer.text_in_ranges_with_expanded_embedded_items(
                     vec1![CharOffset::from(1)..buffer.max_charoffset()],
@@ -9438,10 +9076,6 @@ fn test_ordered_list_numbering_export() {
                 buffer.markdown(),
                 "4. First\n5. Second\n    3. A\n    4. B\n6. Third\n"
             );
-            assert_eq!(
-                buffer.range_as_html(1.into()..buffer.max_charoffset(), ctx).unwrap(),
-                "<ol start=\"4\"><li>First</li><li>Second<ol start=\"3\"><li>A</li><li>B</li></ol></li><li>Third</li></ol>"
-            );
         });
     });
 }
@@ -12854,10 +12488,6 @@ fn test_multiselect_copy() {
                     .as_str(),
                 "test\nl\nsec"
             );
-            assert_eq!(
-                buffer.selected_text_as_html(selection.clone(), ctx),
-                Some("<p>test</p><p>l</p><p>sec</p>".to_string())
-            );
         })
     });
 }
@@ -12879,22 +12509,23 @@ fn test_multiselect_copy_blocks() {
 
             selection.update(ctx, |selection, _| {
                 selection.set_selection_offsets(vec1![
-                SelectionOffsets {
-                    tail: 1.into(),
-                    head: 7.into(),
-                },
-                SelectionOffsets {
-                    tail: 15.into(),
-                    head: 23.into(),
-                },
-            ]);
+                    SelectionOffsets {
+                        tail: 1.into(),
+                        head: 7.into(),
+                    },
+                    SelectionOffsets {
+                        tail: 15.into(),
+                        head: 23.into(),
+                    },
+                ]);
             });
 
             assert_eq!(
-                buffer.selected_text_as_plain_text(selection.clone(), ctx).as_str(),
+                buffer
+                    .selected_text_as_plain_text(selection.clone(), ctx)
+                    .as_str(),
                 "Hey\nYo\next\nThis"
             );
-            assert_eq!(buffer.selected_text_as_html(selection.clone(), ctx), Some("<ul><li>Hey</li><li>Yo</li></ul><p>ext</p><pre><code class=\"language-warp-runnable-command\">This</code></pre>".to_string()));
         })
     });
 }
@@ -12929,88 +12560,6 @@ fn test_selected_table_copy_uses_visible_plain_text() {
                     .selected_text_as_plain_text(selection.clone(), ctx)
                     .as_str(),
                 "Bold"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_partial_table_selection_does_not_export_html() {
-    App::test((), |mut app| async move {
-        let table_source = "Header\t**Bold**";
-        let markdown = format!("```{TABLE_BLOCK_MARKDOWN_LANG}\n{table_source}\n```\n");
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let block_start = buffer.containing_block_start(CharOffset::from(1));
-            let bold_start = CharOffset::from(
-                table_source
-                    .find("**Bold**")
-                    .expect("table source should contain bold cell"),
-            );
-            let visible_bold_start = block_start + bold_start + CharOffset::from(2);
-            let visible_bold_end = visible_bold_start + CharOffset::from("Bold".chars().count());
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![visible_bold_start..visible_bold_end]);
-            });
-
-            assert_eq!(buffer.selected_text_as_html(selection.clone(), ctx), None);
-        });
-    });
-}
-
-#[test]
-fn test_partial_table_selection_still_exports_html_for_non_table_ranges() {
-    App::test((), |mut app| async move {
-        let table_source = "Header\t**Bold**";
-        let markdown =
-            format!("```{TABLE_BLOCK_MARKDOWN_LANG}\n{table_source}\n```\n\nafter text\n");
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let block_start = buffer.containing_block_start(CharOffset::from(1));
-            let bold_start = CharOffset::from(
-                table_source
-                    .find("**Bold**")
-                    .expect("table source should contain bold cell"),
-            );
-            let visible_bold_start = block_start + bold_start + CharOffset::from(2);
-            let visible_bold_end = visible_bold_start + CharOffset::from("Bold".chars().count());
-
-            let max_offset = buffer.max_charoffset();
-            let after_text_start = max_offset - CharOffset::from("after text".chars().count());
-            let after_text_end = after_text_start + CharOffset::from("after".chars().count());
-
-            selection.update(ctx, |selection, _| {
-                set_selections(
-                    selection,
-                    vec1![
-                        visible_bold_start..visible_bold_end,
-                        after_text_start..after_text_end,
-                    ],
-                );
-            });
-
-            let html = buffer
-                .selected_text_as_html(selection.clone(), ctx)
-                .expect("non-table range should still export HTML");
-            assert!(
-                !html.contains("Bold"),
-                "partial table range should be dropped from HTML, got {html}"
-            );
-            assert!(
-                html.contains("after"),
-                "clean plain-text range should still appear in HTML, got {html}"
             );
         });
     });

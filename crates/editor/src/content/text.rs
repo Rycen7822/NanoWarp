@@ -471,9 +471,7 @@ impl BufferBlockItem {
     pub fn as_rich_format_text(&self, app: &AppContext) -> Cow<'_, str> {
         match &self {
             Self::HorizontalRule => "***\n".into(),
-            Self::Embedded { item } => {
-                format!("```\n{}\n```\n", item.to_rich_format(app).plain_text).into()
-            }
+            Self::Embedded { item } => format!("```\n{}\n```\n", item.to_plain_text(app)).into(),
             Self::Image {
                 alt_text,
                 source,

@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use markdown_parser::parse_markdown;
 use serde_yaml::Value;
-use string_offset::CharOffset;
-use vec1::Vec1;
 use warpui_core::{App, ReadModel};
 
 use super::MarkdownStyle;
@@ -119,112 +117,6 @@ export: true
 ```
 "#
         );
-    });
-}
-
-#[test]
-fn test_table_html_serialization() {
-    App::test((), |mut app| async move {
-        let markdown = format!(
-            "```{}\nheader 1\theader 2\nvalue 1\tvalue 2\n```\n",
-            TABLE_BLOCK_MARKDOWN_LANG
-        );
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            &markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let html = app.read_model(&buffer, |buffer, ctx| {
-            let range = CharOffset::from(1)..buffer.max_charoffset();
-            buffer.ranges_as_html(Vec1::try_from_vec(vec![range]).unwrap(), ctx)
-        });
-
-        assert!(html.is_some());
-        let html = html.unwrap();
-        assert!(html.contains(
-            "<table><thead><tr><th align=\"left\">header 1</th><th align=\"left\">header 2</th></tr></thead><tbody><tr><td align=\"left\">value 1</td><td align=\"left\">value 2</td></tr></tbody></table>"
-        ));
-    });
-}
-
-#[test]
-fn test_gfm_table_html_serialization() {
-    App::test((), |mut app| async move {
-        let _flag = warp_core::features::FeatureFlag::MarkdownTables.override_enabled(true);
-        let markdown = "\
-| header 1 | header 2 |\n\
-| --- | --- |\n\
-| value 1 | value 2 |\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let html = app.read_model(&buffer, |buffer, ctx| {
-            let range = CharOffset::from(1)..buffer.max_charoffset();
-            buffer.ranges_as_html(Vec1::try_from_vec(vec![range]).unwrap(), ctx)
-        });
-
-        assert!(html.is_some());
-        let html = html.unwrap();
-        assert!(html.contains(
-            "<table><thead><tr><th align=\"left\">header 1</th><th align=\"left\">header 2</th></tr></thead><tbody><tr><td align=\"left\">value 1</td><td align=\"left\">value 2</td></tr></tbody></table>"
-        ));
-    });
-}
-
-#[test]
-fn test_image_html_serialization() {
-    App::test((), |mut app| async move {
-        let markdown = "![Alt text](image.png)\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let html = app.read_model(&buffer, |buffer, ctx| {
-            let range = CharOffset::from(1)..buffer.max_charoffset();
-            buffer.ranges_as_html(Vec1::try_from_vec(vec![range]).unwrap(), ctx)
-        });
-
-        // Image should be serialized as <img src="image.png" alt="Alt text" />
-        assert!(html.is_some());
-        let html = html.unwrap();
-        assert!(html.contains("<img"));
-        assert!(html.contains("src=\"image.png\""));
-        assert!(html.contains("alt=\"Alt text\""));
-    });
-}
-
-#[test]
-fn test_multiple_images_html_serialization() {
-    App::test((), |mut app| async move {
-        let markdown = "![First](./path/img1.jpg)\n![Second](https://example.com/img2.png)\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let html = app.read_model(&buffer, |buffer, ctx| {
-            let range = CharOffset::from(1)..buffer.max_charoffset();
-            buffer.ranges_as_html(Vec1::try_from_vec(vec![range]).unwrap(), ctx)
-        });
-
-        // Check both images are in the HTML
-        assert!(html.is_some());
-        let html = html.unwrap();
-        assert!(html.contains("src=\"./path/img1.jpg\""));
-        assert!(html.contains("alt=\"First\""));
-        assert!(html.contains("src=\"https://example.com/img2.png\""));
-        assert!(html.contains("alt=\"Second\""));
     });
 }
 
@@ -387,32 +279,5 @@ fn test_markdown_unescaped_preserves_urls() {
             unescaped.contains("https://www.example.com/path"),
             "expected URL preserved, got: {unescaped}"
         );
-    });
-}
-
-#[test]
-fn test_image_with_content_html_serialization() {
-    App::test((), |mut app| async move {
-        let markdown = "# Header\n\n![Image](test.png)\n\nSome text\n";
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            markdown,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        let html = app.read_model(&buffer, |buffer, ctx| {
-            let range = CharOffset::from(1)..buffer.max_charoffset();
-            buffer.ranges_as_html(Vec1::try_from_vec(vec![range]).unwrap(), ctx)
-        });
-
-        // Check that header, image, and text are all present
-        assert!(html.is_some());
-        let html = html.unwrap();
-        assert!(html.contains("<h1>"));
-        assert!(html.contains("Header"));
-        assert!(html.contains("<img"));
-        assert!(html.contains("src=\"test.png\""));
-        assert!(html.contains("Some text"));
     });
 }
