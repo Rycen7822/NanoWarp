@@ -408,8 +408,6 @@ if [[ "${SKIP_SETTINGS_SCHEMA:-}" != "1" && -z "${SETTINGS_SCHEMA_EXECUTABLE:-}"
 fi
 "$WORKSPACE_ROOT_DIR/script/prepare_bundled_resources" "$BUNDLED_RESOURCES_DIR"
 
-"$WORKSPACE_ROOT_DIR/script/compile_icon" "$RELEASE_CHANNEL" "$BUNDLE_DIR/$WARP_APP_NAME.app"
-
 HELPERS_DIR="$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Helpers"
 if [[ ",$FEATURES," =~ ",heap_usage_tracking," ]]; then
   echo "Bundling pprof..."

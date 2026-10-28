@@ -19,7 +19,6 @@ OS_TYPE="$(uname -s)"
 FEATURES="gui"
 
 WARP_BIN_NAME="warp-oss"
-WARP_CHANNEL="oss"
 
 # Shared argument parsing. macOS-specific flags (--dont-open,
 # --open_with_launchd, --generate-schema) are forwarded through MAC_ARGS and
@@ -70,7 +69,6 @@ done
 
 export FEATURES
 export WARP_BIN_NAME
-export WARP_CHANNEL
 
 if [[ "$OS_TYPE" = "Darwin" ]]; then
   if [[ ${#WARP_ARGS[@]} -gt 0 ]]; then

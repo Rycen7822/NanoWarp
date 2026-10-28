@@ -7,7 +7,6 @@
 # This script is invoked by `./script/run`, which handles cross-platform
 # build selection and argument parsing. The caller provides:
 #   WARP_BIN_NAME  — "warp-oss"
-#   WARP_CHANNEL   — "oss"
 #   FEATURES       — comma-separated cargo features
 # Must be called from the root directory of the warp repo.
 
@@ -17,7 +16,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "${REPO_ROOT}"
 
 : "${WARP_BIN_NAME:?WARP_BIN_NAME must be set (invoke via ./script/run)}"
-: "${WARP_CHANNEL:?WARP_CHANNEL must be set (invoke via ./script/run)}"
 : "${FEATURES:?FEATURES must be set (invoke via ./script/run)}"
 
 # Resolve Cargo's actual target directory rather than assuming ./target. This
@@ -103,8 +101,6 @@ else
   export SETTINGS_SCHEMA_EXECUTABLE="$WARP_APP_PATH/Contents/MacOS/$WARP_BIN_NAME"
 fi
 NO_LICENSES=1 "${REPO_ROOT}/script/prepare_bundled_resources" "$WARP_APP_PATH/Contents/Resources"
-
-"${REPO_ROOT}/script/compile_icon" "$WARP_CHANNEL" "$WARP_APP_PATH"
 
 if [[ ",$FEATURES," =~ ",heap_usage_tracking," ]]; then
   echo "Bundling pprof..."
