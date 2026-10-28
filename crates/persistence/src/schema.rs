@@ -172,8 +172,6 @@ diesel::table! {
         id -> Integer,
         repo_path -> Text,
         navigated_ts -> Nullable<Timestamp>,
-        modified_ts -> Nullable<Timestamp>,
-        queried_ts -> Nullable<Timestamp>,
     }
 }
 

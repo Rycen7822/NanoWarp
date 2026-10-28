@@ -151,9 +151,7 @@ CREATE TABLE commands (
 CREATE TABLE workspace_metadata (
     id INTEGER NOT NULL PRIMARY KEY,
     repo_path TEXT NOT NULL UNIQUE,
-    navigated_ts DATETIME,
-    modified_ts DATETIME,
-    queried_ts DATETIME
+    navigated_ts DATETIME
 );
 
 CREATE TABLE ignored_suggestions (

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::SyncSender;
 
 use anyhow::Context;
-use chrono::{DateTime, Days, Utc};
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
 #[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
@@ -14,22 +14,9 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 use crate::persistence::ModelEvent;
 
-pub struct Workspace {
-    metadata: WorkspaceMetadata,
-}
-
-impl Workspace {
-    /// Returns `true` if this workspace has been persisted to SQLite.
-    fn is_persisted(&self) -> bool {
-        self.metadata.navigated_ts.is_some()
-            || self.metadata.modified_ts.is_some()
-            || self.metadata.queried_ts.is_some()
-    }
-}
-
 /// Tracks recently used directories and their persisted metadata.
 pub struct PersistedWorkspace {
-    workspaces: HashMap<PathBuf, Workspace>,
+    workspaces: HashMap<PathBuf, WorkspaceMetadata>,
     model_event_sender: Option<SyncSender<ModelEvent>>,
 }
 
@@ -63,7 +50,7 @@ impl PersistedWorkspace {
         Self {
             workspaces: metadata
                 .into_iter()
-                .map(|metadata| (metadata.path.clone(), Workspace { metadata }))
+                .map(|metadata| (metadata.path.clone(), metadata))
                 .collect(),
             model_event_sender,
         }
@@ -79,18 +66,14 @@ impl PersistedWorkspace {
 
         match self.workspaces.get_mut(&path) {
             Some(workspace) => {
-                workspace.metadata.navigated_ts = Some(now);
+                workspace.navigated_ts = Some(now);
             }
             None => {
                 self.workspaces.insert(
                     path.clone(),
-                    Workspace {
-                        metadata: WorkspaceMetadata {
-                            path: path.clone(),
-                            navigated_ts: Some(now),
-                            modified_ts: None,
-                            queried_ts: None,
-                        },
+                    WorkspaceMetadata {
+                        path: path.clone(),
+                        navigated_ts: Some(now),
                     },
                 );
             }
@@ -119,24 +102,22 @@ impl PersistedWorkspace {
     pub fn workspaces<'a>(&'a self) -> impl Iterator<Item = WorkspaceMetadata> + use<'a> {
         self.workspaces
             .values()
-            .filter(|workspace| workspace.is_persisted())
-            .map(|workspace| workspace.metadata.clone())
-            .sorted_by(WorkspaceMetadata::most_recently_touched)
+            .filter(|workspace| workspace.navigated_ts.is_some())
+            .cloned()
+            .sorted_by(WorkspaceMetadata::most_recently_navigated)
             .dedup_by(|a, b| a.path == b.path)
     }
 
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     pub fn navigated_to_path(&mut self, directory: &PathBuf) {
         if let Some(workspace) = self.workspaces.get_mut(directory) {
-            workspace.metadata.navigated_ts = Some(Utc::now());
+            workspace.navigated_ts = Some(Utc::now());
             self.persist_workspace_metadata(directory);
         }
     }
 
     pub fn workspace_for_path(&self, root_path: &Path) -> Option<WorkspaceMetadata> {
-        self.workspaces
-            .get(root_path)
-            .map(|workspace| workspace.metadata.clone())
+        self.workspaces.get(root_path).cloned()
     }
 
     fn persist_workspace_metadata(&self, path: &PathBuf) {
@@ -168,8 +149,6 @@ impl PersistedWorkspace {
 pub struct WorkspaceMetadata {
     pub path: PathBuf,
     pub navigated_ts: Option<DateTime<Utc>>,
-    pub modified_ts: Option<DateTime<Utc>>,
-    pub queried_ts: Option<DateTime<Utc>>,
 }
 
 impl WorkspaceMetadata {
@@ -182,47 +161,6 @@ impl WorkspaceMetadata {
             (None, None) => a.path.cmp(&b.path),
         }
     }
-
-    /// Surface most recently touched first
-    pub fn most_recently_touched(a: &Self, b: &Self) -> std::cmp::Ordering {
-        match (a.last_touched(), b.last_touched()) {
-            (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.path.cmp(&b.path),
-        }
-    }
-
-    /// The most recent time this codebase index was navigated to, queried or modified.
-    pub fn last_touched(&self) -> Option<DateTime<Utc>> {
-        let mut last_access_time: Option<DateTime<Utc>> = None;
-        if let Some(nav_ts) = self.navigated_ts {
-            last_access_time = last_access_time
-                .map(|old_time| old_time.max(nav_ts))
-                .or(Some(nav_ts));
-        }
-        if let Some(mod_ts) = self.modified_ts {
-            last_access_time = last_access_time
-                .map(|old_time| old_time.max(mod_ts))
-                .or(Some(mod_ts));
-        }
-        if let Some(query_ts) = self.queried_ts {
-            last_access_time = last_access_time
-                .map(|old_time| old_time.max(query_ts))
-                .or(Some(query_ts));
-        }
-        last_access_time
-    }
-
-    pub fn is_expired(&self, current_time: DateTime<Utc>, shelf_life_days: u64) -> bool {
-        let Some(last_touch) = self.last_touched() else {
-            return true;
-        };
-        last_touch
-            .checked_add_days(Days::new(shelf_life_days))
-            .unwrap_or_default()
-            < current_time
-    }
 }
 
 impl From<WorkspaceMetadata> for persistence::model::NewWorkspaceMetadata {
@@ -230,8 +168,6 @@ impl From<WorkspaceMetadata> for persistence::model::NewWorkspaceMetadata {
         Self {
             repo_path: value.path.to_string_lossy().into_owned(),
             navigated_ts: value.navigated_ts.map(|utc_dt| utc_dt.naive_utc()),
-            modified_ts: value.modified_ts.map(|utc_dt| utc_dt.naive_utc()),
-            queried_ts: value.queried_ts.map(|utc_dt| utc_dt.naive_utc()),
         }
     }
 }
@@ -241,8 +177,6 @@ impl From<persistence::model::WorkspaceMetadata> for WorkspaceMetadata {
         Self {
             path: PathBuf::from(value.repo_path),
             navigated_ts: value.navigated_ts.map(|naive_ts| naive_ts.and_utc()),
-            modified_ts: value.modified_ts.map(|naive_ts| naive_ts.and_utc()),
-            queried_ts: value.queried_ts.map(|naive_ts| naive_ts.and_utc()),
         }
     }
 }

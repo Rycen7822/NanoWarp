@@ -101,8 +101,6 @@ fn test_workspace_metadata(path: &str) -> WorkspaceMetadata {
     WorkspaceMetadata {
         path: PathBuf::from(path),
         navigated_ts: Some(Utc::now()),
-        modified_ts: None,
-        queried_ts: None,
     }
 }
 

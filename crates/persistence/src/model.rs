@@ -35,8 +35,6 @@ pub struct WorkspaceMetadata {
     pub id: i32,
     pub repo_path: String,
     pub navigated_ts: Option<NaiveDateTime>,
-    pub modified_ts: Option<NaiveDateTime>,
-    pub queried_ts: Option<NaiveDateTime>,
 }
 
 #[derive(Clone, Insertable, AsChangeset)]
@@ -44,8 +42,6 @@ pub struct WorkspaceMetadata {
 pub struct NewWorkspaceMetadata {
     pub repo_path: String,
     pub navigated_ts: Option<NaiveDateTime>,
-    pub modified_ts: Option<NaiveDateTime>,
-    pub queried_ts: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable)]

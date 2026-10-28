@@ -133,7 +133,7 @@ impl RepoPicker {
     }
 
     fn refresh_items(&mut self, select_path: Option<&str>, ctx: &mut ViewContext<Self>) {
-        // workspaces() already returns entries sorted by most-recently-touched.
+        // workspaces() already returns entries sorted by most-recently-navigated.
         // "+ Add new repo..." is a sticky footer (not a list item) so it is
         // not included here.
         //
