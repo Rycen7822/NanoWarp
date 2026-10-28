@@ -210,7 +210,9 @@ use crate::util::file::external_editor::Editor;
 use crate::util::file::external_editor::EditorSettings;
 use crate::util::openable_file_type::FileTarget;
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{EditorLayout, resolve_file_target_with_editor_choice};
+use crate::util::openable_file_type::{
+    EditorLayout, resolve_file_target_to_open_in_warp, resolve_file_target_with_editor_choice,
+};
 use crate::util::traffic_lights::{TrafficLightMouseStates, TrafficLightSide, traffic_light_data};
 use crate::util::truncation::truncate_from_end;
 use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink};
@@ -3003,7 +3005,7 @@ impl Workspace {
             }
             FileTarget::CodeEditor(layout) => {
                 let open_as_preview = false;
-                self.open_code(code_source, layout, line_col, open_as_preview, &[], ctx);
+                self.open_code(code_source, layout, line_col, open_as_preview, ctx);
             }
             FileTarget::ExternalEditor(editor) => {
                 crate::util::file::open_file_path_with_editor(
@@ -4356,9 +4358,20 @@ impl Workspace {
         layout: EditorLayout,
         line_col: Option<LineAndColumnArg>,
         preview: bool,
-        additional_paths: &[PathBuf],
         ctx: &mut ViewContext<Self>,
     ) {
+        if let Some(LocalOrRemotePath::Local(path)) = source.location() {
+            let target = resolve_file_target_to_open_in_warp(
+                &path,
+                EditorSettings::as_ref(ctx),
+                Some(layout),
+            );
+            if !matches!(target, FileTarget::CodeEditor(_)) {
+                self.open_file_with_target(path, target, line_col, source, ctx);
+                return;
+            }
+        }
+
         let grouping_on = FeatureFlag::TabbedEditorView.is_enabled()
             && *EditorSettings::as_ref(ctx)
                 .prefer_tabbed_editor_view
@@ -4394,13 +4407,6 @@ impl Workspace {
                         }
                     } else {
                         code_view.open_or_focus_existing(Some(location.clone()), line_col, ctx);
-                    }
-                    for extra in additional_paths {
-                        code_view.open_or_focus_existing(
-                            Some(LocalOrRemotePath::Local(extra.clone())),
-                            None,
-                            ctx,
-                        );
                     }
                 });
                 // Only focus the pane for non-preview opens
@@ -4450,14 +4456,6 @@ impl Workspace {
                                         ctx,
                                     );
                                 }
-
-                                for extra in additional_paths {
-                                    code_view.open_or_focus_existing(
-                                        Some(LocalOrRemotePath::Local(extra.clone())),
-                                        None,
-                                        ctx,
-                                    );
-                                }
                             });
                         }
                     });
@@ -4488,32 +4486,6 @@ impl Workspace {
                         !preview, /* focus_new_pane */
                         ctx,
                     );
-                });
-            }
-        }
-
-        // Open any additional paths as tabs in the code view we just created.
-        if !additional_paths.is_empty() {
-            let code_view_handle = self
-                .active_tab_pane_group()
-                .as_ref(ctx)
-                .code_panes(ctx)
-                .find(|(pane_id, _)| {
-                    !self
-                        .active_tab_pane_group()
-                        .as_ref(ctx)
-                        .is_pane_hidden_for_close(*pane_id)
-                })
-                .map(|(_, view)| view);
-            if let Some(code_view) = code_view_handle {
-                code_view.update(ctx, |code_view, ctx| {
-                    for path in additional_paths {
-                        code_view.open_or_focus_existing(
-                            Some(LocalOrRemotePath::Local(path.clone())),
-                            None,
-                            ctx,
-                        );
-                    }
                 });
             }
         }
@@ -6958,7 +6930,6 @@ impl Workspace {
                         *EditorSettings::as_ref(ctx).open_file_layout.value(),
                         *line_and_column_arg,
                         false, // preview
-                        &[],
                         ctx,
                     );
                 }
@@ -7108,7 +7079,7 @@ impl Workspace {
                 layout,
                 line_col,
             } => {
-                self.open_code(source.clone(), *layout, *line_col, false, &[], ctx);
+                self.open_code(source.clone(), *layout, *line_col, false, ctx);
             }
             #[cfg(feature = "local_fs")]
             pane_group::Event::PreviewCodeInWarp { source } => {
@@ -7117,7 +7088,6 @@ impl Workspace {
                     EditorLayout::SplitPane, // preview always uses split pane
                     None,                    // no line/column for preview
                     true,                    // preview
-                    &[],
                     ctx,
                 );
             }
