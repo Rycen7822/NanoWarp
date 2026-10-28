@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::fmt::Write;
 use std::ops::Range;
 
 use markdown_parser::{
@@ -8,7 +7,7 @@ use markdown_parser::{
     OrderedFormattedIndentTextInline,
 };
 use string_offset::CharOffset;
-use warpui_core::elements::{ListIndentLevel, ListNumbering};
+use warpui_core::elements::ListIndentLevel;
 use warpui_core::{AppContext, ModelContext, ModelHandle};
 
 use super::buffer::{
@@ -16,7 +15,7 @@ use super::buffer::{
     StyledBufferBlocks, StyledBufferRun,
 };
 use super::core::{CoreEditorAction, CoreEditorActionType};
-use super::text::{BlockHeaderSize, BlockType, BufferBlockStyle, TextStylesWithMetadata};
+use super::text::{BlockHeaderSize, BlockType, BufferBlockStyle};
 use crate::content::anchor::AnchorSide;
 use crate::content::selection_model::BufferSelectionModel;
 
@@ -32,297 +31,6 @@ pub enum MarkdownStyle<'a> {
         app_context: Option<&'a AppContext>,
         should_not_escape_markdown_punctuation: bool,
     },
-}
-
-/// Parser that takes a slice of content model with StyledBufferBlocks and returns
-/// the formatted markdown in string.
-pub struct BufferMarkdownParser<'a> {
-    blocks: StyledBufferBlocks<'a>,
-    style: MarkdownStyle<'a>,
-}
-
-impl<'a> BufferMarkdownParser<'a> {
-    pub fn new(style: MarkdownStyle<'a>, blocks: StyledBufferBlocks<'a>) -> Self {
-        Self { blocks, style }
-    }
-
-    // Consumes the iterator and returns the corresponding markdown string.
-    pub fn to_markdown(&mut self) -> String {
-        let mut res = String::new();
-        let mut ordered_list_numbering = ListNumbering::new();
-
-        for block in self.blocks.by_ref() {
-            match block {
-                StyledBufferBlock::Item(item) => {
-                    res.push_str(&item.as_markdown(self.style));
-                    res.push('\n');
-                }
-                StyledBufferBlock::Text(text_block) => {
-                    // Push the prefix for the active block.
-                    match text_block.style.clone() {
-                        BufferBlockStyle::Header { header_size } => {
-                            res.push_str(&"#".repeat(header_size.into()));
-                            res.push(' ');
-                        }
-                        BufferBlockStyle::UnorderedList { indent_level } => {
-                            res.push_str("    ".repeat(indent_level.as_usize()).as_str());
-                            res.push_str("* ")
-                        }
-                        BufferBlockStyle::OrderedList {
-                            indent_level,
-                            number,
-                        } => {
-                            let indent = indent_level.as_usize();
-                            res.push_str("    ".repeat(indent).as_str());
-
-                            let _ = write!(
-                                &mut res,
-                                "{}. ",
-                                ordered_list_numbering.advance(indent, number).label_index
-                            );
-                        }
-                        BufferBlockStyle::CodeBlock { code_block_type } => res.push_str(&format!(
-                            "```{}\n",
-                            &code_block_type.to_markdown_representation(self.style)
-                        )),
-                        BufferBlockStyle::TaskList {
-                            indent_level,
-                            complete,
-                        } => {
-                            res.push_str("    ".repeat(indent_level.as_usize()).as_str());
-                            if complete {
-                                res.push_str("- [x] ");
-                            } else {
-                                res.push_str("- [ ] ");
-                            }
-                        }
-                        BufferBlockStyle::PlainText => (),
-                    };
-
-                    if !matches!(text_block.style, BufferBlockStyle::OrderedList { .. }) {
-                        ordered_list_numbering.reset();
-                    }
-
-                    let block_escapes = !matches!(
-                        self.style,
-                        MarkdownStyle::Export {
-                            should_not_escape_markdown_punctuation: true,
-                            ..
-                        }
-                    ) && text_block.style.escape_markdown_punctuation();
-                    Self::append_block_content(&text_block.block, block_escapes, &mut res);
-
-                    // Push the suffix for the active block.
-                    match text_block.style {
-                        BufferBlockStyle::CodeBlock { .. } => res.push_str("```\n"),
-                        BufferBlockStyle::Header { .. }
-                        | BufferBlockStyle::PlainText
-                        | BufferBlockStyle::UnorderedList { .. }
-                        | BufferBlockStyle::OrderedList { .. }
-                        | BufferBlockStyle::TaskList { .. } => (),
-                    }
-                }
-            }
-        }
-
-        res
-    }
-
-    /// Emits Markdown formatting markers for changing from `prev_styles` to `next_styles`.
-    ///
-    /// This will omit formatting for unchanged styles, which is required to produce valid Markdown
-    /// (for example, according to [this](https://spec.commonmark.org/0.30/#example-411),
-    /// `*abc**def*`, parses to `<i_s>abc**def<i_e>`, not `<i_s>abcdef<i_e>`).
-    ///
-    /// If the text that `next_styles` applies to (`next_content`) starts with whitespace,
-    /// the formatting markers might be reordered after the first character to comply
-    /// with [these rules](https://spec.commonmark.org/0.30/#left-flanking-delimiter-run).
-    /// Likewise, if the last character of `buf` is whitespace, the formatting markers may be
-    /// reordered before it.
-    ///
-    /// This alters the user content slightly, but will parse back to what they expect, rather than
-    /// something un-representable. In this case, the returned `&str` is the shifted
-    /// `next_content`.
-    fn append_formatting<'b>(
-        prev_styles: &TextStylesWithMetadata,
-        next_styles: &TextStylesWithMetadata,
-        mut next_content: &'b str,
-        buf: &mut String,
-    ) -> &'b str {
-        // Because of how links start a new formatting scope, we have to change styles in a particular
-        // order, from the inside out:
-        // 1. End inline code (since other style markers aren't interpreted within code spans)
-        // 2. End other inline styles
-        // 3. End and then start links
-        // 4. Start inline styles
-        // 5. Start inline code
-
-        if prev_styles.is_inline_code() && !next_styles.is_inline_code() {
-            buf.push('`')
-        }
-
-        let end_bold = prev_styles.is_at_least_bold() && !next_styles.is_at_least_bold();
-        let end_italic = prev_styles.is_italic() && !next_styles.is_italic();
-        let end_strikethrough = prev_styles.is_strikethrough() && !next_styles.is_strikethrough();
-        let end_underline = prev_styles.is_underlined() && !next_styles.is_underlined();
-
-        // This, and the parallel logic below, is an unfortunate workaround for the CommonMark
-        // rules about space before/after bold and italic formatting markers
-        // (https://spec.commonmark.org/0.30/#left-flanking-delimiter-run). Like Notion, we
-        // rearrange the user content slightly to match the spec, in order to be compatible with
-        // GitHub and other parsers.
-        // In this case, if the current buffer ends in whitespace, we remove it, write the
-        // end formatting markers, and then re-add it.
-        let swapped_content = buf
-            .char_indices()
-            .rev()
-            .take_while(|(_, c)| c.is_whitespace())
-            .last()
-            // Panic safety: iterating over `char_indices` means that `idx` must be in-bounds and a
-            // code point boundary.
-            .map(|(idx, _)| buf.split_off(idx));
-
-        if end_underline {
-            buf.push_str("</u>")
-        }
-
-        if end_strikethrough {
-            buf.push_str("~~");
-        }
-
-        if end_bold {
-            buf.push_str("**");
-        }
-
-        if end_italic {
-            buf.push('*');
-        }
-
-        buf.extend(swapped_content);
-
-        let prev_link = prev_styles.link_content();
-        let next_link = next_styles.link_content();
-
-        // Open/close links if:
-        // * A link is beginning or ending.
-        // * There are two adjacent, different, links.
-        if prev_link != next_link {
-            if let Some(closing_url) = prev_link {
-                // The `String` implementation of `fmt::Write` never returns `Err`.
-                let _ = write!(buf, "]({closing_url})");
-            }
-
-            if next_link.is_some() {
-                buf.push('[');
-            }
-        }
-
-        let start_bold = !prev_styles.is_at_least_bold() && next_styles.is_at_least_bold();
-        let start_italic = !prev_styles.is_italic() && next_styles.is_italic();
-        let start_strikethrough = !prev_styles.is_strikethrough() && next_styles.is_strikethrough();
-        let start_underline = !prev_styles.is_underlined() && next_styles.is_underlined();
-
-        // In order to parse correctly, Markdown emphasis markers must be after whitespace. If the
-        // next run of content starts with whitespace, we write that and then the markers, and then
-        // let the outer loop write the rest of the content.
-        if (start_bold || start_italic || start_strikethrough || start_underline)
-            && let Some(idx) = next_content.find(|c: char| !c.is_whitespace())
-        {
-            // Panic safety: if the pattern matches, `find` returns the byte index of the first
-            // matching character, so it will be a code point boundary.
-            let (whitespace, rest) = next_content.split_at(idx);
-            buf.push_str(whitespace);
-            next_content = rest;
-        }
-
-        if start_bold {
-            buf.push_str("**");
-        }
-
-        if start_italic {
-            buf.push('*');
-        }
-
-        if start_strikethrough {
-            buf.push_str("~~");
-        }
-
-        if start_underline {
-            buf.push_str("<u>");
-        }
-
-        if !prev_styles.is_inline_code() && next_styles.is_inline_code() {
-            buf.push('`');
-        }
-
-        next_content
-    }
-
-    /// Appends text content to a Markdown buffer, escaping any special characters as needed.
-    fn append_content(text: &str, should_escape: bool, buf: &mut String) {
-        if should_escape {
-            buf.reserve(text.len());
-            for ch in text.chars() {
-                // Only escape punctuation characters that have special meaning in Markdown
-                if Self::is_markdown_special_char(ch) {
-                    buf.push('\\');
-                }
-                buf.push(ch);
-            }
-        } else {
-            buf.push_str(text);
-        }
-    }
-
-    fn append_block_content(runs: &[StyledBufferRun], block_escapes: bool, buf: &mut String) {
-        let mut prev_styles = TextStylesWithMetadata::default();
-        for run in runs {
-            if run.run.is_empty() || run.text_styles.is_placeholder() {
-                continue;
-            }
-            let (content, has_trailing_newline) = match run.run.strip_suffix('\n') {
-                Some(without_newline) => (without_newline, true),
-                _ => (run.run.as_str(), false),
-            };
-            let content = Self::append_formatting(&prev_styles, &run.text_styles, content, buf);
-            prev_styles.clone_from(&run.text_styles);
-            let should_escape = block_escapes && run.text_styles.escape_markdown_punctuation();
-            Self::append_content(content, should_escape, buf);
-            if has_trailing_newline {
-                Self::append_formatting(
-                    &run.text_styles,
-                    &TextStylesWithMetadata::default(),
-                    "",
-                    buf,
-                );
-                prev_styles = TextStylesWithMetadata::default();
-                buf.push('\n');
-            }
-        }
-        Self::append_formatting(&prev_styles, &TextStylesWithMetadata::default(), "", buf);
-    }
-
-    /// Returns true if the character has special meaning in Markdown and should be escaped.
-    fn is_markdown_special_char(ch: char) -> bool {
-        matches!(
-            ch,
-            '\\' | // Backslash - used for escaping other characters
-            '`' | // Backtick - used for inline code
-            '*' | // Asterisk - used for emphasis and unordered lists
-            '_' | // Underscore - used for emphasis
-            '{' | // Left curly brace - used in some Markdown extensions
-            '}' | // Right curly brace - used in some Markdown extensions
-            '[' | // Left square bracket - used for links and images
-            ']' | // Right square bracket - used for links and images
-            '(' | // Left parenthesis - used for links and images
-            ')' | // Right parenthesis - used for links and images
-            '#' | // Hash - used for headings
-            '+' | // Plus - used for unordered lists
-            '-' | // Minus - used for unordered lists and horizontal rules
-            '.' | // Period - used for ordered lists
-            '!' // Exclamation mark - used for images
-        )
-    }
 }
 
 /// Convert a slice of buffer model in StyledBufferBlocks into FormattedText.
@@ -446,20 +154,6 @@ impl StyledBufferRun {
             text,
             styles: self.text_styles.clone().into(),
         }
-    }
-}
-
-impl BufferBlockStyle {
-    /// Whether or not punctuation that may be misinterpreted as Markdown formatting should be
-    /// escaped. This is true for _most_ block types, but some do not allow escapes.
-    fn escape_markdown_punctuation(&self) -> bool {
-        !matches!(self, BufferBlockStyle::CodeBlock { .. })
-    }
-}
-
-impl TextStylesWithMetadata {
-    fn escape_markdown_punctuation(&self) -> bool {
-        !self.is_inline_code()
     }
 }
 
@@ -593,7 +287,3 @@ fn formatted_text_line_to_block_style(line: &FormattedTextLine) -> Option<Buffer
         FormattedTextLine::Image(_) => None,
     }
 }
-
-#[cfg(test)]
-#[path = "markdown_tests.rs"]
-mod tests;

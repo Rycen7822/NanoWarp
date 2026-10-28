@@ -3149,59 +3149,7 @@ fn test_styled_blocks_on_buffer_start() {
 }
 
 #[test]
-fn test_inline_markdown_roundtrips() {
-    // Because of our formatting requirements, not all Markdown round-trips. These cases should,
-    // however.
-    let inputs = &[
-        "A **bold** string",
-        "A [*styled* link](https://example.com)",
-        "**An [exterior](https://example.com) link**",
-        "An `inline code` span",
-        "Nested ***bold** and italic*",
-        "Nested ***italic* and bold**",
-        "A [link with `code`](https://example.com) and text",
-        "*Complicated **text*** with *nest**ing***",
-        "This `is not a [link](https://example.com) due to` precedence",
-        "A **`bold code span`** too",
-        "[link1](https://warp.dev)[**link2**](https://example.com)",
-        "Combined *~~italic and strikethrough~~*",
-        "Overlapping *~~abc~~def*",
-        "This is <u>underlined</u>",
-    ];
-
-    for input in inputs {
-        let formatted = parse_markdown(input).unwrap();
-        assert_eq!(
-            Buffer::export_to_markdown(formatted, None, MarkdownStyle::Internal),
-            *input
-        );
-    }
-}
-
-#[test]
-fn test_export_markdown_blocks() {
-    let markdown =
-        "A `styled`\n***range** of text* and\n```warp-runnable-command\ncode\nblock\n```\n";
-    let formatted = parse_markdown(markdown).unwrap();
-    assert_eq!(
-        Buffer::export_to_markdown(formatted, None, MarkdownStyle::Internal),
-        markdown
-    );
-}
-
-#[test]
 fn text_export_markdown_styled_inline_code() {
-    // Markdown ignores formatting within code spans. Because of this, our options are:
-    // 1. Silently strip out formatting within code spans:
-    //    <c_s>first <b_s>word<b_e> last<c_e> ==> `first word last`
-    // 2. Split up code spans so that we can wrap them with formatting:
-    //   <c_s>first <b_s>word<b_e> last<c_e> ==> `first` **`word`** `last`
-    // 3. Preserve the Markdown formatting within the span:
-    //   <c_s>first <b_s>word<b_e> last<c_e> ==> `first **word** last`
-    // Like Notion, we currently go with (3) on the assumption that:
-    // * Users will generally expect that they can't format within a code span
-    // * Preserving the Markdown characters is then the least-surprising behavior.
-
     App::test((), |mut app| async move {
         let (buffer, selection) = Buffer::mock_from_markdown(
             "`first word last`",
@@ -3218,7 +3166,6 @@ fn text_export_markdown_styled_inline_code() {
             );
             buffer.style_internal(TextStyles::default().bold(), selection.clone(), ctx);
             assert_eq!(buffer.debug(), "<text><c_s>first <b_s>word<b_e> last<c_e>");
-            assert_eq!(buffer.markdown(), "`first **word** last`");
         });
     });
 }
@@ -3249,30 +3196,13 @@ fn test_markdown_styled_whitespace() {
                 ctx,
             );
             buffer.style_internal(TextStyles::default().bold(), selection.clone(), ctx);
-            // Even though the spaces should be styled, this isn't representable in Markdown.
-            // Instead, the formatting is shifted around the whitespace.
             assert_eq!(
                 buffer.debug(),
                 "<text><i_s>mixed<b_s>  emphasis    <i_e><b_e>end"
             );
-            assert_eq!(buffer.markdown(), "*mixed  **emphasis***    end");
         });
 
-        let markdown_text = buffer.read(&app, |buffer, _| buffer.markdown());
-        let (buffer2, _selection) = Buffer::mock_from_markdown(
-            &markdown_text,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer2.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.debug(),
-                "<text><i_s>mixed  <b_s>emphasis<b_e><i_e>    end"
-            );
-        });
-
-        // Regression test for handling multibyte characters around the rearranged whitespace (CLD-962).
+        // Regression test for handling multibyte characters (CLD-962).
         let buffer3 = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection3 = app.add_model(|_| BufferSelectionModel::new(buffer3.clone()));
 
@@ -3291,7 +3221,6 @@ fn test_markdown_styled_whitespace() {
             );
             buffer.style_internal(TextStyles::default().italic(), selection3.clone(), ctx);
             assert_eq!(buffer.debug(), "<text><i_s>styled🧑‍💻    <i_e>not");
-            assert_eq!(buffer.markdown(), "*styled🧑‍💻*    not");
         });
     });
 }
@@ -3350,11 +3279,6 @@ fn test_export_markdown_sublists() {
                 buffer.debug(),
                 "<ol0>Line<ol1>First<ol2>Second<ol0>Third<ol1>Last<text>"
             );
-
-            assert_eq!(
-                buffer.markdown(),
-                "1. Line\n    1. First\n        1. Second\n2. Third\n    1. Last\n"
-            );
         });
     });
 }
@@ -3384,8 +3308,6 @@ fn test_markdown_omits_placeholders() {
                 buffer.debug(),
                 "<text><i_s>ma<placeholder_s>placeholder<placeholder_e>rkd<i_e>own"
             );
-
-            assert_eq!(buffer.markdown(), "*markd*own");
         });
     });
 }
@@ -3416,27 +3338,6 @@ fn test_markdown_escapes() {
                 buffer.debug(),
                 "<text>This is *not* markdown<code:Shell>This is $code*!*<text>"
             );
-            // The Markdown special characters should be escaped.
-            // // Punctuation in code blocks should not be escaped.
-            assert_eq!(
-                buffer.markdown(),
-                "This is \\*not\\* markdown\n```warp-runnable-command\nThis is $code*!*\n```\n"
-            );
-        });
-
-        // The buffer should roundtrip as well.
-        let markdown_text = buffer.read(&app, |buffer, _| buffer.markdown());
-        let (parsed, _selection) = Buffer::mock_from_markdown(
-            &markdown_text,
-            None,
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        parsed.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.debug(),
-                "<text>This is *not* markdown<code:Shell>This is $code*!*<text>"
-            );
         });
     });
 }
@@ -3457,8 +3358,6 @@ fn test_import_markdown() {
                 buffer.content.debug(),
                 "<text>test<code:Shell>paragragh<text>Some text\\nSome <b_s><i_s>bold and italic<b_e><i_e>"
             );
-            // Ensure we could go a round trip without altering markdowns.
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "***bold and italic";
@@ -3470,7 +3369,6 @@ fn test_import_markdown() {
         );
         buffer.read(&app, |buffer, _| {
             assert_eq!(buffer.content.debug(), "<text>***bold and italic");
-            assert_eq!(buffer.markdown(), "\\*\\*\\*bold and italic");
         });
 
         let markdown_string = "p1\n```text\nsome\ncode\n```\na\n```text\nsome\nother\ncode\n```\n";
@@ -3485,7 +3383,6 @@ fn test_import_markdown() {
                 buffer.content.debug(),
                 "<text>p1<code:Code>some\\ncode<text>a<code:Code>some\\nother\\ncode<text>"
             );
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "aaa\n```warp-runnable-command\nafb\n```\n*b**b***\n```warp-runnable-command\nb\nlll\n```\n";
@@ -3500,7 +3397,6 @@ fn test_import_markdown() {
                 buffer.content.debug(),
                 "<text>aaa<code:Shell>afb<text><i_s>b<b_s>b<b_e><i_e><code:Shell>b\\nlll<text>"
             );
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "```warp-runnable-command\ntest\nblock\n```\n";
@@ -3512,7 +3408,6 @@ fn test_import_markdown() {
         );
         buffer.read(&app, |buffer, _| {
             assert_eq!(buffer.content.debug(), "<code:Shell>test\\nblock<text>");
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "### Header\n## Header\nText";
@@ -3527,7 +3422,6 @@ fn test_import_markdown() {
                 buffer.content.debug(),
                 "<header3>Header<header2>Header<text>Text"
             );
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "* List\n* List\nText";
@@ -3539,7 +3433,6 @@ fn test_import_markdown() {
         );
         buffer.read(&app, |buffer, _| {
             assert_eq!(buffer.content.debug(), "<ul0>List<ul0>List<text>Text");
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         let markdown_string = "* List\n    * List\n        * List\n";
@@ -3551,7 +3444,6 @@ fn test_import_markdown() {
         );
         app.read_model(&buffer, |buffer, _| {
             assert_eq!(buffer.content.debug(), "<ul0>List<ul1>List<ul2>List<text>");
-            assert_eq!(buffer.markdown(), markdown_string);
         });
 
         // Per the spec, only the first ordered list item's number is used.
@@ -3569,7 +3461,6 @@ fn test_import_markdown() {
                 buffer.content.debug(),
                 "<ol0@3>First<ol0>Second<ol0>Third<text>"
             );
-            assert_eq!(buffer.markdown(), "3. First\n4. Second\n5. Third\n");
         });
     });
 }
@@ -9077,10 +8968,6 @@ fn test_ordered_list_numbering_export() {
                 buffer.debug(),
                 "<ol0@4>First<ol0>Second<ol1@3>A<ol1>B<ol0>Third<text>"
             );
-            assert_eq!(
-                buffer.markdown(),
-                "4. First\n5. Second\n    3. A\n    4. B\n6. Third\n"
-            );
         });
     });
 }
@@ -9562,8 +9449,6 @@ fn test_export_markdown_multiple_indentation_level() {
             );
 
             assert_eq!(buffer.content.debug(), "<ol0>test<ol2>line<text>");
-
-            assert_eq!(buffer.markdown(), "1. test\n        1. line\n");
         });
     });
 }

@@ -624,39 +624,6 @@ impl CodeBlockType {
         ]
         .into_iter()
     }
-
-    pub fn to_markdown_representation(&self, style: MarkdownStyle) -> &str {
-        match self {
-            CodeBlockType::Shell => RUNNABLE_BLOCK_MARKDOWN_LANG,
-            CodeBlockType::Code { lang } => match style {
-                MarkdownStyle::Internal => lang,
-                MarkdownStyle::Export { .. } => {
-                    // Undo the language parsing done by From<&CodeBlockText>.
-                    match lang.as_str() {
-                        "Go" => "go",
-                        "C++" => "cpp",
-                        "C#" => "csharp",
-                        "Java" => "java",
-                        "JavaScript" => "js",
-                        "Python" => "python",
-                        "Ruby on Rails" => "ruby",
-                        "Ruby" => "ruby",
-                        "Rust" => "rust",
-                        "YAML" => "yaml",
-                        "JSON" => "json",
-                        "PHP" => "php",
-                        "TOML" => "toml",
-                        "Swift" => "swift",
-                        "Kotlin" => "kotlin",
-                        "PowerShell" => "powershell",
-                        "Elixir" => "elixir",
-                        "Scala" => "scala",
-                        text => text,
-                    }
-                }
-            },
-        }
-    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]

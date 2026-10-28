@@ -31,7 +31,7 @@ use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 use super::anchor::{Anchor, AnchorSide, Anchors};
 use super::cursor::BufferCursor;
 use super::edit::EditDelta;
-use super::markdown::{BufferMarkdownParser, BufferToFormattedText, MarkdownStyle};
+use super::markdown::{BufferToFormattedText, MarkdownStyle};
 use super::selection::{Selection, TextStyleBias};
 use super::text::{
     BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
@@ -2154,50 +2154,6 @@ impl Buffer {
 
     fn clamp_with_max_offset(offset: CharOffset, max_offset: CharOffset) -> CharOffset {
         offset.clamp(CharOffset::from(1), max_offset)
-    }
-
-    pub fn markdown(&self) -> String {
-        self.to_markdown(MarkdownStyle::Internal)
-    }
-
-    /// Serialize the buffer as Markdown without escaping any special characters.
-    pub fn markdown_unescaped(&self) -> String {
-        self.to_markdown(MarkdownStyle::Export {
-            app_context: None,
-            should_not_escape_markdown_punctuation: true,
-        })
-    }
-
-    /// Serialize the buffer as Markdown.
-    pub fn to_markdown(&self, style: MarkdownStyle) -> String {
-        BufferMarkdownParser::new(
-            style,
-            self.styled_blocks_at(
-                // TODO(ben): does this need the +1?
-                CharOffset::from(1)..self.max_charoffset() + 1,
-                StyledBlockBoundaryBehavior::Exclusive,
-            ),
-        )
-        .to_markdown()
-    }
-
-    pub fn export_to_markdown(
-        markdown: FormattedText,
-        embedded_item_conversion: Option<EmbeddedItemConversion>,
-        style: MarkdownStyle,
-    ) -> String {
-        let mut buffer = Buffer {
-            embedded_item_conversion,
-            ..Default::default()
-        };
-        let edit = buffer.edits_for_formatted_text(
-            CharOffset::zero()..CharOffset::from(1),
-            markdown,
-            EditOrigin::UserInitiated,
-        );
-
-        buffer.apply_core_edit_actions(edit.actions);
-        buffer.to_markdown(style)
     }
 
     pub fn range_to_formatted_text(
