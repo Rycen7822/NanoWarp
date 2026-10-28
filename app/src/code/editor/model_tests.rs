@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use vec1::vec1;
-use warp_editor::content::buffer::{InitialBufferState, SelectionOffsets};
+use warp_editor::content::buffer::SelectionOffsets;
+use warp_editor::multiline::MultilineString;
 use warp_util::content_version::ContentVersion;
 use warpui::App;
 
@@ -15,14 +16,24 @@ fn initialize_deps(app: &mut App) {
 }
 
 fn mock_model(app: &mut App, text: &str, version: ContentVersion) -> ModelHandle<CodeEditorModel> {
-    app.add_model(|ctx| {
+    let editor = app.add_model(|ctx| {
         let styles = code_text_styles(Appearance::as_ref(ctx));
         let mut model = CodeEditorModel::new(styles, None, None, ctx);
-        let state = InitialBufferState::plain_text(text).with_version(version);
-        model.reset_content(state, ctx);
+        model.content().update(ctx, |buffer, ctx| {
+            buffer.replace_all(text, ctx);
+            buffer.set_version(version);
+        });
+        model
+            .diff
+            .update(ctx, |diff, _| diff.set_base(MultilineString::apply(text)));
         model.set_language_with_local_path(Path::new("/test.rs"), ctx);
         model
-    })
+    });
+    editor.update(app, |model, ctx| {
+        let end = model.content().as_ref(ctx).max_charoffset();
+        model.cursor_at(end, ctx);
+    });
+    editor
 }
 
 /// Builds a `CodeEditorModel` that shares an existing `Buffer` rather than creating its own.
@@ -400,7 +411,7 @@ fn test_version_match() {
 }
 
 #[test]
-fn test_reset_version() {
+fn test_loaded_buffer_version() {
     App::test((), |mut app| async move {
         let initial_version = ContentVersion::new();
 
@@ -411,8 +422,10 @@ fn test_reset_version() {
         editor.update(&mut app, |editor, ctx| {
             let version2 = ContentVersion::new();
 
-            let state = InitialBufferState::plain_text("heyo").with_version(version2);
-            editor.reset(state, ctx);
+            editor.content().update(ctx, |buffer, ctx| {
+                buffer.replace_all("heyo", ctx);
+                buffer.set_version(version2);
+            });
 
             assert!(!editor.content().as_ref(ctx).version_match(&initial_version));
             assert!(editor.content().as_ref(ctx).version_match(&version2));

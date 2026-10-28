@@ -7,7 +7,7 @@ use vim::vim::{MotionType, VimMode};
 use warp_core::features::FeatureFlag;
 use warp_core::settings::Setting;
 use warp_core::ui::appearance::Appearance;
-use warp_editor::content::buffer::{InitialBufferState, ToBufferCharOffset, ToBufferPoint};
+use warp_editor::content::buffer::{ToBufferCharOffset, ToBufferPoint};
 use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warp_editor::render::model::viewport::SizeInfo;
@@ -72,8 +72,8 @@ fn add_code_editor_with_window(
     buffer_content: &str,
     app: &mut App,
 ) -> (WindowId, ViewHandle<CodeEditorView>) {
-    app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-        let mut editor = CodeEditorView::new(
+    let (window, editor) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
+        let editor = CodeEditorView::new(
             None,
             None,
             CodeEditorRenderOptions::new(VerticalExpansionBehavior::GrowToMaxHeight),
@@ -82,13 +82,17 @@ fn add_code_editor_with_window(
 
         let base_text = buffer_content.unindent();
         editor.model.update(ctx, |model, ctx| {
-            model.reset_content(InitialBufferState::plain_text(base_text.as_str()), ctx)
+            model.buffer().update(ctx, |buffer, ctx| {
+                buffer.replace_all(base_text.as_str(), ctx);
+            })
         });
 
-        editor.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
-
         editor
-    })
+    });
+    editor.update(app, |view, ctx| {
+        view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
+    });
+    (window, editor)
 }
 
 /// Helper function for simulating vim user input.
@@ -698,12 +702,12 @@ fn test_vim_number_repeat_op_combination() {
         // Reset buffer and try 3d2w
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(
-                    InitialBufferState::plain_text(
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all(
                         "line 1\nline 2\nline 3\nline 4\nline 5".unindent().as_str(),
-                    ),
-                    ctx,
-                )
+                        ctx,
+                    );
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
@@ -827,7 +831,9 @@ fn test_vim_linewise_operations_at_eof() {
         let blank_final_line_delete = add_code_editor("", &mut app);
         blank_final_line_delete.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("one\n"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("one\n", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -837,7 +843,9 @@ fn test_vim_linewise_operations_at_eof() {
         let blank_final_line = add_code_editor("", &mut app);
         blank_final_line.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("one\n"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("one\n", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -1329,7 +1337,9 @@ fn test_vim_dw_newline_quirks() {
         // However, a "w" motion with an operator cannot traverse the newline.
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("echo foo  \necho bar"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("echo foo  \necho bar", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
@@ -1389,7 +1399,9 @@ fn test_vim_line_text_objects() {
 
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("one\n \t \nthree"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("one\n \t \nthree", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -1398,10 +1410,9 @@ fn test_vim_line_text_objects() {
         assert_eq!(buffer_text(&editor, &app), "one\n \t \nthree");
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(
-                    InitialBufferState::plain_text("one\n two words \nthree"),
-                    ctx,
-                )
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("one\n two words \nthree", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -1413,7 +1424,9 @@ fn test_vim_line_text_objects() {
         editor.update(&mut app, |view, ctx| {
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text(" αβ \n \nlast"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all(" αβ \n \nlast", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -1446,7 +1459,9 @@ fn test_vim_line_text_objects() {
 
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("one\ntwo\nthree"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("one\ntwo\nthree", ctx);
+                })
             });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
@@ -1632,7 +1647,9 @@ fn test_vim_visual_selection_with_newlines() {
         // select onto a smaller line above
         editor.update(&mut app, |view, ctx| {
             view.model.update(ctx, |model, ctx| {
-                model.reset_content(InitialBufferState::plain_text("aaa\nbbbbb\nc\nddd"), ctx)
+                model.buffer().update(ctx, |buffer, ctx| {
+                    buffer.replace_all("aaa\nbbbbb\nc\nddd", ctx);
+                })
             });
         });
         set_cursor_position(&editor, 2, 3, &mut app);

@@ -29,8 +29,7 @@ use warp_core::semantic_selection::SemanticSelection;
 use warp_core::ui::theme::Fill;
 use warp_editor::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
-    InitialBufferState, SelectionOffsets, ShouldAutoscroll, ToBufferCharOffset, ToBufferPoint,
-    VimInsertPoint,
+    SelectionOffsets, ShouldAutoscroll, ToBufferCharOffset, ToBufferPoint, VimInsertPoint,
 };
 use warp_editor::content::edit::EditDelta;
 use warp_editor::content::find::{SearchConfig, SearchResults};
@@ -41,7 +40,7 @@ use warp_editor::content::version::BufferVersion;
 use warp_editor::decoration::DecorationLayer;
 use warp_editor::editor::TextDecoration;
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
-use warp_editor::multiline::{AnyMultilineString, LF, MultilineString};
+use warp_editor::multiline::AnyMultilineString;
 use warp_editor::render::model::{
     AutoScrollMode, Decoration, LineCount, LineDecoration, RenderEvent, RenderState,
     RichTextStyles, StyleUpdateAction, UpdateDecorationAfterLayout, WidthSetting,
@@ -297,14 +296,6 @@ impl CodeEditorModel {
             }
             RenderEvent::NeedsResize => {}
         }
-    }
-
-    /// We need to set the diff model base to the normalized version of the text. This is because the internal text
-    /// representation of the content used for syntax tree highlighting and text rendering uses standard LF.
-    fn set_base(&mut self, base: &str, ctx: &mut ModelContext<Self>) {
-        let normalized_text = MultilineString::<LF>::apply(base);
-        self.diff
-            .update(ctx, |diff, _ctx| diff.set_base(normalized_text));
     }
 
     pub fn positioning(&self, ctx: &AppContext) -> OffsetPositioning {
@@ -1147,12 +1138,6 @@ impl CodeEditorModel {
     pub fn cut(&mut self, ctx: &mut ModelContext<Self>) {
         self.copy(ctx);
         self.backspace(ctx);
-    }
-
-    pub fn reset_content(&mut self, state: InitialBufferState, ctx: &mut ModelContext<Self>) {
-        self.set_base(state.text, ctx);
-        // Line ending is now inferred automatically by Buffer::reset.
-        self.reset(state, ctx);
     }
 
     pub fn jump_to_line_column(

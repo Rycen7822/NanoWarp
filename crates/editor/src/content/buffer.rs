@@ -54,30 +54,6 @@ use crate::render::model::{
     EmbeddedItem, RenderedSelection, RenderedSelectionBias, RenderedSelectionSet,
 };
 
-/// Configuration struct that holds all the fields needed to reset the entire editor.
-/// This consolidates parameters that were previously passed individually to reset functions.
-#[derive(Debug, Clone)]
-pub struct InitialBufferState<'a> {
-    pub text: &'a str,
-    pub version: ContentVersion,
-}
-
-impl<'a> InitialBufferState<'a> {
-    /// Create a new InitialBufferState with plain text format
-    pub fn plain_text(text: &'a str) -> Self {
-        Self {
-            text,
-            version: ContentVersion::new(),
-        }
-    }
-
-    /// Set the content version
-    pub fn with_version(mut self, version: ContentVersion) -> Self {
-        self.version = version;
-        self
-    }
-}
-
 #[derive(Default, Clone, Debug)]
 pub enum AutoScrollBehavior {
     /// Do not autoscroll.
@@ -271,8 +247,6 @@ pub enum BufferEditAction<'a> {
     Unlink,
     StyleBlock(BufferBlockStyle),
     RemovePrefixAndStyleBlocks(BlockType),
-    /// Replace the existing buffer using InitialBufferState.
-    ReplaceWith(InitialBufferState<'a>),
     /// Inserts placeholder text at the given location.
     InsertPlaceholder {
         text: &'a str,
@@ -354,7 +328,6 @@ impl BufferEditAction<'_> {
         match &self {
             BufferEditAction::Style(_)
             | BufferEditAction::Unstyle(_)
-            | BufferEditAction::ReplaceWith(_)
             | BufferEditAction::InsertPlaceholder { .. }
             | BufferEditAction::ColorCodeBlock { .. }
             | BufferEditAction::ToggleTaskListAtOffset { .. }
@@ -772,85 +745,6 @@ impl Buffer {
             );
         }
         buffer
-    }
-
-    fn replace(
-        &mut self,
-        state: InitialBufferState,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        let old_offset = CharOffset::from(0)..self.max_charoffset();
-        let replaced_points = self.offset_range_to_point_range(old_offset.clone());
-        let callback = self.embedded_item_conversion.take();
-        // Unfortunately we couldn't "take" a Box<dyn Fn>. As a hack, replace it with a default implementation.
-        let indentation = mem::replace(
-            &mut self.tab_indentation,
-            Box::new(|_, _| IndentBehavior::Ignore),
-        );
-
-        // For replacement, we need to first eagerly update anchors for the active selection model to make sure they are
-        // valid before inserting the new content. This will ensure that the anchor update in the modify_first_selection
-        // call below is valid.
-        selection_model.update(ctx, |selection, _| {
-            selection.update_anchors(vec![AnchorUpdate {
-                start: old_offset.start,
-                old_character_count: old_offset.end.saturating_sub(&old_offset.start).as_usize(),
-                new_character_count: 1,
-                clamp: true,
-            }]);
-        });
-
-        // Preserve session_platform across the replacement since *self is reassigned.
-        let session_platform = self.session_platform.clone();
-
-        // Compute pre-edit byte range before *self is reassigned.
-        let old_byte_start = ByteOffset::from(1);
-        let old_byte_end = self.max_byte_offset();
-
-        *self = Buffer::from_plain_text(
-            state.text,
-            callback,
-            indentation,
-            selection_model.clone(),
-            ctx,
-        );
-
-        // Infer line ending from the new content and restore session_platform.
-        self.session_platform = session_platform;
-        self.line_ending_mode =
-            multiline::infer_line_ending(state.text, self.session_platform.as_ref());
-
-        // Compute post-edit byte length and end point from the new buffer.
-        let new_byte_length = self.max_byte_offset().as_usize().saturating_sub(1);
-        let new_end_point = self.max_point();
-
-        let anchor_updates = vec![AnchorUpdate {
-            start: old_offset.start,
-            old_character_count: old_offset.end.saturating_sub(&old_offset.start).as_usize(),
-            new_character_count: self.max_charoffset().as_usize(),
-            clamp: true,
-        }];
-
-        EditResult {
-            undo_item: None,
-            delta: Some(EditDelta {
-                precise_deltas: vec![PreciseDelta {
-                    replaced_range: CharOffset::from(1)..old_offset.end,
-                    replaced_points,
-                    resolved_range: CharOffset::from(1)..self.max_charoffset(),
-                    replaced_byte_range: old_byte_start..old_byte_end,
-                    new_byte_length,
-                    new_end_point,
-                }],
-                old_offset,
-                new_lines: Arc::new(self.styled_blocks_in_range(
-                    CharOffset::from(1)..self.max_charoffset(),
-                    StyledBlockBoundaryBehavior::Exclusive,
-                )),
-            }),
-            anchor_updates,
-        }
     }
 
     pub fn selected_text_as_plain_text(
@@ -1661,7 +1555,6 @@ impl Buffer {
             UndoActionType::Atomic
         };
         let is_undo_redo = matches!(action, BufferEditAction::Redo | BufferEditAction::Undo);
-        let mut is_replace = false;
         let edit_result = match action {
             // We need to override active text style with the style of the deleted fragment for deletions.
             BufferEditAction::Backspace => {
@@ -1724,10 +1617,6 @@ impl Buffer {
             }
             BufferEditAction::RemovePrefixAndStyleBlocks(block_type) => {
                 self.remove_prefix_and_style_blocks(block_type, selection_model.clone(), ctx)
-            }
-            BufferEditAction::ReplaceWith(state) => {
-                is_replace = true;
-                self.replace(state, selection_model.clone(), ctx)
             }
             BufferEditAction::InsertPlaceholder { text, location } => {
                 self.insert_placeholder(location, text, selection_model.clone(), ctx)
@@ -1848,12 +1737,6 @@ impl Buffer {
         };
 
         self.version = BufferVersion::new();
-
-        if is_replace {
-            ctx.emit(BufferEvent::ContentReplaced {
-                buffer_version: self.version,
-            });
-        }
 
         if !edit_result.anchor_updates.is_empty() {
             // Always clamp when emitting to non-primary selection models. The primary model's

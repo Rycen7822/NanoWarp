@@ -21,9 +21,8 @@ use warpui_core::{App, AppContext, ModelContext, ModelHandle};
 use super::{BufferEvent, EditResult, ToBufferCharOffset};
 use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin,
-    EmbeddedItemConversion, InitialBufferState, SelectionOffsets, StyledBlockBoundaryBehavior,
-    StyledBufferBlock, StyledBufferRun, StyledTextBlock, TabIndentation, ToBufferByteOffset,
-    ToBufferPoint,
+    EmbeddedItemConversion, SelectionOffsets, StyledBlockBoundaryBehavior, StyledBufferBlock,
+    StyledBufferRun, StyledTextBlock, TabIndentation, ToBufferByteOffset, ToBufferPoint,
 };
 use crate::content::core::{CoreEditorAction, CoreEditorActionType};
 use crate::content::cursor::BufferSumTree;
@@ -417,10 +416,20 @@ fn test_edit_with_anchors() {
 }
 
 #[test]
-fn test_replace_above_with_anchors() {
+fn test_replace_all_with_anchors() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        let selection = app.add_model(|ctx| {
+            ctx.subscribe_to_model(
+                &buffer,
+                |selection: &mut BufferSelectionModel, _, event, _| {
+                    if let BufferEvent::AnchorUpdated { update, .. } = event {
+                        selection.update_anchors(update.clone());
+                    }
+                },
+            );
+            BufferSelectionModel::new(buffer.clone())
+        });
 
         buffer.update(&mut app, |buffer, ctx| {
             buffer.edit_internal(
@@ -454,11 +463,7 @@ fn test_replace_above_with_anchors() {
         });
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace(
-                InitialBufferState::plain_text("Howdy.\nGoodbye world."),
-                selection.clone(),
-                ctx,
-            );
+            buffer.replace_all("Howdy.\nGoodbye world.", ctx);
             assert_eq!(buffer.text().as_str(), "Howdy.\nGoodbye world.");
         });
 
@@ -3359,10 +3364,20 @@ fn test_markdown_escapes() {
 }
 
 #[test]
-fn test_empty_plain_text_initialization_and_reset() {
+fn test_empty_plain_text_initialization_and_replace_all() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        let selection = app.add_model(|ctx| {
+            ctx.subscribe_to_model(
+                &buffer,
+                |selection: &mut BufferSelectionModel, _, event, _| {
+                    if let BufferEvent::AnchorUpdated { update, .. } = event {
+                        selection.update_anchors(update.clone());
+                    }
+                },
+            );
+            BufferSelectionModel::new(buffer.clone())
+        });
         buffer.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 "",
@@ -3385,7 +3400,17 @@ fn test_empty_plain_text_initialization_and_reset() {
         });
 
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
+        let selection = app.add_model(|ctx| {
+            ctx.subscribe_to_model(
+                &buffer,
+                |selection: &mut BufferSelectionModel, _, event, _| {
+                    if let BufferEvent::AnchorUpdated { update, .. } = event {
+                        selection.update_anchors(update.clone());
+                    }
+                },
+            );
+            BufferSelectionModel::new(buffer.clone())
+        });
         buffer.update(&mut app, |buffer, ctx| {
             *buffer = Buffer::from_plain_text(
                 "has text",
@@ -3397,7 +3422,7 @@ fn test_empty_plain_text_initialization_and_reset() {
         });
 
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.replace(InitialBufferState::plain_text(""), selection.clone(), ctx);
+            buffer.replace_all("", ctx);
 
             assert_eq!(buffer.content.debug(), "<text>");
         });

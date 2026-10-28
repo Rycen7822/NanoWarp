@@ -8,8 +8,8 @@ use warpui_core::clipboard::ClipboardContent;
 use warpui_core::{AppContext, Entity, ModelAsRef, ModelContext, ModelHandle};
 
 use crate::content::buffer::{
-    AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin,
-    InitialBufferState, SelectionOffsets, ShouldAutoscroll, ToBufferCharOffset,
+    AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin, SelectionOffsets,
+    ShouldAutoscroll, ToBufferCharOffset,
 };
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::TextStyles;
@@ -779,23 +779,5 @@ pub trait PlainTextEditorModel: CoreEditorModel {
             },
             ctx,
         );
-    }
-
-    fn reset(&mut self, state: InitialBufferState, ctx: &mut ModelContext<Self::T>) {
-        self.update_content(
-            |mut content, ctx| {
-                let version = state.version;
-                content.buffer().reset_undo_stack();
-                content.apply_edit(
-                    BufferEditAction::ReplaceWith(state),
-                    EditOrigin::SystemEdit,
-                    self.buffer_selection_model().clone(),
-                    ctx,
-                );
-                content.buffer().set_version(version);
-            },
-            ctx,
-        );
-        self.validate(ctx);
     }
 }
