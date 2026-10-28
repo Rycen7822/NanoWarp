@@ -84,7 +84,7 @@ define_settings_group!(EditorSettings, settings: [
         private: false,
         toml_path: "code.editor.open_code_panels_file_editor",
         max_table_depth: 0,
-        description: "The editor used to open files from code panels.",
+        description: "The editor used to open tab configuration files.",
     },
     open_file_layout: OpenFileLayout {
         type: EditorLayout,

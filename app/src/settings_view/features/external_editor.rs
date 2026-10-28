@@ -220,7 +220,7 @@ impl View for ExternalEditorView {
 
         let code_panels_editor = render_dropdown_item(
             appearance,
-            "Choose an editor to open files from the code review panel and project explorer",
+            "Choose an editor to open tab configuration files",
             None,
             None,
             None,
