@@ -10844,7 +10844,6 @@ dependencies = [
  "lazy_static",
  "line-ending",
  "log",
- "mockito",
  "objc2-foundation 0.3.2",
  "parking_lot",
  "pin-project",

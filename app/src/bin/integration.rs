@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use warp_cli::WorkerCommand;
 use warp_core::AppId;
-use warp_core::channel::{Channel, ChannelConfig, ChannelState, WarpServerConfig};
+use warp_core::channel::{Channel, ChannelConfig, ChannelState};
 
 #[derive(Debug, Default, Parser, Clone)]
 #[command(name = "warp-integration")]
@@ -18,11 +18,6 @@ pub fn main() -> Result<()> {
         ChannelConfig {
             app_id: AppId::new("dev", "nanowarp", "NanoWarpIntegration"),
             logfile_name: "warp_integration.log".into(),
-            server_config: WarpServerConfig {
-                // Use an IP in the IANA testing range, with the TCP discard port, to
-                // black-hole server traffic.
-                server_root_url: "http://192.0.2.0:9".into(),
-            },
         },
     ));
 

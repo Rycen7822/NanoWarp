@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 
 use super::Channel;
 use crate::AppId;
-use crate::channel::config::{ChannelConfig, WarpServerConfig};
+use crate::channel::config::ChannelConfig;
 use crate::features::FeatureFlag;
 
 lazy_static! {
@@ -15,8 +15,6 @@ lazy_static! {
 
 #[cfg(feature = "test-util")]
 lazy_static! {
-    static ref MOCK_SERVER: Mutex<mockito::ServerGuard> = Mutex::new(mockito::Server::new());
-    static ref MOCK_SERVER_URL: String = MOCK_SERVER.lock().url();
     static ref APP_VERSION: Mutex<Option<&'static str>> = Mutex::new(None);
 }
 
@@ -40,16 +38,8 @@ impl ChannelState {
             config: ChannelConfig {
                 app_id,
                 logfile_name: "".into(),
-                server_config: WarpServerConfig::production(),
             },
         }
-    }
-
-    /// Returns the server used by test-only URL routing so downstream tests can install mocks.
-    #[cfg(feature = "test-util")]
-    pub fn mock_server() -> parking_lot::MutexGuard<'static, mockito::ServerGuard> {
-        lazy_static::initialize(&MOCK_SERVER_URL);
-        MOCK_SERVER.lock()
     }
 
     pub fn new(channel: Channel, mut config: ChannelConfig) -> Self {
@@ -133,16 +123,6 @@ impl ChannelState {
 
     pub fn logfile_name() -> Cow<'static, str> {
         CHANNEL_STATE.lock().config.logfile_name.clone()
-    }
-
-    pub fn server_root_url() -> Cow<'static, str> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "test-util")] {
-                Cow::Owned(MOCK_SERVER_URL.clone())
-            } else {
-                CHANNEL_STATE.lock().config.server_config.server_root_url.clone()
-            }
-        }
     }
 
     pub fn channel() -> Channel {

@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use warp_core::AppId;
-use warp_core::channel::{Channel, ChannelConfig, ChannelState, WarpServerConfig};
+use warp_core::channel::{Channel, ChannelConfig, ChannelState};
 
 // Simple wrapper around warp::run() for Warp OSS builds.
 fn main() -> Result<()> {
@@ -13,7 +13,6 @@ fn main() -> Result<()> {
         ChannelConfig {
             app_id: AppId::new("dev", "nanowarp", "NanoWarp"),
             logfile_name: "nanowarp.log".into(),
-            server_config: WarpServerConfig::production(),
         },
     );
     if cfg!(debug_assertions) {
