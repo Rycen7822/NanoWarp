@@ -25,6 +25,11 @@ if (-Not (Test-Path $DestinationDir)) {
     New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
 }
 
+# Keep the repository's license texts with every native distribution.
+foreach ($ProjectLicense in @('LICENSE-AGPL', 'LICENSE-MIT')) {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot $ProjectLicense) -Destination (Join-Path $DestinationDir $ProjectLicense) -Force
+}
+
 # Refresh the generated bundle owned by this preparation step.
 $BundledDestination = Join-Path $DestinationDir 'bundled'
 if (Test-Path -LiteralPath $BundledDestination -PathType Container) {
@@ -56,7 +61,8 @@ $AdditionalLicenses = @(
     @{ Name = 'Roboto Font'; License = 'SIL Open Font License'; Path = 'app\assets\bundled\fonts\roboto\LICENSE.txt' },
     @{ Name = 'bash-preexec'; License = 'MIT'; Path = 'app\assets\bundled\bootstrap\bash-preexec-LICENSE.md' },
     @{ Name = 'Windows Terminal'; License = 'MIT'; Path = 'app\assets\windows\LICENSE-WINDOWS-TERMINAL' },
-    @{ Name = 'GitHub Desktop'; License = 'MIT'; Path = 'app\src\code_review\GITHUB-DESKTOP-LICENSE' }
+    @{ Name = 'GitHub Desktop'; License = 'MIT'; Path = 'app\src\code_review\GITHUB-DESKTOP-LICENSE' },
+    @{ Name = 'Zstandard (native library)'; License = 'BSD-3-Clause'; Path = 'crates\warp_search_core\LICENSE-ZSTD' }
 )
 # Windows-only components:
 $AdditionalLicenses += @(

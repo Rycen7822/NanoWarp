@@ -37,6 +37,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Create the destination directory if it doesn't exist
 mkdir -p "$DEST_DIR"
 
+# Keep the repository's license texts with every native distribution.
+for project_license in LICENSE-AGPL LICENSE-MIT; do
+  cp "$REPO_ROOT/$project_license" "$DEST_DIR/$project_license"
+done
+
 # Refresh the generated bundle owned by this preparation step.
 rm -rf "$DEST_DIR/bundled"
 
@@ -62,6 +67,7 @@ ADDITIONAL_LICENSES=(
     "bash-preexec|MIT|app/assets/bundled/bootstrap/bash-preexec-LICENSE.md"
     "Windows Terminal|MIT|app/assets/windows/LICENSE-WINDOWS-TERMINAL"
     "GitHub Desktop|MIT|app/src/code_review/GITHUB-DESKTOP-LICENSE"
+    "Zstandard (native library)|BSD-3-Clause|crates/warp_search_core/LICENSE-ZSTD"
 )
 
 # Build the third-party licenses file unless the NO_LICENSES envvar is set.
