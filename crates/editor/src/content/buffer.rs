@@ -1,11 +1,11 @@
 use core::fmt;
-use std::iter::{self, FusedIterator, once};
+use std::iter::{FusedIterator, once};
 use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
 
 use enum_iterator::all;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use line_ending::LineEnding;
 use markdown_parser::{
     CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
@@ -30,7 +30,7 @@ use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 use super::anchor::{Anchor, AnchorSide, Anchors};
 use super::cursor::BufferCursor;
 use super::edit::EditDelta;
-use super::markdown::{BufferToFormattedText, MarkdownStyle};
+use super::markdown::BufferToFormattedText;
 use super::selection::{Selection, TextStyleBias};
 use super::text::{
     BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
@@ -1807,30 +1807,6 @@ impl Buffer {
         }
 
         text
-    }
-
-    pub fn text_in_ranges_with_expanded_embedded_items(
-        &self,
-        ranges: Vec1<Range<CharOffset>>,
-        app: &AppContext,
-    ) -> String {
-        let block_strings = ranges
-            .iter()
-            .map(|range| {
-                self.styled_blocks_at(
-                    range.start..range.end,
-                    StyledBlockBoundaryBehavior::InclusiveBlockItems,
-                )
-            })
-            .map(|blocks| {
-                Either::Left(blocks.map(|block| block.content_with_expanded_embedded_items(app)))
-            });
-
-        itertools::Itertools::intersperse_with(block_strings, || {
-            Either::Right(iter::once("\n".to_string()))
-        })
-        .flatten()
-        .collect()
     }
 
     /// Total number of character offset of the buffer.
@@ -3925,19 +3901,10 @@ pub enum StyledBufferBlock {
 }
 
 impl StyledBufferBlock {
-    // Plain text of the internal markdown formatting of the text. This should be used for use cases that doesn't
-    // need embedded items to be expanded to their rich format.
+    // Plain text with block items serialized as internal Markdown references.
     fn content(&self) -> String {
         match &self {
-            Self::Item(item_type) => item_type.as_markdown(MarkdownStyle::Internal).to_string(),
-            Self::Text(text_block) => text_block.text(),
-        }
-    }
-
-    // Plain text of the user-facing formatting of the text. This should be used for writing to the clipboard.
-    fn content_with_expanded_embedded_items(&self, app: &AppContext) -> String {
-        match &self {
-            Self::Item(item_type) => item_type.as_rich_format_text(app).to_string(),
+            Self::Item(item_type) => item_type.as_markdown().to_string(),
             Self::Text(text_block) => text_block.text(),
         }
     }

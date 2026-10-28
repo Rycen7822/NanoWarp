@@ -28,7 +28,6 @@ use crate::content::buffer::{
 use crate::content::core::{CoreEditorAction, CoreEditorActionType};
 use crate::content::cursor::BufferSumTree;
 use crate::content::edit::PreciseDelta;
-use crate::content::markdown::MarkdownStyle;
 use crate::content::selection::TextStyleBias;
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{
@@ -52,23 +51,15 @@ impl EmbeddedItem for TestEmbeddedItem {
         unimplemented!()
     }
 
-    fn to_mapping(&self, style: MarkdownStyle) -> Mapping {
-        let mut mapping = Mapping::from_iter([(
+    fn to_mapping(&self) -> Mapping {
+        Mapping::from_iter([(
             Value::String("id".to_string()),
             Value::String(self.hashed_id().to_string()),
-        )]);
-        if let MarkdownStyle::Export { .. } = style {
-            mapping.insert("export".into(), true.into());
-        }
-        mapping
+        )])
     }
 
     fn hashed_id(&self) -> &str {
         self.id.as_str()
-    }
-
-    fn to_plain_text(&self, _app: &AppContext) -> String {
-        self.hashed_id().to_string()
     }
 }
 
@@ -3882,66 +3873,6 @@ fn test_insert_formatted_text_empty_buffer() {
                         content_length: CharOffset::from(6)
                     }),
                 ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_embedded_item_as_plain_text() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)).with_embedded_item_conversion(
-                |mut mapping| match mapping.remove(&Value::String("id".to_string())) {
-                    Some(Value::String(hashed_id)) => {
-                        Some(Arc::new(TestEmbeddedItem { id: hashed_id }))
-                    }
-                    _ => None,
-                },
-            )
-        });
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(7)..CharOffset::from(7),
-                FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
-                    Value::String("id".to_string()),
-                    Value::String("workflow-123".to_string()),
-                )]))]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(8)..CharOffset::from(8),
-                FormattedText::new(vec![FormattedTextLine::Embedded(Mapping::from_iter([(
-                    Value::String("id".to_string()),
-                    Value::String("workflow-234".to_string()),
-                )]))]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before<embed_workflow-123><embed_workflow-234><text>After"
-            );
-            assert_eq!(
-                buffer.text_in_ranges_with_expanded_embedded_items(
-                    vec1![CharOffset::from(1)..buffer.max_charoffset()],
-                    ctx
-                ),
-                "Before\n```\nworkflow-123\n```\n```\nworkflow-234\n```\nAfter"
             );
         });
     });

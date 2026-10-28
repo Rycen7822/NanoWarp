@@ -19,7 +19,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use warpui_core::AppContext;
 use warpui_core::elements::ListIndentLevel;
 use warpui_core::fonts::{Properties, Style, Weight};
 use warpui_core::text::BlockHeaderSize as HeaderSize;
@@ -27,7 +26,6 @@ use warpui_core::text::point::Point;
 
 use super::buffer::Buffer;
 use super::core::CursorType;
-use super::markdown::MarkdownStyle;
 use crate::render::model::EmbeddedItem;
 
 pub const CODE_BLOCK_DEFAULT_DISPLAY_LANG: &str = "Code";
@@ -255,11 +253,11 @@ impl BufferBlockItem {
         }
     }
 
-    pub fn as_markdown(&self, style: MarkdownStyle) -> Cow<'_, str> {
+    pub fn as_markdown(&self) -> Cow<'_, str> {
         match &self {
             Self::HorizontalRule => "***".into(),
             Self::Embedded { item } => {
-                let mapping = item.to_mapping(style);
+                let mapping = item.to_mapping();
                 format!(
                     "```{}\n{}\n```",
                     EMBED_BLOCK_MARKDOWN_LANG,
@@ -276,28 +274,10 @@ impl BufferBlockItem {
         }
     }
 
-    pub fn as_rich_format_text(&self, app: &AppContext) -> Cow<'_, str> {
-        match &self {
-            Self::HorizontalRule => "***\n".into(),
-            Self::Embedded { item } => format!("```\n{}\n```\n", item.to_plain_text(app)).into(),
-            Self::Image {
-                alt_text,
-                source,
-                title,
-            } => format!(
-                "{}\n",
-                format_image_markdown(alt_text, source, title.as_deref())
-            )
-            .into(),
-        }
-    }
-
     pub fn to_formatted_text_line(&self) -> FormattedTextLine {
         match self {
             BufferBlockItem::HorizontalRule => FormattedTextLine::HorizontalRule,
-            BufferBlockItem::Embedded { item } => {
-                FormattedTextLine::Embedded(item.to_mapping(MarkdownStyle::Internal))
-            }
+            BufferBlockItem::Embedded { item } => FormattedTextLine::Embedded(item.to_mapping()),
             BufferBlockItem::Image {
                 alt_text,
                 source,

@@ -56,7 +56,6 @@ use crate::content::edit::{
     EditDelta, LaidOutRenderDelta, ParsedUrl, TemporaryBlock, layout_temporary_blocks,
 };
 use crate::content::hidden_lines_model::HiddenLinesModel;
-use crate::content::markdown::MarkdownStyle;
 use crate::content::text::{BlockHeaderSize, BufferBlockStyle, CodeBlockType};
 use crate::content::version::BufferVersion;
 use crate::editor::EmbeddedItemModel;
@@ -640,10 +639,8 @@ pub trait EmbeddedItem: std::fmt::Debug + Send + Sync {
     // Layout the embedded item with the current text layout context.
     fn layout(&self, text_layout: &TextLayout, app: &AppContext) -> Box<dyn LaidOutEmbeddedItem>;
     fn hashed_id(&self) -> &str;
-    /// Serializes this item as YAML.
-    fn to_mapping(&self, style: MarkdownStyle) -> Mapping;
-    // Returns the plain text of the embedded item used for copying.
-    fn to_plain_text(&self, app: &AppContext) -> String;
+    /// Serializes this item as YAML, using IDs for references.
+    fn to_mapping(&self) -> Mapping;
 }
 
 pub trait LaidOutEmbeddedItem: std::fmt::Debug + Send + Sync {

@@ -1,10 +1,7 @@
 use markdown_parser::CodeBlockText;
 use warpui_core::fonts::Weight;
 
-use super::{
-    BufferBlockItem, BufferTextStyle, CodeBlockType, MarkdownStyle, TextStyles,
-    format_image_markdown,
-};
+use super::{BufferBlockItem, BufferTextStyle, CodeBlockType, TextStyles, format_image_markdown};
 
 #[test]
 fn test_text_style_xor() {
@@ -120,20 +117,14 @@ fn buffer_block_image_as_markdown_preserves_title() {
         source: "dog.png".to_string(),
         title: None,
     };
-    assert_eq!(
-        &*untitled.as_markdown(MarkdownStyle::Internal),
-        "![A dog](dog.png)"
-    );
+    assert_eq!(&*untitled.as_markdown(), "![A dog](dog.png)");
 
     let titled = BufferBlockItem::Image {
         alt_text: "A dog".to_string(),
         source: "dog.png".to_string(),
         title: Some("Rex, my dog".to_string()),
     };
-    assert_eq!(
-        &*titled.as_markdown(MarkdownStyle::Internal),
-        "![A dog](dog.png \"Rex, my dog\")"
-    );
+    assert_eq!(&*titled.as_markdown(), "![A dog](dog.png \"Rex, my dog\")");
 }
 
 #[test]

@@ -5,24 +5,9 @@ use markdown_parser::{
     FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     OrderedFormattedIndentTextInline,
 };
-use warpui_core::AppContext;
 
 use super::buffer::{StyledBufferBlock, StyledBufferBlocks, StyledBufferRun};
 use super::text::BufferBlockStyle;
-
-/// A Markdown format to serialize a [`Buffer`](super::buffer::Buffer) into.
-#[derive(Clone, Copy)]
-pub enum MarkdownStyle<'a> {
-    /// The internal Markdown format used in Warp Drive. References are normalized, so the Markdown
-    /// only refers to other objects by their IDs, with no other data.
-    Internal,
-    /// A Markdown format suitable for external use. If an [`AppContext`] is set, it may be used to
-    /// enrich the exported Markdown (e.g. by expanding out embedded objects).
-    Export {
-        app_context: Option<&'a AppContext>,
-        should_not_escape_markdown_punctuation: bool,
-    },
-}
 
 /// Convert a slice of buffer model in StyledBufferBlocks into FormattedText.
 pub struct BufferToFormattedText<'a> {
