@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use string_offset::CharOffset;
-use vec1::{Vec1, vec1};
+use vec1::Vec1;
 use warp_errors::report_error;
 use warpui_core::{AppContext, Entity, ModelHandle};
 
@@ -324,13 +324,6 @@ impl BufferSelectionModel {
                 selection.set_tail(&mut self.anchors, offset + delta);
             }
         }
-    }
-
-    pub(super) fn set_single_cursor(&mut self, offset: CharOffset) {
-        self.set_selection_offsets(vec1![SelectionOffsets {
-            head: offset,
-            tail: offset
-        }]);
     }
 
     pub(super) fn set_clamped_selection_head(

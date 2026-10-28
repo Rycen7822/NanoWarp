@@ -220,9 +220,6 @@ pub enum BufferEditAction<'a> {
         /// A vector of inserted text and delta to shift the active selection.
         texts: &'a Vec1<(String, usize)>,
     },
-    InsertBlockItem {
-        block_item: BufferBlockItem,
-    },
     Enter {
         /// Whether or not to force inserting a newline, instead of rich-text-aware Enter behavior.
         force_newline: bool,
@@ -246,10 +243,6 @@ pub enum BufferEditAction<'a> {
     },
     Unlink,
     StyleBlock(BufferBlockStyle),
-    InsertBlockAfterBlockWithOffset {
-        block_type: BlockType,
-        offset: CharOffset,
-    },
     Undo,
     Redo,
     Indent {
@@ -304,7 +297,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::InsertAtCharOffsetRanges { .. } => ShouldAutoscroll::No,
             BufferEditAction::Insert { .. }
             | BufferEditAction::InsertForEachSelection { .. }
-            | BufferEditAction::InsertBlockItem { .. }
             | BufferEditAction::Enter { .. }
             | BufferEditAction::InsertFormatted(_)
             | BufferEditAction::Backspace
@@ -312,7 +304,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::Link { .. }
             | BufferEditAction::Unlink
             | BufferEditAction::StyleBlock(_)
-            | BufferEditAction::InsertBlockAfterBlockWithOffset { .. }
             | BufferEditAction::Undo
             | BufferEditAction::Redo
             | BufferEditAction::Indent { .. }
@@ -1563,16 +1554,6 @@ impl Buffer {
             BufferEditAction::StyleBlock(style) => {
                 self.block_style_internal(style, selection_model.clone(), ctx)
             }
-            BufferEditAction::InsertBlockItem { block_item } => {
-                self.insert_block_item(block_item, range)
-            }
-            BufferEditAction::InsertBlockAfterBlockWithOffset { block_type, offset } => self
-                .insert_block_after_block_with_offset(
-                    offset,
-                    block_type,
-                    selection_model.clone(),
-                    ctx,
-                ),
             BufferEditAction::Indent {
                 num_unit: unit,
                 shift,
@@ -2160,116 +2141,6 @@ impl Buffer {
         boundary_behavior: StyledBlockBoundaryBehavior,
     ) -> StyledBufferBlocks<'_> {
         StyledBufferBlocks::new(self, range, boundary_behavior)
-    }
-
-    fn insert_block_item(
-        &mut self,
-        block_item: BufferBlockItem,
-        range: Range<CharOffset>,
-    ) -> EditResult {
-        let formatted_text = FormattedText::new(vec![block_item.to_formatted_text_line()]);
-
-        let edit_range_start = if range.start == CharOffset::from(1) {
-            range.start - 1
-        } else {
-            range.start
-        };
-
-        self.apply_core_edit_actions(vec![
-            CoreEditorAction::new(
-                edit_range_start..range.end,
-                CoreEditorActionType::Insert {
-                    text: formatted_text,
-                    source: EditOrigin::SystemEdit,
-                    override_next_style: false,
-                    insert_on_selection: true,
-                },
-            ),
-            self.update_buffer_end(range.end),
-        ])
-    }
-
-    fn insert_block_after_block_with_offset(
-        &mut self,
-        block_offset: CharOffset,
-        block_type: BlockType,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        let insertion_offset = self.block_or_line_end(block_offset) - 1;
-        let previous_block_type = self.block_type_at_point(block_offset);
-
-        let editor_action_set = match block_type {
-            BlockType::Item(item_type) => {
-                let after_block_type = self.block_type_at_point(insertion_offset + 1);
-                let formatted_text = FormattedText::new(vec![item_type.to_formatted_text_line()]);
-
-                // When inserting after a plain text block, we want to replace the ending linebreak
-                // with the block item so we don't create an extra newline.
-                let edit_range_end = if previous_block_type
-                    == BlockType::Text(BufferBlockStyle::PlainText)
-                    && after_block_type == BlockType::Text(BufferBlockStyle::PlainText)
-                {
-                    insertion_offset + 1
-                } else {
-                    insertion_offset
-                };
-
-                vec![
-                    CoreEditorAction::new(
-                        insertion_offset..edit_range_end,
-                        CoreEditorActionType::Insert {
-                            text: formatted_text,
-                            source: EditOrigin::SystemEdit,
-                            override_next_style: false,
-                            insert_on_selection: true,
-                        },
-                    ),
-                    self.update_buffer_end(edit_range_end),
-                ]
-            }
-            BlockType::Text(style) => {
-                // When inserting after a block that is not plain text, the default insertion behavior will
-                // create a new text marker. To avoid adding duplicate lines, we don't need to add any content
-                // in the formatted text line.
-                let content = if previous_block_type == BlockType::Text(BufferBlockStyle::PlainText)
-                {
-                    FormattedText::new(vec![FormattedTextLine::LineBreak])
-                } else {
-                    FormattedText::new(vec![FormattedTextLine::Line(vec![])])
-                };
-
-                let mut editor_action_set = vec![];
-                editor_action_set.push(CoreEditorAction::new(
-                    insertion_offset..insertion_offset,
-                    CoreEditorActionType::Insert {
-                        text: content,
-                        source: EditOrigin::SystemEdit,
-                        override_next_style: false,
-                        insert_on_selection: true,
-                    },
-                ));
-
-                // Style the line inserted to the desired block style.
-                if style != BufferBlockStyle::PlainText {
-                    editor_action_set.push(CoreEditorAction::new(
-                        insertion_offset..insertion_offset,
-                        CoreEditorActionType::StyleBlock(style),
-                    ));
-                }
-
-                editor_action_set.push(self.update_buffer_end(insertion_offset));
-                editor_action_set
-            }
-        };
-
-        let result = self.apply_core_edit_actions(editor_action_set);
-
-        // Make sure active selection is at the right cursor position.
-        selection_model.update(ctx, |selection_model, _ctx| {
-            selection_model.set_single_cursor(insertion_offset + 1);
-        });
-        result
     }
 
     /// For each line, add the prefix text after the tab stops. This action should not change the active selection range.
