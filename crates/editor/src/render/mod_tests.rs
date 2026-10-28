@@ -11,7 +11,7 @@ use crate::content::buffer::{
     SelectionOffsets, ShouldAutoscroll,
 };
 use crate::content::selection_model::BufferSelectionModel;
-use crate::content::text::{BlockType, BufferBlockItem, IndentBehavior, TextStyles};
+use crate::content::text::{IndentBehavior, TextStyles};
 use crate::content::version::BufferVersion;
 
 #[test]
@@ -340,60 +340,6 @@ Task List @ 1 [ ] (2 characters, 1 lines, 18.00px tall)
 -------- 72.00px / 8 characters --------
 Trailing Newline (1 characters, 1 lines, 24.00px tall)
         "#,
-        )
-    });
-}
-
-#[test]
-fn test_convert_first_line() {
-    // This is a full-stack analogue to test_remove_prefix_and_insert_block_item.
-    init_logging();
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let state = TestState::new(app);
-        // This only uses 2 dashes so it's not parsed as Markdown yet.
-        state.markdown("--\n```\ncode\n```\n", app).await;
-        state.assert_buffer(app, "<text>--<code:Shell>code<text>");
-
-        // Mimic a Markdown shortcut on the first line.
-        state.set_cursor(3, app);
-        state
-            .edit(
-                BufferEditAction::RemovePrefixAndStyleBlocks(BlockType::Item(
-                    BufferBlockItem::HorizontalRule,
-                )),
-                EditOrigin::UserInitiated,
-                app,
-            )
-            .await;
-        state.assert_buffer(app, "<hr><code:Shell>code<text>");
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Horizontal Rule (1 characters, 1 lines, 10.00px tall)
--------- 10.00px / 1 characters --------
-Code Block - Shell (5 characters, 1 lines, 84.00px tall)
--------- 94.00px / 6 characters --------
-Trailing Newline (1 characters, 1 lines, 24.00px tall)
-"#,
-        );
-
-        // Undo that change and ensure we revert to the original contents.
-        state
-            .edit(BufferEditAction::Undo, EditOrigin::UserInitiated, app)
-            .await;
-        state.assert_buffer(app, "<text>--<code:Shell>code<text>");
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Paragraph (3 characters, 1 lines, 24.00px tall)
--------- 24.00px / 3 characters --------
-Code Block - Shell (5 characters, 1 lines, 84.00px tall)
--------- 108.00px / 8 characters --------
-Trailing Newline (1 characters, 1 lines, 24.00px tall)
-"#,
         )
     });
 }

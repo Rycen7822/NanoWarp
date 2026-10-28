@@ -246,7 +246,6 @@ pub enum BufferEditAction<'a> {
     },
     Unlink,
     StyleBlock(BufferBlockStyle),
-    RemovePrefixAndStyleBlocks(BlockType),
     InsertBlockAfterBlockWithOffset {
         block_type: BlockType,
         offset: CharOffset,
@@ -313,7 +312,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::Link { .. }
             | BufferEditAction::Unlink
             | BufferEditAction::StyleBlock(_)
-            | BufferEditAction::RemovePrefixAndStyleBlocks(_)
             | BufferEditAction::InsertBlockAfterBlockWithOffset { .. }
             | BufferEditAction::Undo
             | BufferEditAction::Redo
@@ -1565,9 +1563,6 @@ impl Buffer {
             BufferEditAction::StyleBlock(style) => {
                 self.block_style_internal(style, selection_model.clone(), ctx)
             }
-            BufferEditAction::RemovePrefixAndStyleBlocks(block_type) => {
-                self.remove_prefix_and_style_blocks(block_type, selection_model.clone(), ctx)
-            }
             BufferEditAction::InsertBlockItem { block_item } => {
                 self.insert_block_item(block_item, range)
             }
@@ -2275,122 +2270,6 @@ impl Buffer {
             selection_model.set_single_cursor(insertion_offset + 1);
         });
         result
-    }
-
-    /// Remove prefix from beginning of the block to range end and style the line after range end.
-    fn remove_prefix_and_style_blocks(
-        &mut self,
-        style: BlockType,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        self.modify_each_selection(
-            selection_model,
-            |buffer, selection, selection_model, _index| {
-                let cursor_position = selection_model.selection_head(selection);
-                let start = buffer.block_or_line_start(cursor_position);
-                let end = buffer.block_or_line_end(cursor_position);
-
-                // Placing anchor at the start of line. This should resolve to the start of block
-                // once resolved after buffer edits.
-                let editor_action_set = match &style {
-                    BlockType::Text(block_style) => {
-                        let mut action_set = vec![];
-
-                        action_set.extend(
-                            buffer.block_style_editor_actions(start..end - 1, block_style.clone()),
-                        );
-                        action_set.push(CoreEditorAction::new(
-                            start..cursor_position,
-                            CoreEditorActionType::Insert {
-                                text: convert_text_with_style_to_formatted_text(
-                                    "",
-                                    TextStyles::default(),
-                                    block_style.clone(),
-                                ),
-                                source: EditOrigin::SystemEdit,
-                                override_next_style: false,
-                                insert_on_selection: true,
-                            },
-                        ));
-                        action_set
-                    }
-                    BlockType::Item(block_type) => {
-                        let mut actions = vec![];
-                        let mut restyle_actions = vec![];
-
-                        // Note the edit range is from start - 1 to cursor_position + 1 to prevent introducing additional
-                        // linebreaks when we insert the block item.
-                        let style_start = start - 1;
-                        let style_end = cursor_position + 1;
-
-                        if start > CharOffset::from(1) {
-                            match buffer.block_type_at_point(style_start) {
-                                BlockType::Text(style)
-                                    if !matches!(style, BufferBlockStyle::PlainText) =>
-                                {
-                                    // Note that we need to unstyle and restyle blocks here because single core edit spanning across multiple block
-                                    // types would break undo/redo (see how we handle edits in `edit_internal`).
-                                    let block_range =
-                                        buffer.containing_block_start(style_start)..style_start;
-                                    actions.extend(buffer.block_style_editor_actions(
-                                        block_range.clone(),
-                                        BufferBlockStyle::PlainText,
-                                    ));
-                                    restyle_actions.extend(
-                                        buffer.block_style_editor_actions(block_range, style),
-                                    );
-                                }
-                                _ => (),
-                            }
-                        }
-
-                        if style_end < buffer.max_charoffset() {
-                            match buffer.block_type_at_point(style_end) {
-                                BlockType::Text(style)
-                                    if !matches!(style, BufferBlockStyle::PlainText) =>
-                                {
-                                    // Note that we need to unstyle and restyle blocks here because single core edit spanning across multiple block
-                                    // types would break undo/redo (see how we handle edits in `edit_internal`).
-                                    let block_range =
-                                        style_end..buffer.containing_block_end(style_end) - 1;
-                                    actions.extend(buffer.block_style_editor_actions(
-                                        block_range.clone(),
-                                        BufferBlockStyle::PlainText,
-                                    ));
-                                    restyle_actions.extend(
-                                        buffer.block_style_editor_actions(block_range, style),
-                                    );
-                                }
-                                _ => (),
-                            }
-                        }
-
-                        actions.push(CoreEditorAction::new(
-                            style_start..style_end,
-                            CoreEditorActionType::Insert {
-                                text: FormattedText::new(vec![block_type.to_formatted_text_line()]),
-                                source: EditOrigin::SystemEdit,
-                                override_next_style: false,
-                                insert_on_selection: true,
-                            },
-                        ));
-                        actions.extend(restyle_actions);
-                        actions.push(buffer.update_buffer_end(style_end));
-                        actions
-                    }
-                };
-                ActionWithSelectionDelta::new_with_offsets(
-                    editor_action_set,
-                    &mut buffer.internal_anchors,
-                    start,
-                    start,
-                    0,
-                    AnchorSide::Left,
-                )
-            },
-            ctx,
-        )
     }
 
     /// For each line, add the prefix text after the tab stops. This action should not change the active selection range.
