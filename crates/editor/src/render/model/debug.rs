@@ -92,29 +92,7 @@ impl Describe for BlockItem {
     fn describe_to(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             BlockItem::Paragraph(_) => f.write_str("Paragraph")?,
-            BlockItem::TextBlock { .. } => f.write_str("Text Block")?,
-            BlockItem::RunnableCodeBlock {
-                code_block_type, ..
-            } => write!(f, "Code Block - {code_block_type}",)?,
             BlockItem::TemporaryBlock { .. } => f.write_str("Temporary Paragraph")?,
-            BlockItem::TaskList {
-                indent_level,
-                complete,
-                ..
-            } => write!(
-                f,
-                "Task List @ {indent_level} [{}]",
-                if *complete { "X" } else { " " }
-            )?,
-            BlockItem::UnorderedList { indent_level, .. } => {
-                write!(f, "Unordered List @ {indent_level}")?
-            }
-            BlockItem::OrderedList { indent_level, .. } => {
-                write!(f, "Ordered List @ {indent_level}")?
-            }
-            BlockItem::Header { header_size, .. } => write!(f, "{header_size:?}")?,
-            BlockItem::HorizontalRule(_) => f.write_str("Horizontal Rule")?,
-            BlockItem::Image { alt_text, .. } => write!(f, "Image: {alt_text}")?,
             BlockItem::TrailingNewLine(_) => f.write_str("Trailing Newline")?,
             BlockItem::Hidden { .. } => f.write_str("Hidden")?,
         }

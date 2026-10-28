@@ -10,7 +10,7 @@ use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferSelectAction, EditOrigin, SelectionOffsets,
 };
 use crate::content::selection_model::BufferSelectionModel;
-use crate::content::text::{BufferBlockStyle, IndentBehavior, IndentUnit};
+use crate::content::text::{IndentBehavior, IndentUnit};
 use crate::render::model::RenderState;
 use crate::render::model::test_utils::{TEST_STYLES, laid_out_paragraph};
 use crate::selection::SelectionMode;
@@ -145,10 +145,10 @@ fn test_vertical_movement_with_goal() {
 }
 
 #[test]
-fn test_word_and_line_boundary_movement_with_block_item() {
+fn test_word_and_line_boundary_movement_in_plain_text() {
     App::test((), |mut app| async move {
-        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
-            "text\n***\n***\n",
+        let (buffer, buffer_selection) = Buffer::mock_from_plain_text(
+            "text\n",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -162,43 +162,14 @@ fn test_word_and_line_boundary_movement_with_block_item() {
             });
             SelectionModel::new(buffer, render, buffer_selection, None, ctx)
         });
-
         selection.update(&mut app, |selection, ctx| {
-            // Place the cursor after a block item. Moving back a word should step over just the block item.
-            selection.set_cursor(6.into(), ctx);
-            selection.move_selection(
-                TextDirection::Backwards,
-                TextUnit::Word(WordBoundariesPolicy::Default),
-                ctx,
-            );
-            assert_eq!(selection.cursor(ctx), 5.into());
-
-            // Keep moving the selection backwards should select the word as normal.
+            selection.set_cursor(5.into(), ctx);
             selection.move_selection(
                 TextDirection::Backwards,
                 TextUnit::Word(WordBoundariesPolicy::Default),
                 ctx,
             );
             assert_eq!(selection.cursor(ctx), 1.into());
-
-            // Place the cursor before a block item. Moving forward a word should step over the block item.
-            selection.set_cursor(5.into(), ctx);
-            selection.move_selection(
-                TextDirection::Forwards,
-                TextUnit::Word(WordBoundariesPolicy::Default),
-                ctx,
-            );
-            assert_eq!(selection.cursor(ctx), 6.into());
-
-            // Place the cursor after a block item. Moving backward to the line boundary should step over the block item.
-            selection.set_cursor(6.into(), ctx);
-            selection.move_selection(TextDirection::Backwards, TextUnit::LineBoundary, ctx);
-            assert_eq!(selection.cursor(ctx), 5.into());
-
-            // Moving backwards from the paragraph boundary should also step over the block item.
-            selection.set_cursor(6.into(), ctx);
-            selection.move_selection(TextDirection::Backwards, TextUnit::ParagraphBoundary, ctx);
-            assert_eq!(selection.cursor(ctx), 5.into());
         });
     });
 }
@@ -206,8 +177,8 @@ fn test_word_and_line_boundary_movement_with_block_item() {
 #[test]
 fn test_paragraph_navigation() {
     App::test((), |mut app| async move {
-        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
-            "Line one\nLine two\n```\nfirst code\nsecond code\n```\n* list\n* list",
+        let (buffer, buffer_selection) = Buffer::mock_from_plain_text(
+            "Line one\nLine two\nfirst code\nsecond code\nlist\nlist",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
@@ -250,14 +221,9 @@ fn test_paragraph_navigation() {
 #[test]
 fn test_indented_code_line_boundaries() {
     App::test((), |mut app| async move {
-        let (buffer, buffer_selection) = Buffer::mock_from_markdown(
-            "```\n    test\n```",
-            Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
-            }),
+        let (buffer, buffer_selection) = Buffer::mock_from_plain_text(
+            "    test",
+            Box::new(|_, _| IndentBehavior::TabIndent(IndentUnit::Space(4))),
             &mut app,
         );
 

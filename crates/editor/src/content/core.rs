@@ -1,44 +1,30 @@
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 
 use enum_iterator::all;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use markdown_parser::FormattedTextFragment;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use warpui_core::elements::ListIndentLevel;
 
 use super::buffer::{Buffer, EditOrigin, EditResult};
 use super::cursor::BufferSumTree;
 use super::edit::EditDelta;
 use super::text::{
-    BlockType, BufferTextStyle, ColorMarker, LinkCount, LinkMarker, MarkerDir, SyntaxColorId,
-    TextStyles, TextStylesWithMetadata,
+    BufferTextStyle, LinkCount, LinkMarker, MarkerDir, TextStyles, TextStylesWithMetadata,
 };
 use super::undo::{ReversibleEditorAction, UndoArg};
 use crate::content::anchor::{Anchor, AnchorSide, AnchorUpdate};
 use crate::content::buffer::{StyledBlockBoundaryBehavior, ToBufferByteOffset, ToBufferPoint};
 use crate::content::cursor::BufferCursor;
 use crate::content::edit::PreciseDelta;
-use crate::content::text::{
-    BlockHeaderSize, BlockLineBreakBehavior, BufferBlockItem, BufferBlockStyle, BufferText,
-    StyleSummary,
-};
+use crate::content::text::{BufferBlockStyle, BufferText, StyleSummary};
 
-/// Placeholder shown in place of an embedded image whose `data:` payload
-/// exceeds the asset layer's render limit (see
-/// `asset_cache::data_uri_exceeds_limit`).
-const IMAGE_TOO_LARGE_PLACEHOLDER: &str = "Image too large to display";
-fn replace_oversized_data_uri_images(mut text: FormattedText) -> FormattedText {
-    for line in text.lines.iter_mut() {
-        if let FormattedTextLine::Image(image) = line
-            && asset_cache::data_uri_exceeds_limit(&image.source)
-        {
-            *line = FormattedTextLine::Line(vec![FormattedTextFragment::plain_text(
-                IMAGE_TOO_LARGE_PLACEHOLDER,
-            )]);
-        }
-    }
-    text
+/// Line states accepted by the editor, including inline formatting used by undo.
+#[derive(Debug, Clone)]
+pub enum EditorLine {
+    Line(Vec<FormattedTextFragment>),
+    LineBreak,
 }
 
 #[derive(Debug, Clone)]
@@ -74,30 +60,22 @@ impl CoreEditorAction {
 #[derive(Debug, Clone)]
 pub enum CoreEditorActionType {
     Insert {
-        text: FormattedText,
+        text: VecDeque<EditorLine>,
         // Source of the edit. This impacts the formatting behavior of the insertion.
-        // For EditOrigin::UserTyped -- The source is a typed keystroke. Inherit styling for the first line if the edit is inline. Trigger block's linebreak behavior.
+        // For EditOrigin::UserTyped -- The source is a typed keystroke. Inherit styling for the first line if the edit is inline.
         // For EditOrigin::UserInitiated -- The source is a user initiated insertion (e.g. undo). Inherit styling for the first line if the edit is inline.
-        // For EditOrigin::SystemEdit -- The source is a system inserted change (e.g. block inserted from block insertion menu). Keep the full inserted styling.
+        // For EditOrigin::SystemEdit -- The source is a system inserted change (e.g. replacing editor content). Keep the full inserted styling.
         //
         // Note EditOrigin parameter here has a slightly different meaning from those in the high-level edit action. SystemEdit in the high-level edit action represents
         // actions that are completely initiated by the application and not the user (e.g. replacing the entire editor content by some pre-set message).
         source: EditOrigin,
-        // Whether to override style of the remainder of the line after edit range.
-        // If this is set to true, the remainder of the line's style will be overridden
-        // by the style of the replaced content.
-        override_next_style: bool,
         // Whether the insertion is applied on a selection offset set. This changes the behavior on how we are updating anchor states since if the selection is NOT applied
         // on an active selection, we want to clamp instead of invalidating anchors.
         insert_on_selection: bool,
     },
-    StyleBlock(BufferBlockStyle),
     StyleText(BufferTextStyle),
     UnstyleText(BufferTextStyle),
-    /// Ensures that, if the edit range includes the end of the buffer, the buffer ends with plain
-    /// text. This is a core editor action because it's difficult to know pre-edit whether or not a
-    /// new text marker is needed. For example, if inserting formatted text, it depends on the
-    /// specific text being inserted.
+    /// Restores the initial plain text marker when an edit leaves the buffer empty.
     EnsurePlainTextMarker,
 }
 
@@ -377,40 +355,18 @@ impl Buffer {
     /// If the active block style is plain text, return line start. Else, return block start.
     pub fn block_or_line_start(&self, offset: CharOffset) -> CharOffset {
         if offset == CharOffset::zero() {
-            // Normally, CharOffset 0 is inaccessible to editor actions - we consider the first
-            // character of a block to be the first character _after_ its start marker, so 0 is
-            // not really part of a block. However, we need to be able to edit it in some cases
-            // when styling at the start of the buffer.
             offset
-        } else if self.block_type_at_point(offset) == BlockType::Text(BufferBlockStyle::PlainText) {
+        } else {
             self.containing_line_start(offset)
-        } else {
-            self.containing_block_start(offset)
-        }
-    }
-
-    pub fn block_start(&self, offset: CharOffset) -> CharOffset {
-        if offset == CharOffset::zero() {
-            // Normally, CharOffset 0 is inaccessible to editor actions - we consider the first
-            // character of a block to be the first character _after_ its start marker, so 0 is
-            // not really part of a block. However, we need to be able to edit it in some cases
-            // when styling at the start of the buffer.
-            offset
-        } else {
-            self.containing_block_start(offset)
         }
     }
 
     /// If the active block style is plain text, return line end. Else, return block end.
     pub fn block_or_line_end(&self, offset: CharOffset) -> CharOffset {
         if offset == CharOffset::zero() {
-            // End offsets are exclusive, so the "block" ends at 1. The very start of the buffer
-            // generally requires special handling anyways.
-            CharOffset::from(1)
-        } else if self.block_type_at_point(offset) == BlockType::Text(BufferBlockStyle::PlainText) {
-            self.containing_line_end(offset)
+            1.into()
         } else {
-            self.containing_block_end(offset)
+            self.containing_line_end(offset)
         }
     }
 
@@ -441,16 +397,8 @@ impl Buffer {
             CoreEditorActionType::Insert {
                 text,
                 source,
-                override_next_style,
                 insert_on_selection: clamp_anchor,
-            } => self.edit(
-                action.range,
-                text,
-                clamp_anchor,
-                source,
-                override_next_style,
-            ),
-            CoreEditorActionType::StyleBlock(style) => self.style_block(action.range, style),
+            } => self.edit(action.range, text, clamp_anchor, source),
             CoreEditorActionType::StyleText(style) => self.style_text(action.range, style),
             CoreEditorActionType::UnstyleText(style) => self.unstyle_text(action.range, style),
             CoreEditorActionType::EnsurePlainTextMarker => self.ensure_plain_text(action.range),
@@ -466,12 +414,6 @@ impl Buffer {
         range: Range<CharOffset>,
     ) -> CoreEditorActionType {
         match action.action {
-            CoreEditorActionType::StyleBlock(_) => match self.block_type_at_point(range.start) {
-                BlockType::Item(_) => {
-                    panic!("Reverse action on style block should not start with a block item")
-                }
-                BlockType::Text(block_style) => CoreEditorActionType::StyleBlock(block_style),
-            },
             CoreEditorActionType::UnstyleText(style) => CoreEditorActionType::StyleText(style),
             CoreEditorActionType::StyleText(style) => CoreEditorActionType::UnstyleText(style),
             CoreEditorActionType::Insert { .. } => {
@@ -480,16 +422,14 @@ impl Buffer {
                 CoreEditorActionType::Insert {
                     text: original_text,
                     source: EditOrigin::UserInitiated,
-                    override_next_style: true,
                     insert_on_selection: true,
                 }
             }
             // EnsurePlainTextMarker captures whether or not a marker was added with its updated
             // range, so the reverse is to delete whatever was in that range.
             CoreEditorActionType::EnsurePlainTextMarker => CoreEditorActionType::Insert {
-                text: FormattedText::new([]),
+                text: VecDeque::new(),
                 source: EditOrigin::SystemEdit,
-                override_next_style: false,
                 insert_on_selection: true,
             },
         }
@@ -498,10 +438,9 @@ impl Buffer {
     fn edit(
         &mut self,
         range: Range<CharOffset>,
-        text: FormattedText,
+        text: VecDeque<EditorLine>,
         insert_on_selection: bool,
         source: EditOrigin,
-        override_next_style: bool,
     ) -> CoreEditorActionResult {
         debug_assert!(
             range.start <= range.end,
@@ -525,9 +464,6 @@ impl Buffer {
         new_content.push_tree(buffer_cursor.slice_to_offset_before_markers(range.start));
         let character_count_at_range_start = new_content.extent::<CharOffset>();
 
-        let mut previous_block_type = self.block_type_at_point(range.start);
-
-        // An edit is inline if the selection range doesn't start from a line start to a line end.
         let is_edit_inline = range.start != self.containing_line_start(range.start)
             || range.end != (self.containing_line_end(range.end) - 1);
         let mut edit_cursor = if range.start == CharOffset::zero() {
@@ -538,492 +474,94 @@ impl Buffer {
             CursorType::NewLineStart
         };
 
-        // This tracks whether we should override the style of the remainder of the line. This will be set to true
-        // when the last inserted line includes a newline created by the BlockLineBreakBehavior.
-        let mut should_override_next_block_style = false;
-
-        // Only inherit styling if this is a user initiated or typed action. For system actions, we should keep the style
-        // as it is.
         let mut inherit_styling = source.from_user();
-
-        // Replace any embedded `data:` image whose payload exceeds the asset
-        // layer's render limit with a visible placeholder before lowering lines
-        // into the buffer, so an over-limit image surfaces a hint instead of
-        // silently failing to load.
-        let text = replace_oversized_data_uri_images(text);
-        for line in text.lines {
-            should_override_next_block_style = false;
+        for line in text {
             match line {
-                FormattedTextLine::LineBreak => {
+                EditorLine::LineBreak => {
                     end_all_active_text_styles(&mut new_content);
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(BufferBlockStyle::PlainText),
-                                None,
-                            );
-                        }
-                        BlockType::Text(previous_block_style) => {
-                            match source {
-                                EditOrigin::UserTyped => {
-                                    match previous_block_style.line_break_behavior() {
-                                        // When at buffer start, we need to push a plain text marker to make
-                                        // sure the buffer content is valid.
-                                        BlockLineBreakBehavior::NewLine
-                                            if edit_cursor == CursorType::BufferStart =>
-                                        {
-                                            new_content.push(BufferText::BlockMarker {
-                                                marker_type: BufferBlockStyle::PlainText,
-                                            });
-                                            previous_block_type =
-                                                BlockType::Text(BufferBlockStyle::PlainText);
-                                        }
-                                        BlockLineBreakBehavior::NewLine => {
-                                            new_content.push(BufferText::Newline)
-                                        }
-                                        BlockLineBreakBehavior::BlockMarker(marker_type) => {
-                                            new_content.push(BufferText::BlockMarker {
-                                                marker_type: marker_type.clone(),
-                                            });
-                                            should_override_next_block_style = true;
-                                            previous_block_type = BlockType::Text(marker_type);
-                                        }
-                                    }
-                                }
-                                EditOrigin::SystemEdit | EditOrigin::UserInitiated => {
-                                    match previous_block_style.line_break_behavior() {
-                                        BlockLineBreakBehavior::NewLine
-                                            if edit_cursor != CursorType::BufferStart =>
-                                        {
-                                            new_content.push(BufferText::Newline)
-                                        }
-                                        _ => {
-                                            new_content.push(BufferText::BlockMarker {
-                                                marker_type: BufferBlockStyle::PlainText,
-                                            });
-                                            previous_block_type =
-                                                BlockType::Text(BufferBlockStyle::PlainText);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if edit_cursor == CursorType::BufferStart {
+                        new_content.push(BufferText::BlockMarker {
+                            marker_type: BufferBlockStyle::PlainText,
+                        });
+                    } else {
+                        new_content.push(BufferText::Newline);
                     }
                 }
-                // We only insert a newline when we have a formatted text line after another one.
-                // This is to avoid additional newline inserted when we create other types of blocks (e.g. code block).
-                FormattedTextLine::Line(line) => {
-                    let block_style = BufferBlockStyle::PlainText;
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(block_style),
-                                Some(line),
-                            );
+                EditorLine::Line(line) => {
+                    if inherit_styling && edit_cursor != CursorType::BufferStart {
+                        update_content_with_text_fragments(&mut new_content, line);
+                    } else {
+                        end_all_active_text_styles(&mut new_content);
+                        if edit_cursor == CursorType::BufferStart {
+                            new_content.push(BufferText::BlockMarker {
+                                marker_type: BufferBlockStyle::PlainText,
+                            });
+                        } else if edit_cursor == CursorType::NewLineStart {
+                            new_content.push(BufferText::Newline);
                         }
-                        BlockType::Text(previous_block_style) => {
-                            // For plain text lines, if we are inheriting the styling and the cursor is not
-                            // at the start of the buffer, we should always push the content without altering
-                            // the existing block styling.
-                            if inherit_styling
-                                && block_style
-                                    .should_inherit_style(edit_cursor, previous_block_style.clone())
-                            {
-                                push_text_fragments_to_block(
-                                    &mut new_content,
-                                    line,
-                                    previous_block_style.clone(),
-                                );
-                            } else {
-                                end_all_active_text_styles(&mut new_content);
-                                if previous_block_style != block_style
-                                    || edit_cursor == CursorType::BufferStart
-                                {
-                                    new_content.push(BufferText::BlockMarker {
-                                        marker_type: block_style.clone(),
-                                    });
-                                } else if edit_cursor == CursorType::NewLineStart {
-                                    new_content.push(BufferText::Newline);
-                                }
-
-                                previous_block_type = BlockType::Text(block_style);
-                                update_content_with_text_fragments(&mut new_content, line);
-                            }
-                        }
+                        update_content_with_text_fragments(&mut new_content, line);
                     }
-                }
-                FormattedTextLine::CodeBlock(block) => {
-                    let block_style = BufferBlockStyle::CodeBlock {
-                        code_block_type: (&block).into(),
-                    };
-                    insert_multiline_block(
-                        &block.code,
-                        block_style,
-                        source,
-                        inherit_styling,
-                        edit_cursor,
-                        &mut new_content,
-                        &mut previous_block_type,
-                    );
-                }
-                FormattedTextLine::Heading(text) => {
-                    let header_size: BlockHeaderSize = text
-                        .heading_size
-                        .try_into()
-                        .unwrap_or(BlockHeaderSize::Header1);
-
-                    let block_style = BufferBlockStyle::Header { header_size };
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(block_style),
-                                Some(text.text),
-                            );
-                        }
-                        BlockType::Text(previous_block_style) => {
-                            if inherit_styling
-                                && block_style
-                                    .should_inherit_style(edit_cursor, previous_block_style.clone())
-                            {
-                                push_text_fragments_to_block(
-                                    &mut new_content,
-                                    text.text,
-                                    previous_block_style,
-                                );
-                            } else {
-                                maybe_push_new_block_marker(
-                                    inherit_styling,
-                                    edit_cursor,
-                                    previous_block_style,
-                                    block_style.clone(),
-                                    &mut new_content,
-                                );
-
-                                previous_block_type = BlockType::Text(block_style);
-                                update_content_with_text_fragments(&mut new_content, text.text);
-                            }
-                        }
-                    }
-                }
-                FormattedTextLine::UnorderedList(list) => {
-                    let block_style = BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::from_usize(list.indent_level),
-                    };
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(block_style),
-                                Some(list.text),
-                            );
-                        }
-                        BlockType::Text(previous_block_style) => {
-                            if inherit_styling
-                                && block_style
-                                    .should_inherit_style(edit_cursor, previous_block_style.clone())
-                            {
-                                push_text_fragments_to_block(
-                                    &mut new_content,
-                                    list.text,
-                                    previous_block_style,
-                                );
-                            } else {
-                                maybe_push_new_block_marker(
-                                    inherit_styling,
-                                    edit_cursor,
-                                    previous_block_style,
-                                    block_style.clone(),
-                                    &mut new_content,
-                                );
-
-                                previous_block_type = BlockType::Text(block_style);
-                                update_content_with_text_fragments(&mut new_content, list.text);
-                            }
-                        }
-                    }
-                }
-                FormattedTextLine::OrderedList(list) => {
-                    let block_style = BufferBlockStyle::OrderedList {
-                        indent_level: ListIndentLevel::from_usize(list.indented_text.indent_level),
-                        number: list.number,
-                    };
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(block_style),
-                                Some(list.indented_text.text),
-                            );
-                        }
-                        BlockType::Text(previous_block_style) => {
-                            if inherit_styling
-                                && block_style
-                                    .should_inherit_style(edit_cursor, previous_block_style.clone())
-                            {
-                                push_text_fragments_to_block(
-                                    &mut new_content,
-                                    list.indented_text.text,
-                                    previous_block_style.clone(),
-                                );
-                            } else {
-                                maybe_push_new_block_marker(
-                                    inherit_styling,
-                                    edit_cursor,
-                                    previous_block_style.clone(),
-                                    block_style.clone(),
-                                    &mut new_content,
-                                );
-
-                                previous_block_type = BlockType::Text(block_style);
-                                // When parsing formatted text, we ignore the given numbers. Instead, numbering
-                                // is automatically calculated at render-time based on the content structure.
-                                update_content_with_text_fragments(
-                                    &mut new_content,
-                                    list.indented_text.text,
-                                );
-                            }
-                        }
-                    }
-                }
-                FormattedTextLine::TaskList(list) => {
-                    let block_style = BufferBlockStyle::TaskList {
-                        indent_level: ListIndentLevel::from_usize(list.indent_level),
-                        complete: list.complete,
-                    };
-
-                    match previous_block_type.clone() {
-                        BlockType::Item(_) => {
-                            update_content_after_block_item(
-                                &mut new_content,
-                                &mut previous_block_type,
-                                BlockType::Text(block_style),
-                                Some(list.text),
-                            );
-                        }
-                        BlockType::Text(previous_block_style) => {
-                            if inherit_styling
-                                && block_style
-                                    .should_inherit_style(edit_cursor, previous_block_style.clone())
-                            {
-                                push_text_fragments_to_block(
-                                    &mut new_content,
-                                    list.text,
-                                    previous_block_style.clone(),
-                                );
-                            } else {
-                                maybe_push_new_block_marker(
-                                    inherit_styling,
-                                    edit_cursor,
-                                    previous_block_style.clone(),
-                                    block_style.clone(),
-                                    &mut new_content,
-                                );
-
-                                previous_block_type = BlockType::Text(block_style);
-                                // When parsing formatted text, we ignore the given numbers. Instead, numbering
-                                // is automatically calculated at render-time based on the content structure.
-                                update_content_with_text_fragments(&mut new_content, list.text);
-                            }
-                        }
-                    }
-                }
-                FormattedTextLine::HorizontalRule => {
-                    end_all_active_text_styles(&mut new_content);
-                    update_content_after_block_item(
-                        &mut new_content,
-                        &mut previous_block_type,
-                        BlockType::Item(BufferBlockItem::HorizontalRule),
-                        None,
-                    );
-                }
-                FormattedTextLine::Image(image) => {
-                    end_all_active_text_styles(&mut new_content);
-                    update_content_after_block_item(
-                        &mut new_content,
-                        &mut previous_block_type,
-                        BlockType::Item(BufferBlockItem::Image {
-                            alt_text: image.alt_text.clone(),
-                            source: image.source.clone(),
-                            title: image.title.clone(),
-                        }),
-                        None,
-                    );
                 }
             }
             edit_cursor = CursorType::NewLineStart;
             inherit_styling = false;
         }
 
-        let mut total_length = new_content.extent::<CharOffset>() - character_count_at_range_start;
+        let total_length = new_content.extent::<CharOffset>() - character_count_at_range_start;
 
         let active_style_summary = new_content.extent::<StyleSummary>();
         let active_text_style =
             active_text_styles_with_metadata_from_subtree(&new_content, active_style_summary);
-        let range_end_block_type = self.block_type_at_point(range.end);
-
         buffer_cursor.slice_to_offset_after_markers(range.end);
 
-        match previous_block_type {
-            BlockType::Item(_) => {
-                if let BlockType::Text(block_style) = range_end_block_type {
-                    match buffer_cursor.item() {
-                        Some(BufferText::BlockItem { .. })
-                        | Some(BufferText::BlockMarker { .. }) => (),
-                        Some(BufferText::Newline) => {
-                            buffer_cursor.next();
-                            new_content.push(BufferText::BlockMarker {
-                                marker_type: block_style,
-                            });
-                        }
-                        Some(_) => {
-                            new_content.push(BufferText::BlockMarker {
-                                marker_type: block_style,
-                            });
-                            total_length += 1;
-                        }
-                        None => (),
-                    }
-                }
-
-                // Add starting marker for active text styles.
-                let suffix_styling = *buffer_cursor.start();
-                let suffix_text_styling =
-                    active_text_styles_with_metadata_from_subtree(&old_content, suffix_styling);
-                let mut handled_weight = false;
-                for style in all::<BufferTextStyle>() {
-                    let is_weight = style.has_custom_weight();
-                    if is_weight && handled_weight {
-                        continue;
-                    }
-                    if suffix_text_styling.exact_match_style(&style)
-                        && !active_text_style.exact_match_style(&style)
-                    {
-                        handled_weight |= is_weight;
-                        new_content.push(BufferText::Marker {
-                            marker_type: style,
-                            dir: MarkerDir::Start,
-                        });
-                    }
-                }
-
-                transition_styles_with_metadata(
-                    &active_text_style,
-                    &suffix_text_styling,
-                    &mut new_content,
-                );
+        // Make sure all style start/end markers are still matched after the insertion.
+        let suffix_styling = *buffer_cursor.start();
+        let suffix_text_styling =
+            active_text_styles_with_metadata_from_subtree(&old_content, suffix_styling);
+        let mut handled_weight = false;
+        for style in all::<BufferTextStyle>() {
+            let is_weight = style.has_custom_weight();
+            if is_weight && handled_weight {
+                continue;
             }
-            BlockType::Text(mut previous_block_styling) => {
-                // Make sure all style start/end markers are still matched after the insertion.
-                let suffix_styling = *buffer_cursor.start();
-                let suffix_text_styling =
-                    active_text_styles_with_metadata_from_subtree(&old_content, suffix_styling);
-                let mut handled_weight = false;
-                for style in all::<BufferTextStyle>() {
-                    let is_weight = style.has_custom_weight();
-                    if is_weight && handled_weight {
-                        continue;
-                    }
-                    if suffix_text_styling.exact_match_style(&style)
-                        && !active_text_style.exact_match_style(&style)
-                    {
-                        handled_weight |= is_weight;
-                        new_content.push(BufferText::Marker {
-                            marker_type: style,
-                            dir: MarkerDir::Start,
-                        });
-                    } else if !suffix_text_styling.exact_match_style(&style)
-                        && active_text_style.exact_match_style(&style)
-                    {
-                        handled_weight |= is_weight;
-                        new_content.push(BufferText::Marker {
-                            marker_type: style,
-                            dir: MarkerDir::End,
-                        });
-                    }
-                }
-
-                transition_styles_with_metadata(
-                    &active_text_style,
-                    &suffix_text_styling,
-                    &mut new_content,
-                );
-
-                let end_of_line = self.containing_line_end(range.end);
-                // Set the state of the content fragment from the end of edit range to the line end.
-                // If the old content range's style is different from the style of the replacement range and NEITHER:
-                // 1) The setting of the edit forces an override of its style
-                // 2) The last inserted line creates a newline because of its BlockLineBreakBehavior
-                if let BlockType::Text(range_end_block_style) = range_end_block_type
-                    && end_of_line - 1 > range.end
-                {
-                    if range_end_block_style != previous_block_styling
-                        && !should_override_next_block_style
-                        && !override_next_style
-                    {
-                        new_content.push(BufferText::BlockMarker {
-                            marker_type: range_end_block_style.clone(),
-                        });
-                        total_length += 1;
-                        previous_block_styling = range_end_block_style;
-                    }
-                    new_content
-                        .push_tree(buffer_cursor.slice_to_offset_after_markers(end_of_line - 1));
-                }
-
-                // Make sure the block style is closed while keeping the buffer valid. If the next character
-                // after the edit line is not another block marker, we need to make sure to insert/replace a block
-                // marker.
-                let line_end_block_type = self.block_type_at_point(end_of_line);
-
-                let new_content_empty = new_content.last().is_none();
-                if let BlockType::Text(line_end_block_styling) = line_end_block_type {
-                    let should_push_new_block_marker = match buffer_cursor.item() {
-                        Some(BufferText::BlockMarker { marker_type })
-                            if *marker_type == BufferBlockStyle::PlainText
-                                && previous_block_styling == BufferBlockStyle::PlainText
-                                && !new_content_empty =>
-                        {
-                            buffer_cursor.next();
-                            new_content.push(BufferText::Newline);
-                            false
-                        }
-                        Some(BufferText::BlockMarker { .. }) => false,
-                        Some(BufferText::Newline)
-                            if line_end_block_styling != previous_block_styling
-                                || matches!(
-                                    previous_block_styling.line_break_behavior(),
-                                    BlockLineBreakBehavior::BlockMarker(_)
-                                )
-                                // If the edit would result in the buffer starting with a newline,
-                                // convert it to a block marker.
-                                || new_content_empty =>
-                        {
-                            buffer_cursor.next();
-                            true
-                        }
-                        _ => false,
-                    };
-
-                    if should_push_new_block_marker {
-                        new_content.push(BufferText::BlockMarker {
-                            marker_type: line_end_block_styling,
-                        });
-                    }
-                }
+            if suffix_text_styling.exact_match_style(&style)
+                && !active_text_style.exact_match_style(&style)
+            {
+                handled_weight |= is_weight;
+                new_content.push(BufferText::Marker {
+                    marker_type: style,
+                    dir: MarkerDir::Start,
+                });
+            } else if !suffix_text_styling.exact_match_style(&style)
+                && active_text_style.exact_match_style(&style)
+            {
+                handled_weight |= is_weight;
+                new_content.push(BufferText::Marker {
+                    marker_type: style,
+                    dir: MarkerDir::End,
+                });
             }
+        }
+
+        transition_styles_with_metadata(&active_text_style, &suffix_text_styling, &mut new_content);
+
+        let end_of_line = self.containing_line_end(range.end);
+        if end_of_line - 1 > range.end {
+            new_content.push_tree(buffer_cursor.slice_to_offset_after_markers(end_of_line - 1));
+        }
+        let new_content_empty = new_content.last().is_none();
+        match buffer_cursor.item() {
+            Some(BufferText::BlockMarker { .. }) if !new_content_empty => {
+                buffer_cursor.next();
+                new_content.push(BufferText::Newline);
+            }
+            Some(BufferText::Newline) if new_content_empty => {
+                buffer_cursor.next();
+                new_content.push(BufferText::BlockMarker {
+                    marker_type: BufferBlockStyle::PlainText,
+                });
+            }
+            _ => (),
         }
 
         new_content.push_tree(buffer_cursor.suffix());
@@ -1048,11 +586,7 @@ impl Buffer {
 
     fn ensure_plain_text(&mut self, range: Range<CharOffset>) -> CoreEditorActionResult {
         let buffer_end = self.max_charoffset();
-        let updated_range = if buffer_end == CharOffset::zero()
-            || (range.end >= buffer_end
-                && self.block_type_at_point(range.end)
-                    != BlockType::Text(BufferBlockStyle::PlainText))
-        {
+        let updated_range = if buffer_end == CharOffset::zero() {
             log::trace!("Inserting <text> marker at end of buffer");
             self.content.push(BufferText::BlockMarker {
                 marker_type: BufferBlockStyle::PlainText,
@@ -1221,99 +755,6 @@ impl Buffer {
             anchor_update: None,
         }
     }
-
-    fn style_block(
-        &mut self,
-        range: Range<CharOffset>,
-        style: BufferBlockStyle,
-    ) -> CoreEditorActionResult {
-        debug_assert!(
-            range.start > CharOffset::zero(),
-            "Invalid style range. Range start should not be zero.",
-        );
-
-        let current_style = self.block_type_at_point(range.start);
-        let same_style_with_previous_block = if range.start > CharOffset::from(1) {
-            self.block_type_at_point(range.start - 1) == BlockType::Text(style.clone())
-        } else {
-            false
-        };
-
-        if matches!(
-            current_style,
-            BlockType::Text(BufferBlockStyle::CodeBlock { .. })
-        ) {
-            self.color_code_block_ranges_internal(range.start, &[]);
-        }
-
-        let replace_with = if same_style_with_previous_block && style == BufferBlockStyle::PlainText
-        {
-            BufferText::Newline
-        } else {
-            BufferText::BlockMarker {
-                marker_type: style.clone(),
-            }
-        };
-
-        let replace_style = if range.end < self.max_charoffset() {
-            let next_block = self.block_type_at_point(range.end + 1);
-
-            match next_block {
-                BlockType::Item(_) => None,
-                BlockType::Text(next_style) => {
-                    if BlockType::Text(next_style.clone()) == current_style {
-                        Some(BufferText::BlockMarker {
-                            marker_type: next_style,
-                        })
-                    // Plain text is a special case. If we are styling one plain text after another,
-                    // we should separate them with a newline instead of a block marker.
-                    } else if next_style == style && next_style == BufferBlockStyle::PlainText {
-                        Some(BufferText::Newline)
-                    } else {
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        };
-
-        self.content
-            .replace_item_at_offset(range.start - 1, replace_with);
-
-        if let Some(to_replace) = replace_style {
-            self.content.replace_item_at_offset(range.end, to_replace);
-        }
-
-        CoreEditorActionResult {
-            updated_range: range,
-            anchor_update: None,
-        }
-    }
-}
-
-// Push text fragments to a block. If the block is a runnable code block,
-// strip all the active text styling.
-fn push_text_fragments_to_block(
-    content_tree: &mut SumTree<BufferText>,
-    fragments: Vec<FormattedTextFragment>,
-    previous_block_style: BufferBlockStyle,
-) {
-    match previous_block_style {
-        BufferBlockStyle::CodeBlock { .. } => {
-            push_text_fragments_ignoring_styling(content_tree, fragments);
-        }
-        _ => update_content_with_text_fragments(content_tree, fragments),
-    }
-}
-
-fn push_text_fragments_ignoring_styling(
-    content_tree: &mut SumTree<BufferText>,
-    fragments: Vec<FormattedTextFragment>,
-) {
-    for fragment in fragments {
-        content_tree.append_str(&fragment.text)
-    }
 }
 
 /// Returns the active text style with metadata at the given subtree and a set StyleSummary.
@@ -1330,90 +771,8 @@ fn active_text_styles_with_metadata_from_subtree(
         } else {
             None
         },
-        if text_style.is_colored() {
-            content_tree.color_at_color_count(&SyntaxColorId(style.syntax_link_counter() as usize))
-        } else {
-            None
-        },
+        None,
     )
-}
-
-fn insert_multiline_block(
-    raw_text: &str,
-    block_style: BufferBlockStyle,
-    source: EditOrigin,
-    inherit_styling: bool,
-    edit_cursor: CursorType,
-    new_content: &mut SumTree<BufferText>,
-    previous_block_type: &mut BlockType,
-) {
-    // In our formatted text code, we have a trailing newline for every code block.
-    let text = if let Some(text) = raw_text.strip_suffix('\n') {
-        // If this is user typed, preserve the full text.
-        if !matches!(source, EditOrigin::UserTyped) {
-            text
-        } else {
-            raw_text
-        }
-    } else {
-        raw_text
-    };
-
-    match previous_block_type.clone() {
-        BlockType::Item(_) => {
-            update_content_after_block_item(
-                new_content,
-                previous_block_type,
-                BlockType::Text(block_style),
-                None,
-            );
-            new_content.append_str(text);
-        }
-        BlockType::Text(previous_block_style) => {
-            // For code blocks, there are a couple of situations
-            // 1) If we are not inherit styling or the cursor is at buffer start, always start a new block.
-            // 2) If the current block type is a code block, append the existing content to that code block.
-            // 3) Else, append the content as plain text lines to the active block.
-            if inherit_styling
-                && block_style.should_inherit_style(edit_cursor, previous_block_style.clone())
-            {
-                if previous_block_style == block_style {
-                    new_content.append_str(text);
-                } else {
-                    let mut first = true;
-                    for line in text.split('\n') {
-                        // Starting from the second block, we need apply the line break behavior of the active block style.
-                        if !first {
-                            match previous_block_style.line_break_behavior() {
-                                BlockLineBreakBehavior::BlockMarker(marker_type) => {
-                                    *previous_block_type = BlockType::Text(marker_type.clone());
-                                    new_content.push(BufferText::BlockMarker { marker_type });
-                                }
-                                BlockLineBreakBehavior::NewLine => {
-                                    new_content.push(BufferText::Newline);
-                                }
-                            }
-                        }
-                        let fragments = vec![FormattedTextFragment::plain_text(line.to_string())];
-                        push_text_fragments_to_block(
-                            new_content,
-                            fragments,
-                            previous_block_style.clone(),
-                        );
-                        first = false;
-                    }
-                }
-            } else {
-                // End all active text styles.
-                end_all_active_text_styles(new_content);
-                new_content.push(BufferText::BlockMarker {
-                    marker_type: block_style.clone(),
-                });
-                *previous_block_type = BlockType::Text(block_style);
-                new_content.append_str(text);
-            }
-        }
-    }
 }
 
 fn end_all_active_text_styles(new_content: &mut SumTree<BufferText>) {
@@ -1437,9 +796,6 @@ fn end_all_active_text_styles(new_content: &mut SumTree<BufferText>) {
     if active_text_style.link_content().is_some() {
         new_content.push(BufferText::Link(LinkMarker::End));
     }
-    if active_text_style.color().is_some() {
-        new_content.push(BufferText::Color(ColorMarker::End));
-    }
 }
 
 fn transition_styles_with_metadata(
@@ -1460,38 +816,6 @@ fn transition_styles_with_metadata(
         (None, Some(new_url)) => content_tree.push(BufferText::Link(LinkMarker::Start(new_url))),
         (None, None) => (),
     };
-
-    match (prev_text_styles.color(), next_text_styles.color()) {
-        (Some(active_color), Some(new_color)) if active_color == new_color => (),
-        (Some(_), Some(new_color)) => {
-            content_tree.push(BufferText::Color(ColorMarker::End));
-            content_tree.push(BufferText::Color(ColorMarker::Start(new_color)))
-        }
-        (Some(_), None) => content_tree.push(BufferText::Color(ColorMarker::End)),
-        (None, Some(new_color)) => {
-            content_tree.push(BufferText::Color(ColorMarker::Start(new_color)))
-        }
-        (None, None) => (),
-    };
-}
-
-fn update_content_after_block_item(
-    content_tree: &mut SumTree<BufferText>,
-    previous_block_type: &mut BlockType,
-    active_block_type: BlockType,
-    fragments: Option<Vec<FormattedTextFragment>>,
-) {
-    content_tree.push(match active_block_type.clone() {
-        BlockType::Item(item_type) => BufferText::BlockItem { item_type },
-        BlockType::Text(block_style) => BufferText::BlockMarker {
-            marker_type: block_style,
-        },
-    });
-    *previous_block_type = active_block_type;
-
-    if let Some(fragments) = fragments {
-        update_content_with_text_fragments(content_tree, fragments);
-    }
 }
 
 /// Updates the content subtree with formatted text fragments. The resulting content tree should be formatted with the
@@ -1535,34 +859,3 @@ fn update_content_with_text_fragments(
         content_tree.append_str(&content);
     }
 }
-
-// Push a new block marker before pushing the content of the block.
-// Note that this function is no-op if the cursor is inline and we are
-// pushing the same block type.
-fn maybe_push_new_block_marker(
-    inherit_styling: bool,
-    edit_cursor: CursorType,
-    previous_block_type: BufferBlockStyle,
-    block_style: BufferBlockStyle,
-    new_content: &mut SumTree<BufferText>,
-) {
-    // Add a new marker only if
-    // 1) Cursor is not inline nor at a newline start and inherits the active block's styling.
-    // 2) The block style is different from the active style.
-    let should_add_marker = !(edit_cursor == CursorType::Inline
-        || (edit_cursor == CursorType::NewLineStart && inherit_styling))
-        || previous_block_type != block_style;
-
-    if should_add_marker {
-        // End all active text styles.
-        end_all_active_text_styles(new_content);
-
-        new_content.push(BufferText::BlockMarker {
-            marker_type: block_style,
-        });
-    }
-}
-
-#[cfg(test)]
-#[path = "core_tests.rs"]
-mod tests;

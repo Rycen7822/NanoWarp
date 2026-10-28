@@ -13,7 +13,6 @@ use crate::content::buffer::{
 };
 use crate::content::hidden_lines_model::HiddenLinesModel;
 use crate::content::selection_model::BufferSelectionModel;
-use crate::content::text::BlockType;
 use crate::render::model::{RenderState, SoftWrapPoint};
 
 #[cfg(test)]
@@ -551,13 +550,6 @@ impl SelectionModel {
     ) -> NavigationResult {
         let content = self.content.as_ref(ctx);
 
-        // We need to special-case the scenario when the starting offset is at the end of
-        // a block-item. The block item itself should be considered as a "word" unit.
-        if matches!(direction, TextDirection::Backwards)
-            && matches!(content.block_type_at_point(start), BlockType::Item(_))
-        {
-            return NavigationResult::for_offset(start.saturating_sub(&1.into()));
-        }
         let end_offset = match direction {
             TextDirection::Backwards => content
                 .word_starts_backward_from_offset_exclusive(start)
@@ -636,17 +628,7 @@ impl SelectionModel {
     ) -> NavigationResult {
         let render = self.render.as_ref(ctx);
 
-        // We need to special-case the scenario when the starting offset is at the end of
-        // a block-item. From the buffer perspective, the offset is at the start of the line
-        // given block items are represented as linebreaks. But from the user perspective, the
-        // starting offset is visually on the same line as the block item. To handle this,
-        // we simply return the starting offset - 1.
         let content = self.content.as_ref(ctx);
-        let block_type = content.block_type_at_point(start);
-        if matches!(direction, TextDirection::Backwards) && matches!(block_type, BlockType::Item(_))
-        {
-            return NavigationResult::for_offset(start.saturating_sub(&1.into()));
-        }
 
         // TODO(CLD-558): This shouldn't need the +/- 1
         let start_point = render.offset_to_softwrap_point(start.saturating_sub(&1.into()));
@@ -698,12 +680,7 @@ impl SelectionModel {
         let content = self.content.as_ref(ctx);
         match direction {
             TextDirection::Backwards => {
-                if matches!(content.block_type_at_point(start), BlockType::Item(_)) {
-                    // See `navigate_line_boundary` on why block items are special-cased.
-                    NavigationResult::for_offset(start.saturating_sub(&1.into()))
-                } else {
-                    NavigationResult::for_offset(content.containing_line_start(start))
-                }
+                NavigationResult::for_offset(content.containing_line_start(start))
             }
             TextDirection::Forwards => NavigationResult::for_offset(
                 // containing_line_end returns the offset of the first character after the ending

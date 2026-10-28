@@ -345,10 +345,10 @@ impl Engine {
                         match_location = Some(cursor.start().text.chars);
                     }
                 }
-                BufferText::Marker { .. } | BufferText::Link(_) | BufferText::Color(_) => {
+                BufferText::Marker { .. } | BufferText::Link(_) => {
                     // Inline styling is ignored by search.
                 }
-                BufferText::Placeholder { .. } | BufferText::BlockItem { .. } => {
+                BufferText::Placeholder { .. } => {
                     // Non-text / non-interactive items interrupt search. If we've already found a
                     // match, return it. Otherwise, see if advancing to the EOI state triggers a
                     // match (e.g. if the last character before the item was a match).

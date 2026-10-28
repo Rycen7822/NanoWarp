@@ -1,11 +1,8 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rangemap::RangeSet;
 use string_offset::CharOffset;
 use warpui_core::App;
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::fonts::{Properties, Weight};
 use warpui_core::text_layout::{StyleAndFont, TextStyle};
 
@@ -14,14 +11,11 @@ use super::{
     MAX_LAYOUT_TASKS_PER_PARALLEL_CHUNK, chunk_layout_tasks, layout_temporary_blocks,
 };
 use crate::content::buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock};
-use crate::content::edit::{
-    EditDelta, ParsedUrl, TemporaryBlock, highlight_urls, resolve_asset_source,
-    resolve_asset_source_relative_to_directory,
-};
-use crate::content::text::{BufferBlockStyle, CodeBlockType, TextStylesWithMetadata};
+use crate::content::edit::{EditDelta, ParsedUrl, TemporaryBlock, highlight_urls};
+use crate::content::text::{BufferBlockStyle, TextStylesWithMetadata};
 use crate::render::layout::{TextLayout, add_link_to_style_and_font};
 use crate::render::model::test_utils::TEST_STYLES;
-use crate::render::model::{BlockItem, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, LineCount};
+use crate::render::model::{BlockItem, LineCount};
 
 #[test]
 fn test_highlight_urls() {
@@ -264,7 +258,6 @@ fn test_layout_delta_never_takes_ownership_of_new_lines_with_multiple_owners() {
             let laid_out_a = editor_a_delta.layout_delta(
                 &text_layout,
                 None,
-                None,
             );
             assert_eq!(laid_out_a.laid_out_line.len(), 1);
             assert_eq!(
@@ -275,7 +268,6 @@ fn test_layout_delta_never_takes_ownership_of_new_lines_with_multiple_owners() {
 
             let laid_out_b = editor_b_delta.layout_delta(
                 &text_layout,
-                None,
                 None,
             );
             assert_eq!(laid_out_b.laid_out_line.len(), 1);
@@ -357,74 +349,6 @@ fn test_layout_partial_url() {
 }
 
 #[test]
-fn test_resolve_asset_source_relative_to_directory_uses_base_directory() {
-    let asset_source =
-        resolve_asset_source_relative_to_directory("diagram.png", Some(Path::new("/tmp/session")));
-
-    match asset_source {
-        AssetSource::LocalFile { path, .. } => {
-            assert_eq!(Path::new(&path), Path::new("/tmp/session/diagram.png"));
-        }
-        source => panic!("expected local file asset source, got {source:?}"),
-    }
-}
-fn unique_markdown_image_path() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after the Unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "warp_editor_markdown_image_{}_{nonce}.png",
-        std::process::id()
-    ))
-}
-#[test]
-fn test_resolve_asset_source_versions_local_files_for_markdown_layout() {
-    let image_path = unique_markdown_image_path();
-    std::fs::write(&image_path, b"old").expect("write initial image contents");
-    let document_path = image_path.with_file_name("document.md");
-    let image_name = image_path
-        .file_name()
-        .expect("image path should have a file name")
-        .to_string_lossy();
-
-    let initial = resolve_asset_source(&image_name, Some(&document_path));
-    assert!(matches!(
-        &initial,
-        AssetSource::LocalFile {
-            content_version: Some(_),
-            ..
-        }
-    ));
-
-    std::fs::write(&image_path, b"updated image contents").expect("update image contents");
-    let updated = resolve_asset_source(&image_name, Some(&document_path));
-    assert_ne!(
-        initial, updated,
-        "an updated Markdown image should produce a new cache key"
-    );
-
-    let _ = std::fs::remove_file(image_path);
-}
-
-#[test]
-fn test_resolve_asset_source_leaves_non_local_markdown_images_unchanged() {
-    let document_path = Path::new("/tmp/document.md");
-    let base_directory = document_path.parent();
-
-    for source in [
-        "https://example.com/image.png",
-        "data:image/png;base64,iVBORw0KGgo=",
-    ] {
-        assert_eq!(
-            resolve_asset_source(source, Some(document_path)),
-            resolve_asset_source_relative_to_directory(source, base_directory),
-            "non-local source should not be changed: {source}"
-        );
-    }
-}
-
-#[test]
 fn test_layout_code_block_urls() {
     // Regression test for laying out URLs in a code block, which contains multiple lines.
     App::test((), |app| async move {
@@ -432,23 +356,17 @@ fn test_layout_code_block_urls() {
             StyledBufferRun {
                 run: "curl -o myfile.txt http://example.com/myfile.txt\n".to_string(),
                 text_styles: Default::default(),
-                block_style: BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
+                block_style: BufferBlockStyle::PlainText,
             },
             StyledBufferRun {
                 run: "vim myfile.txt\n".to_string(),
                 text_styles: Default::default(),
-                block_style: BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
+                block_style: BufferBlockStyle::PlainText,
             },
             StyledBufferRun {
                 run: "rsync myfile.txt ssh://user@server.com\n".to_string(),
                 text_styles: Default::default(),
-                block_style: BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
+                block_style: BufferBlockStyle::PlainText,
             },
         ];
 
@@ -458,10 +376,8 @@ fn test_layout_code_block_urls() {
                 &TEST_STYLES,
                 f32::MAX,
             );
-            let paragraph_styles = text_layout.paragraph_styles(&BufferBlockStyle::CodeBlock {
-                code_block_type: CodeBlockType::Shell,
-            });
-            let family_id = TEST_STYLES.code_text.font_family;
+            let paragraph_styles = text_layout.paragraph_styles(&BufferBlockStyle::PlainText);
+            let family_id = TEST_STYLES.base_text.font_family;
             let base_styles =
                 StyleAndFont::new(family_id, Properties::default(), TextStyle::default());
 
@@ -632,7 +548,7 @@ fn test_layout_delta_chunk_boundary_preserves_order_hidden_collapsing_and_traili
                 ..Default::default()
             };
 
-            let laid_out = delta.layout_delta(&text_layout, None, Some(hidden_ranges));
+            let laid_out = delta.layout_delta(&text_layout, Some(hidden_ranges));
 
             // The contiguous hidden run should collapse into exactly one BlockItem::Hidden.
             let expected_len = HIDDEN_START + 1 + (TOTAL_BLOCKS - HIDDEN_END);
@@ -709,7 +625,7 @@ fn test_layout_delta_single_chunk_matches_direct_layout() {
                 ..Default::default()
             };
 
-            let laid_out = delta.layout_delta(&text_layout, None, None);
+            let laid_out = delta.layout_delta(&text_layout, None);
 
             assert_eq!(laid_out.laid_out_line.len(), 3);
             assert_eq!(
@@ -725,124 +641,6 @@ fn test_layout_delta_single_chunk_matches_direct_layout() {
                 CharOffset::from(5)
             );
             assert!(laid_out.trailing_newline.is_some());
-        });
-    })
-}
-
-/// Builds a hidden, isolated `CodeBlock`-styled block whose gutter-button count (and thus its
-/// laid-out `line_count`) directly observes the `BlockLocation` it was laid out with: Start/End
-/// always get one button, but a genuine Middle location with `run_count >=
-/// CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES` gets two. `run_count` only matters for the Middle
-/// case; the run contents are never read since the block is hidden.
-fn isolated_hidden_code_block(run_count: usize, content_len: usize) -> StyledBufferBlock {
-    let style = BufferBlockStyle::CodeBlock {
-        code_block_type: CodeBlockType::Shell,
-    };
-    StyledBufferBlock::Text(StyledTextBlock {
-        block: vec![
-            StyledBufferRun {
-                run: String::new(),
-                text_styles: TextStylesWithMetadata::default(),
-                block_style: style.clone(),
-            };
-            run_count
-        ],
-        style,
-        content_length: CharOffset::from(content_len),
-    })
-}
-
-#[test]
-fn test_layout_delta_block_location_is_global_across_chunk_boundaries() {
-    // Regression test for APP-5392: BlockLocation must be computed from the delta's global
-    // index, not a chunk-local one. A hidden block's gutter-button count only depends on its
-    // BlockLocation when it's genuinely Middle with a large enough hidden run (2 buttons) vs.
-    // Start/End (always 1 button), so an isolated hidden block at a later chunk's first index
-    // makes a chunk-local-index regression directly observable.
-    App::test((), |app| async move {
-        app.read(|ctx| {
-            let text_layout = TextLayout::new(
-                ctx.font_cache().text_layout_system(),
-                &TEST_STYLES,
-                f32::MAX,
-            );
-
-            const TOTAL_BLOCKS: usize = MAX_LAYOUT_TASKS_PER_PARALLEL_CHUNK * 2 + 10;
-            const HIDDEN_AT_START: usize = 0;
-            const HIDDEN_AT_TRUE_MIDDLE: usize = 5;
-            // The first index of the second chunk: local index 0, but not the global start.
-            const HIDDEN_AT_CHUNK_BOUNDARY: usize = MAX_LAYOUT_TASKS_PER_PARALLEL_CHUNK;
-            const HIDDEN_AT_END: usize = TOTAL_BLOCKS - 1;
-            const RUN_COUNT: usize = CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES + 5;
-
-            let hidden_indices = [
-                HIDDEN_AT_START,
-                HIDDEN_AT_TRUE_MIDDLE,
-                HIDDEN_AT_CHUNK_BOUNDARY,
-                HIDDEN_AT_END,
-            ];
-
-            let mut new_lines = Vec::with_capacity(TOTAL_BLOCKS);
-            let mut block_starts = Vec::with_capacity(TOTAL_BLOCKS);
-            let mut offset = CharOffset::from(1);
-
-            for i in 0..TOTAL_BLOCKS {
-                block_starts.push(offset);
-                if hidden_indices.contains(&i) {
-                    new_lines.push(isolated_hidden_code_block(RUN_COUNT, 1));
-                    offset += 1;
-                } else {
-                    new_lines.push(identifiable_text_block(3));
-                    offset += 3;
-                }
-            }
-
-            // Each hidden index is isolated (its neighbors are visible), so none of them merge.
-            let mut hidden_ranges = RangeSet::new();
-            for &i in &hidden_indices {
-                hidden_ranges.insert(block_starts[i]..block_starts[i] + CharOffset::from(1));
-            }
-
-            let delta = EditDelta {
-                old_offset: CharOffset::from(1)..offset,
-                new_lines: Arc::new(new_lines),
-                ..Default::default()
-            };
-
-            let laid_out = delta.layout_delta(
-                &text_layout,
-                None,
-                Some(hidden_ranges),
-            );
-
-            // No collapsing occurred, so output indices line up with input indices.
-            assert_eq!(laid_out.laid_out_line.len(), TOTAL_BLOCKS);
-
-            let line_count_at = |global_idx: usize| match &laid_out.laid_out_line[global_idx] {
-                BlockItem::Hidden(config) => config.line_count(),
-                other => panic!("expected a Hidden item at index {global_idx}, got {other:?}"),
-            };
-
-            assert_eq!(
-                line_count_at(HIDDEN_AT_START),
-                LineCount::from(1),
-                "genuine Start should always get a single gutter button"
-            );
-            assert_eq!(
-                line_count_at(HIDDEN_AT_TRUE_MIDDLE),
-                LineCount::from(2),
-                "genuine Middle with a large hidden block should get two gutter buttons"
-            );
-            assert_eq!(
-                line_count_at(HIDDEN_AT_CHUNK_BOUNDARY),
-                LineCount::from(2),
-                "a later chunk's first task is still Middle (global index), not Start (chunk-local index)"
-            );
-            assert_eq!(
-                line_count_at(HIDDEN_AT_END),
-                LineCount::from(1),
-                "genuine End should always get a single gutter button"
-            );
         });
     })
 }
@@ -873,14 +671,12 @@ fn test_layout_delta_trailing_newline_carries_over_when_final_chunk_fully_fails(
 
             for i in 0..TOTAL_BLOCKS {
                 if i >= CHUNK_SIZE * 2 {
-                    // The entire final chunk fails: an empty CodeBlock has no runs, so no
+                    // The entire final chunk fails: an empty plain text block has no runs, so no
                     // paragraph is ever pushed and layout_text_block errors instead of
                     // producing a trailing-newline value.
                     new_lines.push(StyledBufferBlock::Text(StyledTextBlock {
                         block: vec![],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell,
-                        },
+                        style: BufferBlockStyle::PlainText,
                         content_length: CharOffset::from(3),
                     }));
                     offset += 3;
@@ -910,7 +706,6 @@ fn test_layout_delta_trailing_newline_carries_over_when_final_chunk_fully_fails(
 
             let laid_out = delta.layout_delta(
                 &text_layout,
-                None,
                 None,
             );
 

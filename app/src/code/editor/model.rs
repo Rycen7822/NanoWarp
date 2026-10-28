@@ -35,7 +35,7 @@ use warp_editor::content::edit::EditDelta;
 use warp_editor::content::find::{SearchConfig, SearchResults};
 use warp_editor::content::hidden_lines_model::HiddenLinesModel;
 use warp_editor::content::selection_model::BufferSelectionModel;
-use warp_editor::content::text::{BufferBlockStyle, IndentBehavior, IndentUnit};
+use warp_editor::content::text::{IndentBehavior, IndentUnit};
 use warp_editor::content::version::BufferVersion;
 use warp_editor::decoration::DecorationLayer;
 use warp_editor::editor::TextDecoration;
@@ -212,10 +212,9 @@ impl CodeEditorModel {
     ) -> Self {
         let content = buffer.unwrap_or_else(|| {
             ctx.add_model(|_| {
-                Buffer::new(Box::new(|block_style, _| match block_style {
-                    // Use 4 spaces as the default indentation unit.
-                    BufferBlockStyle::PlainText => IndentBehavior::TabIndent(IndentUnit::Space(4)),
-                    _ => IndentBehavior::Ignore,
+                // Use 4 spaces as the default indentation unit.
+                Buffer::new(Box::new(|_, _| {
+                    IndentBehavior::TabIndent(IndentUnit::Space(4))
                 }))
             })
         });
@@ -693,10 +692,7 @@ impl CodeEditorModel {
     fn set_language(&mut self, language: Arc<Language>, ctx: &mut ModelContext<Self>) {
         let unit = language.indent_unit;
         self.content.update(ctx, |buffer, _ctx| {
-            buffer.set_tab_indentation(Box::new(move |block_style, _| match block_style {
-                BufferBlockStyle::PlainText => IndentBehavior::TabIndent(unit),
-                _ => IndentBehavior::Ignore,
-            }))
+            buffer.set_tab_indentation(Box::new(move |_, _| IndentBehavior::TabIndent(unit)))
         });
 
         self.syntax_tree.update(ctx, |syntax_tree, _ctx| {

@@ -1,18 +1,14 @@
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use markdown_parser::{
-    CodeBlockText, FormattedIndentTextInline, FormattedText, FormattedTextFragment,
-    FormattedTextLine, FormattedTextStyles, parse_markdown,
-};
-use pathfinder_color::ColorU;
+use markdown_parser::{FormattedTextFragment, FormattedTextStyles};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use string_offset::{ByteOffset, CharOffset};
 use vec1::{Vec1, vec1};
 use warp_util::content_version::ContentVersion;
-use warpui_core::elements::ListIndentLevel;
 use warpui_core::text::point::Point;
 use warpui_core::{App, ModelContext, ModelHandle};
 
@@ -23,14 +19,13 @@ use crate::content::buffer::{
     EditOrigin, SelectionOffsets, StyledBlockBoundaryBehavior, StyledBufferBlock, StyledBufferRun,
     StyledTextBlock, TabIndentation, ToBufferByteOffset, ToBufferPoint,
 };
-use crate::content::core::{CoreEditorAction, CoreEditorActionType};
+use crate::content::core::{CoreEditorAction, CoreEditorActionType, EditorLine};
 use crate::content::cursor::BufferSumTree;
 use crate::content::edit::PreciseDelta;
 use crate::content::selection::TextStyleBias;
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{
-    BlockHeaderSize, BufferBlockItem, BufferBlockStyle, CodeBlockType, IndentBehavior, IndentUnit,
-    TextStyles, TextStylesWithMetadata,
+    BufferBlockStyle, IndentBehavior, IndentUnit, TextStyles, TextStylesWithMetadata,
 };
 use crate::content::undo::{
     NonAtomicType, ReversibleEditorActions, ReversibleSelectionState, UndoActionType, UndoArg,
@@ -84,25 +79,10 @@ impl Buffer {
         self.set_last_head(range.end, selection_model, ctx);
     }
 
-    pub(in crate::content) fn apply_block_style_fixture(
-        &mut self,
-        range: Range<CharOffset>,
-        style: BufferBlockStyle,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        let actions = self.block_style_editor_actions(range, style);
-        let update = self.apply_core_edit_actions(actions);
-        selection_model.update(ctx, |selection, _| {
-            selection.update_anchors(update.anchor_updates.clone());
-        });
-        update
-    }
-
     pub(in crate::content) fn apply_formatted_edit_fixture(
         &mut self,
         range: Range<CharOffset>,
-        text: FormattedText,
+        text: VecDeque<EditorLine>,
         origin: EditOrigin,
         selection_model: ModelHandle<BufferSelectionModel>,
         ctx: &mut ModelContext<Self>,
@@ -113,7 +93,7 @@ impl Buffer {
                 CoreEditorActionType::Insert {
                     text,
                     source: origin,
-                    override_next_style: false,
+
                     insert_on_selection: true,
                 },
             ),
@@ -130,27 +110,31 @@ impl Buffer {
         self.modify_first_selection(selection_model, edit, ctx)
     }
 
-    pub fn mock_from_markdown(
-        markdown: &str,
+    pub(crate) fn initialize_editor_lines_fixture(
+        &mut self,
+        text: VecDeque<EditorLine>,
+        selection: ModelHandle<BufferSelectionModel>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.apply_formatted_edit_fixture(
+            0.into()..1.into(),
+            text,
+            EditOrigin::UserInitiated,
+            selection,
+            ctx,
+        );
+    }
+
+    pub fn mock_from_plain_text(
+        text: &str,
         tab_indentation: TabIndentation,
         ctx: &mut App,
     ) -> (ModelHandle<Self>, ModelHandle<BufferSelectionModel>) {
-        let text = parse_markdown(markdown).expect("Markdown fixture should parse");
-        let buffer = ctx.add_model(|_| Buffer::new(tab_indentation));
+        let buffer = ctx.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection = ctx.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
         buffer.update(ctx, |buffer, ctx| {
-            if !text.lines.is_empty() {
-                buffer.apply_formatted_edit_fixture(
-                    CharOffset::zero()..CharOffset::from(1),
-                    text,
-                    EditOrigin::UserInitiated,
-                    selection.clone(),
-                    ctx,
-                );
-            }
+            *buffer = Buffer::from_plain_text(text, tab_indentation, selection.clone(), ctx);
         });
-
         (buffer, selection)
     }
 }
@@ -875,11 +859,7 @@ fn test_multi_delta_stale_replaced_range() {
             // After action 0: buffer = "AABBDDDDEE"
             // After action 1: buffer = "XBBDDDDEE"  (final)
             let plain = |text: &str| {
-                super::convert_text_with_style_to_formatted_text(
-                    text,
-                    TextStyles::default(),
-                    BufferBlockStyle::PlainText,
-                )
+                super::convert_text_with_style_to_formatted_text(text, TextStyles::default())
             };
             let actions = vec![
                 CoreEditorAction::new(
@@ -887,7 +867,7 @@ fn test_multi_delta_stale_replaced_range() {
                     CoreEditorActionType::Insert {
                         text: plain("DDDD"),
                         source: EditOrigin::UserInitiated,
-                        override_next_style: false,
+
                         insert_on_selection: true,
                     },
                 ),
@@ -896,7 +876,7 @@ fn test_multi_delta_stale_replaced_range() {
                     CoreEditorActionType::Insert {
                         text: plain("X"),
                         source: EditOrigin::UserInitiated,
-                        override_next_style: false,
+
                         insert_on_selection: true,
                     },
                 ),
@@ -1114,9 +1094,9 @@ fn test_active_selection_style() {
             // When selection is a range of characters, active style should be the style of the first character.
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("te")]),
-                    FormattedTextLine::Line(vec![FormattedTextFragment::bold("st")]),
+                VecDeque::from(vec![
+                    EditorLine::Line(vec![FormattedTextFragment::plain_text("te")]),
+                    EditorLine::Line(vec![FormattedTextFragment::bold("st")]),
                 ]),
                 EditOrigin::SystemEdit,
                 selection.clone(),
@@ -1165,626 +1145,6 @@ fn test_active_selection_style() {
                 .active_style_with_metadata_at_selection(selection.as_ref(ctx))
                 .into();
             assert_eq!(text_style, TextStyles::default().bold());
-        });
-    });
-}
-
-#[test]
-fn test_block_style() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![
-                        FormattedTextFragment::bold("te"),
-                        FormattedTextFragment::plain_text("st"),
-                    ]),
-                    FormattedTextLine::Line(vec![
-                        FormattedTextFragment::plain_text("line"),
-                    ]),
-                    FormattedTextLine::Line(vec![
-                        FormattedTextFragment::plain_text("second"),
-                    ]),
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..3]);
-            });
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e>st\\nline\\nsecond"
-            );
-
-            // Styling s in test to a runnable code block.
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(3)..CharOffset::from(4),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e><code:Shell>s<text>t\\nline\\nsecond"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![
-                            StyledBufferRun {
-                                run: "te".to_string(),
-                                text_styles: TextStylesWithMetadata::default().bold(),
-                                block_style: BufferBlockStyle::PlainText
-                            },
-                            StyledBufferRun {
-                                run: "\n".to_string(),
-                                text_styles: TextStylesWithMetadata::default(),
-                                block_style: BufferBlockStyle::PlainText
-                            },
-                        ],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "s\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-
-                },
-                        content_length: CharOffset::from(2),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "t\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2),
-                    }),
-                ]
-            );
-
-            // Styling li in line to a runnable code block.
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(8)..CharOffset::from(10),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(8)..CharOffset::from(13));
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e><code:Shell>s<text>t<code:Shell>li<text>ne\\nsecond"
-            );
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "li\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                },
-                        content_length: CharOffset::from(3),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ne\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3),
-                    }),
-                ]
-            );
-
-            // Styling t in test to a runnable code block.
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(4)..CharOffset::from(7),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e><code:Shell>s\\nt<code:Shell>li<text>ne\\nsecond"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(4)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "s\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },
-                        StyledBufferRun {
-                            run: "t\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },
-                    ],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default()
-                    },
-                    content_length: CharOffset::from(4),
-                }),]
-            );
-
-            // Styling the last line to a runnable code block.
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(14)..CharOffset::from(20),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e><code:Shell>s\\nt<code:Shell>li<text>ne<code:Shell>second<text>"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(14)..CharOffset::from(20));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "second\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default()
-                    },
-                    content_length: CharOffset::from(7),
-                }),]
-            );
-
-            // Styling the line right after a code block should create a new code block.
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(11)..CharOffset::from(12),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>te<b_e><code:Shell>s\\nt<code:Shell>li<code:Shell>n<text>e<code:Shell>second<text>"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(14));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "n\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        },
-                        content_length: CharOffset::from(2),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "e\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2),
-                    })
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_containing_block_start() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                1.into()..1.into(),
-                "text\ncode",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                6.into()..10.into(),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<text>text<code:Shell>code<text>");
-
-            // The first text block
-            assert_eq!(buffer.containing_block_start(1.into()), 1.into());
-            assert_eq!(buffer.containing_block_start(2.into()), 1.into());
-
-            // The code block
-            assert_eq!(buffer.containing_block_start(6.into()), 6.into());
-            assert_eq!(buffer.containing_block_start(8.into()), 6.into());
-            assert_eq!(buffer.containing_block_start(10.into()), 6.into());
-
-            // The trailing plain text.
-            assert_eq!(buffer.containing_block_start(11.into()), 11.into());
-        });
-    });
-}
-
-#[test]
-fn test_style_unstyle_block_overlapping() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond\nblock",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(2)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>t<code:Shell>es<text>t\\nline\\nsecond\\nblock"
-            );
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(1)..CharOffset::from(4),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t\\nes<text>t\\nline\\nsecond\\nblock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "t\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },
-                        StyledBufferRun {
-                            run: "es\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }
-                    ],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default()
-                    },
-                    content_length: CharOffset::from(5),
-                }),]
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(12),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t\\nes<text>t<code:Shell>line<text>second\\nblock"
-            );
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(6)..CharOffset::from(7),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t\\nes<code:Shell>t<code:Shell>line<text>second\\nblock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "t\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default()
-                    },
-                    content_length: CharOffset::from(2)
-                }),]
-            );
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(13)..CharOffset::from(15),
-                    BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t\\nes<code:Shell>t<code:Shell>line<code:Shell>se<text>cond\\nblock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(13)..CharOffset::from(20));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "se\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        },
-                        content_length: CharOffset::from(3),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "cond\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(5),
-                    }),
-                ]
-            );
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(3)..CharOffset::from(5),
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t<text>es<code:Shell>t<code:Shell>line<code:Shell>se<text>cond\\nblock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "t\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        },
-                        content_length: CharOffset::from(2),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "es\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3),
-                    }),
-                ]
-            );
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    CharOffset::from(8)..CharOffset::from(11),
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>t<text>es<code:Shell>t<text>lin<code:Shell>e<code:Shell>se<text>cond\\nblock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(8)..CharOffset::from(13));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "lin\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4),
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "e\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        },
-                        content_length: CharOffset::from(2),
-                    }),
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_containing_code_block() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            // Styling s in test to a runnable code block.
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            // Styling 'line\ns' to a runnable code block.
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(14),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>te<code:Shell>s<text>t<code:Shell>line\\ns<text>econd"
-            );
-
-            assert_eq!(
-                buffer.containing_block_start(CharOffset::from(3)),
-                CharOffset::from(1)
-            );
-            assert_eq!(
-                buffer.containing_block_end(CharOffset::from(3)),
-                CharOffset::from(4)
-            );
-
-            assert_eq!(
-                buffer.containing_block_start(CharOffset::from(5)),
-                CharOffset::from(4)
-            );
-            assert_eq!(
-                buffer.containing_block_end(CharOffset::from(5)),
-                CharOffset::from(6)
-            );
-
-            assert_eq!(
-                buffer.containing_block_start(CharOffset::from(10)),
-                CharOffset::from(8)
-            );
-            assert_eq!(
-                buffer.containing_block_end(CharOffset::from(10)),
-                CharOffset::from(15)
-            );
         });
     });
 }
@@ -1866,150 +1226,6 @@ fn test_containing_line_first_nonwhitespace_for_plain_text() {
                 buffer.containing_line_first_nonwhitespace(CharOffset::from(18)),
                 CharOffset::from(18)
             );
-        });
-    });
-}
-#[test]
-fn test_delete_unpaired_block_style_marker() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test");
-
-            // Styling s in test to a runnable code block.
-            // <text>te<code:Shell>s<text>t
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>te<code:Shell>s<text>t");
-
-            // Remove the starting marker only.
-            // tess\nt
-            let delta = buffer
-                .edit_internal_first_selection(
-                    CharOffset::from(3)..CharOffset::from(4),
-                    "s",
-                    Default::default(),
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "tess\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    },],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(5)
-                }),]
-            );
-            assert_eq!(buffer.content.debug(), "<text>tess\\nt");
-
-            // Styling s in tesst to a runnable code block.
-            // <text>te<code:Shell>s<text>s\nt
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            // Remove the start marker of the next text block. This should merge it into the code block.
-            // <text>te<code:Shell>sss<text>t
-            let delta = buffer
-                .edit_internal_first_selection(
-                    CharOffset::from(5)..CharOffset::from(6),
-                    "s",
-                    Default::default(),
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(4)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "sss\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default()
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: Default::default(),
-                    },
-                    content_length: CharOffset::from(4)
-                }),]
-            );
-            assert_eq!(buffer.content.debug(), "<text>te<code:Shell>sss<text>t");
-
-            // Adding a newline in the code block.
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(5)..CharOffset::from(5),
-                "\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>te<code:Shell>s\\nss<text>t");
-            // Remove the start marker.
-            let delta = buffer
-                .edit_internal_first_selection(
-                    CharOffset::from(3)..CharOffset::from(4),
-                    "",
-                    Default::default(),
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(9));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "tes\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ss\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                ]
-            );
-            assert_eq!(buffer.content.debug(), "<text>tes\\nss\\nt");
         });
     });
 }
@@ -2109,7 +1325,7 @@ fn test_styled_runs_multiple_styles() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                VecDeque::from(vec![EditorLine::Line(vec![
                     FormattedTextFragment::plain_text("he"),
                     FormattedTextFragment::bold("llo "),
                     FormattedTextFragment::bold_italic("wo"),
@@ -2169,7 +1385,7 @@ fn test_styled_runs_range() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                VecDeque::from(vec![EditorLine::Line(vec![
                     FormattedTextFragment::plain_text("this "),
                     FormattedTextFragment::bold("is"),
                     FormattedTextFragment::plain_text(" a sentence"),
@@ -2249,7 +1465,7 @@ fn test_styled_runs_splits_newlines() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                VecDeque::from(vec![EditorLine::Line(vec![
                     FormattedTextFragment::plain_text("he"),
                     FormattedTextFragment::italic("llo\nwo"),
                     FormattedTextFragment::plain_text("rld"),
@@ -2302,218 +1518,6 @@ fn test_styled_runs_splits_newlines() {
                         content_length: CharOffset::from(5)
                     })
                 ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styled_runs_blocks() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "some\ntext",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(8),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    CharOffset::from(1)..buffer.max_charoffset(),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "so\n".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![
-                            // This run is split by both the code block start and the internal newline.
-                            StyledBufferRun {
-                                run: "me\n".into(),
-                                text_styles: Default::default(),
-                                block_style: BufferBlockStyle::CodeBlock {
-                                    code_block_type: Default::default()
-                                },
-                            },
-                            StyledBufferRun {
-                                run: "te\n".into(),
-                                text_styles: Default::default(),
-                                block_style: BufferBlockStyle::CodeBlock {
-                                    code_block_type: Default::default()
-                                },
-                            },
-                        ],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(6)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "xt".into(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2)
-                    }),
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styled_blocks_on_buffer_start() {
-    // This tests styled block for the edge case of querying just the
-    // leading block item (0..1).
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_core_edit_actions(vec![
-                CoreEditorAction::new(
-                    CharOffset::zero()..CharOffset::from(1),
-                    CoreEditorActionType::Insert {
-                        text: FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                        source: EditOrigin::SystemEdit,
-                        override_next_style: false,
-                        insert_on_selection: true,
-                    },
-                ),
-                buffer.update_buffer_end(CharOffset::from(1)),
-            ]);
-            assert_eq!(buffer.content.debug(), "<hr><text>");
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    CharOffset::from(0)..CharOffset::from(1),
-                    StyledBlockBoundaryBehavior::Inclusive
-                ),
-                vec![StyledBufferBlock::Item(BufferBlockItem::HorizontalRule),]
-            );
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    CharOffset::from(0)..CharOffset::from(1),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_export_markdown_sublists() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Line\nFirst\nSecond\nThird\nLast",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(5),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(11),
-                BufferBlockStyle::ordered_list(ListIndentLevel::Two),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(12)..CharOffset::from(18),
-                BufferBlockStyle::ordered_list(ListIndentLevel::Three),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(19)..CharOffset::from(24),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(25)..CharOffset::from(29),
-                BufferBlockStyle::ordered_list(ListIndentLevel::Two),
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.debug(),
-                "<ol0>Line<ol1>First<ol2>Second<ol0>Third<ol1>Last<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_markdown_escapes() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "This is *not* markdownThis is $code*!*",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(23)..CharOffset::from(39),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<text>This is *not* markdown<code:Shell>This is $code*!*<text>"
             );
         });
     });
@@ -2594,872 +1598,9 @@ fn test_empty_plain_text_initialization_and_replace_all() {
 }
 
 #[test]
-fn test_unstyle_block_noop() {
-    // This tests converting a block back to text when no action is needed (it's
-    // already text).
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![
-                        FormattedTextFragment::bold("He"),
-                        FormattedTextFragment::plain_text("llo"),
-                    ]),
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("World")]),
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..3]);
-            });
-
-            let selection_range = CharOffset::from(4)..CharOffset::from(9);
-
-            // Set a selection so we can confirm it's unaffected.
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range,
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta;
-            assert!(delta.is_none());
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_partial_left() {
-    // Test unstyling when there is a block overlapping to the left of the selection.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "HelloWorld\nExtra",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(6),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.text().as_str(), "Hello\nWorld\nExtra");
-
-            // Operate on `lo\nWo`
-            let selection_range = CharOffset::from(4)..CharOffset::from(9);
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range,
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-
-            // After this operation, the selection moves right 1 to reflect the new
-            // newline before `lo`.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(5)..CharOffset::from(10)
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>Hel<text>lo\\nWorld\\nExtra"
-            );
-
-            // The "Hello" runnable command and the "World" paragraph are affected.
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(7));
-
-            // The "Hel" runnable command and the "lo" and "World" paragraphs are re-rendered.
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Hel\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(4)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "lo\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_partial_right() {
-    // Tests unstyling when there is a block overlapping to the right of the selection.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Extra\nHello\nWorld\nExtra",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            // Make "World" a runnable command.
-            buffer.apply_block_style_fixture(
-                CharOffset::from(13)..CharOffset::from(18),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Extra\\nHello<code:Shell>World<text>Extra"
-            );
-
-            // Operate on `lo\nWo`.
-            let selection_range = CharOffset::from(10)..CharOffset::from(15);
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range,
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-
-            // After the operation, the selection extends by 1 to account for the additional newline.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(10)..CharOffset::from(16)
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Extra\\nHello\\nWo<code:Shell>rld<text>Extra"
-            );
-
-            // The edit range expands to `Hello\nWorld\n`.
-            assert_eq!(delta.old_offset, CharOffset::from(13)..CharOffset::from(19));
-
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![
-                            // This changed from a runnable command to a new paragraph.
-                            StyledBufferRun {
-                                run: "Wo\n".to_string(),
-                                text_styles: Default::default(),
-                                block_style: BufferBlockStyle::PlainText
-                            },
-                        ],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![
-                            // This part of the runnable command is re-rendered
-                            StyledBufferRun {
-                                run: "rld\n".to_string(),
-                                text_styles: Default::default(),
-                                block_style: BufferBlockStyle::CodeBlock {
-                                    code_block_type: Default::default()
-                                }
-                            },
-                        ],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(4)
-                    })
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_multi_line() {
-    // Tests unstyling a line in a block with multiple lines.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nText\nSecond\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            // Style Text to a runnable command and back again.
-            buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(19),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            let selection_range = CharOffset::from(8)..CharOffset::from(12);
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range.clone(),
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            // There's no net character change, so the selection should not move.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                selection_range
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Before\\nText<code:Shell>Second<text>After"
-            );
-
-            // Effectively, only the `Text` block was affected. This is slightly different
-            // from the selection range because it also includes the trailing newline.
-            assert_eq!(delta.old_offset, CharOffset::from(8)..CharOffset::from(20));
-
-            // Only the converted block needs to be re-rendered.
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Text\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Second\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(7)
-                    })
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_edit_to_unstyle_block_multi_line() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nText\nSecond\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(7),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(19),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<ul0>Before<code:Shell>Text\\nSecond<text>After"
-            );
-
-            let delta = buffer
-                .edit_internal_first_selection(
-                    CharOffset::from(7)..CharOffset::from(8),
-                    "",
-                    Default::default(),
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-
-            // Since the previous block only supports single line, we should only convert
-            // the first line to match the previous block's style.
-            assert_eq!(
-                buffer.content.debug(),
-                "<ul0>BeforeText<text>Second\\nAfter"
-            );
-
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(20));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "BeforeText\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        }],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(11)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Second\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(7)
-                    })
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_exact() {
-    // Tests unstyling a block exactly.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nText\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            // Style Text to a runnable command and back again.
-            let selection_range = CharOffset::from(8)..CharOffset::from(12);
-
-            buffer.apply_block_style_fixture(
-                selection_range.clone(),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range.clone(),
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-            // There's no net character change, so the selection should not move.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                selection_range
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Before\\nText\\nAfter");
-
-            // Effectively, only the `Text` block was affected. This is slightly different
-            // from the selection range because it also includes the trailing newline.
-            assert_eq!(delta.old_offset, CharOffset::from(8)..CharOffset::from(13));
-
-            // Only the converted block needs to be re-rendered.
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "Text\n".to_string(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(5)
-                })]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_within() {
-    // Tests unstyling the middle chunk of a block.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Extra\nThe\nBlock\nExtra",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(7)..CharOffset::from(16),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Extra<code:Shell>The\\nBlock<text>Extra"
-            );
-
-            // Operate on `e\nBlo`.
-            let selection_range = CharOffset::from(9)..CharOffset::from(14);
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range,
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Extra<code:Shell>Th<text>e\\nBlo<code:Shell>ck<text>Extra"
-            );
-            assert_eq!(buffer.text().as_str(), "Extra\nTh\ne\nBlo\nck\nExtra");
-            // The selection shifts to start after the newline before "e" and end after
-            // the newline between "o" and "ck"
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(10)..CharOffset::from(16)
-            );
-
-            // The affected range is that of the old command block, `The\nBlock`.
-            assert_eq!(delta.old_offset, CharOffset::from(7)..CharOffset::from(17));
-
-            // The new content to render is the 4 blocks created from the former 2 lines
-            // of runnable commands.
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Th\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "e\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Blo\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ck\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            },
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    })
-                ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_block_surrounded() {
-    // Test unstyling when there's a block fully within the selection range.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\nBlock\nAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(13),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            // Operate on the whole "ore\nBlock\nAft" range.
-            let selection_range = CharOffset::from(4)..CharOffset::from(17);
-            buffer.set_selection(selection_range.clone(), selection.clone(), ctx);
-
-            let delta = buffer
-                .apply_block_style_fixture(
-                    selection_range.clone(),
-                    BufferBlockStyle::PlainText,
-                    selection.clone(),
-                    ctx,
-                )
-                .delta
-                .expect("Should exist");
-
-            // The selection range shouldn't change in this case, since no characters are
-            // added or removed.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                selection_range
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Before\\nBlock\\nAfter");
-
-            // The whole buffer is affected, due to the selection range.
-            assert_eq!(delta.old_offset, CharOffset::from(8)..CharOffset::from(14));
-            // This means we should return all blocks in the buffer.
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "Block\n".to_string(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText,
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(6)
-                }),]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_enter_at_block_start() {
-    // This tests that Enter at the start of a list or heading block preserves its styling and
-    // inserts a new line above the block.
-
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "Text\n3. List\nText\n# Heading",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<ol0@3>List<text>Text<header1>Heading<text>"
-            );
-
-            // Enter at the start of the list item.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![6..6]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(false, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-
-            buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                result.undo_item.expect("Should be undoable"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = result.delta.expect("Need edit delta to re-render");
-            // The block after the cursor is re-rendered to splice in the new, empty list item.
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::OrderedList {
-                                number: Some(3),
-                                indent_level: ListIndentLevel::One
-                            }
-                        }],
-                        style: BufferBlockStyle::OrderedList {
-                            number: Some(3),
-                            indent_level: ListIndentLevel::One
-                        },
-                        content_length: CharOffset::from(1)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "List\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::ordered_list(ListIndentLevel::One)
-                        }],
-                        style: BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                        content_length: CharOffset::from(5)
-                    })
-                ]
-            );
-
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<ol0@3><ol0>List<text>Text<header1>Heading<text>"
-            );
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(7)..CharOffset::from(7)
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<ol0@3>List<text>Text<header1>Heading<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_enter_at_code_block_start() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "```\nThis is code\nMore code\n```\nText",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>This is code\\nMore code<text>Text"
-            );
-
-            // Enter at the start of the code block.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(false, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                result.undo_item.expect("Should be undoable"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = result.delta.expect("Need edit delta to re-render");
-            // A new block is spliced in at the start of the buffer, but the code block doesn't change.
-            assert_eq!(delta.old_offset, 0.into()..1.into());
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(1)
-                })]
-            );
-
-            assert_eq!(
-                buffer.debug(),
-                "<text><code:Shell>This is code\\nMore code<text>Text"
-            );
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                2.into()..2.into()
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>This is code\\nMore code<text>Text"
-            );
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<text><code:Shell>This is code\\nMore code<text>Text"
-            );
-
-            // Enter again, which should insert another blank line.
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                2.into()..2.into()
-            );
-            buffer.enter(false, Default::default(), selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<text>\\n<code:Shell>This is code\\nMore code<text>Text"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_enter_at_starting_styled_block() {
-    // This is a specific edge case when hitting Enter at the start of a block at the very
-    // beginning of the buffer.
-
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "# Initial heading\nText",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(buffer.debug(), "<header1>Initial heading<text>Text");
-
-            // Enter at the start of the buffer must create a new plain-text block.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(false, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                result.undo_item.expect("Should be undoable"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = result.delta.expect("Need edit delta to re-render");
-            // In this case, there's no previous block to re-render. Instead, we just have the new one.
-            assert_eq!(delta.old_offset, CharOffset::zero()..CharOffset::from(1));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(1)
-                })]
-            );
-
-            assert_eq!(buffer.debug(), "<text><header1>Initial heading<text>Text");
-            assert_eq!(
-                selection.as_ref(ctx).selection_to_first_offset_range(),
-                CharOffset::from(2)..CharOffset::from(2)
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<header1>Initial heading<text>Text");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text><header1>Initial heading<text>Text");
-        });
-    });
-}
-
-#[test]
 fn test_enter_at_starting_plain_text() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
+        let (buffer, selection) = Buffer::mock_from_plain_text(
             "example",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -3521,14 +1662,14 @@ fn test_enter_at_starting_plain_text() {
 #[test]
 fn test_enter_at_start_of_empty_text() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "* list\n",
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "list\n",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
 
         buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(buffer.debug(), "<ul0>list<text>");
+            assert_eq!(buffer.debug(), "<text>list\\n");
 
             // Enter at the start of the empty plain-text block.
             selection.update(ctx, |selection, _| {
@@ -3544,61 +1685,13 @@ fn test_enter_at_start_of_empty_text() {
                 UndoActionType::Atomic,
             );
 
-            assert_eq!(buffer.debug(), "<ul0>list<text>\\n");
+            assert_eq!(buffer.debug(), "<text>list\\n\\n");
 
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<ul0>list<text>");
+            assert_eq!(buffer.debug(), "<text>list\\n");
 
             buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<ul0>list<text>\\n");
-        });
-    });
-}
-
-#[test]
-fn test_enter_after_empty_block() {
-    // This is a regression test for the issue described in https://github.com/warpdotdev/warp-internal/pull/6953#discussion_r1319189935.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Text\nHeadingEnd",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(13),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(5)..CharOffset::from(6),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<header1><header1>Heading<text>End"
-            );
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![7..7]);
-            });
-            buffer.enter(false, Default::default(), selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<header1><text><header1>Heading<text>End"
-            );
+            assert_eq!(buffer.debug(), "<text>list\\n\\n");
         });
     });
 }
@@ -3606,144 +1699,27 @@ fn test_enter_after_empty_block() {
 #[test]
 fn test_undo_enter_at_buffer_start() {
     App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                1.into()..1.into(),
-                "Start",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                1.into()..6.into(),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<header1>Start<text>");
-
-            // Press Enter at the start of the header, which edits the start of the buffer.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.enter(false, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                edit_result.undo_item.unwrap(),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.unwrap();
-            assert_eq!(delta.old_offset, CharOffset::zero()..CharOffset::from(1));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        block_style: BufferBlockStyle::PlainText,
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(1)
-                })]
-            );
-            assert_eq!(buffer.debug(), "<text><header1>Start<text>");
-
-            // Now, undo it.
-            let edit_result = buffer.undo(selection.clone(), ctx);
-            let delta = edit_result.delta.unwrap();
-            assert_eq!(delta.old_offset, CharOffset::zero()..CharOffset::from(2));
-            // There should be no new lines, since they were deleted.
-            assert_eq!((*delta.new_lines), vec![]);
-        });
-    });
-}
-#[test]
-fn test_newline_at_empty_list() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "* First\n    * \n* Second",
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "Start",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
-
         buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(buffer.debug(), "<ul0>First<ul1><ul0>Second<text>");
-
-            // Forced newline at the start of the empty, indented list item.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![7..7]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(true, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            selection.update(ctx, |selection, _| set_selections(selection, vec1![1..1]));
+            let previous = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            let result = buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
+            let current = buffer.to_rendered_selection_set(selection.clone(), ctx);
             buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                result.undo_item.unwrap(),
+                previous,
+                current,
+                result.undo_item.expect("Enter should be reversible"),
                 UndoActionType::Atomic,
             );
-
-            // This should insert an empty list item, NOT un-indent the existing item.
-            assert_eq!(buffer.debug(), "<ul0>First<ul1><ul1><ul0>Second<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 8.into());
-
+            assert_eq!(buffer.debug(), "<text>\\nStart");
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<ul0>First<ul1><ul0>Second<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 7.into());
-
+            assert_eq!(buffer.debug(), "<text>Start");
             buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<ul0>First<ul1><ul1><ul0>Second<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 8.into());
-        });
-    });
-}
-
-#[test]
-fn test_newline_at_code_block_start() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "Test\n```\necho hello\n```\n",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(buffer.debug(), "<text>Test<code:Shell>echo hello<text>");
-
-            // Forced newline at the start of the code block.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![6..6]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(true, Default::default(), selection.clone(), ctx);
-            let current_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                current_selection,
-                result.undo_item.unwrap(),
-                UndoActionType::Atomic,
-            );
-
-            // This should insert a new line within the code block.
-            assert_eq!(buffer.debug(), "<text>Test<code:Shell>\\necho hello<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 7.into());
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text>Test<code:Shell>echo hello<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 6.into());
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text>Test<code:Shell>\\necho hello<text>");
-            assert_eq!(selection.as_ref(ctx).first_selection_head(), 7.into());
+            assert_eq!(buffer.debug(), "<text>\\nStart");
         });
     });
 }
@@ -3762,18 +1738,11 @@ fn test_insert_formatted_text() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(13),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
 
-            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![
-                FormattedTextFragment::bold("test text"),
-            ])]);
+            let formatted_text =
+                VecDeque::from(vec![EditorLine::Line(vec![FormattedTextFragment::bold(
+                    "test text",
+                )])]);
             buffer.apply_formatted_edit_fixture(
                 CharOffset::from(7)..CharOffset::from(7),
                 formatted_text,
@@ -3783,7 +1752,7 @@ fn test_insert_formatted_text() {
             );
             assert_eq!(
                 buffer.content.debug(),
-                "<text>Before<b_s>test text<b_e><code:Shell>Block<text>After"
+                "<text>Before<b_s>test text<b_e>\\nBlock\\nAfter"
             );
         });
     });
@@ -3796,7 +1765,11 @@ fn test_insert_formatted_text_empty_buffer() {
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
         buffer.update(&mut app, |buffer, ctx| {
-            let formatted_text = parse_markdown("\n```\nblock\n```\n").expect("Should parse");
+            let formatted_text = VecDeque::from([
+                EditorLine::LineBreak,
+                EditorLine::Line(vec![FormattedTextFragment::plain_text("block")]),
+                EditorLine::LineBreak,
+            ]);
             let delta = buffer
                 .apply_formatted_edit_fixture(
                     CharOffset::from(0)..CharOffset::from(1),
@@ -3808,7 +1781,7 @@ fn test_insert_formatted_text_empty_buffer() {
                 .delta
                 .expect("Should exist");
 
-            assert_eq!(buffer.content.debug(), "<text><code:Shell>block<text>");
+            assert_eq!(buffer.content.debug(), "<text>\\nblock\\n");
             assert_eq!(delta.old_offset, CharOffset::from(0)..CharOffset::from(1));
             assert_eq!(
                 (*delta.new_lines),
@@ -3826,13 +1799,9 @@ fn test_insert_formatted_text_empty_buffer() {
                         block: vec![StyledBufferRun {
                             run: "block\n".into(),
                             text_styles: Default::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
+                            block_style: BufferBlockStyle::PlainText
                         },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
+                        style: BufferBlockStyle::PlainText,
                         content_length: CharOffset::from(6)
                     }),
                 ]
@@ -3980,162 +1949,32 @@ fn test_undo_redo_plain_text() {
 #[test]
 fn test_undo_redo_block() {
     App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "test\n\nblock",
+            Box::new(|_, _| IndentBehavior::Ignore),
+            &mut app,
+        );
         buffer.update(&mut app, |buffer, ctx| {
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\n\nblock",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(7)..CharOffset::from(9),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test\\n<code:Shell>bl<text>ock"
-            );
-
-            let delta = buffer
-                .undo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(buffer.content.debug(), "<text>test\\n\\nblock");
-            assert_eq!(delta.old_offset, CharOffset::from(7)..CharOffset::from(13));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "block".into(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(5)
-                }),]
-            );
-
-            let delta = buffer
-                .redo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test\\n<code:Shell>bl<text>ock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(7)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "bl\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ock".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                ]
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(6)..CharOffset::from(7),
+            let previous = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            let result = buffer.edit_internal_first_selection(
+                6.into()..7.into(),
                 "",
                 TextStyles::default(),
                 selection.clone(),
                 ctx,
             );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            let current = buffer.to_rendered_selection_set(selection.clone(), ctx);
             buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
+                previous,
+                current,
+                result.undo_item.expect("Deletion should be reversible"),
                 UndoActionType::Atomic,
             );
-            assert_eq!(buffer.content.debug(), "<text>test\\nbl\\nock");
-
-            let delta = buffer
-                .undo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test\\n<code:Shell>bl<text>ock"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(9));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(1)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "bl\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                ]
-            );
-
-            let _ = buffer
-                .redo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(buffer.content.debug(), "<text>test\\nbl\\nock");
+            assert_eq!(buffer.debug(), "<text>test\\nblock");
+            buffer.undo(selection.clone(), ctx);
+            assert_eq!(buffer.debug(), "<text>test\\n\\nblock");
+            buffer.redo(selection.clone(), ctx);
+            assert_eq!(buffer.debug(), "<text>test\\nblock");
         });
     });
 }
@@ -4143,1129 +1982,32 @@ fn test_undo_redo_block() {
 #[test]
 fn test_undo_redo_multi_block_deletion() {
     App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "test\nline\nblock\nafter",
+            Box::new(|_, _| IndentBehavior::Ignore),
+            &mut app,
+        );
         buffer.update(&mut app, |buffer, ctx| {
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nblock\nafter",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>block\\nafter"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(8)..CharOffset::from(13),
-                "",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>liock<text>after"
-            );
-
-            let delta = buffer
-                .undo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>block\\nafter"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "line\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "block\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(6)
-                    }),
-                ]
-            );
-
-            let _ = buffer
-                .redo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>liock<text>after"
-            );
-
-            let _ = buffer.undo(selection.clone(), ctx);
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(11)..CharOffset::from(16),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<code:Shell>block<text>after"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(8)..CharOffset::from(16),
-                "",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<text>after"
-            );
-
-            let delta = buffer
-                .undo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<code:Shell>block<text>after"
-            );
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(9));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "line\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "block\n".into(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(6)
-                    }),
-                ]
-            );
-
-            let _ = buffer
-                .redo(selection.clone(), ctx)
-                .delta
-                .expect("Edit delta should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<text>after"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styling_mixed_block_types_exact() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(11)..CharOffset::from(17),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<header1>second<text>"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(17));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "second\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1
-                        }
-                    },],
-                    style: BufferBlockStyle::Header {
-                        header_size: BlockHeaderSize::Header1,
-                    },
-                    content_length: CharOffset::from(7)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<header1>second<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styling_mixed_block_types_surrounded() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(17),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>te<header1>st<header1>line<header1>second<text>"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(17));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "te\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "st\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "line\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "second\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(7)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>te<header1>st<header1>line<header1>second<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styling_mixed_block_types_overlapping() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(15),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<header1>ne<header1>seco<text>nd"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(17));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "li\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ne\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "seco\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "nd".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line<text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<header1>ne<header1>seco<text>nd"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styling_mixed_block_types_within() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(17),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line\\nsecond<text>"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(8)..CharOffset::from(12),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<header1>ne<header1>s<code:Shell>econd<text>"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(18));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "li\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ne\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "s\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(2)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "econd\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(6)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>line\\nsecond<text>"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<code:Shell>li<header1>ne<header1>s<code:Shell>econd<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyle_unordered_list_partial() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "abc\ndef",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(4),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(2)..CharOffset::from(4),
-                BufferBlockStyle::PlainText,
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<ul0>a<text>bc\\ndef");
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(5));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "a\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(2)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "bc\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    })
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<ul0>abc<text>def");
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<ul0>a<text>bc\\ndef");
-        });
-    });
-}
-
-#[test]
-fn test_edit_in_header() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
-
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>line<text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(8)..CharOffset::from(8),
-                "more",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>limorene<text>second"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "limorene\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1
-                        }
-                    },],
-                    style: BufferBlockStyle::Header {
-                        header_size: BlockHeaderSize::Header1,
-                    },
-                    content_length: CharOffset::from(9)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>line<text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>limorene<text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(8)..CharOffset::from(8),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>li<text>morene\\nsecond"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(15));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "li\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
-                        },],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "morene\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(7)
-                    })
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>limorene<text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<header1>li<text>morene\\nsecond"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_linebreak_in_unordered_list() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(10)..CharOffset::from(10),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul0><text>second"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "line\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(1)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul0><text>second"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.edit_internal_first_selection(
-                CharOffset::from(8)..CharOffset::from(8),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>li<ul0>ne<ul0><text>second"
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "li\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ne\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
-                        },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
-                        content_length: CharOffset::from(3)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul0><text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>li<ul0>ne<ul0><text>second"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_enter_in_list_at_buffer_end() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Text\nList",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<text>Text<ol0>List<text>");
-
-            // Now, type a newline right at the end of List.
+            let previous = buffer.to_rendered_selection_set(selection.clone(), ctx);
             let result = buffer.edit_internal_first_selection(
-                CharOffset::from(10)..CharOffset::from(10),
-                "\n",
-                Default::default(),
+                8.into()..13.into(),
+                "",
+                TextStyles::default(),
                 selection.clone(),
                 ctx,
             );
-
-            assert_eq!(buffer.debug(), "<text>Text<ol0>List<ol0><text>");
-            let delta = result.delta.expect("Edit delta should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "List\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::ordered_list(ListIndentLevel::One)
-                        }],
-                        style: BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: Default::default(),
-                            block_style: BufferBlockStyle::ordered_list(ListIndentLevel::One)
-                        }],
-                        style: BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                        content_length: CharOffset::from(1)
-                    }),
-                ]
+            let current = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            buffer.push_undo_item(
+                previous,
+                current,
+                result.undo_item.expect("Deletion should be reversible"),
+                UndoActionType::Atomic,
             );
-        });
-    });
-}
-
-#[test]
-fn test_backspace_on_block_marker() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![6..6]);
-            });
-            buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
+            assert_eq!(buffer.debug(), "<text>test\\nliock\\nafter");
+            buffer.undo(selection.clone(), ctx);
+            assert_eq!(buffer.debug(), "<text>test\\nline\\nblock\\nafter");
+            buffer.redo(selection.clone(), ctx);
+            assert_eq!(buffer.debug(), "<text>test\\nliock\\nafter");
         });
     });
 }
@@ -5280,7 +2022,7 @@ fn test_delete_clamped() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                VecDeque::from(vec![EditorLine::Line(vec![
                     FormattedTextFragment::bold("some te"),
                     FormattedTextFragment::plain_text("xt"),
                 ])]),
@@ -5321,15 +2063,7 @@ fn test_nonatomic_undo_insertion() {
                 selection.clone(),
                 ctx,
             );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
+            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
             let edit_result = buffer.edit_internal_first_selection(
@@ -5339,7 +2073,7 @@ fn test_nonatomic_undo_insertion() {
                 selection.clone(),
                 ctx,
             );
-            assert_eq!(buffer.content.debug(), "<text>sotest<ul0>line<text>second");
+            assert_eq!(buffer.content.debug(), "<text>sotest\\nline\\nsecond");
 
             buffer.push_undo_item_nonatomic(
                 prev_selection,
@@ -5357,10 +2091,7 @@ fn test_nonatomic_undo_insertion() {
                 selection.clone(),
                 ctx,
             );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>so\\ntest<ul0>line<text>second"
-            );
+            assert_eq!(buffer.content.debug(), "<text>so\\ntest\\nline\\nsecond");
 
             buffer.push_undo_item_nonatomic(
                 prev_selection,
@@ -5378,10 +2109,7 @@ fn test_nonatomic_undo_insertion() {
                 selection.clone(),
                 ctx,
             );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>so\\n test<ul0>line<text>second"
-            );
+            assert_eq!(buffer.content.debug(), "<text>so\\n test\\nline\\nsecond");
 
             buffer.push_undo_item_nonatomic(
                 prev_selection,
@@ -5395,7 +2123,7 @@ fn test_nonatomic_undo_insertion() {
                 .undo(selection.clone(), ctx)
                 .delta
                 .expect("Should exist");
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
+            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nsecond");
 
             assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(10));
             assert_eq!(
@@ -5415,10 +2143,7 @@ fn test_nonatomic_undo_insertion() {
                 .redo(selection.clone(), ctx)
                 .delta
                 .expect("Should exist");
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>so\\n test<ul0>line<text>second"
-            );
+            assert_eq!(buffer.content.debug(), "<text>so\\n test\\nline\\nsecond");
 
             assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
             assert_eq!(
@@ -5704,12 +2429,12 @@ fn test_edit_after_hyperlink() {
             assert_eq!(buffer.content.debug(), "<text>line\\nblock");
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..CharOffset::from(11),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![
+                VecDeque::from(vec![
+                    EditorLine::Line(vec![
                         FormattedTextFragment::hyperlink("lin", "www.google.com"),
                         FormattedTextFragment::plain_text("e"),
                     ]),
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("block")]),
+                    EditorLine::Line(vec![FormattedTextFragment::plain_text("block")]),
                 ]),
                 EditOrigin::SystemEdit,
                 selection.clone(),
@@ -5740,11 +2465,8 @@ fn test_edit_after_hyperlink() {
 fn test_code_tab_indent() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
+            Buffer::new(Box::new(|_, _| {
+                IndentBehavior::TabIndent(IndentUnit::Space(4))
             }))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -5757,17 +2479,7 @@ fn test_code_tab_indent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(14),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Code {
-                        lang: "Rust".to_string(),
-                    },
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<code:Rust>first\\n second<text>");
+            assert_eq!(buffer.debug(), "<text>first\\n second");
 
             // Partially-select each line and indent them. This adds 4 spaces to the first line, but only 3
             // to the second, resulting in an overall indent of 4 for each (one tab stop).
@@ -5786,10 +2498,10 @@ fn test_code_tab_indent() {
                 UndoActionType::Atomic,
             );
 
-            assert_eq!(buffer.debug(), "<code:Rust>    first\\n    second<text>");
+            assert_eq!(buffer.debug(), "<text>    first\\n    second");
 
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>first\\n second<text>");
+            assert_eq!(buffer.debug(), "<text>first\\n second");
             buffer.redo(selection.clone(), ctx);
 
             // Indent the first line further. This should add 4 spaces, but not affect the second line.
@@ -5797,10 +2509,7 @@ fn test_code_tab_indent() {
                 set_selections(selection, vec1![5..5]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>        first\\n    second<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>        first\\n    second");
 
             // Indent the second line further, but starting 2 characters into the line. This results in
             // adding 2 more spaces, not a full tab.
@@ -5808,10 +2517,7 @@ fn test_code_tab_indent() {
                 set_selections(selection, vec1![17..17]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>        first\\n      second<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>        first\\n      second");
         });
     });
 }
@@ -5820,10 +2526,7 @@ fn test_code_tab_indent() {
 fn test_indent_with_tab_unit() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => IndentBehavior::TabIndent(IndentUnit::Tab),
-                _ => IndentBehavior::Ignore,
-            }))
+            Buffer::new(Box::new(|_, _| IndentBehavior::TabIndent(IndentUnit::Tab)))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
 
@@ -5835,17 +2538,7 @@ fn test_indent_with_tab_unit() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(14),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Code {
-                        lang: "Rust".to_string(),
-                    },
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<code:Rust>first\\n second<text>");
+            assert_eq!(buffer.debug(), "<text>first\\n second");
 
             // Partially-select each line and indent them. This adds 4 spaces to the first line, but only 3
             // to the second, resulting in an overall indent of 4 for each (one tab stop).
@@ -5864,10 +2557,10 @@ fn test_indent_with_tab_unit() {
                 UndoActionType::Atomic,
             );
 
-            assert_eq!(buffer.debug(), "<code:Rust>\tfirst\\n \tsecond<text>");
+            assert_eq!(buffer.debug(), "<text>\tfirst\\n \tsecond");
 
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>first\\n second<text>");
+            assert_eq!(buffer.debug(), "<text>first\\n second");
             buffer.redo(selection.clone(), ctx);
 
             // Indent the first line further. This should add 4 spaces, but not affect the second line.
@@ -5875,7 +2568,7 @@ fn test_indent_with_tab_unit() {
                 set_selections(selection, vec1![1..1]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>\t\tfirst\\n \tsecond<text>");
+            assert_eq!(buffer.debug(), "<text>\t\tfirst\\n \tsecond");
 
             // Indent the second line further, but starting 2 characters into the line. This results in
             // adding 2 more spaces, not a full tab.
@@ -5883,19 +2576,19 @@ fn test_indent_with_tab_unit() {
                 set_selections(selection, vec1![10..10]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>\t\tfirst\\n \t\tsecond<text>");
+            assert_eq!(buffer.debug(), "<text>\t\tfirst\\n \t\tsecond");
 
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![2..2]);
             });
             buffer.unindent(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>\tfirst\\n \t\tsecond<text>");
+            assert_eq!(buffer.debug(), "<text>\tfirst\\n \t\tsecond");
 
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![11..11]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>\tfirst\\n \tsecond<text>");
+            assert_eq!(buffer.debug(), "<text>\tfirst\\n \tsecond");
         });
     });
 }
@@ -5904,11 +2597,8 @@ fn test_indent_with_tab_unit() {
 fn test_code_tab_within_line() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
+            Buffer::new(Box::new(|_, _| {
+                IndentBehavior::TabIndent(IndentUnit::Space(4))
             }))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -5921,36 +2611,28 @@ fn test_code_tab_within_line() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(8),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<code:Shell>git log<text>");
+            assert_eq!(buffer.debug(), "<text>git log");
 
             // Since the cursor is 1 character into the line, 3 more spaces are added.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![2..2]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Shell>g   it log<text>");
+            assert_eq!(buffer.debug(), "<text>g   it log");
 
             // The `l` is 8 characters in, so a full 4 spaces are added.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![9..9]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Shell>g   it l    og<text>");
+            assert_eq!(buffer.debug(), "<text>g   it l    og");
 
             // Tab at the start of the line also adds 4 spaces.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![1..1]);
             });
             buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Shell>    g   it l    og<text>");
+            assert_eq!(buffer.debug(), "<text>    g   it l    og");
             assert_eq!(
                 selection.as_ref(ctx).selection_to_first_offset_range(),
                 5.into()..5.into()
@@ -5963,11 +2645,8 @@ fn test_code_tab_within_line() {
 fn test_code_unindent() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
+            Buffer::new(Box::new(|_, _| {
+                IndentBehavior::TabIndent(IndentUnit::Space(4))
             }))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -5980,17 +2659,9 @@ fn test_code_unindent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                1.into()..buffer.max_charoffset(),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
             assert_eq!(
                 buffer.debug(),
-                "<code:Shell>    git log\\n  ls\\n     cat file.txt<text>"
+                "<text>    git log\\n  ls\\n     cat file.txt"
             );
 
             // Unindent all 3 lines.
@@ -6000,10 +2671,7 @@ fn test_code_unindent() {
             // `git log` was indented by 4 spaces, so all are removed.
             // `ls` was indented by 2 spaces, both of which are removed (but only the spaces).
             // `cat file.txt` was indented by 5 spaces, 1 of which is removed so that it's evenly indented.
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>git log\\nls\\n    cat file.txt<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>git log\\nls\\n    cat file.txt");
 
             // Unindent the last line from a single cursor. Even though the character at the cursor is a
             // space, unindent only ever applies to leading indentation.
@@ -6011,10 +2679,7 @@ fn test_code_unindent() {
                 set_selections(selection, vec1![19..19]);
             });
             buffer.unindent(selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>git log\\nls\\ncat file.txt<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>git log\\nls\\ncat file.txt");
         });
     });
 }
@@ -6023,11 +2688,8 @@ fn test_code_unindent() {
 fn test_code_backspace_unindent() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
+            Buffer::new(Box::new(|_, _| {
+                IndentBehavior::TabIndent(IndentUnit::Space(4))
             }))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -6040,505 +2702,55 @@ fn test_code_backspace_unindent() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                1.into()..buffer.max_charoffset(),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Code {
-                        lang: "Rust".to_string(),
-                    },
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>fn main() {\\n        panic!();\\n }<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>fn main() {\\n        panic!();\\n }");
 
             // At the start of the panic! line, backspace should remove a tab of indentation.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![21..21]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>fn main() {\\n    panic!();\\n }<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>fn main() {\\n    panic!();\\n }");
 
             // Within the panic! line's whitespace, backspace should remove some of the indentation.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![15..15]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>fn main() {\\n  panic!();\\n }<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>fn main() {\\n  panic!();\\n }");
 
             // At the start of the }, line, backspace should remove the single space.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![26..26]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>fn main() {\\n  panic!();\\n}<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>fn main() {\\n  panic!();\\n}");
 
             // Within a line, backspace should remove the previous character.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![5..5]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(
-                buffer.debug(),
-                "<code:Rust>fn ain() {\\n  panic!();\\n}<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>fn ain() {\\n  panic!();\\n}");
 
             // At the start of an interior line, backspace should remove the newline.
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![12..12]);
             });
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<code:Rust>fn ain() {  panic!();\\n}<text>");
-
-            // At the start of the block, backspace should unstyle it.
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1]);
-            });
-            buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text>fn ain() {  panic!();\\n}\\n");
+            assert_eq!(buffer.debug(), "<text>fn ain() {  panic!();\\n}");
         });
     });
 }
 
 #[test]
-fn test_list_tab_behavior() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Three,
-                } => IndentBehavior::Ignore,
-                BufferBlockStyle::UnorderedList { indent_level } => {
-                    IndentBehavior::Restyle(BufferBlockStyle::UnorderedList {
-                        indent_level: indent_level.shift_right(),
-                    })
-                }
-                _ => IndentBehavior::Ignore,
-            }))
-        });
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
-
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(10)..CharOffset::from(10),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul0><text>second"
-            );
-
-            buffer.set_selection(
-                CharOffset::from(11)..CharOffset::from(11),
-                selection.clone(),
-                ctx,
-            );
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul1><text>second"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::Two
-                        }
-                    },],
-                    style: BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::Two,
-                    },
-                    content_length: CharOffset::from(1)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul0><text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul1><text>second"
-            );
-
-            buffer.set_selection(
-                CharOffset::from(11)..CharOffset::from(11),
-                selection.clone(),
-                ctx,
-            );
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul2><text>second"
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::Three
-                        }
-                    },],
-                    style: BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::Three,
-                    },
-                    content_length: CharOffset::from(1)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul1><text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ul0>line<ul2><text>second"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_ordered_list_tab_behavior() {
-    // Ordered list should have the same tab behavior as unordered list.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::Three,
-                    ..
-                } => IndentBehavior::Ignore,
-                BufferBlockStyle::OrderedList {
-                    indent_level,
-                    number,
-                } => IndentBehavior::Restyle(BufferBlockStyle::OrderedList {
-                    indent_level: indent_level.shift_right(),
-                    number: *number,
-                }),
-                _ => IndentBehavior::Ignore,
-            }))
-        });
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ol0>line<text>second");
-
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(10)..CharOffset::from(10),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ol0>line<ol0><text>second"
-            );
-
-            buffer.set_selection(
-                CharOffset::from(11)..CharOffset::from(11),
-                selection.clone(),
-                ctx,
-            );
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ol0>line<ol1><text>second"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::ordered_list(ListIndentLevel::Two)
-                    },],
-                    style: BufferBlockStyle::ordered_list(ListIndentLevel::Two),
-                    content_length: CharOffset::from(1)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ol0>line<ol0><text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<ol0>line<ol1><text>second"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_task_list_tab_behavior() {
-    // Task list should have the same tab behavior as unordered/ordered list.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _| match block_style {
-                BufferBlockStyle::TaskList {
-                    indent_level,
-                    complete,
-                } => IndentBehavior::Restyle(BufferBlockStyle::TaskList {
-                    indent_level: indent_level.shift_right(),
-                    complete: *complete,
-                }),
-                _ => IndentBehavior::Ignore,
-            }))
-        });
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::One,
-                    complete: true,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<cl0:true>line<text>second"
-            );
-
-            // Note that the new tasklist created from newline should not inherit its parent's completion status.
-            let _ = buffer.edit_internal_first_selection(
-                CharOffset::from(10)..CharOffset::from(10),
-                "\n",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<cl0:true>line<cl0:false><text>second"
-            );
-
-            buffer.set_selection(
-                CharOffset::from(11)..CharOffset::from(11),
-                selection.clone(),
-                ctx,
-            );
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.indent(1, selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<cl0:true>line<cl1:false><text>second"
-            );
-
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::TaskList {
-                            indent_level: ListIndentLevel::Two,
-                            complete: false
-                        }
-                    },],
-                    style: BufferBlockStyle::TaskList {
-                        indent_level: ListIndentLevel::Two,
-                        complete: false
-                    },
-                    content_length: CharOffset::from(1)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<cl0:true>line<cl0:false><text>second"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>test<cl0:true>line<cl1:false><text>second"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_ordered_list_numbering_export() {
+fn test_undo_restores_inline_styles() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                1.into()..1.into(),
-                "First\nSecond\nA\nB\nThird",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                1.into()..6.into(),
-                BufferBlockStyle::OrderedList {
-                    number: Some(4),
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                7.into()..13.into(),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            // This tests starting a new, nested, list with different numbering.
-            buffer.apply_block_style_fixture(
-                14.into()..15.into(),
-                BufferBlockStyle::OrderedList {
-                    number: Some(3),
-                    indent_level: ListIndentLevel::Two,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                16.into()..17.into(),
-                BufferBlockStyle::ordered_list(ListIndentLevel::Two),
-                selection.clone(),
-                ctx,
-            );
-            // This tests going back to automatic numbering at a different indent level.
-            buffer.apply_block_style_fixture(
-                18.into()..23.into(),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.debug(),
-                "<ol0@4>First<ol0>Second<ol1@3>A<ol1>B<ol0>Third<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_code_block_styling_over_styled_text() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                0.into()..1.into(),
+                VecDeque::from([EditorLine::Line(vec![
                     FormattedTextFragment::bold("bl"),
                     FormattedTextFragment::bold_italic("o"),
                     FormattedTextFragment::italic("ck"),
@@ -6547,105 +2759,25 @@ fn test_code_block_styling_over_styled_text() {
                 selection.clone(),
                 ctx,
             );
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![3..6]);
-            });
-
-            assert_eq!(buffer.content.debug(), "<text><b_s>bl<i_s>o<b_e>ck<i_e>");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: Default::default(),
-                },
+            let previous = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            let result = buffer.edit_internal_first_selection(
+                3.into()..4.into(),
+                "",
+                TextStyles::default(),
                 selection.clone(),
                 ctx,
             );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
+            let current = buffer.to_rendered_selection_set(selection.clone(), ctx);
             buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
+                previous,
+                current,
+                result.undo_item.expect("Deletion should be reversible"),
                 UndoActionType::Atomic,
             );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>bl<b_e><code:Shell>o<text><i_s>ck<i_e>"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![
-                            StyledBufferRun {
-                                run: "bl".to_string(),
-                                text_styles: TextStylesWithMetadata::default().bold(),
-                                block_style: BufferBlockStyle::PlainText
-                            },
-                            StyledBufferRun {
-                                run: "\n".to_string(),
-                                text_styles: TextStylesWithMetadata::default(),
-                                block_style: BufferBlockStyle::PlainText
-                            },
-                        ],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(3)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "o\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: Default::default()
-                            }
-                        },],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: Default::default(),
-                        },
-                        content_length: CharOffset::from(2)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ck".to_string(),
-                            text_styles: TextStylesWithMetadata::default().italic(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(2)
-                    }),
-                ]
-            );
-
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text><b_s>bl<i_s>o<b_e>ck<i_e>");
-
+            assert_eq!(buffer.debug(), "<text><b_s>bl<i_s>o<b_e>ck<i_e>");
             buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text><b_s>bl<b_e><code:Shell>o<text><i_s>ck<i_e>"
-            );
-        });
-    });
-}
-
-// Regression test for CLD-751.
-#[test]
-fn test_insert_link_at_end_of_line() {
-    App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "* [test](link)\n```\nabc\n```\n",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.content.debug(),
-                "<ul0><a_link>test<a><code:Shell>abc<text>"
-            );
+            assert_eq!(buffer.text().as_str(), "blck");
         });
     });
 }
@@ -6654,13 +2786,13 @@ fn test_insert_link_at_end_of_line() {
 #[test]
 fn test_invalidate_content() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "* \nabc",
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
+            "\nabc",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
         buffer.update(&mut app, |buffer, _ctx| {
-            assert_eq!(buffer.content.debug(), "<ul0><text>abc");
+            assert_eq!(buffer.content.debug(), "<text>\\nabc");
 
             let edit_delta = buffer.invalidate_layout();
             assert_eq!(
@@ -6674,13 +2806,9 @@ fn test_invalidate_content() {
                         block: vec![StyledBufferRun {
                             run: "\n".to_string(),
                             text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::UnorderedList {
-                                indent_level: ListIndentLevel::One
-                            }
+                            block_style: BufferBlockStyle::PlainText
                         },],
-                        style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One,
-                        },
+                        style: BufferBlockStyle::PlainText,
                         content_length: CharOffset::from(1)
                     }),
                     StyledBufferBlock::Text(StyledTextBlock {
@@ -6694,40 +2822,6 @@ fn test_invalidate_content() {
                     }),
                 ]
             );
-        });
-    });
-}
-
-// Regression test for CLD-782.
-#[test]
-fn test_export_markdown_multiple_indentation_level() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(5),
-                BufferBlockStyle::ordered_list(ListIndentLevel::One),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::ordered_list(ListIndentLevel::Three),
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<ol0>test<ol2>line<text>");
         });
     });
 }
@@ -6769,7 +2863,7 @@ fn test_selection_bias_with_mouse_movement() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
+                VecDeque::from(vec![EditorLine::Line(vec![
                     FormattedTextFragment::plain_text("text"),
                     FormattedTextFragment {
                         text: "inline".into(),
@@ -6971,1081 +3065,6 @@ fn test_selection_bias_with_mouse_movement() {
 }
 
 #[test]
-fn test_insert_block_item_in_plain_text() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Before\n\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_formatted_edit_fixture(
-                CharOffset::from(4)..CharOffset::from(4),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(buffer.content.debug(), "<text>Bef<hr><text>ore\\n\\n");
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(8));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Bef\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4)
-                    }),
-                    StyledBufferBlock::Item(BufferBlockItem::HorizontalRule),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "ore\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Before\\n\\n");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Bef<hr><text>ore\\n\\n");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_formatted_edit_fixture(
-                CharOffset::from(11)..CharOffset::from(11),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Bef<hr><text>ore\\n\\n<hr><text>"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(11)..CharOffset::from(11));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(1)
-                    }),
-                    StyledBufferBlock::Item(BufferBlockItem::HorizontalRule),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Bef<hr><text>ore\\n\\n");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Bef<hr><text>ore\\n\\n<hr><text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styling_over_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..buffer.max_charoffset(),
-                FormattedText::new(vec![FormattedTextLine::Line(vec![
-                    FormattedTextFragment::plain_text("Te"),
-                    FormattedTextFragment::bold("st Li"),
-                    FormattedTextFragment::plain_text("ne"),
-                ])]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![3..8]);
-            });
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_formatted_edit_fixture(
-                CharOffset::from(5)..CharOffset::from(6),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Te<b_s>st<b_e><hr><text><b_s>Li<b_e>ne"
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Te<b_s>st Li<b_e>ne");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Te<b_s>st<b_e><hr><text><b_s>Li<b_e>ne"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_block_styling_around_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test Line",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(5)..CharOffset::from(6),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(5),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(buffer.content.debug(), "<header1>Test<hr><text>Line");
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>Line");
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<header1>Test<hr><text>Line");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(7)..CharOffset::from(11),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header2,
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<header1>Test<hr><header2>Line<text>"
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<header1>Test<hr><text>Line");
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<header1>Test<hr><header2>Line<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_block_styling_overlapping_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "TestLineAfter",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(5)..CharOffset::from(5),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(11)..CharOffset::from(11),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<hr><text>Line<hr><text>After"
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(15),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Te<header1>st<hr><header1>Line<hr><header1>Af<text>ter"
-            );
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<hr><text>Line<hr><text>After"
-            );
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Te<header1>st<hr><header1>Line<hr><header1>Af<text>ter"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_insert_block_item_in_the_middle_of_consecutive_linebreak() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\n\n\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(6)..CharOffset::from(6),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test\\n<hr><text>\\n");
-        });
-    });
-}
-
-#[test]
-fn test_backspace_on_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "TestLine",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::from(5)..CharOffset::from(5),
-                FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                EditOrigin::UserInitiated,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>Line");
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![7..7]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.backspace(&mut None, selection.clone(), ctx);
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test\\nLine");
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(7));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "Test\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    },],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(5)
-                }),]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>Line");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test\\nLine");
-        });
-    });
-}
-
-#[test]
-fn test_deleting_middle_block_item_between_line_break() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("")]),
-                    FormattedTextLine::HorizontalRule,
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text><hr><text>");
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![3..3]);
-            });
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>\\n");
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text><hr><text>");
-        });
-    });
-}
-
-#[test]
-fn test_enter_on_text_before_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Test")]),
-                    FormattedTextLine::HorizontalRule,
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>");
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![5..5]);
-            });
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test\\n<hr><text>");
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(1)..CharOffset::from(6));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "Test\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(5)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::PlainText
-                        },],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(1)
-                    }),
-                ]
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test\\n<hr><text>");
-        });
-    });
-}
-
-#[test]
-fn test_enter_on_line_after_block_item() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Test")]),
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Line")]),
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>Line");
-
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![7..7]);
-            });
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><text>\\nLine");
-        });
-    });
-}
-
-#[test]
-fn test_style_on_consecutive_block_items() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Test")]),
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Line")]),
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-            selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![6..6]);
-            });
-
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><hr><text>Line");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(12),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>Test<hr><hr><code:Shell>Line<text>"
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test<hr><hr><text>Line");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<code:Shell>Test<hr><hr><code:Shell>Line<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_color_code_block() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\nBlock\nLine\nBlock",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(11),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                        ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(17)..CharOffset::from(22),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                        ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block<text>Line<code:Shell>Block<text>"
-            );
-
-            let edit_result = buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[
-                    (ByteOffset::from(0)..ByteOffset::from(1), ColorU::white()),
-                    (ByteOffset::from(1)..ByteOffset::from(4), ColorU::black()),
-                ],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>B<c><c_#000000>loc<c>k<text>Line<code:Shell>Block<text>"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "B".to_string(),
-                            text_styles: TextStylesWithMetadata::default().with_color(ColorU::white()),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            }
-                        },
-                        StyledBufferRun {
-                            run: "loc".to_string(),
-                            text_styles: TextStylesWithMetadata::default().with_color(ColorU::black()),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            }
-                        },
-                        StyledBufferRun {
-                            run: "k\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            }
-                        }
-                    ],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: CodeBlockType::Shell
-                    },
-                    content_length: CharOffset::from(6)
-                })]
-            );
-
-            let edit_result = buffer.color_code_block_ranges_internal(
-                CharOffset::from(17),
-                &[(ByteOffset::from(0)..ByteOffset::from(5), ColorU::white())],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>B<c><c_#000000>loc<c>k<text>Line<code:Shell><c_#ffffff>Block<c><text>"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(17)..CharOffset::from(23));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![
-                        StyledBufferRun {
-                            run: "Block".to_string(),
-                            text_styles: TextStylesWithMetadata::default().with_color(ColorU::white()),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            }
-                        },
-                        StyledBufferRun {
-                            run: "\n".to_string(),
-                            text_styles: TextStylesWithMetadata::default(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            }
-                        },
-                    ],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: CodeBlockType::Shell
-                    },
-                    content_length: CharOffset::from(6)
-                })]
-            );
-
-            let edit_result = buffer.color_code_block_ranges_internal(CharOffset::from(6), &[]);
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block<text>Line<code:Shell><c_#ffffff>Block<c><text>"
-            );
-
-            let delta = edit_result.delta.expect("Should exist");
-            assert_eq!(delta.old_offset, CharOffset::from(6)..CharOffset::from(12));
-            assert_eq!(
-                (*delta.new_lines),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "Block\n".to_string(),
-                        text_styles: TextStylesWithMetadata::default(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell
-                        }
-                    },],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: CodeBlockType::Shell
-                    },
-                    content_length: CharOffset::from(6)
-                })]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_remove_coloring_in_middle_of_block() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\nBlock\nLine",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(11),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block<text>Line"
-            );
-
-            buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[
-                    (ByteOffset::from(0)..ByteOffset::from(1), ColorU::white()),
-                    (ByteOffset::from(1)..ByteOffset::from(5), ColorU::black()),
-                ],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>B<c><c_#000000>lock<c><text>Line"
-            );
-
-            buffer.color_code_block_ranges_internal(CharOffset::from(8), &[]);
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>B<c><c_#000000>l<c>ock<text>Line"
-            );
-
-            buffer.color_code_block_ranges_internal(CharOffset::from(7), &[]);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>B<c>lock<text>Line"
-            );
-
-            buffer.color_code_block_ranges_internal(CharOffset::from(6), &[]);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block<text>Line"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_edit_colored_code_block() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\nBlock\nLine\nBlock",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(16),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block\\nLine<text>Block"
-            );
-
-            buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[
-                    (ByteOffset::from(0)..ByteOffset::from(5), ColorU::white()),
-                    (ByteOffset::from(6)..ByteOffset::from(10), ColorU::black()),
-                ],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>Block<c>\\n<c_#000000>Line<c><text>Block"
-            );
-
-            // Note that for editing, we don't clear syntax color to prevent flickering.
-            buffer.edit_internal_first_selection(
-                CharOffset::from(6)..CharOffset::from(8),
-                "",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>ock<c>\\n<c_#000000>Line<c><text>Block"
-            );
-
-            buffer.edit_internal_first_selection(
-                CharOffset::from(9)..CharOffset::from(12),
-                "",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>ock<c><c_#000000>ne<c><text>Block"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_unstyling_code_block_do_not_leak_syntax_color() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\nBlock\nLine\nBlock",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(16),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block\\nLine<text>Block"
-            );
-
-            buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[
-                    (ByteOffset::from(0)..ByteOffset::from(5), ColorU::white()),
-                    (ByteOffset::from(6)..ByteOffset::from(10), ColorU::black()),
-                ],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>Block<c>\\n<c_#000000>Line<c><text>Block"
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(8),
-                BufferBlockStyle::PlainText,
-                selection.clone(),
-                ctx,
-            );
-
-            // We should clear syntax color and wait for re-highlighting.
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test\\nBl<code:Shell>ock\\nLine<text>Block"
-            );
-
-            buffer.apply_block_style_fixture(
-                CharOffset::from(9)..CharOffset::from(17),
-                BufferBlockStyle::PlainText,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test\\nBl\\nock\\nLine\\nBlock"
-            );
-        });
-    });
-}
-
-// Regression test for CLD-1218.
-#[test]
-fn test_undo_should_not_leak_syntax_color() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "Test\nBlock\nLine\nBlock",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(16),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                edit_result.undo_item.expect("Should exist"),
-                UndoActionType::Atomic,
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block\\nLine<text>Block"
-            );
-
-            buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[
-                    (ByteOffset::from(0)..ByteOffset::from(5), ColorU::white()),
-                    (ByteOffset::from(6)..ByteOffset::from(10), ColorU::black()),
-                ],
-            );
-
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>Block<c>\\n<c_#000000>Line<c><text>Block"
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>Test\\nBlock\\nLine\\nBlock");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell>Block\\nLine<text>Block"
-            );
-        });
-    });
-}
-
-// Regression test for CLD-1106.
-#[test]
-fn test_deletion_range_include_block_marker_should_not_leak_style() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "TestBlock",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(5)..CharOffset::from(10),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            buffer.color_code_block_ranges_internal(
-                CharOffset::from(6),
-                &[(ByteOffset::from(0)..ByteOffset::from(5), ColorU::white())],
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>Test<code:Shell><c_#ffffff>Block<c><text>"
-            );
-
-            buffer.edit_internal_first_selection(
-                CharOffset::from(4)..CharOffset::from(7),
-                "",
-                TextStyles::default(),
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>Teslock\\n");
-        });
-    });
-}
-
-#[test]
 fn test_styled_blocks_from_buffer_start() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
@@ -8059,15 +3078,7 @@ fn test_styled_blocks_from_buffer_start() {
                 selection.clone(),
                 ctx,
             );
-            buffer.apply_block_style_fixture(
-                CharOffset::from(1)..CharOffset::from(2),
-                BufferBlockStyle::Header {
-                    header_size: BlockHeaderSize::Header1,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.debug(), "<header1>A<text>B");
+            assert_eq!(buffer.debug(), "<text>A\\nB");
             assert_eq!(
                 buffer.styled_blocks_in_range(
                     CharOffset::zero()..buffer.max_charoffset(),
@@ -8078,13 +3089,9 @@ fn test_styled_blocks_from_buffer_start() {
                         block: vec![StyledBufferRun {
                             run: "A\n".to_string(),
                             text_styles: Default::default(),
-                            block_style: BufferBlockStyle::Header {
-                                header_size: BlockHeaderSize::Header1
-                            }
+                            block_style: BufferBlockStyle::PlainText
                         }],
-                        style: BufferBlockStyle::Header {
-                            header_size: BlockHeaderSize::Header1,
-                        },
+                        style: BufferBlockStyle::PlainText,
                         content_length: CharOffset::from(2)
                     }),
                     StyledBufferBlock::Text(StyledTextBlock {
@@ -8097,309 +3104,6 @@ fn test_styled_blocks_from_buffer_start() {
                         content_length: CharOffset::from(1)
                     })
                 ]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styled_block_default_boundaries() {
-    // As part of CLD-1178, this tests the StyledBufferBlocks iterator at block boundaries.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::CodeBlock(CodeBlockText {
-                        lang: "sh".into(),
-                        code: "code".into(),
-                    }),
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("text")]),
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("text")]),
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("more text")]),
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::HorizontalRule,
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>code<text>text<hr><text>text\\nmore text<hr><hr><text>"
-            );
-
-            assert_eq!(buffer.containing_block_start(2.into()), 1.into());
-            assert_eq!(buffer.containing_block_end(2.into()), 6.into());
-
-            assert_eq!(buffer.containing_block_start(7.into()), 6.into());
-            assert_eq!(buffer.containing_block_end(7.into()), 11.into());
-
-            assert_eq!(buffer.containing_block_start(11.into()), 11.into());
-            assert_eq!(buffer.containing_block_end(11.into()), 12.into());
-
-            assert_eq!(buffer.containing_block_start(13.into()), 12.into());
-            assert_eq!(buffer.containing_block_end(13.into()), 27.into());
-            assert_eq!(buffer.containing_line_end(13.into()), 17.into());
-
-            // Edit at 7, this is the start to end.
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    6.into()..11.into(),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "text\n".to_string(),
-                        text_styles: Default::default(),
-                        block_style: BufferBlockStyle::PlainText
-                    },],
-                    style: BufferBlockStyle::PlainText,
-                    // Horizontal rule shouldn't be included - it parses as a newline, but isn't complete.
-                    content_length: CharOffset::from(5)
-                })]
-            );
-
-            // This is the first <hr>.
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    11.into()..12.into(),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![StyledBufferBlock::Item(BufferBlockItem::HorizontalRule)]
-            );
-
-            assert_eq!(buffer.containing_block_start(27.into()), 27.into());
-            assert_eq!(buffer.containing_block_end(27.into()), 28.into());
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    27.into()..28.into(),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![StyledBufferBlock::Item(BufferBlockItem::HorizontalRule)]
-            );
-
-            assert_eq!(buffer.containing_block_start(28.into()), 28.into());
-            assert_eq!(buffer.containing_block_end(28.into()), 29.into());
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    28.into()..29.into(),
-                    StyledBlockBoundaryBehavior::Exclusive
-                ),
-                vec![StyledBufferBlock::Item(BufferBlockItem::HorizontalRule)]
-            );
-        });
-    });
-}
-
-#[test]
-fn test_styled_block_alternate_boundaries() {
-    // This implements the example in the `StyledBlockBoundaryBehavior` doc comment, to test
-    // non-default boundary behavior.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_formatted_edit_fixture(
-                CharOffset::zero()..CharOffset::from(1),
-                FormattedText::new(vec![
-                    FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("Hello")]),
-                    FormattedTextLine::CodeBlock(CodeBlockText {
-                        lang: "sh".into(),
-                        code: "echo hello".into(),
-                    }),
-                    FormattedTextLine::HorizontalRule,
-                    FormattedTextLine::UnorderedList(FormattedIndentTextInline {
-                        indent_level: 0,
-                        text: vec![FormattedTextFragment::plain_text("First")],
-                    }),
-                    FormattedTextLine::UnorderedList(FormattedIndentTextInline {
-                        indent_level: 0,
-                        text: vec![FormattedTextFragment::plain_text("Second")],
-                    }),
-                ]),
-                EditOrigin::SystemEdit,
-                selection.clone(),
-                ctx,
-            );
-
-            assert_eq!(
-                buffer.debug(),
-                "<text>Hello<code:Shell>echo hello<hr><ul0>First<ul0>Second<text>"
-            );
-
-            let range = 3.into()..7.into();
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Exclusive),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "llo\n".to_string(),
-                        block_style: BufferBlockStyle::PlainText,
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(4)
-                })]
-            );
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    range.clone(),
-                    StyledBlockBoundaryBehavior::InclusiveBlockItems
-                ),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "llo\n".to_string(),
-                        block_style: BufferBlockStyle::PlainText,
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::PlainText,
-                    content_length: CharOffset::from(4)
-                })]
-            );
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Inclusive),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "llo\n".to_string(),
-                            block_style: BufferBlockStyle::PlainText,
-                            text_styles: Default::default()
-                        }],
-                        style: BufferBlockStyle::PlainText,
-                        content_length: CharOffset::from(4)
-                    }),
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell,
-                        },
-                        content_length: CharOffset::from(0)
-                    })
-                ]
-            );
-
-            let range = 7.into()..18.into();
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Exclusive),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "echo hello\n".to_string(),
-                        block_style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell
-                        },
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::CodeBlock {
-                        code_block_type: CodeBlockType::Shell,
-                    },
-                    content_length: CharOffset::from(11)
-                })]
-            );
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Inclusive),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "echo hello\n".to_string(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            },
-                            text_styles: Default::default()
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell,
-                        },
-                        content_length: CharOffset::from(11)
-                    }),
-                    StyledBufferBlock::Item(BufferBlockItem::HorizontalRule)
-                ]
-            );
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    range.clone(),
-                    StyledBlockBoundaryBehavior::InclusiveBlockItems
-                ),
-                vec![
-                    StyledBufferBlock::Text(StyledTextBlock {
-                        block: vec![StyledBufferRun {
-                            run: "echo hello\n".to_string(),
-                            block_style: BufferBlockStyle::CodeBlock {
-                                code_block_type: CodeBlockType::Shell
-                            },
-                            text_styles: Default::default()
-                        }],
-                        style: BufferBlockStyle::CodeBlock {
-                            code_block_type: CodeBlockType::Shell,
-                        },
-                        content_length: CharOffset::from(11)
-                    }),
-                    StyledBufferBlock::Item(BufferBlockItem::HorizontalRule)
-                ]
-            );
-
-            let range = 19.into()..24.into();
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Exclusive),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "First".to_string(),
-                        block_style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One
-                        },
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::One,
-                    },
-                    content_length: CharOffset::from(5)
-                })]
-            );
-            assert_eq!(
-                buffer
-                    .styled_blocks_in_range(range.clone(), StyledBlockBoundaryBehavior::Inclusive),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "First".to_string(),
-                        block_style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One
-                        },
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::One,
-                    },
-                    content_length: CharOffset::from(5)
-                })]
-            );
-            assert_eq!(
-                buffer.styled_blocks_in_range(
-                    range.clone(),
-                    StyledBlockBoundaryBehavior::InclusiveBlockItems
-                ),
-                vec![StyledBufferBlock::Text(StyledTextBlock {
-                    block: vec![StyledBufferRun {
-                        run: "First".to_string(),
-                        block_style: BufferBlockStyle::UnorderedList {
-                            indent_level: ListIndentLevel::One
-                        },
-                        text_styles: Default::default()
-                    }],
-                    style: BufferBlockStyle::UnorderedList {
-                        indent_level: ListIndentLevel::One,
-                    },
-                    content_length: CharOffset::from(5)
-                })]
             );
         });
     });
@@ -8420,15 +3124,7 @@ fn test_deleting_range_with_trailing_block_marker() {
                 ctx,
             );
 
-            buffer.apply_block_style_fixture(
-                CharOffset::from(3)..CharOffset::from(4),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>A<code:Shell>B<text>C");
+            assert_eq!(buffer.content.debug(), "<text>A\\nB\\nC");
 
             let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
             let edit_result = buffer.edit_internal_first_selection(
@@ -8464,65 +3160,10 @@ fn test_deleting_range_with_trailing_block_marker() {
             assert_eq!(buffer.content.debug(), "<text>C");
 
             buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>A<code:Shell>B<text>C");
+            assert_eq!(buffer.content.debug(), "<text>A\\nB\\nC");
 
             buffer.redo(selection.clone(), ctx);
             assert_eq!(buffer.content.debug(), "<text>C");
-        });
-    });
-}
-
-#[test]
-fn test_backspace_on_block_item_at_buffer_start() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "\n",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-
-            buffer.apply_core_edit_actions(vec![
-                CoreEditorAction::new(
-                    CharOffset::zero()..CharOffset::from(1),
-                    CoreEditorActionType::Insert {
-                        text: FormattedText::new(vec![FormattedTextLine::HorizontalRule]),
-                        source: EditOrigin::SystemEdit,
-                        override_next_style: false,
-                        insert_on_selection: true,
-                    },
-                ),
-                buffer.update_buffer_end(CharOffset::from(1)),
-            ]);
-            assert_eq!(buffer.content.debug(), "<hr><text>");
-
-            let prev_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let edit_result = buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>");
-
-            let delta = edit_result.delta.unwrap();
-            assert_eq!(delta.old_offset, 0.into()..2.into());
-            assert_eq!((*delta.new_lines), vec![]);
-
-            let undo_item = edit_result.undo_item.expect("Should exist");
-            let curr_selection = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                prev_selection,
-                curr_selection,
-                undo_item,
-                UndoActionType::Atomic,
-            );
-
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<hr><text>");
-
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>");
         });
     });
 }
@@ -8767,157 +3408,19 @@ fn test_multiselect_movement() {
 }
 
 #[test]
-fn test_multiselect_enter_at_block_start() {
-    // This tests that Enter at the start of a list or heading block preserves its styling and
-    // inserts a new line above the block.
+fn test_multiselect_backspace_in_plain_text() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "Text\n3. List\n4. Next\n",
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "test\nline\nsecond",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
-
         buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(buffer.debug(), "<text>Text<ol0@3>List<ol0>Next<text>");
-
-            buffer.add_cursor(6.into(), true, selection.clone(), ctx);
-            buffer.add_cursor(11.into(), false, selection.clone(), ctx);
-
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<text>Text<ol0@3><ol0>List<ol0><ol0>Next<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiselect_enter_at_code_block_start() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "```\nThis is code\n```\n```\nMore code\n```",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            assert_eq!(
-                buffer.debug(),
-                "<code:Shell>This is code<code:Shell>More code<text>"
-            );
-
-            buffer.add_cursor(1.into(), true, selection.clone(), ctx);
-            buffer.add_cursor(14.into(), false, selection.clone(), ctx);
-
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<text><code:Shell>This is code<text><code:Shell>More code<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiselect_enter_at_code_block() {
-    // This was a weird interaction between multiselecting an empty list line and the start of a code block.
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "* Hey\n```\nThis is code\n```\n",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            // Add another empty bullet point.
-            buffer.add_cursor(4.into(), true, selection.clone(), ctx);
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<ul0>Hey<ul0><code:Shell>This is code<text>"
-            );
-
-            buffer.add_cursor(6.into(), false, selection.clone(), ctx);
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<ul0>Hey<text>\\n<code:Shell>This is code<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiselect_enter_in_code_block_and_list() {
-    // This scenario was failing, and has since been fixed.
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "* Hey\n```\nThis is code\n```\n",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-
-        buffer.update(&mut app, |buffer, ctx| {
-            // Add another empty bullet point.
-            buffer.add_cursor(4.into(), true, selection.clone(), ctx);
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<ul0>Hey<ul0><code:Shell>This is code<text>"
-            );
-
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            buffer.add_cursor(6.into(), true, selection.clone(), ctx);
-
-            buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-
-            assert_eq!(
-                buffer.debug(),
-                "<ul0>Hey<text>\\n<code:Shell>This is code<text>"
-            );
-        });
-    });
-}
-
-#[test]
-fn test_multiselect_backspace_on_block_marker() {
-    // Make sure that if the 2nd selection is on a block marker that it works correctly.
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit_internal_first_selection(
-                CharOffset::from(1)..CharOffset::from(1),
-                "test\nline\nsecond",
-                Default::default(),
-                selection.clone(),
-                ctx,
-            );
-            let _ = buffer.apply_block_style_fixture(
-                CharOffset::from(6)..CharOffset::from(10),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(buffer.content.debug(), "<text>test<ul0>line<text>second");
-
-            // Set a cursor at the start of `third` and before "line"
             selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![14..14]);
+                set_selections(selection, vec1![14..14, 7..7]);
             });
-            buffer.add_cursor(6.into(), false, selection.clone(), ctx);
             buffer.backspace(&mut None, selection.clone(), ctx);
-            assert_eq!(buffer.content.debug(), "<text>test\\nline\\nseond");
+            assert_eq!(buffer.content.debug(), "<text>test\\nine\\nseond");
         });
     });
 }
@@ -8962,15 +3465,15 @@ fn test_multiselect_copy() {
 #[test]
 fn test_multiselect_copy_blocks() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "* Hey\n* You\n* Guys\nText\n```\nThis is code\n```\n",
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "Hey\nYou\nGuys\nText\nThis is code\n",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
         buffer.update(&mut app, |buffer, ctx| {
             assert_eq!(
                 buffer.content.debug(),
-                "<ul0>Hey<ul0>You<ul0>Guys<text>Text<code:Shell>This is code<text>"
+                "<text>Hey\\nYou\\nGuys\\nText\\nThis is code\\n"
             );
 
             selection.update(ctx, |selection, _| {
@@ -8999,58 +3502,26 @@ fn test_multiselect_copy_blocks() {
 #[test]
 fn test_multiselect_indent_unindent() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
-            "hey\nthere\n- hey\n- there\nhey\nthere",
-            Box::new(|block_style, shift| match block_style {
-                BufferBlockStyle::UnorderedList { indent_level } if !shift => {
-                    IndentBehavior::Restyle(BufferBlockStyle::UnorderedList {
-                        indent_level: indent_level.shift_right(),
-                    })
-                }
-                BufferBlockStyle::UnorderedList { indent_level } => {
-                    IndentBehavior::Restyle(BufferBlockStyle::UnorderedList {
-                        indent_level: indent_level.shift_left(),
-                    })
-                }
-                BufferBlockStyle::CodeBlock { .. } => {
-                    IndentBehavior::TabIndent(IndentUnit::Space(4))
-                }
-                _ => IndentBehavior::Ignore,
-            }),
+        let (buffer, selection) = Buffer::mock_from_plain_text(
+            "hey\nthere\nhey\nthere\nhey\nthere",
+            Box::new(|_, _| IndentBehavior::TabIndent(IndentUnit::Space(4))),
             &mut app,
         );
-
         buffer.update(&mut app, |buffer, ctx| {
-            buffer.apply_block_style_fixture(
-                CharOffset::from(21)..CharOffset::from(30),
-                BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Code {
-                        lang: "Rust".to_string(),
-                    },
-                },
-                selection.clone(),
-                ctx,
-            );
-            assert_eq!(
-                buffer.content.debug(),
-                "<text>hey\\nthere<ul0>hey<ul0>there<code:Rust>hey\\nthere<text>"
-            );
-
-            // Tab before "hey" and before "- hey" and before "hey" in code block.
             selection.update(ctx, |selection, _| {
-                set_selections(selection, vec1![1..1, 14..14, 21..21]);
+                set_selections(selection, vec1![1..1, 11..11, 21..21]);
             });
-            let _ = buffer.indent(1, selection.clone(), ctx);
+            buffer.indent(1, selection.clone(), ctx);
             assert_eq!(
-                buffer.content.debug(),
-                "<text>hey\\nthere<ul1>hey<ul0>there<code:Rust>    hey\\nthere<text>"
+                buffer.debug(),
+                "<text>    hey\\nthere\\n    hey\\nthere\\n    hey\\nthere"
             );
-
-            let _ = buffer.unindent(selection.clone(), ctx);
+            buffer.unindent(selection.clone(), ctx);
             assert_eq!(
-                buffer.content.debug(),
-                "<text>hey\\nthere<ul0>hey<ul0>there<code:Rust>hey\\nthere<text>"
+                buffer.debug(),
+                "<text>hey\\nthere\\nhey\\nthere\\nhey\\nthere"
             );
+            assert_eq!(selection.as_ref(ctx).selection_offsets().len(), 3);
         });
     });
 }
@@ -9063,7 +3534,7 @@ fn test_selection_collapsing() {
     // - Make sure it works with multiple selections overlapping at once.
     // - Make sure we call it again inside of selections.rs, like when extending selection by line.
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
+        let (buffer, selection) = Buffer::mock_from_plain_text(
             "hey\nthere\nyou",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -9213,7 +3684,7 @@ fn test_selection_collapsing() {
 #[test]
 fn test_update_selection_same_range() {
     App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_markdown(
+        let (buffer, selection) = Buffer::mock_from_plain_text(
             "hello world",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -9996,9 +4467,8 @@ fn test_unindent_panic_simpler_case() {
     // This verifies unindent does not invalidate selection anchors.
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| {
-            Buffer::new(Box::new(|block_style, _shift| match block_style {
-                BufferBlockStyle::PlainText => IndentBehavior::TabIndent(IndentUnit::Space(4)),
-                _ => IndentBehavior::Ignore,
+            Buffer::new(Box::new(|_, _| {
+                IndentBehavior::TabIndent(IndentUnit::Space(4))
             }))
         });
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));

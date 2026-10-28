@@ -10880,7 +10880,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrayvec",
- "asset_cache",
  "async-channel",
  "criterion",
  "enclose",
@@ -10895,7 +10894,6 @@ dependencies = [
  "line-ending",
  "log",
  "markdown_parser",
- "mime_guess",
  "num-traits",
  "ordered-float 3.9.2",
  "parking_lot",

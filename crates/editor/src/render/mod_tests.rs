@@ -1,5 +1,8 @@
 //! End-to-end editor tests.
 
+use std::collections::VecDeque;
+
+use markdown_parser::{FormattedTextFragment, FormattedTextStyles};
 use string_offset::CharOffset;
 use warpui_core::{App, ModelHandle, ReadModel};
 
@@ -9,6 +12,7 @@ use crate::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
     ShouldAutoscroll,
 };
+use crate::content::core::EditorLine;
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::{IndentBehavior, TextStyles};
 use crate::content::version::BufferVersion;
@@ -141,114 +145,45 @@ Paragraph (27 characters, 1 lines, 24.00px tall)
 }
 
 #[test]
-fn test_enter_before_horizontal_rule() {
-    init_logging();
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let state = TestState::new("First line\n---\nSecond line", app).await;
-        state.set_cursor(11, app); // At the end of "First line".
-
-        state
-            .edit(
-                BufferEditAction::Enter {
-                    force_newline: false,
-                    style: Default::default(),
-                },
-                EditOrigin::UserTyped,
-                app,
-            )
-            .await;
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Paragraph (11 characters, 1 lines, 24.00px tall)
--------- 24.00px / 11 characters --------
-Paragraph (1 characters, 1 lines, 24.00px tall)
--------- 48.00px / 12 characters --------
-Horizontal Rule (1 characters, 1 lines, 10.00px tall)
--------- 58.00px / 13 characters --------
-Paragraph (12 characters, 1 lines, 24.00px tall)
-"#,
-        );
-    })
-}
-
-#[test]
-fn test_enter_after_horizontal_rule() {
-    init_logging();
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let state = TestState::new("First line\n---\nSecond line", app).await;
-        state.set_cursor(13, app); // At the end of "First line".
-
-        state
-            .edit(
-                BufferEditAction::Enter {
-                    force_newline: false,
-                    style: Default::default(),
-                },
-                EditOrigin::UserTyped,
-                app,
-            )
-            .await;
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Paragraph (11 characters, 1 lines, 24.00px tall)
--------- 24.00px / 11 characters --------
-Horizontal Rule (1 characters, 1 lines, 10.00px tall)
--------- 34.00px / 12 characters --------
-Paragraph (1 characters, 1 lines, 24.00px tall)
--------- 58.00px / 13 characters --------
-Paragraph (12 characters, 1 lines, 24.00px tall)
-"#,
-        );
-    })
-}
-
-#[test]
-fn test_edit_at_horizontal_rule_end() {
-    init_logging();
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let state = TestState::new("First line\n---\nSecond line", app).await;
-        state.set_cursor(12, app); // At the end of "First line".
-
-        state
-            .edit(
-                BufferEditAction::Insert {
-                    text: "x",
-                    style: Default::default(),
-                    override_text_style: None,
-                },
-                EditOrigin::UserTyped,
-                app,
-            )
-            .await;
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Paragraph (11 characters, 1 lines, 24.00px tall)
--------- 24.00px / 11 characters --------
-Horizontal Rule (1 characters, 1 lines, 10.00px tall)
--------- 34.00px / 12 characters --------
-Paragraph (2 characters, 1 lines, 24.00px tall)
--------- 58.00px / 14 characters --------
-Paragraph (12 characters, 1 lines, 24.00px tall)
-"#,
-        );
-    })
-}
-
-#[test]
 fn test_edit_after_style() {
     init_logging();
     App::test((), |mut app| async move {
         let app = &mut app;
-        let state = TestState::new("Some **styled** text\nAnd `more`", app).await;
+        let state = TestState::new("", app).await;
+        state.content.update(app, |buffer, ctx| {
+            buffer.initialize_editor_lines_fixture(
+                VecDeque::from([
+                    EditorLine::Line(vec![
+                        FormattedTextFragment::plain_text("Some "),
+                        FormattedTextFragment::bold("styled"),
+                        FormattedTextFragment::plain_text(" text"),
+                    ]),
+                    EditorLine::Line(vec![
+                        FormattedTextFragment::plain_text("And "),
+                        FormattedTextFragment {
+                            text: "more".into(),
+                            styles: FormattedTextStyles {
+                                inline_code: true,
+                                ..Default::default()
+                            },
+                        },
+                    ]),
+                ]),
+                state.selection.clone(),
+                ctx,
+            );
+        });
+        let delta = state
+            .content
+            .read(app, |buffer, _| buffer.invalidate_layout());
+        state.render.update(app, |render, _| {
+            render.add_pending_edit(delta, BufferVersion::new())
+        });
+        state
+            .layout_updates
+            .recv()
+            .await
+            .expect("Initial G3 layout should complete");
 
         // Set the cursor to just after the bold text.
         state.set_cursor(12, app);
@@ -278,59 +213,6 @@ Paragraph (9 characters, 1 lines, 24.00px tall)
     })
 }
 
-#[test]
-fn test_undo_at_block_boundary() {
-    // This is a regression test for CLD-1178.
-    init_logging();
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let state = TestState::new("- [x] A\n- [x] B\n- [ ] C\n- [ ] D", app).await;
-        state.assert_buffer(app, "<cl0:true>A<cl0:true>B<cl0:false>C<cl0:false>D<text>");
-
-        // Select from the start of item C up through A and B.
-        state.set_cursor(5, app);
-        state.select(BufferSelectAction::SetLastHead { offset: 1.into() }, app);
-
-        // Press backspace, deleting A and B.
-        state
-            .edit(BufferEditAction::Backspace, EditOrigin::UserTyped, app)
-            .await;
-        state.assert_buffer(app, "<cl0:true>C<cl0:false>D<text>");
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Task List @ 1 [X] (2 characters, 1 lines, 18.00px tall)
--------- 18.00px / 2 characters --------
-Task List @ 1 [ ] (2 characters, 1 lines, 18.00px tall)
--------- 36.00px / 4 characters --------
-Trailing Newline (1 characters, 1 lines, 24.00px tall)
-        "#,
-        );
-
-        // Undo that change and ensure we revert to the original contents.
-        state
-            .edit(BufferEditAction::Undo, EditOrigin::UserInitiated, app)
-            .await;
-        state.assert_buffer(app, "<cl0:true>A<cl0:true>B<cl0:false>C<cl0:false>D<text>");
-        state.assert_rendered(
-            app,
-            r#"
--------- 0.00px / 0 characters --------
-Task List @ 1 [X] (2 characters, 1 lines, 18.00px tall)
--------- 18.00px / 2 characters --------
-Task List @ 1 [X] (2 characters, 1 lines, 18.00px tall)
--------- 36.00px / 4 characters --------
-Task List @ 1 [ ] (2 characters, 1 lines, 18.00px tall)
--------- 54.00px / 6 characters --------
-Task List @ 1 [ ] (2 characters, 1 lines, 18.00px tall)
--------- 72.00px / 8 characters --------
-Trailing Newline (1 characters, 1 lines, 24.00px tall)
-        "#,
-        )
-    });
-}
-
 /// Helper for testing edits end-to-end. This is essentially a stripped-down editor model.
 struct TestState {
     content: ModelHandle<Buffer>,
@@ -340,9 +222,9 @@ struct TestState {
 }
 
 impl TestState {
-    async fn new(markdown: &str, app: &mut App) -> Self {
+    async fn new(text: &str, app: &mut App) -> Self {
         let (content, selection) =
-            Buffer::mock_from_markdown(markdown, Box::new(|_, _| IndentBehavior::Ignore), app);
+            Buffer::mock_from_plain_text(text, Box::new(|_, _| IndentBehavior::Ignore), app);
         let render = app.add_model(|ctx| RenderState::new(TEST_STYLES, false, None, ctx));
 
         let (layout_tx, layout_rx) = async_channel::unbounded();
@@ -384,7 +266,7 @@ impl TestState {
             render,
             layout_updates: layout_rx,
         };
-        if !markdown.is_empty() {
+        if !text.is_empty() {
             let delta = state
                 .content
                 .read(app, |buffer, _| buffer.invalidate_layout());
@@ -456,29 +338,6 @@ impl TestState {
 Actual:
 ====
 {rendered}
-===="
-            );
-        }
-    }
-
-    /// Assert that the buffer has the expected contents.
-    #[track_caller]
-    fn assert_buffer(&self, ctx: &impl ReadModel, expected: &str) {
-        let buffer = self.content.read(ctx, |buffer, _| buffer.debug());
-
-        let buffer = buffer.trim();
-        let expected = expected.trim();
-
-        if buffer != expected {
-            panic!(
-                "\nExpected:
-====
-{expected}
-====
-
-Actual:
-====
-{buffer}
 ===="
             );
         }

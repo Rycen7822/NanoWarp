@@ -1,11 +1,14 @@
+use std::collections::VecDeque;
+
 use itertools::Itertools;
-use markdown_parser::parse_markdown;
+use markdown_parser::FormattedTextFragment;
 use string_offset::CharOffset;
 use warpui_core::App;
 use warpui_core::text::TextBuffer;
 use warpui_core::text::point::Point;
 
 use crate::content::buffer::{Buffer, EditOrigin};
+use crate::content::core::EditorLine;
 use crate::content::selection_model::BufferSelectionModel;
 use crate::content::text::IndentBehavior;
 
@@ -18,15 +21,22 @@ fn test_forward_iteration() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
-                parse_markdown("```\nText\n```\n**bold**\nAnd *italic* too.")
-                    .expect("Markdown should parse"),
+                VecDeque::from([
+                    EditorLine::Line(vec![FormattedTextFragment::plain_text("Text")]),
+                    EditorLine::Line(vec![FormattedTextFragment::bold("bold")]),
+                    EditorLine::Line(vec![
+                        FormattedTextFragment::plain_text("And "),
+                        FormattedTextFragment::italic("italic"),
+                        FormattedTextFragment::plain_text(" too."),
+                    ]),
+                ]),
                 EditOrigin::UserInitiated,
                 selection.clone(),
                 ctx,
             );
             assert_eq!(
                 buffer.debug(),
-                "<code:Shell>Text<text><b_s>bold<b_e>\\nAnd <i_s>italic<i_e> too."
+                "<text>Text\\n<b_s>bold<b_e>\\nAnd <i_s>italic<i_e> too."
             );
 
             let mut chars = buffer.chars_at(CharOffset::from(1)).expect("Offset valid");
@@ -63,7 +73,10 @@ fn test_start_styled() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
-                parse_markdown("*styled* text").expect("Markdown should parse"),
+                VecDeque::from([EditorLine::Line(vec![
+                    FormattedTextFragment::italic("styled"),
+                    FormattedTextFragment::plain_text(" text"),
+                ])]),
                 EditOrigin::UserInitiated,
                 selection.clone(),
                 ctx,
@@ -85,7 +98,10 @@ fn test_reverse_iteration() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
-                parse_markdown("some *text*").expect("Markdown should parse"),
+                VecDeque::from([EditorLine::Line(vec![
+                    FormattedTextFragment::plain_text("some "),
+                    FormattedTextFragment::italic("text"),
+                ])]),
                 EditOrigin::UserInitiated,
                 selection.clone(),
                 ctx,
@@ -123,7 +139,14 @@ fn test_plain_text_boundaries() {
         buffer.update(&mut app, |buffer, ctx| {
             buffer.apply_formatted_edit_fixture(
                 CharOffset::from(0)..CharOffset::from(1),
-                parse_markdown("this *is* plain\ntext").expect("Markdown should parse"),
+                VecDeque::from([
+                    EditorLine::Line(vec![
+                        FormattedTextFragment::plain_text("this "),
+                        FormattedTextFragment::italic("is"),
+                        FormattedTextFragment::plain_text(" plain"),
+                    ]),
+                    EditorLine::Line(vec![FormattedTextFragment::plain_text("text")]),
+                ]),
                 EditOrigin::UserInitiated,
                 selection.clone(),
                 ctx,

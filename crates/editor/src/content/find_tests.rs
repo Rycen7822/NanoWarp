@@ -1,28 +1,48 @@
+use std::collections::VecDeque;
 use std::iter;
 use std::pin::pin;
 use std::sync::Once;
 
 use futures_lite::future;
 use itertools::Itertools;
+use markdown_parser::FormattedTextFragment;
 use rangemap::RangeSet;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use warpui_core::App;
 
 use super::{Engine, Match, SearchConfig};
-use crate::content::buffer::Buffer;
+use crate::content::buffer::{Buffer, EditOrigin};
+use crate::content::core::EditorLine;
 use crate::content::cursor::BufferSumTree;
 use crate::content::text::{BufferBlockStyle, BufferText, IndentBehavior};
 
 #[test]
 fn test_search_inline_styles() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "The **first** word, last `word`",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
+        let (buffer, selection) =
+            Buffer::mock_from_plain_text("", Box::new(|_, _| IndentBehavior::Ignore), &mut app);
 
+        buffer.update(&mut app, |buffer, ctx| {
+            buffer.apply_formatted_edit_fixture(
+                0.into()..1.into(),
+                VecDeque::from([EditorLine::Line(vec![
+                    FormattedTextFragment::plain_text("The "),
+                    FormattedTextFragment::bold("first"),
+                    FormattedTextFragment::plain_text(" word, last "),
+                    FormattedTextFragment {
+                        text: "word".into(),
+                        styles: markdown_parser::FormattedTextStyles {
+                            inline_code: true,
+                            ..Default::default()
+                        },
+                    },
+                ])]),
+                EditOrigin::UserInitiated,
+                selection.clone(),
+                ctx,
+            );
+        });
         buffer.read(&app, |buffer, _| {
             assert_matches(
                 buffer,
@@ -42,11 +62,21 @@ fn test_search_inline_styles() {
 #[test]
 fn test_search_across_link() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "visit [our website](https://warp.dev) for more",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
+        let (buffer, selection) =
+            Buffer::mock_from_plain_text("", Box::new(|_, _| IndentBehavior::Ignore), &mut app);
+        buffer.update(&mut app, |buffer, ctx| {
+            buffer.apply_formatted_edit_fixture(
+                0.into()..1.into(),
+                VecDeque::from([EditorLine::Line(vec![
+                    FormattedTextFragment::plain_text("visit "),
+                    FormattedTextFragment::hyperlink("our website", "https://warp.dev"),
+                    FormattedTextFragment::plain_text(" for more"),
+                ])]),
+                EditOrigin::UserInitiated,
+                selection.clone(),
+                ctx,
+            );
+        });
         buffer.read(&app, |buffer, _| {
             assert_matches(
                 buffer,
@@ -66,7 +96,7 @@ fn test_search_across_link() {
 #[test]
 fn test_search_longest_match() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
             "git pull && git log",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -91,7 +121,7 @@ fn test_search_longest_match() {
 fn test_end_of_buffer() {
     App::test((), |mut app| async move {
         let (buffer, _selection) =
-            Buffer::mock_from_markdown("abc", Box::new(|_, _| IndentBehavior::Ignore), &mut app);
+            Buffer::mock_from_plain_text("abc", Box::new(|_, _| IndentBehavior::Ignore), &mut app);
         buffer.read(&app, |buffer, _| {
             assert_matches(
                 buffer,
@@ -135,7 +165,7 @@ fn test_end_of_buffer() {
 #[test]
 fn test_search_non_ascii() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
             "你好aaaaa\n再見你好",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -180,7 +210,7 @@ fn test_search_non_ascii() {
 #[test]
 fn test_search_non_ascii_case_insensitive() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
             "CAFÉ café",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
@@ -201,16 +231,13 @@ fn test_search_non_ascii_case_insensitive() {
 #[test]
 fn test_word_boundaries() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "a cat\nlala\npizza\n***\n* A\n* B",
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
+            "a cat\nlala\npizza\n\nA\nB",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
         buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.debug(),
-                "<text>a cat\\nlala\\npizza<hr><ul0>A<ul0>B<text>"
-            );
+            assert_eq!(buffer.debug(), "<text>a cat\\nlala\\npizza\\n\\nA\\nB");
 
             assert_matches(
                 buffer,
@@ -228,54 +255,15 @@ fn test_word_boundaries() {
 }
 
 #[test]
-fn test_no_match_across_block_items() {
-    App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "word\n***\nword",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.read(&app, |buffer, _| {
-            assert_eq!(buffer.debug(), "<text>word<hr><text>word");
-            assert_matches(
-                buffer,
-                &SearchConfig {
-                    query: "word",
-                    regex: false,
-                    case_sensitive: true,
-                    skip_hidden: false,
-                    hidden_ranges: None,
-                },
-                [(1, 5, "word"), (7, 11, "word")],
-            );
-
-            assert_no_matches(
-                buffer,
-                &SearchConfig {
-                    query: r"word.*word",
-                    case_sensitive: true,
-                    regex: true,
-                    skip_hidden: false,
-                    hidden_ranges: None,
-                },
-            );
-        });
-    });
-}
-
-#[test]
 fn test_block_boundaries_as_whitespace() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
-            "nee\ndle nee\n1. dle\n```rust\nnee\n```\n```sh\ndle\n```",
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
+            "nee\ndle nee\ndle\nnee\ndle",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,
         );
         buffer.read(&app, |buffer, _| {
-            assert_eq!(
-                buffer.debug(),
-                r"<text>nee\ndle nee<ol0@1>dle<code:Rust>nee<code:Shell>dle<text>"
-            );
+            assert_eq!(buffer.debug(), r"<text>nee\ndle nee\ndle\nnee\ndle");
 
             let expected_matches = [
                 (1, 8, "nee\ndle"),
@@ -324,7 +312,7 @@ fn test_block_boundaries_as_whitespace() {
 #[test]
 fn test_anchors() {
     App::test((), |mut app| async move {
-        let (buffer, _selection) = Buffer::mock_from_markdown(
+        let (buffer, _selection) = Buffer::mock_from_plain_text(
             "word\nsword\nword\nwords\nword",
             Box::new(|_, _| IndentBehavior::Ignore),
             &mut app,

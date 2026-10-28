@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::VecDeque;
 use std::iter::{FusedIterator, once};
 use std::mem;
 use std::ops::Range;
@@ -7,13 +8,8 @@ use std::sync::Arc;
 use enum_iterator::all;
 use itertools::Itertools;
 use line_ending::LineEnding;
-use markdown_parser::{
-    CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
-    FormattedTextFragment, FormattedTextHeader, FormattedTextLine, FormattedTextStyles,
-    OrderedFormattedIndentTextInline,
-};
+use markdown_parser::{FormattedTextFragment, FormattedTextStyles};
 use num_traits::SaturatingSub;
-use pathfinder_color::ColorU;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use string_offset::{ByteOffset, CharOffset};
@@ -21,21 +17,20 @@ use sum_tree::{SeekBias, SumTree};
 use vec1::{Vec1, vec1};
 use warp_core::platform::SessionPlatform;
 use warp_util::content_version::ContentVersion;
-use warpui_core::elements::ListIndentLevel;
 use warpui_core::text::point::Point;
 use warpui_core::text::{TextBuffer, char_slice};
 use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 
 use super::anchor::{Anchor, AnchorSide, Anchors};
+use super::core::EditorLine;
 use super::cursor::BufferCursor;
 use super::edit::EditDelta;
-use super::markdown::BufferToFormattedText;
+use super::markdown::BufferToEditorLines;
 use super::selection::{Selection, TextStyleBias};
 use super::text::{
-    BlockCount, BlockLineBreakBehavior, BlockType, BufferBlockItem, BufferBlockStyle,
-    BufferSummary, BufferText, BufferTextStyle, Bytes, IndentBehavior, LineCount, LinkCount,
-    LinkMarker, MarkerDir, StyleSummary, SyntaxColorId, TextStyles, TextStylesWithMetadata,
-    TextSummary,
+    BlockCount, BufferBlockStyle, BufferSummary, BufferText, BufferTextStyle, Bytes,
+    IndentBehavior, LineCount, LinkCount, LinkMarker, MarkerDir, StyleSummary, TextStyles,
+    TextStylesWithMetadata, TextSummary,
 };
 use super::undo::{NonAtomicType, UndoActionType, UndoArg, UndoStack};
 use super::validation::validate_content;
@@ -44,7 +39,7 @@ use crate::content::core::{CoreEditorAction, CoreEditorActionType, RangeAnchors}
 use crate::content::cursor::BufferSumTree;
 use crate::content::edit::PreciseDelta;
 use crate::content::selection_model::{BufferSelectionModel, SelectionSnapshot};
-use crate::content::text::{ColorMarker, IndentUnit};
+use crate::content::text::IndentUnit;
 use crate::content::undo::{ReversibleEditorActions, ReversibleSelectionState};
 use crate::content::version::BufferVersion;
 use crate::multiline::{self, AnyMultilineString, LF, MultilineString};
@@ -81,7 +76,7 @@ pub enum BufferEvent {
     /// deleted text.
     SelectionChanged {
         active_text_styles: TextStylesWithMetadata,
-        active_block_type: BlockType,
+
         should_autoscroll: AutoScrollBehavior,
         buffer_version: BufferVersion,
     },
@@ -482,12 +477,7 @@ impl Buffer {
     pub fn line_decorated_with_prefix(&self, line: usize, prefix: &str) -> bool {
         let prefix_char_count = prefix.chars().count();
         let line_start = Point::new(line as u32, 0).to_buffer_char_offset(self);
-        let block_type = self.block_type_at_point(line_start);
-
-        let block_style = match block_type {
-            BlockType::Item(_) => return false,
-            BlockType::Text(style) => style,
-        };
+        let block_style = BufferBlockStyle::PlainText;
 
         let offset = self.non_tab_stop_offset_at_line(line_start, &block_style);
         let Ok(chars) = TextBuffer::chars_at(self, offset) else {
@@ -701,116 +691,10 @@ impl Buffer {
         }
     }
 
-    /// Return the character offset of the previous block marker of a certain block style. If there is no previous block marker for
-    /// such style, return None.
-    pub fn previous_block_marker_of_type(
-        &self,
-        offset: CharOffset,
-        style: BufferBlockStyle,
-    ) -> Option<CharOffset> {
-        let mut cursor = self.content.cursor::<CharOffset, BufferSummary>();
-
-        let summary = cursor.summary::<BufferSummary>(&offset, SeekBias::Right);
-        let mut target_marker_count = summary.block.block;
-
-        while target_marker_count > BlockCount::zero() {
-            let mut block_cursor = self.content.cursor::<BlockCount, CharOffset>();
-
-            let found = block_cursor.seek(&target_marker_count, SeekBias::Left);
-
-            if !found {
-                return None;
-            }
-
-            match block_cursor.item() {
-                Some(BufferText::BlockMarker { marker_type }) if *marker_type == style => {
-                    return Some(*block_cursor.start());
-                }
-                Some(BufferText::BlockMarker { .. }) | Some(BufferText::BlockItem { .. }) => {
-                    target_marker_count -= 1;
-                }
-                _ => {
-                    debug_assert!(false, "Encountering unexpected buffer text type. Breaking");
-                    return None;
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Return the character offset of the next block marker of a certain block style. If there is no next block marker for
-    /// such style, return None.
-    pub fn next_block_marker_of_type(
-        &self,
-        offset: CharOffset,
-        style: BufferBlockStyle,
-    ) -> Option<CharOffset> {
-        let mut cursor = self.content.cursor::<CharOffset, BufferSummary>();
-
-        let summary = cursor.summary::<BufferSummary>(&offset, SeekBias::Right);
-        let mut target_marker_count = summary.block.block;
-
-        while target_marker_count > BlockCount::zero() {
-            let mut block_cursor = self.content.cursor::<BlockCount, CharOffset>();
-
-            let found = block_cursor.seek(&target_marker_count, SeekBias::Right);
-
-            if !found {
-                return None;
-            }
-
-            match block_cursor.item() {
-                Some(BufferText::BlockMarker { marker_type }) if *marker_type == style => {
-                    return Some(*block_cursor.start());
-                }
-                Some(BufferText::BlockMarker { .. }) | Some(BufferText::BlockItem { .. }) => {
-                    target_marker_count += 1;
-                }
-                None => return None,
-                other => {
-                    debug_assert!(
-                        false,
-                        "Encountering unexpected buffer text type {other:?}. Breaking"
-                    );
-                    return None;
-                }
-            }
-        }
-
-        None
-    }
-
     /// Validates that the buffer is internally consistent, panicking if not.
     pub(crate) fn validate(&self, anchors: &Anchors) {
         validate_content(&self.content);
         anchors.validate(&self.content);
-    }
-
-    /// Returns a list of start and end offset for each line in the given range of the buffer.
-    fn line_ranges_in_range(&self, range: Range<CharOffset>) -> Vec<Range<CharOffset>> {
-        // In the edge case where the range is a cursor, just return the range as it is.
-        if range.start == range.end {
-            return vec![range];
-        }
-
-        let mut cursor = self.content.cursor::<CharOffset, BufferSummary>();
-
-        let mut start = range.start;
-        let mut offsets = vec![];
-
-        let summary = cursor.summary::<BufferSummary>(&start, SeekBias::Right);
-        let mut target_marker_count = (summary.text.lines.row as usize).into();
-        while start < range.end {
-            let mut block_cursor = self.content.cursor::<LineCount, CharOffset>();
-            block_cursor.seek(&target_marker_count, SeekBias::Right);
-
-            offsets.push(start..*block_cursor.start().min(&range.end));
-            start = *block_cursor.start() + CharOffset::from(1);
-            target_marker_count += 1;
-        }
-
-        offsets
     }
 
     /// Offset of the first character in the current line.
@@ -862,52 +746,6 @@ impl Buffer {
         let mut cursor = self.content.cursor::<LineCount, CharOffset>();
         cursor.seek(&line, SeekBias::Right);
         *cursor.start() + CharOffset::from(1)
-    }
-
-    fn color_count_at_offset(&self, offset: CharOffset) -> Option<SyntaxColorId> {
-        let mut cursor = self.content.cursor::<CharOffset, SyntaxColorId>();
-
-        let summary = cursor.summary::<BufferSummary>(&offset, SeekBias::Right);
-        if !summary.style_summary().text_styles().is_colored() {
-            return None;
-        }
-
-        Some(*cursor.start())
-    }
-
-    pub fn color_at_offset(&self, offset: CharOffset) -> Option<ColorU> {
-        let color_clount = self.color_count_at_offset(offset)?;
-        self.content.color_at_color_count(&color_clount)
-    }
-
-    /// Block style at the given character offset.
-    pub fn block_type_at_point(&self, offset: CharOffset) -> BlockType {
-        let block_marker_position = self
-            .containing_block_start(offset)
-            .saturating_sub(&CharOffset::from(1));
-
-        let mut cursor = self.content.cursor::<CharOffset, ()>();
-        cursor.seek(&block_marker_position, SeekBias::Right);
-
-        match cursor.item() {
-            Some(BufferText::BlockMarker { marker_type }) => BlockType::Text(marker_type.clone()),
-            Some(BufferText::BlockItem { item_type }) => BlockType::Item(item_type.clone()),
-            _ => BlockType::Text(BufferBlockStyle::PlainText),
-        }
-    }
-
-    /// Returns the character offset at the start of the block that contains the
-    /// given offset. Note that for plain text, if there are multiple lines, `containing_block_start`
-    /// will return the first character in the first line.
-    pub(super) fn containing_block_start(&self, offset: CharOffset) -> CharOffset {
-        let mut cursor = self.content.cursor::<CharOffset, BufferSummary>();
-
-        let summary = cursor.summary::<BufferSummary>(&offset, SeekBias::Right);
-        let target_marker_count = summary.block.block;
-        let mut block_cursor = self.content.cursor::<BlockCount, CharOffset>();
-
-        block_cursor.seek(&target_marker_count, SeekBias::Left);
-        *block_cursor.start() + CharOffset::from(1)
     }
 
     /// Returns the ending character offset of the block that contains the given
@@ -1338,7 +1176,7 @@ impl Buffer {
             log::debug!("Selection changed; emitting an update.");
             ctx.emit(BufferEvent::SelectionChanged {
                 active_text_styles: updated.active_text_styles,
-                active_block_type: updated.active_block_type,
+
                 should_autoscroll,
                 buffer_version: self.version,
             });
@@ -1516,8 +1354,7 @@ impl Buffer {
             active_text_styles: text_style_override.unwrap_or(
                 self.active_style_with_metadata_at_selection(selection_model.as_ref(ctx)),
             ),
-            active_block_type: self
-                .active_block_type_at_first_selection(selection_model.as_ref(ctx)),
+
             should_autoscroll: AutoScrollBehavior::None,
             buffer_version: self.version,
         });
@@ -1694,9 +1531,8 @@ impl Buffer {
         &self,
         range: Range<CharOffset>,
         boundary_behavior: StyledBlockBoundaryBehavior,
-    ) -> FormattedText {
-        BufferToFormattedText::new(self.styled_blocks_at(range, boundary_behavior))
-            .to_formatted_text()
+    ) -> VecDeque<EditorLine> {
+        BufferToEditorLines::new(self.styled_blocks_at(range, boundary_behavior)).to_editor_lines()
     }
 
     pub fn text_summary(&self) -> TextSummary {
@@ -1738,7 +1574,7 @@ impl Buffer {
     ) -> AnyMultilineString {
         let text = ranges.into_iter().map(|range| {
             let blocks = self
-                .styled_blocks_at(range, StyledBlockBoundaryBehavior::InclusiveBlockItems)
+                .styled_blocks_at(range, StyledBlockBoundaryBehavior::Exclusive)
                 .with_line_end_mode(line_ending_mode);
             blocks
                 .into_iter()
@@ -1936,12 +1772,7 @@ impl Buffer {
                 continue;
             }
 
-            let block_type = self.block_type_at_point(line_start);
-
-            let block_style = match block_type {
-                BlockType::Item(_) => continue,
-                BlockType::Text(style) => style,
-            };
+            let block_style = BufferBlockStyle::PlainText;
 
             let offset = self.non_tab_stop_offset_at_line(line_start, &block_style);
             let col_idx = offset.to_buffer_point(self).column;
@@ -1953,13 +1784,9 @@ impl Buffer {
             editor_actions.push((
                 line,
                 CoreEditorActionType::Insert {
-                    text: convert_text_with_style_to_formatted_text(
-                        prefix,
-                        TextStyles::default(),
-                        block_style,
-                    ),
+                    text: convert_text_with_style_to_formatted_text(prefix, TextStyles::default()),
                     source: EditOrigin::UserInitiated,
-                    override_next_style: false,
+
                     insert_on_selection: true,
                 },
             ));
@@ -2002,12 +1829,7 @@ impl Buffer {
 
         for line in lines {
             let line_start = Point::new(line as u32, 0).to_buffer_char_offset(self);
-            let block_type = self.block_type_at_point(line_start);
-
-            let block_style = match block_type {
-                BlockType::Item(_) => continue,
-                BlockType::Text(style) => style,
-            };
+            let block_style = BufferBlockStyle::PlainText;
 
             let offset = self.non_tab_stop_offset_at_line(line_start, &block_style);
 
@@ -2037,13 +1859,9 @@ impl Buffer {
                 editor_action_set.push(CoreEditorAction::new(
                     offset..offset + delta,
                     CoreEditorActionType::Insert {
-                        text: convert_text_with_style_to_formatted_text(
-                            "",
-                            TextStyles::default(),
-                            block_style,
-                        ),
+                        text: convert_text_with_style_to_formatted_text("", TextStyles::default()),
                         source: EditOrigin::UserInitiated,
-                        override_next_style: false,
+
                         insert_on_selection: true,
                     },
                 ));
@@ -2073,246 +1891,6 @@ impl Buffer {
             .as_offset()
     }
 
-    fn block_style_editor_actions(
-        &self,
-        range: Range<CharOffset>,
-        style: BufferBlockStyle,
-    ) -> Vec<CoreEditorAction> {
-        let cursor = self.content.cursor::<CharOffset, BufferSummary>();
-        let mut buffer_cursor = BufferCursor::new(cursor);
-        buffer_cursor.seek_to_offset_after_markers(range.start);
-
-        let mut editor_action_set = Vec::new();
-
-        // Set up the start of the styling range to make sure the subsequent styling actions are valid.
-        // We are doing two things here:
-        // 1) Insert newline if range start is at beginning of the buffer or in the middle of a paragraph.
-        // 2) Insert newline if range end is at the end of the buffer or in the middle of a paragraph.
-        let mut style_start = self.block_or_line_start(range.start);
-        let line_start = self.containing_line_start(range.start);
-        let start_block_type = self.block_type_at_point(range.start);
-
-        if !style.allows_formatting() {
-            // If the block style range start is at the start of a line, we need to unstyle the previous linebreak
-            // as well to make sure the previous styles do not get leaked into the current block.
-            let unstyle_range = if range.start == style_start {
-                (style_start - 1)..range.end
-            } else {
-                range.clone()
-            };
-            editor_action_set
-                .extend(self.unstyle_internal_editor_actions(unstyle_range, TextStyles::all()));
-        }
-
-        let new_line_before_block_styling = if start_block_type != BlockType::Text(style.clone())
-            && (range.start == CharOffset::zero() || range.start > line_start)
-        {
-            editor_action_set.push(CoreEditorAction::new(
-                range.start..range.start,
-                CoreEditorActionType::Insert {
-                    text: FormattedText::new([FormattedTextLine::LineBreak]),
-                    source: EditOrigin::UserTyped,
-                    override_next_style: false,
-                    insert_on_selection: true,
-                },
-            ));
-            style_start = range.start;
-            range.start
-        } else {
-            range.start - 1
-        };
-
-        let mut style_end = self.block_or_line_end(range.end);
-        let line_end = self.containing_line_end(range.end);
-        let end_block_type = self.block_type_at_point(range.end);
-
-        if end_block_type != BlockType::Text(style.clone())
-            && (range.end >= self.max_charoffset() || range.end < line_end - 1)
-        {
-            editor_action_set.push(CoreEditorAction::new(
-                range.end..range.end,
-                CoreEditorActionType::Insert {
-                    text: FormattedText::new([FormattedTextLine::LineBreak]),
-                    source: EditOrigin::UserTyped,
-                    override_next_style: false,
-                    insert_on_selection: true,
-                },
-            ));
-            style_end = range.end + 1;
-        }
-
-        fn push_existing_range_to_editor_action_set(
-            buffer: &Buffer,
-            editor_action_set: &mut Vec<CoreEditorAction>,
-            style_start: CharOffset,
-            style_end: CharOffset,
-            style: &BufferBlockStyle,
-        ) {
-            // Make sure the decoration range is valid.
-            if style_end < style_start {
-                return;
-            }
-            if style.line_break_behavior() == BlockLineBreakBehavior::NewLine {
-                editor_action_set.push(CoreEditorAction::new(
-                    style_start..style_end,
-                    CoreEditorActionType::StyleBlock(style.clone()),
-                ));
-            } else {
-                // If the block style only supports single line, we need to style each line individually.
-                editor_action_set.extend(
-                    buffer
-                        .line_ranges_in_range(style_start..style_end)
-                        .into_iter()
-                        .map(|range| {
-                            CoreEditorAction::new(
-                                range,
-                                CoreEditorActionType::StyleBlock(style.clone()),
-                            )
-                        }),
-                );
-            }
-        }
-
-        let mut style_reapply_actions = Vec::new();
-
-        // Unstyle any code block that overlaps with the styling range. If a block range has
-        // section that doesn't need to be re-styled, we need to record their range and style so
-        // we could restore their style at the end.
-        while buffer_cursor.item().is_some() {
-            let summary = buffer_cursor.start();
-            let offset = summary.text.chars;
-            let active_block_type = self.block_type_at_point(offset);
-
-            let block_end = self.containing_block_end(offset);
-
-            if let BlockType::Text(active_block_style) = active_block_type {
-                if active_block_style != BufferBlockStyle::PlainText {
-                    // If the active block is single line only, we don't need to restyle the entire
-                    // block if range.start is after block start since we would have inserted a newline
-                    // to create a new block already.
-                    let block_start = if active_block_style.line_break_behavior()
-                        == BlockLineBreakBehavior::NewLine
-                    {
-                        self.containing_block_start(offset)
-                    } else {
-                        self.containing_block_start(offset).max(range.start)
-                    };
-                    let re_style_end = block_end.min(style_end);
-
-                    editor_action_set.push(CoreEditorAction::new(
-                        block_start..re_style_end - 1,
-                        CoreEditorActionType::StyleBlock(BufferBlockStyle::PlainText),
-                    ));
-
-                    if block_start < new_line_before_block_styling && active_block_style != style {
-                        style_reapply_actions.push(CoreEditorAction::new(
-                            block_start..new_line_before_block_styling,
-                            CoreEditorActionType::StyleBlock(active_block_style.clone()),
-                        ));
-                    }
-
-                    if re_style_end > range.end + 2 && active_block_style != style {
-                        style_reapply_actions.push(CoreEditorAction::new(
-                            range.end + 1..re_style_end - 1,
-                            CoreEditorActionType::StyleBlock(active_block_style),
-                        ));
-                    }
-                }
-            } else if style != BufferBlockStyle::PlainText {
-                // We should not decorate the rich block item. Push the existing ranges
-                // to the editor_action_set.
-                push_existing_range_to_editor_action_set(
-                    self,
-                    &mut editor_action_set,
-                    style_start,
-                    offset - 1,
-                    &style,
-                );
-
-                style_start = block_end;
-            }
-
-            if block_end > range.end {
-                break;
-            }
-
-            buffer_cursor.seek_to_offset_after_markers(block_end);
-        }
-        drop(buffer_cursor);
-
-        if style != BufferBlockStyle::PlainText {
-            push_existing_range_to_editor_action_set(
-                self,
-                &mut editor_action_set,
-                style_start,
-                style_end - 1,
-                &style,
-            );
-            editor_action_set.push(self.update_buffer_end(style_end - 1));
-        }
-
-        editor_action_set.extend(style_reapply_actions);
-        editor_action_set
-    }
-
-    /// Remove the provided `text_style` from the given range in the buffer.
-    /// This is a no-op if the given range is not decorated with `text_style`.
-    fn unstyle_internal_editor_actions(
-        &self,
-        range: Range<CharOffset>,
-        text_style: TextStyles,
-    ) -> Vec<CoreEditorAction> {
-        let mut editor_action_set = Vec::new();
-
-        let mut handled_weight = false;
-        for style in all::<BufferTextStyle>() {
-            let is_weight = style.has_custom_weight();
-            if is_weight && handled_weight {
-                continue;
-            }
-            if text_style.exact_match_style(&style) {
-                handled_weight |= is_weight;
-                // We only want to unstyle the sub-ranges that has been styled with the target text style.
-                let cursor = self.content.cursor::<CharOffset, BufferSummary>();
-                let mut buffer_cursor = BufferCursor::new(cursor);
-                buffer_cursor.seek_to_offset_after_markers(range.start);
-                let mut unstyle_range_start = None;
-
-                while buffer_cursor.item().is_some() {
-                    let summary = buffer_cursor.start();
-                    let active_style = summary.style_summary().text_styles();
-                    let offset = buffer_cursor.offset();
-
-                    if offset >= range.end {
-                        break;
-                    }
-
-                    if !active_style.exact_match_style(&style) {
-                        if let Some(start) = unstyle_range_start.take() {
-                            editor_action_set.push(CoreEditorAction::new(
-                                start..offset,
-                                CoreEditorActionType::UnstyleText(style),
-                            ))
-                        }
-                    } else if unstyle_range_start.is_none() {
-                        unstyle_range_start = Some(offset);
-                    }
-
-                    buffer_cursor.seek_to_offset_after_markers(offset + 1);
-                }
-
-                if let Some(start) = unstyle_range_start.take() {
-                    editor_action_set.push(CoreEditorAction::new(
-                        start..range.end,
-                        CoreEditorActionType::UnstyleText(style),
-                    ))
-                }
-            }
-        }
-
-        editor_action_set
-    }
-
     /// Indents all lines in the given range. This will follow each block's [`IndentBehavior`].
     /// We also support indent multiple units in one action if the block's indent behavior is tab indent.
     fn indent(
@@ -2331,55 +1909,46 @@ impl Buffer {
                 let mut line_end = buffer.containing_line_end(range.start);
 
                 while line_start <= range.end {
-                    match buffer.block_type_at_point(line_start) {
-                        BlockType::Item(_) => (),
-                        BlockType::Text(block_style) => {
-                            match (buffer.tab_indentation)(&block_style, false) {
-                                IndentBehavior::Restyle(new_style) => {
-                                    editor_action_set.push(CoreEditorAction::new(
-                                        line_start..line_end - 1,
-                                        CoreEditorActionType::StyleBlock(new_style),
-                                    ))
-                                }
-                                IndentBehavior::TabIndent(indent_unit) => {
-                                    // For a single cursor, tab at the cursor location (which must be in this
-                                    // line). Otherwise, indent the entire line, starting at the first
-                                    // non-whitespace character.
-                                    let current_tab_stop = if range.start == range.end {
-                                        TabStop::from_offset(
-                                            range.start,
-                                            line_start,
-                                            indent_unit.width(),
-                                        )
-                                    } else {
-                                        LineIndentation::from_line_start(buffer, line_start)
-                                            .leading_indentation(indent_unit.width())
-                                    };
-                                    let tab_start = current_tab_stop.as_offset();
-                                    let tab_width = current_tab_stop.to_next();
+                    {
+                        let block_style = BufferBlockStyle::PlainText;
+                        match (buffer.tab_indentation)(&block_style, false) {
+                            IndentBehavior::TabIndent(indent_unit) => {
+                                // For a single cursor, tab at the cursor location (which must be in this
+                                // line). Otherwise, indent the entire line, starting at the first
+                                // non-whitespace character.
+                                let current_tab_stop = if range.start == range.end {
+                                    TabStop::from_offset(
+                                        range.start,
+                                        line_start,
+                                        indent_unit.width(),
+                                    )
+                                } else {
+                                    LineIndentation::from_line_start(buffer, line_start)
+                                        .leading_indentation(indent_unit.width())
+                                };
+                                let tab_start = current_tab_stop.as_offset();
+                                let tab_width = current_tab_stop.to_next();
 
-                                    let base_text = indent_unit.text_with_num_tab_stops(1);
-                                    let mut text = base_text[..tab_width].to_string();
-                                    if unit > 1 {
-                                        text.push_str(&base_text.repeat((unit - 1) as usize));
-                                    }
-
-                                    editor_action_set.push(CoreEditorAction::new(
-                                        tab_start..tab_start,
-                                        CoreEditorActionType::Insert {
-                                            text: convert_text_with_style_to_formatted_text(
-                                                &text,
-                                                Default::default(),
-                                                block_style,
-                                            ),
-                                            source: EditOrigin::UserTyped,
-                                            override_next_style: false,
-                                            insert_on_selection: true,
-                                        },
-                                    ))
+                                let base_text = indent_unit.text_with_num_tab_stops(1);
+                                let mut text = base_text[..tab_width].to_string();
+                                if unit > 1 {
+                                    text.push_str(&base_text.repeat((unit - 1) as usize));
                                 }
-                                IndentBehavior::Ignore => (),
+
+                                editor_action_set.push(CoreEditorAction::new(
+                                    tab_start..tab_start,
+                                    CoreEditorActionType::Insert {
+                                        text: convert_text_with_style_to_formatted_text(
+                                            &text,
+                                            Default::default(),
+                                        ),
+                                        source: EditOrigin::UserTyped,
+
+                                        insert_on_selection: true,
+                                    },
+                                ))
                             }
+                            IndentBehavior::Ignore => (),
                         }
                     }
 
@@ -2415,39 +1984,29 @@ impl Buffer {
                 let mut line_end = buffer.containing_line_end(range.start);
 
                 while line_start <= range.end {
-                    match buffer.block_type_at_point(line_start) {
-                        BlockType::Item(_) => (),
-                        BlockType::Text(block_style) => {
-                            match (buffer.tab_indentation)(&block_style, true) {
-                                IndentBehavior::Restyle(new_style) => {
-                                    editor_action_set.push(CoreEditorAction::new(
-                                        line_start..line_end - 1,
-                                        CoreEditorActionType::StyleBlock(new_style),
-                                    ))
-                                }
-                                IndentBehavior::TabIndent(indent_unit) => {
-                                    let indentation =
-                                        LineIndentation::from_line_start(buffer, line_start);
+                    {
+                        let block_style = BufferBlockStyle::PlainText;
+                        match (buffer.tab_indentation)(&block_style, true) {
+                            IndentBehavior::TabIndent(indent_unit) => {
+                                let indentation =
+                                    LineIndentation::from_line_start(buffer, line_start);
 
-                                    if let Some(to_remove) =
-                                        indentation.unindent(indent_unit.width())
-                                    {
-                                        editor_action_set.push(CoreEditorAction::new(
-                                            to_remove,
-                                            CoreEditorActionType::Insert {
-                                                text: FormattedText::new([]),
-                                                source: EditOrigin::UserTyped,
-                                                override_next_style: false,
-                                                // We need to set insert_on_selection to false since the edit could happen outside of the
-                                                // active selection anchor (e.g. unindenting in the middle of an indentation range). This
-                                                // allows the buffer to clamp the anchor instead of invalidating it.
-                                                insert_on_selection: false,
-                                            },
-                                        ));
-                                    }
+                                if let Some(to_remove) = indentation.unindent(indent_unit.width()) {
+                                    editor_action_set.push(CoreEditorAction::new(
+                                        to_remove,
+                                        CoreEditorActionType::Insert {
+                                            text: VecDeque::new(),
+                                            source: EditOrigin::UserTyped,
+
+                                            // We need to set insert_on_selection to false since the edit could happen outside of the
+                                            // active selection anchor (e.g. unindenting in the middle of an indentation range). This
+                                            // allows the buffer to clamp the anchor instead of invalidating it.
+                                            insert_on_selection: false,
+                                        },
+                                    ));
                                 }
-                                IndentBehavior::Ignore => (),
                             }
+                            IndentBehavior::Ignore => (),
                         }
                     }
 
@@ -2483,8 +2042,10 @@ impl Buffer {
     }
 
     pub fn indented_line_delta(&self, line_start: CharOffset) -> Option<CharOffset> {
-        if matches!(self.block_type_at_point(line_start), BlockType::Text(text_type) if matches!((self.tab_indentation)(&text_type, false), IndentBehavior::TabIndent(_)))
-        {
+        if matches!(
+            (self.tab_indentation)(&BufferBlockStyle::PlainText, false),
+            IndentBehavior::TabIndent(_)
+        ) {
             Some(LineIndentation::from_line_start(self, line_start).indent_length())
         } else {
             None
@@ -2493,9 +2054,8 @@ impl Buffer {
 
     /// Return the number of tab stops a line in the buffer has.
     pub fn indented_line_tab_stops(&self, line_start: CharOffset) -> Option<usize> {
-        if let BlockType::Text(text_type) = self.block_type_at_point(line_start)
-            && let IndentBehavior::TabIndent(indentation) =
-                (self.tab_indentation)(&text_type, false)
+        if let IndentBehavior::TabIndent(indentation) =
+            (self.tab_indentation)(&BufferBlockStyle::PlainText, false)
         {
             return Some(
                 LineIndentation::from_line_start(self, line_start)
@@ -2507,8 +2067,8 @@ impl Buffer {
     }
 
     pub fn indented_units_at_offset(&self, offset: CharOffset) -> Option<u8> {
-        if let BlockType::Text(text_type) = self.block_type_at_point(offset)
-            && let IndentBehavior::TabIndent(unit) = (self.tab_indentation)(&text_type, false)
+        if let IndentBehavior::TabIndent(unit) =
+            (self.tab_indentation)(&BufferBlockStyle::PlainText, false)
         {
             let point = offset.to_buffer_point(self);
             let line_start = self.containing_line_start(offset);
@@ -2535,69 +2095,32 @@ impl Buffer {
             |buffer, selection, selection_model, _index| {
                 let range = selection_model.selection_to_offset_range(selection);
                 let backspace_range = if selection_model.selection_is_single_cursor(selection) {
-                    match buffer.block_type_at_point(range.start) {
-                        // When the cursor is on the block marker right after block item, replace the block marker
-                        // and the block item with newline.
-                        BlockType::Text(BufferBlockStyle::PlainText)
-                            if matches!(
-                                buffer.block_type_at_point(
-                                    range.start.saturating_sub(&CharOffset::from(1))
-                                ),
-                                BlockType::Item(_)
-                            ) =>
-                        {
-                            Some(range.start - 2..range.start - 1)
-                        }
-                        // When cursor is at the start of a block type, backspacing should remove any active block style.
-                        BlockType::Text(style)
-                            if style != BufferBlockStyle::PlainText
-                                && buffer.containing_block_start(range.start) == range.start =>
-                        {
-                            let block_end = buffer.block_or_line_end(range.start);
-                            let actions = buffer.block_style_editor_actions(
-                                range.start..block_end - 1,
-                                BufferBlockStyle::PlainText,
-                            );
-                            return ActionWithSelectionDelta::new_for_cursor(
-                                actions,
-                                &mut buffer.internal_anchors,
-                                range.start,
-                                0,
-                            );
-                        }
-                        BlockType::Text(style) => {
-                            match (buffer.tab_indentation)(&style, true) {
-                                IndentBehavior::TabIndent(indent_unit) => {
-                                    // If we're within or just after the leading whitespace of an indentable block,
-                                    // remove indentation to the previous tab stop. To do that, figure out what
-                                    // we'd remove assuming the cursor is within the leading indentation, and
-                                    // confirm that it's in bounds.
-                                    let indentation = LineIndentation::from_line_start(
-                                        buffer,
-                                        buffer.containing_line_start(range.start),
-                                    );
+                    {
+                        let style = BufferBlockStyle::PlainText;
+                        match (buffer.tab_indentation)(&style, true) {
+                            IndentBehavior::TabIndent(indent_unit) => {
+                                // If we're within or just after the leading whitespace of an indentable block,
+                                // remove indentation to the previous tab stop. To do that, figure out what
+                                // we'd remove assuming the cursor is within the leading indentation, and
+                                // confirm that it's in bounds.
+                                let indentation = LineIndentation::from_line_start(
+                                    buffer,
+                                    buffer.containing_line_start(range.start),
+                                );
 
-                                    if range.start <= indentation.first_character() {
-                                        TabStop::from_offset(
-                                            range.start,
-                                            indentation.line_start,
-                                            indent_unit.width(),
-                                        )
-                                        .unindent_range()
-                                    } else {
-                                        None
-                                    }
+                                if range.start <= indentation.first_character() {
+                                    TabStop::from_offset(
+                                        range.start,
+                                        indentation.line_start,
+                                        indent_unit.width(),
+                                    )
+                                    .unindent_range()
+                                } else {
+                                    None
                                 }
-                                _ => None,
                             }
+                            _ => None,
                         }
-                        // When the cursor is right after a starting block item. User should be able to hit backspace
-                        // and delete it. Use an override range here since `extend_selection_left` caps selection start
-                        // to CharOffset::from(1).
-                        BlockType::Item(_) if range.start == CharOffset::from(1) => {
-                            Some(range.start - 1..range.start)
-                        }
-                        _ => None,
                     }
                 } else {
                     // If there's a selection, we delete it as-is.
@@ -2653,105 +2176,6 @@ impl Buffer {
         )
     }
 
-    fn offset_at_block_item(&self, offset: CharOffset) -> bool {
-        let style = self.block_type_at_point(offset);
-        matches!(style, BlockType::Item(_))
-    }
-
-    /// Whether or not the current selection is a single cursor at the start of an empty
-    /// list item.
-    /// Checks if the cursor is at an empty list supporting styling on backspace.
-    /// If it is, return the new block style.
-    pub fn offset_at_empty_list_styling(&self, offset: CharOffset) -> Option<BufferBlockStyle> {
-        let block_type = self.block_type_at_point(offset);
-
-        if let BlockType::Text(style) = block_type
-            && offset == self.containing_line_start(offset)
-            && offset == self.containing_line_end(offset) - 1
-        {
-            return match style {
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                }
-                | BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::One,
-                    ..
-                }
-                | BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::One,
-                    ..
-                } => Some(BufferBlockStyle::PlainText),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Two,
-                } => Some(BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::One,
-                }),
-                BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::Two,
-                    number,
-                } => Some(BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::One,
-                    number,
-                }),
-                BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Three,
-                } => Some(BufferBlockStyle::UnorderedList {
-                    indent_level: ListIndentLevel::Two,
-                }),
-                BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::Three,
-                    number,
-                } => Some(BufferBlockStyle::OrderedList {
-                    indent_level: ListIndentLevel::Two,
-                    number,
-                }),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::Two,
-                    complete,
-                } => Some(BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::One,
-                    complete,
-                }),
-                BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::Three,
-                    complete,
-                } => Some(BufferBlockStyle::TaskList {
-                    indent_level: ListIndentLevel::Two,
-                    complete,
-                }),
-                _ => None,
-            };
-        }
-
-        None
-    }
-
-    /// Helper for Enter at the start of a block. If the user presses Enter at the start of a
-    /// heading or code block, we insert a plain-text block _above_ the cursor location.
-    ///
-    /// For a heading, the default behavior would insert a `<text>` marker between the heading
-    /// marker and the heading text, effectively pushing the text out of the heading (which is
-    /// undesirable).
-    ///
-    /// For a code block, the default behavior inserts a new line within the code block. If the
-    /// code block is at the start of the buffer, this makes it difficult to insert new blocks
-    /// above the code block.
-    pub fn offset_at_block_start_styling(&self, offset: CharOffset) -> Option<BufferBlockStyle> {
-        if self.block_start(offset) == offset {
-            match self.block_type_at_point(offset) {
-                BlockType::Text(BufferBlockStyle::Header { .. }) => {
-                    Some(BufferBlockStyle::PlainText)
-                }
-                BlockType::Text(BufferBlockStyle::CodeBlock { .. }) => {
-                    Some(BufferBlockStyle::PlainText)
-                }
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
     /// Enter action. This generally inserts a new line, but has special interactions with
     /// certain block types:
     /// * Enter at the start of an empty list item un-indents it
@@ -2760,7 +2184,7 @@ impl Buffer {
     /// If `force_newline` is `true`, the special interactions are disabled.
     fn enter(
         &mut self,
-        force_newline: bool,
+        _force_newline: bool,
         text_style: TextStyles,
         selection_model: ModelHandle<BufferSelectionModel>,
         ctx: &mut ModelContext<Self>,
@@ -2769,77 +2193,7 @@ impl Buffer {
             selection_model,
             |buffer, selection, selection_model, _index| {
                 let range = selection_model.selection_to_offset_range(selection);
-                let is_cursor = range.start == range.end;
-                if is_cursor && buffer.offset_at_block_item(range.start) {
-                    // Enter at the end of a BlockItem should be treated as inserting a linebreak.
-                    let actions = vec![CoreEditorAction::new(
-                        range.start..range.start,
-                        CoreEditorActionType::Insert {
-                            text: FormattedText::new([FormattedTextLine::LineBreak]),
-                            source: EditOrigin::UserInitiated,
-                            override_next_style: false,
-                            insert_on_selection: true,
-                        },
-                    )];
-                    ActionWithSelectionDelta::new_for_cursor(
-                        actions,
-                        &mut buffer.internal_anchors,
-                        range.start,
-                        1,
-                    )
-                } else if force_newline {
-                    buffer.replacement_actions(range, "\n", text_style)
-                } else if is_cursor {
-                    if let Some(style) = buffer.offset_at_empty_list_styling(range.start) {
-                        let cursor_start = range.start;
-                        let actions = buffer.block_style_editor_actions(range, style);
-                        ActionWithSelectionDelta::new_for_cursor(
-                            actions,
-                            &mut buffer.internal_anchors,
-                            cursor_start,
-                            0,
-                        )
-                    } else if let Some(next_style) =
-                        buffer.offset_at_block_start_styling(range.start)
-                    {
-                        // If the cursor is at the start of a styled block, we want to keep the block's style applied
-                        // to its content, and instead add a newline above it. For certain block types, this
-                        // needs special handling, as the default linebreak behavior would shift the block's
-                        // content surprisingly.
-
-                        let marker_offset = range.start.saturating_sub(&1.into());
-                        let actions = vec![
-                            CoreEditorAction::new(
-                                marker_offset..marker_offset,
-                                CoreEditorActionType::Insert {
-                                    text: FormattedText::new([FormattedTextLine::LineBreak]),
-                                    source: EditOrigin::UserInitiated,
-                                    override_next_style: false,
-                                    insert_on_selection: true,
-                                },
-                            ),
-                            CoreEditorAction::new(
-                                marker_offset..marker_offset,
-                                CoreEditorActionType::StyleBlock(next_style),
-                            )
-                            .with_end_anchor_bias(AnchorSide::Left),
-                        ];
-                        ActionWithSelectionDelta::new_for_cursor(
-                            actions,
-                            &mut buffer.internal_anchors,
-                            range.start,
-                            0,
-                        )
-                    } else {
-                        // The default behavior is to insert a new line. edit_internal will add a newline
-                        // character or block marker as needed.
-                        buffer.replacement_actions(range, "\n", text_style)
-                    }
-                } else {
-                    // The default behavior is to insert a new line. edit_internal will add a newline
-                    // character or block marker as needed.
-                    buffer.replacement_actions(range, "\n", text_style)
-                }
+                buffer.replacement_actions(range, "\n", text_style)
             },
             ctx,
         )
@@ -2889,13 +2243,9 @@ impl Buffer {
             CoreEditorAction::new(
                 range.clone(),
                 CoreEditorActionType::Insert {
-                    text: convert_text_with_style_to_formatted_text(
-                        content,
-                        TextStyles::default(),
-                        BufferBlockStyle::PlainText,
-                    ),
+                    text: convert_text_with_style_to_formatted_text(content, TextStyles::default()),
                     source: EditOrigin::UserTyped,
-                    override_next_style: false,
+
                     insert_on_selection: false,
                 },
             )
@@ -3016,16 +2366,7 @@ impl Buffer {
         SelectionSnapshot {
             selections: selection_model.selection_offsets(),
             active_text_styles: self.active_style_with_metadata_at_selection(selection_model),
-            active_block_type: self.active_block_type_at_first_selection(selection_model),
         }
-    }
-
-    // Todo: kc (CLD1018) - Temporary until multiselect is fully implemented.
-    pub fn active_block_type_at_first_selection(
-        &self,
-        selection_model: &BufferSelectionModel,
-    ) -> BlockType {
-        self.active_block_type_at_selection(selection_model.selection(), selection_model)
     }
 
     pub(super) fn active_style_with_metadata_at_selection(
@@ -3042,15 +2383,6 @@ impl Buffer {
             })
             .reduce(|style1, style2| style1.mutual_styles(style2))
             .expect("At least one style range should exist.")
-    }
-
-    pub fn active_block_type_at_selection(
-        &self,
-        selection: &Selection,
-        selection_model: &BufferSelectionModel,
-    ) -> BlockType {
-        let range = selection_model.selection_to_offset_range(selection);
-        self.block_type_at_point(range.start)
     }
 
     pub(super) fn modify_first_selection(
@@ -3132,13 +2464,9 @@ impl Buffer {
             CoreEditorAction::new(
                 range.clone(),
                 CoreEditorActionType::Insert {
-                    text: convert_text_with_style_to_formatted_text(
-                        content,
-                        TextStyles::default(),
-                        BufferBlockStyle::PlainText,
-                    ),
+                    text: convert_text_with_style_to_formatted_text(content, TextStyles::default()),
                     source: EditOrigin::UserTyped,
-                    override_next_style: false,
+
                     insert_on_selection: false,
                 },
             )
@@ -3171,7 +2499,7 @@ impl Buffer {
         // were already updated by the AnchorUpdated event above.
         ctx.emit(BufferEvent::SelectionChanged {
             active_text_styles: TextStylesWithMetadata::default(),
-            active_block_type: BlockType::Text(BufferBlockStyle::PlainText),
+
             should_autoscroll: AutoScrollBehavior::None,
             buffer_version: self.version,
         });
@@ -3204,10 +2532,9 @@ impl Buffer {
                     text: convert_text_with_style_to_formatted_text(
                         text.as_ref(),
                         TextStyles::default(),
-                        BufferBlockStyle::PlainText,
                     ),
                     source: EditOrigin::UserTyped,
-                    override_next_style: false,
+
                     insert_on_selection: false, // We need insert_on_selection to be false here since we are replacing the entire buffer.
                 },
             ),
@@ -3268,87 +2595,17 @@ impl Buffer {
         );
 
         let mut new_cursor_delta = text.as_ref().chars().count();
-        // When inserting right after a block item, we are adding an extra block marker. Take that
-        // into consideration when calculating new cursor position.
-        if !text.as_ref().is_empty()
-            && (matches!(self.block_type_at_point(range.start), BlockType::Item(_))
-                || range.start == CharOffset::zero())
-        {
+        if !text.as_ref().is_empty() && range.start == CharOffset::zero() {
             new_cursor_delta += 1;
         }
-
-        let block_type_at_range_start = self.block_type_at_point(range.start);
-        let block_type_at_range_end = self.block_type_at_point(range.end);
-
-        // To make sure all core editor action is atomic and uniquely reversible. Edit could be broken down into four high-level steps:
-        // 1. If there is an active block style at the start of the edit range, unstyle it first.
-        // 2. If there is an active block style at the end of the edit range, unstyle it first.
-        // 3. Insert the new content into the replaced range.
-        // 4. If we have unstyled the start range, we need to reapply the block style.
-        let block_start = self.block_or_line_start(range.start);
-        let block_end = self.block_or_line_end(range.end);
-
-        let mut need_restyle = None;
-
-        let block_end_from_start = self.block_or_line_end(range.start);
-
-        if let BlockType::Text(block_style) = &block_type_at_range_start {
-            // If the start of the selection is at the beginning of a block and the edit range includes
-            // the entire block, we should remove its styling.
-            if block_style != &BufferBlockStyle::PlainText && range.end >= block_end_from_start {
-                editor_action_set.push(CoreEditorAction::new(
-                    block_start..block_end_from_start - 1,
-                    CoreEditorActionType::StyleBlock(BufferBlockStyle::PlainText),
-                ));
-                need_restyle = Some(block_style.clone());
-            }
-        }
-
-        let block_start_from_end = self.containing_block_start(range.end);
-        if let BlockType::Text(block_style) = block_type_at_range_end {
-            // If we are not removing the starting block's styling and the block style after the end
-            // of the selection is different, we need to style the end of selection to have consistent styling.
-            if block_style != BufferBlockStyle::PlainText && range.start < block_start_from_end {
-                let unstyle_range = block_start_from_end..block_end - 1;
-                editor_action_set.push(CoreEditorAction::new(
-                    unstyle_range,
-                    CoreEditorActionType::StyleBlock(BufferBlockStyle::PlainText),
-                ));
-            }
-        }
-
-        let inheritance_style = match block_type_at_range_start {
-            BlockType::Text(block_style) if need_restyle.is_none() => block_style,
-            _ => BufferBlockStyle::PlainText,
-        };
-
         editor_action_set.push(CoreEditorAction::new(
             range.clone(),
             CoreEditorActionType::Insert {
-                text: convert_text_with_style_to_formatted_text(
-                    text.as_ref(),
-                    text_style,
-                    inheritance_style,
-                ),
+                text: convert_text_with_style_to_formatted_text(text.as_ref(), text_style),
                 source: EditOrigin::UserTyped,
-                override_next_style: false,
                 insert_on_selection: true,
             },
         ));
-
-        if let Some(restyle) = need_restyle {
-            let style_end = if restyle.line_break_behavior() == BlockLineBreakBehavior::NewLine {
-                block_end
-            } else {
-                // For blocks that only support single lines, only convert the first line to
-                // match the style.
-                self.containing_line_end(range.end)
-            };
-            editor_action_set.push(CoreEditorAction::new(
-                block_start..style_end - 1,
-                CoreEditorActionType::StyleBlock(restyle),
-            ));
-        }
 
         editor_action_set.push(self.update_buffer_end(range.end));
 
@@ -3358,130 +2615,6 @@ impl Buffer {
             range.start,
             new_cursor_delta,
         )
-    }
-
-    pub(super) fn color_code_block_ranges_internal(
-        &mut self,
-        style_start: CharOffset,
-        colors: &[(Range<ByteOffset>, ColorU)],
-    ) -> EditResult {
-        debug_assert!(
-            matches!(
-                self.block_type_at_point(style_start),
-                BlockType::Text(BufferBlockStyle::CodeBlock { .. })
-            ),
-            "Trying to color code block at {style_start}, but range is not code block styled"
-        );
-        debug_assert!(
-            self.containing_block_start(style_start) == style_start || colors.is_empty(),
-            "Trying to apply color to code block at {style_start}, but range is not from start of the code block"
-        );
-
-        let style_end = self.containing_block_end(style_start);
-        let old_range = style_start..style_end;
-        let replaced_points = self.offset_range_to_point_range(old_range.clone());
-
-        // Style-only change—compute byte info before content modification.
-        let old_byte_start = old_range.start.to_buffer_byte_offset(self);
-        let old_byte_end = old_range.end.to_buffer_byte_offset(self);
-
-        let mut active_color_index = 0;
-
-        self.content = {
-            let cursor = self.content.cursor::<CharOffset, CharOffset>();
-            let mut buffer_cursor = BufferCursor::new(cursor);
-            let mut new_content = buffer_cursor.slice_to_offset_before_markers(style_start);
-            let started_colored = new_content
-                .summary()
-                .style_summary()
-                .text_styles()
-                .is_colored();
-
-            let mut byte_index = ByteOffset::from(0);
-            let mut active_color = None;
-            let mut is_first_item = true;
-            while let Some(item) = buffer_cursor.item() {
-                // If current buffer cursor is at the end of the styling and the current item is not a color marker (taking
-                // into account trailing color end markers). Break out of the loop.
-                if buffer_cursor.offset() >= style_end - 1 && !matches!(item, BufferText::Color(_))
-                {
-                    break;
-                }
-
-                // First, end any text color that has finished. Move to the next active color index.
-                match colors.get(active_color_index) {
-                    Some((color_range, _))
-                        if color_range.end <= byte_index && active_color.is_some() =>
-                    {
-                        new_content.push(BufferText::Color(ColorMarker::End));
-                        active_color = None;
-                        active_color_index += 1;
-                    }
-                    _ if started_colored && is_first_item => {
-                        new_content.push(BufferText::Color(ColorMarker::End));
-                    }
-                    _ => (),
-                };
-
-                is_first_item = false;
-
-                // Check if we are starting any new text color.
-                match colors.get(active_color_index) {
-                    Some((color_range, color))
-                        if color_range.start == byte_index && active_color != Some(*color) =>
-                    {
-                        new_content.push(BufferText::Color(ColorMarker::Start(*color)));
-                        active_color = Some(*color);
-                    }
-                    _ => (),
-                };
-
-                if let Some(c) = buffer_cursor.char() {
-                    byte_index += c.len_utf8();
-                    new_content.append_str(&c.to_string());
-                    buffer_cursor.next_char_position()
-                } else {
-                    buffer_cursor.next()
-                }
-            }
-
-            // Make sure we don't leave any unclosed color ranges.
-            if let Some((color_range, _)) = colors.get(active_color_index)
-                && color_range.end >= byte_index
-                && active_color.is_some()
-            {
-                new_content.push(BufferText::Color(ColorMarker::End));
-            }
-
-            new_content.push_tree(buffer_cursor.suffix());
-            new_content
-        };
-
-        let new_byte_length = old_range
-            .end
-            .to_buffer_byte_offset(self)
-            .as_usize()
-            .saturating_sub(old_byte_start.as_usize());
-        let new_end_point = old_range.end.to_buffer_point(self);
-
-        EditResult {
-            undo_item: None,
-            delta: Some(EditDelta {
-                precise_deltas: vec![PreciseDelta {
-                    replaced_range: old_range.clone(),
-                    replaced_points,
-                    resolved_range: old_range.clone(),
-                    replaced_byte_range: old_byte_start..old_byte_end,
-                    new_byte_length,
-                    new_end_point,
-                }],
-                old_offset: old_range.clone(),
-                new_lines: Arc::new(
-                    self.styled_blocks_in_range(old_range, StyledBlockBoundaryBehavior::Exclusive),
-                ),
-            }),
-            anchor_updates: vec![],
-        }
     }
 
     pub fn bytes_in_range(&self, start: ByteOffset, end: ByteOffset) -> Bytes<'_> {
@@ -3723,23 +2856,15 @@ impl Buffer {
                 // Clamp to the end of the buffer.
                 insert_point = insert_point.min(buffer.max_charoffset());
 
-                let block_type = buffer.block_type_at_point(head);
-                let inheritance_block_style = match block_type {
-                    BlockType::Text(style) => style,
-                    BlockType::Item(_) => BufferBlockStyle::PlainText,
-                };
-                let formatted = convert_text_with_style_to_formatted_text(
-                    &text,
-                    TextStyles::default(),
-                    inheritance_block_style,
-                );
+                let formatted =
+                    convert_text_with_style_to_formatted_text(&text, TextStyles::default());
 
                 let actions = vec![CoreEditorAction::new(
                     insert_point..insert_point,
                     CoreEditorActionType::Insert {
                         text: formatted,
                         source: EditOrigin::UserInitiated,
-                        override_next_style: false,
+
                         insert_on_selection: true,
                     },
                 )];
@@ -3872,22 +2997,18 @@ pub struct StyledBufferRun {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum StyledBufferBlock {
-    Item(BufferBlockItem),
     Text(StyledTextBlock),
 }
 
 impl StyledBufferBlock {
-    // Plain text with block items serialized as internal Markdown references.
     fn content(&self) -> String {
         match &self {
-            Self::Item(item_type) => item_type.as_markdown().to_string(),
             Self::Text(text_block) => text_block.text(),
         }
     }
 
     pub fn content_length(&self) -> CharOffset {
         match &self {
-            Self::Item(_) => CharOffset::from(1),
             Self::Text(text_block) => text_block.content_length,
         }
     }
@@ -3919,27 +3040,7 @@ pub struct StyledBufferBlocks<'a> {
     line_end_mode: LineEnding,
 }
 
-/// Behavior for the [`StyledBufferBlocks`] iterator at block boundaries. In the buffer, block
-/// boundaries are marked by block markers, block items, or newlines.
-///
-/// ### Examples
-///
-/// Assume the following buffer:
-///
-/// ```text
-/// <text>Hello<code:Shell>echo hello<hr><ul0>First<ul0>Second<text>
-/// ````
-///
-/// Given the range 3..7:
-/// * `Exclusive` and `InclusiveBlockItems` result in a text block containing "llo\n"
-/// * `Inclusive` results in a text block containing "llo\n" and an empty shell block
-///
-/// Given the range 7..18:
-/// * `Exclusive` results in a shell block containing "echo hello\n"
-/// * `Inclusive` and `InclusiveBlockItems` result in a shell block containing "echo hello\n" and a
-///   horizontal rule item
-///
-/// Given the range 19..24, all result in an unordered list block containing "First" (no newline).
+/// Behavior for paragraph iteration at an exact line boundary.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum StyledBlockBoundaryBehavior {
     /// The iteration range is exclusive. If the range ends at a block boundary, the previous block
@@ -3953,13 +3054,10 @@ pub enum StyledBlockBoundaryBehavior {
     ///
     /// This is useful when converting to [`FormattedText`].
     Inclusive,
-    /// As [`StyledBlockBoundaryBehavior::Inclusive`], but only if the range ends at a block item.
-    InclusiveBlockItems,
 }
 
 #[derive(Debug)]
 enum ActiveStyledBlock {
-    Item(BufferBlockItem),
     Text {
         block: ActiveTextBlock,
         start_offset: CharOffset,
@@ -3992,21 +3090,13 @@ impl<'a> StyledBufferBlocks<'a> {
         // if the boundary behavior is inclusive, we should return the StyledBufferBlock with
         // the block item / empty styled block instead of terminating right away.
         let should_preserve_initial_block = buffer_cursor.prev_item().is_none()
-            && matches!(
-                boundary_behavior,
-                StyledBlockBoundaryBehavior::Inclusive
-                    | StyledBlockBoundaryBehavior::InclusiveBlockItems
-            );
+            && matches!(boundary_behavior, StyledBlockBoundaryBehavior::Inclusive);
 
         let initial_block = match buffer_cursor.prev_item() {
             None => {
                 // We're at the start of the buffer, so the current item is the first block
                 // marker or item.
                 match buffer_cursor.item() {
-                    Some(BufferText::BlockItem { item_type }) => {
-                        buffer_cursor.next();
-                        ActiveStyledBlock::Item(item_type.clone())
-                    }
                     Some(BufferText::BlockMarker { marker_type }) => {
                         buffer_cursor.next();
                         ActiveStyledBlock::Text {
@@ -4030,22 +3120,8 @@ impl<'a> StyledBufferBlocks<'a> {
                     }
                 }
             }
-            Some(BufferText::BlockItem { item_type }) => {
-                // If the range starts with a block item, queue it up as the active, finished block
-                // to return on the first call to `next()` by advancing the cursor to the
-                // following block item or block marker. This is needed because block items are
-                // self-contained, so we can't initialize an empty one and parse to the next
-                // marker, like we would for text.
-                ActiveStyledBlock::Item(item_type.clone())
-            }
             _ => {
-                let block_style = match buffer.block_type_at_point(range.start) {
-                    BlockType::Text(style) => style,
-                    // This could happen if range.start is just before the block marker after a
-                    // block item, in which case we don't know the next block style yet. Default to
-                    // plain text.
-                    BlockType::Item(_) => BufferBlockStyle::PlainText,
-                };
+                let block_style = BufferBlockStyle::PlainText;
 
                 ActiveStyledBlock::Text {
                     block: ActiveTextBlock::new(
@@ -4098,10 +3174,6 @@ impl<'a> StyledBufferBlocks<'a> {
             match self.boundary_behavior {
                 StyledBlockBoundaryBehavior::Exclusive => ActiveStyledBlock::Finished,
                 StyledBlockBoundaryBehavior::Inclusive => next_block,
-                StyledBlockBoundaryBehavior::InclusiveBlockItems => match next_block {
-                    ActiveStyledBlock::Item(_) => next_block,
-                    _ => ActiveStyledBlock::Finished,
-                },
             }
         } else {
             next_block
@@ -4120,17 +3192,6 @@ macro_rules! active_text {
     ($self:ident) => {{
         match &mut $self.active_block {
             ActiveStyledBlock::Text { block, .. } => block,
-            ActiveStyledBlock::Item(_) => {
-                if cfg!(debug_assertions) {
-                    panic!("Unexpected block item");
-                }
-                // In release builds, handle the invalid state by yielding the block item and
-                // reverting to plain text.
-                return $self.advance_block(ActiveStyledBlock::Text {
-                    block: ActiveTextBlock::new(BufferBlockStyle::PlainText, Default::default()),
-                    start_offset: $self.cursor.offset(),
-                });
-            }
             ActiveStyledBlock::Finished => {
                 // ActiveStyledBlock::Finished is only used after the iterator completes.
                 return None;
@@ -4156,16 +3217,6 @@ impl Iterator for StyledBufferBlocks<'_> {
             }
 
             match fragment {
-                BufferText::BlockItem { item_type } => {
-                    self.cursor.next();
-                    // Block items aren't block markers, but they do end blocks. Before ending the
-                    // previous block, ensure it's non-empty (in case it were blank). If the block
-                    // ended in a newline or block marker, this would be handled by pushing a `\n`.
-                    if let ActiveStyledBlock::Text { block, .. } = &mut self.active_block {
-                        block.push_str(self.line_end_mode.as_str());
-                    }
-                    return self.advance_block(ActiveStyledBlock::Item(item_type.clone()));
-                }
                 BufferText::BlockMarker { marker_type } => {
                     // Inline text styles carry over between text blocks. If the previous block is
                     // an item though, styles reset to their default.
@@ -4177,7 +3228,6 @@ impl Iterator for StyledBufferBlocks<'_> {
                             block.push_str(self.line_end_mode.as_str());
                             block.current_text_styles.clone()
                         }
-                        ActiveStyledBlock::Item(_) => Default::default(),
                         ActiveStyledBlock::Finished => return None,
                     };
                     self.cursor.next();
@@ -4190,30 +3240,16 @@ impl Iterator for StyledBufferBlocks<'_> {
                 BufferText::Newline => {
                     let text = active_text!(self);
                     self.cursor.next();
-                    debug_assert_eq!(
-                        text.block_style.line_break_behavior(),
-                        BlockLineBreakBehavior::NewLine,
-                        "{:?} does not allow newlines",
-                        text.block_style
-                    );
                     text.push_str(self.line_end_mode.as_str());
 
-                    if text.block_style == BufferBlockStyle::PlainText {
-                        // For plain text specifically, we treat each line as its own block and
-                        // advance to the next one.
-                        let next_block = ActiveStyledBlock::Text {
-                            block: ActiveTextBlock::new(
-                                BufferBlockStyle::PlainText,
-                                text.current_text_styles.clone(),
-                            ),
-                            start_offset: self.cursor.offset(),
-                        };
-                        return self.advance_block(next_block);
-                    } else {
-                        // Otherwise, end the current run so that the layout logic doesn't need to
-                        // check for linebreaks within runs.
-                        text.last_run_open = false;
-                    }
+                    let next_block = ActiveStyledBlock::Text {
+                        block: ActiveTextBlock::new(
+                            BufferBlockStyle::PlainText,
+                            text.current_text_styles.clone(),
+                        ),
+                        start_offset: self.cursor.offset(),
+                    };
+                    return self.advance_block(next_block);
                 }
 
                 BufferText::Marker { marker_type, dir } => {
@@ -4230,16 +3266,6 @@ impl Iterator for StyledBufferBlocks<'_> {
                         } else if let Some(custom_weight) = marker_type.custom_weight() {
                             let custom_weight = if is_start { Some(custom_weight) } else { None };
                             styles.set_weight(custom_weight);
-                        }
-                    });
-                }
-                BufferText::Color(marker_type) => {
-                    let text = active_text!(self);
-                    self.cursor.next();
-                    text.update_styles(|styles| {
-                        *styles.color_mut() = match marker_type {
-                            ColorMarker::Start(color) => Some(*color),
-                            ColorMarker::End => None,
                         }
                     });
                 }
@@ -4306,7 +3332,6 @@ impl FusedIterator for StyledBufferBlocks<'_> {}
 impl ActiveStyledBlock {
     fn finish(self, offset: CharOffset) -> Option<StyledBufferBlock> {
         match self {
-            ActiveStyledBlock::Item(item) => Some(StyledBufferBlock::Item(item)),
             // Note that, if the range ends in a block marker, we'll include it as both a newline
             // at the end of the previous block and as a completely empty new block (no runs). This
             // is important for undo/redo, so that we don't lose styling information.
@@ -4369,107 +3394,11 @@ impl ActiveTextBlock {
 fn convert_text_with_style_to_formatted_text(
     text: &str,
     style: TextStyles,
-    block_style: BufferBlockStyle,
-) -> FormattedText {
+) -> VecDeque<EditorLine> {
     if text.is_empty() {
-        return FormattedText::new(Vec::new());
+        return VecDeque::new();
     }
-
-    FormattedText::new(match block_style {
-        BufferBlockStyle::PlainText => vec![FormattedTextLine::Line(text_to_formatted_fragment(
-            text, style,
-        ))],
-        BufferBlockStyle::TaskList {
-            indent_level,
-            complete,
-        } => {
-            let mut formatted_lines = vec![];
-            for line in text.lines() {
-                if line.is_empty() {
-                    formatted_lines.push(FormattedTextLine::LineBreak);
-                } else {
-                    formatted_lines.push(FormattedTextLine::TaskList(FormattedTaskList {
-                        complete,
-                        indent_level: indent_level.as_usize(),
-                        text: text_to_formatted_fragment(line, style),
-                    }));
-                }
-            }
-            formatted_lines
-        }
-        BufferBlockStyle::UnorderedList { indent_level } => {
-            let mut formatted_lines = vec![];
-            for line in text.lines() {
-                if line.is_empty() {
-                    formatted_lines.push(FormattedTextLine::LineBreak);
-                } else {
-                    formatted_lines.push(FormattedTextLine::UnorderedList(
-                        FormattedIndentTextInline {
-                            indent_level: indent_level.as_usize(),
-                            text: text_to_formatted_fragment(line, style),
-                        },
-                    ));
-                }
-            }
-            formatted_lines
-        }
-        BufferBlockStyle::OrderedList {
-            indent_level,
-            number,
-        } => {
-            let mut formatted_lines = vec![];
-            for line in text.lines() {
-                if line.is_empty() {
-                    formatted_lines.push(FormattedTextLine::LineBreak);
-                } else {
-                    formatted_lines.push(FormattedTextLine::OrderedList(
-                        OrderedFormattedIndentTextInline {
-                            number,
-                            indented_text: FormattedIndentTextInline {
-                                indent_level: indent_level.as_usize(),
-                                text: text_to_formatted_fragment(line, style),
-                            },
-                        },
-                    ))
-                }
-            }
-
-            formatted_lines
-        }
-        BufferBlockStyle::Header { header_size } => {
-            // Headers only support single line. When we have active header styling, we should only
-            // insert the first line as Heading block style. The rest of the delta should be in plain text
-            // styling.
-            let mut is_first_fragment = false;
-            let mut formatted_lines = vec![];
-            for line in text.lines() {
-                if line.is_empty() {
-                    formatted_lines.push(FormattedTextLine::LineBreak);
-                } else if is_first_fragment {
-                    formatted_lines.push(FormattedTextLine::Heading(FormattedTextHeader {
-                        heading_size: header_size.into(),
-                        text: text_to_formatted_fragment(line, style),
-                    }));
-                } else {
-                    formatted_lines.push(FormattedTextLine::Line(text_to_formatted_fragment(
-                        text, style,
-                    )));
-                }
-                is_first_fragment = false;
-            }
-            formatted_lines
-        }
-        // This is a bit hacky. We could not treat a simple linebreak in code block as FormattedTextLine::CodeBlock("\n")
-        // because by default all code block ends with a newline. So during insertion the core editor action would strip
-        // trailing newline and causing the edit action to be a no-op. This is a special case when inserting newlines in
-        // an active code block so it should be fine to explicitly handle it here.
-        BufferBlockStyle::CodeBlock { code_block_type } => {
-            vec![FormattedTextLine::CodeBlock(CodeBlockText {
-                lang: code_block_type.to_string(),
-                code: text.to_string(),
-            })]
-        }
-    })
+    VecDeque::from([EditorLine::Line(text_to_formatted_fragment(text, style))])
 }
 
 fn text_to_formatted_fragment(text: &str, style: TextStyles) -> Vec<FormattedTextFragment> {

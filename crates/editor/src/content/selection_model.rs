@@ -9,7 +9,7 @@ use warpui_core::{AppContext, Entity, ModelHandle};
 use crate::content::anchor::{Anchor, AnchorSide, AnchorUpdate, Anchors};
 use crate::content::buffer::{Buffer, SelectionOffsets, ToBufferPoint};
 use crate::content::selection::{Selection, SelectionSet};
-use crate::content::text::{BlockType, TextStylesWithMetadata};
+use crate::content::text::TextStylesWithMetadata;
 
 /// A snapshot of the selection state. This includes all data reported by [`BufferEvent::SelectionChanged`].
 #[derive(PartialEq, Eq)]
@@ -18,7 +18,6 @@ pub(super) struct SelectionSnapshot {
     /// updated in-place and won't directly reflect the update.
     pub(super) selections: Vec1<SelectionOffsets>,
     pub(super) active_text_styles: TextStylesWithMetadata,
-    pub(super) active_block_type: BlockType,
 }
 
 pub struct BufferSelectionModel {

@@ -8,8 +8,8 @@ use warpui_core::text_layout::Line;
 use warpui_core::units::{IntoPixels, Pixels};
 
 use super::{
-    BlockItem, BlockSpacing, HorizontalRuleConfig, ImageBlockConfig, LayoutSummary, LineCount,
-    Paragraph, ParagraphBlock, RenderContext, bounds,
+    BlockItem, BlockSpacing, LayoutSummary, LineCount, Paragraph, ParagraphBlock, RenderContext,
+    bounds,
 };
 use crate::render::layout::line_height;
 
@@ -102,54 +102,12 @@ impl<'a> Positioned<'a, BlockItem> {
         self.start_line + self.item.lines()
     }
 
-    /// Position this item's code block.
-    pub fn code_block(&self, block: &'a ParagraphBlock) -> Positioned<'a, ParagraphBlock> {
-        debug_assert!(
-            matches!(self.item, BlockItem::RunnableCodeBlock { .. }),
-            "Must be a runnable code block"
-        );
-        self.position(block)
-    }
-
     pub fn temporary_block(&self, block: &'a ParagraphBlock) -> Positioned<'a, ParagraphBlock> {
         debug_assert!(
             matches!(self.item, BlockItem::TemporaryBlock { .. }),
             "Must be a temporary block"
         );
         self.position(block)
-    }
-
-    pub fn task_list(&self, paragraph: &'a Paragraph) -> Positioned<'a, Paragraph> {
-        debug_assert!(
-            matches!(self.item, BlockItem::TaskList { .. }),
-            "Must be a task list block"
-        );
-        self.position(paragraph)
-    }
-
-    pub fn unordered_list(&self, paragraph: &'a Paragraph) -> Positioned<'a, Paragraph> {
-        debug_assert!(
-            matches!(self.item, BlockItem::UnorderedList { .. }),
-            "Must be an unordered list block"
-        );
-        self.position(paragraph)
-    }
-
-    /// Position the content paragraph for an ordered list item.
-    pub fn ordered_list(&self, paragraph: &'a Paragraph) -> Positioned<'a, Paragraph> {
-        debug_assert!(
-            matches!(self.item, BlockItem::OrderedList { .. }),
-            "Must be an ordered list block"
-        );
-        self.position(paragraph)
-    }
-
-    pub fn header(&self, paragraph: &'a Paragraph) -> Positioned<'a, Paragraph> {
-        debug_assert!(
-            matches!(self.item, BlockItem::Header { .. }),
-            "Must be a header block"
-        );
-        self.position_centered(paragraph, paragraph.height())
     }
 
     /// Position this item's paragraph.
@@ -162,32 +120,10 @@ impl<'a> Positioned<'a, BlockItem> {
         self.position_centered(paragraph, paragraph.height())
     }
 
-    pub fn text_block(
-        &self,
-        paragraph_block: &'a ParagraphBlock,
-    ) -> Positioned<'a, ParagraphBlock> {
-        debug_assert!(
-            matches!(self.item, BlockItem::TextBlock { .. }),
-            "Must be a text block"
-        );
-        self.position(paragraph_block)
-    }
-
     /// Position the trailing newline cursor.
     pub fn trailing_newline(&self, cursor: &'a super::Cursor) -> Positioned<'a, super::Cursor> {
         // Match the spacing behavior of single-line paragraphs.
         self.position_centered(cursor, cursor.height)
-    }
-
-    pub fn horizontal_rule(
-        &self,
-        horizontal_rule: &'a HorizontalRuleConfig,
-    ) -> Positioned<'a, HorizontalRuleConfig> {
-        self.position_centered(horizontal_rule, horizontal_rule.line_height)
-    }
-
-    pub fn image(&self, image_config: &'a ImageBlockConfig) -> Positioned<'a, ImageBlockConfig> {
-        self.position_centered(image_config, image_config.height)
     }
 
     /// Helper to position-wrap an item's contents when pattern-matching.

@@ -12,7 +12,6 @@ use string_offset::CharOffset;
 use vec1::vec1;
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
-use warp_core::ui::builder::CHECK_SVG_PATH;
 use warp_editor::content::buffer::{Buffer, EditOrigin, ToBufferPoint};
 use warp_editor::content::version::BufferVersion;
 use warp_editor::model::CoreEditorModel;
@@ -21,9 +20,8 @@ use warp_editor::render::element::{
     DisplayOptions, DisplayStateHandle, RichTextElement, VerticalExpansionBehavior,
 };
 use warp_editor::render::model::{
-    AutoScrollMode, BlockSpacing, BlockSpacings, BrokenLinkStyle,
-    CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, CheckBoxStyle, ExpansionType, HorizontalRuleStyle,
-    InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles,
+    AutoScrollMode, BlockSpacing, BlockSpacings, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES,
+    ExpansionType, InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles,
 };
 use warp_editor::search::{SearchEvent, Searcher};
 use warp_util::content_version::ContentVersion;
@@ -32,12 +30,11 @@ use warpui::elements::new_scrollable::{
     AxisConfiguration, DualAxisConfig, NewScrollableElement, ScrollableAppearance,
 };
 use warpui::elements::{
-    Border, ChildView, Dismiss, Fill, Flex, Margin, NewScrollable, Padding, ParentElement,
+    ChildView, Dismiss, Fill, Flex, Margin, NewScrollable, Padding, ParentElement,
     ScrollStateHandle, Shrinkable, Stack,
 };
 use warpui::event::ModifiersState;
 use warpui::keymap::Keystroke;
-use warpui::ui_components::checkbox::HOVER_BACKGROUND_COLOR;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle,
@@ -1395,13 +1392,9 @@ pub fn code_text_styles(appearance: &Appearance) -> RichTextStyles {
             margin: Margin::uniform(0.).with_left(1.),
             padding: Padding::uniform(0.),
         },
-        ..Default::default()
     };
     RichTextStyles {
         base_text,
-        code_text: base_text,
-        code_background: theme.background().into(),
-        code_border: Border::all(1.).with_border_fill(theme.surface_3()),
         placeholder_color: theme.hint_text_color(theme.background()).into_solid(),
         selection_fill: theme.text_selection_color().into(),
         cursor_fill: theme
@@ -1413,21 +1406,6 @@ pub fn code_text_styles(appearance: &Appearance) -> RichTextStyles {
             background: theme.surface_3().into(),
             font_color: ColorU::from(theme.terminal_colors().normal.red)
                 .on_background(theme.surface_3().into(), MinimumAllowedContrast::Text),
-        },
-        check_box_style: CheckBoxStyle {
-            border_color: theme.foreground().into(),
-            border_width: 2.,
-            icon_path: CHECK_SVG_PATH,
-            background: theme.accent().into(),
-            hover_background: *HOVER_BACKGROUND_COLOR,
-        },
-        horizontal_rule_style: HorizontalRuleStyle {
-            color: theme.surface_3().into(),
-            rule_height: 3.,
-        },
-        broken_link_style: BrokenLinkStyle {
-            icon_path: "bundled/svg/link-broken-02.svg",
-            icon_color: theme.terminal_colors().normal.red.into(),
         },
         block_spacings,
         show_placeholder_text_on_empty_block: false,

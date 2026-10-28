@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -14,79 +13,23 @@ use urlocator::{UrlLocation, UrlLocator};
 use vec1::Vec1;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_errors::report_error;
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::text::char_slice;
 use warpui_core::text::point::Point;
 use warpui_core::text_layout::StyleAndFont;
 use warpui_core::units::IntoPixels;
 
 use super::buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock};
-use super::text::{BufferBlockItem, BufferBlockStyle};
+use super::text::BufferBlockStyle;
 use crate::parallel_util::Last;
 use crate::render::layout::{TextLayout, add_link_to_style_and_font};
 use crate::render::model::{
-    BlockItem, BlockLocation, Cursor, Decoration, FrameOffset, HiddenBlockConfig,
-    HorizontalRuleConfig, ImageBlockConfig, LineCount, OffsetMap, Paragraph, ParagraphBlock,
-    ParagraphStyles, SelectableTextRun, gutter_expansion_button_types,
+    BlockItem, BlockLocation, Cursor, Decoration, FrameOffset, HiddenBlockConfig, LineCount,
+    OffsetMap, Paragraph, ParagraphBlock, ParagraphStyles, SelectableTextRun,
 };
 
 #[cfg(test)]
 #[path = "edit_tests.rs"]
 mod tests;
-
-/// Resolve an image source path to an AssetSource.
-///
-/// Supports the following markdown image formats per the CommonMark spec:
-/// https://spec.commonmark.org/0.31.2/#images
-/// - Inline data: base64 `data:` URIs (e.g. notebook image outputs)
-/// - URLs: `http://` or `https://` prefixed paths
-/// - Absolute paths: paths starting with `/`
-/// - Relative paths: all other paths, resolved relative to the document location
-///
-/// Note: Path canonicalization is not available on WASM targets.
-pub fn resolve_asset_source_relative_to_directory(
-    source: &str,
-    base_directory: Option<&Path>,
-) -> AssetSource {
-    if let Some(data_uri_source) = asset_cache::data_uri_source(source) {
-        data_uri_source
-    } else if source.starts_with("http://") || source.starts_with("https://") {
-        asset_cache::url_source(source)
-    } else if source.starts_with("/") {
-        AssetSource::LocalFile {
-            path: source.to_string(),
-            content_version: None,
-        }
-    } else {
-        let resolved_path = if let Some(base_directory) = base_directory {
-            base_directory.join(source)
-        } else {
-            Path::new(source).to_path_buf()
-        };
-
-        AssetSource::LocalFile {
-            path: match resolved_path.canonicalize() {
-                Ok(canon) => canon.to_string_lossy().to_string(),
-                Err(_) => resolved_path.to_string_lossy().to_string(),
-            },
-            content_version: None,
-        }
-    }
-}
-
-/// Resolve an image source when its Markdown block is laid out.
-///
-/// Local-file metadata is read here so refreshes get a new cache key, while
-/// ordinary frame rendering continues to reuse the resolved source without I/O.
-fn resolve_asset_source(source: &str, base_path: Option<&Path>) -> AssetSource {
-    let base_directory = base_path.map(|base| base.parent().unwrap_or(base));
-    resolve_asset_source_relative_to_directory(source, base_directory)
-        .with_local_file_content_version()
-}
-
-/// Default height multiplier for images when no dimensions are specified.
-/// Images are rendered at 10x the base line height by default.
-const DEFAULT_IMAGE_HEIGHT_LINE_MULTIPLIER: f32 = 10.0;
 
 /// Metadata for rendering a temporary block in the render model. Temporary blocks are not selectable or editable.
 #[derive(Debug, Clone, PartialEq)]
@@ -438,7 +381,6 @@ impl EditDelta {
     pub fn layout_delta(
         &self,
         layout: &TextLayout,
-        document_path: Option<&Path>,
         hidden_ranges: Option<RangeSet<CharOffset>>,
     ) -> LaidOutRenderDelta {
         let hidden_ranges = hidden_ranges.unwrap_or_default();
@@ -458,7 +400,7 @@ impl EditDelta {
                 if content_length == CharOffset::zero() {
                     None
                 } else {
-                    let task = LayoutTask::from_styled_block(block, layout, document_path);
+                    let task = LayoutTask::from_styled_block(block);
                     let is_hidden = hidden_ranges.contains(&current_offset);
                     current_offset += content_length;
                     Some((task, is_hidden, content_length.as_usize()))
@@ -618,15 +560,6 @@ pub fn layout_temporary_blocks(
 enum LayoutTask<'a> {
     /// A text block, which will be laid out in parallel.
     Text(&'a StyledTextBlock),
-    /// A horizontal rule, which requires no layout.
-    HorizontalRule(HorizontalRuleConfig),
-    /// An image, which requires no layout.
-    Image {
-        alt_text: String,
-        source: String,
-        config: ImageBlockConfig,
-        document_path: Option<PathBuf>,
-    },
     /// A temporary text block.
     TemporaryBlock {
         content: String,
@@ -637,54 +570,9 @@ enum LayoutTask<'a> {
 
 impl<'a> LayoutTask<'a> {
     /// Convert a block of styled content to the possibly-parallelizable layout work it requires.
-    fn from_styled_block(
-        content: &'a StyledBufferBlock,
-        layout: &TextLayout,
-        document_path: Option<&Path>,
-    ) -> Self {
-        match content {
-            StyledBufferBlock::Item(item) => match item {
-                // To lay out a horizontal rule, we only need the viewport dimensions.
-                BufferBlockItem::HorizontalRule => {
-                    let spacing = layout
-                        .rich_text_styles()
-                        .block_spacings
-                        .from_block_style(&BufferBlockStyle::PlainText);
-                    Self::HorizontalRule(HorizontalRuleConfig {
-                        line_height: layout.rich_text_styles().base_line_height(),
-                        width: layout.max_width() - spacing.x_axis_offset(),
-                        spacing,
-                    })
-                }
-                BufferBlockItem::Image {
-                    alt_text,
-                    source,
-                    // Title is preserved on BufferBlockItem for round-trip and
-                    // HTML export; the editor render currently doesn't surface it.
-                    title: _,
-                } => {
-                    let spacing = layout
-                        .rich_text_styles()
-                        .block_spacings
-                        .from_block_style(&BufferBlockStyle::PlainText);
-                    // Default size for images - will scale based on actual image dimensions
-                    let max_width = layout.max_width() - spacing.x_axis_offset();
-                    let default_height = layout.rich_text_styles().base_line_height()
-                        * DEFAULT_IMAGE_HEIGHT_LINE_MULTIPLIER.into_pixels();
-                    Self::Image {
-                        alt_text: alt_text.clone(),
-                        source: source.clone(),
-                        config: ImageBlockConfig {
-                            width: max_width,
-                            height: default_height,
-                            spacing,
-                        },
-                        document_path: document_path.map(|p| p.to_path_buf()),
-                    }
-                }
-            },
-            StyledBufferBlock::Text(text_block) => Self::Text(text_block),
-        }
+    fn from_styled_block(content: &'a StyledBufferBlock) -> Self {
+        let StyledBufferBlock::Text(text_block) = content;
+        Self::Text(text_block)
     }
 
     fn temporary_block(
@@ -708,24 +596,6 @@ impl<'a> LayoutTask<'a> {
         is_hidden: bool,
     ) -> Result<(BlockItem, bool)> {
         match self {
-            Self::HorizontalRule(config) => Ok((BlockItem::HorizontalRule(config), true)),
-            Self::Image {
-                alt_text,
-                source,
-                config,
-                document_path,
-            } => {
-                let asset_source = resolve_asset_source(&source, document_path.as_deref());
-                Ok((
-                    BlockItem::Image {
-                        alt_text,
-                        source,
-                        asset_source,
-                        config,
-                    },
-                    true, // Images are always followed by a trailing newline in the buffer
-                ))
-            }
             Self::Text(text_block) => layout_text_block(text_block, layout, location, is_hidden),
             Self::TemporaryBlock {
                 content,
@@ -743,33 +613,6 @@ impl<'a> LayoutTask<'a> {
     }
 }
 
-/// Estimate the number of paragraphs (logical lines) in a text block.
-/// For code blocks, use the number of runs as an overestimate.
-/// For non-code blocks, assume a single paragraph.
-fn estimate_paragraph_count(text_block: &StyledTextBlock) -> usize {
-    if matches!(text_block.style, BufferBlockStyle::CodeBlock { .. }) {
-        // Code blocks don't have user-defined styling (although they do have syntax
-        // highlighting). Use the number of individual runs as an overestimate for the number
-        // of lines.
-        text_block.block.len()
-    } else {
-        // Non-code blocks may only contain a single paragraph.
-        1
-    }
-}
-
-/// Calculate the line count to display for hidden blocks.
-/// Hidden sections at the start and end of a file only ever take up one line.
-/// Large hidden sections in the middle of a file may take up two lines, since
-/// they'll have two separate buttons to expand the visible section up or down.
-fn calculate_hidden_block_line_count(
-    text_block: &StyledTextBlock,
-    location: BlockLocation,
-) -> usize {
-    let line_count = estimate_paragraph_count(text_block);
-    gutter_expansion_button_types(&location, line_count).len()
-}
-
 /// Lay out a single text block. This returns both the laid-out block item and a boolean for
 /// whether or not it has a trailing newline.
 ///
@@ -785,10 +628,9 @@ fn layout_text_block(
     if is_hidden {
         // If all text is hidden, return a BlockItem::Hidden without doing any layout
         let content_length = text_block.content_length;
-        let line_count = calculate_hidden_block_line_count(text_block, location);
         return Ok((
             BlockItem::Hidden(HiddenBlockConfig::new(
-                line_count.into(),
+                LineCount::from(1),
                 content_length,
                 location,
             )),
@@ -799,7 +641,7 @@ fn layout_text_block(
     // Accumulator for the current line (paragraph) of text.
     let mut active_line = LayOutArgs::new();
     // Accumulator for fully laid-out paragraphs.
-    let mut paragraphs = Vec::with_capacity(estimate_paragraph_count(text_block));
+    let mut paragraphs = Vec::with_capacity(1);
 
     let rich_text_styles = layout.rich_text_styles();
     let spacing = rich_text_styles
@@ -861,106 +703,15 @@ fn layout_text_block(
         true
     };
 
-    let block_item = match &text_block.style {
-        BufferBlockStyle::CodeBlock { code_block_type } => {
-            let code_block_type = code_block_type.clone();
-            Vec1::try_from_vec(paragraphs)
-                .ok()
-                .map(|p| {
-                    let paragraph_block = ParagraphBlock::new(p);
-                    BlockItem::RunnableCodeBlock {
-                        paragraph_block,
-                        code_block_type,
-                    }
-                })
-                .ok_or_else(|| anyhow!("Code block should have at least one paragraph"))
-        }
-        BufferBlockStyle::TaskList {
-            indent_level,
-            complete,
-        } => {
-            let indent_level = *indent_level;
-            let complete = *complete;
-            debug_assert_eq!(
-                paragraphs.len(),
-                1,
-                "Task list paragraphs should only have one line."
-            );
-            paragraphs
-                .pop()
-                .map(|paragraph| BlockItem::TaskList {
-                    indent_level,
-                    complete,
-                    paragraph,
-                    mouse_state: Default::default(),
-                })
-                .ok_or_else(|| anyhow!("Task list item should have one paragraph"))
-        }
-        BufferBlockStyle::UnorderedList { indent_level } => {
-            let indent_level = *indent_level;
-            debug_assert_eq!(
-                paragraphs.len(),
-                1,
-                "Unordered list paragraphs should only have one line."
-            );
-            paragraphs
-                .pop()
-                .map(|paragraph| BlockItem::UnorderedList {
-                    indent_level,
-                    paragraph,
-                })
-                .ok_or_else(|| anyhow!("Unordered list item should have one paragraph"))
-        }
-        BufferBlockStyle::OrderedList {
-            indent_level,
-            number,
-        } => {
-            let indent_level = *indent_level;
-            let number = *number;
-            debug_assert_eq!(
-                paragraphs.len(),
-                1,
-                "Ordered list paragraphs should only have one line."
-            );
-            paragraphs
-                .pop()
-                .map(|paragraph| BlockItem::OrderedList {
-                    indent_level,
-                    number,
-                    paragraph,
-                })
-                .ok_or_else(|| anyhow!("Ordered list item should have one paragraph"))
-        }
-        BufferBlockStyle::Header { header_size } => {
-            let header_size = *header_size;
-            debug_assert_eq!(
-                paragraphs.len(),
-                1,
-                "Header paragraphs should only have one line."
-            );
-            paragraphs
-                .pop()
-                .map(|paragraph| BlockItem::Header {
-                    header_size,
-                    paragraph,
-                })
-                .ok_or_else(|| anyhow!("Header item should have one paragraph"))
-        }
-        BufferBlockStyle::PlainText => {
-            debug_assert_eq!(
-                paragraphs.len(),
-                1,
-                "Plain text paragraphs should only have one line."
-            );
+    let paragraph = paragraphs
+        .pop()
+        .ok_or_else(|| anyhow!("Plain text item should have one paragraph"))?;
+    debug_assert!(
+        paragraphs.is_empty(),
+        "Plain text paragraphs should only have one line."
+    );
 
-            paragraphs
-                .pop()
-                .map(BlockItem::Paragraph)
-                .ok_or_else(|| anyhow!("Plain text item should have one paragraph"))
-        }
-    };
-
-    block_item.map(|item| (item, has_trailing_newline))
+    Ok((BlockItem::Paragraph(paragraph), has_trailing_newline))
 }
 
 /// Lay out a single temporary text block.

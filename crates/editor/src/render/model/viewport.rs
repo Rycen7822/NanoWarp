@@ -8,8 +8,8 @@ use warpui_core::units::{IntoPixels, Pixels};
 
 use super::positioned::PositionedCursor;
 use super::{
-    AUTO_SCROLL_MARGIN, BlockItem, BlockSpacing, Height, HitTestOptions, LayoutSummary, Location,
-    RenderState, UNIT_MARGIN, bounds,
+    AUTO_SCROLL_MARGIN, BlockItem, BlockSpacing, Height, LayoutSummary, Location, RenderState,
+    UNIT_MARGIN, bounds,
 };
 use crate::render::element::RenderContext;
 
@@ -81,16 +81,10 @@ impl ScrollPositionSnapshot {
 
     /// Snapshot the render state's current scroll position.
     pub(super) fn from_scroll_top(render_state: &RenderState) -> Self {
-        let first_character_offset = match render_state.viewport_coordinates_to_location(
-            Pixels::zero(),
-            Pixels::zero(),
-            &HitTestOptions {
-                force_text_selection: true,
-            },
-        ) {
-            Location::Text { char_offset, .. } => char_offset,
-            Location::Block { start_offset, .. } => start_offset,
-        };
+        let first_character_offset =
+            match render_state.viewport_coordinates_to_location(Pixels::zero(), Pixels::zero()) {
+                Location::Text { char_offset, .. } => char_offset,
+            };
         Self {
             first_character_offset,
         }
@@ -191,12 +185,6 @@ impl ViewportState {
             self.scroll_left = scroll_left;
         }
         changed
-    }
-
-    /// Set the scroll position to an exact location.
-    #[cfg(test)]
-    pub(super) fn set_scroll_top(&mut self, scroll_top: Pixels) {
-        self.scroll_top = scroll_top;
     }
 
     /// Notifies the viewport model that the content height has changed, which

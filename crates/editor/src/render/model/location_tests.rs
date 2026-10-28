@@ -2,12 +2,9 @@ use string_offset::CharOffset;
 use sum_tree::SumTree;
 use warpui_core::units::IntoPixels;
 
-use crate::content::text::{BufferBlockStyle, CodeBlockType};
-use crate::render::model::location::{HitTestBlockType, HitTestOptions, WrapDirection};
-use crate::render::model::test_utils::{
-    TEST_STYLES, laid_out_paragraph, laid_out_unordered_lists, layout_paragraphs,
-};
-use crate::render::model::{BlockItem, COMMAND_SPACING, Location, ParagraphBlock, RenderState};
+use crate::render::model::location::WrapDirection;
+use crate::render::model::test_utils::{TEST_STYLES, laid_out_paragraph};
+use crate::render::model::{Location, RenderState};
 
 #[test]
 fn test_hit_within_line() {
@@ -20,11 +17,7 @@ fn test_hit_within_line() {
     )));
 
     assert_eq!(
-        model.render_coordinates_to_location(
-            12.0.into_pixels(),
-            4.3.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(12.0.into_pixels(), 4.3.into_pixels()),
         Location::Text {
             char_offset: 1.into(),
             clamped: false,
@@ -35,54 +28,9 @@ fn test_hit_within_line() {
     );
 
     assert_eq!(
-        model.render_coordinates_to_location(
-            20.0.into_pixels(),
-            4.3.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(20.0.into_pixels(), 4.3.into_pixels()),
         Location::Text {
             char_offset: 2.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: CharOffset::zero(),
-            link: None,
-        }
-    );
-}
-
-#[test]
-fn test_hit_within_list() {
-    let mut model =
-        RenderState::new_for_test(TEST_STYLES.clone(), 40.0.into_pixels(), 60.0.into_pixels());
-    model.set_content(SumTree::from_item(laid_out_unordered_lists(
-        "Hello, world!\n",
-        &TEST_STYLES,
-        40.,
-    )));
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            18.0.into_pixels(),
-            4.3.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 0.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: CharOffset::zero(),
-            link: None,
-        }
-    );
-
-    assert_eq!(
-        model.render_coordinates_to_location(
-            29.0.into_pixels(),
-            4.3.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 1.into(),
             clamped: false,
             wrap_direction: WrapDirection::Down,
             block_start: CharOffset::zero(),
@@ -109,11 +57,7 @@ fn test_hit_empty_line() {
 
     // A hit on the empty line should clamp to within that line, not the start of the next one.
     assert_eq!(
-        model.render_coordinates_to_location(
-            20.0.into_pixels(),
-            40.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(20.0.into_pixels(), 40.0.into_pixels()),
         Location::Text {
             char_offset: 4.into(),
             clamped: true,
@@ -136,11 +80,7 @@ fn test_hit_on_soft_wrapped_line() {
 
     // A hit just after the end of a soft-wrapped line should wrap up.
     assert_eq!(
-        model.render_coordinates_to_location(
-            46.0.into_pixels(),
-            6.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(46.0.into_pixels(), 6.0.into_pixels()),
         Location::Text {
             char_offset: 4.into(),
             clamped: true,
@@ -152,11 +92,7 @@ fn test_hit_on_soft_wrapped_line() {
 
     // A hit at the start of the next line should have the same char offset, but wrap down.
     assert_eq!(
-        model.render_coordinates_to_location(
-            0.0.into_pixels(),
-            15.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(0.0.into_pixels(), 15.0.into_pixels()),
         Location::Text {
             char_offset: 4.into(),
             clamped: false,
@@ -179,11 +115,7 @@ fn test_hit_after_end() {
 
     // A hit after the end, but on the same line, is like a soft-wrapped hit.
     assert_eq!(
-        model.render_coordinates_to_location(
-            45.0.into_pixels(),
-            10.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(45.0.into_pixels(), 10.0.into_pixels()),
         Location::Text {
             char_offset: 4.into(),
             clamped: true,
@@ -196,11 +128,7 @@ fn test_hit_after_end() {
     // A hit on the line after the last clamps to the end of content, but wraps
     // to the placeholder next line.
     assert_eq!(
-        model.render_coordinates_to_location(
-            20.0.into_pixels(),
-            33.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location(20.0.into_pixels(), 33.0.into_pixels()),
         Location::Text {
             char_offset: 5.into(),
             clamped: true,
@@ -224,11 +152,7 @@ fn test_hit_before_start() {
     // Hit before the start of the first soft-wrapped line, which should clamp to the first
     // character.
     assert_eq!(
-        model.render_coordinates_to_location(
-            (-4.).into_pixels(),
-            10.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location((-4.).into_pixels(), 10.0.into_pixels()),
         Location::Text {
             char_offset: 0.into(),
             // Not considered clamped, because BlockItem::coordinates_to_location pre-clamps when handling
@@ -243,11 +167,7 @@ fn test_hit_before_start() {
     // Hit before the start of the second soft-wrapped line, which should clamp to the first
     // character of that line.
     assert_eq!(
-        model.render_coordinates_to_location(
-            (-4.).into_pixels(),
-            20.0.into_pixels(),
-            &Default::default()
-        ),
+        model.render_coordinates_to_location((-4.).into_pixels(), 20.0.into_pixels()),
         Location::Text {
             char_offset: 4.into(),
             clamped: false,
@@ -280,11 +200,7 @@ fn test_hit_scrolled() {
 
     // Because of scrolling, this hits the second line.
     assert_eq!(
-        model.viewport_coordinates_to_location(
-            22.0.into_pixels(),
-            0.2.into_pixels(),
-            &Default::default()
-        ),
+        model.viewport_coordinates_to_location(22.0.into_pixels(), 0.2.into_pixels()),
         Location::Text {
             char_offset: 6.into(),
             clamped: false,
@@ -300,11 +216,7 @@ fn test_hit_scrolled() {
 
     // This line is soft-wrapped to be partially in-viewport.
     assert_eq!(
-        model.viewport_coordinates_to_location(
-            36.0.into_pixels(),
-            0.5.into_pixels(),
-            &Default::default()
-        ),
+        model.viewport_coordinates_to_location(36.0.into_pixels(), 0.5.into_pixels()),
         Location::Text {
             char_offset: 19.into(),
             clamped: false,
@@ -317,11 +229,7 @@ fn test_hit_scrolled() {
     // We should still be able to hit-test at the last line - accounting for the scroll position,
     // this is the very end of it.
     assert_eq!(
-        model.viewport_coordinates_to_location(
-            0.5.into_pixels(),
-            20.0.into_pixels(),
-            &Default::default()
-        ),
+        model.viewport_coordinates_to_location(0.5.into_pixels(), 20.0.into_pixels()),
         Location::Text {
             char_offset: 21.into(),
             clamped: true,
@@ -334,11 +242,7 @@ fn test_hit_scrolled() {
     // that's a newline, but in a real editor, it would be the last character of the last line,
     // with a TrailingNewline marker after it.
     assert_eq!(
-        model.viewport_coordinates_to_location(
-            2.0.into_pixels(),
-            42.0.into_pixels(),
-            &Default::default()
-        ),
+        model.viewport_coordinates_to_location(2.0.into_pixels(), 42.0.into_pixels()),
         Location::Text {
             char_offset: 21.into(),
             clamped: true,
@@ -360,158 +264,13 @@ fn test_hit_padding() {
     // Hit in the padding after the paragraph ends. We should return the character that
     // matches the x-axis pixel position on the last line.
     assert_eq!(
-        model.viewport_coordinates_to_location(
-            38.0.into_pixels(),
-            22.0.into_pixels(),
-            &Default::default()
-        ),
+        model.viewport_coordinates_to_location(38.0.into_pixels(), 22.0.into_pixels()),
         Location::Text {
             char_offset: 3.into(),
             clamped: true,
             wrap_direction: WrapDirection::Down,
             block_start: CharOffset::zero(),
             link: None,
-        }
-    );
-}
-
-#[test]
-fn test_hit_code_block() {
-    let width = 200.;
-    let mut model =
-        RenderState::new_for_test(TEST_STYLES.clone(), width.into_pixels(), 20.0.into_pixels());
-    let mut tree = SumTree::new();
-    tree.extend([
-        laid_out_paragraph("Text\n", &TEST_STYLES, width),
-        BlockItem::RunnableCodeBlock {
-            paragraph_block: ParagraphBlock::new(layout_paragraphs(
-                "Code 1\nCode 2",
-                &TEST_STYLES,
-                &BufferBlockStyle::CodeBlock {
-                    code_block_type: CodeBlockType::Shell,
-                },
-                width - COMMAND_SPACING.x_axis_offset().as_f32(),
-            )),
-            code_block_type: Default::default(),
-        },
-    ]);
-    model.set_content(tree);
-
-    // Blocks by height:
-    // * 0-24: First paragraph
-    // * 24-48: Margin above code block
-    // * 48-58: First line of code
-    // * 58-68: Second line of code
-    // * 68-84: Margin below code block
-    // The code block is inset by 16px.
-
-    // Hits within the code block should have the right start location.
-    assert_eq!(
-        model.render_coordinates_to_location(
-            30.0.into_pixels(),
-            62.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            // The hit should be on the "o" on the second line of code.
-            char_offset: 13.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            // The code block starts at offset 5.
-            block_start: 5.into(),
-            link: None,
-        }
-    );
-
-    // Hits within the code block's margin are treated as block selections.
-    assert_eq!(
-        model.render_coordinates_to_location(
-            10.0.into_pixels(),
-            40.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Block {
-            start_offset: 5.into(),
-            end_offset: 19.into(),
-            block_type: HitTestBlockType::Code
-        }
-    );
-
-    // Hits in the horizontal padding are considered part of the text.
-    assert_eq!(
-        model.render_coordinates_to_location(
-            8.0.into_pixels(),
-            52.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 5.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: 5.into(),
-            link: None
-        }
-    );
-    assert_eq!(
-        model.render_coordinates_to_location(
-            90.0.into_pixels(),
-            52.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 11.into(),
-            clamped: true,
-            wrap_direction: WrapDirection::Up,
-            block_start: 5.into(),
-            link: None
-        }
-    );
-
-    // The above rule holds even for out-of-bounds points.
-    assert_eq!(
-        model.render_coordinates_to_location(
-            (-4.).into_pixels(),
-            52.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 5.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: 5.into(),
-            link: None
-        }
-    );
-    assert_eq!(
-        model.render_coordinates_to_location(
-            1000.0.into_pixels(),
-            52.0.into_pixels(),
-            &Default::default()
-        ),
-        Location::Text {
-            char_offset: 11.into(),
-            clamped: true,
-            wrap_direction: WrapDirection::Up,
-            block_start: 5.into(),
-            link: None
-        }
-    );
-
-    // If block selection is disabled (e.g. due to dragging), we still clamp to text.
-    assert_eq!(
-        model.render_coordinates_to_location(
-            27.0.into_pixels(),
-            40.0.into_pixels(),
-            &HitTestOptions {
-                force_text_selection: true
-            }
-        ),
-        Location::Text {
-            char_offset: 6.into(),
-            clamped: false,
-            wrap_direction: WrapDirection::Down,
-            block_start: 5.into(),
-            link: None
         }
     );
 }

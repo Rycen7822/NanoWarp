@@ -20,11 +20,8 @@ use warp_core::channel::ChannelState;
 use warp_core::ui::Icon;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_errors::report_error;
-use warpui_core::assets::asset_cache::AssetSource;
 use warpui_core::color::ColorU;
-use warpui_core::elements::{
-    Border, Fill, ListIndentLevel, ListNumbering, Margin, MouseStateHandle, Padding, ScrollData,
-};
+use warpui_core::elements::{Fill, Margin, MouseStateHandle, Padding, ScrollData};
 use warpui_core::fonts::{FamilyId, Properties, Weight};
 use warpui_core::geometry::rect::RectF;
 use warpui_core::geometry::vector::{Vector2F, vec2f};
@@ -37,8 +34,8 @@ use warpui_core::text_selection_utils::{
 use warpui_core::units::{IntoPixels, Pixels};
 use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 
+pub use self::location::Location;
 use self::location::WrapDirection;
-pub use self::location::{HitTestOptions, Location};
 pub use self::offset_map::{OffsetMap, SelectableTextRun};
 pub use self::positioned::Positioned;
 use self::positioned::PositionedCursor;
@@ -46,14 +43,13 @@ use self::saved_positions::SavedPositions;
 use self::viewport::{
     ScrollPositionSnapshot, SizeInfo, ViewportItem, ViewportIterator, ViewportState,
 };
-use super::CODE_BLOCK_BOTTOM_PADDING;
 use super::element::{CursorData, RenderContext, RenderableBlock};
 use super::layout::{TextLayout, line_height};
 use crate::content::edit::{
     EditDelta, LaidOutRenderDelta, ParsedUrl, TemporaryBlock, layout_temporary_blocks,
 };
 use crate::content::hidden_lines_model::HiddenLinesModel;
-use crate::content::text::{BlockHeaderSize, BufferBlockStyle, CodeBlockType};
+use crate::content::text::BufferBlockStyle;
 use crate::content::version::BufferVersion;
 use crate::render::model::debug::Describe;
 
@@ -85,52 +81,7 @@ pub const TEXT_SPACING: BlockSpacing = BlockSpacing {
     padding: Padding::uniform(0.),
 };
 
-pub const COMMAND_SPACING: BlockSpacing = BlockSpacing {
-    margin: Margin::uniform(0.)
-        .with_top(8.)
-        .with_left(4.)
-        .with_bottom(8.)
-        .with_right(16.),
-    padding: Padding::uniform(8.)
-        .with_left(16.)
-        .with_top(16.)
-        .with_bottom(CODE_BLOCK_BOTTOM_PADDING),
-};
-
-pub const HEADER_SPACING: BlockSpacing = BlockSpacing {
-    margin: Margin::uniform(0.)
-        .with_top(4.)
-        .with_bottom(4.)
-        .with_right(16.),
-    padding: Padding::uniform(0.),
-};
-
-pub const UNORDERED_LIST_MARGIN: Margin = Margin::uniform(4.).with_right(16.);
-pub const UNIT_UNORDERED_LIST_PADDING: f32 = 20.;
-
-pub const ORDERED_LIST_MARGIN: Margin = Margin::uniform(4.).with_right(16.);
-pub const UNIT_ORDERED_LIST_PADDING: f32 = 20.;
-
-pub const TASK_LIST_MARGIN: Margin = Margin::uniform(4.).with_right(16.);
-pub const UNIT_TASK_LIST_PADDING: f32 = 20.;
-
-pub const DEFAULT_BLOCK_SPACINGS: BlockSpacings = BlockSpacings {
-    text: TEXT_SPACING,
-    header: HEADER_SPACING,
-    code_block: COMMAND_SPACING,
-    task_list: IndentableBlockSpacing {
-        margin: TASK_LIST_MARGIN,
-        unit_padding: UNIT_TASK_LIST_PADDING,
-    },
-    ordered_list: IndentableBlockSpacing {
-        margin: ORDERED_LIST_MARGIN,
-        unit_padding: UNIT_ORDERED_LIST_PADDING,
-    },
-    unordered_list: IndentableBlockSpacing {
-        margin: UNORDERED_LIST_MARGIN,
-        unit_padding: UNIT_UNORDERED_LIST_PADDING,
-    },
-};
+pub const DEFAULT_BLOCK_SPACINGS: BlockSpacings = BlockSpacings { text: TEXT_SPACING };
 
 const MIN_HIDDEN_BLOCK_WIDTH: Pixels = Pixels::new(20.);
 const HIDDEN_BLOCK_HEIGHT: Pixels = Pixels::new(20.);
@@ -150,12 +101,6 @@ pub enum WidthSetting {
     #[default]
     FitViewport,
     InfiniteWidth,
-}
-
-/// Block types that support hit-testing on the block.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HitTestBlockType {
-    Code,
 }
 
 #[derive(Debug)]
@@ -318,10 +263,6 @@ pub struct RenderState {
 
     pending_edits: Mutex<Vec<PendingLayout>>,
     pending_selection_change: Mutex<Option<PendingSelectionUpdate>>,
-
-    /// Optional path to the document being rendered, used for resolving relative paths
-    /// (e.g. relative image paths in markdown).
-    document_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,12 +282,6 @@ pub enum RenderEvent {
 pub struct RichTextStyles {
     /// The text styles to use for regular body text.
     pub base_text: ParagraphStyles,
-    /// The text styles to use for code.
-    pub code_text: ParagraphStyles,
-    /// The background fill to use for code blocks.
-    pub code_background: Fill,
-    /// The border to use for code blocks.
-    pub code_border: Border,
     /// The color to use for placeholder text.
     pub placeholder_color: ColorU,
     /// The fill to use for text selections.
@@ -355,12 +290,6 @@ pub struct RichTextStyles {
     pub cursor_fill: Fill,
     /// Styling for inline code blocks.
     pub inline_code_style: InlineCodeStyle,
-    /// Styling for inline checkbox.
-    pub check_box_style: CheckBoxStyle,
-    /// Styling for horizontal rules.
-    pub horizontal_rule_style: HorizontalRuleStyle,
-    /// Path to the broken link icon svg.
-    pub broken_link_style: BrokenLinkStyle,
     /// Spacing configuration for blocks.
     pub block_spacings: BlockSpacings,
     /// Minimum height a paragraph will take. This currently
@@ -376,29 +305,8 @@ pub struct RichTextStyles {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct IndentableBlockSpacing {
-    margin: Margin,
-    unit_padding: f32,
-}
-
-impl IndentableBlockSpacing {
-    pub fn to_spacing(&self, indent_level: ListIndentLevel) -> BlockSpacing {
-        BlockSpacing {
-            margin: self.margin,
-            padding: Padding::uniform(0.)
-                .with_left((indent_level.as_usize() as f32 + 1.) * self.unit_padding),
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
 pub struct BlockSpacings {
     pub text: BlockSpacing,
-    pub header: BlockSpacing,
-    pub code_block: BlockSpacing,
-    pub task_list: IndentableBlockSpacing,
-    pub ordered_list: IndentableBlockSpacing,
-    pub unordered_list: IndentableBlockSpacing,
 }
 
 impl Default for BlockSpacings {
@@ -408,21 +316,8 @@ impl Default for BlockSpacings {
 }
 
 impl BlockSpacings {
-    pub fn from_block_style(&self, block_type: &BufferBlockStyle) -> BlockSpacing {
-        match block_type {
-            BufferBlockStyle::Header { .. } => self.header,
-            BufferBlockStyle::OrderedList { indent_level, .. } => {
-                self.ordered_list.to_spacing(*indent_level)
-            }
-            BufferBlockStyle::UnorderedList { indent_level } => {
-                self.unordered_list.to_spacing(*indent_level)
-            }
-            BufferBlockStyle::TaskList { indent_level, .. } => {
-                self.task_list.to_spacing(*indent_level)
-            }
-            BufferBlockStyle::PlainText => self.text,
-            BufferBlockStyle::CodeBlock { .. } => self.code_block,
-        }
+    pub fn from_block_style(&self, _block_type: &BufferBlockStyle) -> BlockSpacing {
+        self.text
     }
 }
 
@@ -439,27 +334,6 @@ pub struct ParagraphStyles {
     pub baseline_ratio: f32,
     /// Fixed-width tab stop size in spaces (intended only for fully monospace paragraphs).
     pub fixed_width_tab_size: Option<u8>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CheckBoxStyle {
-    pub border_width: f32,
-    pub border_color: ColorU,
-    pub icon_path: &'static str,
-    pub background: ColorU,
-    pub hover_background: ColorU,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BrokenLinkStyle {
-    pub icon_path: &'static str,
-    pub icon_color: ColorU,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HorizontalRuleStyle {
-    pub rule_height: f32,
-    pub color: ColorU,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -567,43 +441,10 @@ impl SoftWrapPoint {
 #[derive(Debug, Clone)]
 pub enum BlockItem {
     Paragraph(Paragraph),
-    TextBlock {
-        paragraph_block: ParagraphBlock,
-    },
     TemporaryBlock {
         paragraph_block: ParagraphBlock,
         text_decoration: Vec<Decoration>,
         decoration: Option<ThemeFill>,
-    },
-    RunnableCodeBlock {
-        paragraph_block: ParagraphBlock,
-        code_block_type: CodeBlockType,
-    },
-    TaskList {
-        indent_level: ListIndentLevel,
-        complete: bool,
-        paragraph: Paragraph,
-        mouse_state: MouseStateHandle,
-    },
-    UnorderedList {
-        indent_level: ListIndentLevel,
-        paragraph: Paragraph,
-    },
-    OrderedList {
-        indent_level: ListIndentLevel,
-        number: Option<usize>,
-        paragraph: Paragraph,
-    },
-    Header {
-        header_size: BlockHeaderSize,
-        paragraph: Paragraph,
-    },
-    HorizontalRule(HorizontalRuleConfig),
-    Image {
-        alt_text: String,
-        source: String,
-        asset_source: AssetSource,
-        config: ImageBlockConfig,
     },
     TrailingNewLine(Cursor),
     Hidden(HiddenBlockConfig),
@@ -672,14 +513,6 @@ impl ParagraphBlock {
         &self.paragraphs
     }
 
-    fn content_length(&self) -> CharOffset {
-        self.paragraphs
-            .iter()
-            .fold(CharOffset::zero(), |sum, paragraph| {
-                sum + paragraph.content_length
-            })
-    }
-
     pub fn width(&self) -> Pixels {
         self.paragraphs
             .iter()
@@ -706,24 +539,6 @@ impl ParagraphBlock {
             .reduce(f32::max)
             .unwrap_or(0.);
         vec2f(width, self.height().as_f32())
-    }
-
-    fn lines(&self) -> LineCount {
-        self.paragraphs
-            .iter()
-            .fold(LineCount(0), |sum, paragraph| sum + paragraph.lines())
-    }
-
-    /// Returns `true` if this paragraph block is effectively empty.
-    fn is_empty(&self) -> bool {
-        // If there are multiple empty paragraphs, consider the paragraph non-empty, since that
-        // implies the user added at least one line. If there are no paragraphs, or a single empty
-        // paragraph (more likely, given our layout logic), consider the whole block empty.
-        match self.paragraphs.iter().at_most_one() {
-            Ok(None) => true,
-            Ok(Some(paragraph)) => paragraph.is_empty(),
-            Err(_) => false,
-        }
     }
 }
 
@@ -807,26 +622,6 @@ impl Paragraph {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct HorizontalRuleConfig {
-    pub line_height: Pixels,
-    pub width: Pixels,
-    pub spacing: BlockSpacing,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ImageBlockConfig {
-    pub width: Pixels,
-    pub height: Pixels,
-    pub spacing: BlockSpacing,
-}
-
-impl HorizontalRuleConfig {
-    pub fn line_size(&self) -> Vector2F {
-        vec2f(self.width.as_f32(), self.line_height.as_f32())
-    }
-}
-
 /// A block's position within a code editor.
 #[derive(Debug, Clone, Copy)]
 pub enum BlockLocation {
@@ -903,8 +698,7 @@ pub fn gutter_expansion_button_types(
         }
     }
 }
-// `Clone`, not `Copy`: holds a `MouseStateHandle` (`Arc`-backed), like
-// `BlockItem::TaskList`. The hidden-range dedupe paths clone configs accordingly.
+// The mouse state is Arc-backed, so hidden-range dedupe clones these configs.
 #[derive(Debug, Clone)]
 pub struct HiddenBlockConfig {
     line_count: LineCount,
@@ -1084,7 +878,6 @@ impl RenderState {
             #[cfg(any(test, feature = "test-util"))]
             outstanding_layouts: Default::default(),
             pending_selection_change: Mutex::new(None),
-            document_path: None,
             hidden_lines,
         }
     }
@@ -1208,16 +1001,6 @@ impl RenderState {
     /// Baseline styles applied to rich text when rendering.
     pub fn styles(&self) -> &RichTextStyles {
         &self.styles
-    }
-
-    /// Get the document path for resolving relative paths (e.g. images).
-    pub fn document_path(&self) -> Option<&std::path::Path> {
-        self.document_path.as_deref()
-    }
-
-    /// Set the document path for resolving relative paths (e.g. images).
-    pub fn set_document_path(&mut self, path: Option<std::path::PathBuf>) {
-        self.document_path = path;
     }
 
     /// Update the styles used to render text. Because the render model does not directly reference
@@ -1621,11 +1404,7 @@ impl RenderState {
         app: &AppContext,
     ) {
         let layout_context = self.layout_context(app);
-        let laid_out_edit = delta.layout_delta(
-            &layout_context,
-            self.document_path.as_deref(),
-            hidden_ranges.clone(),
-        );
+        let laid_out_edit = delta.layout_delta(&layout_context, hidden_ranges.clone());
         self.layout_pending_edit(laid_out_edit, hidden_ranges);
     }
 
@@ -2258,53 +2037,6 @@ impl RenderState {
         }
     }
 
-    /// Initializes the ordered list numbering state at the start of the viewport.
-    pub(super) fn viewport_list_numbering(&self) -> ListNumbering {
-        let content = self.content.borrow();
-        let mut cursor = content.cursor::<Height, ()>();
-        cursor.seek_clamped(&self.viewport.scroll_top().into(), SeekBias::Left);
-
-        // If the viewport starts with an ordered list item, we need to know its initial numbering.
-        // This only depends on the ordered list items immediately above the viewport. To find them,
-        // we need a linear scan, but it's bounded by the size of the ordered list above the
-        // viewport, which will generally be small. If the top of the viewport isn't an ordered
-        // list, we can skip this altogether.
-        if !matches!(cursor.item(), Some(BlockItem::OrderedList { .. })) {
-            return ListNumbering::new();
-        }
-
-        // ListNumbering can only advance forwards, so we first seek back to the start of the list
-        // at the viewport location.
-        let mut list_length = 0;
-        while let Some(BlockItem::OrderedList { .. }) = cursor.prev_item() {
-            cursor.prev();
-            list_length += 1;
-        }
-
-        let mut numbering = ListNumbering::new();
-
-        for _ in 0..list_length {
-            match cursor.item() {
-                Some(BlockItem::OrderedList {
-                    indent_level,
-                    number,
-                    ..
-                }) => {
-                    numbering.advance(indent_level.as_usize(), *number);
-                }
-                other => {
-                    if cfg!(debug_assertions) {
-                        panic!("Should have an OrderedList item, got {other:?}");
-                    }
-                    // In production, silently skip over unexpected items.
-                }
-            }
-            cursor.next();
-        }
-
-        numbering
-    }
-
     /// Log the current render state for debugging.
     pub fn log_state(&self) {
         log::info!("RENDER STATE:\n{}", self.describe());
@@ -2318,16 +2050,6 @@ impl RenderState {
         self.has_final_trailing_newline
             .set(Self::tree_ends_with_trailing_newline(&content));
         self.content = content.into();
-    }
-
-    /// Scroll to the start of a given block, possibly adjusted.
-    #[cfg(test)]
-    fn scroll_near_block(&mut self, offset: CharOffset, adjustment: impl IntoPixels) {
-        let content = self.content.borrow();
-        let mut cursor = content.cursor::<CharOffset, Height>();
-        cursor.seek(&offset, SeekBias::Right);
-        self.viewport
-            .set_scroll_top(cursor.start().into_pixels() + adjustment.into_pixels());
     }
 
     /// Line number of the first line in the block.
@@ -2478,20 +2200,8 @@ impl RichTextStyles {
     }
 
     /// Selects the paragraph styles that apply to a block style.
-    pub fn paragraph_styles(&self, block_style: &BufferBlockStyle) -> ParagraphStyles {
-        match block_style {
-            BufferBlockStyle::PlainText
-            | BufferBlockStyle::UnorderedList { .. }
-            | BufferBlockStyle::OrderedList { .. }
-            | BufferBlockStyle::TaskList { .. } => self.base_text,
-            BufferBlockStyle::CodeBlock { .. } => self.code_text,
-            BufferBlockStyle::Header { header_size } => {
-                let mut base_text_style = self.base_text;
-                base_text_style.font_size *= header_size.font_size_multiplication_ratio();
-                base_text_style.font_weight = Weight::from_custom_weight(header_size.font_weight());
-                base_text_style
-            }
-        }
+    pub fn paragraph_styles(&self, _block_style: &BufferBlockStyle) -> ParagraphStyles {
+        self.base_text
     }
 
     pub fn requires_relayout(&self, new_styles: &RichTextStyles) -> bool {
@@ -2500,7 +2210,6 @@ impl RichTextStyles {
         }
 
         self.base_text.requires_relayout(&new_styles.base_text)
-            || self.code_text.requires_relayout(&new_styles.code_text)
             || self
                 .inline_code_style
                 .requires_relayout(&new_styles.inline_code_style)
@@ -2567,42 +2276,22 @@ impl BlockItem {
 
     pub fn first_line_height(&self) -> f32 {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. } => paragraph.first_line_height(),
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.first_line_height(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            }
-            | BlockItem::TemporaryBlock {
+            BlockItem::Paragraph(paragraph) => paragraph.first_line_height(),
+            BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.first_line_height(),
             BlockItem::TrailingNewLine(cursor) => cursor.height.as_f32(),
-            BlockItem::HorizontalRule(config) => config.line_height.as_f32(),
-            BlockItem::Image { config, .. } => config.height.as_f32(),
             BlockItem::Hidden(config) => config.height().as_f32(),
         }
     }
 
     pub fn spacing(&self) -> BlockSpacing {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. } => paragraph.spacing(),
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.spacing(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            }
-            | BlockItem::TemporaryBlock {
+            BlockItem::Paragraph(paragraph) => paragraph.spacing(),
+            BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.spacing(),
             BlockItem::TrailingNewLine(cursor) => cursor.spacing(),
-            BlockItem::HorizontalRule(config) => config.spacing,
-            BlockItem::Image { config, .. } => config.spacing,
             BlockItem::Hidden { .. } => BlockSpacing::default(),
         }
     }
@@ -2610,21 +2299,14 @@ impl BlockItem {
     /// The height of this item's content, without any padding or margins.
     pub fn content_height(&self) -> Pixels {
         match self {
-            BlockItem::Paragraph(paragraph) | BlockItem::Header { paragraph, .. } => {
+            BlockItem::Paragraph(paragraph) => {
                 let mut height = paragraph.height;
                 if let Some(minimum_height) = paragraph.minimum_height {
                     height = height.max(minimum_height);
                 }
                 height
             }
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.height(),
-            BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. } => paragraph.height(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            }
-            | BlockItem::TemporaryBlock {
+            BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.height(),
             BlockItem::TrailingNewLine(cursor) => {
@@ -2634,29 +2316,17 @@ impl BlockItem {
                 }
                 height
             }
-            BlockItem::HorizontalRule(rule) => rule.line_height,
-            BlockItem::Image { config, .. } => config.height,
             BlockItem::Hidden(config) => config.height(),
         }
     }
 
     pub fn content_width(&self) -> Pixels {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. } => paragraph.width(),
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.width(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            }
-            | BlockItem::TemporaryBlock {
+            BlockItem::Paragraph(paragraph) => paragraph.width(),
+            BlockItem::TemporaryBlock {
                 paragraph_block, ..
             } => paragraph_block.width(),
             BlockItem::TrailingNewLine(cursor) => cursor.width,
-            BlockItem::HorizontalRule(rule) => rule.width,
-            BlockItem::Image { config, .. } => config.width,
             BlockItem::Hidden(_) => MIN_HIDDEN_BLOCK_WIDTH,
         }
     }
@@ -2672,38 +2342,18 @@ impl BlockItem {
 
     pub fn content_length(&self) -> CharOffset {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. } => paragraph.content_length,
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.content_length(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => paragraph_block.content_length(),
+            BlockItem::Paragraph(paragraph) => paragraph.content_length,
             BlockItem::TemporaryBlock { .. } => CharOffset::zero(),
-            BlockItem::TrailingNewLine(_)
-            | BlockItem::HorizontalRule(_)
-            | BlockItem::Image { .. } => CharOffset::from(1),
+            BlockItem::TrailingNewLine(_) => CharOffset::from(1),
             BlockItem::Hidden(config) => config.content_length(),
         }
     }
 
     pub fn lines(&self) -> LineCount {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. } => paragraph.lines(),
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.lines(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => paragraph_block.lines(),
+            BlockItem::Paragraph(paragraph) => paragraph.lines(),
             BlockItem::TemporaryBlock { .. } => LineCount(0),
-            BlockItem::TrailingNewLine(_)
-            | BlockItem::HorizontalRule(_)
-            | BlockItem::Image { .. } => LineCount(1),
+            BlockItem::TrailingNewLine(_) => LineCount(1),
             BlockItem::Hidden(config) => config.line_count(),
         }
     }
@@ -2712,19 +2362,9 @@ impl BlockItem {
     /// empty, despite having a content length of 1.
     pub fn is_empty(&self) -> bool {
         match self {
-            BlockItem::Paragraph(paragraph)
-            | BlockItem::Header { paragraph, .. }
-            | BlockItem::UnorderedList { paragraph, .. }
-            | BlockItem::OrderedList { paragraph, .. }
-            | BlockItem::TaskList { paragraph, .. } => paragraph.is_empty(),
-            BlockItem::TextBlock { paragraph_block } => paragraph_block.is_empty(),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => paragraph_block.is_empty(),
+            BlockItem::Paragraph(paragraph) => paragraph.is_empty(),
             // Images and horizontal rules are never empty.
-            BlockItem::HorizontalRule(_)
-            | BlockItem::Image { .. }
-            | BlockItem::TemporaryBlock { .. } => false,
+            BlockItem::TemporaryBlock { .. } => false,
             // The trailing newline placeholder and hidden blocks are always considered empty.
             BlockItem::TrailingNewLine(_) | BlockItem::Hidden { .. } => true,
         }
@@ -2743,43 +2383,7 @@ impl Positioned<'_, BlockItem> {
     fn softwrap_point_to_offset(&self, point: SoftWrapPoint) -> CharOffset {
         match self.item {
             BlockItem::Paragraph(inner) => self.paragraph(inner).softwrap_point_to_offset(point),
-            BlockItem::TextBlock { paragraph_block } => {
-                let text_block = self.text_block(paragraph_block);
-
-                let mut paragraphs = text_block.paragraphs();
-                paragraphs
-                    .find(|paragraph| paragraph.end_line().as_u32() > point.row())
-                    .map_or(self.end_char_offset(), |paragraph| {
-                        paragraph.softwrap_point_to_offset(point)
-                    })
-            }
-            BlockItem::UnorderedList { paragraph, .. } => self
-                .unordered_list(paragraph)
-                .softwrap_point_to_offset(point),
-            BlockItem::OrderedList { paragraph, .. } => {
-                self.ordered_list(paragraph).softwrap_point_to_offset(point)
-            }
-            BlockItem::TaskList { paragraph, .. } => {
-                self.task_list(paragraph).softwrap_point_to_offset(point)
-            }
-            BlockItem::Header {
-                paragraph: inner, ..
-            } => self.header(inner).softwrap_point_to_offset(point),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => {
-                let code_block = self.code_block(paragraph_block);
-
-                let mut paragraphs = code_block.paragraphs();
-                paragraphs
-                    .find(|paragraph| paragraph.end_line().as_u32() > point.row())
-                    .map_or(self.end_char_offset(), |paragraph| {
-                        paragraph.softwrap_point_to_offset(point)
-                    })
-            }
             BlockItem::TrailingNewLine(_)
-            | BlockItem::HorizontalRule(_)
-            | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. }
             | BlockItem::Hidden { .. } => self.start_char_offset,
         }
@@ -2788,45 +2392,7 @@ impl Positioned<'_, BlockItem> {
     fn offset_to_softwrap_point(&self, offset: CharOffset) -> SoftWrapPoint {
         match self.item {
             BlockItem::Paragraph(inner) => self.paragraph(inner).offset_to_softwrap_point(offset),
-            BlockItem::TextBlock { paragraph_block } => {
-                let text_block = self.text_block(paragraph_block);
-
-                let mut paragraphs = text_block.paragraphs();
-                paragraphs
-                    .find(|paragraph| paragraph.end_char_offset() > offset)
-                    .map_or(
-                        SoftWrapPoint::new(self.end_line().as_u32(), Pixels::zero()),
-                        |paragraph| paragraph.offset_to_softwrap_point(offset),
-                    )
-            }
-            BlockItem::UnorderedList { paragraph, .. } => self
-                .unordered_list(paragraph)
-                .offset_to_softwrap_point(offset),
-            BlockItem::OrderedList { paragraph, .. } => self
-                .ordered_list(paragraph)
-                .offset_to_softwrap_point(offset),
-            BlockItem::Header { paragraph, .. } => {
-                self.header(paragraph).offset_to_softwrap_point(offset)
-            }
-            BlockItem::TaskList { paragraph, .. } => {
-                self.task_list(paragraph).offset_to_softwrap_point(offset)
-            }
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => {
-                let code_block = self.code_block(paragraph_block);
-
-                let mut paragraphs = code_block.paragraphs();
-                paragraphs
-                    .find(|paragraph| paragraph.end_char_offset() > offset)
-                    .map_or(
-                        SoftWrapPoint::new(self.end_line().as_u32(), Pixels::zero()),
-                        |paragraph| paragraph.offset_to_softwrap_point(offset),
-                    )
-            }
             BlockItem::TrailingNewLine(_)
-            | BlockItem::HorizontalRule(_)
-            | BlockItem::Image { .. }
             | BlockItem::TemporaryBlock { .. }
             | BlockItem::Hidden { .. } => {
                 SoftWrapPoint::new(self.start_line.as_u32(), Pixels::zero())
@@ -2839,46 +2405,9 @@ impl Positioned<'_, BlockItem> {
     fn character_bounds(&self, offset: CharOffset) -> Option<RectF> {
         match self.item {
             BlockItem::Paragraph(inner) => self.paragraph(inner).character_bounds(offset),
-            BlockItem::TextBlock { paragraph_block } => {
-                let text_block = self.text_block(paragraph_block);
-                text_block
-                    .paragraphs()
-                    .find_or_last(|paragraph| paragraph.end_char_offset() > offset)
-                    .and_then(|paragraph| paragraph.character_bounds(offset))
-            }
-            BlockItem::UnorderedList { paragraph, .. } => {
-                self.unordered_list(paragraph).character_bounds(offset)
-            }
-            BlockItem::OrderedList { paragraph, .. } => {
-                self.ordered_list(paragraph).character_bounds(offset)
-            }
-            BlockItem::TaskList { paragraph, .. } => {
-                self.task_list(paragraph).character_bounds(offset)
-            }
-            BlockItem::Header { paragraph, .. } => self.header(paragraph).character_bounds(offset),
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => {
-                let code_block = self.code_block(paragraph_block);
-                code_block
-                    .paragraphs()
-                    .find_or_last(|paragraph| paragraph.end_char_offset() > offset)
-                    .and_then(|paragraph| paragraph.character_bounds(offset))
-            }
             BlockItem::TrailingNewLine(cursor) => {
                 let origin = self.content_origin();
                 Some(RectF::new(origin, cursor.size()))
-            }
-            BlockItem::HorizontalRule(rule) => {
-                let origin = self.content_origin();
-                Some(RectF::new(origin, rule.line_size()))
-            }
-            BlockItem::Image { config, .. } => {
-                let origin = self.content_origin();
-                Some(RectF::new(
-                    origin,
-                    vec2f(config.width.as_f32(), config.height.as_f32()),
-                ))
             }
             BlockItem::TemporaryBlock { .. } | BlockItem::Hidden { .. } => None,
         }
@@ -2888,37 +2417,9 @@ impl Positioned<'_, BlockItem> {
     pub fn first_line_bounds(&self) -> Option<RectF> {
         let line_bounds = match self.item {
             BlockItem::Paragraph(inner) => self.paragraph(inner).first_line_bounds()?,
-            BlockItem::TextBlock { paragraph_block } => {
-                self.text_block(paragraph_block).first_line_bounds()?
-            }
-            BlockItem::UnorderedList { paragraph, .. } => {
-                self.unordered_list(paragraph).first_line_bounds()?
-            }
-            BlockItem::TaskList { paragraph, .. } => {
-                self.task_list(paragraph).first_line_bounds()?
-            }
-            BlockItem::OrderedList { paragraph, .. } => {
-                self.ordered_list(paragraph).first_line_bounds()?
-            }
-            BlockItem::Header { paragraph, .. } => self.header(paragraph).first_line_bounds()?,
-            BlockItem::RunnableCodeBlock {
-                paragraph_block, ..
-            } => {
-                // For code blocks, we treat the top padding as the first line.
-                let first_line = self.code_block(paragraph_block).first_line_bounds()?;
-                RectF::from_points(self.visible_origin(), first_line.upper_right())
-            }
             BlockItem::TrailingNewLine(cursor) => {
                 let origin = self.trailing_newline(cursor).content_origin();
                 RectF::new(origin, cursor.size())
-            }
-            BlockItem::HorizontalRule(rule) => {
-                let origin = self.content_origin();
-                RectF::new(origin, rule.line_size())
-            }
-            BlockItem::Image { config, .. } => {
-                let origin = self.content_origin();
-                RectF::new(origin, vec2f(config.width.as_f32(), config.height.as_f32()))
             }
             BlockItem::TemporaryBlock { .. } | BlockItem::Hidden { .. } => return None,
         };
@@ -3481,11 +2982,6 @@ impl<'a> Positioned<'a, ParagraphBlock> {
                 positioned
             },
         )
-    }
-
-    /// The bounds of the first line of the first paragraph. See [`Positioned::<Paragraph>::first_line_bounds`].
-    fn first_line_bounds(&self) -> Option<RectF> {
-        self.paragraphs().next()?.first_line_bounds()
     }
 }
 

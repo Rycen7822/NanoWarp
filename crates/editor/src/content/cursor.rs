@@ -1,13 +1,9 @@
 use arrayvec::ArrayString;
 use num_traits::SaturatingSub;
-use pathfinder_color::ColorU;
 use string_offset::CharOffset;
 use sum_tree::{Cursor, Dimension, SeekBias, SumTree};
 
-use super::text::{
-    BufferSummary, BufferText, ColorMarker, LinkCount, LinkMarker, SyntaxColorId,
-    TEXT_FRAGMENT_SIZE,
-};
+use super::text::{BufferSummary, BufferText, LinkCount, LinkMarker, TEXT_FRAGMENT_SIZE};
 
 /// Cursor that provides utility function to traverse the buffer tree. Note that
 /// this is always preferred over traversing buffer directly using a SumTree cursor given
@@ -269,18 +265,11 @@ where
 }
 
 pub trait BufferSumTree {
-    /// Replace an item at the given offset with a new BufferText item.
-    /// The edit happens in-palace.
-    fn replace_item_at_offset(&mut self, offset: CharOffset, item: BufferText);
-
     /// Renders a debug representation of this SumTree.
     fn debug(&self) -> String;
 
     /// Returns the url with the given link count if the link exists.
     fn url_at_link_count(&self, link_count: &LinkCount) -> Option<String>;
-
-    /// Returns the color with the given color count if there is a decorated syntax color.
-    fn color_at_color_count(&self, color_count: &SyntaxColorId) -> Option<ColorU>;
 
     /// Append a new str to the end of the SumTree. If the last item in the tree is a Text
     /// fragment and it has extra byte size left, fill that text fragment first before creating
@@ -289,37 +278,12 @@ pub trait BufferSumTree {
 }
 
 impl BufferSumTree for SumTree<BufferText> {
-    fn replace_item_at_offset(&mut self, offset: CharOffset, item: BufferText) {
-        let old_tree = self.clone();
-        let mut new_tree = SumTree::new();
-        let cursor = old_tree.cursor::<CharOffset, CharOffset>();
-        let mut buffer_cursor = BufferCursor::new(cursor);
-
-        new_tree.push_tree(buffer_cursor.slice_to_offset_after_markers(offset));
-        new_tree.push(item);
-
-        buffer_cursor.next();
-        new_tree.push_tree(buffer_cursor.suffix());
-        drop(buffer_cursor);
-        *self = new_tree;
-    }
-
     fn url_at_link_count(&self, link_count: &LinkCount) -> Option<String> {
         let mut cursor = self.cursor::<LinkCount, ()>();
         cursor.seek(link_count, SeekBias::Left);
 
         match cursor.item() {
             Some(BufferText::Link(LinkMarker::Start(url))) => Some(url.clone()),
-            _ => None,
-        }
-    }
-
-    fn color_at_color_count(&self, color_count: &SyntaxColorId) -> Option<ColorU> {
-        let mut cursor = self.cursor::<SyntaxColorId, ()>();
-        cursor.seek(color_count, SeekBias::Left);
-
-        match cursor.item() {
-            Some(BufferText::Color(ColorMarker::Start(color))) => Some(*color),
             _ => None,
         }
     }

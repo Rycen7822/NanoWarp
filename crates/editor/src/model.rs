@@ -107,13 +107,6 @@ pub trait CoreEditorModel: Entity {
         });
     }
 
-    /// Sets the document path for resolving relative paths (e.g., relative image paths in markdown).
-    fn set_document_path(&self, path: Option<std::path::PathBuf>, ctx: &mut ModelContext<Self::T>) {
-        self.render_state().update(ctx, |render_state, _| {
-            render_state.set_document_path(path);
-        });
-    }
-
     fn user_insert(&mut self, text: &str, ctx: &mut ModelContext<Self::T>) {
         self.insert(text, EditOrigin::UserTyped, ctx);
     }

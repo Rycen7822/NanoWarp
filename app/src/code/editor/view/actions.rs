@@ -1097,7 +1097,6 @@ impl RichTextAction<CodeEditorView> for CodeEditorViewAction {
                 }),
                 _ => None,
             },
-            _ => None,
         }
     }
 
@@ -1177,7 +1176,6 @@ impl RichTextAction<CodeEditorView> for CodeEditorViewAction {
             Location::Text { char_offset, .. } => Some(CodeEditorViewAction::RightMouseDown {
                 offset: char_offset + 1,
             }),
-            _ => None,
         }
     }
 }

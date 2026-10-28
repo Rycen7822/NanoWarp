@@ -1,33 +1,19 @@
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::fmt::{self, Display};
+use std::fmt::Display;
 use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Range, Sub, SubAssign};
 
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
-use lazy_static::lazy_static;
-use markdown_parser::markdown_parser::{
-    CODE_BLOCK_DEFAULT_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
-};
 use markdown_parser::weight::CustomWeight;
-use markdown_parser::{
-    CodeBlockText, FormattedImage, FormattedTextLine, FormattedTextStyles, Hyperlink,
-};
+use markdown_parser::{FormattedTextStyles, Hyperlink};
 use pathfinder_color::ColorU;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use warpui_core::elements::ListIndentLevel;
 use warpui_core::fonts::{Properties, Style, Weight};
-use warpui_core::text::BlockHeaderSize as HeaderSize;
 use warpui_core::text::point::Point;
 
 use super::buffer::Buffer;
-use super::core::CursorType;
-
-pub const CODE_BLOCK_DEFAULT_DISPLAY_LANG: &str = "Code";
-pub const CODE_BLOCK_SHELL_DISPLAY_LANG: &str = "Shell";
 
 #[cfg(test)]
 pub const TEXT_FRAGMENT_SIZE: usize = 64;
@@ -162,21 +148,6 @@ impl<'a> Iterator for Bytes<'a> {
 }
 
 #[derive(Eq, PartialEq, Clone, Debug)]
-pub enum ColorMarker {
-    Start(ColorU),
-    End,
-}
-
-impl ColorMarker {
-    fn to_counter_delta(&self) -> i32 {
-        match &self {
-            ColorMarker::Start(_) => 1,
-            ColorMarker::End => -1,
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum LinkMarker {
     Start(String),
     End,
@@ -191,118 +162,6 @@ impl LinkMarker {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub enum BlockType {
-    Item(BufferBlockItem),
-    Text(BufferBlockStyle),
-}
-
-#[derive(Clone, Debug)]
-pub enum BufferBlockItem {
-    HorizontalRule,
-    Image {
-        alt_text: String,
-        source: String,
-        /// Optional CommonMark image title, preserved so buffer round-trips
-        /// and exports do not drop the `title` suffix.
-        title: Option<String>,
-    },
-}
-
-impl Eq for BufferBlockItem {}
-
-impl PartialEq for BufferBlockItem {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::HorizontalRule, Self::HorizontalRule) => true,
-            (
-                Self::Image {
-                    alt_text: alt_left,
-                    source: src_left,
-                    title: title_left,
-                },
-                Self::Image {
-                    alt_text: alt_right,
-                    source: src_right,
-                    title: title_right,
-                },
-            ) => alt_left == alt_right && src_left == src_right && title_left == title_right,
-            _ => false,
-        }
-    }
-}
-
-impl BufferBlockItem {
-    pub fn content_length(&self) -> usize {
-        match self {
-            Self::HorizontalRule | Self::Image { .. } => 1,
-        }
-    }
-
-    pub fn line_count(&self) -> u32 {
-        match self {
-            Self::HorizontalRule | Self::Image { .. } => 1,
-        }
-    }
-
-    pub fn as_markdown(&self) -> Cow<'_, str> {
-        match &self {
-            Self::HorizontalRule => "***".into(),
-            Self::Image {
-                alt_text,
-                source,
-                title,
-            } => format_image_markdown(alt_text, source, title.as_deref()).into(),
-        }
-    }
-
-    pub fn to_formatted_text_line(&self) -> FormattedTextLine {
-        match self {
-            BufferBlockItem::HorizontalRule => FormattedTextLine::HorizontalRule,
-            BufferBlockItem::Image {
-                alt_text,
-                source,
-                title,
-            } => FormattedTextLine::Image(FormattedImage {
-                alt_text: alt_text.clone(),
-                source: source.clone(),
-                title: title.clone(),
-            }),
-        }
-    }
-
-    pub fn as_plain_text(&self) -> String {
-        match self {
-            Self::HorizontalRule | Self::Image { .. } => "\n".to_string(),
-        }
-    }
-
-    pub fn as_plain_text_sliced(&self, start: usize, end: usize) -> String {
-        let full_text = self.as_plain_text();
-        full_text
-            .chars()
-            .skip(start)
-            .take(end.saturating_sub(start))
-            .collect()
-    }
-}
-
-/// Serialize a CommonMark image to `![alt](source)` or `![alt](source "title")`.
-///
-/// Titles are canonically re-serialized with double quotes to match the HTML
-/// export and CommonMark's canonical output. Any literal `"` in the title is
-/// escaped with a backslash so the round-trip remains lossless.
-pub fn format_image_markdown(alt_text: &str, source: &str, title: Option<&str>) -> String {
-    match title.filter(|t| !t.is_empty()) {
-        Some(title) => {
-            let escaped = title.replace('\\', "\\\\").replace('"', "\\\"");
-            format!("![{alt_text}]({source} \"{escaped}\")")
-        }
-        None => format!("![{alt_text}]({source})"),
-    }
-}
-
-/// Building units of a buffer.
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum BufferText {
     /// A character.
@@ -319,13 +178,8 @@ pub enum BufferText {
         dir: MarkerDir,
     },
     Link(LinkMarker),
-    Color(ColorMarker),
     /// A newline.
     Newline,
-    /// Block-level item that takes up an entire line.
-    BlockItem {
-        item_type: BufferBlockItem,
-    },
     /// Styling marker that decorates an entire paragraph.
     BlockMarker {
         marker_type: BufferBlockStyle,
@@ -357,14 +211,6 @@ impl Display for BufferText {
 
                 write!(f, "<{start}_{end}>")
             }
-            Self::Color(marker) => {
-                let name = match marker {
-                    ColorMarker::Start(color) => format!("c_{:?}", *color),
-                    ColorMarker::End => "c".to_string(),
-                };
-
-                write!(f, "<{name}>")
-            }
             Self::Link(marker) => {
                 let name = match marker {
                     LinkMarker::Start(url) => format!("a_{url}"),
@@ -373,50 +219,10 @@ impl Display for BufferText {
 
                 write!(f, "<{name}>")
             }
-            Self::BlockItem { item_type } => {
-                let name = match item_type {
-                    BufferBlockItem::HorizontalRule => "hr".to_string(),
-                    BufferBlockItem::Image {
-                        alt_text,
-                        source,
-                        title,
-                    } => match title {
-                        Some(title) => format!("img_{alt_text}_{source}_{title}"),
-                        None => format!("img_{alt_text}_{source}"),
-                    },
-                };
-
-                write!(f, "<{name}>")
-            }
             Self::BlockMarker { marker_type } => {
                 f.write_str("<")?;
-                match marker_type {
-                    BufferBlockStyle::CodeBlock { code_block_type } => {
-                        write!(f, "code:{code_block_type}")?;
-                    }
-                    BufferBlockStyle::PlainText => f.write_str("text")?,
-                    BufferBlockStyle::Header { header_size } => {
-                        write!(f, "header{}", Into::<usize>::into(*header_size))?;
-                    }
-                    BufferBlockStyle::TaskList {
-                        indent_level,
-                        complete,
-                    } => {
-                        write!(f, "cl{}:{}", indent_level.as_usize(), *complete)?;
-                    }
-                    BufferBlockStyle::UnorderedList { indent_level } => {
-                        write!(f, "ul{}", indent_level.as_usize())?;
-                    }
-                    BufferBlockStyle::OrderedList {
-                        indent_level,
-                        number,
-                    } => {
-                        write!(f, "ol{}", indent_level.as_usize())?;
-                        if let Some(number) = number {
-                            write!(f, "@{number}")?;
-                        }
-                    }
-                };
+                let _ = marker_type;
+                f.write_str("text")?;
                 f.write_str(">")
             }
             Self::Placeholder { content } => write!(f, "<placeholder_s>{content}<placeholder_e>"),
@@ -440,255 +246,9 @@ impl MarkerDir {
     }
 }
 
-impl fmt::Display for CodeBlockType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CodeBlockType::Shell => write!(f, "{CODE_BLOCK_SHELL_DISPLAY_LANG}"),
-            CodeBlockType::Code { lang } if lang == "text" => {
-                write!(f, "{CODE_BLOCK_DEFAULT_DISPLAY_LANG}")
-            }
-            CodeBlockType::Code { lang } => write!(f, "{lang}"),
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug, Hash, Default)]
-pub enum CodeBlockType {
-    #[default]
-    Shell,
-    Code {
-        lang: String,
-    },
-}
-
-lazy_static! {
-        /// Markdown languages that we consider shell commands
-    static ref MARKDOWN_SHELL_LANGUAGES: HashSet<&'static str> = HashSet::from([
-        RUNNABLE_BLOCK_MARKDOWN_LANG,
-        "sh",
-        "shell",
-        "bash",
-        "fish",
-        "zsh",
-    ]);
-}
-
-impl From<&CodeBlockText> for CodeBlockType {
-    fn from(code_block_text: &CodeBlockText) -> Self {
-        // Markdown blocks can contain metadata after the language, e.g.:
-        // ```rust path=/foo start=1
-        // Only use the first token as the language identifier.
-        let lang = code_block_text
-            .lang
-            .as_str()
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
-
-        if MARKDOWN_SHELL_LANGUAGES.contains(lang.as_str()) {
-            CodeBlockType::Shell
-        } else {
-            // Parse all the recognized languages supported by the code block.
-            let recognized_lang = match lang.as_str() {
-                "go" | "golang" => "Go",
-                "c++" | "cpp" => "C++",
-                "c#" | "csharp" | "cs" => "C#",
-                "java" | "groovy" => "Java",
-                "javascript" | "jsx" | "js" => "JavaScript",
-                "python" | "py" => "Python",
-                "ruby on rails" | "ruby" => "Ruby on Rails",
-                "rust" => "Rust",
-                "sql" => "SQL",
-                "yaml" => "YAML",
-                "json" => "JSON",
-                "php" => "PHP",
-                "toml" => "TOML",
-                "swift" => "Swift",
-                "kotlin" => "Kotlin",
-                "powershell" => "PowerShell",
-                text => text,
-            };
-            CodeBlockType::Code {
-                lang: recognized_lang.to_string(),
-            }
-        }
-    }
-}
-
-impl CodeBlockType {
-    pub fn all() -> impl Iterator<Item = Self> {
-        // TODO: This should include all supported languages
-        [
-            CodeBlockType::Shell,
-            CodeBlockType::Code {
-                lang: "PowerShell".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "C++".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "C#".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Go".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Java".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "JavaScript".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "JSON".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Kotlin".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Lua".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Python".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Ruby".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Ruby on Rails".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Rust".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "SQL".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Swift".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "YAML".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "PHP".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Elixir".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: "Scala".to_owned(),
-            },
-            CodeBlockType::Code {
-                lang: CODE_BLOCK_DEFAULT_MARKDOWN_LANG.to_owned(),
-            },
-        ]
-        .into_iter()
-    }
-}
-
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub enum BufferBlockStyle {
-    CodeBlock {
-        code_block_type: CodeBlockType,
-    },
-    TaskList {
-        indent_level: ListIndentLevel,
-        complete: bool,
-    },
     PlainText,
-    Header {
-        header_size: BlockHeaderSize,
-    },
-    UnorderedList {
-        indent_level: ListIndentLevel,
-    },
-    OrderedList {
-        number: Option<usize>,
-        indent_level: ListIndentLevel,
-    },
-}
-
-impl BufferBlockStyle {
-    pub(super) fn line_break_behavior(&self) -> BlockLineBreakBehavior {
-        match self {
-            Self::Header { .. } => BlockLineBreakBehavior::BlockMarker(BufferBlockStyle::PlainText),
-            Self::TaskList { indent_level, .. } => {
-                BlockLineBreakBehavior::BlockMarker(BufferBlockStyle::TaskList {
-                    indent_level: *indent_level,
-                    complete: false,
-                })
-            }
-            Self::UnorderedList { indent_level } => {
-                BlockLineBreakBehavior::BlockMarker(BufferBlockStyle::UnorderedList {
-                    indent_level: *indent_level,
-                })
-            }
-            Self::OrderedList { indent_level, .. } => {
-                BlockLineBreakBehavior::BlockMarker(BufferBlockStyle::OrderedList {
-                    indent_level: *indent_level,
-                    number: None,
-                })
-            }
-            Self::PlainText | Self::CodeBlock { .. } => BlockLineBreakBehavior::NewLine,
-        }
-    }
-
-    /// This function is used to determine whether a newly inserted block should inherit the previous block's
-    /// style based on the current cursor position and previous block style type.
-    pub(super) fn should_inherit_style(
-        &self,
-        edit_cursor: CursorType,
-        previous_block_style: BufferBlockStyle,
-    ) -> bool {
-        match self {
-            // For plain text and runnable code blocks, always inherit the previous block's styling if
-            // the cursor is not at buffer start.
-            Self::PlainText | Self::CodeBlock { .. } => edit_cursor != CursorType::BufferStart,
-            // For other non-plain text blocks, inherit the previous block's styling if
-            // 1) The block styling is different.
-            // 2) The cursor is either inline or in a runnable code block.
-            Self::Header { .. }
-            | Self::OrderedList { .. }
-            | Self::UnorderedList { .. }
-            | Self::TaskList { .. } => {
-                previous_block_style != *self
-                    && (edit_cursor == CursorType::Inline
-                        || (edit_cursor == CursorType::NewLineStart
-                            && matches!(previous_block_style, BufferBlockStyle::CodeBlock { .. })))
-            }
-        }
-    }
-
-    /// Whether or not this block type allows user-defined formatting (e.g. bold, hyperlinks).
-    pub fn allows_formatting(&self) -> bool {
-        match self {
-            Self::PlainText
-            | Self::Header { .. }
-            | Self::UnorderedList { .. }
-            | Self::OrderedList { .. }
-            | Self::TaskList { .. } => true,
-            Self::CodeBlock { .. } => false,
-        }
-    }
-
-    /// Construct an auto-numbered ordered list style.
-    pub fn ordered_list(indent_level: ListIndentLevel) -> Self {
-        Self::OrderedList {
-            number: None,
-            indent_level,
-        }
-    }
-}
-
-/// This describes different block's behavior when encountering a line break.
-/// For multi-line blocks like code block, line break should insert a newline.
-/// For single-line blocks like lists, line break should insert a marker for a new block.
-/// Note that there are differences within single-line blocks as well. Lists should create
-/// a new list item on linebreak while headers should switch to plain text.
-#[derive(Eq, PartialEq, Debug)]
-pub(super) enum BlockLineBreakBehavior {
-    NewLine,
-    BlockMarker(BufferBlockStyle),
 }
 
 /// The unit that should be applied on each indent.
@@ -731,17 +291,11 @@ impl IndentUnit {
 /// This describes behavior when indenting or unindenting a line.
 #[derive(Eq, PartialEq)]
 pub enum IndentBehavior {
-    /// Restyle the block to the new style (for example, to change a list indent level).
-    Restyle(BufferBlockStyle),
     /// Insert or remove one tab's worth of spaces at the start of the line.
     TabIndent(IndentUnit),
     /// Do nothing - this block cannot be (un)indented.
     Ignore,
 }
-
-/// To keep this PR more reasonably sized, I'm going to add this alias.
-/// I'll remove the alias in a follow-up PR.
-pub type BlockHeaderSize = HeaderSize;
 
 /// Supported text styles in the buffer.
 #[derive(Eq, PartialEq, Clone, Copy, Debug, Hash, Sequence)]
@@ -1222,13 +776,9 @@ pub struct BlockCount(usize);
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LinkCount(pub usize);
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SyntaxColorId(pub usize);
-
 impl_offset!(LineCount);
 impl_offset!(BlockCount);
 impl_offset!(LinkCount);
-impl_offset!(SyntaxColorId);
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug, Default)]
 pub struct BlockSummary {
@@ -1256,11 +806,9 @@ pub struct StyleSummary {
     inline_code_counter: i32,
     strikethrough_counter: i32,
     link_counter: i32,
-    syntax_color_counter: i32,
     /// We need to keep track the total link marker count so we could index into a specific link marker
     /// to retrieve the url metadata.
     total_link_marker: i32,
-    total_color_marker: i32,
 }
 
 impl AddAssign<&StyleSummary> for StyleSummary {
@@ -1271,8 +819,6 @@ impl AddAssign<&StyleSummary> for StyleSummary {
         self.link_counter += other.link_counter;
         self.inline_code_counter += other.inline_code_counter;
         self.total_link_marker += other.total_link_marker;
-        self.syntax_color_counter += other.syntax_color_counter;
-        self.total_color_marker += other.total_color_marker;
         self.strikethrough_counter += other.strikethrough_counter;
         self.underline_counter += other.underline_counter;
     }
@@ -1291,10 +837,6 @@ impl StyleSummary {
 
     pub(super) fn total_link_counter(&self) -> i32 {
         self.total_link_marker
-    }
-
-    pub(super) fn syntax_link_counter(&self) -> i32 {
-        self.total_color_marker
     }
 
     fn set_weight(&mut self, weight: Option<CustomWeight>) {
@@ -1324,9 +866,9 @@ impl StyleSummary {
             underline: self.underline_counter > 0,
             link: self.link_counter > 0,
             inline_code: self.inline_code_counter > 0,
-            colored: self.syntax_color_counter > 0,
             strikethrough: self.strikethrough_counter > 0,
             placeholder: false,
+            colored: false,
         }
     }
 }
@@ -1340,9 +882,7 @@ impl From<TextStyles> for StyleSummary {
             underline_counter: styles.underline.into(),
             link_counter: styles.link.into(),
             inline_code_counter: styles.inline_code.into(),
-            syntax_color_counter: styles.colored.into(),
             strikethrough_counter: styles.strikethrough.into(),
-            total_color_marker: 0,
             total_link_marker: 0,
         }
     }
@@ -1417,14 +957,6 @@ impl sum_tree::Dimension<'_, BufferSummary> for CharOffset {
     }
 }
 
-impl sum_tree::Dimension<'_, BufferSummary> for SyntaxColorId {
-    fn add_summary(&mut self, summary: &BufferSummary) {
-        if let Some(style) = &summary.style {
-            *self += style.total_color_marker as usize;
-        }
-    }
-}
-
 impl sum_tree::Dimension<'_, BufferSummary> for LineCount {
     fn add_summary(&mut self, summary: &BufferSummary) {
         *self += summary.text.lines.row as usize;
@@ -1469,17 +1001,6 @@ impl sum_tree::Item for BufferText {
                 first_line_len: 0,
                 rightmost_point: Point::new(0, 0),
             },
-            BufferText::BlockItem { item_type } => {
-                let chars = item_type.content_length();
-                let lines = item_type.line_count();
-                TextSummary {
-                    chars: chars.into(),
-                    bytes: chars.into(),
-                    lines: Point::new(lines, 0),
-                    first_line_len: 0,
-                    rightmost_point: Point::new(lines.saturating_sub(1), 0),
-                }
-            }
             BufferText::Text {
                 fragment,
                 char_count,
@@ -1490,7 +1011,7 @@ impl sum_tree::Item for BufferText {
                 first_line_len: (*char_count).into(),
                 rightmost_point: Point::new(0, (*char_count).into()),
             },
-            BufferText::Marker { .. } | BufferText::Link(_) | BufferText::Color(_) => TextSummary {
+            BufferText::Marker { .. } | BufferText::Link(_) => TextSummary {
                 chars: 0.into(),
                 bytes: 0.into(),
                 lines: Point::new(0, 0),
@@ -1528,13 +1049,6 @@ impl sum_tree::Item for BufferText {
                 *s.style_counter_mut(marker_type) += delta;
                 Some(Box::new(s))
             }
-            BufferText::Color(marker) => {
-                let mut s = StyleSummary::default();
-                let delta = marker.to_counter_delta();
-                s.syntax_color_counter += delta;
-                s.total_color_marker += 1;
-                Some(Box::new(s))
-            }
             BufferText::Link(marker) => {
                 let mut s = StyleSummary::default();
                 let delta = marker.to_counter_delta();
@@ -1546,9 +1060,7 @@ impl sum_tree::Item for BufferText {
         };
 
         let block_summary = match &self {
-            BufferText::BlockMarker { .. } | BufferText::BlockItem { .. } => {
-                BlockSummary { block: 1.into() }
-            }
+            BufferText::BlockMarker { .. } => BlockSummary { block: 1.into() },
             _ => Default::default(),
         };
 

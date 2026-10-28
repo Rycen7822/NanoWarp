@@ -2,15 +2,14 @@ use rangemap::RangeSet;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use vec1::{Vec1, vec1};
-use warpui_core::elements::ListIndentLevel;
 use warpui_core::geometry::rect::RectF;
 use warpui_core::geometry::vector::vec2f;
 use warpui_core::units::{IntoPixels, Pixels};
 
 use super::debug::Describe;
-use super::test_utils::{layout_paragraph, layout_paragraphs};
+use super::test_utils::layout_paragraph;
 use super::{BlockItem, BlockLocation, HiddenBlockConfig, ParagraphBlock, RenderState};
-use crate::content::text::{BufferBlockStyle, CodeBlockType};
+use crate::content::text::BufferBlockStyle;
 use crate::render::model::test_utils::{TEST_STYLES, laid_out_paragraph, mock_paragraph};
 use crate::render::model::{
     Height, LayoutSummary, LineCount, RenderedSelection, SoftWrapPoint, TEXT_SPACING,
@@ -256,21 +255,15 @@ fn test_non_empty_content_can_hide_final_trailing_newline() {
     model.set_show_final_trailing_newline_when_non_empty(false);
 
     let mut content = SumTree::new();
-    content.push(BlockItem::RunnableCodeBlock {
-        paragraph_block: ParagraphBlock::new(layout_paragraphs(
-            "First\nSecond\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::CodeBlock {
-                code_block_type: CodeBlockType::Shell,
-            },
-            model.viewport.width().as_f32(),
-        )),
-        code_block_type: Default::default(),
-    });
+    content.push(laid_out_paragraph(
+        "First\n",
+        &TEST_STYLES,
+        model.viewport.width().as_f32(),
+    ));
     model.set_content(content);
 
     assert_eq!(model.blocks(), 1);
-    assert_eq!(model.height(), 104.0.into_pixels());
+    assert_eq!(model.height(), 24.0.into_pixels());
 }
 
 #[test]
@@ -287,337 +280,37 @@ fn test_empty_content_keeps_final_trailing_newline_when_suppressed() {
 }
 
 #[test]
-fn test_ordered_list_counting() {
-    let mut model =
-        RenderState::new_for_test(TEST_STYLES.clone(), 40.0.into_pixels(), 30.0.into_pixels());
-    let mut content = SumTree::new();
-    content.push(laid_out_paragraph(
-        "Text\n",
-        &TEST_STYLES,
-        model.viewport.width().as_f32(),
-    ));
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: None,
-        paragraph: layout_paragraph(
-            "One\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: None,
-        paragraph: layout_paragraph(
-            "Two\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: None,
-        paragraph: layout_paragraph(
-            "Three\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(laid_out_paragraph(
-        "Middle\n",
-        &TEST_STYLES,
-        model.viewport.width().as_f32(),
-    ));
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: Some(10),
-        paragraph: layout_paragraph(
-            "A\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: None,
-        paragraph: layout_paragraph(
-            "B\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(laid_out_paragraph(
-        "Last\n",
-        &TEST_STYLES,
-        model.viewport.width().as_f32(),
-    ));
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::One,
-        number: None,
-        paragraph: layout_paragraph(
-            "i\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::Two,
-        number: None,
-        paragraph: layout_paragraph(
-            "ii\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::Two,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::Three,
-        number: None,
-        paragraph: layout_paragraph(
-            "iii\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::Three,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::Two,
-        number: None,
-        paragraph: layout_paragraph(
-            "ii\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::Two,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::OrderedList {
-        indent_level: ListIndentLevel::Two,
-        number: None,
-        paragraph: layout_paragraph(
-            "ii\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::Two,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    model.set_content(content);
-
-    // Map blocks to start offsets for test readability
-    let block_starts = [0, 5, 9, 13, 19, 26, 28, 30, 35, 37, 40, 44, 47].map(CharOffset::from);
-
-    // At the start of the buffer, there's no ordered list, so the numbering starts at 1.
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 1);
-
-    // If we scroll to just _above_ the first ordered list item, the numbering is still 1.
-    model.scroll_near_block(block_starts[1], -2.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 1);
-
-    // If the first ordered list item is partially out of viewport, that still counts - numbering
-    // should start at 1.
-    model.viewport.scroll((-6.).into_pixels(), model.height());
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 1);
-
-    // Scroll to the second ordered list item, the numbering should now start at 2.
-    model.scroll_near_block(block_starts[2], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 2);
-
-    // Likewise for the third ordered list item.
-    model.scroll_near_block(block_starts[3], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 3);
-
-    // Because the plain-text paragraph in the middle isn't an ordered list, we won't bother
-    // calculating an initial numbering for it.
-    model.scroll_near_block(block_starts[4], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 1);
-
-    // If we scroll to the second list, after the paragraph, numbering resets to its start number.
-    model.scroll_near_block(block_starts[5], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, Some(10)).label_index, 10);
-    model.scroll_near_block(block_starts[6], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(0, None).label_index, 11);
-
-    // Test numbering across indent levels, with the last list.
-    model.scroll_near_block(block_starts[11], 1.);
-    let mut numbering = model.viewport_list_numbering();
-    assert_eq!(numbering.advance(1, None).label_index, 2);
-}
-
-#[test]
 fn test_first_line_bounds() {
-    // Create a model with:
-    // * Plain text
-    // * A list
-    // * A code block
-    // * A trailing newline
-    // We then test that the first line of each is correct.
-
     let mut model = RenderState::new_for_test(
         TEST_STYLES.clone(),
         100.0.into_pixels(),
         200.0.into_pixels(),
     );
     let mut content = SumTree::new();
-    // This paragraph is 4 soft-wrapped lines.
     content.push(laid_out_paragraph(
         "This is a soft-wrapped paragraph\n",
         &TEST_STYLES,
         model.viewport.width().as_f32(),
     ));
-    content.push(BlockItem::UnorderedList {
-        indent_level: ListIndentLevel::One,
-        paragraph: layout_paragraph(
-            "List\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::One,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    // This list item is 3 soft-wrapped lines.
-    content.push(BlockItem::UnorderedList {
-        indent_level: ListIndentLevel::Two,
-        paragraph: layout_paragraph(
-            "Nested and soft-wrapped\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::OrderedList {
-                number: None,
-                indent_level: ListIndentLevel::Two,
-            },
-            model.viewport.width().as_f32(),
-        ),
-    });
-    content.push(BlockItem::RunnableCodeBlock {
-        paragraph_block: ParagraphBlock::new(layout_paragraphs(
-            "First\nSecond\n",
-            &TEST_STYLES,
-            &BufferBlockStyle::CodeBlock {
-                code_block_type: CodeBlockType::Shell,
-            },
-            model.viewport.width().as_f32(),
-        )),
-        code_block_type: Default::default(),
-    });
     model.set_content(content);
-
     let content = model.content();
     let text_block = content
         .block_at_offset(CharOffset::zero())
-        .expect("Block should exist");
-    // Because the paragraph is soft-wrapped, it doesn't need centering.
+        .expect("Paragraph should exist");
     assert_eq!(
         text_block.first_line_bounds().expect("Bounds should exist"),
         RectF::new(vec2f(0., 0.), vec2f(100., 10.))
     );
     assert_eq!(text_block.item.height().as_f32(), 40.);
-
-    let list_block = content
-        .block_at_offset(CharOffset::from(33))
-        .expect("Block should exist");
-    assert_eq!(
-        list_block.first_line_bounds().expect("Bounds should exist"),
-        RectF::new(
-            vec2f(0., 44.),
-            vec2f(
-                64., /* 4px margin + 20px list padding + 40px of text */
-                10.
-            )
-        )
-    );
-    assert_eq!(list_block.item.height().as_f32(), 18.);
-
-    let list_block_2 = content
-        .block_at_offset(CharOffset::from(38))
-        .expect("Block should exist");
-    assert_eq!(
-        list_block_2
-            .first_line_bounds()
-            .expect("Bounds should exist"),
-        RectF::new(
-            vec2f(0., 62. /* 58px y-offset + 4px margin */),
-            vec2f(
-                144., /* 4px margin + 40px list padding + 10px of text - the test layout logic doesn't account for spacing */
-                10.
-            )
-        )
-    );
-    assert_eq!(list_block_2.item.height(), 38.0.into_pixels());
-
-    let code_block = content
-        .block_at_offset(CharOffset::from(62))
-        .expect("Block should exist");
-    assert_eq!(
-        code_block.first_line_bounds().expect("Bounds should exist"),
-        RectF::new(
-            vec2f(0., 104. /* 96px y-offset + 8px margin */),
-            vec2f(
-                70., /* 4px margin + 16px padding + 50px text */
-                16.  /* 16px padding area */
-            )
-        )
-    );
-    assert_eq!(
-        code_block.item.height(),
-        104.0.into_pixels() /* 3 lines of text due to newlines + all the padding + footer*/
-    );
-
     let trailing_block = content
-        .block_at_offset(CharOffset::from(76))
-        .expect("Block should exist");
+        .block_at_offset(CharOffset::from(33))
+        .expect("Trailing cursor should exist");
     assert_eq!(
         trailing_block
             .first_line_bounds()
             .expect("Bounds should exist"),
-        RectF::new(
-            vec2f(0., 207. /* 200px y-offset + 7px centering */,),
-            vec2f(1. /* 1px cursor */, 10.)
-        )
-    )
+        RectF::new(vec2f(0., 47.), vec2f(1., 10.))
+    );
 }
 
 #[test]
@@ -1075,4 +768,68 @@ fn test_dedupe_hidden_ranges_merges_adjacent_hidden_blocks() {
         expected.describe().to_string(),
         resulting.describe().to_string()
     );
+}
+
+#[test]
+fn test_layout_delta_block_location_is_global_across_chunk_boundaries() {
+    use std::sync::Arc;
+
+    use warpui_core::App;
+
+    use crate::content::buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock};
+    use crate::content::edit::EditDelta;
+    use crate::content::text::{BufferBlockStyle, TextStylesWithMetadata};
+    use crate::render::layout::TextLayout;
+    App::test((), |app| async move {
+        app.read(|ctx| {
+            let layout = TextLayout::new(
+                ctx.font_cache().text_layout_system(),
+                &TEST_STYLES,
+                f32::MAX,
+            );
+            // 256 begins a chunk (the existing limit is 64 tasks); each real line occupies one task.
+            // Large hidden runs occur at the start, in the middle, across that boundary, and at the end.
+            let mut lines = Vec::with_capacity(600);
+            for _ in 0..600 {
+                lines.push(StyledBufferBlock::Text(StyledTextBlock {
+                    block: vec![StyledBufferRun {
+                        run: "a\n".into(),
+                        text_styles: TextStylesWithMetadata::default(),
+                        block_style: BufferBlockStyle::PlainText,
+                    }],
+                    style: BufferBlockStyle::PlainText,
+                    content_length: 2.into(),
+                }));
+            }
+            let mut hidden = RangeSet::new();
+            for range in [1..61, 101..161, 501..561, 1141..1201] {
+                hidden.insert(CharOffset::from(range.start)..CharOffset::from(range.end));
+            }
+            let delta = EditDelta {
+                old_offset: 1.into()..1201.into(),
+                new_lines: Arc::new(lines),
+                ..Default::default()
+            };
+            let laid_out = delta.layout_delta(&layout, Some(hidden.clone()));
+            let mut tree = SumTree::new();
+            tree.extend(laid_out.laid_out_line);
+            let tree = RenderState::dedupe_hidden_ranges(tree, hidden);
+            let hidden: Vec<_> = tree
+                .cursor::<(), ()>()
+                .filter_map(|item| match item {
+                    BlockItem::Hidden(config) => Some(config),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(hidden.len(), 4);
+            assert_eq!(hidden[0].line_count(), LineCount::from(30));
+            assert_eq!(hidden[1].line_count(), LineCount::from(30));
+            assert_eq!(hidden[2].line_count(), LineCount::from(30));
+            assert_eq!(hidden[3].line_count(), LineCount::from(30));
+            assert_eq!(hidden[0].height(), 20.0.into_pixels());
+            assert_eq!(hidden[1].height(), 40.0.into_pixels());
+            assert_eq!(hidden[2].height(), 40.0.into_pixels());
+            assert_eq!(hidden[3].height(), 20.0.into_pixels());
+        });
+    });
 }

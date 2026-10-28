@@ -28,39 +28,22 @@ use warpui_core::{
 };
 
 use self::empty::Empty;
-use self::header::RenderableHeader;
 use self::hidden_section::RenderableHiddenSection;
-use self::horizontal_rule::HorizontalRule;
-use self::image::RenderableImage;
-use self::ordered_list::RenderableOrderedListItem;
 pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
 use self::paragraph::RenderableParagraph;
-use self::runnable_command::RenderableRunnableCommand;
-use self::task_list::RenderableTaskList;
-use self::text_block::RenderableTextBlock;
-use self::unordered_list::RenderableBulletList;
 use super::model::viewport::{SizeInfo, ViewportItem};
 use super::model::{
-    BlockItem, ElementUpdate, HitTestOptions, LineCount, Location, RenderState, RichTextStyles,
-    UNIT_MARGIN,
+    BlockItem, ElementUpdate, LineCount, Location, RenderState, RichTextStyles, UNIT_MARGIN,
 };
 use crate::content::version::BufferVersion;
 use crate::editor::EditorView;
 
 mod empty;
-mod header;
 mod hidden_section;
-mod horizontal_rule;
-mod image;
-mod ordered_list;
 mod paint;
 mod paragraph;
 mod placeholder;
-mod runnable_command;
-mod task_list;
 mod temporary_block;
-mod text_block;
-mod unordered_list;
 
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 const DRAG_POSITION_CLAMP_BUFFER: f32 = 40.;
@@ -543,7 +526,6 @@ impl<V: EditorView> RichTextElement<V> {
         &self,
         position: Vector2F,
         clamp: ClampBehavior,
-        options: &HitTestOptions,
         app: &AppContext,
         ctx: &EventContext,
     ) -> HitTestResult {
@@ -573,13 +555,11 @@ impl<V: EditorView> RichTextElement<V> {
         let mut location = model.viewport_coordinates_to_location(
             viewport_position.x().into_pixels(),
             viewport_position.y().into_pixels(),
-            options,
         );
         // If we clamped to the viewport here, override the `clamped` field in `Location` - in
         // `viewport_coordinates_to_location`, we won't know this happened.
-        if relative_position != viewport_position
-            && let Location::Text { clamped, .. } = &mut location
-        {
+        if relative_position != viewport_position {
+            let Location::Text { clamped, .. } = &mut location;
             *clamped = true;
         }
 
@@ -601,20 +581,17 @@ impl<V: EditorView> RichTextElement<V> {
             return false;
         }
 
-        if let HitTestResult::Hit(location) = self.position_to_location(
-            position,
-            ClampBehavior::NoneIfOutBound,
-            &Default::default(),
-            app,
-            ctx,
-        ) && let Some(action) = V::Action::left_mouse_down(
-            location,
-            modifiers,
-            click_count,
-            is_first_mouse,
-            &self.parent_view,
-            app,
-        ) {
+        if let HitTestResult::Hit(location) =
+            self.position_to_location(position, ClampBehavior::NoneIfOutBound, app, ctx)
+            && let Some(action) = V::Action::left_mouse_down(
+                location,
+                modifiers,
+                click_count,
+                is_first_mouse,
+                &self.parent_view,
+                app,
+            )
+        {
             ctx.dispatch_typed_action(action);
             return true;
         }
@@ -637,11 +614,6 @@ impl<V: EditorView> RichTextElement<V> {
         if let HitTestResult::Hit(location) = self.position_to_location(
             position,
             ClampBehavior::ClampWithBuffer(DRAG_POSITION_CLAMP_BUFFER),
-            &HitTestOptions {
-                // When dragging, we want to stick to text rather than converting to a block
-                // selection.
-                force_text_selection: true,
-            },
             app,
             ctx,
         ) && let Some(action) =
@@ -665,13 +637,9 @@ impl<V: EditorView> RichTextElement<V> {
             return false;
         }
 
-        if let HitTestResult::Hit(location) = self.position_to_location(
-            position,
-            ClampBehavior::ClampToBound,
-            &Default::default(),
-            app,
-            ctx,
-        ) {
+        if let HitTestResult::Hit(location) =
+            self.position_to_location(position, ClampBehavior::ClampToBound, app, ctx)
+        {
             let actions = V::Action::left_mouse_up(
                 location,
                 modifiers.cmd,
@@ -702,13 +670,9 @@ impl<V: EditorView> RichTextElement<V> {
             return false;
         }
 
-        if let HitTestResult::Hit(location) = self.position_to_location(
-            position,
-            ClampBehavior::NoneIfOutBound,
-            &Default::default(),
-            app,
-            ctx,
-        ) && let Some(action) = V::Action::right_mouse_down(location, &self.parent_view, app)
+        if let HitTestResult::Hit(location) =
+            self.position_to_location(position, ClampBehavior::NoneIfOutBound, app, ctx)
+            && let Some(action) = V::Action::right_mouse_down(location, &self.parent_view, app)
         {
             ctx.dispatch_typed_action(action);
             return true;
@@ -777,13 +741,7 @@ impl<V: EditorView> RichTextElement<V> {
         }
 
         // Store the entire location to support per-character hover states (e.g. hyperlinks).
-        let hit_test = self.position_to_location(
-            position,
-            ClampBehavior::NoneIfOutBound,
-            &Default::default(),
-            app,
-            ctx,
-        );
+        let hit_test = self.position_to_location(position, ClampBehavior::NoneIfOutBound, app, ctx);
 
         // If layout state is not yet available (transient during re-render), skip hover
         // processing entirely. This avoids dispatching spurious events that would
@@ -831,7 +789,6 @@ impl<V: EditorView> RichTextElement<V> {
         };
 
         let model = self.model.as_ref(ctx);
-        let mut ordered_list_numbering = model.viewport_list_numbering();
         let scroll_data = self.vertical_scroll_data(ctx);
 
         let content = model.content();
@@ -842,67 +799,28 @@ impl<V: EditorView> RichTextElement<V> {
         );
 
         let blocks = viewport_items
-            .map(|(item, block)| {
-                let renderable_block = match block {
-                    BlockItem::Paragraph(_) => RenderableParagraph::new(item).finish(),
-                    BlockItem::TextBlock { .. } => RenderableTextBlock::new(item).finish(),
-                    BlockItem::Header { .. } => RenderableHeader::new(item).finish(),
-                    BlockItem::UnorderedList { indent_level, .. } => {
-                        RenderableBulletList::new(*indent_level, styles, item).finish()
-                    }
-                    BlockItem::TaskList {
-                        complete,
-                        mouse_state,
-                        ..
-                    } => RenderableTaskList::new(
-                        *complete,
-                        styles,
-                        item,
-                        mouse_state.clone(),
-                        self.parent_view.clone(),
-                    )
+            .map(|(item, block)| match block {
+                BlockItem::Paragraph(_) => RenderableParagraph::new(item).finish(),
+                BlockItem::TemporaryBlock {
+                    decoration,
+                    text_decoration,
+                    ..
+                } => RenderableTemporaryBlock::new(item, *decoration, text_decoration.clone())
                     .finish(),
-                    BlockItem::OrderedList {
-                        indent_level,
-                        number,
-                        ..
-                    } => {
-                        let indent = indent_level.as_usize();
-                        let number = ordered_list_numbering.advance(indent, *number).label_index;
-                        RenderableOrderedListItem::new(*indent_level, item, number).finish()
-                    }
-                    BlockItem::RunnableCodeBlock { .. } => {
-                        RenderableRunnableCommand::new(item).finish()
-                    }
-                    BlockItem::TemporaryBlock {
-                        decoration,
-                        text_decoration,
-                        ..
-                    } => RenderableTemporaryBlock::new(item, *decoration, text_decoration.clone())
-                        .finish(),
-                    BlockItem::HorizontalRule(_) => HorizontalRule::new(item).finish(),
-                    BlockItem::Image { .. } => RenderableImage::new(item).finish(),
-                    BlockItem::TrailingNewLine(_) => Empty::new(item).finish(),
-                    BlockItem::Hidden(config) => {
-                        let full_line_range = model.line_range_at_offset(item.block_offset);
-                        RenderableHiddenSection::new(
-                            item,
-                            config.mouse_state(),
-                            config.line_count(),
-                            full_line_range,
-                            styles,
-                            self.parent_view.clone(),
-                            ctx,
-                        )
-                        .finish()
-                    }
-                };
-
-                if !matches!(block, BlockItem::OrderedList { .. }) {
-                    ordered_list_numbering.reset();
+                BlockItem::TrailingNewLine(_) => Empty::new(item).finish(),
+                BlockItem::Hidden(config) => {
+                    let full_line_range = model.line_range_at_offset(item.block_offset);
+                    RenderableHiddenSection::new(
+                        item,
+                        config.mouse_state(),
+                        config.line_count(),
+                        full_line_range,
+                        styles,
+                        self.parent_view.clone(),
+                        ctx,
+                    )
+                    .finish()
                 }
-
-                renderable_block
             })
             .collect();
 

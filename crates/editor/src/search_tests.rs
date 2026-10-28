@@ -221,7 +221,7 @@ fn buffer(
     app: &mut App,
     markdown: &str,
 ) -> (ModelHandle<Buffer>, ModelHandle<BufferSelectionModel>) {
-    Buffer::mock_from_markdown(markdown, Box::new(|_, _| IndentBehavior::Ignore), app)
+    Buffer::mock_from_plain_text(markdown, Box::new(|_, _| IndentBehavior::Ignore), app)
 }
 
 fn searcher(

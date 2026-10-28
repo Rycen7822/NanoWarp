@@ -7,16 +7,15 @@ use ordered_float::OrderedFloat;
 use parking_lot::Once;
 use vec1::{Vec1, vec1};
 use warpui_core::color::ColorU;
-use warpui_core::elements::{Border, Fill, ListIndentLevel};
+use warpui_core::elements::Fill;
 use warpui_core::fonts::{FamilyId, Weight};
 use warpui_core::geometry::vector::vec2f;
 use warpui_core::text_layout::{CaretPosition, Glyph, Line, Run, TextFrame};
 use warpui_core::units::{IntoPixels, Pixels};
 
 use super::{
-    BlockItem, BrokenLinkStyle, CheckBoxStyle, DEFAULT_BLOCK_SPACINGS, HorizontalRuleStyle,
-    InlineCodeStyle, OffsetMap, PARAGRAPH_MIN_HEIGHT, Paragraph, ParagraphStyles, RichTextStyles,
-    TEXT_SPACING,
+    BlockItem, DEFAULT_BLOCK_SPACINGS, InlineCodeStyle, OffsetMap, PARAGRAPH_MIN_HEIGHT, Paragraph,
+    ParagraphStyles, RichTextStyles, TEXT_SPACING,
 };
 use crate::content::text::BufferBlockStyle;
 
@@ -66,25 +65,6 @@ pub fn laid_out_paragraph(
     ))
 }
 
-/// Create a new paragraph block laid out via [`layout`].
-pub fn laid_out_unordered_lists(
-    text: &str,
-    styles: &RichTextStyles,
-    max_width: impl IntoPixels,
-) -> BlockItem {
-    BlockItem::UnorderedList {
-        indent_level: ListIndentLevel::One,
-        paragraph: layout_paragraph(
-            text,
-            styles,
-            &BufferBlockStyle::UnorderedList {
-                indent_level: ListIndentLevel::One,
-            },
-            max_width,
-        ),
-    }
-}
-
 /// Lays out a single paragraph of text.
 pub fn layout_paragraph(
     text: &str,
@@ -106,32 +86,6 @@ pub fn layout_paragraph(
     )
 }
 
-/// Lays out each hard-wrapped paragraph in `text`
-pub fn layout_paragraphs(
-    text: &str,
-    styles: &RichTextStyles,
-    block_style: &BufferBlockStyle,
-    max_width: impl IntoPixels + Copy,
-) -> Vec1<Paragraph> {
-    Vec1::try_from_vec(
-        text.split('\n')
-            .map(|line| {
-                let frame = Arc::new(layout(line, styles, max_width));
-                let content_length = line.chars().count() + 1; // Add back 1 for the newline.
-                Paragraph::new(
-                    frame,
-                    OffsetMap::direct(content_length),
-                    content_length.into(),
-                    vec![],
-                    styles.block_spacings.from_block_style(block_style),
-                    Some(PARAGRAPH_MIN_HEIGHT),
-                )
-            })
-            .collect::<Vec<_>>(),
-    )
-    .expect("Should have at least one paragraph")
-}
-
 /// Static default color, since [`ColorU`] constructors aren't `const`.
 const WHITE: ColorU = ColorU {
     r: 255,
@@ -150,17 +104,6 @@ pub const TEST_STYLES: RichTextStyles = RichTextStyles {
         baseline_ratio: TEST_BASELINE_OFFSET,
         fixed_width_tab_size: None,
     },
-    code_text: ParagraphStyles {
-        font_family: FamilyId(0),
-        font_size: 10.,
-        font_weight: Weight::Normal,
-        line_height_ratio: 1.,
-        text_color: WHITE,
-        baseline_ratio: TEST_BASELINE_OFFSET,
-        fixed_width_tab_size: Some(4),
-    },
-    code_background: Fill::None,
-    code_border: Border::new(0.),
     placeholder_color: WHITE,
     selection_fill: Fill::None,
     cursor_fill: Fill::None,
@@ -168,21 +111,6 @@ pub const TEST_STYLES: RichTextStyles = RichTextStyles {
         font_family: FamilyId(0),
         background: WHITE,
         font_color: WHITE,
-    },
-    check_box_style: CheckBoxStyle {
-        border_width: 2.,
-        border_color: WHITE,
-        icon_path: "bundled/svg/check-thick.svg",
-        background: WHITE,
-        hover_background: WHITE,
-    },
-    horizontal_rule_style: HorizontalRuleStyle {
-        rule_height: 2.,
-        color: WHITE,
-    },
-    broken_link_style: BrokenLinkStyle {
-        icon_path: "bundled/svg/link-broken-02.svg",
-        icon_color: WHITE,
     },
     block_spacings: DEFAULT_BLOCK_SPACINGS,
     show_placeholder_text_on_empty_block: false,
