@@ -146,8 +146,6 @@ fn save_toolbar_selection<V: View>(
     right: Vec<HeaderToolbarItemKind>,
     ctx: &mut ViewContext<V>,
 ) {
-    sync_show_hide_settings(&left, &right, ctx);
-
     let selection = if toolbar_items_match_defaults(&left, &right) {
         HeaderToolbarChipSelection::Default
     } else {
@@ -161,25 +159,6 @@ fn save_toolbar_selection<V: View>(
                 .set_value(selection, ctx)
         );
     });
-}
-
-fn sync_show_hide_settings<V: View>(
-    left: &[HeaderToolbarItemKind],
-    right: &[HeaderToolbarItemKind],
-    ctx: &mut ViewContext<V>,
-) {
-    let placed: Vec<&HeaderToolbarItemKind> = left.iter().chain(right.iter()).collect();
-
-    let code_review_placed = placed.contains(&&HeaderToolbarItemKind::CodeReview);
-    if *TabSettings::as_ref(ctx).show_code_review_button.value() != code_review_placed {
-        TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-            report_if_error!(
-                settings
-                    .show_code_review_button
-                    .set_value(code_review_placed, ctx)
-            );
-        });
-    }
 }
 
 impl HeaderToolbarInlineEditor {
@@ -365,10 +344,7 @@ fn build_configurable_item(kind: &HeaderToolbarItemKind) -> ConfigurableItem {
     let renderer =
         ControlItemRenderer::new_with_label_and_icon(kind.display_label().to_string(), kind.icon())
             .with_identifier(id);
-    let renderer = match kind {
-        HeaderToolbarItemKind::TabsPanel => renderer.non_removable(),
-        _ => renderer,
-    };
+    let renderer = renderer.non_removable();
     ConfigurableItem::Control(renderer)
 }
 

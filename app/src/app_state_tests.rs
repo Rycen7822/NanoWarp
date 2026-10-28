@@ -1,57 +1,6 @@
 use super::*;
 
 #[test]
-fn test_has_horizontal_split() {
-    let single_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
-        is_focused: false,
-        custom_vertical_tabs_title: None,
-        contents: LeafContents::Code(CodePaneSnapShot::Local {
-            tabs: vec![CodePaneTabSnapshot {
-                path: Some(PathBuf::new()),
-            }],
-            active_tab_index: 0,
-            source: None,
-        }),
-    });
-    assert!(!single_leaf.has_horizontal_split());
-
-    let horizontal_split = PaneNodeSnapshot::Branch(BranchSnapshot {
-        direction: SplitDirection::Horizontal,
-        children: vec![
-            (
-                PaneFlex(1.),
-                PaneNodeSnapshot::Leaf(LeafSnapshot {
-                    is_focused: false,
-                    custom_vertical_tabs_title: None,
-                    contents: LeafContents::Code(CodePaneSnapShot::Local {
-                        tabs: vec![CodePaneTabSnapshot {
-                            path: Some(PathBuf::new()),
-                        }],
-                        active_tab_index: 0,
-                        source: None,
-                    }),
-                }),
-            ),
-            (
-                PaneFlex(1.),
-                PaneNodeSnapshot::Leaf(LeafSnapshot {
-                    is_focused: false,
-                    custom_vertical_tabs_title: None,
-                    contents: LeafContents::Code(CodePaneSnapShot::Local {
-                        tabs: vec![CodePaneTabSnapshot {
-                            path: Some(PathBuf::new()),
-                        }],
-                        active_tab_index: 0,
-                        source: None,
-                    }),
-                }),
-            ),
-        ],
-    });
-    assert!(horizontal_split.has_horizontal_split());
-}
-
-#[test]
 fn test_code_pane_snapshot_single_tab() {
     let snapshot = CodePaneSnapShot::Local {
         tabs: vec![CodePaneTabSnapshot {

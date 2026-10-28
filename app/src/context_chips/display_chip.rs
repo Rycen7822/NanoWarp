@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
@@ -32,7 +31,6 @@ use super::{
 };
 use crate::appearance::Appearance;
 use crate::code::editor::{add_color, remove_color};
-use crate::code_review::code_review_view::CODE_REVIEW_TOOLTIP_TEXT;
 use crate::code_review::diff_state::DiffStats;
 use crate::completer::SessionContext;
 use crate::context_chips::git_branch_on_click::{
@@ -40,16 +38,12 @@ use crate::context_chips::git_branch_on_click::{
 };
 use crate::context_chips::node_version_popup::{NodeVersionPopupEvent, NodeVersionPopupView};
 use crate::context_chips::spacing;
-use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
-use crate::terminal::model::session::SessionType;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::util::bindings::keybinding_name_to_display_string;
 use crate::util::truncation::truncate_from_beginning;
 use crate::view_components::action_button::{ActionButtonTheme, NakedTheme};
-use crate::workspace::view::TOGGLE_RIGHT_PANEL_BINDING_NAME;
 
 /// Helper function to render git diff stats content (file icon or +- icons, file count, bullet, +/- counts)
 /// Used by both the context chips and the AI control panel
@@ -319,14 +313,12 @@ impl UdiChipConfig {
 pub enum DisplayChipAction {
     CloseMenu,
     ToggleMenu,
-    ToggleCodeReview,
     OpenBranchSelector,
     OpenGithubPullRequest(String),
 }
 
 pub struct DisplayChip {
     mouse_state: MouseStateHandle,
-    diff_stats_mouse_state: MouseStateHandle,
     text: String,
     value: Option<ChipValue>,
     chip_kind: ContextChipKind,
@@ -335,8 +327,6 @@ pub struct DisplayChip {
     on_click_values: Vec<String>,
     session_context: Option<SessionContext>,
     menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
-    /// Cached display string for the code review keybinding.
-    code_review_keybinding: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1012,26 +1002,8 @@ impl DisplayChip {
             _ => DisplayChipKind::Text,
         };
 
-        // Cache the code review keybinding and subscribe to changes.
-        let code_review_keybinding =
-            keybinding_name_to_display_string(TOGGLE_RIGHT_PANEL_BINDING_NAME, ctx);
-        ctx.subscribe_to_model(
-            &KeybindingChangedNotifier::handle(ctx),
-            |me, _, event, ctx| {
-                let KeybindingChangedEvent::BindingChanged {
-                    binding_name,
-                    new_trigger,
-                } = event;
-                if binding_name == TOGGLE_RIGHT_PANEL_BINDING_NAME {
-                    me.code_review_keybinding = new_trigger.as_ref().map(|k| k.displayed());
-                    ctx.notify();
-                }
-            },
-        );
-
         Self {
             mouse_state: Default::default(),
-            diff_stats_mouse_state: Default::default(),
             text: chip_result
                 .value
                 .as_ref()
@@ -1044,7 +1016,6 @@ impl DisplayChip {
             on_click_values: chip_result.on_click_values,
             session_context: config.session_context,
             menu_positioning_provider: config.menu_positioning_provider,
-            code_review_keybinding,
         }
     }
 
@@ -1489,69 +1460,14 @@ impl DisplayChip {
             appearance,
         );
 
-        // Code review is only supported on local sessions and
-        // on remote sessions with a connected host ID.
-        let supports_code_review = self
-            .session_context
-            .as_ref()
-            .map(|ctx| match ctx.session.session_type() {
-                SessionType::Local => true,
-                SessionType::WarpifiedRemote { host_id: Some(_) } => {
-                    FeatureFlag::RemoteCodeReview.is_enabled()
-                }
-                SessionType::WarpifiedRemote { host_id: None } => false,
-            })
-            .unwrap_or(false);
-
-        let diff_stats_display = if supports_code_review {
-            // Get the keybinding for the tooltip
-            let code_review_keybinding = self.code_review_keybinding.clone().unwrap_or_default();
-
-            Hoverable::new(self.diff_stats_mouse_state.clone(), |state| {
-                let base_container = Container::new(git_diff_stats_content)
-                    .with_vertical_padding(2.)
-                    .with_horizontal_padding(4.);
-
-                let base_container = if state.is_hovered() {
-                    base_container
-                        .with_background(appearance.theme().surface_2())
-                        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(
-                            CHIP_INNER_CORNER_RADIUS,
-                        )))
-                        .finish()
-                } else {
-                    base_container.finish()
-                };
-
-                let mut stack = Stack::new().with_child(base_container);
-                if state.is_hovered() {
-                    let tool_tip = appearance
-                        .ui_builder()
-                        .tool_tip_with_sublabel(
-                            CODE_REVIEW_TOOLTIP_TEXT.to_string(),
-                            code_review_keybinding.clone(),
-                        )
-                        .build()
-                        .finish();
-                    stack.add_positioned_overlay_child(tool_tip, udi_tooltip_positioning());
-                }
-                stack.finish()
-            })
-            .on_click(|ctx, _app, _position| {
-                ctx.dispatch_typed_action(DisplayChipAction::ToggleCodeReview);
-            })
-            .with_cursor(Cursor::PointingHand)
-            .finish()
-        } else {
-            Container::new(git_diff_stats_content)
-                .with_vertical_padding(2.)
-                .with_horizontal_padding(4.)
-                .finish()
-        };
-
         let content = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(diff_stats_display)
+            .with_child(
+                Container::new(git_diff_stats_content)
+                    .with_vertical_padding(2.)
+                    .with_horizontal_padding(4.)
+                    .finish(),
+            )
             .finish();
 
         let button = Container::new(content)
@@ -1831,7 +1747,6 @@ pub enum PromptDisplayChipEvent {
     OpenFile(String),
     OpenTextFileInCodeEditor(String),
     ToggleMenu { open: bool },
-    OpenCodeReview,
     OpenCommandPaletteFiles,
     TryExecuteCommand(PromptChipShellCommand),
 }
@@ -1928,10 +1843,6 @@ impl TypedActionView for DisplayChip {
                     }
                     _ => {}
                 }
-            }
-            DisplayChipAction::ToggleCodeReview => {
-                ctx.emit(PromptDisplayChipEvent::OpenCodeReview);
-                ctx.notify();
             }
             DisplayChipAction::OpenBranchSelector => {
                 // Delegate to the existing ToggleMenu action for branch selector

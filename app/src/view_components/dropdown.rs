@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use pathfinder_color::ColorU;
 use warpui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, Element, Icon, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, PositionedElementAnchor,
@@ -57,34 +56,6 @@ impl PartialEq for Box<dyn DropdownItemAction> {
     }
 }
 
-#[derive(Clone, Default)]
-pub enum DropdownStyle {
-    #[default]
-    Secondary,
-    /// No border, smaller text, smaller padding
-    #[allow(dead_code)]
-    Naked,
-}
-
-impl DropdownStyle {
-    fn ui_component_styles(&self) -> UiComponentStyles {
-        match self {
-            DropdownStyle::Secondary => UiComponentStyles {
-                padding: Some(Coords {
-                    top: 5.,
-                    bottom: 5.,
-                    left: 8.,
-                    right: 8.,
-                }),
-                ..Default::default()
-            },
-            DropdownStyle::Naked => UiComponentStyles {
-                ..Default::default()
-            },
-        }
-    }
-}
-
 /// A dropdown menu view. The view renders each DropdownItem. When a menu item is clicked,
 /// on_click_action_name is dispatched, with the value of the corresponding menu item.
 ///
@@ -97,19 +68,10 @@ pub struct Dropdown<A: DropdownItemAction = ()> {
     disabled: bool,
     top_bar_mouse_state: MouseStateHandle,
     top_bar_max_width: f32,
-    element_anchor: PositionedElementAnchor,
-    child_anchor: ChildAnchor,
-    main_axis_size: MainAxisSize,
 
     dropdown: ViewHandle<Menu<DropdownAction>>,
     selected_item: Option<MenuItem<DropdownAction>>,
     self_handle: WeakViewHandle<Self>,
-    style: DropdownStyle,
-    font_color: Option<ColorU>,
-    font_size: Option<f32>,
-    padding: Option<Coords>,
-    vertical_margin: f32,
-    top_bar_height: f32,
     // The menu stores erased `DropdownAction`s internally, but the public API remains generic over
     // the caller's concrete item action type (`set_items`, `set_selected_by_action`, etc.).
     _item_action_type: PhantomData<A>,
@@ -238,7 +200,6 @@ where
         });
 
         Self {
-            main_axis_size: MainAxisSize::Max,
             is_expanded: false,
             disabled: false,
             dropdown,
@@ -246,71 +207,8 @@ where
             top_bar_max_width: TOP_MENU_BAR_MAX_WIDTH,
             selected_item: None,
             self_handle: ctx.handle(),
-            style: Default::default(),
-            element_anchor: PositionedElementAnchor::BottomLeft,
-            child_anchor: ChildAnchor::TopLeft,
-            font_color: None,
-            font_size: None,
-            padding: None,
-            vertical_margin: DROPDOWN_PADDING,
-            top_bar_height: TOP_MENU_BAR_HEIGHT,
             _item_action_type: PhantomData,
         }
-    }
-
-    pub fn set_font_color(&mut self, color: ColorU, ctx: &mut ViewContext<Self>) {
-        self.font_color = Some(color);
-        ctx.notify();
-    }
-
-    pub fn set_font_size(&mut self, size: f32, ctx: &mut ViewContext<Self>) {
-        self.font_size = Some(size);
-        ctx.notify();
-    }
-
-    pub fn set_vertical_margin(&mut self, margin: f32, ctx: &mut ViewContext<Self>) {
-        self.vertical_margin = margin;
-        ctx.notify();
-    }
-
-    pub fn set_top_bar_height(&mut self, height: f32, ctx: &mut ViewContext<Self>) {
-        self.top_bar_height = height;
-        ctx.notify();
-    }
-
-    pub fn set_padding(&mut self, padding: Coords, ctx: &mut ViewContext<Self>) {
-        self.padding = Some(padding);
-        ctx.notify();
-    }
-
-    #[allow(dead_code)]
-    pub fn set_style(&mut self, style: DropdownStyle, ctx: &mut ViewContext<Self>) {
-        self.style = style;
-        ctx.notify();
-    }
-
-    /// Set the main_axis_size behavior for the dropdown header button.
-    ///
-    /// Default is MainAxisSize::Max, set to MainAxisSize::Min if you want to wrap the dropdown to
-    /// the text that's filling it.
-    pub fn set_main_axis_size(
-        &mut self,
-        main_axis_size: MainAxisSize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.main_axis_size = main_axis_size;
-        ctx.notify();
-    }
-
-    pub fn set_menu_position(
-        &mut self,
-        element_anchor: PositionedElementAnchor,
-        child_anchor: ChildAnchor,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.element_anchor = element_anchor;
-        self.child_anchor = child_anchor;
-        ctx.notify();
     }
 
     pub fn add_items(&mut self, items: Vec<DropdownItem<A>>, ctx: &mut ViewContext<Self>) {
@@ -464,36 +362,25 @@ where
         };
         let mut top_bar = appearance
             .ui_builder()
-            .button(
-                match self.style {
-                    DropdownStyle::Secondary => ButtonVariant::Outlined,
-                    DropdownStyle::Naked => ButtonVariant::Text,
-                },
-                self.top_bar_mouse_state.clone(),
-            )
+            .button(ButtonVariant::Outlined, self.top_bar_mouse_state.clone())
             .with_text_and_icon_label(
                 TextAndIcon::new(
                     TextAndIconAlignment::TextFirst,
                     selected_item_text,
-                    Icon::new(
-                        icon_path,
-                        self.font_color
-                            .unwrap_or_else(|| appearance.theme().active_ui_text_color().into()),
-                    ),
-                    self.main_axis_size,
+                    Icon::new(icon_path, appearance.theme().active_ui_text_color()),
+                    MainAxisSize::Max,
                     MainAxisAlignment::SpaceBetween,
                     vec2f(15., 15.),
                 )
-                .with_inner_padding(match self.style {
-                    DropdownStyle::Secondary => 10.,
-                    DropdownStyle::Naked => 6.,
-                }),
+                .with_inner_padding(10.),
             )
-            .with_style(self.style.ui_component_styles())
             .with_style(UiComponentStyles {
-                font_color: self.font_color,
-                font_size: self.font_size,
-                padding: self.padding,
+                padding: Some(Coords {
+                    top: 5.,
+                    bottom: 5.,
+                    left: 8.,
+                    right: 8.,
+                }),
                 ..Default::default()
             })
             .set_clicked_styles(None);
@@ -515,7 +402,7 @@ where
             Container::new(
                 ConstrainedBox::new(top_bar_element.finish())
                     .with_max_width(self.top_bar_max_width)
-                    .with_height(self.top_bar_height)
+                    .with_height(TOP_MENU_BAR_HEIGHT)
                     .finish(),
             )
             .finish(),
@@ -582,14 +469,14 @@ where
                 self.top_bar_label(),
                 vec2f(0., 0.),
                 PositionedElementOffsetBounds::WindowByPosition,
-                self.element_anchor,
-                self.child_anchor,
+                PositionedElementAnchor::BottomLeft,
+                ChildAnchor::TopLeft,
             );
             dropdown_stack.add_positioned_overlay_child(menu, positioning);
         }
         Container::new(dropdown_stack.finish())
-            .with_margin_top(self.vertical_margin)
-            .with_margin_bottom(self.vertical_margin)
+            .with_margin_top(DROPDOWN_PADDING)
+            .with_margin_bottom(DROPDOWN_PADDING)
             .finish()
     }
 

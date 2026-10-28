@@ -54,6 +54,7 @@ const TARGET_WINDOW_KEY: &str = "target window";
 const DETACHED_WINDOW_KEY: &str = "detached window";
 const METADATA_TAB_TITLE: &str = "Integration Metadata Tab";
 const METADATA_BRANCH: &str = "main";
+const METADATA_REPO_DIRECTORY: &str = "metadata-repo";
 const METADATA_CLICKED_PANE_TITLE: &str = "Integration Metadata Clicked Pane";
 const METADATA_PANE_TITLE: &str = "Integration Metadata Pane";
 const METADATA_PANE_BRANCH: &str = "pane-branch";
@@ -258,7 +259,7 @@ fn add_tab_context_metadata_setup_steps(builder: Builder) -> Builder {
         .with_step(execute_command_for_single_terminal_in_tab(
             0,
             format!(
-                "git init -b {METADATA_BRANCH}; git config user.email \"test@test.com\"; git config user.name \"Git TestUser\""
+                "mkdir \"$HOME/{METADATA_REPO_DIRECTORY}\" && cd \"$HOME/{METADATA_REPO_DIRECTORY}\" && git init -b {METADATA_BRANCH} && git config user.email \"test@test.com\" && git config user.name \"Git TestUser\""
             ),
             ExpectedExitStatus::Success,
             (),
@@ -356,7 +357,7 @@ fn add_vertical_tab_context_metadata_copy_steps(
         .with_step(
             new_step_with_default_assertions("Copy working directory from tab context menu")
                 .with_click_on_saved_position("Copy working directory")
-                .add_assertion(assert_clipboard_contains_home()),
+                .add_assertion(assert_clipboard_matches_metadata_repo_directory()),
         )
 }
 
@@ -391,7 +392,7 @@ fn add_vertical_pane_context_metadata_copy_steps(
         .with_step(
             new_step_with_default_assertions("Copy working directory from pane context menu")
                 .with_click_on_saved_position("Copy working directory")
-                .add_assertion(assert_clipboard_contains_home()),
+                .add_assertion(assert_clipboard_matches_metadata_repo_directory()),
         )
 }
 
@@ -423,7 +424,7 @@ fn assert_saved_positions_absent(labels: &'static [&'static str]) -> AssertionCa
     })
 }
 
-fn assert_clipboard_contains_home() -> AssertionCallback {
+fn assert_clipboard_matches_metadata_repo_directory() -> AssertionCallback {
     Box::new(|app, _window_id| {
         let clipboard = app.update(|ctx| ctx.clipboard().read());
         let content = match clipboard.paths {
@@ -432,7 +433,8 @@ fn assert_clipboard_contains_home() -> AssertionCallback {
         };
         let home = std::env::var("HOME").expect("HOME should be set for integration tests");
 
-        async_assert_eq!(content, home)
+        let repo_directory = std::path::Path::new(&home).join(METADATA_REPO_DIRECTORY);
+        async_assert_eq!(content, repo_directory.to_string_lossy().into_owned())
     })
 }
 

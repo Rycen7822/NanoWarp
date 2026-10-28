@@ -28,7 +28,6 @@ use vim::{
 use warp_core::platform::SessionPlatform;
 use warp_core::semantic_selection::SemanticSelection;
 use warp_core::ui::theme::Fill;
-use warp_editor::content::anchor::Anchor;
 use warp_editor::content::buffer::{
     AutoScrollBehavior, Buffer, BufferEditAction, BufferEvent, BufferSelectAction, EditOrigin,
     InitialBufferState, SelectionOffsets, ShouldAutoscroll, ToBufferCharOffset, ToBufferPoint,
@@ -45,9 +44,8 @@ use warp_editor::editor::TextDecoration;
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
 use warp_editor::multiline::{AnyMultilineString, LF, MultilineString};
 use warp_editor::render::model::{
-    AutoScrollMode, BlockItem, Decoration, LineCount, LineDecoration, RenderEvent,
-    RenderLineLocation, RenderState, RichTextStyles, StyleUpdateAction,
-    UpdateDecorationAfterLayout, WidthSetting,
+    AutoScrollMode, Decoration, LineCount, LineDecoration, RenderEvent, RenderState,
+    RichTextStyles, StyleUpdateAction, UpdateDecorationAfterLayout, WidthSetting,
 };
 use warp_editor::selection::{SelectionMode, SelectionModel, TextDirection, TextUnit};
 use warp_util::standardized_path::StandardizedPath;
@@ -57,45 +55,18 @@ use warpui::elements::{
 };
 use warpui::text::TextBuffer;
 use warpui::text::point::Point;
-use warpui::units::{IntoPixels, Pixels};
+use warpui::units::IntoPixels;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::diff::{
     DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk, add_inline_overlay_color,
 };
 use crate::appearance::Appearance;
-use crate::code::editor::DiffDelta;
 use crate::code::editor::line_iterator::LineIterator;
 use crate::editor::InteractionState;
 use crate::notebooks::editor::model::word_unit;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::util::link_detection::get_word_range_at_offset;
-
-/// An opaque handle to a stable line in the editor content, suitable for scroll
-/// position preservation. Contains an internal anchor that tracks through
-/// buffer edits so the line position remains accurate even after insertions
-/// or deletions elsewhere in the file.
-///
-/// Obtain via [`CodeEditorModel::line_at_vertical_offset`]; resolve back to a
-/// pixel offset via [`CodeEditorModel::line_top`].
-#[derive(Debug, Clone)]
-pub struct StableEditorLine(StableEditorLineInner);
-
-#[derive(Debug, Clone)]
-enum StableEditorLineInner {
-    /// Scroll position is on a line in the current buffer.
-    CurrentLine {
-        /// Anchored at the start of the line; tracks through buffer edits.
-        anchor: Anchor,
-    },
-    /// Scroll position is on a removed/deleted line shown in the diff.
-    RemovedLine {
-        /// Anchored at the start of the attachment line; tracks through
-        /// buffer edits.
-        anchor: Anchor,
-        temp_index: usize,
-    },
-}
 
 /// Enum used for vim movements to the start and end of lines
 pub enum LineBound {
@@ -107,8 +78,6 @@ pub enum LineBound {
 pub enum DiffNavigationState {
     /// Diff hunks are collapsed and not visible
     Collapsed,
-    /// All diff hunks are expanded but none is specifically focused
-    Expanded,
     /// All diff hunks are expanded and one specific hunk is focused
     Focused(usize),
 }
@@ -173,21 +142,14 @@ pub enum CodeEditorModelEvent {
     LayoutInvalidated,
 }
 
-/// Triggers to delay rendering until a certain event.
-#[derive(Clone, Copy)]
-enum DelayRenderingTrigger {
-    SyntaxHighlighting(BufferVersion),
-    DiffUpdate(BufferVersion),
-}
-
 struct DelayRendering {
     edits: Vec<(EditDelta, BufferVersion)>,
     should_autoscroll: ShouldAutoscroll,
-    block_until: DelayRenderingTrigger,
+    block_until: BufferVersion,
 }
 
 impl DelayRendering {
-    fn new(trigger: DelayRenderingTrigger) -> Self {
+    fn new(trigger: BufferVersion) -> Self {
         Self {
             edits: Vec::new(),
             should_autoscroll: ShouldAutoscroll::No,
@@ -196,17 +158,7 @@ impl DelayRendering {
     }
 
     fn should_render_for_syntax_highlight(&self, buffer_version: BufferVersion) -> bool {
-        match self.block_until {
-            DelayRenderingTrigger::DiffUpdate(_) => false,
-            DelayRenderingTrigger::SyntaxHighlighting(version) => buffer_version >= version,
-        }
-    }
-
-    fn should_render_for_diff_update(&self, buffer_version: BufferVersion) -> bool {
-        match self.block_until {
-            DelayRenderingTrigger::DiffUpdate(version) => buffer_version >= version,
-            DelayRenderingTrigger::SyntaxHighlighting(_) => false,
-        }
+        buffer_version >= self.block_until
     }
 
     fn flush_render(self, model: &CodeEditorModel, ctx: &mut ModelContext<CodeEditorModel>) {
@@ -229,14 +181,6 @@ impl DelayRendering {
 
         ctx.emit(CodeEditorModelEvent::DelayedRenderingFlushed);
     }
-
-    /// Consume the delay rendering state without flushing edits to the render state.
-    /// Use when a full layout rebuild will follow that supersedes the pending edits.
-    /// Still emits `DelayedRenderingFlushed` so downstream listeners (e.g. CodeReviewView)
-    /// are notified.
-    fn skip(self, ctx: &mut ModelContext<CodeEditorModel>) {
-        ctx.emit(CodeEditorModelEvent::DelayedRenderingFlushed);
-    }
 }
 
 pub struct CodeEditorModel {
@@ -255,23 +199,12 @@ pub struct CodeEditorModel {
     /// Stores the selection "tails" when entering Vim visual mode so we can derive
     /// visual selections that may differ from the cursor positions.
     vim_visual_tails: Vec<CharOffset>,
-    /// Automatically hide lines outside of the active diff with X context lines.
-    hide_lines_outside_of_active_diff: Option<usize>,
-    /// Recalculate hidden lines after a diff for this buffer version or later completes.
-    recalculate_hidden_lines_after_diff: Option<BufferVersion>,
-    /// Whether this editor was configured to use lazy layout.
-    lazy_layout_enabled: bool,
-    /// Whether the editor has completed at least one layout cycle.
-    lazy_layout_initialized: bool,
-    /// Whether syntax parsing should be bootstrapped from the latest full buffer content.
-    pending_syntax_tree_bootstrap: bool,
 }
 
 impl CodeEditorModel {
     pub fn new(
         text_styles: RichTextStyles,
         session_platform: Option<SessionPlatform>,
-        lazy_layout: bool,
         buffer: Option<ModelHandle<Buffer>>, // Whether the editor is using an underlying shared buffer.
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -312,7 +245,7 @@ impl CodeEditorModel {
             ctx.add_model(|_| HiddenLinesModel::new(content.clone(), selection_model.clone()));
 
         let render_state = ctx.add_model(|ctx| {
-            RenderState::new(text_styles, lazy_layout, Some(hidden_lines.clone()), ctx)
+            RenderState::new(text_styles, false, Some(hidden_lines.clone()), ctx)
                 .with_width_setting(WidthSetting::InfiniteWidth)
         });
         ctx.subscribe_to_model(&render_state, |me, _, event, ctx| {
@@ -341,41 +274,7 @@ impl CodeEditorModel {
             interaction_state: InteractionState::Editable,
             delay_rendering: None,
             vim_visual_tails: vec![],
-            hide_lines_outside_of_active_diff: None,
-            recalculate_hidden_lines_after_diff: None,
-            lazy_layout_enabled: lazy_layout,
-            lazy_layout_initialized: false,
-            pending_syntax_tree_bootstrap: false,
         }
-    }
-
-    fn should_defer_syntax_tree_parsing(&self) -> bool {
-        self.lazy_layout_enabled && !self.lazy_layout_initialized
-    }
-
-    fn mark_lazy_layout_initialized(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.lazy_layout_enabled {
-            self.lazy_layout_initialized = true;
-        }
-        self.maybe_bootstrap_syntax_tree(ctx);
-    }
-
-    fn maybe_bootstrap_syntax_tree(&mut self, ctx: &mut ModelContext<Self>) {
-        if !self.pending_syntax_tree_bootstrap || !self.lazy_layout_initialized {
-            return;
-        }
-        if !self.syntax_tree.as_ref(ctx).has_supported_highlighting() {
-            return;
-        }
-
-        let content = self.content.as_ref(ctx);
-        let buffer_version = content.buffer_version();
-        let buffer_snapshot = content.buffer_snapshot();
-
-        self.syntax_tree.update(ctx, move |syntax_tree, ctx| {
-            syntax_tree.update_internal_state_with_delta(&[], buffer_version, buffer_snapshot, ctx);
-        });
-        self.pending_syntax_tree_bootstrap = false;
     }
 
     fn handle_render_state_model_event(
@@ -384,11 +283,8 @@ impl CodeEditorModel {
         ctx: &mut ModelContext<Self>,
     ) {
         match event {
-            RenderEvent::PendingEditsFlushed => {
-                self.mark_lazy_layout_initialized(ctx);
-            }
+            RenderEvent::PendingEditsFlushed => {}
             RenderEvent::ViewportUpdated(version) => {
-                self.mark_lazy_layout_initialized(ctx);
                 if let Some(version) = version {
                     ctx.emit(CodeEditorModelEvent::ViewportUpdated(*version));
                 }
@@ -400,47 +296,12 @@ impl CodeEditorModel {
         }
     }
 
-    /// Hides lines outside the active diff after the current content's diff computes.
-    pub fn hide_lines_outside_of_active_diff(
-        &mut self,
-        context_lines: usize,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let buffer_version = self.buffer_version(ctx);
-
-        self.hide_lines_outside_of_active_diff = Some(context_lines);
-        self.request_hidden_lines_recalculation_after_diff(buffer_version);
-        self.delay_rendering = Some(DelayRendering::new(DelayRenderingTrigger::DiffUpdate(
-            buffer_version,
-        )));
-    }
-    /// Requests hidden-line recalculation after a diff reaches `buffer_version`.
-    fn request_hidden_lines_recalculation_after_diff(&mut self, buffer_version: BufferVersion) {
-        self.recalculate_hidden_lines_after_diff = Some(
-            self.recalculate_hidden_lines_after_diff
-                .map_or(buffer_version, |pending_version| {
-                    pending_version.max(buffer_version)
-                }),
-        );
-    }
-
     /// We need to set the diff model base to the normalized version of the text. This is because the internal text
     /// representation of the content used for syntax tree highlighting and text rendering uses standard LF.
-    pub fn set_base(&mut self, base: &str, recompute_diff: bool, ctx: &mut ModelContext<Self>) {
+    fn set_base(&mut self, base: &str, ctx: &mut ModelContext<Self>) {
         let normalized_text = MultilineString::<LF>::apply(base);
         self.diff
             .update(ctx, |diff, _ctx| diff.set_base(normalized_text));
-
-        if recompute_diff {
-            let buffer_version = self.buffer_version(ctx);
-            if self.hide_lines_outside_of_active_diff.is_some() {
-                self.request_hidden_lines_recalculation_after_diff(buffer_version);
-            }
-            let content = self.content().as_ref(ctx).text();
-            self.diff.update(ctx, move |diff, ctx| {
-                diff.compute_diff(content, buffer_version, ctx)
-            });
-        }
     }
 
     pub fn positioning(&self, ctx: &AppContext) -> OffsetPositioning {
@@ -485,21 +346,6 @@ impl CodeEditorModel {
     /// Allows programmatic selection updates
     pub fn selection(&self) -> &ModelHandle<SelectionModel> {
         &self.selection
-    }
-
-    // Set the following line ranges to be hidden in the editor.
-    pub fn set_hidden_lines(
-        &mut self,
-        ranges: RangeSet<warp_editor::content::text::LineCount>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.hidden_lines.update(ctx, |model, ctx| {
-            model.set_hidden_lines(ranges, ctx);
-        });
-    }
-
-    pub fn hidden_ranges(&self, ctx: &AppContext) -> RangeSet<CharOffset> {
-        self.hidden_lines.as_ref(ctx).hidden_ranges_at_latest(ctx)
     }
 
     // Set the following hidden line ranges to be visible. This is no-op if the lines are already visible.
@@ -655,189 +501,12 @@ impl CodeEditorModel {
         self.content().as_ref(ctx).text_with_line_ending()
     }
 
-    /// Find the 0-based index of the temporary block containing the given
-    /// content-space vertical offset within its diff hunk.
-    ///
-    /// Uses the render state's sumtree cursor for an O(log n) seek plus
-    /// an O(k) backward walk (k = position within hunk). Called only on
-    /// scroll-settle (debounced), not per-frame.
-    pub fn removed_line_hunk_index(&self, target_offset: Pixels, ctx: &AppContext) -> usize {
-        let render_state = self.render_state.as_ref(ctx);
-        render_state
-            .content()
-            .temp_block_hunk_index_at_height(target_offset.as_f32() as f64)
-            .unwrap_or(0)
-    }
-
-    /// Given a content-space vertical offset, identifies which line (current or
-    /// removed) is at that position. Returns the stable line identifier
-    /// (including an internal anchor for edit-tracking) and the intra-line
-    /// pixel offset from the top of that line.
-    ///
-    /// Returns `None` if the offset is beyond the content height or the block
-    /// lookup fails.
-    pub fn line_at_vertical_offset(
-        &self,
-        offset: Pixels,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<(StableEditorLine, Pixels)> {
-        // Phase 1: Gather all information from immutable borrows (render state,
-        // buffer, diff model). Extract values and drop borrows before phase 2.
-        // `removed_info` is `Some(temp_index)` for removed lines, `None` for
-        // current-buffer lines.
-        let (anchor_char_offset, removed_info, intra_line_offset) = {
-            let render_state = self.render_state.as_ref(ctx);
-            if offset >= render_state.height() {
-                return None;
-            }
-
-            let content = render_state.content();
-            let positioned_block = content.block_at_height(offset.as_f32() as f64)?;
-            let block_top = positioned_block.start_y_offset;
-            let intra_line_offset = (offset - block_top).max(Pixels::zero());
-
-            match positioned_block.item {
-                BlockItem::TemporaryBlock { .. } => {
-                    let line_number = positioned_block.start_line;
-                    let temp_index = self.removed_line_hunk_index(offset, ctx);
-
-                    let buffer = self.content.as_ref(ctx);
-                    let char_offset =
-                        Point::new(line_number.as_usize() as u32, 0).to_buffer_char_offset(buffer);
-
-                    (char_offset, Some(temp_index), intra_line_offset)
-                }
-                BlockItem::Paragraph(_)
-                | BlockItem::TextBlock { .. }
-                | BlockItem::RunnableCodeBlock { .. }
-                | BlockItem::MermaidDiagram { .. }
-                | BlockItem::TaskList { .. }
-                | BlockItem::UnorderedList { .. }
-                | BlockItem::OrderedList { .. }
-                | BlockItem::Header { .. }
-                | BlockItem::Embedded(_)
-                | BlockItem::HorizontalRule(_)
-                | BlockItem::Image { .. }
-                | BlockItem::Table(_)
-                | BlockItem::TrailingNewLine(_)
-                | BlockItem::Hidden(_) => {
-                    (positioned_block.start_char_offset, None, intra_line_offset)
-                }
-            }
-        };
-
-        // Phase 2: Create anchor (requires mutable borrow).
-        let anchor = self
-            .selection_model
-            .update(ctx, |sel, ctx| sel.anchor(anchor_char_offset, ctx));
-
-        let inner = match removed_info {
-            Some(temp_index) => StableEditorLineInner::RemovedLine { anchor, temp_index },
-            None => StableEditorLineInner::CurrentLine { anchor },
-        };
-
-        Some((StableEditorLine(inner), intra_line_offset))
-    }
-
-    /// Returns the content-space vertical offset of the top of the given line.
-    /// The internal anchor is resolved to obtain the current line position,
-    /// so this remains accurate after buffer edits.
-    ///
-    /// Returns `None` if the line no longer exists in the render model.
-    pub fn line_top(&self, line: &StableEditorLine, ctx: &AppContext) -> Option<Pixels> {
-        let selection_model = self.selection_model.as_ref(ctx);
-        let render_location = match &line.0 {
-            StableEditorLineInner::CurrentLine { anchor } => {
-                let line_number =
-                    LineCount::from(selection_model.line_number_from_anchor(anchor, ctx)?);
-                RenderLineLocation::Current(line_number)
-            }
-            StableEditorLineInner::RemovedLine { anchor, temp_index } => {
-                let line_number =
-                    LineCount::from(selection_model.line_number_from_anchor(anchor, ctx)?);
-                RenderLineLocation::Temporary {
-                    at_line: line_number,
-                    index_from_at_line: *temp_index,
-                }
-            }
-        };
-
-        let render_state = self.render_state.as_ref(ctx);
-        // vertical_offset_at_render_location returns viewport-relative offset
-        // (subtracts scroll_top). Add scroll_top back to get content-space.
-        let viewport_offset = render_state.vertical_offset_at_render_location(render_location)?;
-        Some(viewport_offset + render_state.viewport().scroll_top())
-    }
     pub fn buffer(&self) -> &ModelHandle<Buffer> {
         &self.content
     }
 
     pub fn buffer_selection_model(&self) -> &ModelHandle<BufferSelectionModel> {
         &self.selection_model
-    }
-
-    /// Apply a vector of diffs on the current buffer without changing the active selection.
-    pub fn apply_diffs(&mut self, diffs: Vec<DiffDelta>, ctx: &mut ModelContext<Self>) {
-        let insertion = {
-            let buffer = self.content().as_ref(ctx);
-            diffs
-                .into_iter()
-                .map(|diff| {
-                    let line_start = diff.replacement_line_range.start as u32;
-                    let line_end = diff.replacement_line_range.end as u32;
-
-                    let start = Point::new(line_start, 0).to_buffer_char_offset(buffer);
-                    let end = Point::new(line_end, 0).to_buffer_char_offset(buffer);
-
-                    // If the replacement range spans the entire buffer and the buffer is empty, special
-                    // case to ensure we are actually replacing the initial block marker
-                    //
-                    // Internally, an empty buffer has an initial plaintext block marker (a buffer with no markers is considered invalid).
-                    // If we try to replace range (0..0), we'll end up replacing everything except
-                    // the trailing newline produced by this marker, which will cause us to inadvertently keep an extra newline
-                    // in the buffer.
-                    let (start, end) = if buffer.is_empty()
-                        && diff.replacement_line_range.start == 0
-                        && diff.replacement_line_range.end == 0
-                    {
-                        (CharOffset::from(0), CharOffset::from(1))
-                    } else {
-                        (start, end)
-                    };
-
-                    let mut formatted = diff.insertion.clone();
-
-                    if !formatted.is_empty()
-                        && !formatted.ends_with("\n")
-                        // Don't add a newline if this is content in a brand new file.
-                        && !self.content().as_ref(ctx).is_empty()
-                    {
-                        // Make sure the formatted text ends with a linebreak.
-                        formatted.push('\n');
-                    }
-
-                    (formatted, start..end)
-                })
-                .collect_vec()
-        };
-
-        let Ok(edit) = Vec1::try_from_vec(insertion) else {
-            return;
-        };
-
-        let selection_model = self.selection_model.clone();
-        self.update_content(
-            |mut content, ctx| {
-                content.apply_edit(
-                    BufferEditAction::InsertAtCharOffsetRanges { edits: &edit },
-                    EditOrigin::SystemEdit,
-                    selection_model,
-                    ctx,
-                );
-                content.buffer().reset_undo_stack();
-            },
-            ctx,
-        )
     }
 
     /// Refresh the diff nav state. When diff navigation is active we expand all diffs, so we show
@@ -853,7 +522,7 @@ impl CodeEditorModel {
             DiffNavigationState::Collapsed => {
                 // No diff decorations when collapsed
             }
-            DiffNavigationState::Expanded | DiffNavigationState::Focused(_) => {
+            DiffNavigationState::Focused(_) => {
                 let focused_diff_index = self.focused_diff_index();
                 // Show all diffs expanded, with the focused one getting special highlighting
                 let Some(base) = self.diff.as_ref(ctx).base() else {
@@ -1001,14 +670,6 @@ impl CodeEditorModel {
         true
     }
 
-    /// Expands all diff hunks without focusing any specific diff hunk.
-    /// All diff hunks will be shown expanded with normal highlighting.
-    pub fn expand_diffs(&mut self, ctx: &mut ModelContext<Self>) {
-        self.diff_navigation_state = DiffNavigationState::Expanded;
-        self.refresh_diff_state(ctx);
-        ctx.emit(CodeEditorModelEvent::DiffUpdated);
-    }
-
     pub fn diff_status(&self, app: &AppContext) -> DiffStatus {
         self.diff.as_ref(app).diff_status().clone()
     }
@@ -1047,7 +708,6 @@ impl CodeEditorModel {
         self.syntax_tree.update(ctx, |syntax_tree, _ctx| {
             syntax_tree.set_language(language);
         });
-        self.maybe_bootstrap_syntax_tree(ctx);
     }
 
     /// Rebuilds the layout and bootstraps the syntax tree for an editor that was created
@@ -1057,9 +717,7 @@ impl CodeEditorModel {
         let content = self.content.as_ref(ctx);
         let delta = content.invalidate_layout();
         let buffer_version = content.buffer_version();
-        if self.should_defer_syntax_tree_parsing() {
-            self.pending_syntax_tree_bootstrap = true;
-        } else {
+        {
             let buffer_snapshot = content.buffer_snapshot();
             let precise_deltas = delta.precise_deltas.clone();
 
@@ -1148,87 +806,13 @@ impl CodeEditorModel {
         }
     }
 
-    /// Re-calculate the hidden line ranges given the active diff state. No-op
-    /// unless [`Self::hide_lines_outside_of_active_diff`] enabled hiding.
-    fn calculate_hidden_lines(&mut self, ctx: &mut ModelContext<Self>) {
-        if let Some(context_line) = self.hide_lines_outside_of_active_diff {
-            let line_count = self.line_count(ctx);
-
-            // Calculate the visible line ranges (with context)
-            let mut visible_ranges: RangeSet<warp_editor::content::text::LineCount> =
-                RangeSet::new();
-
-            // Add ranges for diffs. `modified_lines` yields 0-based line
-            // ranges, matching the hidden-range convention.
-            for range in self.diff().as_ref(ctx).modified_lines() {
-                let context_start = range.start.saturating_sub(context_line);
-                let context_end = range.end + context_line;
-
-                if context_start < context_end {
-                    visible_ranges.insert(context_start.into()..context_end.into());
-                }
-            }
-
-            // Calculate hidden ranges as the complement of visible ranges
-            let all_lines: Range<warp_editor::content::text::LineCount> =
-                warp_editor::content::text::LineCount::from(0)
-                    ..warp_editor::content::text::LineCount::from(line_count);
-
-            // Find gaps in the visible ranges
-            let hidden_ranges = visible_ranges
-                .gaps(&all_lines)
-                .collect::<RangeSet<warp_editor::content::text::LineCount>>();
-
-            self.set_hidden_lines(hidden_ranges, ctx);
-        }
-    }
-
     fn handle_diff_model_event(&mut self, event: &DiffModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
-            DiffModelEvent::DiffUpdated { version } => {
-                // If we are hiding lines based on active diffs, there are 3 steps here once the diff is computed:
-                // 1) If we should, recalculate hidden lines based on the updated diff state.
-                // 2) Flush any delayed rendering based on diff update trigger.
-                // 3) If hidden lines are recalculated, rebuild the current layout.
-                let should_recalculate_hidden_lines = self
-                    .recalculate_hidden_lines_after_diff
-                    .is_some_and(|pending_version| *version >= pending_version);
-                if should_recalculate_hidden_lines {
-                    self.calculate_hidden_lines(ctx);
-                    self.recalculate_hidden_lines_after_diff = None;
-                }
-
+            DiffModelEvent::DiffUpdated { .. } => {
                 // Do not refresh diff state if there is an active delayed rendering. We should wait until the delayed rendering
                 // is flushed so we could insert temporary blocks based on the accurate line ranges.
                 if self.delay_rendering.is_none() && self.diff_nav_is_active() {
                     self.refresh_diff_state(ctx);
-                }
-
-                let will_rebuild_layout = should_recalculate_hidden_lines
-                    && self.hide_lines_outside_of_active_diff.is_some();
-
-                if self
-                    .delay_rendering
-                    .as_ref()
-                    .map(|delay_rendering| delay_rendering.should_render_for_diff_update(*version))
-                    .unwrap_or(false)
-                {
-                    let delay_rendering = self.delay_rendering.take().expect("Checked above");
-                    if will_rebuild_layout {
-                        // Full rebuild will supersede pending edits — skip the expensive render state update.
-                        delay_rendering.skip(ctx);
-                    } else {
-                        delay_rendering.flush_render(self, ctx);
-                    }
-                }
-
-                // This could be optimized to not rebuild the entire layout and only the part of the hidden ranges that are changed.
-                // It is challenging tho because we will need to somehow expand and calculate style blocks based on past buffer versions.
-                //
-                // Realistically, the impact of rebuilding layout should be minimal given 1) it is only triggered on the first edit within
-                // the hidden range 2) we are not re-rendering hidden sections.
-                if will_rebuild_layout {
-                    self.rebuild_layout_and_refresh_diff(ctx);
                 }
 
                 ctx.emit(CodeEditorModelEvent::DiffUpdated);
@@ -1272,9 +856,7 @@ impl CodeEditorModel {
             } => {
                 let buffer = self.content().as_ref(ctx);
                 let content = buffer.text();
-                if self.should_defer_syntax_tree_parsing() {
-                    self.pending_syntax_tree_bootstrap = true;
-                } else {
+                {
                     let buffer_snapshot = buffer.buffer_snapshot();
 
                     self.syntax_tree.update(ctx, move |syntax_tree, ctx| {
@@ -1289,35 +871,14 @@ impl CodeEditorModel {
 
                 let is_from_external_source =
                     *selection_model_id != Some(self.selection_model.id());
-                let mut should_recalculate_hidden_lines = false;
 
-                // If the edit is from an external source, we need to 1) materialize hidden range offsets for rendering the edit
-                // 2) if the edit overlaps with a hidden range, re-calculate what the new hidden range should be.
+                // Materialize hidden range offsets before rendering an external edit.
                 if is_from_external_source {
-                    let edit_range = &delta.old_offset;
-                    should_recalculate_hidden_lines =
-                        self.hidden_lines.update(ctx, |hidden_lines, ctx| {
-                            if !hidden_lines.has_offsets_for_version(*buffer_version) {
-                                hidden_lines.materialize_hidden_range_offsets(*buffer_version, ctx);
-                            }
-
-                            hidden_lines.range_intersects_with_hidden_range_at_version(
-                                edit_range,
-                                *buffer_version,
-                            )
-                        });
-                }
-
-                if should_recalculate_hidden_lines {
-                    self.request_hidden_lines_recalculation_after_diff(*buffer_version);
-                    if let Some(delay_rendering) = &mut self.delay_rendering {
-                        delay_rendering.block_until =
-                            DelayRenderingTrigger::DiffUpdate(*buffer_version);
-                    } else {
-                        self.delay_rendering = Some(DelayRendering::new(
-                            DelayRenderingTrigger::DiffUpdate(*buffer_version),
-                        ));
-                    }
+                    self.hidden_lines.update(ctx, |hidden_lines, ctx| {
+                        if !hidden_lines.has_offsets_for_version(*buffer_version) {
+                            hidden_lines.materialize_hidden_range_offsets(*buffer_version, ctx);
+                        }
+                    });
                 }
 
                 self.diff.update(ctx, move |diff, ctx| {
@@ -1348,28 +909,10 @@ impl CodeEditorModel {
                 if cfg!(test) {
                     return;
                 }
-                // On content replacement with active hidden ranges, we should always recalculate hidden lines and delay rendering
-                // since all anchors will all be invalidated.
-                if self.hide_lines_outside_of_active_diff.is_some() {
-                    self.request_hidden_lines_recalculation_after_diff(*buffer_version);
-                    let content = self.content().as_ref(ctx).text();
-                    self.diff.update(ctx, move |diff, ctx| {
-                        diff.compute_diff(content, *buffer_version, ctx)
-                    });
-
-                    if self.delay_rendering.is_none() {
-                        self.delay_rendering = Some(DelayRendering::new(
-                            DelayRenderingTrigger::DiffUpdate(*buffer_version),
-                        ));
-                    }
-                } else if self.should_defer_syntax_tree_parsing() {
-                    self.pending_syntax_tree_bootstrap = true;
-                } else if self.delay_rendering.is_none()
+                if self.delay_rendering.is_none()
                     && self.syntax_tree.as_ref(ctx).has_supported_highlighting()
                 {
-                    self.delay_rendering = Some(DelayRendering::new(
-                        DelayRenderingTrigger::SyntaxHighlighting(*buffer_version),
-                    ));
+                    self.delay_rendering = Some(DelayRendering::new(*buffer_version));
                 }
             }
             BufferEvent::SelectionChanged {
@@ -1604,7 +1147,7 @@ impl CodeEditorModel {
     }
 
     pub fn reset_content(&mut self, state: InitialBufferState, ctx: &mut ModelContext<Self>) {
-        self.set_base(state.text, false, ctx);
+        self.set_base(state.text, ctx);
         // Line ending is now inferred automatically by Buffer::reset.
         self.reset(state, ctx);
     }

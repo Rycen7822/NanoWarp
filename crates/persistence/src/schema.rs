@@ -53,15 +53,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    code_review_panes (id) {
-        id -> Integer,
-        kind -> Text,
-        terminal_uuid -> Binary,
-        repo_path -> Text,
-    }
-}
-
-diesel::table! {
     commands (id) {
         id -> Integer,
         command -> Text,
@@ -117,14 +108,6 @@ diesel::table! {
         parent_pane_node_id -> Nullable<Integer>,
         flex -> Nullable<Float>,
         is_leaf -> Bool,
-    }
-}
-
-diesel::table! {
-    panels (id) {
-        id -> Integer,
-        tab_id -> Integer,
-        right_panel -> Nullable<Text>,
     }
 }
 
@@ -199,7 +182,6 @@ diesel::joinable!(code_pane_tabs -> code_panes (code_pane_id));
 diesel::joinable!(pane_branches -> pane_nodes (pane_node_id));
 diesel::joinable!(pane_leaves -> pane_nodes (pane_node_id));
 diesel::joinable!(pane_nodes -> tabs (tab_id));
-diesel::joinable!(panels -> tabs (tab_id));
 diesel::joinable!(tab_groups -> windows (window_id));
 diesel::joinable!(tabs -> tab_groups (tab_group_id));
 diesel::joinable!(tabs -> windows (window_id));
@@ -209,7 +191,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     pane_branches,
     pane_leaves,
     pane_nodes,
-    panels,
     tab_groups,
     tabs,
     windows,

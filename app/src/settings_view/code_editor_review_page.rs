@@ -1,16 +1,13 @@
-//! The "Editor and Code Review" settings page, shown under the Code umbrella.
+//! Basic editor settings, shown under the Code umbrella.
 
 use warp_core::settings::{Setting as _, ToggleableSetting as _};
 use warp_errors::report_if_error;
 use warpui::elements::Element;
 #[cfg(feature = "local_fs")]
 use warpui::elements::{ChildView, Empty};
-use warpui::keymap::ContextPredicate;
 use warpui::ui_components::components::UiComponent;
 use warpui::ui_components::switch::SwitchStateHandle;
-use warpui::{
-    Action, AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
-};
+use warpui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
 
 #[cfg(feature = "local_fs")]
 use super::features::external_editor::ExternalEditorView;
@@ -18,13 +15,12 @@ use super::settings_page::{
     MatchData, PageTitle, PageType, SettingsPageMeta, SettingsPageViewHandle, SettingsWidget,
     render_body_item, render_dropdown_item,
 };
-use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, ToggleState, flags};
+use super::{SettingsSection, ToggleState};
 use crate::appearance::Appearance;
 use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings};
 use crate::view_components::{Dropdown, DropdownItem};
-use crate::workspace::tab_settings::TabSettings;
 
-const PAGE_TITLE: &str = "Editor and Code Review";
+const PAGE_TITLE: &str = "Editor";
 
 pub struct EditorAndCodeReviewPageView {
     page: PageType<Self>,
@@ -74,12 +70,7 @@ impl EditorAndCodeReviewPageView {
             widgets.push(Box::new(CodeEditorLineNumberModeWidget::default()));
         }
 
-        widgets.extend([
-            Box::new(CodeReviewPanelToggleWidget::default())
-                as Box<dyn SettingsWidget<View = Self>>,
-            Box::new(CodeReviewDiffStatsToggleWidget::default()),
-            Box::new(AutoSaveToggleWidget::default()),
-        ]);
+        widgets.push(Box::new(AutoSaveToggleWidget::default()));
 
         PageType::new_uncategorized(widgets, Some(PageTitle::new(PAGE_TITLE)))
     }
@@ -137,8 +128,6 @@ impl View for EditorAndCodeReviewPageView {
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditorAndCodeReviewPageAction {
-    ToggleCodeReviewPanel,
-    ToggleShowCodeReviewDiffStats,
     ToggleAutoSave,
     SetCodeEditorLineNumberMode(CodeEditorLineNumberMode),
 }
@@ -148,22 +137,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            EditorAndCodeReviewPageAction::ToggleCodeReviewPanel => {
-                TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_code_review_button.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            EditorAndCodeReviewPageAction::ToggleShowCodeReviewDiffStats => {
-                TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(
-                        settings
-                            .show_code_review_diff_stats
-                            .toggle_and_save_value(ctx)
-                    );
-                });
-                ctx.notify();
-            }
             EditorAndCodeReviewPageAction::ToggleAutoSave => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.auto_save.toggle_and_save_value(ctx));
@@ -212,34 +185,6 @@ impl From<ViewHandle<EditorAndCodeReviewPageView>> for SettingsPageViewHandle {
     }
 }
 
-pub fn init_actions_from_parent_view<T: Action + Clone>(
-    app: &mut AppContext,
-    context: &ContextPredicate,
-    builder: fn(SettingsAction) -> T,
-) {
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![
-            ToggleSettingActionPair::new(
-                "code review button",
-                builder(SettingsAction::EditorAndCodeReview(
-                    EditorAndCodeReviewPageAction::ToggleCodeReviewPanel,
-                )),
-                context,
-                flags::SHOW_CODE_REVIEW_BUTTON_FLAG,
-            ),
-            ToggleSettingActionPair::new(
-                "diff stats on code review button",
-                builder(SettingsAction::EditorAndCodeReview(
-                    EditorAndCodeReviewPageAction::ToggleShowCodeReviewDiffStats,
-                )),
-                context,
-                flags::SHOW_CODE_REVIEW_DIFF_STATS_FLAG,
-            ),
-        ],
-        app,
-    );
-}
-
 #[cfg(feature = "local_fs")]
 struct ExternalEditorCodeWidget;
 
@@ -262,89 +207,6 @@ impl SettingsWidget for ExternalEditorCodeWidget {
         } else {
             Empty::new().finish()
         }
-    }
-}
-
-#[derive(Default)]
-struct CodeReviewPanelToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for CodeReviewPanelToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "code review panel right side diff git"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let tab_settings = TabSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Show code review button".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*tab_settings.show_code_review_button)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAndCodeReviewPageAction::ToggleCodeReviewPanel);
-                })
-                .finish(),
-            Some(
-                "Show a button in the top right of the window to toggle the code review panel."
-                    .into(),
-            ),
-        )
-    }
-}
-
-#[derive(Default)]
-struct CodeReviewDiffStatsToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for CodeReviewDiffStatsToggleWidget {
-    type View = EditorAndCodeReviewPageView;
-
-    fn search_terms(&self) -> &str {
-        "code review diff stats lines added removed counts"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let tab_settings = TabSettings::as_ref(app);
-
-        render_body_item::<EditorAndCodeReviewPageAction>(
-            "Show diff stats on code review button".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*tab_settings.show_code_review_diff_stats)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(
-                        EditorAndCodeReviewPageAction::ToggleShowCodeReviewDiffStats,
-                    );
-                })
-                .finish(),
-            Some("Show lines added and removed counts on the code review button.".into()),
-        )
     }
 }
 

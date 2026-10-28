@@ -445,22 +445,6 @@ define_settings_group!(TabSettings, settings: [
         toml_path: "appearance.tabs.show_indicators_button",
         description: "Whether to show activity indicators on tabs.",
     },
-    show_code_review_button: ShowCodeReviewButton {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: false,
-        toml_path: "code.editor.show_code_review_button",
-        description: "Whether to show the code review button on tabs.",
-    },
-    show_code_review_diff_stats: ShowCodeReviewDiffStats {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        private: false,
-        toml_path: "code.editor.show_code_review_diff_stats",
-        description: "Whether to show lines added/removed counts on the code review button.",
-    },
     preserve_active_tab_color: PreserveActiveTabColor {
         type: bool,
         default: false,

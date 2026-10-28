@@ -151,7 +151,6 @@ use crate::banner::{
 use crate::code::editor_management::CodeSource;
 #[cfg(feature = "local_fs")]
 use crate::code::persisted_workspace::PersistedWorkspace;
-use crate::code_review::diff_state::GitDeltaPreference;
 use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusModel, GitStatusMetadata};
 use crate::code_review::github_repo_model::GitHubRepoModel;
 use crate::context_chips::ContextChipKind;
@@ -162,8 +161,7 @@ use crate::features::FeatureFlag;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::{
-    CodeReviewPanelArg, PaneConfiguration, PaneEvent, PaneGroupAction, SplitPaneState,
-    TerminalViewResources,
+    PaneConfiguration, PaneEvent, PaneGroupAction, SplitPaneState, TerminalViewResources,
 };
 use crate::persistence::{self, FinishedCommandMetadata};
 use crate::remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
@@ -1066,8 +1064,6 @@ pub enum Event {
     PreviewCodeInWarp {
         source: CodeSource,
     },
-    OpenCodeReviewPane(CodeReviewPanelArg),
-    ToggleCodeReviewPane(CodeReviewPanelArg),
     CloseRequested,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
@@ -1591,11 +1587,6 @@ pub struct TerminalView {
     /// Per-repo GitHub-info model for the current repository, if any.
     github_repo_model: Option<ModelHandle<GitHubRepoModel>>,
 
-    /// Deferred code review open request, stashed when [`GitDeltaPreference::OnlyDirty`] is
-    /// requested but git status metadata has not loaded yet. Consumed in
-    /// [`Self::handle_git_repo_status_event`].
-    deferred_code_review_open: Option<DeferredCodeReviewOpen>,
-
     /// A list of callbacks to run on the next [`ModelEvent::AfterBlockCompleted`] received.
 
     /// Path to the current repository, or None if not currently in a repo.
@@ -1621,14 +1612,6 @@ pub struct TerminalView {
     /// State handle for the shimmering text animation in the remote server loading footer.
     /// Persisted across renders so the animation doesn't restart.
     remote_server_shimmer_handle: ShimmeringTextStateHandle,
-}
-
-/// Parameters stashed when a code review pane open is requested with
-/// [`GitDeltaPreference::OnlyDirty`] but git status metadata is not yet available.
-/// Consumed once the per-repo [`GitRepoStatusModel`] delivers its first update.
-struct DeferredCodeReviewOpen {
-    git_delta_preference: GitDeltaPreference,
-    focus_new_pane: bool,
 }
 
 #[derive(Copy, Clone, Serialize)]
@@ -2304,7 +2287,6 @@ impl TerminalView {
             model_events_handle,
             git_repo_status: None,
             github_repo_model: None,
-            deferred_code_review_open: None,
             current_repo_path: None,
             terminal_title: Default::default(),
             warpify_footer,
@@ -2455,13 +2437,6 @@ impl TerminalView {
     }
 
     fn handle_git_repo_status_event(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(deferred) = self.deferred_code_review_open.take() {
-            self.toggle_code_review_pane(
-                deferred.git_delta_preference,
-                deferred.focus_new_pane,
-                ctx,
-            );
-        }
         self.refresh_pane_header(ctx);
         ctx.emit(Event::TerminalViewStateChanged);
         ctx.notify();
@@ -2477,7 +2452,6 @@ impl TerminalView {
             ctx.unsubscribe_to_model(handle);
         }
         self.clear_github_repo_model(ctx);
-        self.deferred_code_review_open = None;
 
         self.current_prompt.update(ctx, |prompt_type, ctx| {
             if let PromptType::Dynamic { prompt } = prompt_type {
@@ -2688,87 +2662,6 @@ impl TerminalView {
             input.append_to_buffer(content.as_str(), ctx);
             ctx.notify();
         });
-    }
-
-    fn toggle_or_open_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        focus_new_pane: bool,
-        event_constructor: impl Fn(CodeReviewPanelArg) -> Event,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let arg = CodeReviewPanelArg {
-            repo_path: self.current_repo_path.clone(),
-            terminal_view: self.view_handle.clone(),
-            focus_new_pane,
-        };
-
-        match delta_pref {
-            GitDeltaPreference::Always => {
-                ctx.emit(event_constructor(arg));
-            }
-            GitDeltaPreference::OnlyDirty => {
-                // For remote repos, skip the dirty check — there's no local
-                // GitRepoStatusModel, so the deferred open would never resolve.
-                // The diff chip only appears when the remote shell reports changes,
-                // so the user intent is clear.
-                if self
-                    .current_repo_path
-                    .as_ref()
-                    .is_some_and(|p| p.is_remote())
-                {
-                    ctx.emit(event_constructor(arg));
-                } else {
-                    // Check if repo has uncommitted changes via the per-repo sub-model.
-                    #[cfg(feature = "local_fs")]
-                    {
-                        let is_dirty = self
-                            .git_status_metadata(ctx)
-                            .map(|m| !m.stats_against_head.has_no_changes());
-                        match is_dirty {
-                            Some(true) => ctx.emit(event_constructor(arg)),
-                            // Metadata not loaded yet — defer until the next
-                            // git repo status update delivers it.
-                            None => {
-                                self.deferred_code_review_open = Some(DeferredCodeReviewOpen {
-                                    git_delta_preference: delta_pref,
-                                    focus_new_pane,
-                                });
-                            }
-                            Some(false) => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn toggle_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        focus_new_pane: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.toggle_or_open_code_review_pane(
-            delta_pref,
-            focus_new_pane,
-            Event::ToggleCodeReviewPane,
-            ctx,
-        )
-    }
-
-    pub fn open_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        focus_new_pane: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.toggle_or_open_code_review_pane(
-            delta_pref,
-            focus_new_pane,
-            Event::OpenCodeReviewPane,
-            ctx,
-        )
     }
 
     fn handle_windowing_state_update(
@@ -5098,51 +4991,45 @@ impl TerminalView {
                     // If the completed command was a `gh` or `gt` invocation, eagerly refresh PR
                     // info since these don't touch .git/ and won't be caught by the filesystem watcher.
                     #[cfg(feature = "local_fs")]
-                    if (FeatureFlag::GitOperationsInCodeReview.is_enabled()
-                        || FeatureFlag::GithubPrPromptChip.is_enabled())
-                        && match &block_type {
-                            BlockType::User(user_block_completed) => {
-                                let command = user_block_completed.command.get_with(|compute| {
+                    if match &block_type {
+                        BlockType::User(user_block_completed) => {
+                            let command = user_block_completed.command.get_with(|compute| {
+                                let model = self.model.lock();
+                                compute(model.block_list())
+                            });
+                            let top_level = user_block_completed
+                                .serialized_block
+                                .get_with(|compute| {
                                     let model = self.model.lock();
                                     compute(model.block_list())
-                                });
-                                let top_level = user_block_completed
-                                    .serialized_block
-                                    .get_with(|compute| {
-                                        let model = self.model.lock();
-                                        compute(model.block_list())
-                                    })
-                                    .session_id
-                                    .and_then(|session_id| {
-                                        self.sessions.as_ref(ctx).get(session_id)
-                                    })
-                                    .and_then(|session| {
-                                        let escape_char = session.shell_family().escape_char();
-                                        let cmd =
+                                })
+                                .session_id
+                                .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id))
+                                .and_then(|session| {
+                                    let escape_char = session.shell_family().escape_char();
+                                    let cmd = warp_completer::parsers::simple::top_level_command(
+                                        command,
+                                        escape_char,
+                                    )?;
+                                    let cmd = session
+                                        .alias_value(cmd.as_str())
+                                        .and_then(|alias| {
                                             warp_completer::parsers::simple::top_level_command(
-                                                command,
+                                                alias,
                                                 escape_char,
-                                            )?;
-                                        let cmd = session
-                                            .alias_value(cmd.as_str())
-                                            .and_then(|alias| {
-                                                warp_completer::parsers::simple::top_level_command(
-                                                    alias,
-                                                    escape_char,
-                                                )
-                                            })
-                                            .unwrap_or(cmd);
-                                        Some(cmd)
-                                    })
-                                    .or_else(|| {
-                                        command.split_whitespace().next().map(|cmd| cmd.to_owned())
-                                    });
+                                            )
+                                        })
+                                        .unwrap_or(cmd);
+                                    Some(cmd)
+                                })
+                                .or_else(|| {
+                                    command.split_whitespace().next().map(|cmd| cmd.to_owned())
+                                });
 
-                                matches!(top_level.as_deref(), Some("gh" | "gt"))
-                            }
-                            _ => false,
+                            matches!(top_level.as_deref(), Some("gh" | "gt"))
                         }
-                    {
+                        _ => false,
+                    } {
                         self.refresh_pr_info_after_gh_or_gt_command(ctx);
                     }
                 }
@@ -9476,13 +9363,6 @@ impl TerminalView {
                     layout: *layout,
                 });
             }
-            InputEvent::OpenCodeReviewPane => {
-                ctx.emit(Event::OpenCodeReviewPane(CodeReviewPanelArg {
-                    repo_path: self.current_repo_path.clone(),
-                    terminal_view: self.view_handle.clone(),
-                    focus_new_pane: true,
-                }));
-            }
             InputEvent::OpenFilesPalette { source } => {
                 ctx.emit(Event::OpenFilesPalette { source: *source })
             }
@@ -12290,7 +12170,6 @@ impl TypedActionView for TerminalView {
             | StartFileDropTarget
             | StopFileDropTarget
             | RunNativeShellCompletions { .. }
-            | ToggleCodeReviewPane
             | DismissCodeToolbeltTooltip
             | ToggleSessionRecording
             | Osc52AllowBlockedClipboardOperation => Empty,
@@ -12582,13 +12461,6 @@ impl TypedActionView for TerminalView {
             ClearMarkedText => self.clear_marked_text_on_terminal(ctx),
             ShowInitializationBlock => self.show_initialization_block(),
             ShowWarpifySettings => ctx.emit(Event::OpenSettings(SettingsSection::Warpify)),
-            ToggleCodeReviewPane => {
-                ctx.emit(Event::ToggleCodeReviewPane(CodeReviewPanelArg {
-                    repo_path: self.current_repo_path.clone(),
-                    terminal_view: self.view_handle.clone(),
-                    focus_new_pane: true,
-                }));
-            }
             PickRepoToOpen => {
                 ctx.dispatch_typed_action(&WorkspaceAction::OpenRepository { path: None });
             }

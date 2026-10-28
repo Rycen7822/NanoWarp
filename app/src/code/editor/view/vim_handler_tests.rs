@@ -81,7 +81,9 @@ fn add_code_editor_with_window(
         );
 
         let base_text = buffer_content.unindent();
-        editor.reset(InitialBufferState::plain_text(base_text.as_str()), ctx);
+        editor.model.update(ctx, |model, ctx| {
+            model.reset_content(InitialBufferState::plain_text(base_text.as_str()), ctx)
+        });
 
         editor.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
 
@@ -155,9 +157,7 @@ fn set_viewport_lines(editor: &ViewHandle<CodeEditorView>, lines: usize, app: &m
 
 /// Helper to get the find bar owned by a CodeEditorView.
 fn find_bar(editor: &ViewHandle<CodeEditorView>, app: &App) -> ViewHandle<CodeEditorFind> {
-    editor.read(app, |view, _| {
-        view.find_bar.clone().expect("find bar should exist")
-    })
+    editor.read(app, |view, _| view.find_bar.clone())
 }
 
 /// Helper to check whether the find bar's query input can be edited.
@@ -697,12 +697,14 @@ fn test_vim_number_repeat_op_combination() {
 
         // Reset buffer and try 3d2w
         editor.update(&mut app, |view, ctx| {
-            view.reset(
-                InitialBufferState::plain_text(
-                    "line 1\nline 2\nline 3\nline 4\nline 5".unindent().as_str(),
-                ),
-                ctx,
-            );
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(
+                    InitialBufferState::plain_text(
+                        "line 1\nline 2\nline 3\nline 4\nline 5".unindent().as_str(),
+                    ),
+                    ctx,
+                )
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
         });
@@ -824,7 +826,9 @@ fn test_vim_linewise_operations_at_eof() {
         );
         let blank_final_line_delete = add_code_editor("", &mut app);
         blank_final_line_delete.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("one\n"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("one\n"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         vim_user_insert(&blank_final_line_delete, "G", &mut app);
@@ -832,7 +836,9 @@ fn test_vim_linewise_operations_at_eof() {
         assert_eq!(buffer_text(&blank_final_line_delete, &app), "one");
         let blank_final_line = add_code_editor("", &mut app);
         blank_final_line.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("one\n"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("one\n"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         vim_user_insert(&blank_final_line, "Gyy", &mut app);
@@ -1322,7 +1328,9 @@ fn test_vim_dw_newline_quirks() {
 
         // However, a "w" motion with an operator cannot traverse the newline.
         editor.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("echo foo  \necho bar"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("echo foo  \necho bar"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
         });
@@ -1380,17 +1388,21 @@ fn test_vim_line_text_objects() {
         assert_eq!(buffer_text(&editor, &app), "one\n  \nthree");
 
         editor.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("one\n \t \nthree"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("one\n \t \nthree"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         set_cursor_position(&editor, 2, 1, &mut app);
         vim_user_insert(&editor, "dil", &mut app);
         assert_eq!(buffer_text(&editor, &app), "one\n \t \nthree");
         editor.update(&mut app, |view, ctx| {
-            view.reset(
-                InitialBufferState::plain_text("one\n two words \nthree"),
-                ctx,
-            );
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(
+                    InitialBufferState::plain_text("one\n two words \nthree"),
+                    ctx,
+                )
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         set_cursor_position(&editor, 2, 4, &mut app);
@@ -1400,7 +1412,9 @@ fn test_vim_line_text_objects() {
 
         editor.update(&mut app, |view, ctx| {
             view.vim_keystroke(&Keystroke::parse("escape").unwrap(), ctx);
-            view.reset(InitialBufferState::plain_text(" αβ \n \nlast"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text(" αβ \n \nlast"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         set_cursor_position(&editor, 3, 0, &mut app);
@@ -1431,7 +1445,9 @@ fn test_vim_line_text_objects() {
         assert_eq!(buffer_text(&editor, &app), "");
 
         editor.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("one\ntwo\nthree"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("one\ntwo\nthree"), ctx)
+            });
             view.handle_action(&CodeEditorViewAction::CursorAtBufferStart, ctx);
         });
         vim_user_insert(&editor, "cal", &mut app);
@@ -1615,7 +1631,9 @@ fn test_vim_visual_selection_with_newlines() {
 
         // select onto a smaller line above
         editor.update(&mut app, |view, ctx| {
-            view.reset(InitialBufferState::plain_text("aaa\nbbbbb\nc\nddd"), ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.reset_content(InitialBufferState::plain_text("aaa\nbbbbb\nc\nddd"), ctx)
+            });
         });
         set_cursor_position(&editor, 2, 3, &mut app);
         vim_user_insert(&editor, "V", &mut app);

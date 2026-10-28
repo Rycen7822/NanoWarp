@@ -23,7 +23,7 @@ use warpui::units::Pixels;
 use warpui::{AppContext, TypedActionView, ViewContext, WeakViewHandle};
 
 use crate::cmd_or_ctrl_shift;
-use crate::code::editor::view::{CodeEditorEvent, CodeEditorView, VimMode};
+use crate::code::editor::view::{CodeEditorView, VimMode};
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
 use crate::notebooks::editor::model::word_unit;
@@ -639,10 +639,6 @@ pub enum CodeEditorViewAction {
         line_range: Range<LineCount>,
         expansion_type: ExpansionType,
     },
-    /// Revert diff hunk changes (when clicking revert icon)
-    RevertDiffHunk {
-        line_range: Range<LineCount>,
-    },
     DeleteLineLeft,
     DeleteLineRight,
     DeleteWordLeft,
@@ -775,7 +771,6 @@ impl CodeEditorViewAction {
             | Self::ShowGoToLine
             | Self::Escape
             | Self::HiddenSectionExpansion { .. }
-            | Self::RevertDiffHunk { .. }
             | Self::RightMouseDown { .. } => true,
         }
     }
@@ -796,14 +791,8 @@ impl TypedActionView for CodeEditorView {
             UserTyped(content) => self.user_insert(content, ctx),
             VimUserTyped(content) => {
                 // Don't handle vim input when the find input is active
-                let allow_vim = match &self.find_bar {
-                    Some(find_bar) => {
-                        let open = find_bar.as_ref(ctx).is_open();
-                        let editable = find_bar.as_ref(ctx).is_find_input_editable(ctx);
-                        !(open && editable)
-                    }
-                    None => true,
-                };
+                let find_bar = self.find_bar.as_ref(ctx);
+                let allow_vim = !(find_bar.is_open() && find_bar.is_find_input_editable(ctx));
                 if allow_vim {
                     self.vim_user_insert(content, ctx);
                 }
@@ -1011,27 +1000,6 @@ impl TypedActionView for CodeEditorView {
                 expansion_type,
             } => {
                 self.expand_hidden_section(line_range.clone(), expansion_type, ctx);
-            }
-            RevertDiffHunk { line_range } => {
-                if FeatureFlag::RevertDiffHunk.is_enabled() {
-                    // Convert line range to diff hunk index and revert it
-                    let hunk_index = self
-                        .model
-                        .as_ref(ctx)
-                        .diff()
-                        .as_ref(ctx)
-                        .diff_hunk_count_before_line(line_range.start.as_usize());
-
-                    self.model.update(ctx, |model, ctx| {
-                        model.reverse_diff_by_index(hunk_index, ctx);
-                    });
-
-                    // Emit event for parent to handle
-                    ctx.emit(CodeEditorEvent::DiffReverted);
-
-                    // Notify to re-render
-                    ctx.notify();
-                }
             }
             RightMouseDown { offset } => {
                 // Right mouse down should set the cursor at the offset location. This matches the behavior with other editors.

@@ -590,11 +590,6 @@ impl From<&DiffState> for proto::DiffState {
                 message: msg.clone(),
             }),
             DiffState::Loaded => proto::diff_state::State::Loaded(proto::DiffStateLoaded {}),
-            // Disconnected is a client-only state; the server never
-            // serialises it. Map to Loading as a safe fallback.
-            DiffState::Disconnected => {
-                proto::diff_state::State::Loading(proto::DiffStateLoading {})
-            }
         };
         proto::DiffState {
             state: Some(state_oneof),

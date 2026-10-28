@@ -269,7 +269,7 @@ impl RemoteDiffStateManager {
                         metadata: model_ref.metadata().cloned(),
                     }
                 }
-                DiffState::Loading | DiffState::Disconnected => {
+                DiffState::Loading => {
                     self.add_pending_response(key, request_id.clone(), conn_id);
                     SubscribeOutcome::Async
                 }
@@ -368,15 +368,6 @@ impl RemoteDiffStateManager {
                     metadata,
                     subscribers: self.subscribed_connections(key),
                 });
-            }
-            DiffStateModelEvent::ConnectionLost => {
-                // Client-only event — should not occur on the server side.
-                log::warn!("Unexpected ConnectionLost event on server-side model key={key:?}");
-            }
-            DiffStateModelEvent::BranchesReceived(_)
-            | DiffStateModelEvent::GitOpCompleted(_)
-            | DiffStateModelEvent::BranchCommittedFilesReceived(_) => {
-                // Client-only events don't go through this tracker.
             }
         }
     }

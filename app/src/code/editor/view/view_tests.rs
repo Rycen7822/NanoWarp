@@ -52,7 +52,9 @@ fn test_interaction_state_prevents_editing() {
 
         // Set to be only selectable
         editor_view.update(&mut app, |view, ctx| {
-            view.set_interaction_state(InteractionState::Selectable, ctx);
+            view.model.update(ctx, |model, ctx| {
+                model.set_interaction_state(InteractionState::Selectable, ctx);
+            });
         });
 
         let text = editor_view.update(&mut app, |view, ctx| {

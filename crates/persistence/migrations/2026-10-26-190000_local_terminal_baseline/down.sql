@@ -1,7 +1,6 @@
 DROP TABLE app;
 DROP TABLE blocks;
 DROP TABLE code_pane_tabs;
-DROP TABLE code_review_panes;
 DROP TABLE code_panes;
 DROP TABLE settings_panes;
 DROP TABLE notebook_panes;
@@ -9,7 +8,6 @@ DROP TABLE terminal_panes;
 DROP TABLE pane_leaves;
 DROP TABLE pane_branches;
 DROP TABLE pane_nodes;
-DROP TABLE panels;
 DROP TABLE ignored_suggestions;
 DROP TABLE commands;
 DROP TABLE tabs;

@@ -10,7 +10,6 @@ use warpui::{
 
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
 use crate::code::view::CodeView;
-use crate::code_review::code_review_view::CodeReviewView;
 use crate::pane_group::{CodePane, PaneGroup, PaneId, TerminalPane};
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::CodeSettings;
@@ -127,37 +126,6 @@ impl QuitScope<'_> {
         }
     }
 
-    /// All code review views in this scope (from the panel, not panes).
-    fn code_review_views(&self, ctx: &AppContext) -> Vec<CodeEditorStatus> {
-        match self {
-            Self::Pane { .. } => {
-                vec![] // There cannot be a code review view in a pane.
-            }
-            Self::Tabs(tabs) => {
-                let window_ids: Vec<_> = tabs
-                    .iter()
-                    .filter_map(|tab| tab.upgrade(ctx))
-                    .map(|pane_group| pane_group.window_id(ctx))
-                    .unique()
-                    .collect();
-                window_ids
-                    .into_iter()
-                    .flat_map(|window_id| {
-                        CodeEditorStatus::code_review_views_in_window(window_id, ctx)
-                    })
-                    .collect_vec()
-            }
-            Self::Window(window_id) => {
-                CodeEditorStatus::code_review_views_in_window(*window_id, ctx).collect_vec()
-            }
-            Self::App => ctx
-                .window_ids()
-                .flat_map(|window_id| CodeEditorStatus::code_review_views_in_window(window_id, ctx))
-                .collect_vec(),
-            Self::EditorTab { .. } => vec![],
-        }
-    }
-
     /// All code editor views (code panes) in this scope, as handles for saving.
     fn code_view_handles(&self, ctx: &AppContext) -> Vec<ViewHandle<CodeView>> {
         match self {
@@ -195,42 +163,6 @@ impl QuitScope<'_> {
                 })
                 .collect(),
             Self::EditorTab { .. } => Vec::new(),
-        }
-    }
-
-    /// All code review views in this scope, as handles for saving.
-    fn code_review_view_handles(&self, ctx: &AppContext) -> Vec<ViewHandle<CodeReviewView>> {
-        match self {
-            Self::Pane { .. } | Self::EditorTab { .. } => Vec::new(),
-            Self::Tabs(tabs) => {
-                let window_ids: Vec<_> = tabs
-                    .iter()
-                    .filter_map(|tab| tab.upgrade(ctx))
-                    .map(|pane_group| pane_group.window_id(ctx))
-                    .unique()
-                    .collect();
-                window_ids
-                    .into_iter()
-                    .flat_map(|window_id| {
-                        ctx.views_of_type::<CodeReviewView>(window_id)
-                            .into_iter()
-                            .flatten()
-                    })
-                    .collect()
-            }
-            Self::Window(window_id) => ctx
-                .views_of_type::<CodeReviewView>(*window_id)
-                .into_iter()
-                .flatten()
-                .collect(),
-            Self::App => ctx
-                .window_ids()
-                .flat_map(|window_id| {
-                    ctx.views_of_type::<CodeReviewView>(window_id)
-                        .into_iter()
-                        .flatten()
-                })
-                .collect(),
         }
     }
 }
@@ -288,17 +220,13 @@ impl<'a> UnsavedStateSummary<'a> {
         let code_editors = scope.code_editors(ctx);
         let code_editor_summary = CodeEditorSummary::new(&code_editors);
 
-        let code_review_views = scope.code_review_views(ctx);
-        let code_review_summary = CodeEditorSummary::new(&code_review_views);
-
         UnsavedStateSummary {
             scope,
             total_long_running_commands: sessions_summary.long_running_cmds.len(),
             windows_with_long_running_commands: sessions_summary.windows_running().len(),
             tabs_with_long_running_commands: sessions_summary.tabs_running().len(),
             terminal_sessions: sessions,
-            unsaved_code_changes: !code_editor_summary.unsaved_changes.is_empty()
-                || !code_review_summary.unsaved_changes.is_empty(),
+            unsaved_code_changes: !code_editor_summary.unsaved_changes.is_empty(),
         }
     }
 
@@ -324,9 +252,6 @@ impl<'a> UnsavedStateSummary<'a> {
         for code_view in self.scope.code_view_handles(ctx) {
             unsaveable_changes_remain |=
                 code_view.update(ctx, |view, ctx| view.auto_save_all_unsaved_tabs(ctx));
-        }
-        for review_view in self.scope.code_review_view_handles(ctx) {
-            review_view.update(ctx, |view, ctx| view.auto_save_all_unsaved_files(ctx));
         }
 
         *GeneralSettings::as_ref(ctx).show_warning_before_quitting

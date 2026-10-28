@@ -496,9 +496,7 @@ impl VimHandler for CodeEditorView {
     }
 
     fn cycle_search(&mut self, direction: &Direction, ctx: &mut ViewContext<Self>) {
-        let Some(find_bar) = &self.find_bar else {
-            return;
-        };
+        let find_bar = &self.find_bar;
 
         if !self.searcher.as_ref(ctx).has_query() {
             return;
@@ -532,9 +530,7 @@ impl VimHandler for CodeEditorView {
 
     fn search_word_at_cursor(&mut self, direction: &Direction, ctx: &mut ViewContext<Self>) {
         self.last_search_direction = *direction;
-        let Some(find_bar) = &self.find_bar else {
-            return;
-        };
+        let find_bar = &self.find_bar;
 
         let word_under_cursor = self.model.as_ref(ctx).word_under_cursor_for_search(ctx);
 

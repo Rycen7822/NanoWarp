@@ -14,8 +14,7 @@ pub mod code_block;
 pub mod editor;
 pub mod editor_management;
 pub mod global_buffer_model;
-#[cfg_attr(not(target_family = "wasm"), path = "local_code_editor.rs")]
-#[cfg_attr(target_family = "wasm", path = "local_code_editor_wasm.rs")]
+#[cfg(not(target_family = "wasm"))]
 pub mod local_code_editor;
 
 #[derive(Debug, thiserror::Error)]

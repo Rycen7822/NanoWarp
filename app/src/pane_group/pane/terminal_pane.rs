@@ -452,12 +452,6 @@ fn handle_terminal_view_event(
                     },
                 });
             }
-            Event::OpenCodeReviewPane(arg) => {
-                ctx.emit(pane_group::Event::OpenCodeReviewPane(arg.clone()));
-            }
-            Event::ToggleCodeReviewPane(arg) => {
-                ctx.emit(pane_group::Event::ToggleCodeReviewPane(arg.clone()));
-            }
             Event::FocusSession => {
                 group.focus_pane(terminal_pane_id.into(), true, ctx);
                 ctx.emit(pane_group::Event::FocusPaneGroup);

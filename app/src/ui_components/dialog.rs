@@ -13,20 +13,16 @@ const DIALOG_PADDING: f32 = 20.;
 /// UiComponent that implements a dialog.
 /// As such by default it's only a box with title and a child (whatever's in the middle of the
 /// dialog) wrapped in a Dismiss, however, it provides couple methods that allow for adding extra
-/// elements to the bottom row (like buttons, or links to documentation), and a close button.
+/// elements to the bottom row (like buttons or documentation links).
 /// UiComponent::build method returns Dismiss so the user can add their own on_dismiss action.
 pub struct Dialog {
     bottom_row: Vec<Box<dyn Element>>,
-    bottom_row_left: Vec<Box<dyn Element>>,
     title: String,
     body: Option<String>,
     child: Option<Box<dyn Element>>,
-    styles: UiComponentStyles,
+    #[cfg(target_family = "wasm")]
     close_button: Option<Box<dyn Element>>,
-    /// Optional icon rendered above the title. When set, the header row becomes
-    /// `[icon] … [close button]` with the title on its own row below.
-    header_icon: Option<Box<dyn Element>>,
-    show_separator: bool,
+    styles: UiComponentStyles,
 }
 
 pub fn dialog_styles(appearance: &Appearance) -> UiComponentStyles {
@@ -53,10 +49,8 @@ impl Dialog {
             child: None,
             styles,
             bottom_row: Default::default(),
-            bottom_row_left: Default::default(),
+            #[cfg(target_family = "wasm")]
             close_button: None,
-            header_icon: None,
-            show_separator: false,
         }
     }
 
@@ -65,30 +59,14 @@ impl Dialog {
         self
     }
 
+    #[cfg(target_family = "wasm")]
     pub fn with_close_button(mut self, close_button: Box<dyn Element>) -> Self {
         self.close_button = Some(close_button);
         self
     }
 
-    /// Sets an icon element rendered in the top row alongside the close button,
-    /// with the dialog title displayed below that row.
-    pub fn with_header_icon(mut self, icon: Box<dyn Element>) -> Self {
-        self.header_icon = Some(icon);
-        self
-    }
-
     pub fn with_bottom_row_child(mut self, child: Box<dyn Element>) -> Self {
         self.bottom_row.push(child);
-        self
-    }
-
-    pub fn with_bottom_row_left_child(mut self, child: Box<dyn Element>) -> Self {
-        self.bottom_row_left.push(child);
-        self
-    }
-
-    pub fn with_separator(mut self) -> Self {
-        self.show_separator = true;
         self
     }
 }
@@ -112,22 +90,9 @@ impl UiComponent for Dialog {
 
         let footer = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_main_axis_alignment(MainAxisAlignment::End)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(
-                Flex::row()
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children(self.bottom_row_left)
-                    .finish(),
-            )
-            .with_child(
-                Flex::row()
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children(self.bottom_row)
-                    .finish(),
-            )
+            .with_children(self.bottom_row)
             .finish();
 
         let (left_padding, top_padding, right_padding, bottom_padding) =
@@ -150,42 +115,21 @@ impl UiComponent for Dialog {
         let mut main_content =
             Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
 
-        if let Some(header_icon) = self.header_icon {
-            // Icon + close button in the top row, title on its own row below.
-            let mut icon_row = Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(header_icon);
-            if let Some(close_button) = self.close_button {
-                icon_row.add_child(close_button);
-            }
-            main_content.add_child(
-                Container::new(icon_row.finish())
-                    .with_padding_bottom(12.)
-                    .finish(),
-            );
-            main_content.add_child(
-                Container::new(title_element)
-                    .with_padding_bottom(DIALOG_PADDING)
-                    .finish(),
-            );
-        } else {
-            // Original layout: title and close button share the same row.
-            let mut header = Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(title_element);
-            if let Some(close_button) = self.close_button {
-                header.add_child(close_button);
-            }
-            main_content.add_child(
-                Container::new(header.finish())
-                    .with_padding_bottom(DIALOG_PADDING)
-                    .finish(),
-            );
-        }
+        let header = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(title_element);
+        #[cfg(target_family = "wasm")]
+        let header = match self.close_button {
+            Some(close_button) => header.with_child(close_button),
+            None => header,
+        };
+        main_content.add_child(
+            Container::new(header.finish())
+                .with_padding_bottom(DIALOG_PADDING)
+                .finish(),
+        );
 
         if let Some(body) = self.body {
             main_content.add_child(
@@ -217,22 +161,11 @@ impl UiComponent for Dialog {
             .with_padding_right(right_padding)
             .finish();
 
-        let footer_container = if self.show_separator {
-            let border_color = self.styles.border_color.unwrap_or_default();
-
-            Container::new(footer)
-                .with_padding_left(left_padding)
-                .with_padding_right(right_padding)
-                .with_padding_top(bottom_padding)
-                .with_border(Border::top(1.).with_border_fill(border_color))
-                .finish()
-        } else {
-            Container::new(footer)
-                .with_padding_left(left_padding)
-                .with_padding_right(right_padding)
-                .with_padding_top(0.)
-                .finish()
-        };
+        let footer_container = Container::new(footer)
+            .with_padding_left(left_padding)
+            .with_padding_right(right_padding)
+            .with_padding_top(0.)
+            .finish();
 
         let flex_column_contents = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)

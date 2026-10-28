@@ -7,12 +7,10 @@ use crate::app_state::WindowSnapshot;
 
 pub const DEFAULT_UNIVERSAL_SEARCH_WIDTH: f32 = 700.;
 pub const DEFAULT_SETTINGS_PANEL_WIDTH: f32 = 194.;
-pub const DEFAULT_RIGHT_PANEL_WIDTH: f32 = 480.;
 /// A naming system for the ResizableStateHandles
 pub enum ModalType {
     UniversalSearchWidth,
     SettingsPanelWidth,
-    RightPanelWidth,
 }
 
 /// A grouping of state handles for the resizables that should be stored and loaded as a part
@@ -20,32 +18,18 @@ pub enum ModalType {
 pub struct ModalSizes {
     pub universal_search_width: ResizableStateHandle,
     pub settings_panel_width: ResizableStateHandle,
-    pub right_panel_width: ResizableStateHandle,
 }
 
 impl ModalSizes {
     /// Constructs a ModalSizes struct using a loaded-in WindowSnapshot
-    pub fn from_restored(window_snapshot: &WindowSnapshot, right_panel_size: f32) -> Self {
+    pub fn from_restored(window_snapshot: &WindowSnapshot) -> Self {
         let universal_search_width = window_snapshot
             .universal_search_width
             .unwrap_or(DEFAULT_UNIVERSAL_SEARCH_WIDTH);
         let settings_panel_width = DEFAULT_SETTINGS_PANEL_WIDTH;
-        let right_panel_width = window_snapshot
-            .right_panel_width
-            .unwrap_or(right_panel_size);
-
         Self {
             universal_search_width: resizable_state_handle(universal_search_width),
             settings_panel_width: resizable_state_handle(settings_panel_width),
-            right_panel_width: resizable_state_handle(right_panel_width),
-        }
-    }
-
-    pub fn default_with_panel_defaults(right_default: f32) -> Self {
-        ModalSizes {
-            universal_search_width: resizable_state_handle(DEFAULT_UNIVERSAL_SEARCH_WIDTH),
-            settings_panel_width: resizable_state_handle(DEFAULT_SETTINGS_PANEL_WIDTH),
-            right_panel_width: resizable_state_handle(right_default),
         }
     }
 
@@ -54,7 +38,6 @@ impl ModalSizes {
         match modal {
             ModalType::UniversalSearchWidth => self.universal_search_width.clone(),
             ModalType::SettingsPanelWidth => self.settings_panel_width.clone(),
-            ModalType::RightPanelWidth => self.right_panel_width.clone(),
         }
     }
 }
@@ -65,7 +48,6 @@ impl Default for ModalSizes {
         Self {
             universal_search_width: resizable_state_handle(DEFAULT_UNIVERSAL_SEARCH_WIDTH),
             settings_panel_width: resizable_state_handle(DEFAULT_SETTINGS_PANEL_WIDTH),
-            right_panel_width: resizable_state_handle(DEFAULT_RIGHT_PANEL_WIDTH),
         }
     }
 }

@@ -34,14 +34,12 @@ use super::{
     StartedCommandMetadata, WriterHandles, schema,
 };
 use crate::app_state::{
-    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, CodeReviewPaneSnapshot,
-    FilePaneSnapshot, LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, RightPanelSnapshot,
-    SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
-    WindowSnapshot,
+    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, FilePaneSnapshot,
+    LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot, SettingsPaneSnapshot, SplitDirection,
+    TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::code::editor_management::CodeSource;
 use crate::persistence::block_list::get_all_restored_blocks;
-use crate::persistence::model::CODE_REVIEW_PANE_KIND;
 use crate::settings_view::SettingsSection;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::tab::SelectedTabColor;
@@ -466,14 +464,12 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
         diesel::delete(schema::notebook_panes::dsl::notebook_panes).execute(conn)?;
         diesel::delete(schema::code_panes::dsl::code_panes).execute(conn)?;
         diesel::delete(schema::settings_panes::dsl::settings_panes).execute(conn)?;
-        diesel::delete(schema::code_review_panes::dsl::code_review_panes).execute(conn)?;
         diesel::delete(schema::pane_leaves::dsl::pane_leaves).execute(conn)?;
         diesel::delete(schema::pane_branches::dsl::pane_branches).execute(conn)?;
         diesel::delete(schema::pane_nodes::dsl::pane_nodes).execute(conn)?;
         diesel::delete(schema::tabs::dsl::tabs).execute(conn)?;
         diesel::delete(schema::tab_groups::dsl::tab_groups).execute(conn)?;
         diesel::delete(schema::windows::dsl::windows).execute(conn)?;
-        diesel::delete(schema::panels::dsl::panels).execute(conn)?;
 
         let mut active_window_id = None;
 
@@ -607,19 +603,6 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                     parent_pane_node_id: None,
                 });
 
-                if tab.right_panel.is_some() {
-                    let new_panel = model::NewPanel {
-                        tab_id: *tab_id,
-                        right_panel: tab
-                            .right_panel
-                            .as_ref()
-                            .and_then(|p| serde_json::to_string(p).ok()),
-                    };
-                    diesel::insert_into(schema::panels::dsl::panels)
-                        .values(new_panel)
-                        .execute(conn)?;
-                }
-
                 while !pane_nodes.is_empty() {
                     let SaveAppStateNodeTraversal {
                         node: pane_node,
@@ -695,7 +678,6 @@ fn save_pane_state(
         LeafContents::File(_) => NOTEBOOK_PANE_KIND,
         LeafContents::Code(_) => CODE_PANE_KIND,
         LeafContents::Settings(_) => SETTINGS_PANE_KIND,
-        LeafContents::CodeReview(_) => CODE_REVIEW_PANE_KIND,
     };
 
     let leaf = model::NewPane {
@@ -779,21 +761,6 @@ fn save_pane_state(
 
             diesel::insert_into(schema::settings_panes::dsl::settings_panes)
                 .values(settings_pane)
-                .execute(conn)?;
-        }
-        LeafContents::CodeReview(code_review_pane_snapshot) => {
-            let CodeReviewPaneSnapshot::Local {
-                terminal_uuid,
-                repo_path,
-            } = code_review_pane_snapshot;
-            let code_review = model::NewCodeReviewPane {
-                id,
-                terminal_uuid: terminal_uuid.clone(),
-                repo_path: repo_path.to_string_lossy().into_owned(),
-            };
-
-            diesel::insert_into(schema::code_review_panes::dsl::code_review_panes)
-                .values(code_review)
                 .execute(conn)?;
         }
     }
@@ -1027,27 +994,6 @@ fn read_node(
                         search_query: None,
                     })
                 }
-                CODE_REVIEW_PANE_KIND => {
-                    let code_review_pane = schema::code_review_panes::dsl::code_review_panes
-                        .find(node.id)
-                        .select(model::CodeReviewPane::as_select())
-                        .first(conn)
-                        .ok();
-
-                    match code_review_pane {
-                        Some(pane) => LeafContents::CodeReview(CodeReviewPaneSnapshot::Local {
-                            terminal_uuid: pane.terminal_uuid,
-                            repo_path: PathBuf::from(pane.repo_path),
-                        }),
-                        None => {
-                            // Return empty fields; will be skipped during restoration
-                            LeafContents::CodeReview(CodeReviewPaneSnapshot::Local {
-                                terminal_uuid: Vec::new(),
-                                repo_path: PathBuf::from(""),
-                            })
-                        }
-                    }
-                }
                 other => bail!("Unrecognized pane kind: {other}"),
             };
 
@@ -1122,12 +1068,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
             .load::<Tab>(conn)?
             .grouped_by(&db_windows);
 
-        let db_panels = schema::panels::dsl::panels
-            .load::<model::Panel>(conn)?
-            .into_iter()
-            .map(|p| (p.tab_id, p))
-            .collect::<HashMap<_, _>>();
-
         // Load tab groups grouped per window so we can resolve `tabs.tab_group_id`
         // through a per-window row-id lookup.
         let db_tab_groups = TabGroup::belonging_to(&db_windows)
@@ -1166,11 +1106,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                         .into_iter()
                         .filter_map(|tab| {
                             let root = read_root_node(conn, tab.id).ok()?;
-                            let panel = db_panels.get(&tab.id);
-
-                            let right_panel = panel
-                                .and_then(|p| p.right_panel.as_ref())
-                                .and_then(|s| serde_json::from_str::<RightPanelSnapshot>(s).ok());
 
                             let group_id = tab
                                 .tab_group_id
@@ -1193,7 +1128,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                                         )
                                     })
                                     .unwrap_or_default(),
-                                right_panel,
                                 group_id,
                                 pinned: tab.pinned,
                             })
@@ -1247,14 +1181,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                         _ => None,
                     };
 
-                    let right_panel_width: Option<f32> =
-                        saved_tabs
-                            .get(tab_index)
-                            .and_then(|tab| match tab.right_panel.as_ref() {
-                                Some(RightPanelSnapshot { width, .. }) => Some(*width as f32),
-                                _ => None,
-                            });
-
                     WindowSnapshot {
                         tabs: saved_tabs,
                         active_tab_index: tab_index,
@@ -1263,7 +1189,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                         universal_search_width: window.universal_search_width,
                         vertical_tabs_panel_open: window.vertical_tabs_panel_open.unwrap_or(false),
                         fullscreen_state: fullscreen_state_val,
-                        right_panel_width,
                         tab_groups: tab_groups_snapshots,
                     }
                 },

@@ -4,9 +4,9 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
 use super::schema::{
-    app, blocks, code_pane_tabs, code_panes, code_review_panes, commands, ignored_suggestions,
-    notebook_panes, pane_branches, pane_leaves, pane_nodes, panels, settings_panes, tab_groups,
-    tabs, terminal_panes, windows, workspace_metadata,
+    app, blocks, code_pane_tabs, code_panes, commands, ignored_suggestions, notebook_panes,
+    pane_branches, pane_leaves, pane_nodes, settings_panes, tab_groups, tabs, terminal_panes,
+    windows, workspace_metadata,
 };
 
 #[derive(Insertable)]
@@ -170,16 +170,6 @@ pub struct CodePaneTab {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = code_review_panes)]
-#[diesel(primary_key(id))]
-pub struct CodeReviewPane {
-    pub id: i32,
-    pub kind: String,
-    pub terminal_uuid: Vec<u8>,
-    pub repo_path: String,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = settings_panes)]
 #[diesel(primary_key(id))]
 pub struct SettingsPane {
@@ -241,9 +231,6 @@ pub const CODE_PANE_KIND: &str = "code";
 /// The [`pane_leaves::kind`] value for settings panes.
 pub const SETTINGS_PANE_KIND: &str = "settings";
 
-/// The [`pane_leaves::kind`] value for code review panes.
-pub const CODE_REVIEW_PANE_KIND: &str = "code_review";
-
 #[derive(Insertable)]
 #[diesel(table_name = terminal_panes)]
 pub struct NewTerminalPane {
@@ -276,14 +263,6 @@ pub struct NewCodePaneTab {
     pub code_pane_id: i32,
     pub tab_index: i32,
     pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = code_review_panes)]
-pub struct NewCodeReviewPane {
-    pub id: i32,
-    pub terminal_uuid: Vec<u8>,
-    pub repo_path: String,
 }
 
 #[derive(Insertable)]
@@ -408,19 +387,4 @@ pub struct Command {
 pub struct NewIgnoredSuggestion {
     pub suggestion: String,
     pub suggestion_type: String,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = panels)]
-pub struct NewPanel {
-    pub tab_id: i32,
-    pub right_panel: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = panels)]
-pub struct Panel {
-    pub id: i32,
-    pub tab_id: i32,
-    pub right_panel: Option<String>,
 }

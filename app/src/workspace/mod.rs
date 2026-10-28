@@ -52,7 +52,7 @@ pub use toast_stack::{ToastStack, ToastStackEvent};
 
 use crate::workspace::view::{
     NEW_FILE_BINDING_NAME, NEW_TAB_BINDING_NAME, NEW_TERMINAL_TAB_BINDING_NAME,
-    NEW_WINDOW_BINDING_NAME, TOGGLE_RIGHT_PANEL_BINDING_NAME, TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME,
+    NEW_WINDOW_BINDING_NAME, TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME,
     TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
 };
 
@@ -67,7 +67,6 @@ pub fn init(app: &mut AppContext) {
     lightbox_view::init(app);
     crate::tab_configs::remove_confirmation_dialog::init(app);
     tab_configs::session_config_modal::init(app);
-    view::right_panel::RightPanelView::init(app);
     header_toolbar_editor::init(app);
 
     settings_view::init_actions_from_parent_view(app, &id!("Workspace"), |settings_action| {
@@ -461,16 +460,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::NewTerminalTab)
         .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
         EditableBinding::new(
-            TOGGLE_RIGHT_PANEL_BINDING_NAME,
-            BindingDescription::new("Toggle code review")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Toggle Code Review"),
-            WorkspaceAction::ToggleRightPanel,
-        )
-        .with_enabled(|| cfg!(feature = "local_fs"))
-        .with_context_predicate(id!("Workspace"))
-        .with_mac_key_binding("cmd-shift-+")
-        .with_linux_or_windows_key_binding("ctrl-shift-+"),
-        EditableBinding::new(
             TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
             BindingDescription::new("Toggle vertical tabs panel")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Toggle Vertical Tabs Panel"),
@@ -480,14 +469,6 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Navigation.as_str())
         .with_enabled(|| FeatureFlag::VerticalTabs.is_enabled())
         .with_key_binding(cmd_or_ctrl_shift("b")),
-        EditableBinding::new(
-            "workspace:close_panel",
-            BindingDescription::new("Close focused panel")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Close focused panel"),
-            WorkspaceAction::ClosePanel,
-        )
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::CloseCurrentSession),
         EditableBinding::new(
             "workspace:toggle_command_palette",
             BindingDescription::new("Toggle command palette")

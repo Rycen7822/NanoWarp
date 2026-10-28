@@ -13,7 +13,6 @@ use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
 
-use crate::WorkspaceAction;
 use crate::appearance::Appearance;
 use crate::settings::InputModeSettings;
 use crate::terminal::event::BlockType;
@@ -22,9 +21,6 @@ use crate::terminal::input::message_bar::{Message, MessageItem};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::settings::{TerminalSettings, TerminalSettingsChangedEvent};
 use crate::terminal::{self};
-use crate::util::bindings::keybinding_name_to_keystroke;
-use crate::workspace::tab_settings::{TabSettings, TabSettingsChangedEvent};
-use crate::workspace::view::TOGGLE_RIGHT_PANEL_BINDING_NAME;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalViewZeroStateAction {
@@ -35,7 +31,6 @@ pub enum TerminalViewZeroStateAction {
 struct StateHandles {
     dismiss_button: MouseStateHandle,
     open_history_menu: MouseStateHandle,
-    open_code_review: MouseStateHandle,
 }
 
 pub struct TerminalViewZeroStateBlock {
@@ -68,12 +63,6 @@ impl TerminalViewZeroStateBlock {
             ) && !TerminalSettings::as_ref(ctx).should_show_zero_state_block()
             {
                 me.should_hide = true;
-                ctx.notify();
-            }
-        });
-
-        ctx.subscribe_to_model(&TabSettings::handle(ctx), |_, _, event, ctx| {
-            if matches!(event, TabSettingsChangedEvent::ShowCodeReviewButton { .. }) {
                 ctx.notify();
             }
         });
@@ -152,25 +141,6 @@ impl View for TerminalViewZeroStateBlock {
             )]),
             app,
         )];
-
-        if *TabSettings::as_ref(app).show_code_review_button
-            && let Some(keystroke) =
-                keybinding_name_to_keystroke(TOGGLE_RIGHT_PANEL_BINDING_NAME, app)
-        {
-            items.push(render_standard_message(
-                Message::new(vec![MessageItem::clickable(
-                    vec![
-                        MessageItem::keystroke(keystroke),
-                        MessageItem::text("open code review"),
-                    ],
-                    |ctx| {
-                        ctx.dispatch_typed_action(WorkspaceAction::ToggleRightPanel);
-                    },
-                    self.state_handles.open_code_review.clone(),
-                )]),
-                app,
-            ));
-        }
 
         if InputModeSettings::handle(app)
             .as_ref(app)

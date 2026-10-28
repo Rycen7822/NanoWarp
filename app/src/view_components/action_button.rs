@@ -1072,28 +1072,6 @@ impl ActionButtonTheme for NakedTheme {
     }
 }
 
-/// Like [`NakedTheme`] but uses `sub_text_color` instead of `foreground` for
-/// text and icon color, matching the muted style of pane header buttons.
-pub struct PaneHeaderTheme;
-
-impl ActionButtonTheme for PaneHeaderTheme {
-    fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        NakedTheme.background(hovered, appearance)
-    }
-
-    fn text_color(
-        &self,
-        _hovered: bool,
-        _background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        appearance
-            .theme()
-            .sub_text_color(appearance.theme().background())
-            .into_solid()
-    }
-}
-
 /// "Secondary" buttons have no fill and a border.
 ///
 /// [Figma spec](https://www.figma.com/design/chk9pwt35jTJhf9KnHmZyE/Components?node-id=3628-14344&t=L1sS5Nxu1zzpWPYp-0)

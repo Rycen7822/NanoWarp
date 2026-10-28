@@ -89,7 +89,6 @@ use crate::workspace::{self, CommandSearchOptions, PaneViewLocator, TabBarLocati
 pub mod focus_state;
 pub mod pane;
 pub mod tree;
-pub mod working_directories;
 use focus_state::PaneGroupFocusState;
 
 #[cfg(test)]
@@ -106,10 +105,8 @@ pub use pane::{
 };
 pub use tree::{Direction, PaneData, PaneFlex, PaneNode, SplitDirection};
 use warp_errors::report_error;
-pub use working_directories::{WorkingDirectoriesEvent, WorkingDirectoriesModel};
 
 use self::pane::{DetachType, PaneViewEvent};
-pub use crate::code_review::CodeReviewPanelArg;
 
 /// Binding name for the action that toggles maximizing the active pane. Shared so
 /// the pane header menu item can surface the same shortcut the binding resolves to.
@@ -407,8 +404,6 @@ pub enum Event {
     PreviewCodeInWarp {
         source: CodeSource,
     },
-    OpenCodeReviewPane(CodeReviewPanelArg),
-    ToggleCodeReviewPane(CodeReviewPanelArg),
     /// Dirty the workspace so the tab indicator shows.
     MaximizePaneToggled,
     /// Refresh the workspace-level active session state.
@@ -608,11 +603,6 @@ pub struct PaneGroup {
 
     dragged_border: Option<DraggedBorder>,
     user_default_shell_changed_banner: ViewHandle<Banner<PaneGroupAction>>,
-
-    /// If the right panel is open for this pane group
-    pub right_panel_open: bool,
-    /// If the right panel is maximized
-    pub is_right_panel_maximized: bool,
 
     /// Native task transcripts waiting for task metadata.
 
@@ -1292,9 +1282,6 @@ impl PaneGroup {
                 };
                 Ok((PaneData::new(pane_id), focus))
             }
-            LeafContents::CodeReview(_) => {
-                Err(anyhow::anyhow!("Code review panes are no longer supported"))
-            }
         };
 
         if let (Ok((pane_data, _)), Some(title)) = (&result, custom_vertical_tabs_title.as_deref())
@@ -1693,8 +1680,6 @@ impl PaneGroup {
             pane_contents,
             dragged_border: None,
             user_default_shell_changed_banner,
-            right_panel_open: false,
-            is_right_panel_maximized: false,
             custom_title: None,
         };
 
@@ -3485,10 +3470,6 @@ impl PaneGroup {
         self.panes.len()
     }
 
-    pub fn has_horizontal_split(&self) -> bool {
-        self.panes.has_horizontal_split()
-    }
-
     pub fn try_navigate_next(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         let pane_ids = self.panes.visible_pane_ids();
         if pane_ids.len() <= 1 {
@@ -3828,22 +3809,6 @@ impl PaneGroup {
         }
     }
 
-    /// Detach all panes and clean up associated state when closing a tab.
-    /// This should be called instead of `detach_panes` when the pane group is being destroyed.
-    pub fn detach_panes_for_close(
-        &self,
-        working_directories_model: &ModelHandle<WorkingDirectoriesModel>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.detach_panes(ctx);
-
-        // Clean up any state associated with this pane group (file tree and code review views)
-        let pane_group_id = ctx.view_id();
-        working_directories_model.update(ctx, |model, ctx| {
-            model.remove_pane_group(pane_group_id, ctx);
-        });
-    }
-
     /// Reattach all panes to this group. This is called when a closed tab is restored.
     pub fn reattach_panes(&mut self, ctx: &mut ViewContext<Self>) {
         let pane_ids = self.pane_contents.keys().copied().collect_vec();
@@ -3940,48 +3905,6 @@ impl PaneGroup {
         self.panes_of::<FilePane>()
             .map(|p| p.file_view(ctx))
             .collect()
-    }
-
-    /// Get all terminal CWDs for this pane group.
-    /// This is used by the Workspace to refresh the active directories model.
-    pub fn terminal_view_working_directories<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<LocalOrRemotePath>)> + 'a {
-        self.terminal_views(ctx).into_iter().map(|terminal_view| {
-            let terminal_id = terminal_view.id();
-            let cwd = terminal_view.as_ref(ctx).pwd_as_local_or_remote(ctx);
-            (terminal_id, cwd)
-        })
-    }
-
-    /// Get all code editor paths (local and remote) for this pane group.
-    /// This is used by the Workspace to refresh the active directories model.
-    pub fn code_view_paths<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<LocalOrRemotePath>)> + 'a {
-        self.code_views(ctx).into_iter().map(move |code_view| {
-            let id = code_view.id();
-            let location = code_view
-                .as_ref(ctx)
-                .tab_at(code_view.as_ref(ctx).active_tab_index())
-                .and_then(|tab| tab.location().cloned());
-            (id, location)
-        })
-    }
-
-    pub fn file_notebook_paths<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<LocalOrRemotePath>)> + 'a {
-        self.file_notebook_views(ctx)
-            .into_iter()
-            .map(move |file_view| {
-                let id = file_view.id();
-                let path = file_view.as_ref(ctx).path().cloned();
-                (id, path)
-            })
     }
 
     /// Close overlays whose state is managed by this pane group or its terminal panes. Does not

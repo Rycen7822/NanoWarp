@@ -544,7 +544,6 @@ fn render_pane_row_element(
 
 #[derive(Clone, Default)]
 struct PaneRowBadgeMouseStates {
-    diff_stats: MouseStateHandle,
     pull_request: MouseStateHandle,
 }
 
@@ -4180,8 +4179,6 @@ fn render_terminal_row_content(
     content.add_child(
         Container::new(render_terminal_metadata_line(
             terminal_view,
-            props.pane_group_id,
-            props.pane_id,
             metadata_left,
             &props.badge_mouse_states,
             appearance,
@@ -4813,11 +4810,8 @@ fn render_terminal_primary_line(
     wrap_with_error_indicator(title_el)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_terminal_metadata_line(
     terminal_view: &TerminalView,
-    pane_group_id: EntityId,
-    pane_id: PaneId,
     left_content: MetadataLeftContent,
     badge_mouse_states: &PaneRowBadgeMouseStates,
     appearance: &Appearance,
@@ -4856,14 +4850,9 @@ fn render_terminal_metadata_line(
     // SpaceBetween treats this padding as part of the right element's natural width, so when the
     // panel is narrow and the Shrinkable text has fully collapsed, there is still a guaranteed
     // 4px gap between the text and the first chip — matching the spacing between chips.
-    if let Some(right_badges) = render_terminal_right_badges(
-        terminal_view,
-        pane_group_id,
-        pane_id,
-        badge_mouse_states,
-        appearance,
-        app,
-    ) {
+    if let Some(right_badges) =
+        render_terminal_right_badges(terminal_view, badge_mouse_states, appearance, app)
+    {
         meta.add_child(Container::new(right_badges).with_padding_left(4.).finish());
     }
 
@@ -4875,8 +4864,6 @@ fn render_terminal_metadata_line(
 
 fn render_terminal_right_badges(
     terminal_view: &TerminalView,
-    pane_group_id: EntityId,
-    pane_id: PaneId,
     badge_mouse_states: &PaneRowBadgeMouseStates,
     appearance: &Appearance,
     app: &AppContext,
@@ -4893,11 +4880,8 @@ fn render_terminal_right_badges(
 
     if show_diff_stats && let Some(git_line_changes) = terminal_view.current_diff_line_changes(app)
     {
-        right_badges.add_child(render_terminal_diff_stats_badge(
+        right_badges.add_child(render_passive_terminal_diff_stats_badge(
             &git_line_changes,
-            pane_group_id,
-            pane_id,
-            badge_mouse_states.diff_stats.clone(),
             appearance,
         ));
         has_badges = true;
@@ -4915,38 +4899,6 @@ fn render_terminal_right_badges(
     }
 
     has_badges.then(|| right_badges.finish())
-}
-
-fn render_terminal_diff_stats_badge(
-    git_line_changes: &GitLineChanges,
-    pane_group_id: EntityId,
-    pane_id: PaneId,
-    mouse_state: MouseStateHandle,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    let theme = appearance.theme();
-
-    Hoverable::new(mouse_state, move |state| {
-        let bg = if state.is_hovered() {
-            internal_colors::fg_overlay_2(theme)
-        } else {
-            internal_colors::fg_overlay_1(theme)
-        };
-        render_badge_container(
-            render_vtab_diff_stats_content(git_line_changes, appearance),
-            bg,
-        )
-    })
-    .on_click(move |ctx, _app, _| {
-        let locator = PaneViewLocator {
-            pane_group_id,
-            pane_id,
-        };
-        ctx.dispatch_typed_action(WorkspaceAction::FocusPane(locator));
-        ctx.dispatch_typed_action(WorkspaceAction::OpenCodeReviewPanel(locator));
-    })
-    .with_cursor(Cursor::PointingHand)
-    .finish()
 }
 
 fn render_terminal_pull_request_badge(
@@ -6279,11 +6231,8 @@ fn render_terminal_detail_section(
         .with_spacing(4.);
     let mut has_right_badges = false;
     if let Some(git_line_changes) = terminal_view.current_diff_line_changes(app) {
-        right_badges.add_child(render_terminal_diff_stats_badge(
+        right_badges.add_child(render_passive_terminal_diff_stats_badge(
             &git_line_changes,
-            props.pane_group_id,
-            props.pane_id,
-            props.badge_mouse_states.diff_stats.clone(),
             appearance,
         ));
         has_right_badges = true;

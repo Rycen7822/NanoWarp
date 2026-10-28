@@ -173,7 +173,7 @@ impl Display for SettingsSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
-            SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
+            SettingsSection::EditorAndCodeReview => write!(f, "Editor"),
             _ => write!(f, "{self:?}"),
         }
     }
@@ -199,7 +199,7 @@ impl SettingsSection {
             Self::Keybindings => "Keyboard shortcuts",
             Self::Privacy => "Privacy",
             Self::Warpify => "Warpify",
-            Self::EditorAndCodeReview => "Editor and Code Review",
+            Self::EditorAndCodeReview => "Editor",
         }
     }
 
@@ -218,7 +218,7 @@ impl SettingsSection {
             "Keyboard shortcuts" => Self::Keybindings,
             "Privacy" => Self::Privacy,
             "Warpify" => Self::Warpify,
-            "Editor and Code Review" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
+            "Editor" | "EditorAndCodeReview" => Self::EditorAndCodeReview,
             _ => return None,
         };
         Some(section)
@@ -311,8 +311,6 @@ pub mod flags {
     pub const SMART_SELECT_FLAG: &str = "Smart_Select_Enabled";
     pub const ACTIVATION_HOTKEY_FLAG: &str = "Activation_Hotkey_Enabled";
     pub const TAB_INDICATORS_FLAG: &str = "Tab_Indicators_Enabled";
-    pub const SHOW_CODE_REVIEW_BUTTON_FLAG: &str = "Show_Code_Review_Button_Enabled";
-    pub const SHOW_CODE_REVIEW_DIFF_STATS_FLAG: &str = "Show_Code_Review_Diff_Stats_Enabled";
     pub const USE_VERTICAL_TABS_FLAG: &str = "Use_Vertical_Tabs";
     pub const PRESERVE_ACTIVE_TAB_COLOR_FLAG: &str = "Preserve_Active_Tab_Color";
     pub const SHOW_VERTICAL_TAB_PANEL_IN_RESTORED_WINDOWS_FLAG: &str =
@@ -361,7 +359,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     features_page::init_actions_from_parent_view(app, context, builder);
     warpify_page::init_actions_from_parent_view(app, context, builder);
     privacy_page::init_actions_from_parent_view(app, context, builder);
-    code_editor_review_page::init_actions_from_parent_view(app, context, builder);
 
     if ChannelState::enable_debug_features() || cfg!(windows) {
         ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(

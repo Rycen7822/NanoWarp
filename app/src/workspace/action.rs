@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use ui_components::lightbox;
 use warp_util::path::LineAndColumnArg;
+use warpui::EntityId;
 use warpui::accessibility::AccessibilityVerbosity;
 use warpui::geometry::rect::RectF;
 use warpui::geometry::vector::Vector2F;
 use warpui::platform::Cursor;
 use warpui::platform::keyboard::KeyCode;
-use warpui::{EntityId, WindowId};
 
 use super::tab_settings::{
     VerticalTabsCompactSubtitle, VerticalTabsDisplayGranularity, VerticalTabsPrimaryInfo,
@@ -293,11 +293,6 @@ pub enum WorkspaceAction {
         cursor_position: Vector2F,
     },
     DropGroup,
-    /// Toggles the right panel. This happens as an explicit action from the user.
-    ToggleRightPanel,
-    /// Opens the code review panel (right panel) without toggling. If already open,
-    /// switches to the target pane's repo. Used by vertical tabs diff stats chip.
-    OpenCodeReviewPanel(PaneViewLocator),
     /// Toggles the vertical tabs panel. This happens as an explicit action from the user.
     ToggleVerticalTabsPanel,
     OpenVerticalTabsPanel,
@@ -310,8 +305,6 @@ pub enum WorkspaceAction {
     ToggleVerticalTabsShowPrLink,
     ToggleVerticalTabsShowDiffStats,
     ToggleVerticalTabsShowDetailsOnHover,
-    /// Closes the focused panel. This happens as an explicit action from the user.
-    ClosePanel,
     CopyTextToClipboard(String),
     /// Copies a path to the clipboard based on the focused pane: the open file's display path
     /// if the focused pane is the rendered file viewer (`FilePane`), otherwise the focused
@@ -384,10 +377,6 @@ pub enum WorkspaceAction {
     ScrollToSettingsWidget {
         page: SettingsSection,
         widget_id: &'static str,
-    },
-    UndoRevertInCodeReviewPane {
-        window_id: WindowId,
-        view_id: EntityId,
     },
     /// Open a repository directory, selecting a folder when the path is absent.
     OpenRepository {
@@ -578,9 +567,6 @@ impl WorkspaceAction {
             | StartTabDrag
             | DragGroup { .. }
             | StartGroupDrag(_)
-            | ClosePanel
-            | ToggleRightPanel
-            | OpenCodeReviewPanel(..)
             | ToggleVerticalTabsSettingsPopup
             | SetVerticalTabsDisplayGranularity(_)
             | SetVerticalTabsTabItemMode(_)
@@ -628,7 +614,6 @@ impl WorkspaceAction {
             | ToggleTabMultiSelection { .. }
             | ClearTabMultiSelection
             | CancelActiveRename
-            | UndoRevertInCodeReviewPane { .. }
             | NavigatePrevPaneOrPanel
             | NavigateNextPaneOrPanel
             | OpenLightbox { .. }

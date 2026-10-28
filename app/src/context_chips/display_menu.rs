@@ -68,7 +68,6 @@ impl FixedFooter {
 pub enum ChipMenuType {
     Directories,
     Branches,
-    CodeReview,
 }
 
 const LABEL_HORIZONTAL_PADDING: f32 = 14.;
@@ -150,7 +149,7 @@ pub struct DisplayChipMenu {
     selected_index: usize,
     is_footer_selected: bool,
     fixed_footer: Option<FixedFooter>,
-    search_input: Option<ViewHandle<EditorView>>,
+    search_input: ViewHandle<EditorView>,
     search_query: String,
     /// When set, the menu offers a synthetic "create from query" item whenever
     /// the user's query doesn't exactly match an existing item. See
@@ -192,49 +191,41 @@ impl DisplayChipMenu {
         chip_menu_type: ChipMenuType,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
-        let search_input = match chip_menu_type {
-            ChipMenuType::Directories | ChipMenuType::Branches => {
-                Some(ctx.add_typed_action_view(|ctx| {
-                    let appearance = Appearance::handle(ctx).as_ref(ctx);
-                    let ui_font_family = appearance.ui_font_family();
-                    let mut text_options = TextOptions::ui_font_size(appearance);
-                    text_options.font_family_override = Some(ui_font_family);
-                    let options = EditorOptions {
-                        autogrow: false,
-                        soft_wrap: false,
-                        single_line: true,
-                        text: text_options,
-                        propagate_and_no_op_vertical_navigation_keys:
-                            PropagateAndNoOpNavigationKeys::Always,
-                        ..Default::default()
-                    };
-                    let mut editor = EditorView::new(options, ctx);
-                    let placeholder_text = match chip_menu_type {
-                        ChipMenuType::Directories => "Search directories...",
-                        ChipMenuType::Branches => "Search branches...",
-                        ChipMenuType::CodeReview => {
-                            unreachable!("search input should not be constructed")
-                        }
-                    };
-                    editor.set_placeholder_text(placeholder_text, ctx);
-                    editor
-                }))
-            }
-            ChipMenuType::CodeReview => None,
-        };
+        let search_input = ctx.add_typed_action_view(|ctx| {
+            let appearance = Appearance::handle(ctx).as_ref(ctx);
+            let ui_font_family = appearance.ui_font_family();
+            let mut text_options = TextOptions::ui_font_size(appearance);
+            text_options.font_family_override = Some(ui_font_family);
+            let options = EditorOptions {
+                autogrow: false,
+                soft_wrap: false,
+                single_line: true,
+                text: text_options,
+                propagate_and_no_op_vertical_navigation_keys:
+                    PropagateAndNoOpNavigationKeys::Always,
+                ..Default::default()
+            };
+            let mut editor = EditorView::new(options, ctx);
+            let placeholder_text = match chip_menu_type {
+                ChipMenuType::Directories => "Search directories...",
+                ChipMenuType::Branches => "Search branches...",
+            };
+            editor.set_placeholder_text(placeholder_text, ctx);
+            editor
+        });
 
-        // Subscribe to editor changes to update search query (only if search input exists)
-        if let Some(ref search_input_handle) = search_input {
+        // Subscribe to editor changes to update search query.
+        {
+            let search_input_handle = &search_input;
             ctx.subscribe_to_view(
                 search_input_handle,
                 |menu, _editor, event, ctx| match event {
                     EditorEvent::Edited(_) => {
-                        if let Some(ref search_input) = menu.search_input {
-                            let new_query = search_input
-                                .read(ctx, |editor, ctx| editor.buffer_text(ctx).to_string());
-                            if new_query != menu.search_query {
-                                menu.update_search_query(new_query, ctx);
-                            }
+                        let search_input = &menu.search_input;
+                        let new_query = search_input
+                            .read(ctx, |editor, ctx| editor.buffer_text(ctx).to_string());
+                        if new_query != menu.search_query {
+                            menu.update_search_query(new_query, ctx);
                         }
                     }
                     EditorEvent::Escape => {
@@ -791,10 +782,8 @@ impl View for DisplayChipMenu {
     }
 
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
-        if focus_ctx.is_self_focused()
-            && let Some(ref search_input) = self.search_input
-        {
-            ctx.focus(search_input);
+        if focus_ctx.is_self_focused() {
+            ctx.focus(&self.search_input);
         }
     }
 
@@ -808,7 +797,8 @@ impl View for DisplayChipMenu {
         let border_radius = Radius::Pixels(6.);
 
         {
-            if let Some(ref search_input_handle) = self.search_input {
+            {
+                let search_input_handle = &self.search_input;
                 let search_input = appearance
                     .ui_builder()
                     .text_input(search_input_handle.clone())

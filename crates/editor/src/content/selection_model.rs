@@ -66,12 +66,6 @@ impl BufferSelectionModel {
         self.anchors.resolve(anchor)
     }
 
-    /// Resolve an anchor to its 0-based line number in the buffer.
-    pub fn line_number_from_anchor(&self, anchor: &Anchor, ctx: &AppContext) -> Option<usize> {
-        let char_offset = self.resolve_anchor(anchor)?;
-        Some(char_offset.to_buffer_point(self.buffer.as_ref(ctx)).row as usize)
-    }
-
     // The following two are temporary methods until multiple selections are supported.
     // Todo (kc CLD-1018): This should no longer be needed once we move to multi-selection.
     pub fn selection(&self) -> &Selection {

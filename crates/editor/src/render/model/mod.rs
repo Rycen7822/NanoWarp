@@ -277,50 +277,6 @@ impl<'a> RenderContentTreeRef<'a> {
         cursor.positioned_item()
     }
 
-    /// Returns the 0-based index of the temporary block at the given content-
-    /// space height within its consecutive run of temporary blocks.
-    ///
-    /// Uses two O(log n) sumtree cursor seeks: one by height to locate the
-    /// target block, and one by character offset to find the start of the
-    /// temporary-block run. The index is the difference in cumulative item
-    /// counts between the two positions.
-    ///
-    /// Returns `None` if the block at that height is not a `TemporaryBlock`.
-    pub fn temp_block_hunk_index_at_height(&self, height: f64) -> Option<usize> {
-        let height = Height(OrderedFloat(height));
-
-        // Seek by height to find the target temporary block.
-        let mut height_cursor = self.0.cursor::<Height, LayoutSummary>();
-        height_cursor.seek(&height, SeekBias::Right);
-
-        // Verify we landed on a temporary block.
-        if !matches!(height_cursor.item()?, BlockItem::TemporaryBlock { .. }) {
-            return None;
-        }
-
-        let target_item_count = height_cursor.start().item_count;
-        let boundary_offset = height_cursor.start().content_length;
-
-        // Seek by CharOffset to the same content-length boundary. With Left
-        // bias this lands on the last non-temporary block before the run
-        // (temporary blocks have content_length == 0, so they don't advance
-        // the CharOffset dimension).
-        let mut offset_cursor = self.0.cursor::<CharOffset, LayoutSummary>();
-        offset_cursor.seek(&boundary_offset, SeekBias::Left);
-
-        // If the offset cursor itself landed on a temporary block, the run
-        // starts at the very beginning of the tree (no preceding regular
-        // block). Use start().item_count as the boundary.
-        let boundary_item_count =
-            if matches!(offset_cursor.item(), Some(BlockItem::TemporaryBlock { .. })) {
-                offset_cursor.start().item_count
-            } else {
-                offset_cursor.end().item_count
-            };
-
-        Some(target_item_count - boundary_item_count)
-    }
-
     pub fn block_at_offset(&self, offset: CharOffset) -> Option<Positioned<'_, BlockItem>> {
         let mut cursor = self.0.cursor::<CharOffset, LayoutSummary>();
         if cursor.seek(&offset, SeekBias::Right) {
@@ -330,29 +286,6 @@ impl<'a> RenderContentTreeRef<'a> {
             // has probably changed since this item was created. To be safe, fail the lookup.
             log::trace!("ViewportItem invalidated: no block starting at {offset}");
             None
-        }
-    }
-
-    /// The full line range of the first collapsed hidden section, or `None` if
-    /// there are none. Resolves the range the same way a hidden-section bar
-    /// does — the `Hidden` block's `start_line` plus its hidden line count —
-    /// so tests can fully expand the first section the bar would.
-    pub fn first_hidden_section_line_range(&self) -> Option<Range<LineCount>> {
-        let mut cursor = self.0.cursor::<CharOffset, LayoutSummary>();
-        cursor.descend_to_first_item(&self.0, |_| true);
-        loop {
-            let range = {
-                let positioned = cursor.positioned_item()?;
-                if matches!(positioned.item, BlockItem::Hidden(_)) {
-                    Some(positioned.start_line..positioned.start_line + positioned.item.lines())
-                } else {
-                    None
-                }
-            };
-            if let Some(range) = range {
-                return Some(range);
-            }
-            cursor.next();
         }
     }
 
@@ -652,7 +585,6 @@ pub struct LayoutSummary {
     height: f64,
     width: Pixels,
     lines: LineCount,
-    item_count: usize,
 }
 
 /// Rich text height, in pixels. This wrapper makes the dimension clear (height,
@@ -688,27 +620,6 @@ impl LineCount {
 pub struct FrameOffset(usize);
 
 impl_offset!(FrameOffset);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RenderLineLocation {
-    /// Referring to a temporary block in the render state.
-    Temporary {
-        at_line: LineCount,
-        /// Number of blocks from the at line.
-        index_from_at_line: usize,
-    },
-    /// Referring to a line that exists in the current buffer.
-    Current(LineCount),
-}
-
-impl RenderLineLocation {
-    pub fn line_count(&self) -> LineCount {
-        match self {
-            RenderLineLocation::Temporary { at_line, .. } => *at_line,
-            RenderLineLocation::Current(line_count) => *line_count,
-        }
-    }
-}
 
 /// A point within the editor. Unlike character and hard-wrap offsets/points, this accounts for
 /// soft-wrapping, the layout of different block types, and proportional fonts.
@@ -1947,42 +1858,6 @@ impl RenderState {
             .summary()
             .content_length
             .saturating_sub(&CharOffset::from(1))
-    }
-
-    /// Returns the vertical viewport offset of the location.
-    pub fn vertical_offset_at_render_location(
-        &self,
-        location: RenderLineLocation,
-    ) -> Option<Pixels> {
-        let content = self.content.borrow();
-        let mut cursor = content.cursor::<LineCount, LayoutSummary>();
-
-        Self::move_cursor_to_location(&mut cursor, location);
-
-        Some(cursor.positioned_item()?.start_y_offset - self.viewport().scroll_top())
-    }
-
-    fn move_cursor_to_location<'a>(
-        cursor: &mut sum_tree::Cursor<'a, BlockItem, LineCount, LayoutSummary>,
-        location: RenderLineLocation,
-    ) {
-        match location {
-            RenderLineLocation::Current(_) => {
-                cursor.seek_clamped(&location.line_count(), SeekBias::Right)
-            }
-            RenderLineLocation::Temporary {
-                index_from_at_line, ..
-            } => {
-                cursor.seek_clamped(&location.line_count(), SeekBias::Left);
-                if location.line_count() > LineCount(0) {
-                    cursor.next();
-                }
-                // Temporary blocks are 0 indexed.
-                for _ in 0..index_from_at_line {
-                    cursor.next();
-                }
-            }
-        }
     }
 
     /// Baseline styles applied to rich text when rendering.
@@ -3474,7 +3349,6 @@ impl AddAssign<&LayoutSummary> for LayoutSummary {
         self.content_length += rhs.content_length;
         self.width = self.width.max(rhs.width);
         self.lines += rhs.lines;
-        self.item_count += rhs.item_count;
     }
 }
 
@@ -3960,7 +3834,6 @@ impl sum_tree::Item for BlockItem {
             height: self.height().as_f32() as f64,
             width: self.width(),
             lines: self.lines(),
-            item_count: 1,
         }
     }
 }

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use pathfinder_geometry::rect::RectF;
-use serde::{Deserialize, Serialize};
 use warpui::platform::FullscreenState;
 use warpui::{AppContext, SingletonEntity as _};
 
@@ -36,7 +35,6 @@ pub struct WindowSnapshot {
     pub quake_mode: bool,
     pub universal_search_width: Option<f32>,
     pub vertical_tabs_panel_open: bool,
-    pub right_panel_width: Option<f32>,
     /// Tab groups defined in this window. Group order is implicit from
     /// member tabs' positions, so no explicit ordering is persisted.
     pub tab_groups: Vec<TabGroupSnapshot>,
@@ -57,7 +55,6 @@ pub struct TabSnapshot {
     pub root: PaneNodeSnapshot,
     pub default_directory_color: Option<AnsiColorIdentifier>,
     pub selected_color: SelectedTabColor,
-    pub right_panel: Option<RightPanelSnapshot>,
     /// Tab group this tab belongs to, if any.
     pub group_id: Option<TabGroupId>,
     /// True when this tab is pinned to the front of the tab list.
@@ -80,24 +77,6 @@ pub enum PaneNodeSnapshot {
     Leaf(LeafSnapshot),
 }
 
-impl PaneNodeSnapshot {
-    pub fn has_horizontal_split(&self) -> bool {
-        match self {
-            PaneNodeSnapshot::Leaf(_) => false,
-            PaneNodeSnapshot::Branch(BranchSnapshot {
-                direction,
-                children,
-            }) => {
-                let self_has_split = *direction == SplitDirection::Horizontal && children.len() > 1;
-                self_has_split
-                    || children
-                        .iter()
-                        .any(|(_, child)| child.has_horizontal_split())
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct BranchSnapshot {
     pub direction: SplitDirection,
@@ -117,7 +96,6 @@ pub enum LeafContents {
     File(FilePaneSnapshot),
     Code(CodePaneSnapShot),
     Settings(SettingsPaneSnapshot),
-    CodeReview(CodeReviewPaneSnapshot),
 }
 
 /// Snapshot of the contents of a terminal pane.
@@ -158,21 +136,6 @@ pub enum SettingsPaneSnapshot {
         current_page: SettingsSection,
         search_query: Option<String>,
     },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum CodeReviewPaneSnapshot {
-    Local {
-        terminal_uuid: Vec<u8>,
-        repo_path: PathBuf,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RightPanelSnapshot {
-    pub pane_group_id: String,
-    pub width: usize,
-    pub is_maximized: bool,
 }
 
 /// Copied from pane group model, which should be private to pane group.

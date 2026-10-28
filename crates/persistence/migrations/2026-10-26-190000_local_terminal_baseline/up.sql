@@ -101,25 +101,11 @@ CREATE TABLE code_pane_tabs (
     UNIQUE (code_pane_id, tab_index)
 );
 
-CREATE TABLE code_review_panes (
-    id INTEGER PRIMARY KEY NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'code_review' CHECK (kind = 'code_review'),
-    terminal_uuid BLOB NOT NULL,
-    repo_path TEXT NOT NULL,
-    FOREIGN KEY (id, kind) REFERENCES pane_leaves(pane_node_id, kind)
-);
-
 CREATE TABLE settings_panes (
     id INTEGER PRIMARY KEY NOT NULL,
     kind TEXT NOT NULL DEFAULT 'settings' CHECK (kind = 'settings'),
     current_page TEXT NOT NULL DEFAULT 'Appearance',
     FOREIGN KEY (id, kind) REFERENCES pane_leaves(pane_node_id, kind)
-);
-
-CREATE TABLE panels (
-    id INTEGER PRIMARY KEY NOT NULL,
-    tab_id INTEGER NOT NULL UNIQUE REFERENCES tabs(id) ON DELETE CASCADE,
-    right_panel TEXT
 );
 
 CREATE TABLE blocks (

@@ -350,7 +350,6 @@ pub enum Event {
         source: CodeSource,
         layout: external_editor::settings::EditorLayout,
     },
-    OpenCodeReviewPane,
     OpenFilesPalette {
         source: PaletteSource,
     },
@@ -1265,9 +1264,6 @@ impl Input {
                 } else {
                     self.focus_input_box(ctx);
                 }
-            }
-            PromptDisplayEvent::OpenCodeReview => {
-                ctx.emit(Event::OpenCodeReviewPane);
             }
             PromptDisplayEvent::OpenCommandPaletteFiles => {
                 ctx.emit(Event::OpenFilesPalette {

@@ -12,18 +12,18 @@ use string_offset::CharOffset;
 use vec1::vec1;
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
-use warp_editor::content::buffer::{Buffer, EditOrigin, InitialBufferState, ToBufferPoint};
+use warp_editor::content::buffer::{Buffer, EditOrigin, ToBufferPoint};
 use warp_editor::content::version::BufferVersion;
-use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
+use warp_editor::model::CoreEditorModel;
 use warp_editor::multiline::AnyMultilineString;
 use warp_editor::render::element::{
     DisplayOptions, DisplayStateHandle, RichTextElement, VerticalExpansionBehavior,
 };
 use warp_editor::render::model::{
-    AutoScrollMode, BlockSpacing, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, Decoration,
-    ExpansionType, LineCount, ParagraphStyles, RichTextStyles,
+    AutoScrollMode, BlockSpacing, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES, ExpansionType,
+    LineCount, ParagraphStyles, RichTextStyles,
 };
-use warp_editor::search::{MATCH_FILL, SELECTED_MATCH_FILL, SearchEvent, Searcher};
+use warp_editor::search::{SearchEvent, Searcher};
 use warp_util::content_version::ContentVersion;
 use warp_util::standardized_path::StandardizedPath;
 use warpui::elements::new_scrollable::{
@@ -35,23 +35,18 @@ use warpui::elements::{
 };
 use warpui::event::ModifiersState;
 use warpui::keymap::Keystroke;
-use warpui::units::Pixels;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle,
 };
 
 use crate::appearance::Appearance;
-use crate::code::editor::DiffDelta;
 use crate::code::editor::element::{
-    EditorWrapper, EditorWrapperStateHandle, GutterHoverTarget, GutterRange, LineNumberConfig,
-    RevertHunkButton,
+    EditorWrapper, EditorWrapperStateHandle, GutterRange, LineNumberConfig,
 };
 use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewEvent};
 use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
-use crate::code::editor::model::{
-    CodeEditorModel, CodeEditorModelEvent, LineBound, StableEditorLine,
-};
+use crate::code::editor::model::{CodeEditorModel, CodeEditorModelEvent, LineBound};
 use crate::code::editor::nav_bar::{NavBar, NavBarEvent};
 use crate::code::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
 use crate::editor::InteractionState;
@@ -91,7 +86,6 @@ pub enum CodeEditorEvent {
     /// Emitted when diff decorations are updated (line highlights, removed lines, etc.)
     DiffUpdated,
     /// Emitted when a diff hunk is reverted
-    DiffReverted,
     HiddenSectionExpanded,
     /// Emitted when the viewport is updated after layout
     ViewportUpdated,
@@ -112,52 +106,30 @@ struct DisplayHandles {
 #[derive(Debug, Clone, Copy)]
 struct CodeEditorViewDisplayOptions {
     vertical_expansion_behavior: VerticalExpansionBehavior,
-    collapsible_diffs: bool,
     scroll_wheel_behavior: ScrollWheelBehavior,
     horizontal_scrollbar_appearance: ScrollableAppearance,
     vertical_scrollbar_appearance: ScrollableAppearance,
-    show_nav_bar: bool,
-    /// The revert diff button, or `None` if it is not currently visible.
-    revert_diff_hunk: Option<RevertHunkButton>,
-    /// Whether to expand the width of the diff indicator in the gutter on hover.
-    expand_diff_indicator_width_on_hover: bool,
     // Provides a starting line number for markdown code blocks.
     starting_line_number: Option<usize>,
-    gutter_hover_target: GutterHoverTarget,
-    line_height_override: Option<f32>,
 }
 
 #[derive(Debug)]
 pub struct CodeEditorRenderOptions {
     vertical_expansion_behavior: VerticalExpansionBehavior,
-    line_height_override: Option<f32>,
-    lazy_layout: bool,
 }
 
 impl CodeEditorRenderOptions {
     pub fn new(vertical_expansion_behavior: VerticalExpansionBehavior) -> Self {
         Self {
             vertical_expansion_behavior,
-            line_height_override: None,
-            lazy_layout: false,
         }
-    }
-
-    pub fn lazy_layout(mut self) -> Self {
-        self.lazy_layout = true;
-        self
-    }
-
-    pub fn line_height_override(mut self, line_height: f32) -> Self {
-        self.line_height_override = Some(line_height);
-        self
     }
 }
 
 pub struct CodeEditorView {
     pub model: ModelHandle<CodeEditorModel>,
     pub searcher: ModelHandle<Searcher>,
-    find_bar: Option<ViewHandle<Find>>,
+    find_bar: ViewHandle<Find>,
     goto_line_dialog: ViewHandle<GoToLineView>,
     nav_bar: ViewHandle<NavBar>,
     display_states: DisplayHandles,
@@ -186,7 +158,6 @@ impl CodeEditorView {
         let initial_styles = code_text_styles(
             appearance_handle.as_ref(ctx),
             font_settings_handle.as_ref(ctx),
-            render_options.line_height_override,
         );
         ctx.subscribe_to_model(&appearance_handle, |me, _, _, ctx| {
             me.handle_appearance_or_font_change(ctx);
@@ -199,15 +170,8 @@ impl CodeEditorView {
             ctx.notify();
         });
 
-        let model = ctx.add_model(|ctx| {
-            CodeEditorModel::new(
-                initial_styles,
-                session_platform,
-                render_options.lazy_layout,
-                buffer,
-                ctx,
-            )
-        });
+        let model = ctx
+            .add_model(|ctx| CodeEditorModel::new(initial_styles, session_platform, buffer, ctx));
         ctx.subscribe_to_model(&model, |me, _, event, ctx| {
             me.handle_editor_model_event(event, ctx);
         });
@@ -260,7 +224,7 @@ impl CodeEditorView {
 
         Self {
             searcher,
-            find_bar: Some(find_bar),
+            find_bar,
             goto_line_dialog,
             model,
             display_states: Default::default(),
@@ -269,12 +233,7 @@ impl CodeEditorView {
             nav_bar,
             display_options: CodeEditorViewDisplayOptions {
                 vertical_expansion_behavior: render_options.vertical_expansion_behavior,
-                collapsible_diffs: true,
                 starting_line_number: None,
-                show_nav_bar: true,
-                revert_diff_hunk: Default::default(),
-                // By default expand diff indicators on hover.
-                expand_diff_indicator_width_on_hover: true,
                 scroll_wheel_behavior: ScrollWheelBehavior::AlwaysHandle,
                 // By default, we should render the horizontal scrollbar as overlay to prevent it
                 // from truncating space for the code editor. We should not render it as an overlay
@@ -287,8 +246,6 @@ impl CodeEditorView {
                     warpui::elements::ScrollbarWidth::Auto,
                     false,
                 ),
-                gutter_hover_target: GutterHoverTarget::GutterElement,
-                line_height_override: render_options.line_height_override,
             },
             pending_scroll: None,
             supports_vim_mode,
@@ -297,47 +254,12 @@ impl CodeEditorView {
         }
     }
 
-    /// Enables the "revert" button on diff hunks. Only enable this for code review views.
-    pub fn with_revert_diff_hunk_button(mut self) -> Self {
-        self.display_options.revert_diff_hunk =
-            Some(RevertHunkButton::new(true /* is_enabled */));
-        self
-    }
-
-    /// Disables the diff indicator expanding on hover.
-    pub fn disable_diff_indicator_expansion_on_hover(mut self) -> Self {
-        self.display_options.expand_diff_indicator_width_on_hover = false;
-        self
-    }
-
-    pub fn with_gutter_hover_target(mut self, target: GutterHoverTarget) -> Self {
-        self.display_options.gutter_hover_target = target;
-        self
-    }
-
-    /// Enables clicking on diff hunk gutter elements to collapse changed sections.
-    pub fn with_collapsible_diffs(mut self, enabled: bool) -> Self {
-        self.display_options.collapsible_diffs = enabled;
-        self
-    }
-
-    pub(crate) fn disable_find_and_replace(mut self) -> Self {
-        self.find_bar = None;
-        self
-    }
-
     fn find_bar_open(&self, ctx: &mut ViewContext<Self>) -> bool {
-        if let Some(find) = &self.find_bar {
-            find.as_ref(ctx).is_open()
-        } else {
-            false
-        }
+        self.find_bar.as_ref(ctx).is_open()
     }
 
     fn show_find_bar(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(find_bar) = &self.find_bar else {
-            return;
-        };
+        let find_bar = &self.find_bar;
 
         // Pre-populate the search field with the currently selected text if it's a single line
         let should_populate_query = self.model.as_ref(ctx).selection_is_single_range(ctx);
@@ -368,7 +290,8 @@ impl CodeEditorView {
     }
 
     pub fn close_find_bar(&mut self, should_focus_editor: bool, ctx: &mut ViewContext<Self>) {
-        if let Some(find_bar) = &self.find_bar {
+        {
+            let find_bar = &self.find_bar;
             let should_update = find_bar.update(ctx, |find_bar, _ctx| {
                 if find_bar.is_open() {
                     find_bar.set_open(false);
@@ -388,21 +311,6 @@ impl CodeEditorView {
         }
 
         ctx.notify();
-    }
-
-    pub fn hide_lines_outside_of_active_diff(
-        &self,
-        context_lines: usize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.model.update(ctx, |model, ctx| {
-            model.hide_lines_outside_of_active_diff(context_lines, ctx)
-        });
-    }
-
-    pub fn set_base(&self, base: &str, recompute_diff: bool, ctx: &mut ViewContext<Self>) {
-        self.model
-            .update(ctx, |model, ctx| model.set_base(base, recompute_diff, ctx));
     }
 
     fn show_goto_line(&mut self, ctx: &mut ViewContext<Self>) {
@@ -527,36 +435,6 @@ impl CodeEditorView {
         self.pending_scroll = Some(trigger);
     }
 
-    pub fn set_show_nav_bar(&mut self, show_nav_bar: bool) {
-        self.display_options.show_nav_bar = show_nav_bar;
-    }
-
-    pub fn set_find_highlights(
-        &self,
-        ranges: Vec<Range<CharOffset>>,
-        selected_range_index: Option<usize>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let decorations: Vec<Decoration> = ranges
-            .into_iter()
-            .enumerate()
-            .map(|(index, range)| {
-                let fill = if Some(index) == selected_range_index {
-                    *SELECTED_MATCH_FILL
-                } else {
-                    *MATCH_FILL
-                };
-                Decoration::new(range.start, range.end).with_background(fill)
-            })
-            .collect();
-
-        self.model.update(ctx, |model, ctx| {
-            model.render_state().update(ctx, |render, ctx| {
-                render.set_text_decorations(decorations, ctx);
-            });
-        });
-    }
-
     #[allow(clippy::single_range_in_vec_init)]
     fn expand_hidden_section(
         &mut self,
@@ -591,36 +469,6 @@ impl CodeEditorView {
         ctx.emit(CodeEditorEvent::HiddenSectionExpanded);
     }
 
-    /// The number of collapsed hidden sections currently in this editor. Fully
-    /// expanding a section removes its range (count drops by one); a chunked
-    /// reveal only shrinks a range (count unchanged).
-    #[cfg(feature = "integration_tests")]
-    pub fn hidden_section_count_for_test(&self, ctx: &AppContext) -> usize {
-        self.model.as_ref(ctx).hidden_ranges(ctx).iter().count()
-    }
-
-    /// Fully expand the first hidden section the same way a bar double-click
-    /// does: resolve the section's full line range from its offset and expand
-    /// with [`ExpansionType::Both`]. Returns whether a section was expanded.
-    #[cfg(feature = "integration_tests")]
-    pub fn fully_expand_first_hidden_section_for_test(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) -> bool {
-        let Some(line_range) = self
-            .model
-            .as_ref(ctx)
-            .render_state()
-            .as_ref(ctx)
-            .content()
-            .first_hidden_section_line_range()
-        else {
-            return false;
-        };
-        self.expand_hidden_section(line_range, &ExpansionType::Both, ctx);
-        true
-    }
-
     pub(crate) fn with_horizontal_scrollbar_appearance(
         mut self,
         scrollbar_appearance: ScrollableAppearance,
@@ -649,9 +497,7 @@ impl CodeEditorView {
     }
 
     fn handle_find_event(&mut self, event: &FindViewEvent, ctx: &mut ViewContext<Self>) {
-        let Some(find_bar) = &self.find_bar else {
-            return;
-        };
+        let find_bar = &self.find_bar;
 
         match event {
             FindViewEvent::CloseFindBar => {
@@ -916,21 +762,9 @@ impl CodeEditorView {
         }
     }
 
-    /// Expands all diff hunks without focusing any specific diff hunk.
-    /// All diff hunks will be shown expanded with normal highlighting.
-    pub fn expand_diffs(&self, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.expand_diffs(ctx);
-        });
-    }
-
     /// Handles [`Appearance`] changes by updating the render model.
     fn handle_appearance_or_font_change(&mut self, ctx: &mut ViewContext<Self>) {
-        let new_styles = code_text_styles(
-            Appearance::as_ref(ctx),
-            FontSettings::as_ref(ctx),
-            self.display_options.line_height_override,
-        );
+        let new_styles = code_text_styles(Appearance::as_ref(ctx), FontSettings::as_ref(ctx));
         self.model.update(ctx, move |model, ctx| {
             model.handle_appearance_or_font_change(new_styles, ctx);
         });
@@ -1019,20 +853,6 @@ impl CodeEditorView {
         })
     }
 
-    /// Reset editor content using InitialBufferState.
-    /// This is the preferred method for resetting editor content as it consolidates all parameters.
-    pub fn reset(&self, state: InitialBufferState, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.reset_content(state, ctx);
-        });
-    }
-
-    pub fn apply_diffs(&self, diffs: Vec<DiffDelta>, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.apply_diffs(diffs, ctx);
-        });
-    }
-
     fn reset_for_editing_change(&mut self) {
         self.display_states.display_state.reset_cursor_blink_timer();
     }
@@ -1059,29 +879,6 @@ impl CodeEditorView {
         self.model.as_ref(ctx).buffer_version(ctx)
     }
 
-    /// Identifies which line (current or removed) is at the given content-space
-    /// vertical offset. Delegates to [`CodeEditorModel::line_at_vertical_offset`].
-    #[allow(dead_code)]
-    pub fn line_at_vertical_offset(
-        &self,
-        offset: Pixels,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<(StableEditorLine, Pixels)> {
-        self.model
-            .update(ctx, |model, ctx| model.line_at_vertical_offset(offset, ctx))
-    }
-
-    /// Returns the content-space vertical offset of the top of the given line.
-    /// Delegates to [`CodeEditorModel::line_top`].
-    pub fn line_top(&self, line: &StableEditorLine, ctx: &AppContext) -> Option<Pixels> {
-        self.model.as_ref(ctx).line_top(line, ctx)
-    }
-
-    /// Returns the total content height of the editor.
-    pub fn content_height(&self, ctx: &AppContext) -> Pixels {
-        self.model.as_ref(ctx).render_state().as_ref(ctx).height()
-    }
-
     fn scroll_to_fraction(&self, fraction: f32, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             // Content is already rendered here (this runs from `ViewportUpdated`), so the current
@@ -1097,25 +894,8 @@ impl CodeEditorView {
         self.model.as_ref(ctx).interaction_state()
     }
 
-    pub fn set_interaction_state(&self, state: InteractionState, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.set_interaction_state(state, ctx);
-        });
-    }
-
     pub fn is_editable(&self, app: &AppContext) -> bool {
         self.model.as_ref(app).interaction_state() == InteractionState::Editable
-    }
-
-    pub fn selected_text(&self, ctx: &AppContext) -> Option<String> {
-        let selected_text = self
-            .model
-            .as_ref(ctx)
-            .read_selected_text_as_clipboard_content(ctx);
-        if selected_text.plain_text.is_empty() {
-            return None;
-        }
-        Some(selected_text.plain_text)
     }
 
     /// Splits text based on pascal case, camel case, hyphens, or underscores.
@@ -1396,12 +1176,6 @@ impl CodeEditorView {
         }
     }
 
-    pub fn undo(&mut self, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.undo(ctx);
-        });
-    }
-
     fn delete_line_left(&self, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             model.delete_all_left(ctx);
@@ -1483,8 +1257,6 @@ impl View for CodeEditorView {
             vim_visual_tails,
         );
 
-        let collapsible_diffs = self.display_options.collapsible_diffs;
-
         let code_editor = EditorWrapper::new(
             editor_rich_content,
             self.display_options.vertical_expansion_behavior,
@@ -1495,13 +1267,9 @@ impl View for CodeEditorView {
                 GutterRange::DiffHunk {
                     line,
                     in_sliver: true,
-                } => {
-                    if collapsible_diffs {
-                        ctx.dispatch_typed_action(CodeEditorViewAction::ToggleDiffNav(Some(
-                            line.line_range().clone(),
-                        )))
-                    }
-                }
+                } => ctx.dispatch_typed_action(CodeEditorViewAction::ToggleDiffNav(Some(
+                    line.line_range().clone(),
+                ))),
                 GutterRange::HiddenSection {
                     line: line_info,
                     expansion_type,
@@ -1527,9 +1295,6 @@ impl View for CodeEditorView {
             } else {
                 None
             },
-            self.display_options.revert_diff_hunk,
-            self.display_options.expand_diff_indicator_width_on_hover,
-            self.display_options.gutter_hover_target,
         );
 
         let config = DualAxisConfig::Manual {
@@ -1559,17 +1324,15 @@ impl View for CodeEditorView {
             }
         };
         let mut col = Flex::column().with_child(inner);
-        if self.model.as_ref(app).diff_nav_is_active() && self.display_options.show_nav_bar {
+        if self.model.as_ref(app).diff_nav_is_active() {
             col.add_child(ChildView::new(&self.nav_bar).finish());
         }
 
         let mut stack = Stack::new()
             .with_constrain_absolute_children()
             .with_child(col.finish());
-        if let Some(find_bar) = &self.find_bar
-            && find_bar.as_ref(app).is_open()
-        {
-            stack.add_overlay_child(ChildView::new(find_bar).finish());
+        if self.find_bar.as_ref(app).is_open() {
+            stack.add_overlay_child(ChildView::new(&self.find_bar).finish());
         }
         if self.goto_line_dialog.as_ref(app).is_open() {
             let dialog = Dismiss::new(ChildView::new(&self.goto_line_dialog).finish())
@@ -1625,23 +1388,17 @@ impl View for CodeEditorView {
                 _ => {}
             }
         }
-        if self.find_bar.is_some() {
-            context.set.insert("FindBarAvailable");
-        }
+        context.set.insert("FindBarAvailable");
         context
     }
 }
 
-pub fn code_text_styles(
-    appearance: &Appearance,
-    font_settings: &FontSettings,
-    line_height_override: Option<f32>,
-) -> RichTextStyles {
+pub fn code_text_styles(appearance: &Appearance, font_settings: &FontSettings) -> RichTextStyles {
     let mut styling = rich_text_styles(appearance, font_settings);
     let theme = appearance.theme();
     styling.base_text = ParagraphStyles {
         font_size: appearance.monospace_font_size(),
-        line_height_ratio: line_height_override.unwrap_or(appearance.line_height_ratio()),
+        line_height_ratio: appearance.line_height_ratio(),
         font_family: appearance.monospace_font_family(),
         font_weight: Default::default(),
         text_color: theme.main_text_color(theme.background()).into_solid(),

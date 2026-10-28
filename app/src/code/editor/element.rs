@@ -1,14 +1,11 @@
-mod gutter_button;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use gutter_button::RevertHunkButton;
 use parking_lot::Mutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
@@ -19,13 +16,10 @@ use warp_editor::render::model::{
 };
 use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use warpui::elements::{
-    Align, Axis, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, Empty, F32Ext, Flex,
-    Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, Point, Radius, ScrollData, Stack, Text, ZIndex,
+    Align, Axis, ConstrainedBox, Container, Empty, F32Ext, Point, ScrollData, Text, ZIndex,
 };
 use warpui::event::DispatchedEvent;
 use warpui::fonts::FamilyId;
-use warpui::ui_components::components::UiComponent;
 use warpui::units::Pixels;
 use warpui::{
     AfterLayoutContext, AppContext, ClipBounds, Element, Event, EventContext, LayoutContext,
@@ -34,11 +28,8 @@ use warpui::{
 
 use super::diff::{DiffHunkDisplay, DiffStatus};
 use super::model::DiffNavigationState;
-use crate::code::editor::element::gutter_button::GutterButton;
 use crate::code::editor::line::EditorLineLocation;
-use crate::code::editor::view::CodeEditorViewAction;
 use crate::settings::CodeEditorLineNumberMode;
-use crate::view_components::action_button::{ActionButtonTheme, SecondaryTheme};
 
 pub const GUTTER_WIDTH: f32 = 94.;
 const VERTICAL_DIFF_HUNK_INDICATOR_WIDTH: f32 = 3.;
@@ -75,25 +66,16 @@ struct GutterElement {
 impl GutterElement {
     /// Checks if the given position falls within this gutter element's bounds.
     /// Returns a GutterRange if the position is contained, None otherwise.
-    /// When `check_y_axis_only` is true, a position is considered within the element
-    /// if it's anywhere within the `EditorWrapper`'s full line width.
     fn contains_position(
         &self,
         position: Vector2F,
         wrapper_origin: Vector2F,
-        wrapper_size: Vector2F,
-        check_y_axis_only: bool,
     ) -> Option<GutterRange> {
         let gutter_origin = wrapper_origin + vec2f(0., self.offset.as_f32());
 
         match self.element_type {
             GutterElementType::HiddenSection { expansion_type } => {
-                let does_contain = if check_y_axis_only {
-                    // We can count the position if it's within the editor wrapper's whole line width
-                    let line_origin = Vector2F::new(wrapper_origin.x(), gutter_origin.y());
-                    let line_size = Vector2F::new(wrapper_size.x(), self.height);
-                    RectF::new(line_origin, line_size).contains_point(position)
-                } else {
+                let does_contain = {
                     // Hidden sections use the full gutter width
                     let size = vec2f(GUTTER_WIDTH, self.height);
                     RectF::new(gutter_origin, size).contains_point(position)
@@ -108,12 +90,7 @@ impl GutterElement {
                 }
             }
             GutterElementType::DiffHunk { .. } => {
-                let does_contain = if check_y_axis_only {
-                    // We can count the position if it's within the editor wrapper's whole line width
-                    let line_origin = Vector2F::new(wrapper_origin.x(), gutter_origin.y());
-                    let line_size = Vector2F::new(wrapper_size.x(), self.height);
-                    RectF::new(line_origin, line_size).contains_point(position)
-                } else {
+                let does_contain = {
                     // For diff hunks, check if position is in the sliver or the full gutter
                     // Get the sliver size (always use expanded=true for hit testing)
                     let sliver_size = self.diff_hunk_size(true)?;
@@ -201,8 +178,6 @@ pub struct EditorWrapperState {
     hovered_diff_hunk: Mutex<Option<EditorLineLocation>>,
     /// Whether there is an active click.
     in_click: AtomicBool,
-    /// Mouse state handle for the revert button.
-    revert_mouse_state: MouseStateHandle,
 }
 
 pub type EditorWrapperStateHandle = Arc<EditorWrapperState>;
@@ -226,14 +201,6 @@ impl GutterRange {
             GutterRange::HiddenSection { line, .. } => line,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum GutterHoverTarget {
-    // The entire line covered by the gutter is considered the hover target.
-    Line,
-    // Only the gutter element itself is considered the hover target.
-    GutterElement,
 }
 
 /// The caller defined handler for a click event.
@@ -292,10 +259,6 @@ pub struct EditorWrapper<V: EditorView> {
     /// Then we use that upper bound to do the hit testing, which means a parent will always get
     /// events from its children, regardless of whether they are stacks or not.
     child_max_z_index: Option<ZIndex>,
-    /// Display state of the "revert" button shown next to diff hunks.
-    revert_hunk_button: Option<RevertHunkButton>,
-    gutter_element_hover_target: GutterHoverTarget,
-    expand_diff_indicator_width_on_hover: bool,
 }
 
 impl<V: EditorView> EditorWrapper<V> {
@@ -385,9 +348,6 @@ impl<V: EditorView> EditorWrapper<V> {
         should_handle_scroll_wheel: bool,
         diff_navigation_state: DiffNavigationState,
         focused_diff_line_range: Option<Range<LineCount>>,
-        revert_hunk_button: Option<RevertHunkButton>,
-        expand_diff_indicator_width_on_hover: bool,
-        gutter_element_hover_target: GutterHoverTarget,
     ) -> Self {
         Self {
             editor,
@@ -403,9 +363,6 @@ impl<V: EditorView> EditorWrapper<V> {
             click_handler,
             should_handle_scroll_wheel,
             child_max_z_index: None,
-            revert_hunk_button,
-            expand_diff_indicator_width_on_hover,
-            gutter_element_hover_target,
         }
     }
 
@@ -479,32 +436,22 @@ impl<V: EditorView> EditorWrapper<V> {
 
                     let height = block.viewport_item().content_size.y();
 
-                    // Get the first line height for the plus icon (like we do for regular blocks)
-                    let first_line_height = model.first_line_height(&**block).unwrap_or(height);
-
                     let line = EditorLineLocation::Removed {
                         line_number: line_count,
                         line_range: diff_range.unwrap_or(line_count..line_count),
                         index: removed_hunk_line_index,
                     };
-                    let is_diff_line = self.diff_hunks_are_expanded() && diff_hunk.is_some();
                     let range_hovered = hovered_range
                         .as_ref()
                         .map(|hovered_line| hovered_line.line_range() == line.line_range())
                         .unwrap_or(false);
-                    let is_this_line_hovered = hovered_range
-                        .as_ref()
-                        .is_some_and(|hovered_line| hovered_line.is_same_line(&line));
+
                     let element = self.render_gutter_element(
                         None,
                         line_number_config,
-                        is_diff_line && is_this_line_hovered,
-                        first_line_height,
                         height,
-                        &line,
                         block.overlay_decoration(),
                         true, // is diff line
-                        appearance,
                     );
 
                     elements.push(GutterElement {
@@ -631,19 +578,12 @@ impl<V: EditorView> EditorWrapper<V> {
                 .as_ref()
                 .is_some_and(|hovered_line| hovered_line.line_range() == line.line_range());
 
-            let is_this_line_hovered = hovered_range
-                .as_ref()
-                .is_some_and(|hovered_line| hovered_line.is_same_line(&line));
             let element = self.render_gutter_element(
                 Some(current_line),
                 line_number_config,
-                is_diff_line && is_this_line_hovered && !is_removal,
                 height,
-                height,
-                &line,
                 overlay,
                 is_diff_line,
-                appearance,
             );
 
             let diff_hunk = if is_removal && self.diff_hunks_are_expanded() {
@@ -722,113 +662,13 @@ impl<V: EditorView> EditorWrapper<V> {
         }
     }
 
-    fn render_gutter_button(
-        &self,
-        mouse_state: MouseStateHandle,
-        gutter_element_height: f32,
-        on_click_action: Option<CodeEditorViewAction>,
-        appearance: &Appearance,
-        gutter_button: &dyn GutterButton,
-    ) -> Box<dyn Element> {
-        let vertical_padding = 2.;
-        let button_size = gutter_element_height;
-        let icon_size = button_size - (vertical_padding * 2.);
-        let enabled = gutter_button.is_enabled();
-
-        let mut button = Hoverable::new(mouse_state, |state| {
-            let button_background = gutter_button.background_color(state, appearance);
-            let icon_color = gutter_button.icon_color(state, appearance);
-
-            let border = SecondaryTheme.border(appearance);
-
-            let container = Container::new(
-                ConstrainedBox::new(
-                    warpui::elements::Icon::new(gutter_button.icon().into(), icon_color).finish(),
-                )
-                .with_width(icon_size)
-                .with_height(icon_size)
-                .finish(),
-            )
-            .with_uniform_padding(2.)
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-            .with_background(button_background);
-
-            let container = if let Some(border) = border {
-                container.with_border(Border::all(1.0).with_border_fill(border))
-            } else {
-                container
-            };
-
-            let mut stack = Stack::new().with_child(container.finish());
-            if state.is_hovered()
-                && let Some(text) = gutter_button.tooltip_text()
-            {
-                let tooltip = appearance
-                    .ui_builder()
-                    .tool_tip(text.into())
-                    .build()
-                    .finish();
-                stack.add_positioned_overlay_child(
-                    tooltip,
-                    OffsetPositioning::offset_from_parent(
-                        vec2f(0., 8.),
-                        ParentOffsetBounds::Unbounded,
-                        ParentAnchor::BottomLeft,
-                        ChildAnchor::TopLeft,
-                    ),
-                );
-            }
-
-            stack.finish()
-        });
-
-        if enabled {
-            button = button.with_cursor(warpui::platform::Cursor::PointingHand);
-
-            if let Some(on_click_action) = on_click_action {
-                let action = on_click_action.clone();
-                button = button.on_click(move |event, _app, _position| {
-                    event.dispatch_typed_action(action.clone());
-                });
-            }
-        }
-
-        button.finish()
-    }
-
-    /// Renders the revert button for reverting a specific diff hunk.
-    fn render_revert_button(
-        &self,
-        revert_hunk_button: &RevertHunkButton,
-        gutter_element_height: f32,
-        diff_line_range: &Range<LineCount>,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let on_click_action = Some(CodeEditorViewAction::RevertDiffHunk {
-            line_range: diff_line_range.to_owned(),
-        });
-
-        self.render_gutter_button(
-            self.state_handle.revert_mouse_state.clone(),
-            gutter_element_height,
-            on_click_action,
-            appearance,
-            revert_hunk_button,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn render_gutter_element(
         &self,
         current_line: Option<usize>,
         line_number_config: &LineNumberConfig,
-        should_show_diff_hunk_icons: bool,
-        line_height: f32,
         gutter_element_height: f32,
-        line: &EditorLineLocation,
         overlay: Option<Fill>,
         highlight_text: bool,
-        appearance: &Appearance,
     ) -> Box<dyn Element> {
         let base_content = match current_line {
             Some(line) => {
@@ -856,70 +696,19 @@ impl<V: EditorView> EditorWrapper<V> {
             }
         };
 
-        let constrained_base = ConstrainedBox::new(base_content)
+        ConstrainedBox::new(base_content)
             .with_height(gutter_element_height)
             .with_width(GUTTER_WIDTH)
-            .finish();
-
-        let show_revert_diff_hunk =
-            FeatureFlag::RevertDiffHunk.is_enabled() && self.revert_hunk_button.is_some();
-
-        if should_show_diff_hunk_icons {
-            let mut buttons = Flex::row().with_main_axis_size(MainAxisSize::Min);
-            if should_show_diff_hunk_icons
-                && let Some(revert_hunk_button) = self
-                    .revert_hunk_button
-                    .as_ref()
-                    .filter(|_| show_revert_diff_hunk)
-            {
-                buttons.add_child(self.render_revert_button(
-                    revert_hunk_button,
-                    line_height,
-                    line.line_range(),
-                    appearance,
-                ));
-            }
-
-            let offset = if self.expand_diff_indicator_width_on_hover {
-                vec2f(VERTICAL_DIFF_HUNK_INDICATOR_HOVERED_WIDTH, 0.)
-            } else {
-                vec2f(VERTICAL_DIFF_HUNK_INDICATOR_WIDTH, 0.)
-            };
-
-            // Create a stack with the constrained base and overlay the buttons
-            let mut main_stack = Stack::new().with_child(constrained_base);
-            main_stack.add_positioned_child(
-                buttons.finish(),
-                OffsetPositioning::offset_from_parent(
-                    offset,
-                    ParentOffsetBounds::Unbounded,
-                    ParentAnchor::TopLeft,
-                    ChildAnchor::TopLeft,
-                ),
-            );
-            main_stack.finish()
-        } else {
-            constrained_base
-        }
+            .finish()
     }
 
     /// Returns whether a diff hunk range contains the given mouse position on the screen.
-    fn gutter_element_range_containing_position(
-        &self,
-        position: Vector2F,
-        check_y_axis: bool,
-    ) -> Option<GutterRange> {
+    fn gutter_element_range_containing_position(&self, position: Vector2F) -> Option<GutterRange> {
         let wrapper_origin = self.element_origin?.xy();
-        let wrapper_size = self.size()?;
 
         if let Some(gutter_elements) = &self.gutter_elements {
             for gutter_element in gutter_elements {
-                let gutter_range = gutter_element.contains_position(
-                    position,
-                    wrapper_origin,
-                    wrapper_size,
-                    check_y_axis,
-                );
+                let gutter_range = gutter_element.contains_position(position, wrapper_origin);
                 if let Some(gutter_range) = gutter_range {
                     return Some(gutter_range);
                 }
@@ -1044,12 +833,11 @@ impl<V: EditorView> Element for EditorWrapper<V> {
 
                 // For rendering, only expand the gutter element size if it is
                 // hovered or it is the active diff hunk.
-                let is_hovered = self.expand_diff_indicator_width_on_hover
-                    && (element.hovered
-                        || self
-                            .focused_diff_line_range
-                            .as_ref()
-                            .is_some_and(|r| r == element.line.line_range()));
+                let is_hovered = element.hovered
+                    || self
+                        .focused_diff_line_range
+                        .as_ref()
+                        .is_some_and(|r| r == element.line.line_range());
 
                 if let Some(size) = element.diff_hunk_size(is_hovered)
                     && let Some(color) = element.diff_indicator_color(diff_hunks_are_expanded)
@@ -1155,14 +943,11 @@ impl<V: EditorView> Element for EditorWrapper<V> {
         // Handle mouse events for hover state and clicks
         match event.at_z_index(z_index, ctx) {
             Some(Event::MouseMoved { position, .. }) => {
-                let only_check_y_axis =
-                    matches!(self.gutter_element_hover_target, GutterHoverTarget::Line);
-                let broad_hovered_range =
-                    self.gutter_element_range_containing_position(*position, only_check_y_axis);
+                let broad_hovered_range = self.gutter_element_range_containing_position(*position);
 
                 let hovered_range = match broad_hovered_range {
                     Some(GutterRange::HiddenSection { .. }) => {
-                        self.gutter_element_range_containing_position(*position, false)
+                        self.gutter_element_range_containing_position(*position)
                     }
                     other => other,
                 };
@@ -1177,7 +962,7 @@ impl<V: EditorView> Element for EditorWrapper<V> {
             Some(Event::LeftMouseDown { position, .. }) => {
                 if !gutter_handled {
                     let in_bound = self
-                        .gutter_element_range_containing_position(*position, false)
+                        .gutter_element_range_containing_position(*position)
                         .is_some();
                     self.state_handle
                         .in_click
@@ -1190,7 +975,7 @@ impl<V: EditorView> Element for EditorWrapper<V> {
 
                     if was_clicking
                         && let Some(gutter_range) =
-                            self.gutter_element_range_containing_position(*position, false)
+                            self.gutter_element_range_containing_position(*position)
                     {
                         (self.click_handler)(gutter_range, ctx);
                     }

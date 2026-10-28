@@ -136,19 +136,6 @@ integration_tests! {
     test_copy_all_from_input_context_menu,
     test_cut_paste_from_input_context_menu,
     test_paste_and_type_characters_before_bootstrap,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_anchor_preserved_when_inserting_above,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_anchor_unchanged_when_inserting_below,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_preserved_second_file,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_preserved_deleted_range,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_preserved_header_range,
-    #[ignore = "Flaking on CI - KC looking into 3/31/26"]
-    test_code_review_scroll_preserved_footer_range,
-    test_code_review_double_click_fully_expands_hidden_section,
     test_pane_group_state_single_pane,
     test_pane_group_state_multi_pane,
     test_pane_group_state_close_pane,

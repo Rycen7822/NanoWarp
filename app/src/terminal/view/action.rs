@@ -218,7 +218,6 @@ pub enum TerminalAction {
     ClearMarkedText,
     ShowInitializationBlock,
     ShowWarpifySettings,
-    ToggleCodeReviewPane,
     PickRepoToOpen,
     OpenFilesPalette {
         source: PaletteSource,
@@ -388,7 +387,6 @@ impl fmt::Debug for TerminalAction {
             ClearMarkedText => write!(f, "ClearMarkedText"),
             ShowInitializationBlock => write!(f, "ShowInitializationBlock"),
             ShowWarpifySettings => write!(f, "ShowWarpifySettings"),
-            ToggleCodeReviewPane => write!(f, "ToggleCodeReviewPane"),
             PickRepoToOpen => write!(f, "PickRepoToOpen"),
             OpenFilesPalette { .. } => write!(f, "OpenFilesPalette"),
             DismissCodeToolbeltTooltip => write!(f, "DismissCodeToolbeltTooltip"),

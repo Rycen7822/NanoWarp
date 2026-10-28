@@ -8,7 +8,6 @@ use warpui::{AppContext, Entity, EntityId, SingletonEntity, ViewHandle, WindowId
 
 use super::buffer_location::LocalOrRemotePath;
 use super::view::CodeView;
-use crate::code_review::code_review_view::CodeReviewView;
 use crate::pane_group::{PaneGroup, PaneId};
 use crate::workspace::PaneViewLocator;
 
@@ -72,26 +71,6 @@ impl CodeEditorStatus {
         editor.read(app, |editor_view, ctx| Self {
             unsaved_changes: editor_view.contains_unsaved_changes(ctx),
         })
-    }
-
-    pub fn status_for_code_review(review: &ViewHandle<CodeReviewView>, app: &AppContext) -> Self {
-        review.read(app, |review_view, ctx| Self {
-            unsaved_changes: review_view.has_unsaved_changes(ctx),
-        })
-    }
-
-    /// Fetches all code review views in a given window (including panel views).
-    pub fn code_review_views_in_window(
-        window_id: WindowId,
-        app: &AppContext,
-    ) -> impl Iterator<Item = Self> + '_ {
-        app.views_of_type::<CodeReviewView>(window_id)
-            .into_iter()
-            .flat_map(move |editors| {
-                editors
-                    .into_iter()
-                    .map(move |editor| Self::status_for_code_review(&editor, app))
-            })
     }
 }
 

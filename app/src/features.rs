@@ -97,18 +97,10 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::VimCodeEditor,
         #[cfg(feature = "allow_opening_file_links_using_editor_env")]
         FeatureFlag::AllowOpeningFileLinksUsingEditorEnv,
-        #[cfg(feature = "revert_diff_hunk")]
-        FeatureFlag::RevertDiffHunk,
-        #[cfg(feature = "code_review_save_changes")]
-        FeatureFlag::CodeReviewSaveChanges,
         #[cfg(feature = "allow_ignoring_input_suggestions")]
         FeatureFlag::AllowIgnoringInputSuggestions,
         #[cfg(feature = "code_launch_modal")]
         FeatureFlag::CodeLaunchModal,
-        #[cfg(feature = "discard_per_file_and_all_changes")]
-        FeatureFlag::DiscardPerFileAndAllChanges,
-        #[cfg(feature = "code_review_find")]
-        FeatureFlag::CodeReviewFind,
         #[cfg(feature = "ui_zoom")]
         FeatureFlag::UIZoom,
         #[cfg(feature = "configurable_toolbar")]
@@ -143,10 +135,6 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::PinnedTabs,
         #[cfg(feature = "warpify_footer")]
         FeatureFlag::WarpifyFooter,
-        #[cfg(feature = "git_operations_in_code_review")]
-        FeatureFlag::GitOperationsInCodeReview,
-        #[cfg(feature = "remote_code_review")]
-        FeatureFlag::RemoteCodeReview,
         #[cfg(feature = "osc_hyperlinks")]
         FeatureFlag::OscHyperlinks,
         #[cfg(feature = "terminal_lifecycle_recovery")]

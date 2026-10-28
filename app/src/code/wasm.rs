@@ -1,15 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use warp_util::path::LineAndColumnArg;
-use warpui::elements::{DraggableState, Empty, MouseStateHandle};
-use warpui::{
-    AppContext, Element, Entity, ModelHandle, TypedActionView, View, ViewContext, ViewHandle,
-};
+use warpui::elements::Empty;
+use warpui::{AppContext, Element, Entity, ModelHandle, TypedActionView, View, ViewContext};
 
 use super::buffer_location::LocalOrRemotePath;
 use super::editor_management::CodeSource;
-use super::local_code_editor::LocalCodeEditorView;
-use crate::code::editor::DiffDelta;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view::{HeaderContent, HeaderRenderContext};
 use crate::pane_group::{BackingView, CodePane, PaneConfiguration, PaneEvent};
@@ -41,37 +37,9 @@ pub enum CodeViewEvent {
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum PendingSaveIntent {
-    Save,
-    Discard,
-    Cancel,
-}
-
-#[allow(unused)]
-#[derive(Debug, Clone)]
-enum TabBarDragPosition {
-    BeforeTab,
-    AfterTab,
-}
-
-#[allow(unused)]
-#[derive(Default, Clone)]
-struct TabDataMouseStateHandles {
-    tab_handle: MouseStateHandle,
-    close_handle: MouseStateHandle,
-    accept_mouse_state: MouseStateHandle,
-    reject_mouse_state: MouseStateHandle,
-    tab_draggable_state: DraggableState,
-}
-
-#[allow(unused)]
 #[derive(Clone)]
 pub struct TabData {
     location: Option<LocalOrRemotePath>,
-    editor_view: ViewHandle<LocalCodeEditorView>,
-    mouse_state_handles: TabDataMouseStateHandles,
-    drag_position: Option<TabBarDragPosition>,
 }
 
 impl TabData {
@@ -131,13 +99,12 @@ impl CodeView {
         ctx: &mut ViewContext<Self>,
     ) {
         if let Some(path) = location.and_then(|loc| PathBuf::try_from(loc).ok()) {
-            self.open_local(None, path, line_col, ctx);
+            self.open_local(path, line_col, ctx);
         }
     }
 
     pub fn open_local(
         &mut self,
-        _diffs: Option<Vec<DiffDelta>>,
         _path: impl Into<PathBuf>,
         _line_col: Option<LineAndColumnArg>,
         _ctx: &mut ViewContext<Self>,

@@ -38,10 +38,7 @@ fn match_data_countable_zero_is_not_truthy() {
 
 #[test]
 fn subpage_display_names_are_correct() {
-    assert_eq!(
-        SettingsSection::EditorAndCodeReview.to_string(),
-        "Editor and Code Review"
-    );
+    assert_eq!(SettingsSection::EditorAndCodeReview.to_string(), "Editor");
 }
 
 // ── slug / from_slug ───────────────────────────────────────────────

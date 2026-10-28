@@ -143,26 +143,14 @@ pub enum FeatureFlag {
     /// Enables the ability to undo closed panes.
     UndoClosedPanes,
 
-    /// Enables revert button for diff hunks in the gutter.
-    RevertDiffHunk,
-
-    /// Enables saving code review pane changes
-    CodeReviewSaveChanges,
-
     /// Enables ignoring input suggestions.
     AllowIgnoringInputSuggestions,
 
     /// Enables the one-time modal on app startup for existing users for the Code launch.
     CodeLaunchModal,
 
-    /// Enables discarding per-file and discarding all changes
-    DiscardPerFileAndAllChanges,
-
     /// Enables UI zoom support (scaling the entire UI by a given percentage).
     UIZoom,
-
-    /// Enables find/search in code review pane
-    CodeReviewFind,
 
     /// Enables asynchronous find in terminal, running search on a background thread.
     AsyncFind,
@@ -197,10 +185,6 @@ pub enum FeatureFlag {
     /// Enables incremental (diff-based) buffer updates for auto-reload instead of full replace.
     IncrementalAutoReload,
 
-    /// Enables scroll position preservation in the code review pane when file
-    /// content changes via auto-reload.
-    CodeReviewScrollPreservation,
-
     /// Enables Kitty keyboard protocol support (CSI u encoding, progressive enhancement).
     KittyKeyboardProtocol,
 
@@ -217,9 +201,6 @@ pub enum FeatureFlag {
     /// Replaces the in-block warpification banner with a warpify footer.
     WarpifyFooter,
 
-    /// Enables commit, push, and create-PR actions in the code review panel.
-    GitOperationsInCodeReview,
-
     /// Gates the new SSH remote server flow that installs and connects to a
     /// persistent binary on the remote machine instead of using ControlMaster
     /// for command execution.
@@ -228,9 +209,6 @@ pub enum FeatureFlag {
     /// Enables summary mode in vertical tabs, showing condensed tab summaries
     /// instead of individual pane rows.
     VerticalTabsSummaryMode,
-
-    /// Enables the code review view for remote sessions.
-    RemoteCodeReview,
 
     /// Gates the Grouped Tabs feature.
     GroupedTabs,

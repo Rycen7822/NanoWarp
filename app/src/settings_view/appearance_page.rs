@@ -443,7 +443,6 @@ pub enum AppearancePageAction {
     ToggleAllAvailableFonts,
     ToggleMatchNotebookToMonospaceFontSize,
     ToggleTabIndicators,
-    ToggleShowCodeReviewButton,
     TogglePreserveActiveTabColor,
     ToggleVerticalTabs,
     ToggleShowVerticalTabPanelInRestoredWindows,
@@ -572,7 +571,6 @@ impl TypedActionView for AppearanceSettingsPageView {
             OpacitySliderDragged(val) => self.set_opacity(*val, ctx),
             BlurSliderDragged(val) => self.set_blur(*val, ctx),
             ToggleTabIndicators => self.toggle_tab_indicators(ctx),
-            ToggleShowCodeReviewButton => self.toggle_show_code_review_button(ctx),
             TogglePreserveActiveTabColor => self.toggle_preserve_active_tab_color(ctx),
             ToggleVerticalTabs => self.toggle_vertical_tabs(ctx),
             ToggleShowVerticalTabPanelInRestoredWindows => {
@@ -2069,19 +2067,6 @@ impl AppearanceSettingsPageView {
 
         ctx.update_model(&tab_settings, move |tab_settings, ctx| {
             report_if_error!(tab_settings.show_indicators.set_value(new_value, ctx));
-        });
-    }
-
-    fn toggle_show_code_review_button(&mut self, ctx: &mut ViewContext<Self>) {
-        let tab_settings = TabSettings::handle(ctx);
-        let new_value = !*tab_settings.as_ref(ctx).show_code_review_button.value();
-
-        ctx.update_model(&tab_settings, move |tab_settings, ctx| {
-            report_if_error!(
-                tab_settings
-                    .show_code_review_button
-                    .set_value(new_value, ctx)
-            );
         });
     }
 

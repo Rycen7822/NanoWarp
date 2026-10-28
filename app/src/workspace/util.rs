@@ -30,7 +30,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) dismiss_banner_button: MouseStateHandle,
     pub(super) offline_icon: MouseStateHandle,
     pub(super) header_dimming: MouseStateHandle,
-    pub(super) right_panel_icon: MouseStateHandle,
     pub(super) title_bar_search_bar: MouseStateHandle,
 }
 

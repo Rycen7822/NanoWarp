@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use settings::Setting as _;
 use warpui::{AppContext, SingletonEntity};
 
 use crate::features::FeatureFlag;
@@ -25,21 +24,18 @@ use crate::workspace::tab_settings::TabSettings;
 #[schemars(rename_all = "snake_case")]
 pub enum HeaderToolbarItemKind {
     TabsPanel,
-    CodeReview,
 }
 
 impl HeaderToolbarItemKind {
     pub fn display_label(&self) -> &'static str {
         match self {
             Self::TabsPanel => "Tabs Panel",
-            Self::CodeReview => "Code Review",
         }
     }
 
     pub fn icon(&self) -> Icon {
         match self {
             Self::TabsPanel => Icon::Menu,
-            Self::CodeReview => Icon::Diff,
         }
     }
 
@@ -52,26 +48,7 @@ impl HeaderToolbarItemKind {
                 FeatureFlag::VerticalTabs.is_enabled()
                     && *TabSettings::as_ref(app).use_vertical_tabs
             }
-            Self::CodeReview => cfg!(feature = "local_fs"),
         }
-    }
-
-    /// Whether this item should be shown in the toolbar.
-    /// Checks both `is_supported` and user show/hide preferences.
-    pub fn is_available(&self, app: &AppContext) -> bool {
-        if !self.is_supported(app) {
-            return false;
-        }
-        match self {
-            Self::CodeReview => *TabSettings::as_ref(app).show_code_review_button.value(),
-            _ => true,
-        }
-    }
-
-    /// Whether this item opens a side panel (as opposed to replacing the content
-    /// area or opening a popover).
-    pub fn is_panel(&self) -> bool {
-        matches!(self, Self::TabsPanel | Self::CodeReview)
     }
 
     pub fn default_left() -> Vec<Self> {
@@ -79,11 +56,11 @@ impl HeaderToolbarItemKind {
     }
 
     pub fn default_right() -> Vec<Self> {
-        vec![Self::CodeReview]
+        vec![]
     }
 
     /// All toolbar item variants (availability filtering is done at the call site).
     pub fn all_items() -> Vec<Self> {
-        vec![Self::TabsPanel, Self::CodeReview]
+        vec![Self::TabsPanel]
     }
 }

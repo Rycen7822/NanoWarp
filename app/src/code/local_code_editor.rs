@@ -9,19 +9,16 @@ use std::{
     time::Duration,
 };
 
-use pathfinder_geometry::vector::Vector2F;
 use remote_server::manager::RemoteServerManager;
 use warp_core::r#async::debounce;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::icons::Icon;
-use warp_editor::content::buffer::InitialBufferState;
 use warp_util::content_version::ContentVersion;
 use warp_util::file::{FileId, FileLoadError, FileSaveError};
 use warp_util::sync::Condition;
 use warpui::elements::{
-    ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
-    Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Radius, Rect, Shrinkable, Stack, Text,
+    ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, ParentElement, Shrinkable, Text,
 };
 use warpui::platform::SaveFilePickerConfiguration;
 use warpui::ui_components::button::ButtonVariant;
@@ -289,12 +286,6 @@ impl LocalCodeEditorView {
 
     pub fn set_default_directory(&mut self, directory: Option<PathBuf>) {
         self.default_directory = directory;
-    }
-
-    pub fn reset_with_state(&mut self, state: InitialBufferState, ctx: &mut ViewContext<Self>) {
-        self.base_content_version = Some(state.version);
-        self.editor
-            .update(ctx, |editor, ctx| editor.reset(state, ctx));
     }
 
     /// Whether the content of the source file this editor is based on has been loaded into the buffer.
@@ -853,53 +844,4 @@ pub fn render_remote_disconnected_banner(appearance: &Appearance) -> Box<dyn Ele
         .with_padding_left(12.)
         .with_padding_right(12.)
         .finish()
-}
-
-/// Renders a small yellow circle with tooltip indicating unsaved changes
-pub fn render_unsaved_circle_with_tooltip(
-    mouse_state: MouseStateHandle,
-    tooltip_text: String,
-    size: f32,
-    right_margin: f32,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    Hoverable::new(mouse_state, |state| {
-        let rect = Container::new(
-            ConstrainedBox::new(
-                Rect::new()
-                    .with_background_color(appearance.theme().active_ui_text_color().into())
-                    .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
-                    .finish(),
-            )
-            .with_width(size)
-            .with_height(size)
-            .finish(),
-        )
-        .with_margin_right(right_margin)
-        .finish();
-
-        if state.is_hovered() {
-            let mut stack = Stack::new().with_child(rect);
-
-            let tooltip = appearance
-                .ui_builder()
-                .tool_tip(tooltip_text)
-                .build()
-                .finish();
-
-            stack.add_positioned_overlay_child(
-                tooltip,
-                OffsetPositioning::offset_from_parent(
-                    Vector2F::new(0., 4.),
-                    ParentOffsetBounds::Unbounded,
-                    ParentAnchor::BottomMiddle,
-                    ChildAnchor::TopMiddle,
-                ),
-            );
-            stack.finish()
-        } else {
-            rect
-        }
-    })
-    .finish()
 }

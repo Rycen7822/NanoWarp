@@ -10,8 +10,6 @@ mod banner;
 mod chip_configurator;
 mod code;
 mod code_review;
-#[cfg(not(target_family = "wasm"))]
-mod coding_panel_enablement_state;
 mod command_palette;
 mod completer;
 #[allow(dead_code)]
@@ -100,7 +98,6 @@ pub mod themes;
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
 use code::persisted_workspace::PersistedWorkspace;
-use code_review::GlobalCodeReviewModel;
 use code_review::git_repo_model::GitRepoModels;
 use quit_warning::UnsavedStateSummary;
 #[cfg(feature = "local_fs")]
@@ -961,9 +958,6 @@ pub(crate) fn initialize_app(
     tab_configs::params_modal::init(ctx);
     context_chips::display_menu::init(ctx);
     context_chips::node_version_popup::init(ctx);
-    if FeatureFlag::CodeReviewSaveChanges.is_enabled() {
-        code_review::init(ctx);
-    }
 
     let display_count = ctx.windows().display_count();
     ctx.add_singleton_model(|_| DisplayCount(display_count));
@@ -977,7 +971,6 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| VimRegisters::new());
     ctx.add_singleton_model(UndoCloseStack::new);
     ctx.add_singleton_model(|_| ToastStack);
-    ctx.add_singleton_model(|_| GlobalCodeReviewModel);
     #[cfg(feature = "local_fs")]
     ctx.add_singleton_model(FileModel::new);
     ctx.add_singleton_model(GlobalBufferModel::new);

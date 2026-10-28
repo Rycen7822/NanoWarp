@@ -13,7 +13,7 @@ pub use super::git_repo_models::GitRepoModels;
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
 
 /// Public metadata exposed to consumers — the subset of diff metadata
-/// that the git chip (prompt display, agent view footer) needs.
+/// that the terminal Git chip needs.
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub struct GitStatusMetadata {
@@ -33,10 +33,9 @@ pub enum GitRepoStatusEvent {
 
 // ── Unified GitRepoStatusModel (local or remote backend) ────────────────────
 
-/// Unified per-repo git status model that dispatches to a local or remote
-/// backend, mirroring [`crate::code_review::diff_state::DiffStateModel`].
+/// Per-repo Git status from a local watcher or remote push subscription.
 ///
-/// Consumers (prompt chips, tabs, code review, agent context) hold a
+/// Terminal prompt chips and tabs hold a
 /// `ModelHandle<GitRepoStatusModel>` and subscribe to its [`GitRepoStatusEvent`]s
 /// without caring whether the repository is local or on an SSH host. Only one
 /// variant is populated at a time.
