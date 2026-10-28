@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use line_ending::LineEnding;
+use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::{
-    FormattedIndentTextInline, FormattedText, FormattedTextFragment, FormattedTextLine, parse_html,
-    parse_markdown,
+    CodeBlockText, FormattedIndentTextInline, FormattedTaskList, FormattedText,
+    FormattedTextFragment, FormattedTextHeader, FormattedTextLine, parse_markdown,
 };
 use pathfinder_color::ColorU;
 use rand::SeedableRng;
@@ -4852,7 +4853,7 @@ fn test_newline_at_code_block_start() {
 }
 
 #[test]
-fn test_insert_html() {
+fn test_insert_formatted_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -4874,7 +4875,7 @@ fn test_insert_html() {
                 ctx,
             );
 
-            let formatted_text = parse_html("<p><strong>test text</strong></p>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![FormattedTextFragment::bold("test text")])]);
             buffer.replace_with_formatted_text(CharOffset::from(7)..CharOffset::from(7), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
@@ -4882,8 +4883,7 @@ fn test_insert_html() {
             );
 
             let formatted_text =
-                parse_html("<pre><code:Shell>block 1\nblock 2</code></pre> other <pre>block 3</pre>")
-                    .expect("Should parse");
+                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 1\nblock 2".to_string() }), FormattedTextLine::Line(vec![FormattedTextFragment::plain_text(" other ")]), FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block 3".to_string() })]);
             buffer.replace_with_formatted_text(CharOffset::from(1)..CharOffset::from(16), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
@@ -4891,14 +4891,14 @@ fn test_insert_html() {
             );
 
             // Inserting block style into an already active block with the same style should be the same as inserting plain text.
-            let formatted_text = parse_html("<pre>block content</pre>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "block content".to_string() })]);
             buffer.replace_with_formatted_text(CharOffset::from(1)..CharOffset::from(1), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
                 "<code:Shell>block contentblock 1\\nblock 2<text> other <code:Shell>block 3<code:Shell>Block<text>After"
             );
 
-            let formatted_text = parse_html("<ul><li>abc</li><li>def</li></ul>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("abc")] }), FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("def")] })]);
             buffer.replace_with_formatted_text(CharOffset::from(3)..CharOffset::from(3), formatted_text, EditOrigin::UserInitiated, selection.clone(), ctx);
             assert_eq!(
                 buffer.content.debug(),
@@ -4924,8 +4924,10 @@ fn test_insert_code_block_with_language() {
             );
 
             let formatted_text =
-                parse_html("<pre><code class=\"language-jsx\">Some code</code></pre>")
-                    .expect("Should parse");
+                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText {
+                    lang: "jsx".to_string(),
+                    code: "Some code".to_string(),
+                })]);
             buffer.replace_with_formatted_text(
                 CharOffset::from(8)..CharOffset::from(8),
                 formatted_text,
@@ -5008,7 +5010,11 @@ fn test_insert_code_block_in_text_lines() {
                 ctx,
             );
 
-            let formatted_text = parse_html("<pre>block</pre>").expect("Should parse");
+            let formatted_text =
+                FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText {
+                    lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(),
+                    code: "block".to_string(),
+                })]);
             // Inserting code block in between plain text line should split it in half.
             let delta = buffer
                 .replace_with_formatted_text(
@@ -9374,7 +9380,7 @@ fn test_copy_paste_behavior() {
             );
             assert_eq!(buffer.content.debug(), "<text>test\\nline\\n");
 
-            let formatted_text = parse_html("<h2>New Header</h2>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::Heading(FormattedTextHeader { heading_size: 2, text: vec![FormattedTextFragment::plain_text("New Header")] })]);
             buffer.replace_with_formatted_text(
                 CharOffset::from(11)..CharOffset::from(11),
                 formatted_text.clone(),
@@ -9413,7 +9419,7 @@ fn test_copy_paste_behavior() {
             );
 
             let formatted_text =
-                parse_html("<ul><li>list<li><ul><li>sublist</li></ul></li></ul>").expect("Should parse");
+                FormattedText::new(vec![FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 0, text: vec![FormattedTextFragment::plain_text("list")] }), FormattedTextLine::UnorderedList(FormattedIndentTextInline { indent_level: 1, text: vec![FormattedTextFragment::plain_text("sublist")] })]);
 
             // Scenario 4: When inserting a multi-line non-plain text block in the middle of a line, we should keep the original
             // line's format for the first line. For the second line onwards, we will keep the pasted block style.
@@ -9423,7 +9429,7 @@ fn test_copy_paste_behavior() {
                 "<text>testlist<ul1>sublist<header2>New Header<header2>New Header<text>"
             );
 
-            let formatted_text = parse_html("<p>start</p>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("start")])]);
 
             // Scenario 5: When inserting a plain text block to replace a non-plain text line, we should keep the original
             // line's block style.
@@ -9433,7 +9439,7 @@ fn test_copy_paste_behavior() {
                 "<text>testlist<ul1>start<header2>New Header<header2>New Header<text>"
             );
 
-            let formatted_text = parse_html("<pre>first\nsecond</pre>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::CodeBlock(CodeBlockText { lang: RUNNABLE_BLOCK_MARKDOWN_LANG.to_string(), code: "first\nsecond".to_string() })]);
 
             // Scenario 6: When inserting a multi-line code block in a non-plain text block, we should keep the original
             // line's format and treat it as inserting a multi-line plain text.
@@ -9864,7 +9870,7 @@ fn test_selection_bias_with_mouse_movement() {
 }
 
 #[test]
-fn test_insert_html_tasklist_on_plain_text() {
+fn test_insert_tasklist_on_plain_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -9879,8 +9885,11 @@ fn test_insert_html_tasklist_on_plain_text() {
             );
 
             let formatted_text =
-                parse_html("<ul><li><input type=\"checkbox\"></input>test text</li></ul>")
-                    .expect("Should parse");
+                FormattedText::new(vec![FormattedTextLine::TaskList(FormattedTaskList {
+                    complete: false,
+                    indent_level: 0,
+                    text: vec![FormattedTextFragment::plain_text("test text")],
+                })]);
             buffer.replace_with_formatted_text(
                 CharOffset::from(9)..CharOffset::from(9),
                 formatted_text,
@@ -13557,7 +13566,7 @@ fn test_indent_with_multiple_units() {
 }
 
 #[test]
-fn test_multiselect_insert_html() {
+fn test_multiselect_insert_formatted_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
         let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
@@ -13571,8 +13580,9 @@ fn test_multiselect_insert_html() {
                 ctx,
             );
 
-            let formatted_text =
-                parse_html("<p><strong>test text</strong></p>").expect("Should parse");
+            let formatted_text = FormattedText::new(vec![FormattedTextLine::Line(vec![
+                FormattedTextFragment::bold("test text"),
+            ])]);
             selection.update(ctx, |selection, _| {
                 set_selections(selection, vec1![1..1, 7..7]);
             });

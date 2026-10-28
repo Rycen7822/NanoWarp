@@ -5,10 +5,8 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub mod html_parser;
 pub mod markdown_parser;
 pub mod weight;
-pub use html_parser::parse_html;
 use itertools::Itertools;
 pub use markdown_parser::{
     parse_image_prefix, parse_image_run_line, parse_inline_markdown, parse_markdown,

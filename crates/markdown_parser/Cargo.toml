@@ -13,7 +13,5 @@ anyhow.workspace = true
 enum-iterator.workspace = true
 itertools.workspace = true
 nom.workspace = true
-html5ever.workspace = true
-markup5ever_rcdom = "0.35.0"
 serde_yaml.workspace = true
 thiserror.workspace = true

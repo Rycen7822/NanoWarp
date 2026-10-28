@@ -129,7 +129,6 @@ hashbrown = "0.17.1"
 hex = "0.4.3"
 # This matches the version of hyper used by reqwest.
 hyper = "1.6.0"
-html5ever = "0.35.0"
 http = "1.1.0"
 humantime = "2.1.0"
 image = { version = "0.25.9", default-features = false, features = [
