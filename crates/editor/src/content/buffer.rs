@@ -275,16 +275,6 @@ pub enum BufferEditAction<'a> {
         offset: CharOffset,
         color: &'a [(Range<ByteOffset>, ColorU)],
     },
-    RemoveEmbeddingAtOffset {
-        offset_before_marker: CharOffset,
-    },
-    /// Replace the embedded item at given offset.
-    /// This is a system action that is should not
-    /// be undo-able.
-    ReplaceEmbeddingAtOffset {
-        offset_before_marker: CharOffset,
-        embedding: Arc<dyn EmbeddedItem>,
-    },
     /// VimEvent consisting of inserting given text at a point relative
     /// to the current cursor, then repositioning the cursor by an offset.
     VimEvent {
@@ -332,7 +322,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::ColorCodeBlock { .. }
             | BufferEditAction::ToggleTaskListAtOffset { .. }
             | BufferEditAction::UpdateCodeBlockTypeAtOffset { .. }
-            | BufferEditAction::ReplaceEmbeddingAtOffset { .. }
             | BufferEditAction::InsertAtCharOffsetRanges { .. } => ShouldAutoscroll::No,
             BufferEditAction::Insert { .. }
             | BufferEditAction::InsertForEachSelection { .. }
@@ -349,7 +338,6 @@ impl BufferEditAction<'_> {
             | BufferEditAction::Undo
             | BufferEditAction::Redo
             | BufferEditAction::Indent { .. }
-            | BufferEditAction::RemoveEmbeddingAtOffset { .. }
             | BufferEditAction::TogglePrefixForLines { .. }
             | BufferEditAction::VimEvent { .. } => ShouldAutoscroll::Yes,
         }
@@ -1493,24 +1481,6 @@ impl Buffer {
         }
     }
 
-    pub fn replace_embedding_at_offset(
-        &mut self,
-        offset: CharOffset,
-        embedding: Arc<dyn EmbeddedItem>,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.update_content(
-            BufferEditAction::ReplaceEmbeddingAtOffset {
-                offset_before_marker: offset,
-                embedding,
-            },
-            EditOrigin::SystemEdit,
-            selection_model,
-            ctx,
-        );
-    }
-
     /// Update content, with default autoscrolling behavior.
     pub(crate) fn update_content(
         &mut self,
@@ -1683,15 +1653,6 @@ impl Buffer {
                     selection_model.clone(),
                     ctx,
                 )
-            }
-            BufferEditAction::ReplaceEmbeddingAtOffset {
-                offset_before_marker,
-                embedding,
-            } => self.replace_embedding_at_offset_internal(offset_before_marker, embedding),
-            BufferEditAction::RemoveEmbeddingAtOffset {
-                offset_before_marker,
-            } => {
-                self.remove_embedding_at_offset(offset_before_marker, selection_model.clone(), ctx)
             }
             BufferEditAction::VimEvent {
                 text,
@@ -4325,92 +4286,6 @@ impl Buffer {
             range.start,
             new_cursor_delta,
         )
-    }
-
-    fn remove_embedding_at_offset(
-        &mut self,
-        offset_before_marker: CharOffset,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) -> EditResult {
-        debug_assert!(
-            matches!(
-                self.block_type_at_point(offset_before_marker + 1),
-                BlockType::Item(BufferBlockItem::Embedded { .. })
-            ),
-            "Trying to remove embedding at {offset_before_marker}, but offset is not an embedding.",
-        );
-        self.edit_internal_first_selection(
-            offset_before_marker..offset_before_marker + 1,
-            "",
-            TextStyles::default(),
-            selection_model,
-            ctx,
-        )
-    }
-
-    // Replace the embedded item at offset.
-    fn replace_embedding_at_offset_internal(
-        &mut self,
-        offset_before_marker: CharOffset,
-        embedding: Arc<dyn EmbeddedItem>,
-    ) -> EditResult {
-        debug_assert!(
-            matches!(
-                self.block_type_at_point(offset_before_marker + 1),
-                BlockType::Item(BufferBlockItem::Embedded { .. })
-            ),
-            "Trying to replace embedding at {offset_before_marker}, but offset is not an embedding.",
-        );
-
-        let old_range = offset_before_marker + 1..offset_before_marker + 2;
-        let replaced_points = self.offset_range_to_point_range(old_range.clone());
-
-        // In-place embedding swap—no text content change.
-        let old_byte_start = old_range.start.to_buffer_byte_offset(self);
-        let old_byte_end = old_range.end.to_buffer_byte_offset(self);
-
-        self.content = {
-            let cursor = self.content.cursor::<CharOffset, ()>();
-            let mut buffer_cursor = BufferCursor::new(cursor);
-
-            let mut new_content = buffer_cursor.slice_to_offset_after_markers(offset_before_marker);
-            new_content.push(BufferText::BlockItem {
-                item_type: BufferBlockItem::Embedded { item: embedding },
-            });
-            buffer_cursor.next();
-            new_content.push_tree(buffer_cursor.suffix());
-            new_content
-        };
-
-        let new_byte_length = old_range
-            .end
-            .to_buffer_byte_offset(self)
-            .as_usize()
-            .saturating_sub(old_byte_start.as_usize());
-        let new_end_point = old_range.end.to_buffer_point(self);
-
-        EditResult {
-            undo_item: None,
-            delta: Some(EditDelta {
-                precise_deltas: vec![PreciseDelta {
-                    replaced_range: old_range.clone(),
-                    replaced_points,
-                    resolved_range: old_range.clone(),
-                    replaced_byte_range: old_byte_start..old_byte_end,
-                    new_byte_length,
-                    new_end_point,
-                }],
-                // Note that we need to shift the range to the right by one here since
-                // the offset we take as the parameter is right before the block item
-                // marker.
-                old_offset: old_range.clone(),
-                new_lines: Arc::new(
-                    self.styled_blocks_in_range(old_range, StyledBlockBoundaryBehavior::Exclusive),
-                ),
-            }),
-            ..Default::default()
-        }
     }
 
     pub fn color_code_block_ranges(
