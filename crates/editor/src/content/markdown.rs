@@ -15,7 +15,6 @@ use markdown_parser::{
 use markup5ever::ns;
 use string_offset::CharOffset;
 use warpui_core::elements::{ListIndentLevel, ListNumbering};
-use warpui_core::text::point::Point;
 use warpui_core::{AppContext, ModelContext, ModelHandle};
 
 use super::buffer::{
@@ -29,7 +28,6 @@ use super::text::{
 };
 use crate::content::anchor::AnchorSide;
 use crate::content::selection_model::BufferSelectionModel;
-use crate::content::version::BufferVersion;
 
 /// A Markdown format to serialize a [`Buffer`] into.
 #[derive(Clone, Copy)]
@@ -552,10 +550,6 @@ impl TextStylesWithMetadata {
     }
 }
 
-use markdown_parser::FormattedTextDelta;
-
-use crate::content::buffer::{BufferEvent, ShouldAutoscroll, ToBufferCharOffset};
-
 impl Buffer {
     pub(super) fn replace_with_formatted_text(
         &mut self,
@@ -652,68 +646,6 @@ impl Buffer {
             0,
             AnchorSide::Right,
         )
-    }
-
-    /// Compute the character range corresponding to the suffix of the
-    /// document that should be replaced based on the given formatted-text
-    /// delta.
-    ///
-    /// The Point is at the start of the line after the common prefix lines.
-    fn formatted_text_suffix_range(&self, delta: &FormattedTextDelta) -> Range<CharOffset> {
-        let row = delta.common_prefix_lines + 1;
-        let mut suffix_start = Point::new(row as u32, 0).to_buffer_char_offset(self);
-
-        // By default the buffer has an empty plain text. If we don't replace the initial marker and we're inserting
-        // a different formatted text line at the beginning, we will end up with an incorrect initial line.
-        // If we're replacing the whole content, include the zeroth offset so we set the initial block styling correctly.
-        if suffix_start == CharOffset::from(1) {
-            suffix_start = CharOffset::zero();
-        }
-        suffix_start = suffix_start.clamp(CharOffset::zero(), self.max_charoffset());
-
-        suffix_start..self.max_charoffset()
-    }
-
-    pub fn apply_formatted_text_delta(
-        &mut self,
-        delta: &FormattedTextDelta,
-        selection_model: ModelHandle<BufferSelectionModel>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if delta.is_noop() {
-            return;
-        }
-
-        let suffix_range = self.formatted_text_suffix_range(delta);
-        let selection_model_id = selection_model.id();
-
-        // Build the new suffix as formatted text. This will replace the old
-        // suffix range and effectively delete the old suffix while inserting
-        // the new suffix, leaving the prefix untouched.
-        let new_suffix_text = FormattedText::new(delta.new_suffix.clone());
-        let edit_result = self.replace_with_formatted_text(
-            suffix_range,
-            new_suffix_text,
-            // We need user initiated here as it impacts the editing behavior. Specifically,
-            // we want to insert inline and not trigger the block specific linebreak suffix.
-            EditOrigin::UserInitiated,
-            selection_model,
-            ctx,
-        );
-
-        self.version = BufferVersion::new();
-
-        let Some(delta) = edit_result.delta else {
-            log::debug!("Editor action was no-op");
-            return;
-        };
-        ctx.emit(BufferEvent::ContentChanged {
-            delta,
-            origin: EditOrigin::SystemEdit,
-            should_autoscroll: ShouldAutoscroll::No,
-            buffer_version: self.version,
-            selection_model_id: Some(selection_model_id),
-        });
     }
 }
 

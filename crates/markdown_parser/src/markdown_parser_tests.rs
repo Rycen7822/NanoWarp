@@ -3,9 +3,7 @@ use nom::error::{VerboseError, convert_error};
 use serde_yaml::Mapping;
 
 use super::*;
-use crate::{
-    CustomWeight, FormattedTable, FormattedTextStyles, LineCount, compute_formatted_text_delta,
-};
+use crate::{CustomWeight, FormattedTable, FormattedTextStyles, LineCount};
 
 // Simple transformer to make testing easier.
 fn test_parse_markdown(source: &str) -> Vec<FormattedTextLine> {
@@ -2549,38 +2547,6 @@ fn test_table_line_helpers() {
 
     line.set_weight(Some(CustomWeight::Bold));
     assert_eq!(line, before);
-}
-
-#[test]
-fn test_compute_formatted_text_delta_with_unchanged_table_prefix() {
-    let old = FormattedText::new([
-        FormattedTextLine::Table(FormattedTable::from_internal_format("name\tage\n")),
-        FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("first")]),
-    ]);
-    let new = FormattedText::new([
-        FormattedTextLine::Table(FormattedTable::from_internal_format("name\tage\n")),
-        FormattedTextLine::Line(vec![FormattedTextFragment::plain_text("second")]),
-    ]);
-
-    let delta = compute_formatted_text_delta(old, new);
-    assert_eq!(delta.common_prefix_lines, 1);
-    assert_eq!(delta.old_suffix_formatted_text_lines, 1);
-    assert_eq!(delta.new_suffix.len(), 1);
-}
-
-#[test]
-fn test_compute_formatted_text_delta_with_changed_table_line() {
-    let old = FormattedText::new([FormattedTextLine::Table(
-        FormattedTable::from_internal_format("name\tage\n"),
-    )]);
-    let new = FormattedText::new([FormattedTextLine::Table(
-        FormattedTable::from_internal_format("name\tyears\n"),
-    )]);
-
-    let delta = compute_formatted_text_delta(old, new);
-    assert_eq!(delta.common_prefix_lines, 0);
-    assert_eq!(delta.old_suffix_formatted_text_lines, 1);
-    assert_eq!(delta.new_suffix.len(), 1);
 }
 
 #[test]
