@@ -74,10 +74,6 @@ pub fn warp_home_config_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home_dir| home_dir.join(warp_home_config_dir_name()))
 }
 
-pub fn warp_home_skills_dir() -> Option<PathBuf> {
-    warp_home_config_dir().map(|warp_config_dir| warp_config_dir.join("skills"))
-}
-
 /// Returns the macOS config directory name for the current channel and data
 /// profile.
 ///

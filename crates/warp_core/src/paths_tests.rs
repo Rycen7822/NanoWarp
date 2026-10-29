@@ -84,15 +84,6 @@ fn test_warp_home_config_dir_path() {
 }
 
 #[test]
-fn test_warp_home_skills_path() {
-    let Some(config_dir) = warp_home_config_dir() else {
-        panic!("Should be able to compute Warp home config directory");
-    };
-
-    assert_eq!(warp_home_skills_dir(), Some(config_dir.join("skills")));
-}
-
-#[test]
 fn test_cache_dir_path() {
     let home_dir = home_dir().expect("Should be able to compute home directory");
     // ChannelState, by default, is configured for Channel::Oss.
