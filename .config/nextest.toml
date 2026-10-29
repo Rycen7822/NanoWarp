@@ -32,7 +32,7 @@ filter = 'package(warpui) & test(/windowing::winit::(windows|linux)::clipboard::
 test-group = 'os-clipboard'
 
 [[profile.ci.overrides]]
-platform = 'cfg(windows)'
+platform = 'cfg(any(windows, target_os = "macos"))'
 filter = 'package(warp) & test(=editor::view::model::buffer::tests::test_random_concurrent_operations)'
 # Preserve the existing timeout and all 1000 seeds without competing unit processes.
 threads-required = 4
