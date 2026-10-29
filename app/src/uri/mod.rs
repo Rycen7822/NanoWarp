@@ -193,7 +193,7 @@ impl UriHost {
                 }
             }
             UriHost::Home => {
-                ctx.dispatch_global_action("root_view::open_new", &());
+                ctx.dispatch_global_action("root_view:open_new", &());
             }
             UriHost::Session => {
                 let uuid_hex = url
