@@ -1,13 +1,13 @@
 ---
 name: gui-integration-test
-description: GUI desktop app only. Writes, runs, and debugs Warp integration tests using the custom Builder/TestStep framework in `crates/integration`. Use when adding a new integration test, fixing a failing integration test, wiring a test into the manual runner or nextest suite, or verifying end-to-end UI and terminal behavior in Warp.
+description: Run, debug or maintain NanoWarp GUI/terminal integration tests in the existing Builder/TestStep harness when the accepted behavior needs a real app or PTY.
 ---
 
-# Warp Integration Tests
+# NanoWarp integration tests
 
 **Scope — NanoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
 
-Use this skill for Rust integration tests in Warp's custom framework under `crates/integration/`.
+Use this skill for Rust integration tests in NanoWarp's existing framework under `crates/integration/`. Prefer related existing tests. Temporary diagnosis and acceptance probes stay in `.work/`; add permanent cases only for an accepted behavior gap under root limits. The harness does not restore retired product features.
 
 These are not ordinary unit tests. They boot a real Warp app instance, give it an isolated test home directory, drive it with synthetic UI and terminal events, and poll assertions until success or timeout.
 
@@ -25,9 +25,9 @@ Do **not** reach for an integration test when:
 
 - The logic is deterministic and reachable in-process. Push it into a unit test (`rust-unit-tests`); it will run in milliseconds and point straight at the failure.
 - You are re-covering branch logic a unit test already covers. This harness is for the seams between components, not for re-testing conditionals at full app-boot cost.
-- What you actually want is a screenshot or a manual look. Use `computer_use` or the `gui-integration-test-video` skill instead of attaching weak assertions to a full app boot.
+- What you actually want is a screenshot or a manual look. Reuse the existing capture support or scripted runtime checks instead of attaching weak assertions to a full app boot. User-desktop control follows root Goal/screen rules.
 
-If a behavior is hard to reach from a unit test *only* because of how the code is structured, prefer fixing the structure over writing a slow test around it.
+Do not restructure production code solely to make a test easier; choose the lowest sufficient existing test level.
 
 ## Framework map
 
@@ -220,7 +220,7 @@ Use high-level helpers from `app/src/integration_testing/` whenever possible:
 - command palette helpers
 - navigation helpers
 - settings helpers
-- workflow/file tree/notebook helpers
+- existing basic-editor, window and pane helpers where the current module provides them
 
 Drop to raw `with_event(...)`, `with_event_fn(...)`, or saved-position mouse events only when there is no suitable helper.
 
@@ -260,11 +260,7 @@ Use this deliberately. The rerun mechanism exists for conditions the test genuin
 
 Before reaching for `PreconditionFailed`, confirm the failure is actually environmental by looking at the failure rate and the failure mode:
 
-```bash
-for i in {0..50}; do
-  RUST_BACKTRACE=full cargo run -p integration --bin integration -- test_name || break
-done
-```
+Use the failed run's logs and named assertion first. Repeat only a bounded attempt that can distinguish an environment precondition from a product or test defect; do not loop until a failure disappears.
 
 If the same assertion fails in different ways, or fails while the environment looks fine, it is a product or test bug. Fix it rather than absorbing it into a rerun.
 
@@ -335,12 +331,18 @@ These helpers already handle a lot of correctness and output validation.
 
 ## Running tests
 
+Run from the repository root after loading `.work/rust-env.ps1` on Windows or
+`.work/rust-env-unix.sh` on Linux and applying the current Goal limits. These examples use two build jobs
+and one test thread. Keep temporary/runtime artifacts under `.work/` and do
+not run private-VM fixtures without their actual environment. For user-desktop
+interaction, follow root Goal-pause and permitted-screen instructions.
+
 ### Run one test directly through the integration binary
 
 Use this first while authoring:
 
 ```bash
-cargo run -p integration --bin integration -- test_name
+cargo +1.92.0 run -p integration --bin integration --locked --offline -j2 -- test_name
 ```
 
 This is the fastest way to iterate on a specific test because it bypasses the outer Rust test wrapper and runs the named test directly.
@@ -349,8 +351,13 @@ This is the fastest way to iterate on a specific test because it bypasses the ou
 
 Once it is wired into one of the `tests/integration/*.rs` macro lists, run it with nextest:
 
+Use the existing runner. If `cargo nextest` is not on PATH, locate it under
+`.work/tools/` and invoke `rustup run 1.92.0 <runner> nextest run ...` with
+the same arguments below; do not install another copy. The test thread option
+is a nextest limit, separate from Cargo's build-job limit.
+
 ```bash
-cargo nextest run --no-fail-fast --workspace test_name
+cargo +1.92.0 nextest run -p integration --locked --offline --build-jobs 2 --test-threads 1 test_name
 ```
 
 ### Run with a real display when needed
@@ -358,13 +365,13 @@ cargo nextest run --no-fail-fast --workspace test_name
 For screenshot/video or other real-display flows:
 
 ```bash
-WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 cargo run -p integration --bin integration -- test_name
+WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 cargo +1.92.0 run -p integration --bin integration --locked --offline -j2 -- test_name
 ```
 
 Or with nextest:
 
 ```bash
-WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 cargo nextest run --no-fail-fast --workspace test_name
+WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 cargo +1.92.0 nextest run -p integration --locked --offline --build-jobs 2 --test-threads 1 test_name
 ```
 
 ## Debugging and investigation
@@ -372,7 +379,7 @@ WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 cargo nextest run --no-fail-fast 
 ### Get a backtrace on failures
 
 ```bash
-RUST_BACKTRACE=1 cargo run -p integration --bin integration -- test_name
+RUST_BACKTRACE=1 cargo +1.92.0 run -p integration --bin integration --locked --offline -j2 -- test_name
 ```
 
 ### Pause on failure
@@ -380,7 +387,7 @@ RUST_BACKTRACE=1 cargo run -p integration --bin integration -- test_name
 This is useful when running locally and you want to inspect the failed UI state:
 
 ```bash
-WARPUI_PAUSE_INTEGRATION_TEST_ON_FAILURE=1 cargo run -p integration --bin integration -- test_name
+WARPUI_PAUSE_INTEGRATION_TEST_ON_FAILURE=1 cargo +1.92.0 run -p integration --bin integration --locked --offline -j2 -- test_name
 ```
 
 ### Pause after every step
@@ -388,12 +395,12 @@ WARPUI_PAUSE_INTEGRATION_TEST_ON_FAILURE=1 cargo run -p integration --bin integr
 Useful for understanding exactly what the test is doing:
 
 ```bash
-WARPUI_PAUSE_INTEGRATION_TEST_AT_EVERY_STEP=1 cargo run -p integration --bin integration -- test_name
+WARPUI_PAUSE_INTEGRATION_TEST_AT_EVERY_STEP=1 cargo +1.92.0 run -p integration --bin integration --locked --offline -j2 -- test_name
 ```
 
 ### Video and screenshots
 
-If the task is specifically about recording a test, collecting screenshots, or validating overlay/video artifacts, also use the `gui-integration-test-video` skill (located at `.warp/skills/gui-integration-test-video/SKILL.md`).
+For capture behavior, inspect the existing driver and `capture_recorder.rs`, `video_recorder.rs` and `artifacts.rs` in `crates/warpui_core/src/integration/`. Save artifacts under `.work/` and inspect them before reporting a visual result. No separate video skill is required.
 
 ### Environment variable gotcha
 

@@ -7,7 +7,7 @@ description: Review NanoWarp changes against local Rust, GUI, logging and valida
 
 ## Repo-specific style and recurring review patterns
 
-- Check every PR against the testing guidelines in `.agents/skills/rust-unit-tests/SKILL.md` and `.agents/skills/gui-integration-test/SKILL.md`: flag tests the PR adds that those skills would call out, and new code that should have a test and doesn't. Treat a clear violation of these guidelines as `⚠️ [IMPORTANT]`, not a nit.
+- Review directly affected tests against the accepted behavior and root test-necessity limits. Consult `rust-unit-tests` or `gui-integration-test` only for the relevant test level; do not demand new tests or load both guides for every PR. Report a missing check when it leaves a concrete regression risk uncovered.
 - When a PR is clearly a V0 or initial implementation, frame robustness suggestions such as timeouts, retries, and lifecycle management as optional future work rather than blocking concerns, unless they risk correctness, security, data loss, or a persistent UI hang.
 - For Rust changes, apply the repository conventions from `AGENTS.md`: avoid unnecessary type annotations, prefer imports over long path qualifiers, name context parameters `ctx` and place them last, remove unused parameters instead of prefixing them with `_`, and prefer inline format arguments in macros.
 - Keep comments focused on non-obvious reasons and API contracts. Do not restate code, enumerate callers or describe the edit history; preserve useful unrelated comments.

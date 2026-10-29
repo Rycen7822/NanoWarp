@@ -1,20 +1,17 @@
 ---
 name: triage-issue-local
-specializes: triage-issue
-specializes_source: warpdotdev/oz-for-oss:.agents/skills/triage-issue
-description: Repo-specific triage guidance for NanoWarp. Only the categories declared overridable by the core triage-issue skill may be specialized here.
+description: Triage NanoWarp issue reports against current supported behavior and repository labels, using evidence and focused follow-up questions.
 ---
 
 # Repo-specific triage guidance for NanoWarp
 
-## Prerequisite: install the parent skill
+## Apply this guide
 
-This skill specializes the core `triage-issue` skill (named in the `specializes` frontmatter field) and is not functional on its own. Before applying its guidance, confirm the parent skill is installed and resolvable at `.agents/skills/triage-issue/SKILL.md`. If it is missing, install it first by copying the skill directory from the source declared in the `specializes_source` frontmatter field (`warpdotdev/oz-for-oss:.agents/skills/triage-issue`). Then continue with the guidance below.
-
-This file is a companion to the core `triage-issue` skill. It does not
-redefine the triage output schema, safety rules, or follow-up-question
-contract. It only specializes the override categories the core skill
-marks as overridable.
+This guide is self-contained. Read the issue and available evidence, check the
+current source, then propose the issue type, area, priority, reproduction state
+and next action using the taxonomy below. Explain uncertainty and ask only for
+information that changes the decision. Do not install an upstream parent skill.
+Posting, labeling and closing follow the current task's authorization.
 
 ## Heuristics
 

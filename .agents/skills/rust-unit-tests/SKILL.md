@@ -1,14 +1,21 @@
 ---
 name: rust-unit-tests
-description: Write, improve, and run Rust unit tests in the warp Rust codebase.
+description: Run and maintain focused Rust unit tests for accepted NanoWarp behavior, using existing helpers and the repository build environment.
 ---
 
-# Rust Unit Tests in warp
+# Rust unit tests in NanoWarp
 
 ## Scope
 - This skill focuses on crate-level unit tests.
 - Favor incremental, well-scoped tests that exercise a single function or behavior per case.
 - For *how* to structure and run tests, read on. For *whether* a change needs a test and at what level, start with "What to unit test".
+
+## Test necessity
+
+Start with related existing tests and the root instructions. Add a test only
+for an uncovered behavior changed by this task or an explicit test request;
+keep its scope small. Temporary probes belong in `.work/`. The guidance below
+chooses the test level, not additional product scope or a coverage target.
 
 ## What to unit test
 
@@ -18,7 +25,7 @@ Default to a unit test when the logic is deterministic and reachable without boo
 - Domain logic and state machines (block lifecycle, selection, ranges, diffing).
 - Boundary and edge cases: empty input, single element, off-by-one at range ends, min/max, invalid UTF-8, zero-width and wide grapheme clusters.
 - Error paths and fallbacks, not just the happy path.
-- **Bug fixes, where the bug is reachable at this level.** A reproducible bug usually means a case was missing from the suite, so add the failing test first and then fix it. Not every bug is unit-testable — a rendering artifact, a PTY timing race, or a crash that needs a real window will not reduce to one. Cover those at the level where they actually reproduce, and don't reshape the code just to force a unit test.
+- **Bug fixes, where the bug is reachable at this level.** Reuse existing protection first; add a reproducing case when it covers the accepted behavior and an actual gap. Not every bug is unit-testable — a rendering artifact, a PTY timing race, or a crash that needs a real window will not reduce to one. Cover those at the level where they actually reproduce, and don't reshape the code just to force a unit test.
 
 Prefer unit tests for anything that fits: they are fast, deterministic, and point straight at the failure.
 
@@ -39,7 +46,7 @@ Where to go instead:
 - `gui-integration-test` — GUI end-to-end behavior, terminal and shell integration, settings and keybinding wiring.
 - `gui-integration-test-video` or `computer_use` — when the real question is visual and someone needs to look at it.
 
-Before escalating, try splitting the problem. Most "untestable" code is a thin shell of IO wrapped around logic that tests fine once separated: extract the decision-making into a pure function, unit test that, and let an integration test cover the thin shell that remains. That is usually cheaper than either a heavily stubbed unit test or a full app-boot test.
+Before escalating, check whether an existing unit or integration test can expose the problem. Extract a pure helper only when it also improves the implementation independently of testing; do not split code or add a second test layer just to make a test possible.
 
 That said, weigh the indirection on its own merits. Code that is hard to test is *sometimes* genuinely badly designed — if extracting the logic would make the code clearer regardless of testing, do it. If the seam would exist only to satisfy a test, don't.
 
@@ -191,7 +198,7 @@ VirtualFS::test("case", |_dirs, mut fs| {
 - Feature flags (scoped):
 ```rust
 use warp::features::FeatureFlag; // or `use crate::features::FeatureFlag;` inside the app crate
-let _flag = FeatureFlag::CreatingSharedSessions.override_enabled(true);
+let _flag = FeatureFlag::SelectablePrompt.override_enabled(true);
 ```
 - UI numeric assertions (lines):
 ```rust
@@ -203,28 +210,23 @@ assert_lines_approx_eq!(actual_lines, INLINE_BANNER_HEIGHT);
 - Tests touching global/external state: consider `serial_test`'s `#[serial]` or local mocking instead of parallelism.
 
 ## Running unit tests
-- Workspace (parallel):
+
+Run from the repository root after loading `.work/rust-env.ps1` (Windows) or
+`.work/rust-env-unix.sh` (Linux). Use the pinned toolchain and current root/Goal
+job and test-thread limits. Filter the affected package and test first:
+
 ```bash
-cargo nextest run --no-fail-fast --workspace
-```
-- Single crate:
-```bash
-cargo nextest run -p <crate_name>
-```
-- Single test (filter by name):
-```bash
-cargo nextest run -E 'test(<substring>)'
-```
-- Doc tests:
-```bash
-cargo test --doc
+cargo +1.92.0 test -p <package> --lib --locked --offline -j2 <test_filter> -- --test-threads=1
 ```
 
-## Final validation order
-After the relevant tests pass, run Clippy, fix its findings, and then format once:
-```bash
-cargo clippy -p <package_name> --all-targets --tests -- -D warnings
-./script/format
-```
+For suites that already use nextest, use the installed runner with a package
+and name/expression filter; do not install another runner or default to the
+whole workspace. Confirm that the intended test was collected and executed.
+Review OS clipboard and other shared-state tests before running on a user PC;
+use an isolated environment when their real side effects are required.
 
-Do not rerun tests or Clippy after formatting, and do not add a full `./script/presubmit` run, unless the user, task, or approved spec explicitly requires it. Follow the repository's Implementation Validation Order in `AGENTS.md` for invalidation and follow-up changes.
+Run relevant doctests or scoped Clippy only when the change needs them.
+Format/check edited Rust files with `skip_children=true` as appropriate;
+do not invoke a whole-repository format/presubmit for a small patch. Rerun a
+check only when later edits invalidate its evidence or an unresolved failure
+requires it. Preserve results and limitations in the current `.work` note.
