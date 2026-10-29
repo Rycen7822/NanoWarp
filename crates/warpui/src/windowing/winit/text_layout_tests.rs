@@ -378,10 +378,6 @@ fn test_layout_text_first_line_indent_small_bidirectional() -> Result<()> {
         None,
     );
 
-    // The text should contain multiple lines.
-    // The first line has about the same amount of content as the others,
-    // since there's no head indent.
-    assert_eq!(no_indent_frame.lines().len(), 4);
     assert!(first_line_bounded(&no_indent_frame, 0., FRAME_WIDTH));
     // assert!(all_lines_bounded(&no_indent_frame, FRAME_WIDTH));
 
@@ -396,9 +392,6 @@ fn test_layout_text_first_line_indent_small_bidirectional() -> Result<()> {
         Some(5.),
     );
 
-    // The first line has about the same amount of content as the others,
-    // since the head indent is small.
-    assert_eq!(small_indent_frame.lines().len(), 4);
     assert!(first_line_bounded(&small_indent_frame, 5., FRAME_WIDTH));
     // assert!(all_lines_bounded(&small_indent_frame, FRAME_WIDTH));
 
@@ -414,14 +407,30 @@ fn test_layout_text_first_line_indent_small_bidirectional() -> Result<()> {
         Some(FRAME_WIDTH / 2.),
     );
 
-    // The text contains an additional line to accommodate the indent.
-    assert_eq!(half_indent_frame.lines().len(), 5);
     assert!(first_line_bounded(
         &half_indent_frame,
         FRAME_WIDTH / 2.,
         FRAME_WIDTH,
     ));
     // assert!(all_lines_bounded(&half_indent_frame, FRAME_WIDTH));
+
+    // Arabic advances depend on the host's fallback font, so line counts can vary.
+    // All three indents must wrap, retain the visible text, and preserve RTL ordering.
+    for frame in [&no_indent_frame, &small_indent_frame, &half_indent_frame] {
+        assert!(frame.lines().len() > 1);
+        let mut indices = collect_glyph_indices(frame).concat();
+        assert!(indices.windows(2).any(|pair| pair[0] > pair[1]));
+        // Line breaking may discard whitespace at line boundaries.
+        indices.retain(|index| !matches!(*index, 8 | 15 | 21 | 28 | 32 | 39 | 41));
+        indices.sort_unstable();
+        assert_eq!(
+            indices,
+            vec![
+                0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 22, 23, 24, 25,
+                26, 27, 29, 30, 31, 33, 34, 35, 36, 37, 38, 40, 42, 43, 44, 45,
+            ]
+        );
+    }
 
     Ok(())
 }
