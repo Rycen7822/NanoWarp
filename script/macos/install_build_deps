@@ -2,4 +2,13 @@
 #
 # Installs macOS-specific build dependencies required to build Warp.
 
-xcodebuild -downloadComponent MetalToolchain
+set -e
+
+# Recent runner images may already include the selected Xcode's Metal tools.
+if xcrun -sdk macosx metal --version >/dev/null 2>&1 \
+    && metallib_path=$(xcrun -sdk macosx --find metallib 2>/dev/null) \
+    && [ -x "$metallib_path" ]; then
+    echo "Metal compiler and linker are already available."
+else
+    xcodebuild -downloadComponent MetalToolchain
+fi
