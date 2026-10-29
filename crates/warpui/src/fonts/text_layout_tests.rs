@@ -18,6 +18,36 @@ const FONT_SIZE: f32 = 16.;
 const FRAME_WIDTH: f32 = 80.;
 const FRAME_HEIGHT: f32 = f32::MAX;
 
+#[cfg(target_os = "windows")]
+#[test]
+fn test_cold_windows_text_layout_loads_cjk_fallback() {
+    let (font_db, family) = init_fonts();
+    let cache = crate::fonts::Cache::new(Box::new(font_db));
+    let frame = cache.text_layout_system().layout_text(
+        "中",
+        LineStyle {
+            font_size: FONT_SIZE,
+            line_height_ratio: DEFAULT_UI_LINE_HEIGHT_RATIO,
+            baseline_ratio: DEFAULT_TOP_BOTTOM_RATIO,
+            fixed_width_tab_size: None,
+        },
+        &[(
+            0..1,
+            StyleAndFont::new(family, Properties::default(), TextStyle::new()),
+        )],
+        FRAME_WIDTH,
+        FRAME_HEIGHT,
+        TextAlignment::Left,
+        None,
+    );
+    let glyphs = &frame.lines()[0].runs[0].glyphs;
+    assert_eq!(glyphs.len(), 1);
+    assert_ne!(
+        glyphs[0].id, 0,
+        "cold text layout must resolve Chinese fallback"
+    );
+}
+
 #[test]
 fn test_fixed_width_tab_size_matches_spaces_width() -> Result<()> {
     let (font_db, font_family) = init_fonts();

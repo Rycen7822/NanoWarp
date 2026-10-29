@@ -376,6 +376,8 @@ pub struct TextLayoutSystem {
     loaded_font_ids_since_last_raster: RwLock<Vec<FontId>>,
     #[cfg(not(target_os = "windows"))]
     fallback_fonts: DashMap<FontId, Vec<FontId>>,
+    #[cfg(target_os = "windows")]
+    fallback_fonts: DashMap<(FontId, char), Vec<FontId>>,
 }
 
 pub struct FontDB {
@@ -476,7 +478,6 @@ impl TextLayoutSystem {
             font_id_map: Default::default(),
             font_selections: Default::default(),
             loaded_fonts: Default::default(),
-            #[cfg(not(target_os = "windows"))]
             fallback_fonts: Default::default(),
             #[cfg(feature = "fontkit-rasterizer")]
             loaded_font_ids_since_last_raster: Default::default(),
@@ -833,6 +834,10 @@ impl TextLayoutSystem {
                             entry.value_mut().retain(|id| *id != font_id);
                         }
                     }
+                    #[cfg(target_os = "windows")]
+                    self.fallback_fonts.retain(|(base, _), fallbacks| {
+                        *base != font_id && !fallbacks.contains(&font_id)
+                    });
                     self.loaded_fonts.retain(|_, v| *v != font_id);
                     let mut families = self.families.write();
                     let mut empty_family_ids = Vec::new();
@@ -1053,6 +1058,16 @@ impl TextLayoutSystem {
             // weight or style that isn't available for the font. See https://github.com/pop-os/cosmic-text/issues/58.
             let selected_font =
                 self.select_font(style_and_font.font_family, style_and_font.properties);
+            // Windows loads fallback faces on demand. Resolve them before shaping, including
+            // cold editor layouts that have not been preceded by terminal glyph rendering.
+            #[cfg(target_os = "windows")]
+            if let Some(styled_text) = text.get(start_byte_index..end_byte_index) {
+                for character in styled_text.chars() {
+                    if self.glyph_for_char(selected_font, character).is_none() {
+                        self.fallback_fonts(character, selected_font);
+                    }
+                }
+            }
             let id = *self
                 .font_id_map
                 .read()
@@ -1475,12 +1490,19 @@ impl TextLayoutSystem {
 
     #[cfg(target_os = "windows")]
     fn fallback_fonts(&self, character: char, font_id: FontId) -> Vec<FontId> {
-        self.get_fallback_fonts_for_character(character, font_id)
+        if let Some(fonts) = self.fallback_fonts.get(&(font_id, character)) {
+            return fonts.clone();
+        }
+        let fonts = self
+            .get_fallback_fonts_for_character(character, font_id)
             .map_err(|err| {
                 log::warn!("Unable to fetch fallback fonts for character {character:?}: {err:?}");
                 err
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        self.fallback_fonts
+            .insert((font_id, character), fonts.clone());
+        fonts
     }
 
     fn font_metrics(&self, font_id: FontId) -> crate::fonts::Metrics {
