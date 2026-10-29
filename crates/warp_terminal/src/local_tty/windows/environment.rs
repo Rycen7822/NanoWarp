@@ -20,6 +20,7 @@ const USE_SSH_WRAPPER_NAME: &str = "WARP_USE_SSH_WRAPPER";
 const SSH_REUSE_CONTROL_MASTER_NAME: &str = "WARP_SSH_REUSE_CONTROL_MASTER";
 const SHELL_DEBUG_MODE_NAME: &str = "WARP_SHELL_DEBUG_MODE";
 const TERM_PROGRAM_NAME: &str = "TERM_PROGRAM";
+const TERM_NAME: &str = "TERM";
 const IS_LOCAL_SESSION_NAME: &str = "WARP_IS_LOCAL_SHELL_SESSION";
 const SSH_SOCKET_DIR: &str = "SSH_SOCKET_DIR";
 const WSLENV: &str = "WSLENV";
@@ -48,6 +49,15 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
 
     add_local_machine_env(&mut env);
     add_user_env(&mut env);
+
+    // Declare this terminal's capabilities rather than inheriting a parent such as TERM=dumb.
+    env.insert(
+        map_key(TERM_NAME.into()),
+        EnvEntry {
+            preferred_key: TERM_NAME.into(),
+            value: "xterm-256color".into(),
+        },
+    );
 
     env.insert(
         map_key(HONOR_PS1_NAME.into()),
