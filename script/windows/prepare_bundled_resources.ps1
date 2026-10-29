@@ -65,9 +65,11 @@ $AdditionalLicenses = @(
     @{ Name = 'Zstandard (native library)'; License = 'BSD-3-Clause'; Path = 'crates\warp_search_core\LICENSE-ZSTD' }
 )
 # Windows-only components:
+# DXC v1.8.2505 release: LICENSE-LLVM.txt, LICENSE-MIT.txt and LICENSE-MS.txt.
+# https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.8.2505
 $AdditionalLicenses += @(
     @{ Name = 'OpenConsole / ConPTY (Windows Terminal)'; License = 'MIT'; Path = 'app\assets\windows\LICENSE-WINDOWS-TERMINAL' },
-    @{ Name = 'DirectX Shader Compiler'; License = 'NCSA'; Path = 'app\assets\windows\LICENSE-DXC' }
+    @{ Name = 'DirectX Shader Compiler'; License = 'NCSA, MIT, and Microsoft license terms'; Path = 'app\assets\windows\LICENSE-DXC' }
 )
 
 $LicensesOutput = Join-Path $DestinationDir 'THIRD_PARTY_LICENSES.txt'
