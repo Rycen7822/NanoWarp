@@ -7,15 +7,13 @@ license.workspace = true
 
 [features]
 # Built-in ErrorExt classifications for common third-party error types. Enabled
-# by warp_core so the app registers them; kept optional so leaf crates that only
+# by consumers that need them; kept optional so leaf crates that only
 # need report_error! don't pull these heavier dependencies.
 reqwest-errors = ["dep:reqwest", "dep:http"]
 tokio-errors = ["dep:tokio"]
-websocket-errors = ["dep:websocket", "dep:http"]
 
 [dependencies]
 tokio = { workspace = true, optional = true }
-websocket = { workspace = true, optional = true }
 
 anyhow.workspace = true
 log.workspace = true

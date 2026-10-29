@@ -42,7 +42,7 @@ libsqlite3-sys = { version = "0.33.0", features = ["bundled"] }
 mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
 tokio.workspace = true
 tokio-util.workspace = true
-warp_errors = { workspace = true, features = ["tokio-errors", "websocket-errors", "reqwest-errors"] }
+warp_errors = { workspace = true, features = ["tokio-errors", "reqwest-errors"] }
 
 
 notify-debouncer-full.workspace = true
@@ -214,7 +214,6 @@ warpui_extras = { workspace = true, features = ["default", "user_preferences-tom
 syntax_tree.workspace = true
 languages.workspace = true
 warp_terminal.workspace = true
-websocket.workspace = true
 wgpu = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
@@ -434,8 +433,6 @@ local_fs = [
     "warp_core/local_fs",
     "warp_terminal/local_fs",
 ]
-# Remote-backed tty that connects to a PTY-like interface via a server.
-remote_tty = ["warp_terminal/remote_tty"]
 # Fix for cursor reflow bug during window resize, from Alacritty resizing logic.
 resize_fix = []
 pluggable_notifications = []

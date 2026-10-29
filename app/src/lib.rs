@@ -258,9 +258,9 @@ impl LaunchMode {
         )
     }
 
-    /// Only GUI instances start the fixed-port installation/profiling server.
+    /// Only GUI instances with heap profiling enabled need the local HTTP server.
     fn should_start_local_http_server(&self) -> bool {
-        self.is_gui()
+        self.is_gui() && cfg!(feature = "jemalloc_pprof")
     }
 
     #[cfg(enable_crash_recovery)]

@@ -64,11 +64,9 @@ use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_tty::TerminalManager as LocalTtyTerminalManager;
-#[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
+#[cfg(feature = "local_tty")]
 use crate::terminal::local_tty::{TerminalViewSurfaceConfig, create_terminal_view_surface};
 use crate::terminal::model::block::SerializedBlock;
-#[cfg(feature = "remote_tty")]
-use crate::terminal::remote_tty::TerminalManager as RemoteTtyTerminalManager;
 use crate::terminal::session_settings::{NewSessionSource, SessionSettings};
 use crate::terminal::view::ssh_file_upload::FileUploadId;
 use crate::terminal::view::{BlockNotification, SyncEvent, TerminalViewState};
@@ -1493,7 +1491,7 @@ impl PaneGroup {
                             }
                         });
                 }
-                // TODO: Potentially handle remote_tty and mock TerminalManager cases here as well?
+                // TODO: Potentially handle mock TerminalManager cases here as well?
             });
     }
 
@@ -3060,17 +3058,7 @@ impl PaneGroup {
         add_session_focus_env_vars(&mut env_vars, terminal_session_uuid);
 
         cfg_if::cfg_if! {
-            if #[cfg(feature = "remote_tty")] {
-                let terminal_init = RemoteTtyTerminalManager::create_model(
-                    resources,
-                    initial_size,
-                    model_event_sender,
-                    ctx.window_id(),
-                    ctx,
-                );
-                let terminal_manager = terminal_init.manager;
-                let terminal_view = terminal_init.view;
-            } else if #[cfg(feature = "local_tty")] {
+            if #[cfg(feature = "local_tty")] {
                 let has_restored_command_blocks = restored_blocks.is_some_and(|blocks| !blocks.is_empty());
                 let model_event_sender_for_surface = model_event_sender.clone();
                 let window_id = ctx.window_id();

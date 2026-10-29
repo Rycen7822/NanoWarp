@@ -4,7 +4,7 @@ mod terminal_view_adaptor;
 pub use terminal_manager::TerminalManager;
 #[cfg(windows)]
 pub use terminal_view_adaptor::shutdown_all_pty_event_loops;
-#[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
+#[cfg(feature = "local_tty")]
 pub(crate) use terminal_view_adaptor::{TerminalViewSurfaceConfig, create_terminal_view_surface};
 pub use warp_terminal::local_tty::*;
 
