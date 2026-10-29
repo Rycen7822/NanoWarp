@@ -1,5 +1,4 @@
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::external_product_icon::ExternalProductIcon;
 use warp_core::ui::icons::Icon;
 use warpui::elements::{
     self, Align, Border, CacheOption, ChildAnchor, ConstrainedBox, Container, Element, Image,
@@ -15,8 +14,6 @@ pub enum AvatarContent {
 
     /// Renders the icon directly.
     Icon(Icon),
-
-    ExternalProductIcon(ExternalProductIcon),
 
     /// Renders the image on a colored background.
     Image {
@@ -68,23 +65,6 @@ impl UiComponent for Avatar {
                 ConstrainedBox::new(
                     elements::Icon::new(icon.into(), styles.font_color.unwrap_or_default())
                         .finish(),
-                )
-                .with_width(icon_size)
-                .with_height(icon_size)
-                .finish()
-            }
-            AvatarContent::ExternalProductIcon(external_product_icon) => {
-                let icon_size = {
-                    let height = styles.height.unwrap_or_default();
-                    // One third of the total avatar height/width should be padding.
-                    height * 0.66
-                };
-                ConstrainedBox::new(
-                    elements::Icon::new(
-                        external_product_icon.get_path(),
-                        styles.font_color.unwrap_or_default(),
-                    )
-                    .finish(),
                 )
                 .with_width(icon_size)
                 .with_height(icon_size)

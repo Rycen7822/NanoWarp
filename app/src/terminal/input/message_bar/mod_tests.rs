@@ -28,11 +28,11 @@ fn chip_constructor_creates_enabled_chip_with_items() {
 
 #[test]
 fn icon_constructor_creates_icon_without_color_override() {
-    let item = MessageItem::icon(Icon::NewConversation);
+    let item = MessageItem::icon(Icon::Terminal);
 
     match item {
         MessageItem::Icon { icon, color } => {
-            assert!(matches!(icon, Icon::NewConversation));
+            assert!(matches!(icon, Icon::Terminal));
             assert!(color.is_none());
         }
         _ => panic!("expected icon variant"),
