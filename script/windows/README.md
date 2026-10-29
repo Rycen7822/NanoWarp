@@ -42,3 +42,12 @@ no background-update parameter, wait loop or image-name process kill.
 
 Icons come from `app/channels/oss/icon/no-padding/icon.ico`; shared ConPTY,
 OpenConsole, VC runtime and graphics DLL filenames remain unchanged.
+
+The checked-in `vcruntime140.dll`, `vcruntime140_1.dll` and `msvcp140.dll`
+retain Microsoft's copyright. Redistribution is subject to the applicable
+Visual Studio license terms; see Microsoft's [redistribution guidance](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)
+and [redistributable list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution).
+When refreshing them, use the package architecture's release CRT files under
+`VC\Redist\MSVC\<version>\<arch>\Microsoft.VC143.CRT` from a Visual Studio
+installation covered by those terms. Keep the files unmodified and exclude
+`debug_nonredist`.
