@@ -318,8 +318,7 @@ pub mod testing {
     use super::*;
     use crate::terminal::shell::ShellType;
 
-    /// Implementation of `CommandExecutor` for use in tests. This implementation simply executes
-    /// the given command in a bash subprocess.
+    /// Runs test commands in a local shell, terminating that shell if the command is canceled.
     #[derive(Debug, Default)]
     pub struct TestCommandExecutor {}
 
@@ -338,6 +337,9 @@ pub mod testing {
                 ShellType::PowerShell => "pwsh",
                 _ => "bash",
             });
+            if matches!(shell.shell_type(), ShellType::PowerShell) {
+                command_process.args(["-NoLogo", "-NoProfile"]);
+            }
 
             // Set environment variables, including $PATH.
             if let Some(environment_variables) = environment_variables {
@@ -350,6 +352,7 @@ pub mod testing {
             }
 
             command_process
+                .kill_on_drop(true)
                 .arg("-c")
                 .arg(command)
                 .output()

@@ -80,11 +80,19 @@ fn test_list_entries_returns_none_on_guest_failure() {
 #[test]
 fn test_run_guest_listing_returns_none_on_timeout() {
     App::test((), |_| async move {
-        let ctx = test_session_context(test_wsl_like_session(), TypedPath::unix("/").to_path_buf());
+        let session = Session::new(
+            SessionInfo::new_for_test(),
+            Arc::new(TestCommandExecutor::default()),
+        );
+        let ctx = test_session_context(session, TypedPath::unix("/").to_path_buf());
+        #[cfg(windows)]
+        let script = "Start-Sleep -Seconds 5";
+        #[cfg(unix)]
+        let script = "sleep 5";
 
         let result = warpui::r#async::block_on(super::run_guest_listing(
             &ctx,
-            "sleep 5",
+            script,
             super::GUEST_LISTING_TIMEOUT,
         ));
         assert_eq!(result, None);
