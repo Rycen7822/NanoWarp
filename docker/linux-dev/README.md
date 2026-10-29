@@ -1,12 +1,13 @@
-# Dockerfile for Linux Development
+# Optional Linux Development Container
 
-The Dockerfile in this directory defines a container that has all of the necessary tools installed to quickly get engineers up and running with building Warp on Linux.
+This Dockerfile provides an optional Linux development environment for NanoWarp. It is separate from CI; use [CONTRIBUTING.md](../../CONTRIBUTING.md) for current prerequisites, environment variables, and build commands.
 
 This container is based on Debian Sid, Debian's unstable branch.  It ensures that you are running the latest versions of things like `mesa` (an open-source 3D graphics library, providing implementations of OpenGL and Vulkan).
 
 ## Prerequisites
 
-You'll need to install:
+The commands below assume a macOS host with:
+
 * Docker (e.g.: Docker Desktop)
 * XQuartz (download [here](https://www.xquartz.org/))
   * You'll want to enable iGLX (indirect GL extensions) for proper rendering by running `defaults write org.xquartz.X11 enable_iglx -bool true`; you can do this before you install XQuartz.
@@ -16,28 +17,24 @@ You'll need to install:
 
 You'll run all of these commands from the repository's root directory.
 
-First, build the docker container image:
+First, build the image with the repository root as its build context. The Dockerfile copies files from `script/` and `rust-toolchain.toml`:
 
 ```
-CONTAINER_NAME="warp-client-linux-dev"
-docker build -t $CONTAINER_NAME docker/linux-dev
+IMAGE_NAME="nanowarp-linux-dev"
+docker build -f docker/linux-dev/Dockerfile -t "$IMAGE_NAME" .
 ```
 
 Next, run the container:
 
 ```
-# The path to the source code directory that you want to mount in the
-# container. This can be the `warp` repository or some parent
-# directory of your choice.
-LOCAL_PATH="/Users/$USER/src"
+# Run from the NanoWarp repository root.
+LOCAL_PATH="$PWD"
 
-# Run the image as a container, bridging port 22 for SSH connections,
-# mounting the provided directory into the container as `/src`, mounting
-# your SSH key directory into the container (so you don't need to create a
-# new GitHub SSH key), and mounting gcloud configuration (and auth information,
-# so you can run SSH integration tests).
-docker run -dp 127.0.0.1:22:22/tcp -v $LOCAL_PATH:/src -v $HOME/.ssh:/home/dev/.ssh -v $HOME/.config/gcloud:/home/dev/.config/gcloud $CONTAINER_NAME
+# Expose SSH on localhost:2222 and mount this checkout as /src.
+docker run -d -p 127.0.0.1:2222:22/tcp -v "$LOCAL_PATH:/src" "$IMAGE_NAME"
 ```
+
+The container does not need host credentials to use the mounted checkout. If your development task needs them, explicitly add the appropriate mount, such as `-v "$HOME/.ssh:/home/dev/.ssh:ro"` or `-v "$HOME/.config/gcloud:/home/dev/.config/gcloud"`. Use your own authorized environment; these mounts do not grant access to upstream Warp infrastructure.
 
 ## Usage
 
@@ -47,12 +44,13 @@ Every time you start XQuartz, you'll need to run this once in order for programs
 xhost +localhost
 ```
 
-You should be able to SSH into the container and build and run warp without any additional setup (dev account password is "password"):
+SSH into the container (the local dev account password is `password`):
 
 ```
-ssh dev@localhost
+ssh -p 2222 dev@localhost
 cd /src
-cargo run --features fast_dev
 ```
 
-It's possible you'll run into some odd errors while trying to compile Warp; if so, just keep rerunning the cargo command and it should work eventually.
+Inside `/src`, configure the macOS/Linux `.work/` environment from [CONTRIBUTING.md](../../CONTRIBUTING.md) before setup or builds, then use `./script/run`. Keep compilation to two jobs, tests to one thread, and one Cargo command at a time. Diagnose build failures from their output instead of repeatedly rerunning them.
+
+`protobuf-compiler` remains necessary for the retained `remote_server` protocol. The installed `gcloud` CLI supports external Google Cloud/IAP SSH usage. Some historical SSH integration fixtures still hard-code former Warp GCP VMs; the current CI filter marks those fixtures unverified. This container and credential mounts do not make those targets available. Ordinary SSH and local daemon tests remain relevant.

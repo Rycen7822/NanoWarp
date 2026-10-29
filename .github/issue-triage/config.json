@@ -6,19 +6,19 @@
     },
     "agent:bug": {
       "color": "8ff8fd",
-      "description": "Bugs/regressions. Assigned by Warp triage agent."
+      "description": "Bugs/regressions classified during development triage."
     },
     "agent:feature": {
       "color": "f47f64",
-      "description": "This issue is a feature request, not a bug report. Assigned by Warp triage agent."
+      "description": "Feature requests classified during development triage."
     },
     "agent:security": {
       "color": "a0ce9f",
-      "description": "Security issues/vulnerabilities that are immediately escalated. Assigned by Warp triage agent."
+      "description": "Security issues/vulnerabilities. Follow SECURITY.md before sharing details."
     },
     "agent:documentation": {
       "color": "5f966f",
-      "description": "Missing documentation. Assigned by Warp triage agent."
+      "description": "Missing or incorrect documentation."
     },
     "enhancement": {
       "color": "a2eeef",
@@ -42,7 +42,7 @@
     },
     "needs-mocks": {
       "color": "f48c06",
-      "description": "The issue requires UI mocks from from Warp's design team before implementation can begin."
+      "description": "The issue requires UI design work before implementation can begin."
     },
     "ready-to-implement": {
       "color": "0e8a16",
@@ -50,7 +50,7 @@
     },
     "agent:priority-high": {
       "color": "b60205",
-      "description": "High-priority issues that are immediately escalated. Assigned by Warp triage agent."
+      "description": "Regressions, crashes, data loss, or security issues needing priority review."
     },
     "repro:high": {
       "color": "b60205",
@@ -84,21 +84,9 @@
       "color": "0078d6",
       "description": "Windows-specific behavior, regressions, or requests."
     },
-    "area:agent": {
-      "color": "0052cc",
-      "description": "Agent workflows, conversations, prompts, cloud mode, and AI-specific UI."
-    },
-    "area:auth": {
-      "color": "5319e7",
-      "description": "Authentication, login, SSO, session management, and account security."
-    },
-    "area:billing": {
-      "color": "8b5cf6",
-      "description": "Pricing, plans, subscriptions, payment, and billing management."
-    },
     "area:code-review": {
       "color": "0e8a16",
-      "description": "Git diff views, review UI, review comments, and PR-focused agent flows."
+      "description": "Local Git diff and review views."
     },
     "area:completions": {
       "color": "2da44e",
@@ -106,15 +94,11 @@
     },
     "area:editor-notebooks": {
       "color": "1d76db",
-      "description": "Editors, notebooks, markdown rendering, LSP, and code display."
+      "description": "Basic file editing and opening Notebook/Markdown files in external applications."
     },
     "area:launch-configs": {
       "color": "c2e0c6",
-      "description": "Launch configurations, workflows, tab configs, and automation entry points."
-    },
-    "area:mcp": {
-      "color": "bfdadc",
-      "description": "MCP server integrations, tool connections, and resource providers."
+      "description": "Local tab configurations."
     },
     "area:onboarding": {
       "color": "f9d0c4",
@@ -138,7 +122,7 @@
     },
     "area:search": {
       "color": "0366d6",
-      "description": "Global search, command palette, and content discovery."
+      "description": "Terminal history/output search and command palette."
     },
     "area:settings-keybindings": {
       "color": "d876e3",
@@ -148,13 +132,9 @@
       "color": "006b75",
       "description": "Terminal output, shell integration, prompt rendering, and block display."
     },
-    "area:skills": {
-      "color": "c6e2d6",
-      "description": "Agent skills, skill authoring, and skill execution."
-    },
     "area:suggestions": {
       "color": "7dc4e4",
-      "description": "AI-predictive suggestions, prompt predictions, next-command suggestions, and auto-suggest heuristics."
+      "description": "History-based command suggestions and auto-suggest behavior."
     },
     "area:terminal-input": {
       "color": "0a6b5e",
@@ -168,17 +148,13 @@
       "color": "5319e7",
       "description": "Core Warp UI framework, rendering, layout, and windowing infrastructure."
     },
-    "area:warp-drive": {
-      "color": "0e8a16",
-      "description": "Warp Drive objects, sync, sharing, cloud object management, and persisted artifacts."
-    },
     "area:window-tabs-panes": {
       "color": "fef2c0",
       "description": "Window, tab, pane, and layout management."
     },
     "area:workspace": {
       "color": "0550ae",
-      "description": "File tree, workspace navigation, project switching, and working-directory management."
+      "description": "Local workspaces and working-directory management."
     }
   }
 }

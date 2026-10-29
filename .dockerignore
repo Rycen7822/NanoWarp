@@ -1,5 +1,7 @@
 # Don't include the git repository.
 .git
+.work/
+references/
 
 app/Carthage
 app/frameworks/default/Carthage
