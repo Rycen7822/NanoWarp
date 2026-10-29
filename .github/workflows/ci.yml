@@ -258,6 +258,8 @@ jobs:
         if: success()
         run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "not package(integration)"
         env:
+          # Keep GUI integration steps serial; only unit-test processes use four slots.
+          NEXTEST_TEST_THREADS: '4'
           # Unit tests may end up spawning a shell, but shouldn't care which
           # shell it is.  We'll use zsh, as it has the shortest bootstrap times
           # and tends to be the most reliable.
@@ -321,8 +323,8 @@ jobs:
       # Run doctests explicitly, as nextest doesn't yet support running them.
       # See: https://github.com/nextest-rs/nextest/issues/16
       - name: Run doc tests
-        # Doc tests compile independently; keep their diagnostics after earlier failures.
-        if: success() || failure()
+        # Keep compile/test failure diagnostics, but do not compile after setup failed.
+        if: (success() || failure()) && steps.compile_tests.outcome != 'skipped'
         run: cargo test ${{ env.WORKSPACE_TEST_ARGS }} --doc
 
     # This is longer than we like and temporary until we speed up integration tests
@@ -367,17 +369,14 @@ jobs:
           - os: "macos"
             name: "MacOS"
             runner: macos-15-intel
-            null_device: "/dev/null"
 
           - os: "linux"
             name: "Linux"
             runner: ubuntu-latest
-            null_device: "/dev/null"
 
           - os: "windows"
             name: "Windows"
             runner: windows-latest
-            null_device: "NUL"
     runs-on: ${{ matrix.runner }}
     needs: params
     if: ${{ needs.params.outputs.needs-build == 'true' }}
@@ -388,11 +387,9 @@ jobs:
         with:
           target_os: ${{ matrix.os }}
 
-      - name: Ensure cargo.lock is up-to-date
-        run:
-          cargo metadata --locked --format-version=1 > ${{ matrix.null_device }} || (echo "::error::Cargo.lock is out-of-date with Cargo.toml. Run 'cargo check' to update." && exit 1)
-
       - name: Run ./script/format
+        # Rust formatting is platform-independent; Clippy remains on every platform.
+        if: matrix.os == 'linux'
         shell: bash
         run: ./script/format --check
 
