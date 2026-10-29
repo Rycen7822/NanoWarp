@@ -5,3 +5,6 @@ crates/input_classifier/models/**/*tokenizer.json -filter -diff -merge text ling
 # Keep Unix validation scripts runnable from Windows checkouts in WSL.
 script/check_license_config_sync text eol=lf
 script/format text eol=lf
+
+# These scripts are embedded verbatim and executed on Unix over SSH.
+crates/remote_server/src/*.sh text eol=lf
