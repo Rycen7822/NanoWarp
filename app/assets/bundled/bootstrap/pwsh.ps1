@@ -335,6 +335,9 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
         # Set-PSReadLineKeyHandler is the PowerShell equivalent of zsh's bindkey.
         Set-PSReadLineKeyHandler -Chord 'Alt+2' -Function BackwardDeleteLine
 
+        # Windows edit mode leaves Ctrl+D unbound; Warp sends it to exit an idle shell.
+        Set-PSReadLineKeyHandler -Chord 'Control+d' -Function DeleteCharOrExit
+
         # Input reporting. Note that ESC-1 is used instead of ESC-i as for all other shells. This
         # is because PowerShell on Windows does some virtual key code translation which depends on
         # the selected input language. On languages without an "i" on any key, this translation
