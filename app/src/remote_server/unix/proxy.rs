@@ -294,6 +294,7 @@ fn flock_wait(fd: std::os::unix::io::RawFd, operation: libc::c_int) -> anyhow::R
 fn bridge_stdio_to_socket(socket_path: &std::path::Path) -> anyhow::Result<()> {
     use std::io::{Read, Write};
     use std::net::Shutdown;
+    use std::sync::mpsc;
 
     log::info!(
         "Proxy: connecting to daemon socket at {}",
@@ -303,8 +304,8 @@ fn bridge_stdio_to_socket(socket_path: &std::path::Path) -> anyhow::Result<()> {
     log::info!("Proxy: connected, bridging stdio");
 
     // Each thread holds two clones: one it actively reads/writes, and
-    // one used solely to `shutdown(Both)` on exit so the peer thread's
-    // blocking call returns. `UnixStream::try_clone` shares the
+    // one used to `shutdown(Both)` on exit to wake the peer's socket I/O.
+    // `UnixStream::try_clone` shares the
     // underlying socket, so `shutdown` on any clone tears down both
     // directions for every clone.
     let stream_for_t1 = stream.try_clone()?;
@@ -312,6 +313,8 @@ fn bridge_stdio_to_socket(socket_path: &std::path::Path) -> anyhow::Result<()> {
     let stream_for_t2 = stream.try_clone()?;
     let stream_shutdown_for_t2 = stream.try_clone()?;
     drop(stream);
+    let (finished_tx, finished_rx) = mpsc::channel();
+    let stdin_finished_tx = finished_tx.clone();
 
     let t1 = std::thread::Builder::new()
         .name("proxy-stdin-fwd".into())
@@ -328,6 +331,7 @@ fn bridge_stdio_to_socket(socket_path: &std::path::Path) -> anyhow::Result<()> {
                 ),
             }
             let _ = stream_shutdown_for_t1.shutdown(Shutdown::Both);
+            let _ = stdin_finished_tx.send(());
             result
         })?;
 
@@ -365,11 +369,15 @@ fn bridge_stdio_to_socket(socket_path: &std::path::Path) -> anyhow::Result<()> {
                 ),
             }
             let _ = stream_shutdown_for_t2.shutdown(Shutdown::Both);
+            let _ = finished_tx.send(());
             result
         })?;
 
-    let _ = t1.join();
-    let _ = t2.join();
+    // This worker command returns directly from main. The process owns both
+    // forwarders: waiting for either lets it exit when daemon EOF leaves the
+    // stdin reader blocked, which socket shutdown cannot interrupt.
+    finished_rx.recv()?;
+    drop((t1, t2));
 
     log::info!("Proxy: bridge closed, exiting");
     Ok(())

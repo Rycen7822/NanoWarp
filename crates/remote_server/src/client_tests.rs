@@ -151,19 +151,25 @@ async fn disconnected_on_closed_stream() {
     let (client, disconnect_rx, _failure_rx, _host_rx) =
         RemoteServerClient::new(client_read.compat(), client_write.compat_write(), &executor);
 
-    // An initialize call on a dead stream must complete with an error rather than hang.
-    let result = client.initialize().await;
-    assert!(result.is_err());
-
     // The reader task should detect EOF and emit a Disconnected event.
     let event = disconnect_rx.recv().await.unwrap();
     assert!(matches!(event, ClientEvent::Disconnected));
+
+    // Keep the client alive and its writer idle while the lifecycle stream ends.
+    let closed = tokio::time::timeout(Duration::from_secs(1), disconnect_rx.recv())
+        .await
+        .expect("disconnected lifecycle stream must end while the client is retained");
+    assert!(closed.is_err());
 
     // After the Disconnected event has been observed, the reader task has
     // already stored `true` into the atomic flag (it does the store before
     // sending the event), so callers can rely on `is_disconnected()` to
     // short-circuit further requests.
     assert!(client.is_disconnected());
+
+    // An initialize call on a dead stream must complete with an error rather than hang.
+    let result = client.initialize().await;
+    assert!(result.is_err());
 }
 
 #[tokio::test]

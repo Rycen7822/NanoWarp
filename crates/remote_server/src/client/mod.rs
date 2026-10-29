@@ -982,6 +982,8 @@ impl RemoteServerClient {
 
         // Signal disconnection as the final event.
         let _ = event_tx.send(ClientEvent::Disconnected).await;
+        // The idle writer may still retain another lifecycle sender.
+        event_tx.close();
     }
 }
 
