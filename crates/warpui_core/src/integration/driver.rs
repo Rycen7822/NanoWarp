@@ -169,6 +169,7 @@ impl Builder {
             test_name: test_name.to_string(),
             test_setup,
             should_run_test: self.should_run_test,
+            should_run_test_result: None,
             setup: self.setup.unwrap_or_else(|| Box::new(|_| {})),
             cleanup: self.cleanup,
             on_finish: self.on_finish,
@@ -212,6 +213,7 @@ pub struct TestDriver {
     test_name: String,
     test_setup: TestSetupUtils,
     should_run_test: Box<dyn FnMut() -> bool>,
+    should_run_test_result: Option<bool>,
     setup: Box<dyn FnMut(&mut TestSetupUtils) + 'static>,
     cleanup: Box<dyn FnMut(&mut TestSetupUtils) + 'static>,
     /// The callback to run before the app quits (on success, failure, or cancel).
@@ -232,13 +234,20 @@ enum StepResult {
 }
 
 impl TestDriver {
+    /// Evaluates the environment predicate once, before app startup when possible.
+    pub fn should_run_test(&mut self) -> bool {
+        *self
+            .should_run_test_result
+            .get_or_insert_with(&mut self.should_run_test)
+    }
+
     /// Executes the test steps, performing assertions against application state,
     /// and then cleans up test-only state as necessary.
     ///
     /// In integration tests, this task is automatically spawned on the foreground
     /// executor after initializing the application.
     pub async fn run_test_and_cleanup(mut self, mut app: App) {
-        if !(self.should_run_test)() {
+        if !self.should_run_test() {
             log::info!("Skipping test ...");
             app.as_mut()
                 .terminate_app(TerminationMode::ForceTerminate, None);

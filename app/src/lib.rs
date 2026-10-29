@@ -413,6 +413,15 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     // for other entrypoints.
     features::init_feature_flags();
 
+    // Some environment predicates read feature flags, but none need a GUI.
+    if let LaunchMode::Test { driver, .. } = &mut launch_mode
+        && let Some(driver) = driver.as_mut()
+        && !driver.should_run_test()
+    {
+        println!("Skipping integration test before GUI startup");
+        return Ok(());
+    }
+
     ::tracing::subscriber::set_global_default(::tracing::subscriber::NoSubscriber::new())?;
 
     // Install the subscriber before creating spans so tracing does not duplicate log output.
