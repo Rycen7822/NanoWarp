@@ -10,10 +10,8 @@ use warpui_core::AssetProvider;
 #[include = "async/**"]
 // Should be kept in sync with ASYNC_ASSETS_DIR.
 // Excludes take precedence.
-// Standalone CLI builds (the `oz` tarball) are headless and never render the
-// onboarding/theme imagery in `async/`, so we exclude those bytes from the
-// embedded asset set to keep the CLI binary small — mirroring the carve-out
-// already applied for the WASM target above.
+// Standalone remote workers are headless and do not render theme backgrounds.
+// Exclude those assets while preserving bundled terminal/bootstrap resources.
 #[cfg_attr(feature = "standalone", exclude = "async/**")]
 pub struct Assets;
 
