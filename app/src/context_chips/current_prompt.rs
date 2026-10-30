@@ -1441,6 +1441,7 @@ impl CurrentPrompt {
                 GitRepoStatusEvent::MetadataChanged => {
                     me.apply_git_repo_metadata(ctx);
                 }
+                GitRepoStatusEvent::FilesInvalidated(_) => {}
             });
 
             // Eagerly populate chips if metadata is already available (the

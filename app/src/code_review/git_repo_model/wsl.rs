@@ -19,6 +19,8 @@ use serde::Deserialize;
 use serde_json::json;
 use warpui::r#async::executor::Background;
 
+use super::GitInvalidation;
+
 type Services = HashMap<String, Weak<Sender<Control>>>;
 static SERVICES: LazyLock<Mutex<Services>> = LazyLock::new(Mutex::default);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -28,6 +30,7 @@ enum Control {
         id: u64,
         path: String,
         events: Sender<()>,
+        pending: Arc<Mutex<GitInvalidation>>,
     },
     Unwatch {
         id: u64,
@@ -37,14 +40,31 @@ enum Control {
 #[derive(Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 enum Event {
-    Ready { id: u64 },
-    Dirty { id: u64 },
-    Error { id: u64, message: String },
+    Ready {
+        id: u64,
+    },
+    Dirty {
+        id: u64,
+        paths: Vec<std::path::PathBuf>,
+        full: bool,
+        git_changed: bool,
+    },
+    Error {
+        id: u64,
+        message: String,
+    },
 }
 
 pub(super) struct Subscription {
     control: Arc<Sender<Control>>,
     id: u64,
+    pending: Arc<Mutex<GitInvalidation>>,
+}
+
+impl Subscription {
+    pub(super) fn take_changes(&self) -> GitInvalidation {
+        std::mem::take(&mut *self.pending.lock())
+    }
 }
 
 impl Drop for Subscription {
@@ -82,12 +102,21 @@ pub(super) fn subscribe(
         });
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (events, receiver) = async_channel::bounded(1);
+    let pending = Arc::new(Mutex::new(GitInvalidation::default()));
     let _ = control.try_send(Control::Watch {
         id,
         path: path.linux_path,
         events,
+        pending: pending.clone(),
     });
-    Some((Subscription { control, id }, receiver))
+    Some((
+        Subscription {
+            control,
+            id,
+            pending,
+        },
+        receiver,
+    ))
 }
 
 async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
@@ -111,7 +140,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
         .context("cannot start WSL Git watcher")?;
     let mut input = child.stdin.take().context("missing helper stdin")?;
     let mut lines = BufReader::new(child.stdout.take().context("missing helper stdout")?).lines();
-    let mut subscribers = HashMap::<u64, Sender<()>>::new();
+    let mut subscribers = HashMap::<u64, (Sender<()>, Arc<Mutex<GitInvalidation>>)>::new();
     let result = async {
         loop {
             // Keep the lines stream alive across cancelled selects; partially
@@ -122,8 +151,13 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
             match select(message, next).await {
                 Either::Left((Ok(message), _)) => {
                     let request = match message {
-                        Control::Watch { id, path, events } => {
-                            subscribers.insert(id, events);
+                        Control::Watch {
+                            id,
+                            path,
+                            events,
+                            pending,
+                        } => {
+                            subscribers.insert(id, (events, pending));
                             json!({"op": "watch", "id": id, "path": path})
                         }
                         Control::Unwatch { id } => {
@@ -143,9 +177,30 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                 Either::Right((line, _)) => {
                     let line = line.context("helper closed its notification pipe")??;
                     match serde_json::from_str(&line).context("invalid WSL watcher notification")? {
-                        Event::Ready { id } | Event::Dirty { id } => {
-                            if let Some(events) = subscribers.get(&id) {
-                                // Invalidations coalesce while a refresh is queued.
+                        Event::Ready { id } => {
+                            if let Some((events, pending)) = subscribers.get(&id) {
+                                pending.lock().merge(GitInvalidation {
+                                    full: true,
+                                    git_changed: true,
+                                    ..Default::default()
+                                });
+                                let _ = events.try_send(());
+                            }
+                        }
+                        Event::Dirty {
+                            id,
+                            paths,
+                            full,
+                            git_changed,
+                        } => {
+                            if let Some((events, pending)) = subscribers.get(&id) {
+                                // Merge payloads before waking: a full notification channel
+                                // must not discard paths from subsequent saves.
+                                pending.lock().merge(GitInvalidation {
+                                    paths: paths.into_iter().collect(),
+                                    full,
+                                    git_changed,
+                                });
                                 let _ = events.try_send(());
                             }
                         }

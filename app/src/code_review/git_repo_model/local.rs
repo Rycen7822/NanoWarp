@@ -7,7 +7,7 @@ use repo_metadata::{Repository, RepositoryUpdate, RepositoryWatchMode};
 use warpui::r#async::SpawnedFutureHandle;
 use warpui::{Entity, ModelContext, ModelHandle};
 
-use super::{GitRepoStatusEvent, GitStatusMetadata};
+use super::{GitInvalidation, GitRepoStatusEvent, GitStatusMetadata};
 use crate::code_review::diff_state::diff_metadata_against_head;
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
 use crate::throttle::throttle;
@@ -74,6 +74,11 @@ impl LocalGitRepoStatusModel {
                     if let Some(handle) = me.fallback_poll_handle.take() {
                         handle.abort();
                     }
+                    if let Some(subscription) = &me.wsl_subscription {
+                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(
+                            subscription.take_changes(),
+                        ));
+                    }
                     me.refresh_metadata(ctx);
                 },
                 |me, ctx| {
@@ -115,8 +120,31 @@ impl LocalGitRepoStatusModel {
             let throttled_tx_clone = throttled_tx;
             ctx.spawn_stream_local(
                 repository_update_rx,
-                move |_me, update: RepositoryUpdate, _ctx| {
+                move |me, update: RepositoryUpdate, ctx| {
                     if Self::should_refresh_metadata(&update) {
+                        let paths = update
+                            .added
+                            .iter()
+                            .chain(&update.modified)
+                            .chain(&update.deleted)
+                            .chain(update.moved.keys())
+                            .chain(update.moved.values())
+                            .filter(|file| !file.is_ignored)
+                            .filter_map(|file| {
+                                file.path
+                                    .strip_prefix(&me.repo_path)
+                                    .ok()
+                                    .map(Path::to_path_buf)
+                            })
+                            .collect();
+                        let git_changed = update.commit_updated
+                            || update.remote_ref_updated
+                            || update.index_lock_detected;
+                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(GitInvalidation {
+                            paths,
+                            full: git_changed,
+                            git_changed,
+                        }));
                         let _ = throttled_tx_clone.try_send(());
                     }
                 },

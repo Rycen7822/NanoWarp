@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::path::PathBuf;
+
 use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
 #[cfg(feature = "local_fs")]
@@ -28,10 +31,31 @@ pub struct GitStatusMetadata {
 
 // ── GitRepoStatusModel ──────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
+pub struct GitInvalidation {
+    /// Repository-relative paths; full invalidation supersedes this set.
+    pub paths: HashSet<PathBuf>,
+    pub full: bool,
+    pub git_changed: bool,
+}
+
+impl GitInvalidation {
+    pub(super) fn merge(&mut self, update: Self) {
+        self.full |= update.full;
+        self.git_changed |= update.git_changed;
+        self.paths.extend(update.paths);
+        if self.full || self.paths.len() > 1024 {
+            self.full = true;
+            self.paths.clear();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum GitRepoStatusEvent {
     /// Emitted whenever the metadata changes (branch name, diff stats, etc.).
     MetadataChanged,
+    FilesInvalidated(GitInvalidation),
 }
 
 // ── Unified GitRepoStatusModel (local or remote backend) ────────────────────
@@ -57,9 +81,7 @@ impl GitRepoStatusModel {
     /// Re-emit a sub-model event so subscribers of the unified model observe
     /// the same `GitRepoStatusEvent`s regardless of backend.
     fn forward_event(&mut self, event: &GitRepoStatusEvent, ctx: &mut ModelContext<Self>) {
-        match event {
-            GitRepoStatusEvent::MetadataChanged => ctx.emit(GitRepoStatusEvent::MetadataChanged),
-        }
+        ctx.emit(event.clone());
     }
 
     /// Mode-independent status metadata (branch names + HEAD diff stats).

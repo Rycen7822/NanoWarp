@@ -29,9 +29,49 @@ enum Request {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 enum Response {
-    Ready { id: u64 },
-    Dirty { id: u64 },
-    Error { id: u64, message: String },
+    Ready {
+        id: u64,
+    },
+    Dirty {
+        id: u64,
+        paths: HashSet<String>,
+        full: bool,
+        git_changed: bool,
+    },
+    Error {
+        id: u64,
+        message: String,
+    },
+}
+
+#[derive(Default)]
+struct Changes {
+    paths: HashSet<String>,
+    full: bool,
+    git_changed: bool,
+}
+
+impl Changes {
+    fn record(&mut self, repository: &Repository, path: &Path) {
+        if repository.git_dirs.iter().any(|git| path.starts_with(git)) {
+            self.git_changed = true;
+            self.full = true;
+        } else if !self.full {
+            match path
+                .strip_prefix(&repository.root)
+                .ok()
+                .and_then(Path::to_str)
+            {
+                Some(relative) if !relative.is_empty() && self.paths.len() < 1024 => {
+                    self.paths.insert(relative.to_owned());
+                }
+                _ => self.full = true,
+            }
+        }
+        if self.full {
+            self.paths.clear();
+        }
+    }
 }
 
 enum Input {
@@ -254,8 +294,8 @@ fn run_loop(
 ) -> Result<()> {
     let mut repositories = HashMap::<u64, Repository>::new();
     let mut registered = HashSet::new();
-    let mut dirty = HashSet::new();
-    let mut rebuild = false;
+    let mut dirty = HashMap::<u64, Changes>::new();
+    let mut rebuild = HashSet::new();
     let mut deadline = None::<Instant>;
     let mut output = io::BufWriter::new(io::stdout().lock());
     loop {
@@ -291,6 +331,7 @@ fn run_loop(
             Some(Input::Request(Request::Unwatch { id })) => {
                 repositories.remove(&id);
                 dirty.remove(&id);
+                rebuild.remove(&id);
                 prune(&repositories, watcher, &mut registered)?;
                 if repositories.is_empty() {
                     return Ok(());
@@ -299,23 +340,33 @@ fn run_loop(
             Some(Input::Files(event)) => {
                 let event = event?;
                 if event.need_rescan() {
-                    rebuild = true;
-                    dirty.extend(repositories.keys().copied());
+                    rebuild.extend(repositories.keys().copied());
+                    for &id in repositories.keys() {
+                        dirty.insert(
+                            id,
+                            Changes {
+                                full: true,
+                                git_changed: true,
+                                ..Changes::default()
+                            },
+                        );
+                    }
                 }
                 for path in &event.paths {
                     for (&id, repository) in &repositories {
                         if repository.contains(path) {
-                            dirty.insert(id);
+                            dirty.entry(id).or_default().record(repository, path);
+                            if path.is_dir()
+                                || registered.contains(path)
+                                || matches!(
+                                    path.file_name().and_then(OsStr::to_str),
+                                    Some(".gitignore" | ".git" | "index" | "exclude")
+                                )
+                            {
+                                rebuild.insert(id);
+                                dirty.entry(id).or_default().full = true;
+                            }
                         }
-                    }
-                    if path.is_dir()
-                        || registered.contains(path)
-                        || matches!(
-                            path.file_name().and_then(OsStr::to_str),
-                            Some(".gitignore" | ".git" | "index" | "exclude")
-                        )
-                    {
-                        rebuild = true;
                     }
                 }
             }
@@ -324,19 +375,55 @@ fn run_loop(
             None => {}
         }
         if overflow.swap(false, Ordering::Relaxed) {
-            rebuild = true;
-            dirty.extend(repositories.keys().copied());
+            rebuild.extend(repositories.keys().copied());
+            for &id in repositories.keys() {
+                dirty.insert(
+                    id,
+                    Changes {
+                        full: true,
+                        git_changed: true,
+                        ..Changes::default()
+                    },
+                );
+            }
         }
-        if (!dirty.is_empty() || rebuild) && deadline.is_none() {
+        if (!dirty.is_empty() || !rebuild.is_empty()) && deadline.is_none() {
             deadline = Some(Instant::now() + BATCH_DELAY);
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            if rebuild {
-                for id in repositories.keys().copied().collect::<Vec<_>>() {
-                    let root = repositories[&id].root.clone();
+            // Publish known changes before directory discovery can block this loop.
+            for (id, changes) in dirty.drain() {
+                if repositories.contains_key(&id) {
+                    send(
+                        &mut output,
+                        Response::Dirty {
+                            id,
+                            paths: changes.paths,
+                            full: changes.full,
+                            git_changed: changes.git_changed,
+                        },
+                    )?;
+                }
+            }
+            if !rebuild.is_empty() {
+                for id in rebuild.drain() {
+                    let Some(repository) = repositories.get(&id) else {
+                        continue;
+                    };
+                    let root = repository.root.clone();
                     match Repository::scan(&root, watcher, &mut registered, stopping) {
                         Ok(repository) => {
                             repositories.insert(id, repository);
+                            // Discovery may have raced an edit in a new directory.
+                            send(
+                                &mut output,
+                                Response::Dirty {
+                                    id,
+                                    paths: HashSet::new(),
+                                    full: true,
+                                    git_changed: true,
+                                },
+                            )?;
                         }
                         Err(error) => {
                             repositories.remove(&id);
@@ -351,12 +438,6 @@ fn run_loop(
                     }
                 }
                 prune(&repositories, watcher, &mut registered)?;
-                rebuild = false;
-            }
-            for id in dirty.drain() {
-                if repositories.contains_key(&id) {
-                    send(&mut output, Response::Dirty { id })?;
-                }
             }
             deadline = None;
         }

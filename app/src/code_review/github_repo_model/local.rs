@@ -114,6 +114,7 @@ impl LocalGitHubRepoModel {
                     me.refresh_pr_info(ctx);
                 }
             }
+            GitRepoStatusEvent::FilesInvalidated(_) => {}
         });
 
         let mut model = Self {
