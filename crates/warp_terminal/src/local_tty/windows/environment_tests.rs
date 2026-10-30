@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn wsl_env_allowlist_includes_terminal_environment() {
-    let wslenv = wsl_env_allowlist(false).to_string_lossy().into_owned();
+    let wslenv = wsl_env_allowlist(false, None, None)
+        .to_string_lossy()
+        .into_owned();
 
     assert_eq!(
         wslenv.split(':').collect::<Vec<_>>(),
@@ -24,7 +26,9 @@ fn wsl_env_allowlist_includes_terminal_environment() {
 
 #[test]
 fn wsl_env_allowlist_includes_initial_working_dir_when_requested() {
-    let wslenv = wsl_env_allowlist(true).to_string_lossy().into_owned();
+    let wslenv = wsl_env_allowlist(true, None, None)
+        .to_string_lossy()
+        .into_owned();
 
     assert_eq!(
         wslenv.split(':').collect::<Vec<_>>(),
@@ -43,4 +47,18 @@ fn wsl_env_allowlist_includes_initial_working_dir_when_requested() {
             format!("{INITIAL_WORKING_DIR_NAME}/pu"),
         ],
     );
+}
+
+#[test]
+fn wsl_env_allowlist_keeps_process_overrides_alongside_registry_values() {
+    let registry = OsStr::new("COLORTERM/u:TERM_PROGRAM/u");
+    let process = OsStr::new("ZDOTDIR/u:HISTFILE/u");
+    let wslenv = wsl_env_allowlist(false, Some(registry), Some(process));
+    assert!(
+        wslenv
+            .to_string_lossy()
+            .ends_with(":COLORTERM/u:TERM_PROGRAM/u:ZDOTDIR/u:HISTFILE/u")
+    );
+    let same = wsl_env_allowlist(false, Some(registry), Some(registry));
+    assert_eq!(same.to_string_lossy().matches("COLORTERM/u").count(), 1);
 }

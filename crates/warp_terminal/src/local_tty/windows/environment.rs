@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
 use warp_core::channel::ChannelState;
@@ -47,6 +47,10 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         })
         .collect();
 
+    // Refresh registry values without losing a launcher's process-local WSLENV.
+    let inherited_wslenv = env
+        .get(&map_key(WSLENV.into()))
+        .map(|entry| entry.value.clone());
     add_local_machine_env(&mut env);
     add_user_env(&mut env);
 
@@ -161,11 +165,12 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         }
         ShellStarter::Wsl(_) => {
             // TODO(CORE-3107): Hook this up to a new setting "Working directory for new sessions" setting for WSL.
-            let mut wslenv = wsl_env_allowlist(options.start_dir.is_some());
-            if let Some(user_val) = env.get(&map_key(WSLENV.into())) {
-                wslenv.push(":");
-                wslenv.push(&user_val.value);
-            }
+            let wslenv = wsl_env_allowlist(
+                options.start_dir.is_some(),
+                env.get(&map_key(WSLENV.into()))
+                    .map(|entry| entry.value.as_os_str()),
+                inherited_wslenv.as_deref(),
+            );
             env.insert(
                 map_key(WSLENV.into()),
                 EnvEntry {
@@ -195,7 +200,11 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
 ///
 /// See https://devblogs.microsoft.com/commandline/share-environment-vars-between-wsl-and-windows/
 /// for more on how WSLENV should be formatted.
-fn wsl_env_allowlist(include_initial_working_dir: bool) -> OsString {
+fn wsl_env_allowlist(
+    include_initial_working_dir: bool,
+    configured: Option<&OsStr>,
+    inherited: Option<&OsStr>,
+) -> OsString {
     let mut entries = vec![
         format!("{HONOR_PS1_NAME}/u"),
         format!("{USE_SSH_WRAPPER_NAME}/u"),
@@ -214,7 +223,20 @@ fn wsl_env_allowlist(include_initial_working_dir: bool) -> OsString {
         entries.push(format!("{INITIAL_WORKING_DIR_NAME}/pu"));
     }
 
-    OsString::from(entries.join(":"))
+    let mut result = OsString::from(entries.join(":"));
+    for value in [
+        configured,
+        inherited.filter(|value| Some(*value) != configured),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !value.is_empty() {
+            result.push(":");
+            result.push(value);
+        }
+    }
+    result
 }
 
 /// Merges the local machine and user env var scopes
