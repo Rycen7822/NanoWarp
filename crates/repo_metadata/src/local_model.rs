@@ -52,7 +52,6 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
         use notify_debouncer_full::notify::RecursiveMode;
         use crate::entry::repo_watch_filter;
-        use crate::repositories::{DetectedRepositories, DetectedRepositoriesEvent};
         use crate::watcher::DirectoryWatcher;
         use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
         use warpui_core::SingletonEntity as _;
@@ -362,15 +361,6 @@ impl LocalRepoMetadataModel {
                 ctx.subscribe_to_model(&watcher, |me, _, event, ctx| me.handle_watcher_event(event, ctx));
                 model.watcher = Some(watcher);
 
-                ctx.subscribe_to_model(&DetectedRepositories::handle(ctx), |me, _, event, ctx| {
-                    let DetectedRepositoriesEvent::DetectedGitRepo { repository, .. } = event;
-                    let repo_path = repository.as_ref(ctx).root_dir().clone();
-                    if let Err(e) = me.index_directory(repository.clone(), ctx) {
-                        log::warn!(
-                            "Failed to index directory {repo_path}: {e}"
-                        );
-                    }
-                });
             }
         }
 

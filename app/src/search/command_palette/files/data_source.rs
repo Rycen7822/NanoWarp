@@ -97,26 +97,32 @@ impl FileDataSource {
     fn contents_with_git_changes(
         &self,
         app: &AppContext,
-    ) -> (Arc<Vec<FileSearchResult>>, HashSet<String>) {
+    ) -> BoxFuture<'static, (Arc<Vec<FileSearchResult>>, HashSet<String>)> {
         match &self.mode {
             FileDataSourceMode::Repo => {
                 let file_search_model = FileSearchModel::as_ref(app);
                 file_search_model.get_repo_contents_with_git_status(app)
             }
             FileDataSourceMode::CurrentFolder { cached_contents } => {
-                (Arc::new(cached_contents.clone()), HashSet::new())
+                let contents = Arc::new(cached_contents.clone());
+                Box::pin(async move { (contents, HashSet::new()) })
             }
         }
     }
 
-    fn contents(&self, query: &str, app: &AppContext) -> Arc<Vec<FileSearchResult>> {
+    fn contents(
+        &self,
+        query: &str,
+        app: &AppContext,
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
         match &self.mode {
             FileDataSourceMode::Repo => {
                 let file_search_model = FileSearchModel::as_ref(app);
                 file_search_model.get_repo_file_contents(query, app)
             }
             FileDataSourceMode::CurrentFolder { cached_contents } => {
-                Arc::new(cached_contents.clone())
+                let contents = Arc::new(cached_contents.clone());
+                Box::pin(async move { contents })
             }
         }
     }
@@ -131,7 +137,7 @@ impl FileDataSource {
     > {
         let file_search_model = FileSearchModel::as_ref(app);
 
-        let (contents, git_changed_files) = self.contents_with_git_changes(app);
+        let contents = self.contents_with_git_changes(app);
 
         let opened_files = OpenedFilesModel::as_ref(app);
 
@@ -141,6 +147,7 @@ impl FileDataSource {
             .cloned();
 
         Box::pin(async move {
+            let (contents, git_changed_files) = contents.await;
             let mut results = Vec::new();
 
             for chunk in contents.chunks(50) {
@@ -253,6 +260,7 @@ impl FileDataSource {
         const CHUNK_SIZE: usize = 50;
 
         Box::pin(async move {
+            let contents = contents.await;
             let mut results = Vec::with_capacity(contents.len());
 
             // Iterate in chunks of 50, yielding at the end of each chunk to

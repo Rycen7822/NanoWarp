@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use fuzzy_match::{
     FuzzyMatchResult, contains_wildcards, match_indices_case_insensitive,
     match_wildcard_pattern_case_insensitive,
@@ -29,6 +30,8 @@ use super::search_item::FileSearchResult;
 /// Shared model for file search functionality across different UI components.
 /// This singleton provides common file discovery, fuzzy matching, and git integration.
 pub struct FileSearchModel {
+    #[cfg(feature = "local_fs")]
+    spawner: warpui::ModelSpawner<Self>,
     /// Cached flattened repo contents keyed by repo root location (local or remote).
     /// Populated lazily on first query, invalidated when the file tree changes.
     #[cfg(feature = "local_fs")]
@@ -63,6 +66,8 @@ impl FileSearchModel {
         );
 
         Self {
+            #[cfg(feature = "local_fs")]
+            spawner: ctx.spawner(),
             #[cfg(feature = "local_fs")]
             repo_contents_cache: RefCell::new(HashMap::new()),
         }
@@ -196,7 +201,11 @@ impl FileSearchModel {
     /// state) the full unfiltered contents are returned and cached per repo
     /// root location, invalidated when the file tree changes.
     #[cfg(feature = "local_fs")]
-    pub fn get_repo_contents(&self, query: &str, app: &AppContext) -> Arc<Vec<FileSearchResult>> {
+    pub fn get_repo_contents(
+        &self,
+        query: &str,
+        app: &AppContext,
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
         self.get_repo_contents_with_options(query, true, app)
     }
 
@@ -211,7 +220,7 @@ impl FileSearchModel {
         &self,
         query: &str,
         app: &AppContext,
-    ) -> Arc<Vec<FileSearchResult>> {
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
         self.get_repo_contents_with_options(query, false, app)
     }
 
@@ -221,30 +230,83 @@ impl FileSearchModel {
         query: &str,
         include_folders: bool,
         app: &AppContext,
-    ) -> Arc<Vec<FileSearchResult>> {
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
         let Some(repo_root) = self.repo_root_location(app) else {
-            return Arc::new(Vec::new());
+            return Box::pin(async { Arc::new(Vec::new()) });
         };
+        let spawner = self.spawner.clone();
+        let root_for_index = repo_root.clone();
+        let query = query.to_owned();
+        Box::pin(async move {
+            let indexed = spawner
+                .spawn(move |_, ctx| {
+                    use repo_metadata::local_model::IndexedRepoState;
 
-        // Query-filtered results are query-specific, so bypass the per-repo
-        // cache and traverse the in-memory index fresh. The file-only variant
-        // (`!include_folders`) is likewise uncached, since the shared cache
-        // holds the directory-inclusive contents.
-        if !query.is_empty() || !include_folders {
-            return Arc::new(self.get_contents_from_repo(&repo_root, query, include_folders, app));
-        }
-
-        if let Some(cached) = self.repo_contents_cache.borrow().get(&repo_root) {
-            return cached.clone();
-        }
-
-        let contents = self.get_contents_from_repo(&repo_root, query, include_folders, app);
-
-        let arc = Arc::new(contents);
-        self.repo_contents_cache
-            .borrow_mut()
-            .insert(repo_root, arc.clone());
-        arc
+                    let LocalOrRemotePath::Local(root) = root_for_index else {
+                        return None;
+                    };
+                    let Some(id @ RepositoryIdentifier::Local(_)) =
+                        RepositoryIdentifier::try_local(&root)
+                    else {
+                        return None;
+                    };
+                    RepoMetadataModel::handle(ctx).update(ctx, |model, ctx| {
+                        match model.repository_state(&id, ctx) {
+                            Some(IndexedRepoState::Indexed(_)) => return None,
+                            Some(IndexedRepoState::Pending(_)) => {}
+                            _ => {
+                                // Standalone lazy snapshots belong to the remote server;
+                                // desktop repository indexes are requested here in full.
+                                if let Err(error) =
+                                    model.index_local_directory_path(id.local_path().unwrap(), ctx)
+                                {
+                                    log::warn!(
+                                        "Failed to index repository for file search: {error}"
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
+                        Some(model.repository_indexed(&id, ctx))
+                    })
+                })
+                .await;
+            // A dropped singleton means this query no longer has a live search owner.
+            let Ok(indexed) = indexed else {
+                return Arc::default();
+            };
+            if let Some(indexed) = indexed {
+                indexed.await;
+            }
+            spawner
+                .spawn(move |model, app| {
+                    // Only unfiltered directory-inclusive results use the shared cache.
+                    if !query.is_empty() || !include_folders {
+                        return Arc::new(model.get_contents_from_repo(
+                            &repo_root,
+                            &query,
+                            include_folders,
+                            app,
+                        ));
+                    }
+                    if let Some(cached) = model.repo_contents_cache.borrow().get(&repo_root) {
+                        return cached.clone();
+                    }
+                    let contents = Arc::new(model.get_contents_from_repo(
+                        &repo_root,
+                        &query,
+                        include_folders,
+                        app,
+                    ));
+                    model
+                        .repo_contents_cache
+                        .borrow_mut()
+                        .insert(repo_root, contents.clone());
+                    contents
+                })
+                .await
+                .unwrap_or_default()
+        })
     }
 
     /// Gets repository contents with git status information for prioritization.
@@ -253,19 +315,23 @@ impl FileSearchModel {
     pub fn get_repo_contents_with_git_status(
         &self,
         app: &AppContext,
-    ) -> (Arc<Vec<FileSearchResult>>, HashSet<String>) {
+    ) -> BoxFuture<'static, (Arc<Vec<FileSearchResult>>, HashSet<String>)> {
         let contents = self.get_repo_contents("", app);
         let git_changed_files = self
             .repo_root(app)
             .and_then(|repo_root| self.get_git_changed_files(&repo_root).ok())
             .unwrap_or_default();
-        (contents, git_changed_files)
+        Box::pin(async move { (contents.await, git_changed_files) })
     }
 
     /// Gets repository contents from the LocalRepoMetadataModel for the current working directory (WASM stub)
     #[cfg(not(feature = "local_fs"))]
-    pub fn get_repo_contents(&self, _query: &str, _app: &AppContext) -> Arc<Vec<FileSearchResult>> {
-        Arc::new(Vec::new())
+    pub fn get_repo_contents(
+        &self,
+        _query: &str,
+        _app: &AppContext,
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
+        Box::pin(async { Arc::new(Vec::new()) })
     }
 
     /// Gets repository files (no directories) for the current working directory (WASM stub)
@@ -274,8 +340,8 @@ impl FileSearchModel {
         &self,
         _query: &str,
         _app: &AppContext,
-    ) -> Arc<Vec<FileSearchResult>> {
-        Arc::new(Vec::new())
+    ) -> BoxFuture<'static, Arc<Vec<FileSearchResult>>> {
+        Box::pin(async { Arc::new(Vec::new()) })
     }
 
     /// Gets repository contents with git status information for prioritization (WASM stub)
@@ -283,8 +349,8 @@ impl FileSearchModel {
     pub fn get_repo_contents_with_git_status(
         &self,
         _app: &AppContext,
-    ) -> (Arc<Vec<FileSearchResult>>, HashSet<String>) {
-        (Arc::new(Vec::new()), HashSet::new())
+    ) -> BoxFuture<'static, (Arc<Vec<FileSearchResult>>, HashSet<String>)> {
+        Box::pin(async { (Arc::new(Vec::new()), HashSet::new()) })
     }
 
     /// Builds the [`GetContentsArgs`] used to traverse repo metadata.

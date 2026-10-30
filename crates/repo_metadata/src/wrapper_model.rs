@@ -20,6 +20,8 @@ use crate::local_model::{
     RepositoryMetadataEvent,
 };
 use crate::remote_model::{RemoteRepoMetadataModel, RemoteRepositoryMetadataEvent};
+#[cfg(feature = "local_fs")]
+use crate::repositories::{DetectedRepositories, DetectedRepositoriesEvent};
 use crate::repository_identifier::{RemoteRepositoryIdentifier, RepositoryIdentifier};
 
 /// Unified events emitted by the [`RepoMetadataModel`] wrapper.
@@ -74,8 +76,8 @@ impl RepoMetadataModel {
         Self { local, remote }
     }
 
-    /// Creates a new `RepoMetadataModel` with incremental update emission
-    /// enabled on the local sub-model. Used by the remote server.
+    /// Creates a remote-server model that indexes detected repositories and emits
+    /// incremental updates. Desktop consumers request their own indexes on demand.
     pub fn new_with_incremental_updates(ctx: &mut ModelContext<Self>) -> Self {
         let local = ctx.add_model(|ctx| {
             let mut model = LocalRepoMetadataModel::new(ctx);
@@ -86,6 +88,15 @@ impl RepoMetadataModel {
 
         ctx.subscribe_to_model(&local, Self::forward_local_event);
         ctx.subscribe_to_model(&remote, Self::forward_remote_event);
+
+        #[cfg(feature = "local_fs")]
+        ctx.subscribe_to_model(&DetectedRepositories::handle(ctx), |me, _, event, ctx| {
+            let DetectedRepositoriesEvent::DetectedGitRepo { repository, .. } = event;
+            let path = repository.as_ref(ctx).root_dir().clone();
+            if let Err(error) = me.index_directory(repository.clone(), ctx) {
+                log::warn!("Failed to index directory {path}: {error}");
+            }
+        });
 
         Self { local, remote }
     }
