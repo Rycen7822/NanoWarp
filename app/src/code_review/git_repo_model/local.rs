@@ -25,6 +25,11 @@ pub struct LocalGitRepoStatusModel {
     subscriber_id: Option<SubscriberId>,
     metadata: Option<GitStatusMetadata>,
     computing_metadata_abort_handle: Option<SpawnedFutureHandle>,
+    refresh_pending: bool,
+    #[cfg(windows)]
+    wsl_subscription: Option<super::wsl::Subscription>,
+    #[cfg(windows)]
+    fallback_poll_handle: Option<SpawnedFutureHandle>,
 }
 
 impl Entity for LocalGitRepoStatusModel {
@@ -45,10 +50,39 @@ impl LocalGitRepoStatusModel {
             subscriber_id: None,
             metadata: None,
             computing_metadata_abort_handle: None,
+            refresh_pending: false,
+            #[cfg(windows)]
+            wsl_subscription: None,
+            #[cfg(windows)]
+            fallback_poll_handle: None,
         };
 
         // Kick off initial metadata computation.
         model.refresh_metadata(ctx);
+
+        #[cfg(windows)]
+        if let Some((subscription, events)) =
+            super::wsl::subscribe(&repo_path, &ctx.background_executor())
+        {
+            model.wsl_subscription = Some(subscription);
+            // A stalled startup must not leave counts frozen. A Ready/Dirty
+            // event cancels this grace timer; EOF enables the normal fallback.
+            model.schedule_fallback_poll(Duration::from_secs(30), ctx);
+            ctx.spawn_stream_local(
+                events,
+                |me, _, ctx| {
+                    if let Some(handle) = me.fallback_poll_handle.take() {
+                        handle.abort();
+                    }
+                    me.refresh_metadata(ctx);
+                },
+                |me, ctx| {
+                    me.wsl_subscription = None;
+                    me.schedule_fallback_poll(Duration::from_secs(5), ctx);
+                },
+            );
+            return model;
+        }
 
         // Start watching for filesystem changes.
         let (repository_update_tx, repository_update_rx) = async_channel::unbounded();
@@ -117,19 +151,41 @@ impl LocalGitRepoStatusModel {
     /// events that may have changed git state (block completed, agent file
     /// edits, etc.).
     pub fn refresh_metadata(&mut self, ctx: &mut ModelContext<Self>) {
-        if let Some(handle) = self.computing_metadata_abort_handle.take() {
-            handle.abort();
+        if self.computing_metadata_abort_handle.is_some() {
+            self.refresh_pending = true;
+            return;
         }
         let repo_path_buf = self.repo_path.clone();
         self.computing_metadata_abort_handle = Some(ctx.spawn(
             async move { Self::load_metadata(repo_path_buf).await },
             |me, result, ctx| {
+                me.computing_metadata_abort_handle = None;
                 me.handle_metadata_result(result, ctx);
+                if std::mem::take(&mut me.refresh_pending) {
+                    me.refresh_metadata(ctx);
+                }
             },
         ));
     }
 
     // ── internal helpers ─────────────────────────────────────────────
+
+    #[cfg(windows)]
+    fn schedule_fallback_poll(&mut self, delay: Duration, ctx: &mut ModelContext<Self>) {
+        if let Some(handle) = self.fallback_poll_handle.take() {
+            handle.abort();
+        }
+        self.fallback_poll_handle = Some(ctx.spawn(
+            async move {
+                async_io::Timer::after(delay).await;
+            },
+            |me, _, ctx| {
+                me.fallback_poll_handle = None;
+                me.refresh_metadata(ctx);
+                me.schedule_fallback_poll(Duration::from_secs(5), ctx);
+            },
+        ));
+    }
 
     fn handle_metadata_result(
         &mut self,
@@ -270,6 +326,11 @@ impl LocalGitRepoStatusModel {
             subscriber_id: None,
             metadata,
             computing_metadata_abort_handle: None,
+            refresh_pending: false,
+            #[cfg(windows)]
+            wsl_subscription: None,
+            #[cfg(windows)]
+            fallback_poll_handle: None,
         }
     }
 
@@ -289,6 +350,10 @@ mod tests;
 
 impl Drop for LocalGitRepoStatusModel {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        if let Some(handle) = self.fallback_poll_handle.take() {
+            handle.abort();
+        }
         // Note: we cannot call `repository.update()` here because `Drop` does
         // not have access to `ModelContext`.  The `Repository` model will clean
         // up the subscriber when it notices the channel has been dropped.

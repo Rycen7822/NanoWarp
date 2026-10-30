@@ -5,6 +5,9 @@ mod local;
 #[cfg(feature = "local_fs")]
 pub use local::LocalGitRepoStatusModel;
 
+#[cfg(all(windows, feature = "local_fs"))]
+mod wsl;
+
 mod remote;
 pub use remote::RemoteGitRepoStatusModel;
 
