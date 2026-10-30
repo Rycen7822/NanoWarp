@@ -9,9 +9,9 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    Border, ChildView, ConstrainedBox, Container, CornerRadius, Empty, Flex, List, ListState,
-    MouseStateHandle, NewScrollable, Padding, ParentElement, Radius, ScrollStateHandle, Shrinkable,
-    Text,
+    Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
+    Expanded, Flex, List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement,
+    Radius, ScrollStateHandle, Shrinkable, Text,
 };
 use warpui::ui_components::components::UiComponent;
 use warpui::units::Pixels;
@@ -296,7 +296,7 @@ impl GitReviewView {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let path = card.entry.path.clone();
-        let mut header = Flex::row();
+        let mut header = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         header.add_child(
             icon_button(
                 appearance,
@@ -338,6 +338,7 @@ impl GitReviewView {
             card.entry.deletions,
             appearance,
         ));
+        header.add_child(Expanded::new(1., Empty::new().finish()).finish());
         let path = self.root.join(&card.entry.path);
         header.add_child(
             icon_button(
@@ -352,12 +353,19 @@ impl GitReviewView {
             })
             .finish(),
         );
-        let mut column = Flex::column().with_child(
-            Container::new(header.finish())
-                .with_background(theme.surface_2())
-                .with_padding(Padding::uniform(8.))
-                .finish(),
-        );
+        let mut column = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_child(
+                Container::new(header.finish())
+                    .with_background(theme.surface_2())
+                    .with_corner_radius(if card.expanded {
+                        CornerRadius::with_top(Radius::Pixels(8.))
+                    } else {
+                        CornerRadius::with_all(Radius::Pixels(8.))
+                    })
+                    .with_padding(Padding::uniform(8.))
+                    .finish(),
+            );
         if card.expanded {
             if let Some(editor) = &card.editor {
                 column.add_child(
@@ -387,7 +395,7 @@ impl GitReviewView {
 }
 
 fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Box<dyn Element> {
-    let mut row = Flex::row();
+    let mut row = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
     row.add_child(
         Text::new_inline(format!("+{additions}"), appearance.ui_font_family(), 12.)
             .with_color(add_color(appearance))
@@ -479,6 +487,10 @@ impl TypedActionView for GitReviewView {
             GitReviewAction::Toggle(path) => {
                 if let Some(index) = self.files.iter().position(|card| card.entry.path == *path) {
                     self.files[index].expanded = !self.files[index].expanded;
+                    if self.files[index].expanded {
+                        self.files[index].dirty = true;
+                        self.files[index].base = None;
+                    }
                     if !self.files[index].expanded
                         && self
                             .loading
@@ -521,16 +533,31 @@ impl View for GitReviewView {
             .metadata(app)
             .map(|metadata| metadata.current_branch_name.as_str())
             .unwrap_or("");
-        let mut header = Flex::row();
+        let mut header = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         header.add_child(
-            Shrinkable::new(
+            Expanded::new(
                 1.,
-                Text::new_inline(format!("{}  ·  {branch}", self.root.display()), font, 12.)
+                Text::new_inline(self.root.display().to_string(), font, 12.)
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
             )
             .finish(),
         );
+        header.add_child(
+            Container::new(
+                Text::new_inline(format!("{branch}  ·  {}", self.files.len()), font, 12.)
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
+            )
+            .with_margin_left(8.)
+            .with_margin_right(8.)
+            .finish(),
+        );
+        header.add_child(diff_badge(
+            self.files.iter().map(|card| card.entry.additions).sum(),
+            self.files.iter().map(|card| card.entry.deletions).sum(),
+            appearance,
+        ));
         header.add_child(
             close_button(appearance, self.close_mouse.clone())
                 .build()
@@ -539,26 +566,18 @@ impl View for GitReviewView {
                 })
                 .finish(),
         );
-        let mut summary = Flex::row();
+        let mut summary = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         summary.add_child(
             Shrinkable::new(
                 1.,
-                Text::new_inline(
-                    format!("Uncommitted changes  ·  {} files", self.files.len()),
-                    font,
-                    13.,
-                )
-                .with_color(theme.main_text_color(theme.background()).into())
-                .finish(),
+                Text::new_inline("⇄  Uncommitted changes", font, 13.)
+                    .with_color(theme.main_text_color(theme.background()).into())
+                    .finish(),
             )
             .finish(),
         );
-        summary.add_child(diff_badge(
-            self.files.iter().map(|card| card.entry.additions).sum(),
-            self.files.iter().map(|card| card.entry.deletions).sum(),
-            appearance,
-        ));
         let mut column = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(
                 Container::new(header.finish())
                     .with_margin_bottom(8.)

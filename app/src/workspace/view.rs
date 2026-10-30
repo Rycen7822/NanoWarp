@@ -10261,12 +10261,13 @@ impl Workspace {
         #[cfg(feature = "local_fs")]
         if let Some(review) = &self.git_review_view {
             panels_view = panels_view.with_child(
-                self.render_panel(
-                    app,
+                self.wrap_in_panel_surface(
+                    Appearance::as_ref(app),
+                    &PanelPosition::Right,
                     ConstrainedBox::new(ChildView::new(review).finish())
                         .with_width(800.)
                         .finish(),
-                    &PanelPosition::Right,
+                    *PANEL_CORNER_RADIUS,
                 ),
             );
         }

@@ -813,7 +813,19 @@ impl CodeEditorModel {
                         .unchanged_line_ranges(self.line_count(ctx) + 1, 3);
                     self.hidden_lines
                         .update(ctx, |model, ctx| model.set_hidden_lines(hidden, ctx));
-                    self.rebuild_layout(ctx);
+                    // Keep this layout change after any replacement awaiting syntax highlighting.
+                    let content = self.content.as_ref(ctx);
+                    let delta = content.invalidate_layout();
+                    let version = content.buffer_version();
+                    if let Some(delay) = &mut self.delay_rendering {
+                        delay.edits.push((delta, version));
+                    } else {
+                        self.render_state.update(ctx, |state, _| {
+                            let position = state.snapshot_scroll_position();
+                            state.add_pending_edit(delta, version);
+                            state.scroll_to(position);
+                        });
+                    }
                 }
                 // Do not refresh diff state if there is an active delayed rendering. We should wait until the delayed rendering
                 // is flushed so we could insert temporary blocks based on the accurate line ranges.
